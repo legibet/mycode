@@ -1,0 +1,113 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 240 10% 3.9%;
+    --card: 0 0% 100%;
+    --card-foreground: 240 10% 3.9%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 240 10% 3.9%;
+    --primary: 240 5.9% 10%;
+    --primary-foreground: 0 0% 98%;
+    --secondary: 240 4.8% 95.9%;
+    --secondary-foreground: 240 5.9% 10%;
+    --muted: 240 4.8% 95.9%;
+    --muted-foreground: 240 3.8% 46.1%;
+    --accent: 240 4.8% 95.9%;
+    --accent-foreground: 240 5.9% 10%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 240 5.9% 90%;
+    --input: 240 5.9% 90%;
+    --ring: 240 5.9% 10%;
+    --radius: 0.5rem;
+
+    /* Code block specific */
+    --code-background: 0 0% 98.5%;
+    --code-header-background: 0 0% 97%;
+    --code-border: 240 5.9% 92%;
+  }
+
+  .dark {
+    --background: 240 10% 3.9%;
+    --foreground: 0 0% 98%;
+    --card: 240 10% 3.9%;
+    --card-foreground: 0 0% 98%;
+    --popover: 240 10% 3.9%;
+    --popover-foreground: 0 0% 98%;
+    --primary: 0 0% 98%;
+    --primary-foreground: 240 5.9% 10%;
+    --secondary: 240 3.7% 15.9%;
+    --secondary-foreground: 0 0% 98%;
+    --muted: 240 3.7% 15.9%;
+    --muted-foreground: 240 5% 64.9%;
+    --accent: 240 3.7% 15.9%;
+    --accent-foreground: 0 0% 98%;
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 240 3.7% 15.9%;
+    --input: 240 3.7% 15.9%;
+    --ring: 240 4.9% 83.9%;
+
+    /* Code block specific */
+    --code-background: 240 6% 6%;
+    --code-header-background: 240 5% 8%;
+    --code-border: 240 4% 14%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  @apply bg-muted-foreground/30 rounded-full hover:bg-muted-foreground/50 transition-colors;
+}
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* Prose/Markdown Overrides for Theme */
+.prose {
+  @apply text-foreground max-w-none;
+}
+.prose h1,
+.prose h2,
+.prose h3,
+.prose h4 {
+  @apply text-foreground font-semibold tracking-tight;
+}
+.prose p {
+  @apply leading-relaxed [&:not(:first-child)]:mt-4;
+}
+.prose blockquote {
+  @apply mt-4 border-l-2 border-border pl-4 italic text-muted-foreground;
+}
+.prose ul {
+  @apply my-4 ml-4 list-disc [&>li]:mt-1.5;
+}
+.prose code {
+  @apply relative rounded bg-code px-[0.3rem] py-[0.2rem] font-mono text-[13px] font-medium text-foreground;
+}
+.prose pre {
+  @apply my-3 overflow-x-auto rounded-lg border border-code-border bg-code px-3 py-2.5;
+}
+.prose pre code {
+  @apply relative rounded-none bg-transparent p-0 font-mono text-[13px] font-medium leading-relaxed text-foreground;
+}
