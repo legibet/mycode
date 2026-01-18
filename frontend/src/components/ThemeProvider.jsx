@@ -1,3 +1,7 @@
+/**
+ * Theme context provider for light/dark/system modes.
+ */
+
 import { createContext, useContext, useEffect, useState } from 'react'
 
 const ThemeProviderContext = createContext({

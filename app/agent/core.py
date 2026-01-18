@@ -1,3 +1,5 @@
+"""Agent core - LLM streaming and tool execution."""
+
 from __future__ import annotations
 
 import asyncio

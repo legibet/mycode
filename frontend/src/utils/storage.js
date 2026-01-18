@@ -1,3 +1,7 @@
+/**
+ * Local storage utilities for config and history persistence.
+ */
+
 const STORAGE_KEY = 'mycode_config'
 const HISTORY_KEY = 'mycode_cwd_history'
 

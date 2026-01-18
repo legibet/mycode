@@ -1,3 +1,7 @@
+/**
+ * Reusable input component with consistent styling.
+ */
+
 import React from 'react'
 import { cn } from '../../utils/cn'
 

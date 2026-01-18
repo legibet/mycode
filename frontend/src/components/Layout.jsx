@@ -1,3 +1,7 @@
+/**
+ * Root layout component with theme transitions.
+ */
+
 import { cn } from '../utils/cn'
 
 export function Layout({ children }) {

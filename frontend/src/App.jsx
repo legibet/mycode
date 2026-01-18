@@ -1,3 +1,8 @@
+/**
+ * Main application component.
+ * Composes sidebar, chat interface, and theme provider.
+ */
+
 import { useEffect, useState } from 'react'
 import { InputArea } from './components/Chat/InputArea'
 import { MessageList } from './components/Chat/MessageList'

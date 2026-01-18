@@ -1,3 +1,7 @@
+/**
+ * Message bubble component for user and assistant messages.
+ */
+
 import { Bot, User } from 'lucide-react'
 import { cn } from '../../utils/cn'
 import { MarkdownBlock } from './MarkdownBlock'

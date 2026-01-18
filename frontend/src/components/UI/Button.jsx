@@ -1,3 +1,7 @@
+/**
+ * Reusable button component with variants and sizes.
+ */
+
 import { Loader2 } from 'lucide-react'
 import React from 'react'
 import { cn } from '../../utils/cn'

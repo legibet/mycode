@@ -1,3 +1,5 @@
+"""Pydantic models for API requests and responses."""
+
 from pydantic import BaseModel
 
 
@@ -18,6 +20,8 @@ class SessionCreateRequest(BaseModel):
 
 
 class StreamEvent(BaseModel):
+    """SSE event payload for chat streaming."""
+
     type: str
     content: str | None = None
     name: str | None = None

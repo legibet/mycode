@@ -1,3 +1,7 @@
+/**
+ * Markdown renderer with GFM support and code highlighting.
+ */
+
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { CodeBlock } from './CodeBlock'

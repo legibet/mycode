@@ -1,3 +1,7 @@
+/**
+ * Chat input textarea with send/cancel buttons.
+ */
+
 import { ArrowUp, Square } from 'lucide-react'
 import { useRef } from 'react'
 import { Button } from '../UI/Button'

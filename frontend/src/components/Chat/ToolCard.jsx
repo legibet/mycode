@@ -1,3 +1,7 @@
+/**
+ * Collapsible card for displaying tool execution status and results.
+ */
+
 import {
   ArrowRight,
   CheckCircle2,

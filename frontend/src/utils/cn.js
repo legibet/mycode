@@ -1,3 +1,7 @@
+/**
+ * Class name utility for merging Tailwind classes.
+ */
+
 import { clsx } from 'clsx'
 import { twMerge } from 'tailwind-merge'
 

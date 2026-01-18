@@ -1,3 +1,7 @@
+/**
+ * Syntax-highlighted code block with copy functionality.
+ */
+
 import { Check, Copy, Terminal } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'

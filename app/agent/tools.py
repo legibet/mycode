@@ -1,3 +1,5 @@
+"""Built-in tools for file operations and shell commands."""
+
 import glob as globlib
 import os
 import re

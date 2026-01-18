@@ -1,3 +1,7 @@
+/**
+ * Scrollable message list with auto-scroll to bottom.
+ */
+
 import { useEffect, useRef } from 'react'
 import { MessageBubble } from './MessageBubble'
 
