@@ -1,37 +1,23 @@
 import { useState } from 'react'
 import { InputArea } from './components/Chat/InputArea'
 import { MessageList } from './components/Chat/MessageList'
-import { Header } from './components/Header'
 import { Layout } from './components/Layout'
-import { SettingsDrawer } from './components/Settings/SettingsDrawer'
-import { ThemeProvider } from './components/ThemeProvider'
+import { Sidebar } from './components/Sidebar'
+import { ThemeProvider, useTheme } from './components/ThemeProvider'
 import { useChat } from './hooks/useChat'
 import { loadConfig, saveConfig } from './utils/storage'
 
-export default function App() {
+function AppContent() {
   const [config, setConfig] = useState(loadConfig)
-  const [drawerOpen, setDrawerOpen] = useState(false)
   const [input, setInput] = useState('')
+  const { theme, setTheme } = useTheme()
 
-  const {
-    messages,
-    loading,
-    status,
-    sessions,
-    activeSession,
-    sessionLoading,
-    send,
-    clear,
-    cancel,
-    createSession,
-    selectSession,
-    deleteSession,
-  } = useChat(config)
+  const { messages, loading, sessions, activeSession, send, cancel, createSession, selectSession, deleteSession } =
+    useChat(config)
 
-  const handleConfigSave = (newConfig) => {
+  const handleConfigUpdate = (newConfig) => {
     setConfig(newConfig)
     saveConfig(newConfig)
-    setDrawerOpen(false)
   }
 
   const handleSend = () => {
@@ -40,36 +26,35 @@ export default function App() {
   }
 
   return (
-    <ThemeProvider>
-      <Layout>
-        <Header
-          config={config}
-          status={status}
+    <Layout>
+      <div className="flex h-full">
+        <Sidebar
           sessions={sessions}
           activeSession={activeSession}
-          sessionLoading={sessionLoading}
-          onClear={clear}
-          onCreateSession={createSession}
           onSelectSession={selectSession}
+          onCreateSession={createSession}
           onDeleteSession={deleteSession}
-          onOpenSettings={() => setDrawerOpen(true)}
+          config={config}
+          onUpdateConfig={handleConfigUpdate}
+          theme={theme}
+          setTheme={setTheme}
         />
 
-        <main className="flex min-h-0 flex-1 flex-col">
+        <main className="flex min-w-0 flex-1 flex-col bg-background">
           <MessageList messages={messages} loading={loading} />
-
-          <div className="shrink-0 pb-4 pt-2">
+          <div className="shrink-0 pb-6 pt-2">
             <InputArea input={input} setInput={setInput} loading={loading} onSend={handleSend} onCancel={cancel} />
           </div>
         </main>
+      </div>
+    </Layout>
+  )
+}
 
-        <SettingsDrawer
-          open={drawerOpen}
-          onClose={() => setDrawerOpen(false)}
-          config={config}
-          onSave={handleConfigSave}
-        />
-      </Layout>
+export default function App() {
+  return (
+    <ThemeProvider>
+      <AppContent />
     </ThemeProvider>
   )
 }

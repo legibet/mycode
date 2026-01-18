@@ -10,10 +10,9 @@ export function MessageList({ messages, loading }) {
 
   if (messages.length === 0) {
     return (
-      <div className="flex flex-1 flex-col items-center justify-center p-8 text-center">
-        <div className="max-w-md space-y-2">
-          <h1 className="text-2xl font-semibold tracking-tight text-foreground">mycode</h1>
-          <p className="text-muted-foreground text-sm">Minimal personal assistant. Tasks via code & bash.</p>
+      <div className="flex flex-1 flex-col items-center justify-center p-8 text-center text-muted-foreground">
+        <div className="max-w-md space-y-4">
+          <h1 className="text-2xl font-semibold tracking-tight text-foreground">How can I help you today?</h1>
         </div>
       </div>
     )
