@@ -13,7 +13,20 @@ export default function App() {
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [input, setInput] = useState('')
 
-  const { messages, loading, status, send, clear, cancel } = useChat(config)
+  const {
+    messages,
+    loading,
+    status,
+    sessions,
+    activeSession,
+    sessionLoading,
+    send,
+    clear,
+    cancel,
+    createSession,
+    selectSession,
+    deleteSession,
+  } = useChat(config)
 
   const handleConfigSave = (newConfig) => {
     setConfig(newConfig)
@@ -29,7 +42,18 @@ export default function App() {
   return (
     <ThemeProvider>
       <Layout>
-        <Header config={config} status={status} onClear={clear} onOpenSettings={() => setDrawerOpen(true)} />
+        <Header
+          config={config}
+          status={status}
+          sessions={sessions}
+          activeSession={activeSession}
+          sessionLoading={sessionLoading}
+          onClear={clear}
+          onCreateSession={createSession}
+          onSelectSession={selectSession}
+          onDeleteSession={deleteSession}
+          onOpenSettings={() => setDrawerOpen(true)}
+        />
 
         <main className="flex min-h-0 flex-1 flex-col">
           <MessageList messages={messages} loading={loading} />

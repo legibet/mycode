@@ -5,7 +5,7 @@ from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 
 from app.core.config import get_settings
-from app.schemas.chat import ChatRequest
+from app.schemas.chat import ChatRequest, SessionCreateRequest
 from app.services.session_service import SessionStore
 from app.services.stream_service import stream_events
 
@@ -36,10 +36,10 @@ async def chat(req: ChatRequest):
     if req.api_key:
         set_api_key(model, req.api_key)
 
-    agent = store.get_or_create(req.session_id, model=model, cwd=cwd, api_base=api_base)
+    agent = await store.get_or_create(req.session_id, model=model, cwd=cwd, api_base=api_base)
 
     return StreamingResponse(
-        stream_events(agent, req.message),
+        stream_events(agent, req.message, on_done=lambda: store.save_session(req.session_id, agent)),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
@@ -48,7 +48,7 @@ async def chat(req: ChatRequest):
 @router.post("/clear")
 async def clear(session_id: str = "default"):
     """Clear conversation history."""
-    store.clear(session_id)
+    await store.clear(session_id)
     return {"status": "ok"}
 
 
@@ -58,6 +58,38 @@ async def cancel(session_id: str = "default"):
     agent = store.get(session_id)
     if agent:
         agent.cancel()
+    return {"status": "ok"}
+
+
+@router.post("/sessions")
+async def create_session(req: SessionCreateRequest):
+    """Create a new chat session."""
+    settings = get_settings()
+    model = req.model or settings.default_model or "anthropic:claude-sonnet-4-5"
+    cwd = req.cwd or os.getcwd()
+    api_base = req.api_base or settings.api_base
+    return await store.create_session(req.title, model=model, cwd=cwd, api_base=api_base)
+
+
+@router.get("/sessions")
+async def list_sessions():
+    """List chat sessions."""
+    return {"sessions": await store.list_sessions()}
+
+
+@router.get("/sessions/{session_id}")
+async def load_session(session_id: str):
+    """Load a chat session."""
+    data = await store.load_session(session_id)
+    if not data:
+        return {"session": None, "messages": []}
+    return data
+
+
+@router.delete("/sessions/{session_id}")
+async def delete_session(session_id: str):
+    """Delete a chat session."""
+    await store.delete(session_id)
     return {"status": "ok"}
 
 

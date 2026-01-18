@@ -72,6 +72,9 @@ dist-ssr/
 # Archives
 archive/
 
+# Local data
+app/data/
+
 # AI Agents
 CLAUDE.md
 .claude/

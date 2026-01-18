@@ -10,6 +10,13 @@ class ChatRequest(BaseModel):
     api_base: str | None = None
 
 
+class SessionCreateRequest(BaseModel):
+    title: str | None = None
+    model: str | None = None
+    cwd: str | None = None
+    api_base: str | None = None
+
+
 class StreamEvent(BaseModel):
     type: str
     content: str | None = None
