@@ -26,6 +26,9 @@ function parseToolArgs(raw) {
  * UI format:
  *   { role: 'user', parts: [{ type: 'text', content: '...' }] }
  *   { role: 'assistant', parts: [{ type: 'text', content: '...' }, { type: 'tool', ... }] }
+ *
+ * NOTE: Consecutive assistant messages (with only tool messages in between) are merged
+ * into a single UI message to match the streaming behavior.
  */
 export function transformMessages(messages) {
   if (!Array.isArray(messages)) return []
@@ -49,8 +52,11 @@ export function transformMessages(messages) {
     }
 
     if (role === 'assistant') {
-      currentAssistant = { role: 'assistant', parts: [] }
-      result.push(currentAssistant)
+      // Reuse existing assistant message if present (merge consecutive assistant messages)
+      if (!currentAssistant) {
+        currentAssistant = { role: 'assistant', parts: [] }
+        result.push(currentAssistant)
+      }
 
       // Add text content if present
       if (msg.content) {
