@@ -1,24 +1,36 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { InputArea } from './components/Chat/InputArea'
 import { MessageList } from './components/Chat/MessageList'
 import { Layout } from './components/Layout'
 import { Sidebar } from './components/Sidebar'
 import { ThemeProvider, useTheme } from './components/ThemeProvider'
 import { useChat } from './hooks/useChat'
-import { loadConfig, saveConfig } from './utils/storage'
+import { addHistory, loadConfig, loadHistory, saveConfig, saveHistory } from './utils/storage'
 
 function AppContent() {
   const [config, setConfig] = useState(loadConfig)
   const [input, setInput] = useState('')
+  const [cwdHistory, setCwdHistory] = useState(loadHistory)
   const { theme, setTheme } = useTheme()
 
   const { messages, loading, sessions, activeSession, send, cancel, createSession, selectSession, deleteSession } =
     useChat(config)
 
   const handleConfigUpdate = (newConfig) => {
+    if (newConfig.cwd !== config.cwd) {
+      const nextHistory = addHistory(cwdHistory, newConfig.cwd)
+      setCwdHistory(nextHistory)
+      saveHistory(nextHistory)
+    }
     setConfig(newConfig)
     saveConfig(newConfig)
   }
+
+  useEffect(() => {
+    const nextHistory = addHistory(loadHistory(), config.cwd)
+    setCwdHistory(nextHistory)
+    saveHistory(nextHistory)
+  }, [config.cwd])
 
   const handleSend = () => {
     send(input)
@@ -36,6 +48,7 @@ function AppContent() {
           onDeleteSession={deleteSession}
           config={config}
           onUpdateConfig={handleConfigUpdate}
+          cwdHistory={cwdHistory}
           theme={theme}
           setTheme={setTheme}
         />

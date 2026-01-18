@@ -73,15 +73,27 @@ class SessionStore:
             return None
         return SessionRecord(**dict(row))
 
-    def _list_records(self) -> list[SessionRecord]:
+    def _list_records(self, cwd: str | None = None) -> list[SessionRecord]:
+        normalized_cwd = os.path.abspath(cwd) if cwd else None
         with self._connect() as conn:
-            rows = conn.execute(
-                """
-                SELECT id, title, model, cwd, api_base, messages_json, created_at, updated_at
-                FROM sessions
-                ORDER BY updated_at DESC
-                """
-            ).fetchall()
+            if normalized_cwd:
+                rows = conn.execute(
+                    """
+                    SELECT id, title, model, cwd, api_base, messages_json, created_at, updated_at
+                    FROM sessions
+                    WHERE cwd = ?
+                    ORDER BY updated_at DESC
+                    """,
+                    (normalized_cwd,),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    """
+                    SELECT id, title, model, cwd, api_base, messages_json, created_at, updated_at
+                    FROM sessions
+                    ORDER BY updated_at DESC
+                    """
+                ).fetchall()
         return [SessionRecord(**dict(row)) for row in rows]
 
     def _insert_record(self, record: SessionRecord) -> None:
@@ -283,8 +295,8 @@ class SessionStore:
             "messages": [],
         }
 
-    async def list_sessions(self) -> list[dict]:
-        records = await asyncio.to_thread(self._list_records)
+    async def list_sessions(self, cwd: str | None = None) -> list[dict]:
+        records = await asyncio.to_thread(self._list_records, cwd)
         return [
             {
                 "id": record.id,

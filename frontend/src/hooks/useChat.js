@@ -11,6 +11,7 @@ export function useChat(config) {
   const [connectionState, setConnectionState] = useState('idle')
   const abortRef = useRef(null)
   const initRef = useRef(false)
+  const cwdRef = useRef(config.cwd)
 
   const status = useMemo(() => {
     if (loading) return 'generating'
@@ -21,7 +22,7 @@ export function useChat(config) {
 
   const fetchSessions = useCallback(async () => {
     try {
-      const response = await fetch('/api/sessions')
+      const response = await fetch(`/api/sessions?cwd=${encodeURIComponent(config.cwd)}`)
       if (!response.ok) throw new Error('Failed to load sessions')
       const data = await response.json()
       setSessions(data.sessions || [])
@@ -30,7 +31,7 @@ export function useChat(config) {
       console.error('Failed to load sessions:', e)
       return []
     }
-  }, [])
+  }, [config.cwd])
 
   const applyEvent = useCallback((event) => {
     setMessages((prev) => {
@@ -226,6 +227,16 @@ export function useChat(config) {
   useEffect(() => {
     initializeSessions()
   }, [initializeSessions])
+
+  useEffect(() => {
+    if (cwdRef.current === config.cwd) return
+    cwdRef.current = config.cwd
+    initRef.current = false
+    setMessages([])
+    setSessions([])
+    setActiveSession(EMPTY_SESSION)
+    initializeSessions()
+  }, [config.cwd, initializeSessions])
 
   const deleteSession = useCallback(
     async (sessionId) => {
