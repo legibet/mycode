@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -136,7 +137,36 @@ class Agent:
 
                     yield Event("tool_start", {"name": name, "args": args, "id": tc["id"]})
 
-                    result = self._execute_tool(name, args)
+                    result = ""
+                    if name == "bash":
+                        cmd = args.get("cmd")
+                        if not isinstance(cmd, str) or not cmd.strip():
+                            result = "error: missing cmd"
+                        else:
+                            queue: asyncio.Queue[str | None] = asyncio.Queue()
+                            loop = asyncio.get_running_loop()
+
+                            def on_output(line: str, *, _loop=loop, _queue=queue) -> None:
+                                _loop.call_soon_threadsafe(_queue.put_nowait, line)
+
+                            def run_bash(*, _cmd=cmd, _loop=loop, _queue=queue) -> str:
+                                try:
+                                    return TOOL_MAP["bash"](_cmd, on_output)
+                                finally:
+                                    _loop.call_soon_threadsafe(_queue.put_nowait, None)
+
+                            task = asyncio.create_task(asyncio.to_thread(run_bash))
+                            while True:
+                                line = await queue.get()
+                                if line is None:
+                                    break
+                                yield Event(
+                                    "tool_output",
+                                    {"name": name, "content": line, "id": tc["id"]},
+                                )
+                            result = await task
+                    else:
+                        result = self._execute_tool(name, args)
 
                     yield Event(
                         "tool_done",

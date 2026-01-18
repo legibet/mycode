@@ -61,6 +61,16 @@ export function useChat(config) {
         if (index !== -1) {
           parts[index] = { ...parts[index], result: event.result, pending: false }
         }
+      } else if (event.type === 'tool_output') {
+        const index = parts.findIndex((part) => part.type === 'tool' && part.id === event.id)
+        if (index !== -1) {
+          const output = typeof event.content === 'string' ? event.content : ''
+          if (output) {
+            const prevResult = typeof parts[index].result === 'string' ? parts[index].result : ''
+            const nextResult = prevResult ? `${prevResult}\n${output}` : output
+            parts[index] = { ...parts[index], result: nextResult, pending: true }
+          }
+        }
       } else if (event.type === 'error') {
         const errorText = event.message || event.error || 'Unknown error'
         parts.push({ type: 'text', content: `\n\n**Error:** ${errorText}` })

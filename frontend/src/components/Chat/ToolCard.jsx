@@ -80,6 +80,8 @@ export function ToolCard({ name, args, result, pending }) {
         .filter(Boolean)
         .join(' ')
     : ''
+  const resultPreviewRaw = typeof result === 'string' && result.trim() ? result.trim().split('\n').slice(-1)[0] : ''
+  const resultPreview = resultPreviewRaw.length > 120 ? `${resultPreviewRaw.slice(0, 117)}...` : resultPreviewRaw
 
   return (
     <div
@@ -138,6 +140,7 @@ export function ToolCard({ name, args, result, pending }) {
             <div className="flex items-center gap-2 text-xs text-muted-foreground/60 truncate mt-0.5 font-mono">
               {argPreview && <span>{argPreview}</span>}
               {args && (args.content || args.prompt) && <span className="italic opacity-50">...content...</span>}
+              {resultPreview && <span className="text-foreground/70">output: {resultPreview}</span>}
             </div>
           )}
         </div>
