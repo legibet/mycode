@@ -41,5 +41,6 @@ uv run python cli.py
 - `BASE_URL` (optional)
 
 API keys:
+
 - `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `GEMINI_API_KEY`
 - Or pass `api_key` from the web UI (per request)
