@@ -1,139 +1,415 @@
-"""Built-in tools for file operations and shell commands."""
+"""Core tool definitions and execution.
 
-import glob as globlib
+This module intentionally exposes only **four** tools:
+- read
+- write
+- edit
+- bash
+
+Tool schemas are passed to the LLM (OpenAI-style function tools).
+Execution is implemented in :class:`ToolExecutor`.
+
+Design goals (inspired by pi):
+- minimal primitives
+- predictable truncation
+- actionable continuation hints
+"""
+
+from __future__ import annotations
+
+import json
 import os
-import re
 import subprocess
-from collections.abc import Callable
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any, Callable
 
-# Track active subprocesses for cancellation
-_active_processes: set[subprocess.Popen] = set()
+
+# ---------------------------------------------------------------------------
+# Limits (keep token usage low)
+# ---------------------------------------------------------------------------
+
+DEFAULT_MAX_LINES = 2000
+DEFAULT_MAX_BYTES = 50 * 1024
+
+BASH_TIMEOUT_SECONDS = 120
+
+
+# ---------------------------------------------------------------------------
+# Tool schemas (OpenAI compatible)
+# ---------------------------------------------------------------------------
+
+TOOLS: list[dict[str, Any]] = [
+    {
+        "type": "function",
+        "function": {
+            "name": "read",
+            "description": (
+                "Read a file. Text output is truncated to 2000 lines or 50KB. "
+                "Use offset/limit to read large files."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "File path (relative or absolute)."},
+                    "offset": {"type": "integer", "description": "Line number to start from (1-indexed)."},
+                    "limit": {"type": "integer", "description": "Maximum number of lines to return."},
+                },
+                "required": ["path"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "write",
+            "description": "Write a file (create or overwrite).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "File path (relative or absolute)."},
+                    "content": {"type": "string", "description": "File content."},
+                },
+                "required": ["path", "content"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "edit",
+            "description": (
+                "Edit a file by replacing an exact oldText snippet with newText. "
+                "oldText must match exactly."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "File path (relative or absolute)."},
+                    "oldText": {"type": "string", "description": "Exact text to replace (must match exactly)."},
+                    "newText": {"type": "string", "description": "Replacement text."},
+                },
+                "required": ["path", "oldText", "newText"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "bash",
+            "description": (
+                "Run a shell command in the session working directory. "
+                "Output is truncated; if truncated, the full output is written to a file."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "command": {"type": "string", "description": "Shell command."},
+                    "timeout": {"type": "integer", "description": "Timeout in seconds (optional)."},
+                },
+                "required": ["command"],
+                "additionalProperties": False,
+            },
+        },
+    },
+]
+
+
+# ---------------------------------------------------------------------------
+# Utilities
+# ---------------------------------------------------------------------------
+
+
+def _format_size(num_bytes: int) -> str:
+    if num_bytes < 1024:
+        return f"{num_bytes}B"
+    if num_bytes < 1024 * 1024:
+        return f"{num_bytes / 1024:.1f}KB"
+    return f"{num_bytes / (1024 * 1024):.1f}MB"
+
+
+@dataclass(frozen=True)
+class Truncation:
+    truncated: bool
+    truncated_by: str | None
+    output_lines: int
+    output_bytes: int
+
+
+def truncate_text(text: str, *, max_lines: int = DEFAULT_MAX_LINES, max_bytes: int = DEFAULT_MAX_BYTES) -> tuple[str, Truncation]:
+    """Truncate text by both line and byte limits.
+
+    Returns (content, truncation).
+    """
+
+    lines = text.splitlines()
+    out_lines: list[str] = []
+    out_bytes = 0
+
+    for line in lines[:max_lines]:
+        # +1 for newline when joined later
+        b = len((line + "\n").encode("utf-8"))
+        if out_bytes + b > max_bytes:
+            break
+        out_lines.append(line)
+        out_bytes += b
+
+    content = "\n".join(out_lines)
+    truncated = len(out_lines) < len(lines) or out_bytes < len(text.encode("utf-8"))
+
+    truncated_by: str | None = None
+    if truncated:
+        if len(out_lines) < len(lines):
+            truncated_by = "lines" if len(out_lines) == max_lines else "bytes"
+        else:
+            truncated_by = "bytes"
+
+    trunc = Truncation(
+        truncated=truncated,
+        truncated_by=truncated_by,
+        output_lines=len(out_lines),
+        output_bytes=len(content.encode("utf-8")),
+    )
+    return content, trunc
+
+
+def resolve_path(path: str, *, cwd: str) -> str:
+    """Resolve path relative to cwd (without changing global process cwd)."""
+
+    p = Path(path).expanduser()
+    if not p.is_absolute():
+        p = Path(cwd) / p
+    return str(p.resolve(strict=False))
+
+
+# ---------------------------------------------------------------------------
+# Execution
+# ---------------------------------------------------------------------------
+
+
+# Track active subprocesses for cancellation.
+_ACTIVE_PROCS: set[subprocess.Popen] = set()
 
 
 def cancel_all_tools() -> None:
-    """Terminate all running tool processes."""
-    for proc in list(_active_processes):
+    """Terminate all running bash subprocesses."""
+
+    for proc in list(_ACTIVE_PROCS):
         try:
             proc.kill()
         except Exception:
             pass
-    _active_processes.clear()
+    _ACTIVE_PROCS.clear()
 
 
-def read(path: str, offset: int | None = None, limit: int | None = None) -> str:
-    """Read file with line numbers."""
-    try:
-        if not os.path.isfile(path):
-            return f"error: '{path}' is not a file"
-        with open(path, encoding="utf-8") as handle:
-            lines = handle.readlines()
-        start = offset or 0
-        count = limit or len(lines)
-        selected = lines[start : start + count]
-        return "".join(f"{start + idx + 1:4}| {line}" for idx, line in enumerate(selected))
-    except Exception as exc:
-        return f"error: {exc}"
+ToolOutputCallback = Callable[[str], None]
 
 
-def write(path: str, content: str) -> str:
-    """Write content to file."""
-    try:
-        os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
-        with open(path, "w", encoding="utf-8") as handle:
-            handle.write(content)
-        return "ok"
-    except Exception as exc:
-        return f"error: {exc}"
+class ToolExecutor:
+    """Execute tool calls for a single session."""
 
+    def __init__(self, *, cwd: str, session_dir: Path):
+        self.cwd = str(Path(cwd).resolve(strict=False))
+        self.session_dir = session_dir
+        self.session_dir.mkdir(parents=True, exist_ok=True)
+        (self.session_dir / "tool-output").mkdir(parents=True, exist_ok=True)
 
-def edit(path: str, old: str, new: str, replace_all: bool | None = None) -> str:
-    """Replace old with new in file."""
-    try:
-        if not os.path.isfile(path):
-            return f"error: '{path}' is not a file"
-        with open(path, encoding="utf-8") as handle:
-            text = handle.read()
-        if old not in text:
-            return "error: old_string not found"
-        count = text.count(old)
-        if not replace_all and count > 1:
-            return f"error: old_string appears {count} times, use replace_all=true"
-        replacement = text.replace(old, new, -1 if replace_all else 1)
-        with open(path, "w", encoding="utf-8") as handle:
-            handle.write(replacement)
-        return "ok"
-    except Exception as exc:
-        return f"error: {exc}"
+    # ---- read -----------------------------------------------------------------
 
+    def read(self, *, path: str, offset: int | None = None, limit: int | None = None) -> str:
+        """Read a text file.
 
-def glob(pat: str, path: str | None = None) -> str:
-    """Find files by pattern."""
-    try:
-        base = path or "."
-        files = globlib.glob(f"{base}/{pat}".replace("//", "/"), recursive=True)
-        files = sorted(
-            files,
-            key=lambda name: os.path.getmtime(name) if os.path.isfile(name) else 0,
-            reverse=True,
-        )
-        return "\n".join(files) or "none"
-    except Exception as exc:
-        return f"error: {exc}"
+        offset is 1-indexed. limit is number of lines.
+        """
 
+        abs_path = resolve_path(path, cwd=self.cwd)
+        p = Path(abs_path)
+        if not p.exists():
+            return f"error: file not found: {path}"
+        if not p.is_file():
+            return f"error: not a file: {path}"
 
-def grep(pat: str, path: str | None = None) -> str:
-    """Search files for regex pattern."""
-    try:
-        pattern = re.compile(pat)
-    except re.error as exc:
-        return f"error: invalid regex: {exc}"
-    hits: list[str] = []
-    for fp in globlib.glob(f"{path or '.'}/**", recursive=True):
-        if not os.path.isfile(fp):
-            continue
         try:
-            with open(fp, encoding="utf-8") as handle:
-                for line_no, line in enumerate(handle, 1):
-                    if pattern.search(line):
-                        hits.append(f"{fp}:{line_no}:{line.rstrip()}")
-                        if len(hits) >= 50:
-                            return "\n".join(hits)
-        except Exception:
-            continue
-    return "\n".join(hits) or "none"
+            raw = p.read_bytes()
+        except Exception as exc:
+            return f"error: failed to read file: {exc}"
 
+        try:
+            text = raw.decode("utf-8")
+        except UnicodeDecodeError:
+            return f"error: file is not valid utf-8 text: {path}"
 
-def bash(cmd: str, on_output: Callable[[str], None] | None = None) -> str:
-    """Run shell command with optional streaming callback."""
-    lines: list[str] = []
-    proc = None
-    try:
-        proc = subprocess.Popen(
-            cmd,
-            shell=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-        )
-        _active_processes.add(proc)
-        if not proc.stdout:
-            return "error: failed to open subprocess stdout"
-        while True:
-            line = proc.stdout.readline()
-            if not line and proc.poll() is not None:
-                break
-            if line:
-                lines.append(line)
+        all_lines = text.splitlines()
+        total_lines = len(all_lines)
+
+        start = max(0, (offset or 1) - 1)
+        if start >= total_lines:
+            return f"error: offset {offset} beyond end of file ({total_lines} lines)"
+
+        selected = all_lines[start : start + (limit or total_lines)]
+        selected_text = "\n".join(selected)
+
+        content, trunc = truncate_text(selected_text)
+
+        if trunc.truncated:
+            shown_from = start + 1
+            shown_to = start + trunc.output_lines
+            next_offset = shown_to + 1
+            note = (
+                f"\n\n[Showing lines {shown_from}-{shown_to} of {total_lines} "
+                f"({_format_size(DEFAULT_MAX_BYTES)} limit). Use offset={next_offset} to continue.]"
+            )
+            return content + note
+
+        # User-limited (but not truncated)
+        if limit is not None and (start + len(selected)) < total_lines:
+            next_offset = start + len(selected) + 1
+            remaining = total_lines - (start + len(selected))
+            return content + f"\n\n[{remaining} more lines. Use offset={next_offset} to continue.]"
+
+        return content
+
+    # ---- write ----------------------------------------------------------------
+
+    def write(self, *, path: str, content: str) -> str:
+        abs_path = resolve_path(path, cwd=self.cwd)
+        p = Path(abs_path)
+        try:
+            p.parent.mkdir(parents=True, exist_ok=True)
+            tmp = p.with_suffix(p.suffix + ".tmp")
+            tmp.write_text(content, encoding="utf-8")
+            tmp.replace(p)
+        except Exception as exc:
+            return f"error: failed to write file: {exc}"
+        return "ok"
+
+    # ---- edit -----------------------------------------------------------------
+
+    def edit(self, *, path: str, oldText: str, newText: str) -> str:  # noqa: N803 (pi-compatible)
+        abs_path = resolve_path(path, cwd=self.cwd)
+        p = Path(abs_path)
+        if not p.exists():
+            return f"error: file not found: {path}"
+        if not p.is_file():
+            return f"error: not a file: {path}"
+
+        try:
+            text = p.read_text(encoding="utf-8")
+        except Exception as exc:
+            return f"error: failed to read file: {exc}"
+
+        if oldText not in text:
+            return "error: oldText not found"
+
+        count = text.count(oldText)
+        if count != 1:
+            return f"error: oldText occurs {count} times; provide a more specific oldText"
+
+        updated = text.replace(oldText, newText, 1)
+        try:
+            tmp = p.with_suffix(p.suffix + ".tmp")
+            tmp.write_text(updated, encoding="utf-8")
+            tmp.replace(p)
+        except Exception as exc:
+            return f"error: failed to write file: {exc}"
+
+        return "ok"
+
+    # ---- bash -----------------------------------------------------------------
+
+    def bash(
+        self,
+        *,
+        tool_call_id: str,
+        command: str,
+        timeout: int | None = None,
+        on_output: ToolOutputCallback | None = None,
+    ) -> str:
+        timeout = timeout or BASH_TIMEOUT_SECONDS
+
+        proc: subprocess.Popen[str] | None = None
+        out_lines: list[str] = []
+
+        try:
+            proc = subprocess.Popen(
+                command,
+                shell=True,
+                cwd=self.cwd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1,
+                universal_newlines=True,
+            )
+            _ACTIVE_PROCS.add(proc)
+
+            assert proc.stdout is not None
+
+            # Stream line-by-line
+            for line in iter(proc.stdout.readline, ""):
+                if line == "" and proc.poll() is not None:
+                    break
+                line = line.rstrip("\n")
+                out_lines.append(line)
                 if on_output:
-                    on_output(line.rstrip())
-        proc.wait()
-        return "".join(lines).strip() or "(empty)"
+                    on_output(line)
+
+                # Soft limit for in-memory accumulation
+                if sum(len(x) for x in out_lines) > 5_000_000:
+                    out_lines.append("[... output truncated in memory ...]")
+                    break
+
+            try:
+                proc.wait(timeout=timeout)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                return f"error: timeout after {timeout}s"
+
+            output = "\n".join(out_lines).strip() or "(empty)"
+            content, trunc = truncate_text(output)
+
+            if trunc.truncated:
+                # Write full output to session file for later read
+                full_path = self.session_dir / "tool-output" / f"bash-{tool_call_id}.log"
+                try:
+                    full_path.write_text(output, encoding="utf-8")
+                except Exception:
+                    full_path = None
+
+                note = "\n\n[Output truncated.]"
+                if full_path is not None:
+                    note += f" Full output saved to: {full_path} (use read)."
+                return content + note
+
+            return content
+
+        except Exception as exc:
+            return f"error: {exc}"
+        finally:
+            if proc:
+                _ACTIVE_PROCS.discard(proc)
+                if proc.poll() is None:
+                    try:
+                        proc.kill()
+                    except Exception:
+                        pass
+
+
+def parse_tool_arguments(raw: str | None) -> dict[str, Any] | str:
+    """Parse tool arguments JSON.
+
+    Returns dict on success, or an error string on failure.
+    """
+
+    if not raw:
+        return {}
+    try:
+        obj = json.loads(raw)
     except Exception as exc:
-        return f"error: {exc}"
-    finally:
-        if proc:
-            _active_processes.discard(proc)
-
-
-TOOLS = [read, write, edit, glob, grep, bash]
-TOOL_MAP = {fn.__name__: fn for fn in TOOLS}
+        return f"invalid tool arguments JSON: {exc}"
+    if not isinstance(obj, dict):
+        return "tool arguments must be a JSON object"
+    return obj

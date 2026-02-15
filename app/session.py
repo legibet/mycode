@@ -1,241 +1,276 @@
-"""Session storage with SQLite persistence."""
+"""Session storage (append-only JSONL).
+
+Inspired by pi/mom design principles:
+- append-only message log (JSONL)
+- small metadata file per session
+- no rewriting of full conversation on each turn
+
+On disk:
+
+app/data/sessions/<session_id>/
+  meta.json
+  messages.jsonl   # OpenAI-style message dicts (excluding system prompt)
+  tool-output/     # large bash outputs (referenced by tool results)
+"""
 
 from __future__ import annotations
 
 import asyncio
 import json
 import os
-import sqlite3
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
 
-from app.agent.core import Agent
+
+def _now() -> str:
+    return datetime.now(UTC).isoformat()
 
 
 @dataclass
-class SessionRecord:
-    """Database record for a chat session."""
-
+class SessionMeta:
     id: str
     title: str
     model: str
     cwd: str
     api_base: str | None
-    messages_json: str
     created_at: str
     updated_at: str
 
 
 @dataclass
 class SessionStore:
-    """In-memory session cache with SQLite persistence."""
+    """File-based session store with a small in-memory cache."""
 
-    sessions: dict[str, Agent] = field(default_factory=dict)
-    db_path: Path = field(default_factory=lambda: Path(__file__).resolve().parent / "data" / "sessions.db")
+    data_dir: Path = field(default_factory=lambda: Path(__file__).resolve().parent / "data" / "sessions")
 
     def __post_init__(self) -> None:
-        self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        with sqlite3.connect(self.db_path) as conn:
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS sessions (
-                    id TEXT PRIMARY KEY,
-                    title TEXT NOT NULL,
-                    model TEXT NOT NULL,
-                    cwd TEXT NOT NULL,
-                    api_base TEXT,
-                    messages_json TEXT NOT NULL,
-                    created_at TEXT NOT NULL,
-                    updated_at TEXT NOT NULL
-                )
-            """)
+        self.data_dir.mkdir(parents=True, exist_ok=True)
 
-    def _connect(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
-        return conn
+    # ---------------------------------------------------------------------
+    # Paths
+    # ---------------------------------------------------------------------
 
-    def get(self, session_id: str) -> Agent | None:
-        """Get agent from memory cache."""
-        return self.sessions.get(session_id)
+    def session_dir(self, session_id: str) -> Path:
+        return self.data_dir / session_id
 
-    async def get_or_create(self, session_id: str, model: str, cwd: str, api_base: str | None) -> Agent:
-        """Get existing agent or create new one."""
-        cwd = os.path.abspath(cwd)
+    def meta_path(self, session_id: str) -> Path:
+        return self.session_dir(session_id) / "meta.json"
 
-        # Check memory cache
-        agent = self.sessions.get(session_id)
-        if agent:
-            # Recreate if config changed
-            if agent.model != model or agent.cwd != cwd or agent.api_base != api_base:
-                agent = Agent(model=model, cwd=cwd, api_base=api_base)
-                self.sessions[session_id] = agent
-            return agent
+    def messages_path(self, session_id: str) -> Path:
+        return self.session_dir(session_id) / "messages.jsonl"
 
-        # Try load from database
-        def load() -> SessionRecord | None:
-            with self._connect() as conn:
-                row = conn.execute("SELECT * FROM sessions WHERE id = ?", (session_id,)).fetchone()
-                return SessionRecord(**dict(row)) if row else None
+    # ---------------------------------------------------------------------
+    # CRUD
+    # ---------------------------------------------------------------------
 
-        record = await asyncio.to_thread(load)
-        if record:
-            agent = Agent(model=model, cwd=cwd, api_base=api_base)
-            try:
-                agent.messages = json.loads(record.messages_json)
-            except json.JSONDecodeError:
-                pass
-            self.sessions[session_id] = agent
-            return agent
-
-        # Create new session
-        agent = Agent(model=model, cwd=cwd, api_base=api_base)
-        now = datetime.now(UTC).isoformat()
-
-        def insert() -> None:
-            with self._connect() as conn:
-                conn.execute(
-                    """INSERT INTO sessions (id, title, model, cwd, api_base, messages_json, created_at, updated_at)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-                    (session_id, "New chat", model, cwd, api_base, json.dumps(agent.messages), now, now),
-                )
-                conn.commit()
-
-        await asyncio.to_thread(insert)
-        self.sessions[session_id] = agent
-        return agent
-
-    async def create_session(self, title: str | None, model: str, cwd: str, api_base: str | None) -> dict:
-        """Create a new chat session."""
+    async def create_session(self, title: str | None, *, model: str, cwd: str, api_base: str | None) -> dict:
         session_id = uuid4().hex
         cwd = os.path.abspath(cwd)
-        agent = Agent(model=model, cwd=cwd, api_base=api_base)
-        now = datetime.now(UTC).isoformat()
+        now = _now()
 
-        def insert() -> None:
-            with self._connect() as conn:
-                conn.execute(
-                    """INSERT INTO sessions (id, title, model, cwd, api_base, messages_json, created_at, updated_at)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-                    (session_id, title or "New chat", model, cwd, api_base, json.dumps(agent.messages), now, now),
-                )
-                conn.commit()
+        meta = SessionMeta(
+            id=session_id,
+            title=title or "New chat",
+            model=model,
+            cwd=cwd,
+            api_base=api_base,
+            created_at=now,
+            updated_at=now,
+        )
 
-        await asyncio.to_thread(insert)
-        self.sessions[session_id] = agent
-        return {
-            "session": {"id": session_id, "title": title or "New chat", "created_at": now, "updated_at": now},
-            "messages": [],
-        }
+        def write_files() -> None:
+            sdir = self.session_dir(session_id)
+            sdir.mkdir(parents=True, exist_ok=True)
+            (sdir / "tool-output").mkdir(parents=True, exist_ok=True)
+            self.meta_path(session_id).write_text(json.dumps(meta.__dict__, indent=2), encoding="utf-8")
+            self.messages_path(session_id).touch(exist_ok=True)
 
-    async def list_sessions(self, cwd: str | None = None) -> list[dict]:
-        """List all sessions, optionally filtered by cwd."""
-        normalized_cwd = os.path.abspath(cwd) if cwd else None
+        await asyncio.to_thread(write_files)
 
-        def query() -> list[dict]:
-            with self._connect() as conn:
-                if normalized_cwd:
-                    rows = conn.execute(
-                        "SELECT id, title, created_at, updated_at FROM sessions WHERE cwd = ? ORDER BY updated_at DESC",
-                        (normalized_cwd,),
-                    ).fetchall()
-                else:
-                    rows = conn.execute(
-                        "SELECT id, title, created_at, updated_at FROM sessions ORDER BY updated_at DESC"
-                    ).fetchall()
-                return [dict(row) for row in rows]
+        return {"session": meta.__dict__, "messages": []}
 
-        return await asyncio.to_thread(query)
+    async def list_sessions(self, *, cwd: str | None = None) -> list[dict]:
+        normalized = os.path.abspath(cwd) if cwd else None
+
+        def load_all() -> list[dict]:
+            out: list[dict] = []
+            for entry in self.data_dir.iterdir():
+                if not entry.is_dir():
+                    continue
+                mp = entry / "meta.json"
+                if not mp.exists():
+                    continue
+                try:
+                    meta = json.loads(mp.read_text(encoding="utf-8"))
+                    if normalized and os.path.abspath(meta.get("cwd") or "") != normalized:
+                        continue
+                    out.append(meta)
+                except Exception:
+                    continue
+
+            out.sort(key=lambda m: m.get("updated_at") or "", reverse=True)
+            return out
+
+        return await asyncio.to_thread(load_all)
 
     async def load_session(self, session_id: str) -> dict | None:
-        """Load session with raw messages (UI formatting done in frontend)."""
-
         def load() -> dict | None:
-            with self._connect() as conn:
-                row = conn.execute("SELECT * FROM sessions WHERE id = ?", (session_id,)).fetchone()
-                if not row:
-                    return None
-                record = dict(row)
-                try:
-                    messages = json.loads(record["messages_json"])
-                except json.JSONDecodeError:
-                    messages = []
-                return {
-                    "session": {
-                        "id": record["id"],
-                        "title": record["title"],
-                        "model": record["model"],
-                        "cwd": record["cwd"],
-                        "api_base": record["api_base"],
-                        "created_at": record["created_at"],
-                        "updated_at": record["updated_at"],
-                    },
-                    "messages": messages,  # Raw provider format, let frontend transform
-                }
+            mp = self.meta_path(session_id)
+            if not mp.exists():
+                return None
+
+            meta = json.loads(mp.read_text(encoding="utf-8"))
+
+            msgs: list[dict] = []
+            lp = self.messages_path(session_id)
+            if lp.exists():
+                for line in lp.read_text(encoding="utf-8").splitlines():
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        msg = json.loads(line)
+                        if isinstance(msg, dict):
+                            msgs.append(msg)
+                    except Exception:
+                        continue
+
+            return {"session": meta, "messages": msgs}
 
         return await asyncio.to_thread(load)
 
-    async def save_session(self, session_id: str, agent: Agent) -> None:
-        """Save agent state to database."""
-
-        def save() -> None:
-            with self._connect() as conn:
-                row = conn.execute("SELECT title FROM sessions WHERE id = ?", (session_id,)).fetchone()
-                if not row:
-                    return
-                title = row["title"]
-                # Infer title from first user message if still default
-                if title == "New chat":
-                    for msg in agent.messages:
-                        if msg.get("role") == "user":
-                            content = (msg.get("content") or "").strip().replace("\n", " ")
-                            if content:
-                                title = content[:48]
-                                break
-                conn.execute(
-                    "UPDATE sessions SET title = ?, model = ?, cwd = ?, api_base = ?, messages_json = ?, updated_at = ? WHERE id = ?",
-                    (
-                        title,
-                        agent.model,
-                        agent.cwd,
-                        agent.api_base,
-                        json.dumps(agent.messages),
-                        datetime.now(UTC).isoformat(),
-                        session_id,
-                    ),
-                )
-                conn.commit()
-
-        await asyncio.to_thread(save)
-
-    async def clear(self, session_id: str) -> None:
-        """Clear session messages."""
-        agent = self.sessions.get(session_id)
-        if agent:
-            agent.clear()
-
-        def update() -> None:
-            with self._connect() as conn:
-                row = conn.execute("SELECT model, cwd, api_base FROM sessions WHERE id = ?", (session_id,)).fetchone()
-                if not row:
-                    return
-                temp_agent = agent or Agent(model=row["model"], cwd=row["cwd"], api_base=row["api_base"])
-                conn.execute(
-                    "UPDATE sessions SET messages_json = ?, updated_at = ? WHERE id = ?",
-                    (json.dumps(temp_agent.messages), datetime.now(UTC).isoformat(), session_id),
-                )
-                conn.commit()
-
-        await asyncio.to_thread(update)
-
-    async def delete(self, session_id: str) -> None:
-        """Delete session."""
-        self.sessions.pop(session_id, None)
-
+    async def delete_session(self, session_id: str) -> None:
         def delete() -> None:
-            with self._connect() as conn:
-                conn.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
-                conn.commit()
+            sdir = self.session_dir(session_id)
+            if not sdir.exists():
+                return
+            # small recursive delete (no shutil.rmtree to keep deps minimal)
+            for p in sorted(sdir.rglob("*"), reverse=True):
+                try:
+                    if p.is_file() or p.is_symlink():
+                        p.unlink(missing_ok=True)
+                    elif p.is_dir():
+                        p.rmdir()
+                except Exception:
+                    pass
+            try:
+                sdir.rmdir()
+            except Exception:
+                pass
 
         await asyncio.to_thread(delete)
+
+    async def clear_session(self, session_id: str) -> None:
+        def clear() -> None:
+            mp = self.meta_path(session_id)
+            if not mp.exists():
+                return
+            meta = json.loads(mp.read_text(encoding="utf-8"))
+            meta["updated_at"] = _now()
+            mp.write_text(json.dumps(meta, indent=2), encoding="utf-8")
+            self.messages_path(session_id).write_text("", encoding="utf-8")
+
+        await asyncio.to_thread(clear)
+
+    # ---------------------------------------------------------------------
+    # Append-only updates
+    # ---------------------------------------------------------------------
+
+    async def append_message(self, session_id: str, message: dict) -> None:
+        def append() -> None:
+            sdir = self.session_dir(session_id)
+            sdir.mkdir(parents=True, exist_ok=True)
+            (sdir / "tool-output").mkdir(parents=True, exist_ok=True)
+
+            # append JSONL line
+            lp = self.messages_path(session_id)
+            with lp.open("a", encoding="utf-8") as f:
+                f.write(json.dumps(message, ensure_ascii=False))
+                f.write("\n")
+
+            # update updated_at + maybe infer title
+            mp = self.meta_path(session_id)
+            if not mp.exists():
+                # Create minimal meta if missing
+                meta = {
+                    "id": session_id,
+                    "title": "New chat",
+                    "model": "",
+                    "cwd": "",
+                    "api_base": None,
+                    "created_at": _now(),
+                    "updated_at": _now(),
+                }
+            else:
+                meta = json.loads(mp.read_text(encoding="utf-8"))
+
+            meta["updated_at"] = _now()
+
+            if meta.get("title") == "New chat" and message.get("role") == "user":
+                content = (message.get("content") or "").strip().replace("\n", " ")
+                if content:
+                    meta["title"] = content[:48]
+
+            mp.write_text(json.dumps(meta, indent=2), encoding="utf-8")
+
+        await asyncio.to_thread(append)
+
+    async def get_or_create(self, session_id: str, *, model: str, cwd: str, api_base: str | None) -> dict:
+        """Get an existing session, or create it if missing."""
+
+        data = await self.load_session(session_id)
+        if data:
+            # Keep meta in sync with the latest request config.
+            # (Pi would store model changes as events; here we keep it simple.)
+            def update_meta() -> None:
+                mp = self.meta_path(session_id)
+                try:
+                    meta = json.loads(mp.read_text(encoding="utf-8"))
+                except Exception:
+                    return
+
+                changed = False
+                norm_cwd = os.path.abspath(cwd)
+
+                if meta.get("model") != model:
+                    meta["model"] = model
+                    changed = True
+                if meta.get("cwd") != norm_cwd:
+                    meta["cwd"] = norm_cwd
+                    changed = True
+                if meta.get("api_base") != api_base:
+                    meta["api_base"] = api_base
+                    changed = True
+
+                if changed:
+                    meta["updated_at"] = _now()
+                    mp.write_text(json.dumps(meta, indent=2), encoding="utf-8")
+
+            await asyncio.to_thread(update_meta)
+            return await self.load_session(session_id) or data
+
+        # Create a session with a fixed ID (for compatibility with frontend default session_id).
+        cwd = os.path.abspath(cwd)
+        now = _now()
+
+        def create_fixed() -> None:
+            sdir = self.session_dir(session_id)
+            sdir.mkdir(parents=True, exist_ok=True)
+            (sdir / "tool-output").mkdir(parents=True, exist_ok=True)
+
+            meta = SessionMeta(
+                id=session_id,
+                title="New chat",
+                model=model,
+                cwd=cwd,
+                api_base=api_base,
+                created_at=now,
+                updated_at=now,
+            )
+            self.meta_path(session_id).write_text(json.dumps(meta.__dict__, indent=2), encoding="utf-8")
+            self.messages_path(session_id).touch(exist_ok=True)
+
+        await asyncio.to_thread(create_fixed)
+        return await self.load_session(session_id) or {"session": None, "messages": []}

@@ -71,6 +71,7 @@ dist-ssr/
 
 # Archives
 archive/
+legacy/
 
 # Local data
 app/data/

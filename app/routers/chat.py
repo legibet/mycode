@@ -1,12 +1,16 @@
-"""Chat API endpoints."""
+"""Chat API (SSE streaming)."""
+
+from __future__ import annotations
 
 import json
 import os
 from collections.abc import AsyncIterator
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
 
+from app.agent.core import Agent, Event
+from app.agent.tools import cancel_all_tools
 from app.config import get_settings
 from app.schemas import ChatRequest, StreamEvent
 from app.session import SessionStore
@@ -15,57 +19,64 @@ router = APIRouter()
 store = SessionStore()
 
 
-def _set_api_key(model: str, api_key: str) -> None:
-    """Set API key environment variable based on model prefix."""
-    prefix_map = {
-        "anthropic:": "ANTHROPIC_API_KEY",
-        "openai:": "OPENAI_API_KEY",
-        "gemini:": "GEMINI_API_KEY",
-    }
-    for prefix, env_var in prefix_map.items():
-        if model.startswith(prefix):
-            os.environ[env_var] = api_key
-            return
-    os.environ["OPENAI_API_KEY"] = api_key  # Default
-
-
 def _format_sse(event: StreamEvent) -> str:
-    """Format event as SSE payload."""
-    return f"data: {json.dumps(event.model_dump(exclude_none=True))}\n\n"
+    return f"data: {json.dumps(event.model_dump(exclude_none=True), ensure_ascii=False)}\n\n"
 
 
-async def _stream_chat(session_id: str, message: str, model: str, cwd: str, api_base: str | None) -> AsyncIterator[str]:
-    """Stream chat events as SSE."""
-    agent = await store.get_or_create(session_id, model=model, cwd=cwd, api_base=api_base)
+async def _stream_chat(req: Request, chat: ChatRequest) -> AsyncIterator[str]:
+    settings = get_settings()
+
+    model = chat.model or settings.default_model or "anthropic:claude-sonnet-4-5"
+    cwd = os.path.abspath(chat.cwd or os.getcwd())
+    api_base = chat.api_base or settings.api_base
+    api_key = chat.api_key
+
+    session_id = chat.session_id or "default"
+
+    data = await store.get_or_create(session_id, model=model, cwd=cwd, api_base=api_base)
+    messages = data.get("messages") or []
+
+    session_dir = store.session_dir(session_id)
+
+    agent = Agent(
+        model=model,
+        cwd=cwd,
+        session_dir=session_dir,
+        api_key=api_key,
+        api_base=api_base,
+        messages=messages,
+    )
+
+    async def on_persist(message: dict) -> None:
+        # Persist only non-system messages (Agent never calls on_persist for system messages).
+        await store.append_message(session_id, message)
+
     sent_any = False
 
     try:
-        async for event in agent.achat(message):
-            payload = StreamEvent(type=event.type, **event.data)
+        async for ev in agent.achat(chat.message, on_persist=on_persist):
+            # Stop if client disconnected
+            if await req.is_disconnected():
+                agent.cancel()
+                break
+
+            payload = StreamEvent(type=ev.type, **ev.data)
             yield _format_sse(payload)
             sent_any = True
 
         if not sent_any:
-            yield _format_sse(StreamEvent(type="error", message="LLM produced no output. Check model or api_base."))
-    finally:
-        await store.save_session(session_id, agent)
+            yield _format_sse(StreamEvent(type="error", message="LLM produced no output."))
+
+    except Exception as exc:
+        yield _format_sse(StreamEvent(type="error", message=str(exc)))
 
     yield "data: [DONE]\n\n"
 
 
 @router.post("/chat")
-async def chat(req: ChatRequest):
-    """SSE endpoint for chat."""
-    settings = get_settings()
-    model = req.model or settings.default_model or "anthropic:claude-sonnet-4-5"
-    cwd = req.cwd or os.getcwd()
-    api_base = req.api_base or settings.api_base
-
-    if req.api_key:
-        _set_api_key(model, req.api_key)
-
+async def chat(req: Request, chat: ChatRequest):
     return StreamingResponse(
-        _stream_chat(req.session_id, req.message, model, cwd, api_base),
+        _stream_chat(req, chat),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
@@ -73,19 +84,17 @@ async def chat(req: ChatRequest):
 
 @router.post("/cancel")
 async def cancel(session_id: str = "default"):
-    """Cancel running tool processes for session."""
-    agent = store.get(session_id)
-    if agent:
-        agent.cancel()
-    return {"status": "ok"}
+    """Best-effort cancellation.
+
+    - Kills running bash subprocesses.
+    - Does not cancel in-flight LLM streaming (provider-dependent).
+    """
+
+    cancel_all_tools()
+    return {"status": "ok", "session_id": session_id}
 
 
 @router.get("/config")
 async def get_config():
-    """Get current config."""
     settings = get_settings()
-    return {
-        "model": settings.default_model or "",
-        "api_base": settings.api_base or "",
-        "cwd": os.getcwd(),
-    }
+    return {"model": settings.default_model or "", "api_base": settings.api_base or "", "cwd": os.getcwd()}
