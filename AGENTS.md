@@ -1,6 +1,6 @@
 # AGENTS.md — mycode
 
-This file is the **authoritative project context** for future agent runs.
+This file is the **authoritative project context** for future agent runs. Automatically update this file with any architectural changes, new design decisions, or shifts in product vision. The agent will read this file at the start of each run to understand the current state of the codebase and project goals.
 
 ## 1) Product Vision
 

@@ -9,6 +9,8 @@ dependencies = [
     "python-dotenv>=1.0.0",
     "fastapi>=0.115.0",
     "uvicorn[standard]>=0.32.0",
+    "rich>=14.2.0",
+    "prompt-toolkit>=3.0.52",
 ]
 
 # Ruff configuration

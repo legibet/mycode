@@ -10,93 +10,153 @@ Usage:
 Environment:
   MODEL     e.g. anthropic:claude-sonnet-4-5
   BASE_URL  optional (OpenAI-compatible base URL)
-
-API keys:
-  Any-LLM supports passing api_key directly, but the CLI keeps things minimal and
-  relies on provider env vars (ANTHROPIC_API_KEY / OPENAI_API_KEY / GEMINI_API_KEY).
 """
 
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import os
-import re
+
+from prompt_toolkit import PromptSession
+from prompt_toolkit.history import FileHistory
+from rich.console import Console
+from rich.live import Live
+from rich.markdown import Markdown
+from rich.rule import Rule
+from rich.text import Text
 
 from app.agent.core import Agent
 from app.config import get_settings
 from app.session import SessionStore
 
-RESET, BOLD, DIM = "\033[0m", "\033[1m", "\033[2m"
-BLUE, CYAN, GREEN, RED = "\033[34m", "\033[36m", "\033[32m", "\033[31m"
+console = Console(highlight=False)
+
+# History file lives next to the script so it persists across sessions
+_HISTORY_FILE = os.path.join(os.path.dirname(__file__), ".cli_history")
 
 
-def separator() -> str:
-    try:
-        width = min(os.get_terminal_size().columns, 120)
-    except OSError:
-        width = 120
-    return f"{DIM}{'─' * width}{RESET}"
-
-
-def render_markdown(text: str) -> str:
-    return re.sub(r"\*\*(.+?)\*\*", f"{BOLD}\\1{RESET}", text)
+def _tool_preview(args: dict) -> str:
+    """Return a short preview string from the first tool argument."""
+    if not args:
+        return ""
+    value = str(next(iter(args.values())))
+    return value[:60] + "…" if len(value) > 60 else value
 
 
 async def chat_loop(agent: Agent, *, store: SessionStore, session_id: str) -> None:
+    session: PromptSession = PromptSession(history=FileHistory(_HISTORY_FILE))
+
+    async def on_persist(message: dict) -> None:
+        await store.append_message(session_id, message)
+
     while True:
+        # Separator before prompt
+        console.print(Rule(style="dim"))
+
         try:
-            print(separator())
-            user_input = await asyncio.to_thread(input, f"{BOLD}{BLUE}❯{RESET} ")
-            user_input = user_input.strip()
+            user_input: str = await asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: session.prompt("❯ "),
+            )
+        except KeyboardInterrupt:
+            # Ctrl-C at prompt — cancel any in-flight request (there isn't one here)
+            continue
+        except EOFError:
+            console.print("\n[dim]Goodbye![/dim]")
+            return
 
-            if not user_input:
-                continue
-            if user_input in ("/q", "exit", "quit"):
-                print(f"{DIM}Goodbye!{RESET}")
-                return
-            if user_input == "/c":
-                await store.clear_session(session_id)
-                agent.clear()
-                print(f"{GREEN}✓{RESET} Conversation cleared")
-                continue
+        user_input = user_input.strip()
+        if not user_input:
+            continue
 
-            print(separator())
+        # --- Built-in commands ---
+        if user_input in ("/q", "exit", "quit"):
+            console.print("[dim]Goodbye![/dim]")
+            return
 
-            async def on_persist(message: dict) -> None:
-                await store.append_message(session_id, message)
+        if user_input in ("/c", "/clear"):
+            await store.clear_session(session_id)
+            agent.clear()
+            console.print("[green]✓[/green] Conversation cleared")
+            continue
 
+        if user_input in ("/h", "/help"):
+            console.print(
+                "[dim]/c[/dim]  clear conversation\n[dim]/q[/dim]  quit\n[dim]Ctrl-C[/dim]  cancel current request"
+            )
+            continue
+
+        # --- Stream response ---
+        console.print(Rule(style="dim"))
+
+        text_buffer: list[str] = []
+        live: Live | None = None
+
+        try:
             async for event in agent.achat(user_input, on_persist=on_persist):
                 if event.type == "text":
-                    print(render_markdown(event.data.get("content", "")), end="", flush=True)
+                    chunk = event.data.get("content", "")
+                    text_buffer.append(chunk)
+                    full = "".join(text_buffer)
+                    if live is None:
+                        live = Live(Markdown(full), console=console, refresh_per_second=12)
+                        live.start()
+                    else:
+                        live.update(Markdown(full))
+
                 elif event.type == "tool_start":
-                    name = event.data.get("name")
+                    if live is not None:
+                        live.stop()
+                        live = None
+                    text_buffer.clear()
+                    name = event.data.get("name", "")
                     args = event.data.get("args") or {}
-                    preview = str(list(args.values())[0])[:50] if args else ""
-                    print(f"\n{DIM}▸{RESET} {CYAN}{name}{RESET} {DIM}{preview}{RESET}")
+                    preview = _tool_preview(args)
+                    label = Text()
+                    label.append("▸ ", style="dim")
+                    label.append(name, style="cyan bold")
+                    if preview:
+                        label.append(f"  {preview}", style="dim")
+                    console.print(label)
+
                 elif event.type == "tool_output":
                     line = event.data.get("content", "")
                     if line:
-                        print(f"{DIM}{line}{RESET}")
+                        console.print(f"  [dim]{line}[/dim]")
+
                 elif event.type == "tool_done":
                     result = event.data.get("result", "")
                     first = (result.splitlines() or [""])[0][:80]
                     if result.startswith("ok"):
-                        print(f"  {GREEN}✓{RESET} {DIM}{first}{RESET}")
+                        console.print(f"  [green]✓[/green] [dim]{first}[/dim]")
                     elif result.startswith("error"):
-                        print(f"  {RED}✗{RESET} {first}")
+                        console.print(f"  [red]✗[/red] {first}")
                     else:
-                        print(f"  {DIM}↳ {first}{RESET}")
-                elif event.type == "error":
-                    print(f"\n{RED}✗ Error:{RESET} {event.data.get('message', '')}")
+                        console.print(f"  [dim]↳ {first}[/dim]")
 
-            print()
+                elif event.type == "error":
+                    if live is not None:
+                        live.stop()
+                        live = None
+                    text_buffer.clear()
+                    msg = event.data.get("message", "")
+                    console.print(f"\n[red bold]Error:[/red bold] {msg}")
 
         except KeyboardInterrupt:
             agent.cancel()
-            print(f"\n{DIM}Cancelled{RESET}")
-        except EOFError:
-            print(f"\n{DIM}Goodbye!{RESET}")
-            return
+            if live is not None:
+                live.stop()
+                live = None
+            text_buffer.clear()
+            console.print("\n[dim]Cancelled[/dim]")
+            continue
+
+        # Stop live if response ends with text
+        if live is not None:
+            live.stop()
+            live = None
+        text_buffer.clear()
 
 
 def main() -> None:
@@ -106,17 +166,32 @@ def main() -> None:
 
     cwd = os.getcwd()
     store = SessionStore()
-    import hashlib
 
     # One default session per working directory (pi-style)
-    session_id = hashlib.sha1(cwd.encode("utf-8")).hexdigest()[:12]
+    session_id = hashlib.sha1(cwd.encode()).hexdigest()[:12]
 
     data = asyncio.run(store.get_or_create(session_id, model=model, cwd=cwd, api_base=api_base))
     messages = data.get("messages") or []
 
-    agent = Agent(model=model, cwd=cwd, session_dir=store.session_dir(session_id), api_base=api_base, messages=messages)
+    agent = Agent(
+        model=model,
+        cwd=cwd,
+        session_dir=store.session_dir(session_id),
+        api_base=api_base,
+        messages=messages,
+    )
 
-    print(f"\n{BOLD}mycode{RESET} | {CYAN}{model}{RESET} | {DIM}{cwd}{RESET}")
+    # Header
+    console.print()
+    header = Text()
+    header.append("mycode", style="bold")
+    header.append("  ")
+    header.append(model, style="cyan")
+    header.append("  ")
+    header.append(cwd, style="dim")
+    console.print(header)
+    console.print("[dim]/h help  /c clear  /q quit  Ctrl-C cancel[/dim]")
+
     asyncio.run(chat_loop(agent, store=store, session_id=session_id))
 
 

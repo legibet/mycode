@@ -75,6 +75,7 @@ legacy/
 
 # Local data
 app/data/
+.cli_history
 
 # AI Agents
 CLAUDE.md
