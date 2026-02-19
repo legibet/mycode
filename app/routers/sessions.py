@@ -17,9 +17,12 @@ store = SessionStore()
 @router.post("")
 async def create_session(req: SessionCreateRequest):
     settings = get_settings()
-    model = req.model or settings.default_model or "anthropic:claude-sonnet-4-5"
+    cfg = settings.active_provider
+    model = (
+        req.model or settings.default_model or (cfg.models[0] if cfg and cfg.models else None) or "claude-sonnet-4-5"
+    )
     cwd = req.cwd or os.getcwd()
-    api_base = req.api_base or settings.api_base
+    api_base = req.api_base or (cfg.base_url if cfg else None)
     return await store.create_session(req.title, model=model, cwd=cwd, api_base=api_base)
 
 
