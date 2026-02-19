@@ -17,6 +17,7 @@ The system prompt is loaded from system_prompt.md and is NOT persisted in sessio
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass, field
@@ -50,6 +51,30 @@ class ToolCallBuffer:
     id: str | None = None
     name: str = ""
     arguments: str = ""
+
+
+def _sanitize_arguments(raw: str) -> str:
+    """Return the first complete JSON object from raw, discarding trailing garbage.
+
+    Some Anthropic-compatible proxies send extra deltas (e.g. a trailing '{}')
+    after the real arguments, producing strings like '{"cmd":"ls"}{}' which
+    fail json.loads with 'Extra data'.  raw_decode stops after the first valid
+    value and lets us recover cleanly.
+    """
+    if not raw:
+        return raw
+    try:
+        json.loads(raw)
+        return raw  # already valid, fast path
+    except json.JSONDecodeError:
+        pass
+    try:
+        _, end = json.JSONDecoder().raw_decode(raw)
+        sanitized = raw[:end]
+        logger.debug("Sanitized tool arguments: dropped %d trailing bytes", len(raw) - end)
+        return sanitized
+    except json.JSONDecodeError:
+        return raw  # give up, let downstream report the error
 
 
 def _load_system_prompt() -> str:
@@ -243,7 +268,7 @@ class Agent:
                         {
                             "id": tool_id,
                             "type": "function",
-                            "function": {"name": buf.name or "", "arguments": buf.arguments or ""},
+                            "function": {"name": buf.name or "", "arguments": _sanitize_arguments(buf.arguments or "")},
                         }
                     )
 
