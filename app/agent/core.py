@@ -17,12 +17,13 @@ The system prompt is loaded from system_prompt.md and is NOT persisted in sessio
 from __future__ import annotations
 
 import asyncio
+import functools
 import json
 import logging
 from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 from uuid import uuid4
 
 from any_llm import acompletion
@@ -54,6 +55,28 @@ class ToolCallBuffer:
     # Set True once arguments form valid JSON; extra deltas from misbehaving
     # proxies are then silently dropped rather than corrupting the stored value.
     _args_complete: bool = field(default=False, repr=False)
+
+
+async def _run_bash_to_queue(
+    tools: ToolExecutor,
+    *,
+    tool_call_id: str,
+    command: str,
+    timeout: Any,
+    queue: asyncio.Queue[str | None],
+    on_output: Callable[[str], None],
+) -> str:
+    loop = asyncio.get_running_loop()
+    try:
+        return await asyncio.to_thread(
+            tools.bash,
+            tool_call_id=tool_call_id,
+            command=command,
+            timeout=timeout,
+            on_output=on_output,
+        )
+    finally:
+        loop.call_soon_threadsafe(queue.put_nowait, None)
 
 
 def _load_system_prompt() -> str:
@@ -177,16 +200,19 @@ class Agent:
 
             # Request LLM streaming completion
             try:
-                stream = await acompletion(
-                    model=self.model,
-                    provider=self.provider,
-                    messages=self.messages,
-                    tools=TOOLS,
-                    tool_choice="auto",
-                    max_tokens=self.max_tokens,
-                    api_key=self.api_key,
-                    api_base=self.api_base,
-                    stream=True,
+                stream = cast(
+                    AsyncIterator[Any],
+                    await acompletion(
+                        model=self.model,
+                        provider=self.provider,
+                        messages=cast(Any, self.messages),
+                        tools=cast(Any, TOOLS),
+                        tool_choice="auto",
+                        max_tokens=self.max_tokens,
+                        api_key=self.api_key,
+                        api_base=self.api_base,
+                        stream=True,
+                    ),
                 )
             except Exception as exc:
                 logger.exception("LLM request failed")
@@ -321,22 +347,20 @@ class Agent:
                         loop = asyncio.get_running_loop()
                         queue: asyncio.Queue[str | None] = asyncio.Queue()
 
-                        def on_line(line: str) -> None:
-                            loop.call_soon_threadsafe(queue.put_nowait, line)  # noqa: B023
-
-                        async def run_bash() -> str:
-                            try:
-                                return await asyncio.to_thread(
-                                    self.tools.bash,
-                                    tool_call_id=tool_id,  # noqa: B023
-                                    command=command,  # noqa: B023
-                                    timeout=timeout,  # noqa: B023
-                                    on_output=on_line,
-                                )
-                            finally:
-                                loop.call_soon_threadsafe(queue.put_nowait, None)  # noqa: B023
-
-                        task = asyncio.create_task(run_bash())
+                        on_output: Callable[[str], None] = functools.partial(
+                            loop.call_soon_threadsafe,
+                            queue.put_nowait,
+                        )
+                        task = asyncio.create_task(
+                            _run_bash_to_queue(
+                                self.tools,
+                                tool_call_id=tool_id,
+                                command=command,
+                                timeout=timeout,
+                                queue=queue,
+                                on_output=on_output,
+                            )
+                        )
                         while True:
                             item = await queue.get()
                             if item is None:
