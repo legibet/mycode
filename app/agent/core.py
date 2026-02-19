@@ -51,30 +51,9 @@ class ToolCallBuffer:
     id: str | None = None
     name: str = ""
     arguments: str = ""
-
-
-def _sanitize_arguments(raw: str) -> str:
-    """Return the first complete JSON object from raw, discarding trailing garbage.
-
-    Some Anthropic-compatible proxies send extra deltas (e.g. a trailing '{}')
-    after the real arguments, producing strings like '{"cmd":"ls"}{}' which
-    fail json.loads with 'Extra data'.  raw_decode stops after the first valid
-    value and lets us recover cleanly.
-    """
-    if not raw:
-        return raw
-    try:
-        json.loads(raw)
-        return raw  # already valid, fast path
-    except json.JSONDecodeError:
-        pass
-    try:
-        _, end = json.JSONDecoder().raw_decode(raw)
-        sanitized = raw[:end]
-        logger.debug("Sanitized tool arguments: dropped %d trailing bytes", len(raw) - end)
-        return sanitized
-    except json.JSONDecodeError:
-        return raw  # give up, let downstream report the error
+    # Set True once arguments form valid JSON; extra deltas from misbehaving
+    # proxies are then silently dropped rather than corrupting the stored value.
+    _args_complete: bool = field(default=False, repr=False)
 
 
 def _load_system_prompt() -> str:
@@ -250,8 +229,22 @@ class Agent:
                             if fn is not None:
                                 if getattr(fn, "name", None):
                                     buf.name = fn.name
-                                if getattr(fn, "arguments", None):
-                                    buf.arguments += fn.arguments
+                                arg_delta = getattr(fn, "arguments", None)
+                                if arg_delta and not buf._args_complete:
+                                    buf.arguments += arg_delta
+                                    # Detect when we have a complete JSON object;
+                                    # subsequent deltas from misbehaving proxies are dropped.
+                                    try:
+                                        json.loads(buf.arguments)
+                                        buf._args_complete = True
+                                    except json.JSONDecodeError:
+                                        pass  # still accumulating partial JSON
+                                elif arg_delta and buf._args_complete:
+                                    logger.debug(
+                                        "tool[%d] dropping extra argument delta (already complete): %r",
+                                        idx,
+                                        arg_delta,
+                                    )
 
             except Exception as exc:
                 logger.exception("LLM stream failed")
@@ -268,7 +261,7 @@ class Agent:
                         {
                             "id": tool_id,
                             "type": "function",
-                            "function": {"name": buf.name or "", "arguments": _sanitize_arguments(buf.arguments or "")},
+                            "function": {"name": buf.name or "", "arguments": buf.arguments or ""},
                         }
                     )
 
