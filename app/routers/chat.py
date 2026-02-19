@@ -11,35 +11,61 @@ from fastapi.responses import StreamingResponse
 
 from app.agent.core import Agent, Event
 from app.agent.tools import cancel_all_tools
-from app.config import get_settings
+from app.config import ProviderConfig, get_settings
 from app.schemas import ChatRequest, StreamEvent
 from app.session import SessionStore
 
 router = APIRouter()
 store = SessionStore()
 
+_FALLBACK_MODEL = "claude-sonnet-4-5"
+_FALLBACK_PROVIDER = "anthropic"
+
 
 def _format_sse(event: StreamEvent) -> str:
     return f"data: {json.dumps(event.model_dump(exclude_none=True), ensure_ascii=False)}\n\n"
 
 
-async def _stream_chat(req: Request, chat: ChatRequest) -> AsyncIterator[str]:
+def _resolve(chat: ChatRequest) -> tuple[str, str, str | None, str | None]:
+    """Resolve (provider_type, model, api_key, api_base) from request + config.
+
+    Priority: explicit request fields > named provider > default provider.
+    Returns provider_type as any_llm provider string (e.g. "openai", "anthropic").
+    """
     settings = get_settings()
 
-    model = chat.model or settings.default_model or "anthropic:claude-sonnet-4-5"
-    cwd = os.path.abspath(chat.cwd or os.getcwd())
-    api_base = chat.api_base or settings.api_base
-    api_key = chat.api_key
+    # Determine which ProviderConfig to use as base
+    cfg: ProviderConfig | None = None
+    if chat.provider and chat.provider in settings.providers:
+        cfg = settings.providers[chat.provider]
+    elif settings.active_provider:
+        cfg = settings.active_provider
 
+    # Model: request field > default_model from config > first model of provider > fallback
+    model = chat.model or settings.default_model or (cfg.models[0] if cfg and cfg.models else None) or _FALLBACK_MODEL
+
+    # Provider type for any_llm
+    provider_type = cfg.type if cfg else _FALLBACK_PROVIDER
+
+    # api_key / api_base: request overrides config
+    api_key = chat.api_key or (cfg.api_key if cfg else None)
+    api_base = chat.api_base or (cfg.base_url if cfg else None)
+
+    return provider_type, model, api_key, api_base
+
+
+async def _stream_chat(req: Request, chat: ChatRequest) -> AsyncIterator[str]:
+    provider_type, model, api_key, api_base = _resolve(chat)
+    cwd = os.path.abspath(chat.cwd or os.getcwd())
     session_id = chat.session_id or "default"
 
     data = await store.get_or_create(session_id, model=model, cwd=cwd, api_base=api_base)
     messages = data.get("messages") or []
-
     session_dir = store.session_dir(session_id)
 
     agent = Agent(
         model=model,
+        provider=provider_type,
         cwd=cwd,
         session_dir=session_dir,
         api_key=api_key,
@@ -48,14 +74,12 @@ async def _stream_chat(req: Request, chat: ChatRequest) -> AsyncIterator[str]:
     )
 
     async def on_persist(message: dict) -> None:
-        # Persist only non-system messages (Agent never calls on_persist for system messages).
         await store.append_message(session_id, message)
 
     sent_any = False
 
     try:
         async for ev in agent.achat(chat.message, on_persist=on_persist):
-            # Stop if client disconnected
             if await req.is_disconnected():
                 agent.cancel()
                 break
@@ -84,12 +108,7 @@ async def chat(req: Request, chat: ChatRequest):
 
 @router.post("/cancel")
 async def cancel(session_id: str = "default"):
-    """Best-effort cancellation.
-
-    - Kills running bash subprocesses.
-    - Does not cancel in-flight LLM streaming (provider-dependent).
-    """
-
+    """Best-effort cancellation."""
     cancel_all_tools()
     return {"status": "ok", "session_id": session_id}
 
@@ -97,4 +116,22 @@ async def cancel(session_id: str = "default"):
 @router.get("/config")
 async def get_config():
     settings = get_settings()
-    return {"model": settings.default_model or "", "api_base": settings.api_base or "", "cwd": os.getcwd()}
+    # Return provider metadata without exposing api_keys
+    providers_info = {
+        name: {
+            "name": p.name,
+            "type": p.type,
+            "models": p.models,
+            "base_url": p.base_url or "",
+            "has_api_key": bool(p.api_key),
+        }
+        for name, p in settings.providers.items()
+    }
+    return {
+        "providers": providers_info,
+        "default": {
+            "provider": settings.default_provider or "",
+            "model": settings.default_model or "",
+        },
+        "cwd": os.getcwd(),
+    }

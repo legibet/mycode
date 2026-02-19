@@ -16,10 +16,32 @@ function AppContent() {
   const [config, setConfig] = useState(loadConfig)
   const [input, setInput] = useState('')
   const [cwdHistory, setCwdHistory] = useState(loadHistory)
+  const [remoteConfig, setRemoteConfig] = useState(null) // providers from /api/config
   const { theme, setTheme } = useTheme()
 
   const { messages, loading, sessions, activeSession, send, cancel, createSession, selectSession, deleteSession } =
     useChat(config)
+
+  // Fetch server-side provider config once on mount
+  useEffect(() => {
+    fetch('/api/config')
+      .then((r) => r.json())
+      .then((data) => {
+        setRemoteConfig(data)
+        // If no provider is selected yet, apply server default
+        setConfig((prev) => {
+          if (prev.provider || !data.default?.provider) return prev
+          const updated = {
+            ...prev,
+            provider: data.default.provider,
+            model: prev.model || data.default.model || '',
+          }
+          saveConfig(updated)
+          return updated
+        })
+      })
+      .catch(() => {}) // non-fatal; UI still works without it
+  }, [])
 
   const handleConfigUpdate = (newConfig) => {
     if (newConfig.cwd !== config.cwd) {
@@ -54,6 +76,7 @@ function AppContent() {
           config={config}
           onUpdateConfig={handleConfigUpdate}
           cwdHistory={cwdHistory}
+          remoteConfig={remoteConfig}
           theme={theme}
           setTheme={setTheme}
         />

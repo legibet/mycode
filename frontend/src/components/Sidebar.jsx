@@ -10,6 +10,10 @@ import { Button } from './UI/Button'
 import { Input } from './UI/Input'
 import { WorkspacePicker } from './WorkspacePicker'
 
+/** Shared select style matching Input component */
+const SELECT_CLASS =
+  'w-full rounded-md border border-input bg-background px-3 py-1.5 text-xs font-mono text-foreground shadow-sm outline-none focus:ring-1 focus:ring-ring disabled:opacity-50'
+
 export function Sidebar({
   className,
   sessions,
@@ -20,6 +24,7 @@ export function Sidebar({
   config,
   onUpdateConfig,
   cwdHistory,
+  remoteConfig, // { providers: { name: { type, models, base_url, has_api_key } }, default: { provider, model } }
   theme,
   setTheme,
 }) {
@@ -29,6 +34,19 @@ export function Sidebar({
   const handleWorkspaceSelect = (cwd) => {
     onUpdateConfig({ ...config, cwd })
   }
+
+  // When provider selection changes, reset model to that provider's first model
+  const handleProviderChange = (providerName) => {
+    const providerInfo = remoteConfig?.providers?.[providerName]
+    const firstModel = providerInfo?.models?.[0] || ''
+    onUpdateConfig({ ...config, provider: providerName, model: firstModel, apiBase: '', apiKey: '' })
+  }
+
+  const activeProviderInfo = remoteConfig?.providers?.[config.provider]
+  const providerModels = activeProviderInfo?.models || []
+
+  // Combine provider models with MODEL_PRESETS for the datalist
+  const allModelOptions = providerModels.length > 0 ? providerModels : MODEL_PRESETS
 
   return (
     <div className={cn('flex w-64 flex-col border-r bg-muted/10', className)}>
@@ -165,55 +183,120 @@ export function Sidebar({
               </div>
             </div>
 
-            {/* API Configuration */}
+            {/* LLM Provider */}
             <div className="space-y-3">
               <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">LLM Provider</span>
               <div className="space-y-3">
+                {/* Provider selector — from config.json */}
+                {remoteConfig?.providers && Object.keys(remoteConfig.providers).length > 0 ? (
+                  <div className="space-y-1">
+                    <label htmlFor="provider-select" className="text-xs text-muted-foreground">
+                      Provider
+                    </label>
+                    <select
+                      id="provider-select"
+                      value={config.provider || ''}
+                      onChange={(e) => handleProviderChange(e.target.value)}
+                      className={SELECT_CLASS}
+                    >
+                      <option value="">— server default —</option>
+                      {Object.values(remoteConfig.providers).map((p) => (
+                        <option key={p.name} value={p.name}>
+                          {p.name} ({p.type})
+                        </option>
+                      ))}
+                    </select>
+                    {/* Provider meta: type badge + key status */}
+                    {activeProviderInfo && (
+                      <div className="flex items-center gap-2 pt-0.5">
+                        <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-mono text-muted-foreground">
+                          {activeProviderInfo.type}
+                        </span>
+                        {activeProviderInfo.has_api_key && (
+                          <span className="text-[10px] text-green-600 dark:text-green-400">key configured</span>
+                        )}
+                        {activeProviderInfo.base_url && (
+                          <span
+                            className="truncate text-[10px] text-muted-foreground"
+                            title={activeProviderInfo.base_url}
+                          >
+                            {activeProviderInfo.base_url.replace(/^https?:\/\//, '')}
+                          </span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                ) : null}
+
+                {/* Model selector */}
                 <div className="space-y-1">
                   <label htmlFor="model-input" className="text-xs text-muted-foreground">
                     Model
                   </label>
-                  <Input
-                    id="model-input"
-                    value={config.model}
-                    onChange={(e) => onUpdateConfig({ ...config, model: e.target.value })}
-                    placeholder="provider:model"
-                    list="model-presets"
-                    className="font-mono text-xs"
-                  />
-                  <datalist id="model-presets">
-                    {MODEL_PRESETS.map((m) => (
-                      <option key={m} value={m} />
-                    ))}
-                  </datalist>
+                  {providerModels.length > 0 ? (
+                    <select
+                      id="model-input"
+                      value={config.model || ''}
+                      onChange={(e) => onUpdateConfig({ ...config, model: e.target.value })}
+                      className={SELECT_CLASS}
+                    >
+                      {providerModels.map((m) => (
+                        <option key={m} value={m}>
+                          {m}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <>
+                      <Input
+                        id="model-input"
+                        value={config.model || ''}
+                        onChange={(e) => onUpdateConfig({ ...config, model: e.target.value })}
+                        placeholder="model name"
+                        list="model-presets"
+                        className="font-mono text-xs"
+                      />
+                      <datalist id="model-presets">
+                        {allModelOptions.map((m) => (
+                          <option key={m} value={m} />
+                        ))}
+                      </datalist>
+                    </>
+                  )}
                 </div>
 
-                <div className="space-y-1">
-                  <label htmlFor="api-key-input" className="text-xs text-muted-foreground">
-                    API Key
-                  </label>
-                  <Input
-                    id="api-key-input"
-                    type="password"
-                    value={config.apiKey || ''}
-                    onChange={(e) => onUpdateConfig({ ...config, apiKey: e.target.value })}
-                    placeholder="sk-..."
-                    className="font-mono text-xs"
-                  />
-                </div>
+                {/* API Key override (only shown when no server key or no provider selected) */}
+                {!activeProviderInfo?.has_api_key && (
+                  <div className="space-y-1">
+                    <label htmlFor="api-key-input" className="text-xs text-muted-foreground">
+                      API Key
+                    </label>
+                    <Input
+                      id="api-key-input"
+                      type="password"
+                      value={config.apiKey || ''}
+                      onChange={(e) => onUpdateConfig({ ...config, apiKey: e.target.value })}
+                      placeholder="sk-..."
+                      className="font-mono text-xs"
+                    />
+                  </div>
+                )}
 
-                <div className="space-y-1">
-                  <label htmlFor="api-base-input" className="text-xs text-muted-foreground">
-                    Base URL (Optional)
-                  </label>
-                  <Input
-                    id="api-base-input"
-                    value={config.apiBase || ''}
-                    onChange={(e) => onUpdateConfig({ ...config, apiBase: e.target.value })}
-                    placeholder="https://api.example.com/v1"
-                    className="font-mono text-xs"
-                  />
-                </div>
+                {/* Base URL override (only shown when no server base_url or no provider selected) */}
+                {!activeProviderInfo?.base_url && (
+                  <div className="space-y-1">
+                    <label htmlFor="api-base-input" className="text-xs text-muted-foreground">
+                      Base URL (optional)
+                    </label>
+                    <Input
+                      id="api-base-input"
+                      value={config.apiBase || ''}
+                      onChange={(e) => onUpdateConfig({ ...config, apiBase: e.target.value })}
+                      placeholder="https://api.example.com/v1"
+                      className="font-mono text-xs"
+                    />
+                  </div>
+                )}
               </div>
             </div>
           </div>

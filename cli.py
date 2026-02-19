@@ -5,15 +5,16 @@ The CLI reuses the same agent + session store.
 
 Usage:
 
-  uv run python cli.py
+  uv run python cli.py [--provider NAME] [--model MODEL]
 
-Environment:
-  MODEL     e.g. anthropic:claude-sonnet-4-5
-  BASE_URL  optional (OpenAI-compatible base URL)
+Config:
+  Edit config.json to define providers.
+  Env var fallback: MODEL (e.g. openai:gpt-4o), BASE_URL, OPENAI_API_KEY / ANTHROPIC_API_KEY
 """
 
 from __future__ import annotations
 
+import argparse
 import asyncio
 import hashlib
 import os
@@ -27,17 +28,17 @@ from rich.rule import Rule
 from rich.text import Text
 
 from app.agent.core import Agent
-from app.config import get_settings
+from app.config import ProviderConfig, get_settings
 from app.session import SessionStore
 
 console = Console(highlight=False)
 
-# History file lives next to the script so it persists across sessions
 _HISTORY_FILE = os.path.join(os.path.dirname(__file__), ".cli_history")
+_FALLBACK_MODEL = "claude-sonnet-4-5"
+_FALLBACK_PROVIDER = "anthropic"
 
 
 def _tool_preview(args: dict) -> str:
-    """Return a short preview string from the first tool argument."""
     if not args:
         return ""
     value = str(next(iter(args.values())))
@@ -51,7 +52,6 @@ async def chat_loop(agent: Agent, *, store: SessionStore, session_id: str) -> No
         await store.append_message(session_id, message)
 
     while True:
-        # Separator before prompt
         console.print(Rule(style="dim"))
 
         try:
@@ -60,7 +60,6 @@ async def chat_loop(agent: Agent, *, store: SessionStore, session_id: str) -> No
                 lambda: session.prompt("❯ "),
             )
         except KeyboardInterrupt:
-            # Ctrl-C at prompt — cancel any in-flight request (there isn't one here)
             continue
         except EOFError:
             console.print("\n[dim]Goodbye![/dim]")
@@ -70,7 +69,6 @@ async def chat_loop(agent: Agent, *, store: SessionStore, session_id: str) -> No
         if not user_input:
             continue
 
-        # --- Built-in commands ---
         if user_input in ("/q", "exit", "quit"):
             console.print("[dim]Goodbye![/dim]")
             return
@@ -87,7 +85,6 @@ async def chat_loop(agent: Agent, *, store: SessionStore, session_id: str) -> No
             )
             continue
 
-        # --- Stream response ---
         console.print(Rule(style="dim"))
 
         text_buffer: list[str] = []
@@ -152,7 +149,6 @@ async def chat_loop(agent: Agent, *, store: SessionStore, session_id: str) -> No
             console.print("\n[dim]Cancelled[/dim]")
             continue
 
-        # Stop live if response ends with text
         if live is not None:
             live.stop()
             live = None
@@ -160,14 +156,32 @@ async def chat_loop(agent: Agent, *, store: SessionStore, session_id: str) -> No
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser(description="mycode CLI")
+    parser.add_argument("--provider", metavar="NAME", help="Provider name from config.json")
+    parser.add_argument("--model", metavar="MODEL", help="Model name (overrides config default)")
+    args = parser.parse_args()
+
     settings = get_settings()
-    model = os.environ.get("MODEL") or settings.default_model or "anthropic:claude-sonnet-4-5"
-    api_base = os.environ.get("BASE_URL") or settings.api_base
+
+    # Resolve provider config
+    cfg: ProviderConfig | None = None
+    if args.provider:
+        cfg = settings.providers.get(args.provider)
+        if cfg is None:
+            available = ", ".join(settings.providers.keys()) or "(none configured)"
+            console.print(f"[red]Unknown provider:[/red] {args.provider!r}. Available: {available}")
+            return
+    else:
+        cfg = settings.active_provider
+
+    # Resolve model: CLI flag > config default > first model of provider > fallback
+    model = args.model or settings.default_model or (cfg.models[0] if cfg and cfg.models else None) or _FALLBACK_MODEL
+    provider_type = cfg.type if cfg else _FALLBACK_PROVIDER
+    api_base = cfg.base_url if cfg else None
+    api_key = cfg.api_key if cfg else None
 
     cwd = os.getcwd()
     store = SessionStore()
-
-    # One default session per working directory (pi-style)
     session_id = hashlib.sha1(cwd.encode()).hexdigest()[:12]
 
     data = asyncio.run(store.get_or_create(session_id, model=model, cwd=cwd, api_base=api_base))
@@ -175,8 +189,10 @@ def main() -> None:
 
     agent = Agent(
         model=model,
+        provider=provider_type,
         cwd=cwd,
         session_dir=store.session_dir(session_id),
+        api_key=api_key,
         api_base=api_base,
         messages=messages,
     )
@@ -186,6 +202,9 @@ def main() -> None:
     header = Text()
     header.append("mycode", style="bold")
     header.append("  ")
+    if cfg:
+        header.append(cfg.name, style="green")
+        header.append("/", style="dim")
     header.append(model, style="cyan")
     header.append("  ")
     header.append(cwd, style="dim")

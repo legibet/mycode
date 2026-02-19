@@ -6,7 +6,8 @@ const STORAGE_KEY = 'mycode_config'
 const HISTORY_KEY = 'mycode_cwd_history'
 
 export const DEFAULT_CONFIG = {
-  model: 'anthropic:claude-opus-4-5',
+  provider: '', // named provider from config.json; empty = use server default
+  model: '',
   cwd: '.',
   apiKey: '',
   apiBase: '',
@@ -15,10 +16,10 @@ export const DEFAULT_CONFIG = {
 export const MODEL_PRESETS = [
   'anthropic:claude-opus-4-5',
   'anthropic:claude-sonnet-4-5',
-  'openai:gpt-5.2',
-  'openai:gpt-5.2-codex',
-  'gemini:gemini-3-flash-preview',
-  'gemini:gemini-3-pro-preview',
+  'openai:gpt-4o',
+  'openai:o3-mini',
+  'gemini:gemini-1.5-pro',
+  'gemini:gemini-2.0-flash',
 ]
 
 export function loadConfig() {
@@ -33,6 +34,7 @@ export function loadConfig() {
 
 export function saveConfig(config) {
   try {
+    // Never persist raw api key to localStorage
     const { apiKey, ...rest } = config
     localStorage.setItem(STORAGE_KEY, JSON.stringify(rest))
   } catch (e) {

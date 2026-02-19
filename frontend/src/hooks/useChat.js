@@ -182,7 +182,8 @@ export function useChat(config) {
           body: JSON.stringify({
             session_id: activeSession.id,
             message: input,
-            model: config.model,
+            provider: config.provider || undefined,
+            model: config.model || undefined,
             cwd: config.cwd,
             api_key: config.apiKey || undefined,
             api_base: config.apiBase || undefined,
@@ -263,7 +264,11 @@ export function useChat(config) {
       const res = await fetch('/api/sessions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model: config.model, cwd: config.cwd, api_base: config.apiBase || undefined }),
+        body: JSON.stringify({
+          model: config.model || undefined,
+          cwd: config.cwd,
+          api_base: config.apiBase || undefined,
+        }),
       })
       if (!res.ok) throw new Error('Failed to create session')
       const data = await res.json()

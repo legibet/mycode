@@ -77,6 +77,9 @@ legacy/
 app/data/
 .cli_history
 
+# Config with secrets (use config.example.json as template)
+config.json
+
 # AI Agents
 CLAUDE.md
 .claude/

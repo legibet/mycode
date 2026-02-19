@@ -1,0 +1,20 @@
+{
+  "default": {
+    "provider": "newapi",
+    "model": "minimax-m2.5"
+  },
+  "providers": {
+    "newapi": {
+      "type": "openai",
+      "api_key": "sk-6JCxNcJUpaZm9Yzw6qGNcMq9dryHLAl5EReQUMisRxUGqpfI",
+      "base_url": "https://newapi.011108.xyz/v1",
+      "models": ["minimax-m2.5", "gpt-5.2"]
+    },
+    "claude": {
+      "type": "anthropic",
+      "api_key": "sk-ant-your-key",
+      "base_url": "https://newapi.011108.xyz/v1",
+      "models": ["claude-opus-4-6", "claude-sonnet-4-6", "claude-haiku-4-5"]
+    }
+  }
+}

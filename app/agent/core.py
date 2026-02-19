@@ -70,6 +70,7 @@ class Agent:
         model: str,
         cwd: str,
         session_dir: Path,
+        provider: str | None = None,  # any_llm provider type e.g. "openai", "anthropic", "gemini"
         api_key: str | None = None,
         api_base: str | None = None,
         messages: list[dict[str, Any]] | None = None,
@@ -77,6 +78,7 @@ class Agent:
         max_tokens: int = 8192,
     ):
         self.model = model
+        self.provider = provider
         self.cwd = str(Path(cwd).resolve(strict=False))
         self.session_dir = session_dir
         self.api_key = api_key
@@ -173,6 +175,7 @@ class Agent:
             try:
                 stream = await acompletion(
                     model=self.model,
+                    provider=self.provider,
                     messages=self.messages,
                     tools=TOOLS,
                     tool_choice="auto",
@@ -301,19 +304,19 @@ class Agent:
                         queue: asyncio.Queue[str | None] = asyncio.Queue()
 
                         def on_line(line: str) -> None:
-                            loop.call_soon_threadsafe(queue.put_nowait, line)
+                            loop.call_soon_threadsafe(queue.put_nowait, line)  # noqa: B023
 
                         async def run_bash() -> str:
                             try:
                                 return await asyncio.to_thread(
                                     self.tools.bash,
-                                    tool_call_id=tool_id,
-                                    command=command,
-                                    timeout=timeout,
+                                    tool_call_id=tool_id,  # noqa: B023
+                                    command=command,  # noqa: B023
+                                    timeout=timeout,  # noqa: B023
                                     on_output=on_line,
                                 )
                             finally:
-                                loop.call_soon_threadsafe(queue.put_nowait, None)
+                                loop.call_soon_threadsafe(queue.put_nowait, None)  # noqa: B023
 
                         task = asyncio.create_task(run_bash())
                         while True:
