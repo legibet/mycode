@@ -1,0 +1,195 @@
+"""Basic tests for SessionStore (append-only JSONL storage)."""
+
+import asyncio
+import json
+import os
+import tempfile
+from pathlib import Path
+
+import pytest
+
+from app.session import SessionStore
+
+
+@pytest.fixture
+def temp_store():
+    """Provide a SessionStore with a temp data directory."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        store = SessionStore(data_dir=Path(tmpdir))
+        yield store
+
+
+@pytest.fixture
+def sample_session(temp_store):
+    """Create a sample session for testing."""
+    return temp_store.create_session(
+        title="Test Session",
+        model="gpt-4",
+        cwd="/tmp",
+        api_base=None,
+    )
+
+
+class TestSessionStore:
+    """Tests for SessionStore CRUD operations."""
+
+    @pytest.mark.asyncio
+    async def test_create_session(self, temp_store):
+        """Session creation should set correct metadata."""
+        result = await temp_store.create_session(
+            title="My Test",
+            model="claude-sonnet-4-5",
+            cwd="/home/user/project",
+            api_base="https://api.example.com",
+        )
+
+        session = result["session"]
+        assert session["title"] == "My Test"
+        assert session["model"] == "claude-sonnet-4-5"
+        assert session["cwd"] == "/home/user/project"
+        assert session["api_base"] == "https://api.example.com"
+        assert "id" in session
+        assert "created_at" in session
+        assert "updated_at" in session
+        assert result["messages"] == []
+
+    @pytest.mark.asyncio
+    async def test_list_sessions_empty(self, temp_store):
+        """Listing sessions with no data should return empty list."""
+        sessions = await temp_store.list_sessions()
+        assert sessions == []
+
+    @pytest.mark.asyncio
+    async def test_list_sessions_with_data(self, temp_store):
+        """Listing should return sessions sorted by updated_at desc."""
+        await temp_store.create_session(title="First", model="gpt-4", cwd="/tmp", api_base=None)
+        await temp_store.create_session(title="Second", model="gpt-4", cwd="/tmp", api_base=None)
+
+        sessions = await temp_store.list_sessions()
+        assert len(sessions) == 2
+        # Should be sorted by updated_at descending (newest first)
+        assert sessions[0]["updated_at"] >= sessions[1]["updated_at"]
+
+    @pytest.mark.asyncio
+    async def test_load_session_not_found(self, temp_store):
+        """Loading non-existent session should return None."""
+        result = await temp_store.load_session("non-existent-id")
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_load_session_with_messages(self, temp_store):
+        """Loading session should restore persisted messages."""
+        # Create session
+        result = await temp_store.create_session(title="Test", model="gpt-4", cwd="/tmp", api_base=None)
+        session_id = result["session"]["id"]
+
+        # Append some messages
+        await temp_store.append_message(session_id, {"role": "user", "content": "Hello"})
+        await temp_store.append_message(session_id, {"role": "assistant", "content": "Hi there"})
+
+        # Load and verify
+        loaded = await temp_store.load_session(session_id)
+        assert loaded is not None
+        assert len(loaded["messages"]) == 2
+        assert loaded["messages"][0]["role"] == "user"
+        assert loaded["messages"][0]["content"] == "Hello"
+        assert loaded["messages"][1]["role"] == "assistant"
+
+    @pytest.mark.asyncio
+    async def test_append_message_updates_title(self, temp_store):
+        """First user message should auto-update session title."""
+        result = await temp_store.create_session(title="New chat", model="gpt-4", cwd="/tmp", api_base=None)
+        session_id = result["session"]["id"]
+
+        await temp_store.append_message(session_id, {"role": "user", "content": "How do I write a Python function?"})
+
+        loaded = await temp_store.load_session(session_id)
+        assert loaded["session"]["title"] == "How do I write a Python function?"
+
+    @pytest.mark.asyncio
+    async def test_clear_session(self, temp_store):
+        """Clearing session should remove all messages but keep meta."""
+        result = await temp_store.create_session(title="Test", model="gpt-4", cwd="/tmp", api_base=None)
+        session_id = result["session"]["id"]
+
+        await temp_store.append_message(session_id, {"role": "user", "content": "Hello"})
+        await temp_store.clear_session(session_id)
+
+        loaded = await temp_store.load_session(session_id)
+        assert loaded["messages"] == []
+        assert loaded["session"]["title"] == "Test"  # Meta preserved
+
+    @pytest.mark.asyncio
+    async def test_delete_session(self, temp_store):
+        """Deleting session should remove all files."""
+        result = await temp_store.create_session(title="Test", model="gpt-4", cwd="/tmp", api_base=None)
+        session_id = result["session"]["id"]
+
+        session_dir = temp_store.session_dir(session_id)
+        assert session_dir.exists()
+
+        await temp_store.delete_session(session_id)
+
+        assert not session_dir.exists()
+        assert await temp_store.load_session(session_id) is None
+
+    @pytest.mark.asyncio
+    async def test_get_or_create_existing(self, temp_store):
+        """get_or_create should return existing session if present."""
+        result = await temp_store.create_session(title="Test", model="gpt-4", cwd="/tmp", api_base=None)
+        session_id = result["session"]["id"]
+
+        # Call get_or_create with same ID
+        got = await temp_store.get_or_create(session_id, model="gpt-4", cwd="/tmp", api_base=None)
+        assert got["session"]["id"] == session_id
+        assert got["session"]["title"] == "Test"
+
+    @pytest.mark.asyncio
+    async def test_get_or_create_new(self, temp_store):
+        """get_or_create should create new session if ID not found."""
+        got = await temp_store.get_or_create("new-session-id", model="gpt-4", cwd="/tmp", api_base=None)
+        assert got["session"]["id"] == "new-session-id"
+
+    @pytest.mark.asyncio
+    async def test_message_storage_format(self, temp_store):
+        """Messages should be stored as valid JSONL."""
+        result = await temp_store.create_session(title="Test", model="gpt-4", cwd="/tmp", api_base=None)
+        session_id = result["session"]["id"]
+
+        msg = {"role": "user", "content": "Test message"}
+        await temp_store.append_message(session_id, msg)
+
+        # Read raw JSONL file
+        messages_path = temp_store.messages_path(session_id)
+        lines = messages_path.read_text().strip().split("\n")
+        assert len(lines) == 1
+
+        parsed = json.loads(lines[0])
+        assert parsed["role"] == "user"
+        assert parsed["content"] == "Test message"
+
+
+class TestSessionStoreEdgeCases:
+    """Edge case tests for SessionStore."""
+
+    @pytest.mark.asyncio
+    async def test_list_sessions_filtered_by_cwd(self, temp_store):
+        """Listing with cwd filter should only return matching sessions."""
+        await temp_store.create_session(title="In Project", model="gpt-4", cwd="/home/user/project", api_base=None)
+        await temp_store.create_session(title="In Home", model="gpt-4", cwd="/home/user", api_base=None)
+
+        sessions = await temp_store.list_sessions(cwd="/home/user/project")
+        assert len(sessions) == 1
+        assert sessions[0]["title"] == "In Project"
+
+    @pytest.mark.asyncio
+    async def test_append_message_creates_directories(self, temp_store):
+        """Appending to non-existent session should create directories."""
+        store = SessionStore(data_dir=temp_store.data_dir)
+        session_id = "brand-new-session"
+
+        # Session doesn't exist yet
+        await store.append_message(session_id, {"role": "user", "content": "Hello"})
+
+        assert (store.session_dir(session_id) / "tool-output").exists()
+        assert store.messages_path(session_id).exists()

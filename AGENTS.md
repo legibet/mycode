@@ -166,6 +166,11 @@ uv run python -m py_compile $(find app -name "*.py" -type f)
 
 # Frontend
 cd frontend && npm install && npm run dev
+
+# Tests
+uv run pytest tests/ -v
+uv run pytest tests/test_session.py -v
+uv run pytest tests/test_tools.py -v
 ```
 
 ---
@@ -177,7 +182,7 @@ See `TODO.md` for authoritative backlog. Priority themes:
 - session compaction for long conversations
 - stronger cancellation semantics for in-flight LLM requests
 - optional path safety policy modes
-- tests for session store + truncation
+- ~~tests for session store + truncation~~ ✓ (completed)
 - skills framework (next stage, not core now)
 
 ---
