@@ -17,7 +17,6 @@ The system prompt is loaded from system_prompt.md and is NOT persisted in sessio
 from __future__ import annotations
 
 import asyncio
-import functools
 import json
 import logging
 from collections.abc import AsyncIterator, Awaitable, Callable
@@ -182,6 +181,21 @@ class Agent:
 
         self._init_messages([])
 
+    async def _persist_message(self, message: dict[str, Any], on_persist: PersistCallback | None) -> None:
+        self.messages.append(message)
+        if on_persist:
+            await on_persist(message)
+
+    async def _record_tool_result(
+        self,
+        *,
+        tool_id: str,
+        result: str,
+        on_persist: PersistCallback | None,
+    ) -> None:
+        tool_msg = {"role": "tool", "tool_call_id": tool_id, "content": result}
+        await self._persist_message(tool_msg, on_persist)
+
     async def achat(self, user_input: str, *, on_persist: PersistCallback | None = None) -> AsyncIterator[Event]:
         """Run the agent loop for a single user message, yielding streaming events."""
 
@@ -189,9 +203,7 @@ class Agent:
 
         # Append user message
         user_msg = {"role": "user", "content": user_input}
-        self.messages.append(user_msg)
-        if on_persist:
-            await on_persist(user_msg)
+        await self._persist_message(user_msg, on_persist)
 
         for _turn in range(self.max_turns):
             if self._cancel_event.is_set():
@@ -295,9 +307,7 @@ class Agent:
             if tool_calls:
                 assistant_msg["tool_calls"] = tool_calls
 
-            self.messages.append(assistant_msg)
-            if on_persist:
-                await on_persist(assistant_msg)
+            await self._persist_message(assistant_msg, on_persist)
 
             if not tool_calls:
                 return
@@ -315,10 +325,7 @@ class Agent:
                     yield Event("tool_start", {"id": tool_id, "name": name, "args": {}})
                     result = f"error: {parsed}"
                     yield Event("tool_done", {"id": tool_id, "name": name, "result": result})
-                    tool_msg = {"role": "tool", "tool_call_id": tool_id, "content": result}
-                    self.messages.append(tool_msg)
-                    if on_persist:
-                        await on_persist(tool_msg)
+                    await self._record_tool_result(tool_id=tool_id, result=result, on_persist=on_persist)
                     continue
 
                 args = parsed
@@ -327,10 +334,7 @@ class Agent:
                 if self._cancel_event.is_set():
                     result = "error: cancelled"
                     yield Event("tool_done", {"id": tool_id, "name": name, "result": result})
-                    tool_msg = {"role": "tool", "tool_call_id": tool_id, "content": result}
-                    self.messages.append(tool_msg)
-                    if on_persist:
-                        await on_persist(tool_msg)
+                    await self._record_tool_result(tool_id=tool_id, result=result, on_persist=on_persist)
                     return
 
                 try:
@@ -398,10 +402,6 @@ class Agent:
                     result = f"error: {exc}"
 
                 yield Event("tool_done", {"id": tool_id, "name": name, "result": result})
-
-                tool_msg = {"role": "tool", "tool_call_id": tool_id, "content": result}
-                self.messages.append(tool_msg)
-                if on_persist:
-                    await on_persist(tool_msg)
+                await self._record_tool_result(tool_id=tool_id, result=result, on_persist=on_persist)
 
         yield Event("error", {"message": "max_turns reached"})
