@@ -304,6 +304,44 @@ class TestToolExecutorEdit:
             assert "closest line" in result.lower()
             assert "beta gamma" in result
 
+    def test_edit_fuzzy_matches_trailing_whitespace(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            executor = ToolExecutor(cwd=tmpdir, session_dir=Path(tmpdir))
+            test_file = Path(tmpdir) / "test.py"
+            test_file.write_text("def f():\n    return 1    \n")
+
+            result = executor.edit(
+                path="test.py",
+                oldText="def f():\n    return 1\n",
+                newText="def f():\n    return 2\n",
+            )
+
+            assert result == "ok"
+            assert test_file.read_text() == "def f():\n    return 2\n"
+
+    def test_edit_fuzzy_matches_crlf(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            executor = ToolExecutor(cwd=tmpdir, session_dir=Path(tmpdir))
+            test_file = Path(tmpdir) / "test.txt"
+            test_file.write_bytes(b"line1\r\nline2\r\n")
+
+            result = executor.edit(path="test.txt", oldText="line1\nline2\n", newText="line1\nlineX\n")
+
+            assert result == "ok"
+            assert test_file.read_text(encoding="utf-8") == "line1\nlineX\n"
+
+    def test_edit_fuzzy_requires_unique_match(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            executor = ToolExecutor(cwd=tmpdir, session_dir=Path(tmpdir))
+            test_file = Path(tmpdir) / "test.txt"
+            test_file.write_bytes(b"x  \r\nx\t\r\n")
+
+            result = executor.edit(path="test.txt", oldText="x\n", newText="y\n")
+
+            assert "error" in result.lower()
+            assert "occurs" in result.lower()
+            assert "normalization" in result.lower()
+
 
 class TestToolExecutorAbsolutePath:
     """Tests for handling absolute vs relative paths."""

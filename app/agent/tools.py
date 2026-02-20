@@ -315,17 +315,30 @@ class ToolExecutor:
         except Exception as exc:
             return f"error: failed to read file: {exc}"
 
-        if oldText not in text:
-            hint = _closest_line_hint(text, oldText)
-            if hint:
-                return f"error: oldText not found. closest line: {hint}"
-            return "error: oldText not found"
+        # Exact match first (deterministic and preferred)
+        exact_count = text.count(oldText)
+        if exact_count == 1:
+            updated = text.replace(oldText, newText, 1)
+        elif exact_count > 1:
+            return f"error: oldText occurs {exact_count} times; provide a more specific oldText"
+        else:
+            # Conservative fuzzy fallback:
+            # tolerate line-ending and trailing-whitespace differences only.
+            fuzzy_span, fuzzy_count = _find_fuzzy_edit_span(text, oldText)
+            if fuzzy_span is None:
+                if fuzzy_count > 1:
+                    return (
+                        f"error: oldText occurs {fuzzy_count} times after normalization; "
+                        "provide a more specific oldText"
+                    )
+                hint = _closest_line_hint(text, oldText)
+                if hint:
+                    return f"error: oldText not found. closest line: {hint}"
+                return "error: oldText not found"
 
-        count = text.count(oldText)
-        if count != 1:
-            return f"error: oldText occurs {count} times; provide a more specific oldText"
+            start, end = fuzzy_span
+            updated = text[:start] + newText + text[end:]
 
-        updated = text.replace(oldText, newText, 1)
         try:
             _atomic_write_text(p, updated)
         except Exception as exc:
@@ -479,3 +492,68 @@ def _closest_line_hint(text: str, needle: str) -> str | None:
     if len(best_line) > 120:
         return best_line[:117] + "..."
     return best_line
+
+
+def _find_fuzzy_edit_span(text: str, old_text: str) -> tuple[tuple[int, int] | None, int]:
+    """Find unique match span with conservative normalization.
+
+    Normalization is intentionally limited to:
+    - line ending normalization (CRLF/CR -> LF)
+    - trailing space/tab removal per line
+    """
+
+    normalized_text, text_map = _normalize_for_fuzzy_edit(text)
+    normalized_old, _ = _normalize_for_fuzzy_edit(old_text)
+
+    first = normalized_text.find(normalized_old)
+    if first == -1:
+        return None, 0
+
+    count = normalized_text.count(normalized_old)
+    if count != 1:
+        return None, count
+
+    end_normalized = first + len(normalized_old)
+    start_original = text_map[first]
+    end_original = text_map[end_normalized] if end_normalized < len(text_map) else len(text)
+    return (start_original, end_original), 1
+
+
+def _normalize_for_fuzzy_edit(text: str) -> tuple[str, list[int]]:
+    """Normalize text for conservative fuzzy edit matching.
+
+    Returns normalized text plus a map from normalized index -> original index.
+    """
+
+    chars: list[str] = []
+    index_map: list[int] = []
+
+    i = 0
+    n = len(text)
+    while i < n:
+        line_start = i
+        while i < n and text[i] not in ("\n", "\r"):
+            i += 1
+
+        line_end = i
+        trimmed_end = line_end
+        while trimmed_end > line_start and text[trimmed_end - 1] in (" ", "\t"):
+            trimmed_end -= 1
+
+        for pos in range(line_start, trimmed_end):
+            chars.append(text[pos])
+            index_map.append(pos)
+
+        if i >= n:
+            continue
+
+        # Normalize any line ending to LF and map it to the original EOL start index.
+        eol_start = i
+        if text[i] == "\r" and i + 1 < n and text[i + 1] == "\n":
+            i += 2
+        else:
+            i += 1
+        chars.append("\n")
+        index_map.append(eol_start)
+
+    return "".join(chars), index_map

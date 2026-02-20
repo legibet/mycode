@@ -74,7 +74,7 @@ Current scope is intentionally focused on a robust core + web/CLI usability.
   - Implements `ToolExecutor` for `read/write/edit/bash`.
   - Includes truncation limits and large-output handling.
   - `bash` spills very large output to `tool-output/bash-<tool_call_id>.log` once memory threshold is exceeded, while still streaming lines.
-  - `edit` remains exact-match-only, but returns a closest-line hint when `oldText` is missing.
+  - `edit` uses exact-match first; if not found, it applies a conservative fuzzy fallback (line-ending + trailing-whitespace normalization only, unique match required), then returns closest-line hints when still unmatched.
 
 - `app/agent/system_prompt.md`
   - Canonical prompt guidance.
@@ -144,10 +144,11 @@ Do not break these types without coordinated frontend updates.
    - For large bash outputs, store full output in `tool-output/` and return actionable pointer.
    - For very large live outputs, switch from in-memory buffering to spill-to-file mode.
 
-4. **Exact-match edit semantics**
-   - `edit` fails unless `oldText` matches exactly once.
-   - This is intentional for deterministic edits.
-   - If no exact match exists, return a closest-line hint to speed up retry.
+4. **Deterministic edit semantics with conservative fallback**
+   - `edit` still prefers exact unique matches.
+   - If exact match fails, only line-ending/trailing-whitespace normalization is allowed.
+   - Fuzzy fallback must still resolve to a unique match; otherwise it fails.
+   - If no match exists, return a closest-line hint to speed up retry.
 
 5. **Tool cancellation semantics**
    - Cancelling during `bash` actively terminates subprocesses.
