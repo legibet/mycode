@@ -293,6 +293,17 @@ class TestToolExecutorEdit:
             assert "error" in result.lower()
             assert "not found" in result.lower()
 
+    def test_edit_not_found_includes_closest_hint(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            executor = ToolExecutor(cwd=tmpdir, session_dir=Path(tmpdir))
+            test_file = Path(tmpdir) / "test.txt"
+            test_file.write_text("alpha\nbeta gamma\ndelta")
+
+            result = executor.edit(path="test.txt", oldText="beta gamam", newText="replacement")
+            assert "error" in result.lower()
+            assert "closest line" in result.lower()
+            assert "beta gamma" in result
+
 
 class TestToolExecutorAbsolutePath:
     """Tests for handling absolute vs relative paths."""

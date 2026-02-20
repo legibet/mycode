@@ -91,6 +91,14 @@ class TestBashTimeout:
             assert "fast" in result
             assert "timeout" not in result.lower()
 
+    def test_bash_zero_timeout_falls_back_to_default(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            executor = ToolExecutor(cwd=tmpdir, session_dir=Path(tmpdir))
+            result = executor.bash(tool_call_id="test-zero-timeout", command="echo ok", timeout=0)
+
+            assert "ok" in result
+            assert "timeout" not in result.lower()
+
 
 class TestBashTruncation:
     """Tests for bash output truncation."""
