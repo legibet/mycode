@@ -28,7 +28,7 @@ from uuid import uuid4
 
 from any_llm import acompletion
 
-from app.agent.tools import TOOLS, ToolExecutor, parse_tool_arguments
+from app.agent.tools import TOOLS, ToolExecutor, cancel_all_tools, parse_tool_arguments
 
 logger = logging.getLogger(__name__)
 
@@ -347,10 +347,13 @@ class Agent:
                         loop = asyncio.get_running_loop()
                         queue: asyncio.Queue[str | None] = asyncio.Queue()
 
-                        on_output: Callable[[str], None] = functools.partial(
-                            loop.call_soon_threadsafe,
-                            queue.put_nowait,
-                        )
+                        def on_output(
+                            line: str,
+                            _loop: asyncio.AbstractEventLoop = loop,
+                            _queue: asyncio.Queue[str | None] = queue,
+                        ) -> None:
+                            _loop.call_soon_threadsafe(_queue.put_nowait, line)
+
                         task = asyncio.create_task(
                             _run_bash_to_queue(
                                 self.tools,
@@ -361,13 +364,34 @@ class Agent:
                                 on_output=on_output,
                             )
                         )
+
+                        cancelled = False
                         while True:
-                            item = await queue.get()
+                            if self._cancel_event.is_set() and not cancelled:
+                                cancelled = True
+                                cancel_all_tools()
+
+                            try:
+                                item = await asyncio.wait_for(queue.get(), timeout=0.1)
+                            except TimeoutError:
+                                if task.done():
+                                    break
+                                continue
+
                             if item is None:
                                 break
-                            yield Event("tool_output", {"id": tool_id, "name": name, "content": item})
 
-                        result = await task
+                            if not cancelled:
+                                yield Event("tool_output", {"id": tool_id, "name": name, "content": item})
+
+                        if cancelled:
+                            try:
+                                await task
+                            except Exception:
+                                pass
+                            result = "error: cancelled"
+                        else:
+                            result = await task
                     else:
                         result = f"error: unknown tool: {name}"
                 except Exception as exc:
