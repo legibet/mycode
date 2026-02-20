@@ -25,7 +25,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from difflib import SequenceMatcher
 from pathlib import Path
-from typing import Any
+from typing import Any, TextIO
 
 # ---------------------------------------------------------------------------
 # Limits (keep token usage low)
@@ -188,6 +188,19 @@ def resolve_path(path: str, *, cwd: str) -> str:
     return str(p.resolve(strict=False))
 
 
+def _atomic_write_text(path: Path, content: str) -> None:
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(content, encoding="utf-8")
+    tmp.replace(path)
+
+
+def _full_output_note(path: Path | None, *, in_memory: bool) -> str:
+    note = "\n\n[Output truncated in memory.]" if in_memory else "\n\n[Output truncated.]"
+    if path is not None:
+        note += f" Full output saved to: {path} (use read)."
+    return note
+
+
 # ---------------------------------------------------------------------------
 # Execution
 # ---------------------------------------------------------------------------
@@ -282,9 +295,7 @@ class ToolExecutor:
         p = Path(abs_path)
         try:
             p.parent.mkdir(parents=True, exist_ok=True)
-            tmp = p.with_suffix(p.suffix + ".tmp")
-            tmp.write_text(content, encoding="utf-8")
-            tmp.replace(p)
+            _atomic_write_text(p, content)
         except Exception as exc:
             return f"error: failed to write file: {exc}"
         return "ok"
@@ -316,9 +327,7 @@ class ToolExecutor:
 
         updated = text.replace(oldText, newText, 1)
         try:
-            tmp = p.with_suffix(p.suffix + ".tmp")
-            tmp.write_text(updated, encoding="utf-8")
-            tmp.replace(p)
+            _atomic_write_text(p, updated)
         except Exception as exc:
             return f"error: failed to write file: {exc}"
 
@@ -343,7 +352,7 @@ class ToolExecutor:
         out_bytes = 0
         tail_lines: deque[str] = deque(maxlen=DEFAULT_MAX_LINES)
         full_path: Path | None = None
-        full_file = None
+        full_file: TextIO | None = None
         spilled_to_file = False
 
         try:
@@ -400,10 +409,7 @@ class ToolExecutor:
             content, trunc = truncate_text(output)
 
             if spilled_to_file:
-                note = "\n\n[Output truncated in memory.]"
-                if full_path is not None:
-                    note += f" Full output saved to: {full_path} (use read)."
-                return content + note
+                return content + _full_output_note(full_path, in_memory=True)
 
             if trunc.truncated:
                 # Write full output to session file for later read
@@ -413,10 +419,7 @@ class ToolExecutor:
                 except Exception:
                     full_path = None
 
-                note = "\n\n[Output truncated.]"
-                if full_path is not None:
-                    note += f" Full output saved to: {full_path} (use read)."
-                return content + note
+                return content + _full_output_note(full_path, in_memory=False)
 
             return content
 
