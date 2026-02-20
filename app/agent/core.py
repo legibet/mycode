@@ -100,7 +100,7 @@ class Agent:
         api_key: str | None = None,
         api_base: str | None = None,
         messages: list[dict[str, Any]] | None = None,
-        max_turns: int = 10,
+        max_turns: int = 20,
         max_tokens: int = 8192,
     ):
         self.model = model

@@ -3,7 +3,10 @@
  * Allows browsing and selecting a working directory.
  */
 
+import { CornerUpLeft, Folder, Search } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
+import { createPortal } from 'react-dom'
+import { cn } from '../utils/cn'
 import { Button } from './UI/Button'
 import { Input } from './UI/Input'
 
@@ -37,7 +40,7 @@ const rootLabel = (value) => {
   return parts[parts.length - 1] || value
 }
 
-export function WorkspacePicker({ open, onClose, currentCwd, cwdHistory, onSelect }) {
+export function WorkspacePicker({ open, onClose, currentCwd, onSelect }) {
   const [state, setState] = useState({
     roots: [],
     root: '',
@@ -155,145 +158,189 @@ export function WorkspacePicker({ open, onClose, currentCwd, cwdHistory, onSelec
 
   if (!open) return null
 
-  return (
-    <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 p-4">
-      <div className="w-full max-w-3xl rounded-lg border border-input bg-background shadow-lg">
+  return createPortal(
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+      {/* Backdrop */}
+      {/* biome-ignore lint/a11y/useKeyWithClickEvents: Backdrop does not need keyboard events. */}
+      {/* biome-ignore lint/a11y/noStaticElementInteractions: Backdrop needs click to close modal. */}
+      <div
+        className="absolute inset-0 bg-background/80 backdrop-blur-sm transition-opacity"
+        onClick={onClose}
+        aria-hidden="true"
+      />
+
+      {/* Modal Dialog */}
+      <div className="relative flex max-h-[85vh] h-[650px] w-full max-w-3xl flex-col overflow-hidden rounded-xl border border-border/50 bg-background shadow-2xl">
         {/* Header */}
-        <div className="flex items-center justify-between border-b px-4 py-3">
+        <div className="flex shrink-0 items-center justify-between border-b border-border/50 bg-muted/20 px-6 py-4">
           <div>
-            <div className="text-sm font-semibold">Select workspace folder</div>
-            <p className="text-[10px] text-muted-foreground">Pick any folder on the server</p>
+            <h2 className="text-lg font-semibold tracking-tight">Select Workspace</h2>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Browse your file system and select a working directory
+            </p>
           </div>
-          <Button size="sm" variant="ghost" onClick={onClose}>
-            Close
+          <Button variant="ghost" size="sm" onClick={onClose} className="hidden sm:inline-flex">
+            Cancel
           </Button>
         </div>
 
-        {/* Body */}
-        <div className="grid gap-4 p-4 md:grid-cols-[180px_1fr]">
-          {/* Left: Places & Recent */}
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Places</div>
-              <div className="space-y-1">
-                {state.roots.map((root) => (
-                  <Button
-                    key={root}
-                    variant={root === state.root ? 'secondary' : 'outline'}
-                    size="sm"
-                    onClick={() => browsePath(root, '')}
-                    className="w-full justify-start"
-                  >
-                    <span className="truncate">{rootLabel(root)}</span>
-                  </Button>
-                ))}
-              </div>
-            </div>
-            <div className="space-y-2">
-              <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Recent</div>
-              <div className="space-y-1">
-                {(cwdHistory || []).length === 0 && (
-                  <span className="text-[10px] text-muted-foreground">No recent folders</span>
-                )}
-                {(cwdHistory || []).map((item) => (
-                  <Button
-                    key={item}
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => goToPath(item)}
-                    className="w-full justify-start"
-                  >
-                    <span className="truncate">{item}</span>
-                  </Button>
-                ))}
-              </div>
-            </div>
-          </div>
-
-          {/* Right: Browser */}
-          <div className="space-y-3">
-            {/* Path input */}
-            <div className="space-y-2">
-              <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Path</div>
+        {/* Layout Body */}
+        <div className="flex flex-1 min-h-0 bg-background">
+          <div className="flex flex-1 flex-col min-w-0">
+            {/* Toolbar Area */}
+            <div className="shrink-0 space-y-4 border-b border-border/50 p-6 bg-muted/5">
+              {/* Path Input Box */}
               <div className="flex gap-2">
-                <Input
-                  value={pathInput}
-                  onChange={(e) => setPathInput(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && goToPath(pathInput)}
-                  placeholder="/path/to/folder"
-                  className="font-mono text-xs"
-                />
-                <Button size="sm" variant="outline" onClick={() => goToPath(pathInput)}>
-                  Go
+                <Button
+                  size="icon"
+                  variant="outline"
+                  className="h-10 w-10 shrink-0 border-border/50 shadow-sm"
+                  onClick={handleGoParent}
+                  disabled={!state.root}
+                  title="Go Up"
+                >
+                  <CornerUpLeft className="h-4 w-4" />
                 </Button>
-                <Button size="sm" variant="outline" onClick={handleGoParent} disabled={!state.root}>
-                  Up
-                </Button>
+                <div className="relative flex-1 group">
+                  <Input
+                    value={pathInput}
+                    onChange={(e) => setPathInput(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && goToPath(pathInput)}
+                    placeholder="Type an absolute or relative path..."
+                    className="h-10 pr-16 font-mono text-sm border-border/50 bg-background focus-visible:ring-primary/20 shadow-sm transition-all"
+                  />
+                  <div className="absolute inset-y-0 right-1 flex items-center pr-1">
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => goToPath(pathInput)}
+                      className="h-7 text-xs font-semibold hover:bg-muted text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity"
+                    >
+                      GO
+                    </Button>
+                  </div>
+                </div>
               </div>
 
               {/* Breadcrumbs */}
-              <div className="flex flex-wrap items-center gap-1 text-xs text-foreground">
-                <Button variant="ghost" size="sm" onClick={() => browsePath(state.root, '')} disabled={!state.root}>
-                  {rootLabel(state.root || 'root')}
-                </Button>
+              <div className="flex h-6 flex-wrap items-center gap-1.5 overflow-hidden text-sm">
+                <select
+                  value={state.root || ''}
+                  onChange={(e) => browsePath(e.target.value, '')}
+                  disabled={!state.root || state.roots.length <= 1}
+                  className={cn(
+                    'bg-transparent font-medium focus:outline-none cursor-pointer max-w-[150px] truncate outline-none',
+                    state.roots.length > 1
+                      ? 'hover:text-primary text-muted-foreground'
+                      : 'text-muted-foreground appearance-none'
+                  )}
+                  title={state.root}
+                >
+                  {state.roots.map((root) => (
+                    <option key={root} value={root}>
+                      {rootLabel(root)}
+                    </option>
+                  ))}
+                </select>
                 {pathSegments.map((segment, index) => {
                   const crumbPath = pathSegments.slice(0, index + 1).join('/')
                   return (
-                    <div key={crumbPath} className="flex items-center gap-1">
-                      <span className="text-muted-foreground">/</span>
-                      <Button variant="ghost" size="sm" onClick={() => browsePath(state.root, crumbPath)}>
+                    <div key={crumbPath} className="flex items-center gap-1.5">
+                      <span className="text-muted-foreground/40 font-semibold">/</span>
+                      <button
+                        type="button"
+                        onClick={() => browsePath(state.root, crumbPath)}
+                        className={cn(
+                          'transition-colors hover:underline',
+                          index === pathSegments.length - 1
+                            ? 'text-foreground font-semibold'
+                            : 'hover:text-primary text-muted-foreground font-medium'
+                        )}
+                      >
                         {segment}
-                      </Button>
+                      </button>
                     </div>
                   )
                 })}
               </div>
-              <p className="text-[10px] text-muted-foreground break-all">{state.current || 'Select a folder'}</p>
             </div>
 
-            {/* Folder list */}
-            <div className="space-y-2">
-              <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Folders</div>
-              <Input
-                value={filter}
-                onChange={(e) => setFilter(e.target.value)}
-                placeholder="Filter folders"
-                className="text-xs"
-              />
-              <p className="text-[10px] text-muted-foreground">Hidden folders are excluded.</p>
-              <div className="max-h-56 overflow-y-auto rounded-md border border-input bg-background/70">
-                {state.loading && <div className="px-3 py-2 text-xs text-muted-foreground">Loading...</div>}
+            {/* Folder List Window */}
+            <div className="flex flex-1 flex-col overflow-hidden">
+              <div className="flex items-center justify-between border-b border-border/50 bg-muted/10 px-6 py-2">
+                <div className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Directories</div>
+                <div className="relative">
+                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground/50" />
+                  <Input
+                    value={filter}
+                    onChange={(e) => setFilter(e.target.value)}
+                    placeholder="Filter..."
+                    className="h-7 w-48 pl-8 text-xs bg-background/50 border-transparent hover:border-border/50 focus:border-border/50 focus:ring-0 shadow-none transition-all"
+                  />
+                </div>
+              </div>
+
+              <div className="flex-1 overflow-y-auto p-3 outline-none">
+                {state.loading && (
+                  <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+                    Loading contents...
+                  </div>
+                )}
                 {!state.loading && state.error && (
-                  <div className="px-3 py-2 text-xs text-destructive">{state.error}</div>
+                  <div className="flex h-full items-center justify-center text-sm text-destructive">{state.error}</div>
                 )}
                 {!state.loading && !state.error && filteredEntries.length === 0 && (
-                  <div className="px-3 py-2 text-xs text-muted-foreground">No folders</div>
+                  <div className="flex flex-col h-full items-center justify-center text-muted-foreground gap-3">
+                    <Folder className="h-10 w-10 opacity-20" />
+                    <p className="text-sm">This folder is empty.</p>
+                  </div>
                 )}
-                {!state.loading &&
-                  !state.error &&
-                  filteredEntries.map((entry) => (
-                    <button
-                      type="button"
-                      key={entry.path}
-                      className="flex w-full items-center px-3 py-2 text-left text-xs hover:bg-muted/60 transition-colors"
-                      onClick={() => browsePath(state.root, entry.path)}
-                    >
-                      <span className="truncate">{entry.name}</span>
-                    </button>
-                  ))}
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {!state.loading &&
+                    !state.error &&
+                    filteredEntries.map((entry) => (
+                      <button
+                        type="button"
+                        key={entry.path}
+                        onClick={() => browsePath(state.root, entry.path)}
+                        className="group flex items-center gap-3 rounded-xl border border-transparent p-3 text-left transition-all hover:border-border/50 hover:bg-muted/30 focus:outline-none focus:ring-2 focus:ring-primary/20"
+                      >
+                        <Folder className="h-5 w-5 fill-muted-foreground/20 text-muted-foreground group-hover:fill-primary/20 group-hover:text-primary transition-colors" />
+                        <span className="truncate text-sm font-medium text-foreground/90 group-hover:text-foreground">
+                          {entry.name}
+                        </span>
+                      </button>
+                    ))}
+                </div>
               </div>
             </div>
           </div>
         </div>
 
-        {/* Footer */}
-        <div className="flex items-center justify-between border-t px-4 py-3">
-          <Button size="sm" onClick={handleSelect} disabled={!state.current}>
-            Use this folder
-          </Button>
-          <div className="text-[10px] text-muted-foreground">Apply to current chat</div>
+        {/* Footer Actions */}
+        <div className="flex shrink-0 items-center justify-between border-t border-border/50 bg-muted/10 px-6 py-4">
+          <div className="flex items-center gap-2 max-w-[50%]">
+            <span className="text-xs text-muted-foreground">Selected target:</span>
+            <span className="text-xs font-mono font-medium truncate bg-background px-2 py-1 rounded-md border border-border/50 shadow-sm">
+              {state.current || 'None'}
+            </span>
+          </div>
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={onClose} className="sm:hidden">
+              Cancel
+            </Button>
+            <Button
+              onClick={handleSelect}
+              disabled={!state.current}
+              className="px-8 shadow-sm font-semibold rounded-lg"
+            >
+              Open Workspace
+            </Button>
+          </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   )
 }

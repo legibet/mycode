@@ -66,11 +66,15 @@ Current scope is intentionally focused on a robust core + web/CLI usability.
   - Aggregates streamed tool calls by `delta.tool_calls[].index`.
   - Persists user/assistant/tool messages (system prompt is runtime-only).
   - Handles interrupted previous tool-calls with synthetic tool errors.
+  - Uses shared persistence helpers to keep message writes consistent and reduce loop duplication.
+  - Supports active cancellation while a `bash` tool call is running (kills subprocesses and returns `error: cancelled`).
 
 - `app/agent/tools.py`
   - Defines OpenAI-compatible tool schemas (`TOOLS`).
   - Implements `ToolExecutor` for `read/write/edit/bash`.
   - Includes truncation limits and large-output handling.
+  - `bash` spills very large output to `tool-output/bash-<tool_call_id>.log` once memory threshold is exceeded, while still streaming lines.
+  - `edit` remains exact-match-only, but returns a closest-line hint when `oldText` is missing.
 
 - `app/agent/system_prompt.md`
   - Canonical prompt guidance.
@@ -138,19 +142,23 @@ Do not break these types without coordinated frontend updates.
 3. **Truncation-first tool outputs**
    - Keep context lean.
    - For large bash outputs, store full output in `tool-output/` and return actionable pointer.
+   - For very large live outputs, switch from in-memory buffering to spill-to-file mode.
 
 4. **Exact-match edit semantics**
    - `edit` fails unless `oldText` matches exactly once.
    - This is intentional for deterministic edits.
+   - If no exact match exists, return a closest-line hint to speed up retry.
+
+5. **Tool cancellation semantics**
+   - Cancelling during `bash` actively terminates subprocesses.
+   - Agent records a deterministic `error: cancelled` tool result.
 
 ---
 
 ## 7) Development Conventions
 
 - Python runtime/deps: **uv only**.
-- Do not use `pip` directly.
 - Keep modules small, typed, and documented.
-- Prefer pure stdlib where practical.
 
 ### Common commands
 
@@ -165,7 +173,7 @@ uv run python cli.py
 uv run python -m py_compile $(find app -name "*.py" -type f)
 
 # Frontend
-cd frontend && npm install && npm run dev
+cd frontend && npm install && npm run build
 
 # Tests
 uv run pytest tests/ -v
@@ -180,7 +188,7 @@ uv run pytest tests/test_tools.py -v
 See `TODO.md` for authoritative backlog. Priority themes:
 
 - session compaction for long conversations
-- stronger cancellation semantics for in-flight LLM requests
+- stronger cancellation semantics for in-flight LLM requests (tool-side cancellation is implemented; upstream model-call interruption is still best-effort)
 - optional path safety policy modes
 - ~~tests for session store + truncation~~ ✓ (completed)
 - skills framework (next stage, not core now)
