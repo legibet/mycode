@@ -20,10 +20,12 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+from collections import deque
+from collections.abc import Callable
 from dataclasses import dataclass
+from difflib import SequenceMatcher
 from pathlib import Path
-from typing import Any, Callable
-
+from typing import Any
 
 # ---------------------------------------------------------------------------
 # Limits (keep token usage low)
@@ -33,6 +35,7 @@ DEFAULT_MAX_LINES = 2000
 DEFAULT_MAX_BYTES = 50 * 1024
 
 BASH_TIMEOUT_SECONDS = 120
+_BASH_MAX_IN_MEMORY_BYTES = 5_000_000
 
 
 # ---------------------------------------------------------------------------
@@ -45,8 +48,7 @@ TOOLS: list[dict[str, Any]] = [
         "function": {
             "name": "read",
             "description": (
-                "Read a file. Text output is truncated to 2000 lines or 50KB. "
-                "Use offset/limit to read large files."
+                "Read a file. Text output is truncated to 2000 lines or 50KB. Use offset/limit to read large files."
             ),
             "parameters": {
                 "type": "object",
@@ -81,8 +83,7 @@ TOOLS: list[dict[str, Any]] = [
         "function": {
             "name": "edit",
             "description": (
-                "Edit a file by replacing an exact oldText snippet with newText. "
-                "oldText must match exactly."
+                "Edit a file by replacing an exact oldText snippet with newText. oldText must match exactly."
             ),
             "parameters": {
                 "type": "object",
@@ -139,7 +140,9 @@ class Truncation:
     output_bytes: int
 
 
-def truncate_text(text: str, *, max_lines: int = DEFAULT_MAX_LINES, max_bytes: int = DEFAULT_MAX_BYTES) -> tuple[str, Truncation]:
+def truncate_text(
+    text: str, *, max_lines: int = DEFAULT_MAX_LINES, max_bytes: int = DEFAULT_MAX_BYTES
+) -> tuple[str, Truncation]:
     """Truncate text by both line and byte limits.
 
     Returns (content, truncation).
@@ -302,6 +305,9 @@ class ToolExecutor:
             return f"error: failed to read file: {exc}"
 
         if oldText not in text:
+            hint = _closest_line_hint(text, oldText)
+            if hint:
+                return f"error: oldText not found. closest line: {hint}"
             return "error: oldText not found"
 
         count = text.count(oldText)
@@ -328,10 +334,17 @@ class ToolExecutor:
         timeout: int | None = None,
         on_output: ToolOutputCallback | None = None,
     ) -> str:
-        timeout = timeout or BASH_TIMEOUT_SECONDS
+        timeout = int(timeout or BASH_TIMEOUT_SECONDS)
+        if timeout <= 0:
+            timeout = BASH_TIMEOUT_SECONDS
 
         proc: subprocess.Popen[str] | None = None
         out_lines: list[str] = []
+        out_bytes = 0
+        tail_lines: deque[str] = deque(maxlen=DEFAULT_MAX_LINES)
+        full_path: Path | None = None
+        full_file = None
+        spilled_to_file = False
 
         try:
             proc = subprocess.Popen(
@@ -353,14 +366,28 @@ class ToolExecutor:
                 if line == "" and proc.poll() is not None:
                     break
                 line = line.rstrip("\n")
-                out_lines.append(line)
+                line_bytes = len((line + "\n").encode("utf-8"))
+                out_bytes += line_bytes
+
+                if spilled_to_file:
+                    tail_lines.append(line)
+                    assert full_file is not None
+                    full_file.write(line)
+                    full_file.write("\n")
+                else:
+                    out_lines.append(line)
+                    if out_bytes > _BASH_MAX_IN_MEMORY_BYTES:
+                        full_path = self.session_dir / "tool-output" / f"bash-{tool_call_id}.log"
+                        full_file = full_path.open("w", encoding="utf-8")
+                        if out_lines:
+                            full_file.write("\n".join(out_lines))
+                            full_file.write("\n")
+                            tail_lines.extend(out_lines)
+                        out_lines = []
+                        spilled_to_file = True
+
                 if on_output:
                     on_output(line)
-
-                # Soft limit for in-memory accumulation
-                if sum(len(x) for x in out_lines) > 5_000_000:
-                    out_lines.append("[... output truncated in memory ...]")
-                    break
 
             try:
                 proc.wait(timeout=timeout)
@@ -368,8 +395,15 @@ class ToolExecutor:
                 proc.kill()
                 return f"error: timeout after {timeout}s"
 
-            output = "\n".join(out_lines).strip() or "(empty)"
+            output_lines = list(tail_lines) if spilled_to_file else out_lines
+            output = "\n".join(output_lines).strip() or "(empty)"
             content, trunc = truncate_text(output)
+
+            if spilled_to_file:
+                note = "\n\n[Output truncated in memory.]"
+                if full_path is not None:
+                    note += f" Full output saved to: {full_path} (use read)."
+                return content + note
 
             if trunc.truncated:
                 # Write full output to session file for later read
@@ -389,6 +423,11 @@ class ToolExecutor:
         except Exception as exc:
             return f"error: {exc}"
         finally:
+            if full_file is not None:
+                try:
+                    full_file.close()
+                except Exception:
+                    pass
             if proc:
                 _ACTIVE_PROCS.discard(proc)
                 if proc.poll() is None:
@@ -413,3 +452,27 @@ def parse_tool_arguments(raw: str | None) -> dict[str, Any] | str:
     if not isinstance(obj, dict):
         return "tool arguments must be a JSON object"
     return obj
+
+
+def _closest_line_hint(text: str, needle: str) -> str | None:
+    needle_clean = needle.strip()
+    if not needle_clean:
+        return None
+
+    best_ratio = 0.0
+    best_line = ""
+    for line in text.splitlines():
+        candidate = line.strip()
+        if not candidate:
+            continue
+        ratio = SequenceMatcher(None, needle_clean, candidate).ratio()
+        if ratio > best_ratio:
+            best_ratio = ratio
+            best_line = candidate
+
+    if best_ratio < 0.6 or not best_line:
+        return None
+
+    if len(best_line) > 120:
+        return best_line[:117] + "..."
+    return best_line
