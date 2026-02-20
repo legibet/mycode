@@ -45,6 +45,47 @@ def _tool_preview(args: dict) -> str:
     return value[:60] + "…" if len(value) > 60 else value
 
 
+async def run_once(agent: Agent, *, store: SessionStore, session_id: str, message: str) -> int:
+    async def on_persist(payload: dict) -> None:
+        await store.append_message(session_id, payload)
+
+    exit_code = 0
+
+    async for event in agent.achat(message, on_persist=on_persist):
+        if event.type == "text":
+            chunk = event.data.get("content", "")
+            if chunk:
+                console.print(chunk, end="")
+        elif event.type == "tool_start":
+            name = event.data.get("name", "")
+            args = event.data.get("args") or {}
+            preview = _tool_preview(args)
+            label = Text()
+            label.append("\n▸ ", style="dim")
+            label.append(name, style="cyan bold")
+            if preview:
+                label.append(f"  {preview}", style="dim")
+            console.print(label)
+        elif event.type == "tool_output":
+            line = event.data.get("content", "")
+            if line:
+                console.print(f"  [dim]{line}[/dim]")
+        elif event.type == "tool_done":
+            result = event.data.get("result", "")
+            first = (result.splitlines() or [""])[0][:120]
+            if result.startswith("error"):
+                exit_code = 1
+                console.print(f"  [red]✗[/red] {first}")
+            else:
+                console.print(f"  [dim]↳ {first}[/dim]")
+        elif event.type == "error":
+            exit_code = 1
+            console.print(f"\n[red bold]Error:[/red bold] {event.data.get('message', '')}")
+
+    console.print()
+    return exit_code
+
+
 async def chat_loop(agent: Agent, *, store: SessionStore, session_id: str) -> None:
     session: PromptSession = PromptSession(history=FileHistory(_HISTORY_FILE))
 
@@ -189,6 +230,8 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="mycode CLI")
     parser.add_argument("--provider", metavar="NAME", help="Provider name from config.json")
     parser.add_argument("--model", metavar="MODEL", help="Model name (overrides config default)")
+    parser.add_argument("--session", metavar="ID", help="Session id (default: per-cwd hash)")
+    parser.add_argument("--once", metavar="MESSAGE", help="Run one prompt and exit")
     args = parser.parse_args()
 
     settings = get_settings()
@@ -212,7 +255,7 @@ def main() -> None:
 
     cwd = os.getcwd()
     store = SessionStore()
-    session_id = hashlib.sha1(cwd.encode()).hexdigest()[:12]
+    session_id = args.session or hashlib.sha1(cwd.encode()).hexdigest()[:12]
 
     data = asyncio.run(store.get_or_create(session_id, model=model, cwd=cwd, api_base=api_base))
     messages = data.get("messages") or []
@@ -240,6 +283,10 @@ def main() -> None:
     header.append(cwd, style="dim")
     console.print(header)
     console.print("[dim]/h help  /c clear  /q quit  /model <name>  /history  Ctrl-C cancel[/dim]")
+
+    if args.once:
+        code = asyncio.run(run_once(agent, store=store, session_id=session_id, message=args.once))
+        raise SystemExit(code)
 
     asyncio.run(chat_loop(agent, store=store, session_id=session_id))
 
