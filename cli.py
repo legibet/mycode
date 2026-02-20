@@ -81,8 +81,38 @@ async def chat_loop(agent: Agent, *, store: SessionStore, session_id: str) -> No
 
         if user_input in ("/h", "/help"):
             console.print(
-                "[dim]/c[/dim]  clear conversation\n[dim]/q[/dim]  quit\n[dim]Ctrl-C[/dim]  cancel current request"
+                "[dim]/c[/dim]  clear conversation\n"
+                "[dim]/q[/dim]  quit\n"
+                "[dim]/model <name>[/dim]  switch model\n"
+                "[dim]/history[/dim]  show last messages\n"
+                "[dim]Ctrl-C[/dim]  cancel current request"
             )
+            continue
+
+        if user_input.startswith("/model "):
+            new_model = user_input[len("/model ") :].strip()
+            if not new_model:
+                console.print("[red]Usage:[/red] /model <name>")
+                continue
+            agent.model = new_model
+            console.print(f"[green]✓[/green] Model switched to [cyan]{new_model}[/cyan]")
+            continue
+
+        if user_input == "/history":
+            recent = [m for m in agent.messages if m.get("role") in {"user", "assistant"}][-10:]
+            if not recent:
+                console.print("[dim](no messages)[/dim]")
+                continue
+
+            for i, msg in enumerate(recent, 1):
+                role = msg.get("role", "unknown")
+                content = str(msg.get("content") or "").replace("\n", " ").strip()
+                preview = content[:80] + ("…" if len(content) > 80 else "")
+                console.print(f"[dim]{i:>2}[/dim] [{role}] {preview or '(tool-only message)'}")
+            continue
+
+        if user_input.startswith("/"):
+            console.print("[red]Unknown command.[/red] Try [dim]/h[/dim].")
             continue
 
         console.print(Rule(style="dim"))
@@ -209,7 +239,7 @@ def main() -> None:
     header.append("  ")
     header.append(cwd, style="dim")
     console.print(header)
-    console.print("[dim]/h help  /c clear  /q quit  Ctrl-C cancel[/dim]")
+    console.print("[dim]/h help  /c clear  /q quit  /model <name>  /history  Ctrl-C cancel[/dim]")
 
     asyncio.run(chat_loop(agent, store=store, session_id=session_id))
 
