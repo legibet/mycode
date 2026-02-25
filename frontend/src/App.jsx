@@ -1,6 +1,7 @@
 /**
  * Main application component.
  * Composes sidebar, chat interface, and theme provider.
+ * Adds gradient fade mask above input area.
  */
 
 import { useEffect, useState } from 'react'
@@ -16,19 +17,17 @@ function AppContent() {
   const [config, setConfig] = useState(loadConfig)
   const [input, setInput] = useState('')
   const [cwdHistory, setCwdHistory] = useState(loadHistory)
-  const [remoteConfig, setRemoteConfig] = useState(null) // providers from /api/config
+  const [remoteConfig, setRemoteConfig] = useState(null)
   const { theme, setTheme } = useTheme()
 
   const { messages, loading, sessions, activeSession, send, cancel, createSession, selectSession, deleteSession } =
     useChat(config)
 
-  // Fetch server-side provider config once on mount
   useEffect(() => {
     fetch('/api/config')
       .then((r) => r.json())
       .then((data) => {
         setRemoteConfig(data)
-        // If no provider is selected yet, apply server default
         setConfig((prev) => {
           if (prev.provider || !data.default?.provider) return prev
           const updated = {
@@ -40,7 +39,7 @@ function AppContent() {
           return updated
         })
       })
-      .catch(() => {}) // non-fatal; UI still works without it
+      .catch(() => {})
   }, [])
 
   const handleConfigUpdate = (newConfig) => {
@@ -81,9 +80,13 @@ function AppContent() {
           setTheme={setTheme}
         />
 
-        <main className="flex min-w-0 flex-1 flex-col bg-background">
+        <main className="flex min-w-0 flex-1 flex-col bg-background relative">
           <MessageList messages={messages} loading={loading} />
-          <div className="shrink-0 pb-6 pt-2">
+
+          {/* Gradient fade above input */}
+          <div className="pointer-events-none absolute bottom-0 left-0 right-0 h-24 bg-gradient-to-t from-background via-background/80 to-transparent" />
+
+          <div className="shrink-0 relative z-10 pb-4 pt-1">
             <InputArea input={input} setInput={setInput} loading={loading} onSend={handleSend} onCancel={cancel} />
           </div>
         </main>

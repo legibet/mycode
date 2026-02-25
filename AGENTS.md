@@ -103,13 +103,57 @@ app/data/sessions/<session_id>/
 ## 4) Frontend Architecture
 
 - React + Vite (`frontend/`)
-- Core chat logic:
-  - `frontend/src/hooks/useChat.js`
-    - Streams SSE from `/api/chat`
-    - Applies events (`text`, `tool_start`, `tool_output`, `tool_done`, `error`)
-    - Manages session CRUD calls
-  - `frontend/src/utils/messages.js`
-    - Transforms provider message format into UI message parts
+- Styling: Tailwind CSS 3 with CSS custom properties (HSL tokens)
+- Design system: **Terminal-Luxe Deep Ocean** — dark-first, minimal, content-focused
+
+### Design Language
+
+- **Fonts**: Satoshi (body/sans), DM Mono (display/code/labels) — loaded via Google Fonts
+- **Color scheme (dark default)**:
+  - Background: `#0A1628` (deep navy), Foreground: `#D4DEE8` (cool silver)
+  - Accent: `#5BA4CF` (ice blue) — used for focus states, active indicators, send button, streaming cursor
+  - Sidebar: `#060F1E` (deeper navy layer)
+- **Color scheme (light)**:
+  - Background: `#F3F6FA` (pale frost), Accent: `#297AB0` (deeper blue)
+- **Theme switching**: `:root` = dark (default), `.light` class = light mode. No `.dark` class needed.
+- **Key visual patterns**:
+  - Messages use left-border role indicators (2px line) instead of avatar circles
+  - Role labels are monospace uppercase (`you` / `assistant`)
+  - ToolCard collapsed state: tool name + args preview + status dot (green/amber/red)
+  - ToolCard running state: thin progress bar animation
+  - Empty state: `mycode` with blinking cursor + "ready."
+  - Input area: accent focus line at bottom, gradient fade mask above
+  - Sidebar: 240px wide, compact, dashed new-chat button
+  - Messages animate in with `fade-in-up`, streaming shows blinking cursor
+
+### Core Chat Logic
+
+- `frontend/src/hooks/useChat.js`
+  - Streams SSE from `/api/chat`
+  - Applies events (`text`, `tool_start`, `tool_output`, `tool_done`, `error`)
+  - Manages session CRUD calls
+- `frontend/src/utils/messages.js`
+  - Transforms provider message format into UI message parts
+
+### Component Structure
+
+```
+src/components/
+  Layout.jsx              — root surface with theme transition
+  ThemeProvider.jsx        — dark-first theme context (system/light/dark)
+  Sidebar.jsx             — session list + settings (history/appearance/workspace/provider)
+  WorkspacePicker.jsx     — modal workspace browser
+  Chat/
+    MessageList.jsx       — scrollable list + empty state
+    MessageBubble.jsx     — left-border role indicator + content parts
+    MarkdownBlock.jsx     — GFM markdown renderer
+    CodeBlock.jsx         — syntax-highlighted code with copy button
+    ToolCard.jsx          — collapsible tool execution card
+    InputArea.jsx         — floating input with accent focus line
+  UI/
+    Button.jsx            — variant button component
+    Input.jsx             — styled input component
+```
 
 Frontend expects backend event contract to remain stable.
 

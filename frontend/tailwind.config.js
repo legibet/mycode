@@ -43,6 +43,9 @@ export default {
           header: 'hsl(var(--code-header-background))',
           border: 'hsl(var(--code-border))',
         },
+        sidebar: {
+          bg: 'hsl(var(--sidebar-bg))',
+        },
       },
       borderRadius: {
         lg: 'var(--radius)',
@@ -50,8 +53,17 @@ export default {
         sm: 'calc(var(--radius) - 4px)',
       },
       fontFamily: {
-        sans: ['Geist Sans', 'Inter', 'system-ui', 'sans-serif'],
-        mono: ['Geist Mono', 'JetBrains Mono', 'monospace'],
+        sans: ['Satoshi', 'system-ui', 'sans-serif'],
+        mono: ['DM Mono', 'JetBrains Mono', 'monospace'],
+        display: ['DM Mono', 'monospace'],
+      },
+      fontSize: {
+        '2xs': ['0.625rem', { lineHeight: '0.875rem' }],
+      },
+      animation: {
+        'cursor-blink': 'cursor-blink 1s step-end infinite',
+        'fade-in-up': 'fade-in-up 0.3s ease-out both',
+        'progress-line': 'progress-line 1.5s ease-in-out infinite',
       },
     },
   },

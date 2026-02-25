@@ -1,40 +1,51 @@
 /**
- * Message bubble component for user and assistant messages.
+ * Message bubble with left border role indicator.
+ * No avatars — minimal, content-first design.
  */
 
-import { Bot, User } from 'lucide-react'
 import { cn } from '../../utils/cn'
 import { MarkdownBlock } from './MarkdownBlock'
 import { ToolCard } from './ToolCard'
 
-export function MessageBubble({ role, parts }) {
+export function MessageBubble({ role, parts, isStreaming, index }) {
   const isUser = role === 'user'
 
   return (
-    <div className={cn('group relative flex gap-4 px-4 py-2 w-full', isUser ? '' : '')}>
+    <div
+      className={cn('group relative px-6 py-4 animate-fade-in-up', isUser ? '' : '')}
+      style={{ animationDelay: `${Math.min(index * 30, 150)}ms` }}
+    >
+      {/* Left border indicator */}
       <div
         className={cn(
-          'flex h-8 w-8 shrink-0 select-none items-center justify-center rounded-full border shadow-sm',
-          isUser ? 'bg-background text-foreground' : 'bg-primary text-primary-foreground border-primary'
+          'absolute left-0 top-4 bottom-4 w-[2px] rounded-r transition-colors',
+          isUser ? 'bg-border' : 'bg-accent/60'
         )}
-      >
-        {isUser ? <User className="h-5 w-5" /> : <Bot className="h-5 w-5" />}
-      </div>
+      />
 
-      <div className="min-w-0 flex-1 space-y-1 overflow-hidden pt-1">
-        <div className="flex items-center gap-2">
-          <span className="font-semibold text-sm text-foreground">{isUser ? 'You' : 'Assistant'}</span>
+      <div className="ml-4 min-w-0">
+        {/* Role label */}
+        <div className="mb-2">
+          <span
+            className={cn(
+              'font-mono text-2xs uppercase tracking-widest',
+              isUser ? 'text-muted-foreground/60' : 'text-accent/70'
+            )}
+          >
+            {isUser ? 'you' : 'assistant'}
+          </span>
         </div>
 
-        <div className="space-y-4 text-foreground/90 leading-relaxed">
-          {parts.map((part, index) => {
+        {/* Content */}
+        <div className="space-y-3 text-foreground/90 leading-relaxed text-sm">
+          {parts.map((part, i) => {
             if (part.type === 'text') {
-              return <MarkdownBlock key={part.id || `text-${index}`} content={part.content} />
+              return <MarkdownBlock key={part.id || `text-${i}`} content={part.content} />
             }
             if (part.type === 'tool') {
               return (
                 <ToolCard
-                  key={part.id || `tool-${index}`}
+                  key={part.id || `tool-${i}`}
                   name={part.name}
                   args={part.args}
                   result={part.result}
@@ -44,6 +55,11 @@ export function MessageBubble({ role, parts }) {
             }
             return null
           })}
+
+          {/* Streaming cursor */}
+          {isStreaming && (
+            <span className="inline-block w-[2px] h-4 bg-accent animate-cursor-blink ml-0.5 align-middle" />
+          )}
         </div>
       </div>
     </div>

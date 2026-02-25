@@ -3,59 +3,68 @@
 @tailwind utilities;
 
 @layer base {
+  /* ── Dark theme (default) ── Deep Ocean ── */
   :root {
-    --background: 0 0% 100%;
-    --foreground: 240 10% 3.9%;
-    --card: 0 0% 100%;
-    --card-foreground: 240 10% 3.9%;
-    --popover: 0 0% 100%;
-    --popover-foreground: 240 10% 3.9%;
-    --primary: 240 5.9% 10%;
-    --primary-foreground: 0 0% 98%;
-    --secondary: 240 4.8% 95.9%;
-    --secondary-foreground: 240 5.9% 10%;
-    --muted: 240 4.8% 95.9%;
-    --muted-foreground: 240 3.8% 46.1%;
-    --accent: 240 4.8% 95.9%;
-    --accent-foreground: 240 5.9% 10%;
-    --destructive: 0 84.2% 60.2%;
+    --background: 216 60% 10%; /* #0A1628 — deep navy */
+    --foreground: 210 25% 87%; /* #D4DEE8 — cool silver */
+    --card: 216 55% 11%; /* #0D1A2C */
+    --card-foreground: 210 25% 87%;
+    --popover: 216 55% 11%;
+    --popover-foreground: 210 25% 87%;
+    --primary: 210 25% 87%;
+    --primary-foreground: 216 60% 10%;
+    --secondary: 216 50% 13%; /* #111E30 */
+    --secondary-foreground: 210 20% 80%;
+    --muted: 216 45% 15%; /* #152236 */
+    --muted-foreground: 210 18% 50%; /* #6B8299 */
+    --accent: 204 50% 58%; /* #5BA4CF — ice blue */
+    --accent-foreground: 216 60% 8%;
+    --destructive: 0 60% 50%;
     --destructive-foreground: 0 0% 98%;
-    --border: 240 5.9% 90%;
-    --input: 240 5.9% 90%;
-    --ring: 240 5.9% 10%;
+    --border: 216 40% 18%; /* #1A2A40 */
+    --input: 216 40% 18%;
+    --ring: 204 50% 58%;
     --radius: 0.5rem;
 
-    /* Code block specific */
-    --code-background: 0 0% 98.5%;
-    --code-header-background: 0 0% 97%;
-    --code-border: 240 5.9% 92%;
+    /* Code block */
+    --code-background: 216 65% 7%; /* #06101E */
+    --code-header-background: 216 55% 10%;
+    --code-border: 216 40% 18%;
+
+    /* Sidebar */
+    --sidebar-bg: 216 65% 7%; /* #060F1E */
   }
 
-  .dark {
-    --background: 240 10% 3.9%;
-    --foreground: 0 0% 98%;
-    --card: 240 10% 3.9%;
-    --card-foreground: 0 0% 98%;
-    --popover: 240 10% 3.9%;
-    --popover-foreground: 0 0% 98%;
-    --primary: 0 0% 98%;
-    --primary-foreground: 240 5.9% 10%;
-    --secondary: 240 3.7% 15.9%;
-    --secondary-foreground: 0 0% 98%;
-    --muted: 240 3.7% 15.9%;
-    --muted-foreground: 240 5% 64.9%;
-    --accent: 240 3.7% 15.9%;
-    --accent-foreground: 0 0% 98%;
-    --destructive: 0 62.8% 30.6%;
+  /* ── Light theme ── Pale frost ── */
+  .light {
+    --background: 216 40% 97%; /* #F3F6FA */
+    --foreground: 216 55% 13%; /* #0F1E33 */
+    --card: 216 35% 95%; /* #EDF1F6 */
+    --card-foreground: 216 55% 13%;
+    --popover: 216 35% 95%;
+    --popover-foreground: 216 55% 13%;
+    --primary: 216 55% 13%;
+    --primary-foreground: 216 40% 97%;
+    --secondary: 216 30% 92%; /* #E2E8F0 */
+    --secondary-foreground: 216 40% 20%;
+    --muted: 216 28% 93%; /* #E6EBF2 */
+    --muted-foreground: 210 15% 48%; /* #697D8F */
+    --accent: 204 60% 40%; /* #297AB0 — deeper blue for contrast */
+    --accent-foreground: 216 40% 97%;
+    --destructive: 0 70% 50%;
     --destructive-foreground: 0 0% 98%;
-    --border: 240 3.7% 15.9%;
-    --input: 240 3.7% 15.9%;
-    --ring: 240 4.9% 83.9%;
+    --border: 216 25% 86%; /* #CDD6E1 */
+    --input: 216 25% 86%;
+    --ring: 204 60% 40%;
+    --radius: 0.5rem;
 
-    /* Code block specific */
-    --code-background: 240 6% 6%;
-    --code-header-background: 240 5% 8%;
-    --code-border: 240 4% 14%;
+    /* Code block */
+    --code-background: 216 30% 94%;
+    --code-header-background: 216 28% 92%;
+    --code-border: 216 25% 86%;
+
+    /* Sidebar */
+    --sidebar-bg: 216 35% 95%;
   }
 }
 
@@ -65,25 +74,31 @@
   }
   body {
     @apply bg-background text-foreground;
+    font-feature-settings: "ss01", "ss02", "cv01";
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
   }
 }
 
-/* Custom Scrollbar */
+/* ── Scrollbar ── */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 4px;
+  height: 4px;
 }
 ::-webkit-scrollbar-track {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  @apply bg-muted-foreground/30 rounded-full hover:bg-muted-foreground/50 transition-colors;
+  @apply bg-border rounded-full;
+}
+::-webkit-scrollbar-thumb:hover {
+  @apply bg-muted-foreground/40;
 }
 ::-webkit-scrollbar-corner {
   background: transparent;
 }
 
-/* Prose/Markdown Overrides for Theme */
+/* ── Prose / Markdown ── */
 .prose {
   @apply text-foreground max-w-none;
 }
@@ -93,21 +108,90 @@
 .prose h4 {
   @apply text-foreground font-semibold tracking-tight;
 }
+.prose h1 {
+  @apply text-xl mt-8 mb-4;
+}
+.prose h2 {
+  @apply text-lg mt-6 mb-3;
+}
+.prose h3 {
+  @apply text-base mt-5 mb-2;
+}
 .prose p {
-  @apply leading-relaxed [&:not(:first-child)]:mt-4;
+  @apply leading-relaxed [&:not(:first-child)]:mt-3;
 }
 .prose blockquote {
-  @apply mt-4 border-l-2 border-border pl-4 italic text-muted-foreground;
+  @apply mt-4 border-l-2 border-accent/40 pl-4 italic text-muted-foreground;
 }
 .prose ul {
-  @apply my-4 ml-4 list-disc [&>li]:mt-1.5;
+  @apply my-3 ml-4 list-disc [&>li]:mt-1;
+}
+.prose ol {
+  @apply my-3 ml-4 list-decimal [&>li]:mt-1;
+}
+.prose li {
+  @apply leading-relaxed;
 }
 .prose code {
-  @apply relative rounded bg-code px-[0.3rem] py-[0.2rem] font-mono text-[13px] font-medium text-foreground;
+  @apply relative rounded bg-code px-1.5 py-0.5 font-mono text-[13px] text-accent;
 }
 .prose pre {
-  @apply my-3 overflow-x-auto rounded-lg border border-code-border bg-code px-3 py-2.5;
+  @apply my-4 overflow-x-auto rounded-lg border border-code-border bg-code;
 }
 .prose pre code {
-  @apply relative rounded-none bg-transparent p-0 font-mono text-[13px] font-medium leading-relaxed text-foreground;
+  @apply relative rounded-none bg-transparent p-0 font-mono text-[13px] font-normal leading-relaxed text-foreground;
+}
+.prose a {
+  @apply text-accent underline underline-offset-2 decoration-accent/40 hover:decoration-accent transition-colors;
+}
+.prose strong {
+  @apply font-semibold text-foreground;
+}
+.prose hr {
+  @apply my-6 border-border;
+}
+
+/* ── Animations ── */
+@keyframes cursor-blink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0;
+  }
+}
+@keyframes fade-in-up {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes progress-line {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+.animate-cursor-blink {
+  animation: cursor-blink 1s step-end infinite;
+}
+.animate-fade-in-up {
+  animation: fade-in-up 0.3s ease-out both;
+}
+.animate-progress-line {
+  animation: progress-line 1.5s ease-in-out infinite;
+}
+
+/* ── Gradient mask for chat scroll fade ── */
+.scroll-fade-top {
+  mask-image: linear-gradient(to bottom, transparent, black 48px);
+  -webkit-mask-image: linear-gradient(to bottom, transparent, black 48px);
 }

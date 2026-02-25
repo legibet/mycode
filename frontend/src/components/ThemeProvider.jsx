@@ -17,16 +17,20 @@ export function ThemeProvider({ children, defaultTheme = 'system', storageKey = 
   useEffect(() => {
     const root = window.document.documentElement
 
+    // Our CSS: :root = dark (default), .light = light theme
+    // Only add 'light' class when needed; dark needs no class
     root.classList.remove('light', 'dark')
 
     if (theme === 'system') {
-      const systemTheme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
-
-      root.classList.add(systemTheme)
+      const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches
+      if (!prefersDark) root.classList.add('light')
       return
     }
 
-    root.classList.add(theme)
+    if (theme === 'light') {
+      root.classList.add('light')
+    }
+    // dark = no class needed, :root handles it
   }, [theme])
 
   const value = {
