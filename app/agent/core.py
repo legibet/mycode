@@ -27,6 +27,7 @@ from uuid import uuid4
 
 from any_llm import acompletion
 
+from app.agent.skills import load_skills_prompt
 from app.agent.tools import TOOLS, ToolExecutor, cancel_all_tools, parse_tool_arguments
 
 logger = logging.getLogger(__name__)
@@ -102,6 +103,7 @@ class Agent:
         messages: list[dict[str, Any]] | None = None,
         max_turns: int = 20,
         max_tokens: int = 8192,
+        skills_paths: list[str] | None = None,
     ):
         self.model = model
         self.provider = provider
@@ -114,6 +116,7 @@ class Agent:
         self.max_tokens = max_tokens
 
         self._system_prompt = _load_system_prompt()
+        self._skills_prompt = load_skills_prompt(self.cwd, skills_paths)
         self._cancel_event = asyncio.Event()
 
         self.messages: list[dict[str, Any]] = []
@@ -124,9 +127,13 @@ class Agent:
     def _init_messages(self, persisted_messages: list[dict[str, Any]]) -> None:
         """Initialize messages (system prompt + persisted conversation)."""
 
+        parts = [self._system_prompt]
+        if self._skills_prompt:
+            parts.append(self._skills_prompt)
+        parts.append(f"Current working directory: {self.cwd}")
         system = {
             "role": "system",
-            "content": f"{self._system_prompt}\n\nCurrent working directory: {self.cwd}",
+            "content": "\n\n".join(parts),
         }
         self.messages = [system]
         self.messages.extend(persisted_messages)

@@ -63,6 +63,7 @@ async def _stream_chat(req: Request, chat: ChatRequest) -> AsyncIterator[str]:
     messages = data.get("messages") or []
     session_dir = store.session_dir(session_id)
 
+    settings = get_settings()
     agent = Agent(
         model=model,
         provider=provider_type,
@@ -71,6 +72,7 @@ async def _stream_chat(req: Request, chat: ChatRequest) -> AsyncIterator[str]:
         api_key=api_key,
         api_base=api_base,
         messages=messages,
+        skills_paths=settings.skills_paths or None,
     )
 
     async def on_persist(message: dict) -> None:

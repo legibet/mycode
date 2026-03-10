@@ -255,6 +255,7 @@ def main() -> None:
         api_key=api_key,
         api_base=api_base,
         messages=messages,
+        skills_paths=settings.skills_paths or None,
     )
 
     # Header: bold name, rest dim — no hints line

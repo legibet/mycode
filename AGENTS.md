@@ -69,6 +69,13 @@ Current scope is intentionally focused on a robust core + web/CLI usability.
   - Uses shared persistence helpers to keep message writes consistent and reduce loop duplication.
   - Supports active cancellation while a `bash` tool call is running (kills subprocesses and returns `error: cancelled`).
 
+- `app/agent/skills.py`
+  - Discovers `SKILL.md` files from multiple roots (global `~/.mycode/skills/`, `~/.agents/skills/`; project `.mycode/skills/`, `.agents/skills/`; config paths).
+  - Parses YAML frontmatter (name, description), validates, and deduplicates.
+  - Produces `<available_skills>` XML block for system prompt injection (progressive disclosure).
+  - Project-level skills override global skills of the same name.
+  - Model uses existing `read` tool to load full skill content on demand.
+
 - `app/agent/tools.py`
   - Defines OpenAI-compatible tool schemas (`TOOLS`).
   - Implements `ToolExecutor` for `read/write/edit/bash`.

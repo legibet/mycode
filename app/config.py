@@ -29,6 +29,7 @@ class Settings:
     default_provider: str | None  # name key into providers
     default_model: str | None  # bare model name (no provider prefix)
     port: int
+    skills_paths: list[str] = field(default_factory=list)  # extra skill directories
 
     @property
     def active_provider(self) -> ProviderConfig | None:
@@ -37,14 +38,14 @@ class Settings:
         return self.providers.get(self.default_provider)
 
 
-def _load_json_config() -> tuple[dict[str, ProviderConfig], str | None, str | None]:
-    """Parse config.json. Returns (providers, default_provider, default_model)."""
+def _load_json_config() -> tuple[dict[str, ProviderConfig], str | None, str | None, list[str]]:
+    """Parse config.json. Returns (providers, default_provider, default_model, skills_paths)."""
     if not _CONFIG_PATH.exists():
-        return {}, None, None
+        return {}, None, None, []
     try:
         data = json.loads(_CONFIG_PATH.read_text(encoding="utf-8"))
     except Exception:
-        return {}, None, None
+        return {}, None, None, []
 
     providers: dict[str, ProviderConfig] = {}
     for name, p in (data.get("providers") or {}).items():
@@ -64,12 +65,17 @@ def _load_json_config() -> tuple[dict[str, ProviderConfig], str | None, str | No
     default_provider = default.get("provider") if isinstance(default, dict) else None
     default_model = default.get("model") if isinstance(default, dict) else None
 
-    return providers, default_provider, default_model
+    skills_cfg = data.get("skills") or {}
+    skills_paths = skills_cfg.get("paths", []) if isinstance(skills_cfg, dict) else []
+    if isinstance(skills_paths, str):
+        skills_paths = [skills_paths]
+
+    return providers, default_provider, default_model, skills_paths
 
 
 def get_settings() -> Settings:
     """Load settings from config.json, with env var fallback when no JSON config exists."""
-    providers, default_provider, default_model = _load_json_config()
+    providers, default_provider, default_model, skills_paths = _load_json_config()
 
     # Env var fallback: build a synthetic provider from env vars
     if not providers:
@@ -101,6 +107,7 @@ def get_settings() -> Settings:
         default_provider=default_provider,
         default_model=default_model,
         port=int(os.environ.get("PORT", "8000")),
+        skills_paths=skills_paths,
     )
 
 
