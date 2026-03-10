@@ -27,8 +27,10 @@ from uuid import uuid4
 
 from any_llm import acompletion
 
+from app.agent.instructions import load_instructions_prompt
 from app.agent.skills import load_skills_prompt
 from app.agent.tools import TOOLS, ToolExecutor, cancel_all_tools, parse_tool_arguments
+from app.config import Settings, get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -103,7 +105,7 @@ class Agent:
         messages: list[dict[str, Any]] | None = None,
         max_turns: int = 20,
         max_tokens: int = 8192,
-        skills_paths: list[str] | None = None,
+        settings: Settings | None = None,
     ):
         self.model = model
         self.provider = provider
@@ -115,8 +117,10 @@ class Agent:
         self.max_turns = max_turns
         self.max_tokens = max_tokens
 
+        self.settings = settings or get_settings(self.cwd)
         self._system_prompt = _load_system_prompt()
-        self._skills_prompt = load_skills_prompt(self.cwd, skills_paths)
+        self._instructions_prompt = load_instructions_prompt(self.cwd, self.settings)
+        self._skills_prompt = load_skills_prompt(self.cwd)
         self._cancel_event = asyncio.Event()
 
         self.messages: list[dict[str, Any]] = []
@@ -128,6 +132,8 @@ class Agent:
         """Initialize messages (system prompt + persisted conversation)."""
 
         parts = [self._system_prompt]
+        if self._instructions_prompt:
+            parts.append(self._instructions_prompt)
         if self._skills_prompt:
             parts.append(self._skills_prompt)
         parts.append(f"Current working directory: {self.cwd}")

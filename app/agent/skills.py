@@ -14,6 +14,8 @@ from pathlib import Path
 
 import yaml
 
+from app.config import find_workspace_root, resolve_mycode_home
+
 logger = logging.getLogger(__name__)
 
 _MAX_SCAN_DEPTH = 3
@@ -29,7 +31,7 @@ class Skill:
     name: str
     description: str
     path: str  # absolute path to the SKILL.md file
-    source: str  # "project" | "global" | "config"
+    source: str  # "project" | "global"
 
 
 def _find_project_root(cwd: str) -> Path | None:
@@ -166,30 +168,25 @@ def _scan_skill_root(root: Path, source: str) -> list[Skill]:
     return skills
 
 
-def discover_skills(cwd: str, extra_paths: list[str] | None = None) -> list[Skill]:
+def discover_skills(cwd: str) -> list[Skill]:
     """Discover skills from multiple roots. Later roots override earlier for same name.
 
     Scan order (lowest to highest priority):
     1. ~/.agents/skills/  (global)
     2. ~/.mycode/skills/  (global)
-    3. extra_paths from config
-    4. {project_root}/.agents/skills/  (project)
-    5. {project_root}/.mycode/skills/  (project)
+    3. {project_root}/.agents/skills/  (project)
+    4. {project_root}/.mycode/skills/  (project)
     """
     home = Path.home()
-    project_root = _find_project_root(cwd)
+    mycode_home = resolve_mycode_home()
+    workspace_root = find_workspace_root(cwd)
 
     roots: list[tuple[Path, str]] = [
         (home / ".agents" / "skills", "global"),
-        (home / ".mycode" / "skills", "global"),
+        (mycode_home / "skills", "global"),
+        (workspace_root / ".agents" / "skills", "project"),
+        (workspace_root / ".mycode" / "skills", "project"),
     ]
-
-    for p in extra_paths or []:
-        roots.append((Path(p).resolve(), "config"))
-
-    if project_root:
-        roots.append((project_root / ".agents" / "skills", "project"))
-        roots.append((project_root / ".mycode" / "skills", "project"))
 
     # Scan all roots; later entries override earlier for same name
     skills_by_name: dict[str, Skill] = {}
@@ -230,9 +227,9 @@ def format_skills_for_prompt(skills: list[Skill]) -> str:
     return "\n".join(lines)
 
 
-def load_skills_prompt(cwd: str, extra_paths: list[str] | None = None) -> str:
+def load_skills_prompt(cwd: str) -> str:
     """Discover skills and return the formatted prompt block (empty if none found)."""
-    skills = discover_skills(cwd, extra_paths)
+    skills = discover_skills(cwd)
     if skills:
         logger.info("Discovered %d skill(s): %s", len(skills), ", ".join(s.name for s in skills))
     return format_skills_for_prompt(skills)

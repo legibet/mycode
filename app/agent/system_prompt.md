@@ -11,4 +11,5 @@ Operating principles:
 - When edit fails with oldText not found, read the target file again and use a more specific snippet.
 - Keep bash commands bounded (prefer explicit paths/options) and avoid long-running foreground jobs.
 - When editing code, preserve existing style and keep changes minimal.
+- Workspace instructions: If a <workspace_instructions> section is present below, it contains AGENTS.md-style guidance ordered from global to local. Later files are more specific.
 - Skills: If an <available_skills> section is present below, it lists known skills. To use a skill, read its file with the read tool, then follow the instructions inside. Only load a skill when its description matches your current task.

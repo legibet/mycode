@@ -1,0 +1,123 @@
+"""Tests for config loading."""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+from app.config import get_settings
+
+
+def _write(path: Path, content: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content, encoding="utf-8")
+
+
+class TestGetSettings:
+    def test_merges_global_and_project_configs(self, tmp_path: Path, monkeypatch) -> None:
+        home = tmp_path / "home"
+        project = tmp_path / "project"
+        cwd = project / "apps" / "api"
+        cwd.mkdir(parents=True)
+        (project / ".git").mkdir()
+
+        monkeypatch.setenv("MYCODE_HOME", str(home / ".mycode"))
+
+        _write(
+            home / ".mycode" / "config.json",
+            """
+            {
+              "providers": {
+                "shared": {
+                  "type": "openai",
+                  "api_key": "global-key",
+                  "models": ["gpt-4o"]
+                }
+              },
+              "default": {
+                "provider": "shared",
+                "model": "gpt-4o"
+              }
+            }
+            """,
+        )
+        _write(
+            project / ".mycode" / "config.json",
+            """
+            {
+              "default": {
+                "provider": "shared",
+                "model": "gpt-5"
+              },
+              "providers": {
+                "shared": {
+                  "base_url": "https://root.example/v1",
+                  "models": ["gpt-5"]
+                }
+              }
+            }
+            """,
+        )
+
+        settings = get_settings(str(cwd))
+
+        assert settings.cwd == str(cwd.resolve())
+        assert settings.workspace_root == str(project.resolve())
+        assert settings.default_provider == "shared"
+        assert settings.default_model == "gpt-5"
+        assert settings.providers["shared"].api_key == "global-key"
+        assert settings.providers["shared"].base_url == "https://root.example/v1"
+        assert settings.providers["shared"].models == ["gpt-5"]
+        assert settings.config_paths == [
+            str((home / ".mycode" / "config.json").resolve()),
+            str((project / ".mycode" / "config.json").resolve()),
+        ]
+
+    def test_env_provider_fallback_without_config(self, tmp_path: Path, monkeypatch) -> None:
+        home = tmp_path / "home"
+        workspace = tmp_path / "workspace"
+        workspace.mkdir()
+
+        monkeypatch.setenv("MYCODE_HOME", str(home / ".mycode"))
+        monkeypatch.setenv("MODEL", "openai:gpt-4.1-mini")
+        monkeypatch.setenv("OPENAI_API_KEY", "env-key")
+
+        settings = get_settings(str(workspace))
+
+        assert settings.default_provider == "env"
+        assert settings.default_model == "gpt-4.1-mini"
+        assert settings.providers["env"].type == "openai"
+        assert settings.providers["env"].api_key == "env-key"
+
+    def test_ignores_agents_config(self, tmp_path: Path, monkeypatch) -> None:
+        home = tmp_path / "home"
+        workspace = tmp_path / "workspace"
+        workspace.mkdir()
+
+        monkeypatch.setenv("MYCODE_HOME", str(home / ".mycode"))
+        monkeypatch.delenv("MODEL", raising=False)
+        monkeypatch.delenv("BASE_URL", raising=False)
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+
+        _write(
+            home / ".agents" / "config.json",
+            """
+            {
+              "default": {
+                "provider": "compat"
+              },
+              "providers": {
+                "compat": {
+                  "type": "openai",
+                  "models": ["gpt-4o"]
+                }
+              }
+            }
+            """,
+        )
+
+        settings = get_settings(str(workspace))
+
+        assert settings.providers == {}
+        assert settings.default_provider is None
+        assert settings.config_paths == []

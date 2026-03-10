@@ -6,7 +6,7 @@ const STORAGE_KEY = 'mycode_config'
 const HISTORY_KEY = 'mycode_cwd_history'
 
 export const DEFAULT_CONFIG = {
-  provider: '', // named provider from config.json; empty = use server default
+  provider: '', // named provider from resolved config; empty = use server default
   model: '',
   cwd: '.',
   apiKey: '',

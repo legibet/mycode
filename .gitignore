@@ -54,6 +54,7 @@ ENV/
 dist-python/
 build/
 *.egg
+.uv-cache
 
 # Node.js / Frontend
 node_modules/
@@ -85,3 +86,4 @@ CLAUDE.md
 .claude/
 GEMINI.md
 .gemini/
+.pi/

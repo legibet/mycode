@@ -11,7 +11,7 @@ from fastapi.responses import StreamingResponse
 
 from app.agent.core import Agent, Event
 from app.agent.tools import cancel_all_tools
-from app.config import ProviderConfig, get_settings
+from app.config import ProviderConfig, Settings, get_settings
 from app.schemas import ChatRequest, StreamEvent
 from app.session import SessionStore
 
@@ -26,14 +26,12 @@ def _format_sse(event: StreamEvent) -> str:
     return f"data: {json.dumps(event.model_dump(exclude_none=True), ensure_ascii=False)}\n\n"
 
 
-def _resolve(chat: ChatRequest) -> tuple[str, str, str | None, str | None]:
+def _resolve(chat: ChatRequest, settings: Settings) -> tuple[str, str, str | None, str | None]:
     """Resolve (provider_type, model, api_key, api_base) from request + config.
 
     Priority: explicit request fields > named provider > default provider.
     Returns provider_type as any_llm provider string (e.g. "openai", "anthropic").
     """
-    settings = get_settings()
-
     # Determine which ProviderConfig to use as base
     cfg: ProviderConfig | None = None
     if chat.provider and chat.provider in settings.providers:
@@ -41,8 +39,12 @@ def _resolve(chat: ChatRequest) -> tuple[str, str, str | None, str | None]:
     elif settings.active_provider:
         cfg = settings.active_provider
 
-    # Model: request field > default_model from config > first model of provider > fallback
-    model = chat.model or settings.default_model or (cfg.models[0] if cfg and cfg.models else None) or _FALLBACK_MODEL
+    if chat.model:
+        model = chat.model
+    elif chat.provider and cfg and cfg.models:
+        model = cfg.models[0]
+    else:
+        model = settings.default_model or (cfg.models[0] if cfg and cfg.models else None) or _FALLBACK_MODEL
 
     # Provider type for any_llm
     provider_type = cfg.type if cfg else _FALLBACK_PROVIDER
@@ -55,15 +57,15 @@ def _resolve(chat: ChatRequest) -> tuple[str, str, str | None, str | None]:
 
 
 async def _stream_chat(req: Request, chat: ChatRequest) -> AsyncIterator[str]:
-    provider_type, model, api_key, api_base = _resolve(chat)
     cwd = os.path.abspath(chat.cwd or os.getcwd())
+    settings = get_settings(cwd)
+    provider_type, model, api_key, api_base = _resolve(chat, settings)
     session_id = chat.session_id or "default"
 
     data = await store.get_or_create(session_id, model=model, cwd=cwd, api_base=api_base)
     messages = data.get("messages") or []
     session_dir = store.session_dir(session_id)
 
-    settings = get_settings()
     agent = Agent(
         model=model,
         provider=provider_type,
@@ -72,7 +74,7 @@ async def _stream_chat(req: Request, chat: ChatRequest) -> AsyncIterator[str]:
         api_key=api_key,
         api_base=api_base,
         messages=messages,
-        skills_paths=settings.skills_paths or None,
+        settings=settings,
     )
 
     async def on_persist(message: dict) -> None:
@@ -116,8 +118,11 @@ async def cancel(session_id: str = "default"):
 
 
 @router.get("/config")
-async def get_config():
-    settings = get_settings()
+async def get_config(cwd: str | None = None):
+    resolved_cwd = os.path.abspath(cwd or os.getcwd())
+    settings = get_settings(resolved_cwd)
+    active = settings.active_provider
+    default_model = settings.default_model or (active.models[0] if active and active.models else "")
     # Return provider metadata without exposing api_keys
     providers_info = {
         name: {
@@ -133,7 +138,9 @@ async def get_config():
         "providers": providers_info,
         "default": {
             "provider": settings.default_provider or "",
-            "model": settings.default_model or "",
+            "model": default_model,
         },
-        "cwd": os.getcwd(),
+        "cwd": resolved_cwd,
+        "workspace_root": settings.workspace_root,
+        "config_paths": settings.config_paths,
     }

@@ -24,23 +24,31 @@ function AppContent() {
     useChat(config)
 
   useEffect(() => {
-    fetch('/api/config')
+    fetch(`/api/config?cwd=${encodeURIComponent(config.cwd)}`)
       .then((r) => r.json())
       .then((data) => {
         setRemoteConfig(data)
         setConfig((prev) => {
-          if (prev.provider || !data.default?.provider) return prev
+          const providers = data.providers || {}
+          const providerNames = Object.keys(providers)
+          const currentProviderValid = prev.provider && providerNames.includes(prev.provider)
+          if (currentProviderValid) return prev
+
+          const nextProvider = data.default?.provider || ''
+          const nextModel = data.default?.model || providers[nextProvider]?.models?.[0] || ''
+          if (prev.provider === nextProvider && prev.model === nextModel) return prev
+
           const updated = {
             ...prev,
-            provider: data.default.provider,
-            model: prev.model || data.default.model || '',
+            provider: nextProvider,
+            model: nextModel,
           }
           saveConfig(updated)
           return updated
         })
       })
       .catch(() => {})
-  }, [])
+  }, [config.cwd])
 
   const handleConfigUpdate = (newConfig) => {
     if (newConfig.cwd !== config.cwd) {

@@ -142,11 +142,31 @@ class TestScanSkillRoot:
 
 
 class TestDiscoverSkills:
-    def test_project_overrides_global(self, tmp_path: Path) -> None:
+    def test_mycode_overrides_agents_for_same_scope(self, tmp_path: Path, monkeypatch) -> None:
+        home = tmp_path / "home"
+        monkeypatch.setenv("MYCODE_HOME", str(home / ".mycode"))
+        _write(
+            home / ".agents" / "skills" / "shared" / "SKILL.md",
+            "---\nname: shared\ndescription: Compat version.\n---\n",
+        )
+        _write(
+            home / ".mycode" / "skills" / "shared" / "SKILL.md",
+            "---\nname: shared\ndescription: Native version.\n---\n",
+        )
+
+        with patch("app.agent.skills.Path.home", return_value=home):
+            skills = discover_skills(str(tmp_path / "workspace"))
+
+        assert len(skills) == 1
+        assert skills[0].description == "Native version."
+        assert skills[0].source == "global"
+
+    def test_project_overrides_global(self, tmp_path: Path, monkeypatch) -> None:
         global_dir = tmp_path / "home" / ".mycode" / "skills"
         project_dir = tmp_path / "project" / ".mycode" / "skills"
         git_dir = tmp_path / "project" / ".git"
         git_dir.mkdir(parents=True)
+        monkeypatch.setenv("MYCODE_HOME", str(tmp_path / "home" / ".mycode"))
 
         _write(global_dir / "shared" / "SKILL.md", "---\nname: shared\ndescription: Global version.\n---\n")
         _write(project_dir / "shared" / "SKILL.md", "---\nname: shared\ndescription: Project version.\n---\n")
@@ -158,24 +178,34 @@ class TestDiscoverSkills:
         assert skills[0].description == "Project version."
         assert skills[0].source == "project"
 
-    def test_extra_paths(self, tmp_path: Path) -> None:
-        extra = tmp_path / "extra-skills"
-        _write(extra / "bonus" / "SKILL.md", "---\nname: bonus\ndescription: Extra skill.\n---\n")
+    def test_project_root_skills_apply_from_nested_cwd(self, tmp_path: Path, monkeypatch) -> None:
+        project = tmp_path / "project"
+        nested_dir = project / "apps" / "api"
+        (project / ".git").mkdir(parents=True)
+        nested_dir.mkdir(parents=True)
+        monkeypatch.setenv("MYCODE_HOME", str(tmp_path / "home" / ".mycode"))
+
+        _write(
+            project / ".mycode" / "skills" / "shared" / "SKILL.md",
+            "---\nname: shared\ndescription: Root version.\n---\n",
+        )
 
         with patch("app.agent.skills.Path.home", return_value=tmp_path / "home"):
-            skills = discover_skills(str(tmp_path), extra_paths=[str(extra)])
+            skills = discover_skills(str(nested_dir))
 
         assert len(skills) == 1
-        assert skills[0].name == "bonus"
-        assert skills[0].source == "config"
+        assert skills[0].description == "Root version."
+        assert skills[0].source == "project"
 
-    def test_no_skills(self, tmp_path: Path) -> None:
+    def test_no_skills(self, tmp_path: Path, monkeypatch) -> None:
+        monkeypatch.setenv("MYCODE_HOME", str(tmp_path / "home" / ".mycode"))
         with patch("app.agent.skills.Path.home", return_value=tmp_path / "home"):
             skills = discover_skills(str(tmp_path))
         assert skills == []
 
-    def test_sorted_by_name(self, tmp_path: Path) -> None:
+    def test_sorted_by_name(self, tmp_path: Path, monkeypatch) -> None:
         root = tmp_path / "home" / ".mycode" / "skills"
+        monkeypatch.setenv("MYCODE_HOME", str(tmp_path / "home" / ".mycode"))
         _write(root / "zebra.md", "---\nname: zebra\ndescription: Z.\n---\n")
         _write(root / "alpha.md", "---\nname: alpha\ndescription: A.\n---\n")
         _write(root / "mid.md", "---\nname: mid\ndescription: M.\n---\n")
@@ -222,8 +252,9 @@ class TestFormatSkillsForPrompt:
 
 
 class TestLoadSkillsPrompt:
-    def test_integration(self, tmp_path: Path) -> None:
+    def test_integration(self, tmp_path: Path, monkeypatch) -> None:
         root = tmp_path / "home" / ".mycode" / "skills"
+        monkeypatch.setenv("MYCODE_HOME", str(tmp_path / "home" / ".mycode"))
         _write(root / "greet" / "SKILL.md", "---\nname: greet\ndescription: Greeting skill.\n---\nHello!")
 
         with patch("app.agent.skills.Path.home", return_value=tmp_path / "home"):
@@ -232,7 +263,8 @@ class TestLoadSkillsPrompt:
         assert "<available_skills>" in result
         assert "name: greet" in result
 
-    def test_no_skills_returns_empty(self, tmp_path: Path) -> None:
+    def test_no_skills_returns_empty(self, tmp_path: Path, monkeypatch) -> None:
+        monkeypatch.setenv("MYCODE_HOME", str(tmp_path / "home" / ".mycode"))
         with patch("app.agent.skills.Path.home", return_value=tmp_path / "home"):
             result = load_skills_prompt(str(tmp_path))
         assert result == ""

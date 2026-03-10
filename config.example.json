@@ -6,7 +6,7 @@
   "providers": {
     "newapi": {
       "type": "openai",
-      "api_key": "sk-6JCxNcJUpaZm9Yzw6qGNcMq9dryHLAl5EReQUMisRxUGqpfI",
+      "api_key": "sk-your-key",
       "base_url": "https://newapi.011108.xyz/v1",
       "models": ["minimax-m2.5", "gpt-5.2"]
     },

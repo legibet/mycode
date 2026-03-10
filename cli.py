@@ -217,13 +217,14 @@ async def chat_loop(agent: Agent, *, store: SessionStore, session_id: str) -> No
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="mycode CLI")
-    parser.add_argument("--provider", metavar="NAME", help="Provider name from config.json")
-    parser.add_argument("--model", metavar="MODEL", help="Model name (overrides config default)")
+    parser.add_argument("--provider", metavar="NAME", help="Provider name from resolved config")
+    parser.add_argument("--model", metavar="MODEL", help="Model name (overrides resolved default)")
     parser.add_argument("--session", metavar="ID", help="Session id (default: per-cwd hash)")
     parser.add_argument("--once", metavar="MESSAGE", help="Run one prompt and exit")
     args = parser.parse_args()
 
-    settings = get_settings()
+    cwd = os.getcwd()
+    settings = get_settings(cwd)
 
     cfg: ProviderConfig | None = None
     if args.provider:
@@ -235,12 +236,16 @@ def main() -> None:
     else:
         cfg = settings.active_provider
 
-    model = args.model or settings.default_model or (cfg.models[0] if cfg and cfg.models else None) or _FALLBACK_MODEL
+    if args.model:
+        model = args.model
+    elif args.provider and cfg and cfg.models:
+        model = cfg.models[0]
+    else:
+        model = settings.default_model or (cfg.models[0] if cfg and cfg.models else None) or _FALLBACK_MODEL
     provider_type = cfg.type if cfg else _FALLBACK_PROVIDER
     api_base = cfg.base_url if cfg else None
     api_key = cfg.api_key if cfg else None
 
-    cwd = os.getcwd()
     store = SessionStore()
     session_id = args.session or hashlib.sha1(cwd.encode()).hexdigest()[:12]
 
@@ -255,7 +260,7 @@ def main() -> None:
         api_key=api_key,
         api_base=api_base,
         messages=messages,
-        skills_paths=settings.skills_paths or None,
+        settings=settings,
     )
 
     # Header: bold name, rest dim — no hints line

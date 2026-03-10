@@ -44,6 +44,7 @@ Current scope is intentionally focused on a robust core + web/CLI usability.
   - `POST /api/chat` (SSE stream)
   - `POST /api/cancel`
   - `GET /api/config`
+  - Resolves effective config per-request from `~/.mycode/config.json` and `workspace/.mycode/config.json`.
   - Creates `Agent` per request using persisted session messages.
   - Persists new messages incrementally via callback.
 
@@ -58,6 +59,12 @@ Current scope is intentionally focused on a robust core + web/CLI usability.
   - Workspace browsing endpoints.
   - Roots from `MYCODE_WORKSPACE_ROOTS` or `WORKSPACE_ROOTS`.
 
+- `app/config.py`
+  - Loads layered config from `~/.mycode/config.json` and `workspace/.mycode/config.json` only.
+  - Uses project/workspace-local config to override global defaults.
+  - Merges provider settings with workspace-local precedence.
+  - Exposes workspace root / config path metadata for runtime consumers.
+
 ### Agent Runtime
 
 - `app/agent/core.py`
@@ -67,13 +74,21 @@ Current scope is intentionally focused on a robust core + web/CLI usability.
   - Persists user/assistant/tool messages (system prompt is runtime-only).
   - Handles interrupted previous tool-calls with synthetic tool errors.
   - Uses shared persistence helpers to keep message writes consistent and reduce loop duplication.
+  - Injects hierarchical AGENTS.md-style instructions and discovered skills into the runtime system prompt.
   - Supports active cancellation while a `bash` tool call is running (kills subprocesses and returns `error: cancelled`).
 
+- `app/agent/instructions.py`
+  - Discovers AGENTS.md from `~/.mycode/AGENTS.md` with `~/.agents/AGENTS.md` as a compatibility fallback.
+  - Loads project instructions only from `workspace_root/AGENTS.md`.
+  - At global scope, `~/.mycode/AGENTS.md` takes precedence over `~/.agents/AGENTS.md`.
+  - Truncates injected instruction bytes with a fixed runtime limit.
+
 - `app/agent/skills.py`
-  - Discovers `SKILL.md` files from multiple roots (global `~/.mycode/skills/`, `~/.agents/skills/`; project `.mycode/skills/`, `.agents/skills/`; config paths).
+  - Discovers `SKILL.md` files from global `~/.mycode/skills/`, `~/.agents/skills/`, plus project-level `.mycode/skills/` and `.agents/skills/` under the workspace root.
   - Parses YAML frontmatter (name, description), validates, and deduplicates.
   - Produces `<available_skills>` XML block for system prompt injection (progressive disclosure).
   - Project-level skills override global skills of the same name.
+  - At the same scope, `.mycode` takes precedence over `.agents`.
   - Model uses existing `read` tool to load full skill content on demand.
 
 - `app/agent/tools.py`
@@ -186,22 +201,27 @@ Do not break these types without coordinated frontend updates.
    - Tools execute with explicit `cwd` context.
    - Avoids cross-request cwd contamination in async server mode.
 
-2. **Append-only session writes**
+2. **Config and instruction loading are workspace-aware**
+   - Config stays intentionally minimal: only `~/.mycode/config.json` and `workspace/.mycode/config.json`.
+   - `~/.agents/` remains a compatibility source for instructions and skills only.
+   - At the same scope, native `.mycode` content overrides compatible `.agents` content.
+
+3. **Append-only session writes**
    - Better reliability than rewriting full conversation state.
    - Better crash behavior and future compaction compatibility.
 
-3. **Truncation-first tool outputs**
+4. **Truncation-first tool outputs**
    - Keep context lean.
    - For large bash outputs, store full output in `tool-output/` and return actionable pointer.
    - For very large live outputs, switch from in-memory buffering to spill-to-file mode.
 
-4. **Deterministic edit semantics with conservative fallback**
+5. **Deterministic edit semantics with conservative fallback**
    - `edit` still prefers exact unique matches.
    - If exact match fails, only line-ending/trailing-whitespace normalization is allowed.
    - Fuzzy fallback must still resolve to a unique match; otherwise it fails.
    - If no match exists, return a closest-line hint to speed up retry.
 
-5. **Tool cancellation semantics**
+6. **Tool cancellation semantics**
    - Cancelling during `bash` actively terminates subprocesses.
    - Agent records a deterministic `error: cancelled` tool result.
 
@@ -235,19 +255,7 @@ uv run pytest tests/test_tools.py -v
 
 ---
 
-## 8) Current Known Gaps / Next Steps
-
-See `TODO.md` for authoritative backlog. Priority themes:
-
-- session compaction for long conversations
-- stronger cancellation semantics for in-flight LLM requests (tool-side cancellation is implemented; upstream model-call interruption is still best-effort)
-- optional path safety policy modes
-- ~~tests for session store + truncation~~ ✓ (completed)
-- skills framework (next stage, not core now)
-
----
-
-## 9) Guardrails for Future Refactors
+## 8) Guardrails for Future Refactors
 
 If you change architecture, preserve these invariants unless explicitly requested:
 
