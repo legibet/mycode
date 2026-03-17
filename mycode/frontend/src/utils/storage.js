@@ -14,10 +14,10 @@ export const DEFAULT_CONFIG = {
 }
 
 export const MODEL_PRESETS = [
-  'anthropic:claude-opus-4-5',
-  'anthropic:claude-sonnet-4-5',
-  'openai:gpt-4o',
-  'openai:o3-mini',
+  'anthropic:claude-opus-4-6',
+  'anthropic:claude-sonnet-4-6',
+  'openai:gpt-5.4',
+  'openai:gpt-5-mini',
   'gemini:gemini-1.5-pro',
   'gemini:gemini-2.0-flash',
 ]

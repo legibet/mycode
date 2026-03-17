@@ -259,7 +259,7 @@ def main() -> None:
     t.append(" │ ", style="dim")
     t.append(cwd, style="dim")
     console.print(t)
-    console.print()
+    # console.print()
 
     if args.once:
         code = asyncio.run(run_once(agent, store=store, session_id=session_id, message=args.once))

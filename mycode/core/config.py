@@ -9,10 +9,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from dotenv import load_dotenv
-
-load_dotenv()
-
 _DEFAULT_MYCODE_HOME = "~/.mycode"
 
 
@@ -156,43 +152,29 @@ def _build_providers(raw_providers: dict[str, dict[str, Any]]) -> dict[str, Prov
     return providers
 
 
+def _env_api_key_for_provider(provider_type: str | None) -> str | None:
+    if provider_type == "openai":
+        return os.environ.get("OPENAI_API_KEY") or None
+    if provider_type == "anthropic":
+        return os.environ.get("ANTHROPIC_API_KEY") or None
+    return None
+
+
+def provider_has_api_key(provider: ProviderConfig) -> bool:
+    return bool(_env_api_key_for_provider(provider.type) or provider.api_key)
+
+
 def get_settings(cwd: str | None = None) -> Settings:
     """Load settings from global + project mycode config files."""
 
     resolved_cwd = str(Path(cwd or os.getcwd()).expanduser().resolve(strict=False))
     workspace_root = find_workspace_root(resolved_cwd)
     merged = _load_layered_config(resolved_cwd)
-    providers = _build_providers(merged.providers)
-    default_provider = merged.default_provider
-    default_model = merged.default_model
-
-    if not providers:
-        env_model_raw = os.environ.get("MODEL", "")
-        env_base = os.environ.get("BASE_URL")
-        env_key = os.environ.get("OPENAI_API_KEY") or os.environ.get("ANTHROPIC_API_KEY")
-
-        if ":" in env_model_raw:
-            provider_type, env_model = env_model_raw.split(":", 1)
-        elif "/" in env_model_raw:
-            provider_type, env_model = env_model_raw.split("/", 1)
-        else:
-            provider_type, env_model = "openai", env_model_raw
-
-        if env_model:
-            providers["env"] = ProviderConfig(
-                name="env",
-                type=provider_type,
-                models=[env_model],
-                api_key=env_key,
-                base_url=env_base,
-            )
-            default_provider = "env"
-            default_model = env_model
 
     return Settings(
-        providers=providers,
-        default_provider=default_provider,
-        default_model=default_model,
+        providers=_build_providers(merged.providers),
+        default_provider=merged.default_provider,
+        default_model=merged.default_model,
         port=int(os.environ.get("PORT", "8000")),
         cwd=resolved_cwd,
         workspace_root=str(workspace_root),
@@ -200,7 +182,7 @@ def get_settings(cwd: str | None = None) -> Settings:
     )
 
 
-_FALLBACK_MODEL = "claude-sonnet-4-5"
+_FALLBACK_MODEL = "claude-sonnet-4-6"
 _FALLBACK_PROVIDER = "anthropic"
 
 
@@ -240,10 +222,12 @@ def resolve_provider(
     else:
         resolved_model = settings.default_model or (cfg.models[0] if cfg and cfg.models else None) or _FALLBACK_MODEL
 
+    provider_type = cfg.type if cfg else _FALLBACK_PROVIDER
+
     return ResolvedProvider(
-        provider_type=cfg.type if cfg else _FALLBACK_PROVIDER,
+        provider_type=provider_type,
         model=resolved_model,
-        api_key=api_key or (cfg.api_key if cfg else None),
+        api_key=api_key or _env_api_key_for_provider(provider_type) or (cfg.api_key if cfg else None),
         api_base=api_base or (cfg.base_url if cfg else None),
     )
 

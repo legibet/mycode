@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from mycode.core.config import get_settings
+from mycode.core.config import get_settings, resolve_provider
 
 
 def _write(path: Path, content: str) -> None:
@@ -30,12 +30,12 @@ class TestGetSettings:
                 "shared": {
                   "type": "openai",
                   "api_key": "global-key",
-                  "models": ["gpt-4o"]
+                  "models": ["gpt-5-mini"]
                 }
               },
               "default": {
                 "provider": "shared",
-                "model": "gpt-4o"
+                "model": "gpt-5-mini"
               }
             }
             """,
@@ -46,12 +46,12 @@ class TestGetSettings:
             {
               "default": {
                 "provider": "shared",
-                "model": "gpt-5"
+                "model": "gpt-5.4"
               },
               "providers": {
                 "shared": {
                   "base_url": "https://root.example/v1",
-                  "models": ["gpt-5"]
+                  "models": ["gpt-5.4"]
                 }
               }
             }
@@ -63,30 +63,99 @@ class TestGetSettings:
         assert settings.cwd == str(cwd.resolve())
         assert settings.workspace_root == str(project.resolve())
         assert settings.default_provider == "shared"
-        assert settings.default_model == "gpt-5"
+        assert settings.default_model == "gpt-5.4"
         assert settings.providers["shared"].api_key == "global-key"
         assert settings.providers["shared"].base_url == "https://root.example/v1"
-        assert settings.providers["shared"].models == ["gpt-5"]
+        assert settings.providers["shared"].models == ["gpt-5.4"]
         assert settings.config_paths == [
             str((home / ".mycode" / "config.json").resolve()),
             str((project / ".mycode" / "config.json").resolve()),
         ]
 
-    def test_env_provider_fallback_without_config(self, tmp_path: Path, monkeypatch) -> None:
+    def test_ignores_model_and_base_url_env_without_config(self, tmp_path: Path, monkeypatch) -> None:
         home = tmp_path / "home"
         workspace = tmp_path / "workspace"
         workspace.mkdir()
 
         monkeypatch.setenv("MYCODE_HOME", str(home / ".mycode"))
-        monkeypatch.setenv("MODEL", "openai:gpt-4.1-mini")
+        monkeypatch.setenv("MODEL", "openai:gpt-5.4")
+        monkeypatch.setenv("BASE_URL", "https://env.example/v1")
         monkeypatch.setenv("OPENAI_API_KEY", "env-key")
 
         settings = get_settings(str(workspace))
 
-        assert settings.default_provider == "env"
-        assert settings.default_model == "gpt-4.1-mini"
-        assert settings.providers["env"].type == "openai"
-        assert settings.providers["env"].api_key == "env-key"
+        assert settings.providers == {}
+        assert settings.default_provider is None
+        assert settings.default_model is None
+
+    def test_resolve_provider_prefers_env_api_key_over_config(self, tmp_path: Path, monkeypatch) -> None:
+        home = tmp_path / "home"
+        workspace = tmp_path / "workspace"
+        workspace.mkdir()
+
+        monkeypatch.setenv("MYCODE_HOME", str(home / ".mycode"))
+        monkeypatch.setenv("OPENAI_API_KEY", "env-key")
+        monkeypatch.setenv("BASE_URL", "https://env.example/v1")
+
+        _write(
+            home / ".mycode" / "config.json",
+            """
+            {
+              "providers": {
+                "shared": {
+                  "type": "openai",
+                  "api_key": "config-key",
+                  "base_url": "https://config.example/v1",
+                  "models": ["gpt-5.4"]
+                }
+              },
+              "default": {
+                "provider": "shared",
+                "model": "gpt-5.4"
+              }
+            }
+            """,
+        )
+
+        settings = get_settings(str(workspace))
+        resolved = resolve_provider(settings)
+
+        assert resolved.provider_type == "openai"
+        assert resolved.model == "gpt-5.4"
+        assert resolved.api_key == "env-key"
+        assert resolved.api_base == "https://config.example/v1"
+
+    def test_resolve_provider_prefers_explicit_api_key_over_env(self, tmp_path: Path, monkeypatch) -> None:
+        home = tmp_path / "home"
+        workspace = tmp_path / "workspace"
+        workspace.mkdir()
+
+        monkeypatch.setenv("MYCODE_HOME", str(home / ".mycode"))
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "env-key")
+
+        _write(
+            home / ".mycode" / "config.json",
+            """
+            {
+              "providers": {
+                "claude": {
+                  "type": "anthropic",
+                  "api_key": "config-key",
+                  "models": ["claude-sonnet-4-6"]
+                }
+              },
+              "default": {
+                "provider": "claude",
+                "model": "claude-sonnet-4-6"
+              }
+            }
+            """,
+        )
+
+        settings = get_settings(str(workspace))
+        resolved = resolve_provider(settings, api_key="request-key")
+
+        assert resolved.api_key == "request-key"
 
     def test_ignores_agents_config(self, tmp_path: Path, monkeypatch) -> None:
         home = tmp_path / "home"
@@ -109,7 +178,7 @@ class TestGetSettings:
               "providers": {
                 "compat": {
                   "type": "openai",
-                  "models": ["gpt-4o"]
+                  "models": ["gpt-5.4"]
                 }
               }
             }

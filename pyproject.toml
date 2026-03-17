@@ -1,3 +1,7 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
 [project]
 name = "mycode"
 version = "0.1.0"
@@ -6,7 +10,6 @@ readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
     "any-llm-sdk[anthropic]>=1.7.0",
-    "python-dotenv>=1.0.0",
     "fastapi>=0.115.0",
     "uvicorn[standard]>=0.32.0",
     "rich>=14.2.0",

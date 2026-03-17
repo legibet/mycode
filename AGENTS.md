@@ -82,6 +82,8 @@ AGENTS.md → CLAUDE.md
 - `mycode.core.config`
   - Loads layered config from `~/.mycode/config.json` and `workspace/.mycode/config.json` only.
   - Uses project/workspace-local config to override global defaults.
+  - Does not auto-load `.env` files.
+  - LLM `provider` / `model` / `base_url` come from explicit request args or layered config only; standard API key env vars are runtime-only overrides.
   - `resolve_provider()` — shared by CLI and server, eliminates duplicated resolution logic.
   - Exposes workspace root / config path metadata for runtime consumers.
 
@@ -159,11 +161,12 @@ Do not break these types without coordinated frontend updates.
 
 1. **No global `os.chdir()` in request path** — tools execute with explicit `cwd` context.
 2. **Config and instruction loading are workspace-aware** — `~/.agents/` remains a compatibility source for instructions and skills only.
-3. **Append-only session writes** — better reliability and crash behavior.
-4. **Truncation-first tool outputs** — keep context lean.
-5. **Deterministic edit semantics with conservative fallback** — exact match preferred, fuzzy only for whitespace/line-ending differences.
-6. **Tool cancellation semantics** — cancelling during `bash` actively terminates subprocesses.
-7. **Shared provider resolution** — `resolve_provider()` in core eliminates duplication between CLI and server.
+3. **LLM config precedence is explicit > env API key > project config > global config** — environment variables do not define model/provider/base_url.
+4. **Append-only session writes** — better reliability and crash behavior.
+5. **Truncation-first tool outputs** — keep context lean.
+6. **Deterministic edit semantics with conservative fallback** — exact match preferred, fuzzy only for whitespace/line-ending differences.
+7. **Tool cancellation semantics** — cancelling during `bash` actively terminates subprocesses.
+8. **Shared provider resolution** — `resolve_provider()` in core eliminates duplication between CLI and server.
 
 ---
 

@@ -1,19 +1,19 @@
 {
   "default": {
-    "provider": "newapi",
-    "model": "minimax-m2.5"
+    "provider": "openai",
+    "model": "gpt-5.4"
   },
   "providers": {
-    "newapi": {
+    "openai": {
       "type": "openai",
       "api_key": "sk-your-key",
-      "base_url": "https://newapi.011108.xyz/v1",
-      "models": ["minimax-m2.5", "gpt-5.2"]
+      "base_url": "https://api.openai.com/v1",
+      "models": ["gpt-5.4"]
     },
     "claude": {
       "type": "anthropic",
       "api_key": "sk-ant-your-key",
-      "base_url": "https://newapi.011108.xyz/v1",
+      "base_url": "https://api.anthropic.com",
       "models": ["claude-opus-4-6", "claude-sonnet-4-6", "claude-haiku-4-5"]
     }
   }

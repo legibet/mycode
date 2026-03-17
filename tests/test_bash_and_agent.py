@@ -215,7 +215,7 @@ class TestAgentFinalizePendingToolCalls:
             ]
 
             agent = Agent(
-                model="gpt-4",
+                model="gpt-5.4",
                 cwd=tmpdir,
                 session_dir=session_dir,
                 messages=persisted_messages,
@@ -250,7 +250,7 @@ class TestAgentFinalizePendingToolCalls:
             original_count = len(persisted_messages)
 
             agent = Agent(
-                model="gpt-4",
+                model="gpt-5.4",
                 cwd=tmpdir,
                 session_dir=session_dir,
                 messages=persisted_messages,
@@ -283,7 +283,7 @@ class TestAgentFinalizePendingToolCalls:
             ]
 
             agent = Agent(
-                model="gpt-4",
+                model="gpt-5.4",
                 cwd=tmpdir,
                 session_dir=session_dir,
                 messages=persisted_messages,
@@ -314,7 +314,7 @@ class TestAgentFinalizePendingToolCalls:
             ]
 
             agent = Agent(
-                model="gpt-4",
+                model="gpt-5.4",
                 cwd=tmpdir,
                 session_dir=session_dir,
                 messages=persisted_messages,

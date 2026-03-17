@@ -24,7 +24,7 @@ def sample_session(temp_store):
     """Create a sample session for testing."""
     return temp_store.create_session(
         title="Test Session",
-        model="gpt-4",
+        model="gpt-5.4",
         cwd="/tmp",
         api_base=None,
     )
@@ -38,14 +38,14 @@ class TestSessionStore:
         """Session creation should set correct metadata."""
         result = await temp_store.create_session(
             title="My Test",
-            model="claude-sonnet-4-5",
+            model="claude-sonnet-4-6",
             cwd="/home/user/project",
             api_base="https://api.example.com",
         )
 
         session = result["session"]
         assert session["title"] == "My Test"
-        assert session["model"] == "claude-sonnet-4-5"
+        assert session["model"] == "claude-sonnet-4-6"
         assert session["cwd"] == "/home/user/project"
         assert session["api_base"] == "https://api.example.com"
         assert "id" in session
@@ -62,8 +62,8 @@ class TestSessionStore:
     @pytest.mark.asyncio
     async def test_list_sessions_with_data(self, temp_store):
         """Listing should return sessions sorted by updated_at desc."""
-        await temp_store.create_session(title="First", model="gpt-4", cwd="/tmp", api_base=None)
-        await temp_store.create_session(title="Second", model="gpt-4", cwd="/tmp", api_base=None)
+        await temp_store.create_session(title="First", model="gpt-5.4", cwd="/tmp", api_base=None)
+        await temp_store.create_session(title="Second", model="gpt-5.4", cwd="/tmp", api_base=None)
 
         sessions = await temp_store.list_sessions()
         assert len(sessions) == 2
@@ -80,7 +80,7 @@ class TestSessionStore:
     async def test_load_session_with_messages(self, temp_store):
         """Loading session should restore persisted messages."""
         # Create session
-        result = await temp_store.create_session(title="Test", model="gpt-4", cwd="/tmp", api_base=None)
+        result = await temp_store.create_session(title="Test", model="gpt-5.4", cwd="/tmp", api_base=None)
         session_id = result["session"]["id"]
 
         # Append some messages
@@ -98,7 +98,7 @@ class TestSessionStore:
     @pytest.mark.asyncio
     async def test_append_message_updates_title(self, temp_store):
         """First user message should auto-update session title."""
-        result = await temp_store.create_session(title="New chat", model="gpt-4", cwd="/tmp", api_base=None)
+        result = await temp_store.create_session(title="New chat", model="gpt-5.4", cwd="/tmp", api_base=None)
         session_id = result["session"]["id"]
 
         await temp_store.append_message(session_id, {"role": "user", "content": "How do I write a Python function?"})
@@ -109,7 +109,7 @@ class TestSessionStore:
     @pytest.mark.asyncio
     async def test_clear_session(self, temp_store):
         """Clearing session should remove all messages but keep meta."""
-        result = await temp_store.create_session(title="Test", model="gpt-4", cwd="/tmp", api_base=None)
+        result = await temp_store.create_session(title="Test", model="gpt-5.4", cwd="/tmp", api_base=None)
         session_id = result["session"]["id"]
 
         await temp_store.append_message(session_id, {"role": "user", "content": "Hello"})
@@ -122,7 +122,7 @@ class TestSessionStore:
     @pytest.mark.asyncio
     async def test_delete_session(self, temp_store):
         """Deleting session should remove all files."""
-        result = await temp_store.create_session(title="Test", model="gpt-4", cwd="/tmp", api_base=None)
+        result = await temp_store.create_session(title="Test", model="gpt-5.4", cwd="/tmp", api_base=None)
         session_id = result["session"]["id"]
 
         session_dir = temp_store.session_dir(session_id)
@@ -136,24 +136,24 @@ class TestSessionStore:
     @pytest.mark.asyncio
     async def test_get_or_create_existing(self, temp_store):
         """get_or_create should return existing session if present."""
-        result = await temp_store.create_session(title="Test", model="gpt-4", cwd="/tmp", api_base=None)
+        result = await temp_store.create_session(title="Test", model="gpt-5.4", cwd="/tmp", api_base=None)
         session_id = result["session"]["id"]
 
         # Call get_or_create with same ID
-        got = await temp_store.get_or_create(session_id, model="gpt-4", cwd="/tmp", api_base=None)
+        got = await temp_store.get_or_create(session_id, model="gpt-5.4", cwd="/tmp", api_base=None)
         assert got["session"]["id"] == session_id
         assert got["session"]["title"] == "Test"
 
     @pytest.mark.asyncio
     async def test_get_or_create_new(self, temp_store):
         """get_or_create should create new session if ID not found."""
-        got = await temp_store.get_or_create("new-session-id", model="gpt-4", cwd="/tmp", api_base=None)
+        got = await temp_store.get_or_create("new-session-id", model="gpt-5.4", cwd="/tmp", api_base=None)
         assert got["session"]["id"] == "new-session-id"
 
     @pytest.mark.asyncio
     async def test_message_storage_format(self, temp_store):
         """Messages should be stored as valid JSONL."""
-        result = await temp_store.create_session(title="Test", model="gpt-4", cwd="/tmp", api_base=None)
+        result = await temp_store.create_session(title="Test", model="gpt-5.4", cwd="/tmp", api_base=None)
         session_id = result["session"]["id"]
 
         msg = {"role": "user", "content": "Test message"}
@@ -175,8 +175,8 @@ class TestSessionStoreEdgeCases:
     @pytest.mark.asyncio
     async def test_list_sessions_filtered_by_cwd(self, temp_store):
         """Listing with cwd filter should only return matching sessions."""
-        await temp_store.create_session(title="In Project", model="gpt-4", cwd="/home/user/project", api_base=None)
-        await temp_store.create_session(title="In Home", model="gpt-4", cwd="/home/user", api_base=None)
+        await temp_store.create_session(title="In Project", model="gpt-5.4", cwd="/home/user/project", api_base=None)
+        await temp_store.create_session(title="In Home", model="gpt-5.4", cwd="/home/user", api_base=None)
 
         sessions = await temp_store.list_sessions(cwd="/home/user/project")
         assert len(sessions) == 1

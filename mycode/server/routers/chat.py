@@ -10,7 +10,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
 
 from mycode.core.agent import Agent
-from mycode.core.config import get_settings, resolve_provider
+from mycode.core.config import get_settings, provider_has_api_key, resolve_provider
 from mycode.core.tools import cancel_all_tools
 from mycode.server.deps import store
 from mycode.server.schemas import ChatRequest, StreamEvent
@@ -101,7 +101,7 @@ async def get_config(cwd: str | None = None):
             "type": p.type,
             "models": p.models,
             "base_url": p.base_url or "",
-            "has_api_key": bool(p.api_key),
+            "has_api_key": provider_has_api_key(p),
         }
         for name, p in settings.providers.items()
     }
