@@ -1,0 +1,1 @@
+"""mycode — minimal coding agent."""

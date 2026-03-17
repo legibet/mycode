@@ -6,24 +6,20 @@ import os
 
 from fastapi import APIRouter
 
-from app.config import get_settings
-from app.schemas import SessionCreateRequest
-from app.session import SessionStore
+from mycode.core.config import get_settings, resolve_provider
+from mycode.server.deps import store
+from mycode.server.schemas import SessionCreateRequest
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
-store = SessionStore()
 
 
 @router.post("")
 async def create_session(req: SessionCreateRequest):
     cwd = os.path.abspath(req.cwd or os.getcwd())
     settings = get_settings(cwd)
-    cfg = settings.active_provider
-    model = (
-        req.model or settings.default_model or (cfg.models[0] if cfg and cfg.models else None) or "claude-sonnet-4-5"
-    )
-    api_base = req.api_base or (cfg.base_url if cfg else None)
-    return await store.create_session(req.title, model=model, cwd=cwd, api_base=api_base)
+    resolved = resolve_provider(settings, model=req.model)
+    api_base = req.api_base or resolved.api_base
+    return await store.create_session(req.title, model=resolved.model, cwd=cwd, api_base=api_base)
 
 
 @router.get("")

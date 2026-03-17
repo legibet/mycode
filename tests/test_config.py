@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from app.config import get_settings
+from mycode.core.config import get_settings
 
 
 def _write(path: Path, content: str) -> None:

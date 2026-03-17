@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from app.session import SessionStore
+from mycode.core.session import SessionStore
 
 
 @pytest.fixture

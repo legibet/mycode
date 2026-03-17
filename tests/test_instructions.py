@@ -5,8 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import patch
 
-from app.agent.instructions import discover_instruction_files, load_instructions_prompt
-from app.config import get_settings
+from mycode.core.config import get_settings
+from mycode.core.instructions import discover_instruction_files, load_instructions_prompt
 
 
 def _write(path: Path, content: str) -> None:
@@ -28,7 +28,7 @@ class TestInstructions:
         _write(home / ".mycode" / "AGENTS.md", "Global native")
         _write(project / "AGENTS.md", "Project root")
 
-        with patch("app.agent.instructions.Path.home", return_value=home):
+        with patch("mycode.core.instructions.Path.home", return_value=home):
             settings = get_settings(str(cwd))
             files = discover_instruction_files(str(cwd), settings)
             prompt = load_instructions_prompt(str(cwd), settings)
@@ -49,7 +49,7 @@ class TestInstructions:
         monkeypatch.setenv("MYCODE_HOME", str(home / ".mycode"))
         _write(home / ".agents" / "AGENTS.md", "Compat global")
 
-        with patch("app.agent.instructions.Path.home", return_value=home):
+        with patch("mycode.core.instructions.Path.home", return_value=home):
             prompt = load_instructions_prompt(str(workspace))
 
         assert "Compat global" in prompt
@@ -62,8 +62,8 @@ class TestInstructions:
         monkeypatch.setenv("MYCODE_HOME", str(home / ".mycode"))
         _write(home / ".mycode" / "AGENTS.md", "0123456789abcdef")
 
-        with patch("app.agent.instructions.Path.home", return_value=home):
-            monkeypatch.setattr("app.agent.instructions._MAX_INSTRUCTION_BYTES", 12)
+        with patch("mycode.core.instructions.Path.home", return_value=home):
+            monkeypatch.setattr("mycode.core.instructions._MAX_INSTRUCTION_BYTES", 12)
             prompt = load_instructions_prompt(str(workspace))
 
         assert "0123456789ab" in prompt

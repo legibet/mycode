@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from app.config import Settings, find_workspace_root, get_settings, resolve_mycode_home
+from mycode.core.config import Settings, find_workspace_root, get_settings, resolve_mycode_home
 
 logger = logging.getLogger(__name__)
 

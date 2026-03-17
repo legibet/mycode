@@ -1,7 +1,7 @@
 """CLI for mycode.
 
 Usage:
-  uv run python cli.py [--provider NAME] [--model MODEL] [--once MESSAGE]
+  mycode [--provider NAME] [--model MODEL] [--once MESSAGE]
 """
 
 from __future__ import annotations
@@ -20,15 +20,13 @@ from rich.live import Live
 from rich.markdown import Markdown
 from rich.text import Text
 
-from app.agent.core import Agent
-from app.config import ProviderConfig, get_settings
-from app.session import SessionStore
+from mycode.core.agent import Agent
+from mycode.core.config import get_settings, resolve_provider
+from mycode.core.session import SessionStore
 
 console = Console(highlight=False)
 
 _HISTORY_FILE = os.path.join(os.path.dirname(__file__), ".cli_history")
-_FALLBACK_MODEL = "claude-sonnet-4-5"
-_FALLBACK_PROVIDER = "anthropic"
 _PROMPT = ANSI("\033[1m\033[34m❯\033[0m ")
 
 
@@ -226,51 +224,38 @@ def main() -> None:
     cwd = os.getcwd()
     settings = get_settings(cwd)
 
-    cfg: ProviderConfig | None = None
-    if args.provider:
-        cfg = settings.providers.get(args.provider)
-        if cfg is None:
-            available = ", ".join(settings.providers.keys()) or "(none configured)"
-            console.print(f"[red]unknown provider {args.provider!r}. available: {available}[/red]")
-            return
-    else:
-        cfg = settings.active_provider
+    # Validate provider name before resolving
+    if args.provider and args.provider not in settings.providers:
+        available = ", ".join(settings.providers.keys()) or "(none configured)"
+        console.print(f"[red]unknown provider {args.provider!r}. available: {available}[/red]")
+        return
 
-    if args.model:
-        model = args.model
-    elif args.provider and cfg and cfg.models:
-        model = cfg.models[0]
-    else:
-        model = settings.default_model or (cfg.models[0] if cfg and cfg.models else None) or _FALLBACK_MODEL
-    provider_type = cfg.type if cfg else _FALLBACK_PROVIDER
-    api_base = cfg.base_url if cfg else None
-    api_key = cfg.api_key if cfg else None
+    resolved = resolve_provider(settings, provider_name=args.provider, model=args.model)
 
     store = SessionStore()
     session_id = args.session or hashlib.sha1(cwd.encode()).hexdigest()[:12]
 
-    data = asyncio.run(store.get_or_create(session_id, model=model, cwd=cwd, api_base=api_base))
+    data = asyncio.run(store.get_or_create(session_id, model=resolved.model, cwd=cwd, api_base=resolved.api_base))
     messages = data.get("messages") or []
 
     agent = Agent(
-        model=model,
-        provider=provider_type,
+        model=resolved.model,
+        provider=resolved.provider_type,
         cwd=cwd,
         session_dir=store.session_dir(session_id),
-        api_key=api_key,
-        api_base=api_base,
+        api_key=resolved.api_key,
+        api_base=resolved.api_base,
         messages=messages,
         settings=settings,
     )
 
-    # Header: bold name, rest dim — no hints line
+    # Header
     console.print()
     t = Text()
     t.append("mycode", style="bold")
     t.append(" │ ", style="dim")
-    provider_label = cfg.name if cfg else provider_type
-    t.append(f"{model}", style="default")
-    t.append(f" ({provider_label})", style="dim")
+    t.append(f"{resolved.model}", style="default")
+    t.append(f" ({args.provider or settings.default_provider or resolved.provider_type})", style="dim")
     t.append(" │ ", style="dim")
     t.append(cwd, style="dim")
     console.print(t)

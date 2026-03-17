@@ -27,10 +27,10 @@ from uuid import uuid4
 
 from any_llm import acompletion
 
-from app.agent.instructions import load_instructions_prompt
-from app.agent.skills import load_skills_prompt
-from app.agent.tools import TOOLS, ToolExecutor, cancel_all_tools, parse_tool_arguments
-from app.config import Settings, get_settings
+from mycode.core.config import Settings, get_settings
+from mycode.core.instructions import load_instructions_prompt
+from mycode.core.skills import load_skills_prompt
+from mycode.core.tools import TOOLS, ToolExecutor, cancel_all_tools, parse_tool_arguments
 
 logger = logging.getLogger(__name__)
 

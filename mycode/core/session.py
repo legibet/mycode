@@ -7,7 +7,7 @@ Inspired by pi/mom design principles:
 
 On disk:
 
-app/data/sessions/<session_id>/
+mycode/data/sessions/<session_id>/
   meta.json
   messages.jsonl   # OpenAI-style message dicts (excluding system prompt)
   tool-output/     # large bash outputs (referenced by tool results)
@@ -43,7 +43,7 @@ class SessionMeta:
 class SessionStore:
     """File-based session store with a small in-memory cache."""
 
-    data_dir: Path = field(default_factory=lambda: Path(__file__).resolve().parent / "data" / "sessions")
+    data_dir: Path = field(default_factory=lambda: Path(__file__).resolve().parent.parent / "data" / "sessions")
 
     def __post_init__(self) -> None:
         self.data_dir.mkdir(parents=True, exist_ok=True)

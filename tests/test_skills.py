@@ -1,4 +1,4 @@
-"""Tests for app.agent.skills — skill discovery, parsing, and formatting."""
+"""Tests for mycode.core.skills — skill discovery, parsing, and formatting."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 import pytest
 
-from app.agent.skills import (
+from mycode.core.skills import (
     Skill,
     _find_project_root,
     _parse_skill_md,
@@ -154,7 +154,7 @@ class TestDiscoverSkills:
             "---\nname: shared\ndescription: Native version.\n---\n",
         )
 
-        with patch("app.agent.skills.Path.home", return_value=home):
+        with patch("mycode.core.skills.Path.home", return_value=home):
             skills = discover_skills(str(tmp_path / "workspace"))
 
         assert len(skills) == 1
@@ -171,7 +171,7 @@ class TestDiscoverSkills:
         _write(global_dir / "shared" / "SKILL.md", "---\nname: shared\ndescription: Global version.\n---\n")
         _write(project_dir / "shared" / "SKILL.md", "---\nname: shared\ndescription: Project version.\n---\n")
 
-        with patch("app.agent.skills.Path.home", return_value=tmp_path / "home"):
+        with patch("mycode.core.skills.Path.home", return_value=tmp_path / "home"):
             skills = discover_skills(str(tmp_path / "project"))
 
         assert len(skills) == 1
@@ -190,7 +190,7 @@ class TestDiscoverSkills:
             "---\nname: shared\ndescription: Root version.\n---\n",
         )
 
-        with patch("app.agent.skills.Path.home", return_value=tmp_path / "home"):
+        with patch("mycode.core.skills.Path.home", return_value=tmp_path / "home"):
             skills = discover_skills(str(nested_dir))
 
         assert len(skills) == 1
@@ -199,7 +199,7 @@ class TestDiscoverSkills:
 
     def test_no_skills(self, tmp_path: Path, monkeypatch) -> None:
         monkeypatch.setenv("MYCODE_HOME", str(tmp_path / "home" / ".mycode"))
-        with patch("app.agent.skills.Path.home", return_value=tmp_path / "home"):
+        with patch("mycode.core.skills.Path.home", return_value=tmp_path / "home"):
             skills = discover_skills(str(tmp_path))
         assert skills == []
 
@@ -210,7 +210,7 @@ class TestDiscoverSkills:
         _write(root / "alpha.md", "---\nname: alpha\ndescription: A.\n---\n")
         _write(root / "mid.md", "---\nname: mid\ndescription: M.\n---\n")
 
-        with patch("app.agent.skills.Path.home", return_value=tmp_path / "home"):
+        with patch("mycode.core.skills.Path.home", return_value=tmp_path / "home"):
             skills = discover_skills(str(tmp_path))
 
         assert [s.name for s in skills] == ["alpha", "mid", "zebra"]
@@ -257,7 +257,7 @@ class TestLoadSkillsPrompt:
         monkeypatch.setenv("MYCODE_HOME", str(tmp_path / "home" / ".mycode"))
         _write(root / "greet" / "SKILL.md", "---\nname: greet\ndescription: Greeting skill.\n---\nHello!")
 
-        with patch("app.agent.skills.Path.home", return_value=tmp_path / "home"):
+        with patch("mycode.core.skills.Path.home", return_value=tmp_path / "home"):
             result = load_skills_prompt(str(tmp_path))
 
         assert "<available_skills>" in result
@@ -265,6 +265,6 @@ class TestLoadSkillsPrompt:
 
     def test_no_skills_returns_empty(self, tmp_path: Path, monkeypatch) -> None:
         monkeypatch.setenv("MYCODE_HOME", str(tmp_path / "home" / ".mycode"))
-        with patch("app.agent.skills.Path.home", return_value=tmp_path / "home"):
+        with patch("mycode.core.skills.Path.home", return_value=tmp_path / "home"):
             result = load_skills_prompt(str(tmp_path))
         assert result == ""

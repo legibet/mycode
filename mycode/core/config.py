@@ -200,6 +200,54 @@ def get_settings(cwd: str | None = None) -> Settings:
     )
 
 
+_FALLBACK_MODEL = "claude-sonnet-4-5"
+_FALLBACK_PROVIDER = "anthropic"
+
+
+@dataclass(frozen=True)
+class ResolvedProvider:
+    """Resolved provider ready for Agent construction."""
+
+    provider_type: str
+    model: str
+    api_key: str | None
+    api_base: str | None
+
+
+def resolve_provider(
+    settings: Settings,
+    *,
+    provider_name: str | None = None,
+    model: str | None = None,
+    api_key: str | None = None,
+    api_base: str | None = None,
+) -> ResolvedProvider:
+    """Resolve (provider_type, model, api_key, api_base) from settings + overrides.
+
+    Used by both CLI and server to avoid duplicating resolution logic.
+    """
+
+    cfg: ProviderConfig | None = None
+    if provider_name and provider_name in settings.providers:
+        cfg = settings.providers[provider_name]
+    elif settings.active_provider:
+        cfg = settings.active_provider
+
+    if model:
+        resolved_model = model
+    elif provider_name and cfg and cfg.models:
+        resolved_model = cfg.models[0]
+    else:
+        resolved_model = settings.default_model or (cfg.models[0] if cfg and cfg.models else None) or _FALLBACK_MODEL
+
+    return ResolvedProvider(
+        provider_type=cfg.type if cfg else _FALLBACK_PROVIDER,
+        model=resolved_model,
+        api_key=api_key or (cfg.api_key if cfg else None),
+        api_base=api_base or (cfg.base_url if cfg else None),
+    )
+
+
 def setup_logging() -> None:
     """Configure default logging."""
 

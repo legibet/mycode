@@ -14,7 +14,7 @@ from pathlib import Path
 
 import yaml
 
-from app.config import find_workspace_root, resolve_mycode_home
+from mycode.core.config import find_workspace_root, resolve_mycode_home
 
 logger = logging.getLogger(__name__)
 

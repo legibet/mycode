@@ -6,16 +6,16 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from app.config import setup_logging
-from app.routers import chat_router, sessions_router, workspaces_router
+from mycode.core.config import setup_logging
+from mycode.server.routers import chat_router, sessions_router, workspaces_router
 
 
 def create_app() -> FastAPI:
     """Create FastAPI application."""
     setup_logging()
-    app = FastAPI(title="mycode")
+    application = FastAPI(title="mycode")
 
-    app.add_middleware(
+    application.add_middleware(
         CORSMiddleware,
         allow_origins=["*"],
         allow_methods=["*"],
@@ -23,16 +23,16 @@ def create_app() -> FastAPI:
     )
 
     # Mount API routers
-    app.include_router(chat_router, prefix="/api")
-    app.include_router(sessions_router, prefix="/api")
-    app.include_router(workspaces_router, prefix="/api")
+    application.include_router(chat_router, prefix="/api")
+    application.include_router(sessions_router, prefix="/api")
+    application.include_router(workspaces_router, prefix="/api")
 
     # Serve frontend static files if built
     frontend_dist = Path(__file__).resolve().parent.parent / "frontend" / "dist"
     if frontend_dist.exists():
-        app.mount("/", StaticFiles(directory=str(frontend_dist), html=True), name="frontend")
+        application.mount("/", StaticFiles(directory=str(frontend_dist), html=True), name="frontend")
 
-    return app
+    return application
 
 
 app = create_app()

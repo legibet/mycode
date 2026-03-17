@@ -7,8 +7,8 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from app.agent.core import Agent
-from app.agent.tools import ToolExecutor, cancel_all_tools
+from mycode.core.agent import Agent
+from mycode.core.tools import ToolExecutor, cancel_all_tools
 
 
 class TestToolExecutorBash:
