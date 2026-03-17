@@ -22,7 +22,7 @@ wheels = [
 
 [[package]]
 name = "anthropic"
-version = "0.76.0"
+version = "0.85.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "anyio" },
@@ -34,24 +34,26 @@ dependencies = [
     { name = "sniffio" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/6e/be/d11abafaa15d6304826438170f7574d750218f49a106c54424a40cef4494/anthropic-0.76.0.tar.gz", hash = "sha256:e0cae6a368986d5cf6df743dfbb1b9519e6a9eee9c6c942ad8121c0b34416ffe", size = 495483, upload-time = "2026-01-13T18:41:14.908Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/c5/08/c620a0eb8625539a8ea9f5a6e06f13d131be0bc8b5b714c235d4b25dd1b5/anthropic-0.85.0.tar.gz", hash = "sha256:d45b2f38a1efb1a5d15515a426b272179a0d18783efa2bb4c3925fa773eb50b9", size = 542034, upload-time = "2026-03-16T17:00:44.324Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/e5/70/7b0fd9c1a738f59d3babe2b4212031c34ab7d0fda4ffef15b58a55c5bcea/anthropic-0.76.0-py3-none-any.whl", hash = "sha256:81efa3113901192af2f0fe977d3ec73fdadb1e691586306c4256cd6d5ccc331c", size = 390309, upload-time = "2026-01-13T18:41:13.483Z" },
+    { url = "https://files.pythonhosted.org/packages/e1/5a/9d85b85686d5cdd79f5488c8667e668d7920d06a0a1a1beb454a5b77b2db/anthropic-0.85.0-py3-none-any.whl", hash = "sha256:b4f54d632877ed7b7b29c6d9ba7299d5e21c4c92ae8de38947e9d862bff74adf", size = 458237, upload-time = "2026-03-16T17:00:45.877Z" },
 ]
 
 [[package]]
 name = "any-llm-sdk"
-version = "1.7.0"
+version = "1.11.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "httpx" },
     { name = "openai" },
+    { name = "openresponses-types" },
     { name = "pydantic" },
     { name = "rich" },
+    { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/08/8a/4ec31cf0c0edd6204749a0939df823c797088319c4aae31c4919929a1e5c/any_llm_sdk-1.7.0.tar.gz", hash = "sha256:667f3a1ba5ef0478fd30cf961a62ebb74c2a47597a7ae2c8947ba983f2f97bc5", size = 122620, upload-time = "2026-01-16T09:25:27.724Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/f3/18/161747c16bbe4b15122ac690e7941f3c58f24b3df382189fdbadf0624595/any_llm_sdk-1.11.0.tar.gz", hash = "sha256:cabda4135041127e728d6d6fe6a3c0d77f45c0dd50b38a8f0bc132a2ad948a6a", size = 148392, upload-time = "2026-03-12T13:18:29.74Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/bd/7f/2f18e3f27da280724bfa1ab5576d28ae3489c480b305611f68bf80a3e177/any_llm_sdk-1.7.0-py3-none-any.whl", hash = "sha256:037b5c34fbabb67a38803e7589fb84cbd85ff0c4cc839d4c9352986fd7bdb4b0", size = 174078, upload-time = "2026-01-16T09:25:26.024Z" },
+    { url = "https://files.pythonhosted.org/packages/3c/d7/3d89d25e08e7bef70565b8af1872407a636308ba5fa203c667134157344b/any_llm_sdk-1.11.0-py3-none-any.whl", hash = "sha256:1329bfb7c5fea68918ff0a8f47ecde876bb2e2a8cf990500adb6ec119339010f", size = 206124, upload-time = "2026-03-12T13:18:28.116Z" },
 ]
 
 [package.optional-dependencies]
@@ -303,7 +305,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "any-llm-sdk", extras = ["anthropic"], specifier = ">=1.7.0" },
+    { name = "any-llm-sdk", extras = ["anthropic"], specifier = ">=1.11.0" },
     { name = "fastapi", specifier = ">=0.115.0" },
     { name = "prompt-toolkit", specifier = ">=3.0.52" },
     { name = "rich", specifier = ">=14.2.0" },
@@ -333,6 +335,18 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/94/f4/4690ecb5d70023ce6bfcfeabfe717020f654bde59a775058ec6ac4692463/openai-2.15.0.tar.gz", hash = "sha256:42eb8cbb407d84770633f31bf727d4ffb4138711c670565a41663d9439174fba", size = 627383, upload-time = "2026-01-09T22:10:08.603Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/b5/df/c306f7375d42bafb379934c2df4c2fa3964656c8c782bac75ee10c102818/openai-2.15.0-py3-none-any.whl", hash = "sha256:6ae23b932cd7230f7244e52954daa6602716d6b9bf235401a107af731baea6c3", size = 1067879, upload-time = "2026-01-09T22:10:06.446Z" },
+]
+
+[[package]]
+name = "openresponses-types"
+version = "2.3.0.post1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pydantic" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/d9/26/b612c3215f5599714fa94d63eb5ee59b4eb66dbdeeaf86bb4d848359484d/openresponses_types-2.3.0.post1.tar.gz", hash = "sha256:11b8896d3621d2ac2439f6ff106f34ddcb1bbd517c317a6c852a9df2e98a0753", size = 19254, upload-time = "2026-01-22T20:02:03.933Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/b2/5f/e16dad89ed24f586da5b01b9b206d3adbf21fe1af8e4dc55d5b93158fde6/openresponses_types-2.3.0.post1-py3-none-any.whl", hash = "sha256:88f6abcef9cad839203abff420dd080978bf6eb33cc06ddc5d78da4ccdba7613", size = 13847, upload-time = "2026-01-22T20:02:02.582Z" },
 ]
 
 [[package]]

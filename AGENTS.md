@@ -75,6 +75,7 @@ AGENTS.md → CLAUDE.md
   - Uses `any_llm.acompletion`.
   - Aggregates streamed tool calls by `delta.tool_calls[].index`.
   - Persists user/assistant/tool messages (system prompt is runtime-only).
+  - Streams provider reasoning/thinking as transient UI events only; reasoning is not persisted into session history.
   - Handles interrupted previous tool-calls with synthetic tool errors.
   - Injects hierarchical AGENTS.md-style instructions and discovered skills into the runtime system prompt.
   - Supports active cancellation while a `bash` tool call is running (kills subprocesses and returns `error: cancelled`).
@@ -147,6 +148,7 @@ mycode/data/sessions/<session_id>/
 
 Current stream event types used by UI:
 
+- `reasoning` → assistant reasoning/thinking delta (stream-only, not persisted into session history)
 - `text` → assistant text delta
 - `tool_start` → tool call started (`id`, `name`, `args`)
 - `tool_output` → incremental tool output (mainly bash)

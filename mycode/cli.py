@@ -15,9 +15,10 @@ import shutil
 from prompt_toolkit import PromptSession
 from prompt_toolkit.formatted_text import ANSI
 from prompt_toolkit.history import FileHistory
-from rich.console import Console
+from rich.console import Console, Group
 from rich.live import Live
 from rich.markdown import Markdown
+from rich.panel import Panel
 from rich.text import Text
 
 from mycode.core.agent import Agent
@@ -61,7 +62,9 @@ async def run_once(agent: Agent, *, store: SessionStore, session_id: str, messag
     exit_code = 0
 
     async for event in agent.achat(message, on_persist=on_persist):
-        if event.type == "text":
+        if event.type == "reasoning":
+            continue
+        elif event.type == "text":
             chunk = event.data.get("content", "")
             if chunk:
                 console.print(chunk, end="", markup=False, highlight=False)
@@ -144,30 +147,54 @@ async def chat_loop(agent: Agent, *, store: SessionStore, session_id: str) -> No
 
         _sep()
 
+        reasoning_buffer: list[str] = []
         text_buffer: list[str] = []
         live: Live | None = None
 
+        def get_renderable(r_buf: list[str], t_buf: list[str]) -> Group | Markdown:
+            renderables = []
+            if r_buf:
+                r_text = "".join(r_buf)
+                renderables.append(Panel(r_text, title="Thinking", style="dim", border_style="dim"))
+            if t_buf:
+                renderables.append(Markdown("".join(t_buf)))
+
+            if not renderables:
+                return Markdown("")
+            if len(renderables) == 1:
+                return renderables[0]
+            return Group(*renderables)
+
         try:
             async for event in agent.achat(user_input, on_persist=on_persist):
-                if event.type == "text":
+                if event.type == "reasoning":
                     chunk = event.data.get("content", "")
-                    text_buffer.append(chunk)
-                    full = "".join(text_buffer)
+                    reasoning_buffer.append(chunk)
                     if live is None:
                         live = Live(
-                            Markdown(full),
-                            console=console,
-                            refresh_per_second=12,
+                            get_renderable(reasoning_buffer, text_buffer), console=console, refresh_per_second=12
                         )
                         live.start()
                     else:
-                        live.update(Markdown(full))
+                        live.update(get_renderable(reasoning_buffer, text_buffer))
+
+                elif event.type == "text":
+                    chunk = event.data.get("content", "")
+                    text_buffer.append(chunk)
+                    if live is None:
+                        live = Live(
+                            get_renderable(reasoning_buffer, text_buffer), console=console, refresh_per_second=12
+                        )
+                        live.start()
+                    else:
+                        live.update(get_renderable(reasoning_buffer, text_buffer))
 
                 elif event.type == "tool_start":
                     if live is not None:
                         live.stop()
                         live = None
                     text_buffer.clear()
+                    reasoning_buffer.clear()
                     name = event.data.get("name", "")
                     args = event.data.get("args") or {}
                     preview = _tool_preview(args)
@@ -196,6 +223,7 @@ async def chat_loop(agent: Agent, *, store: SessionStore, session_id: str) -> No
                         live.stop()
                         live = None
                     text_buffer.clear()
+                    reasoning_buffer.clear()
                     console.print(f"\n[red]⏺ {event.data.get('message', '')}[/red]")
 
         except KeyboardInterrupt:
@@ -204,6 +232,7 @@ async def chat_loop(agent: Agent, *, store: SessionStore, session_id: str) -> No
                 live.stop()
                 live = None
             text_buffer.clear()
+            reasoning_buffer.clear()
             console.print("\n[dim]cancelled[/dim]")
             continue
 
@@ -211,6 +240,7 @@ async def chat_loop(agent: Agent, *, store: SessionStore, session_id: str) -> No
             live.stop()
             live = None
         text_buffer.clear()
+        reasoning_buffer.clear()
 
 
 def main() -> None:
@@ -247,6 +277,7 @@ def main() -> None:
         api_base=resolved.api_base,
         messages=messages,
         settings=settings,
+        reasoning_effort=resolved.reasoning_effort,
     )
 
     # Header

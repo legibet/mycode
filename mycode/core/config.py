@@ -19,6 +19,7 @@ class ProviderConfig:
     models: list[str]  # available model names (no provider prefix)
     api_key: str | None = None
     base_url: str | None = None
+    reasoning_effort: str | None = None
 
 
 @dataclass(frozen=True)
@@ -95,13 +96,16 @@ def _parse_layer(path: Path, data: dict[str, Any]) -> _ConfigLayer:
             provider["api_key"] = raw.get("api_key") or None
         if "base_url" in raw:
             provider["base_url"] = raw.get("base_url") or None
+        if "reasoning_effort" in raw:
+            provider["reasoning_effort"] = raw.get("reasoning_effort") or None
         providers[name] = provider
 
-    default = data.get("default") if isinstance(data.get("default"), dict) else {}
+    default_raw = data.get("default")
+    default = default_raw if isinstance(default_raw, dict) else {}
     return _ConfigLayer(
         providers=providers,
-        default_provider=default.get("provider") if isinstance(default.get("provider"), str) else None,
-        default_model=default.get("model") if isinstance(default.get("model"), str) else None,
+        default_provider=default.get("provider") if default and isinstance(default.get("provider"), str) else None,
+        default_model=default.get("model") if default and isinstance(default.get("model"), str) else None,
         config_paths=[str(path.resolve(strict=False))],
     )
 
@@ -148,6 +152,7 @@ def _build_providers(raw_providers: dict[str, dict[str, Any]]) -> dict[str, Prov
             models=_normalize_models(raw.get("models")),
             api_key=raw.get("api_key") or None,
             base_url=raw.get("base_url") or None,
+            reasoning_effort=raw.get("reasoning_effort") or None,
         )
     return providers
 
@@ -194,6 +199,7 @@ class ResolvedProvider:
     model: str
     api_key: str | None
     api_base: str | None
+    reasoning_effort: str | None
 
 
 def resolve_provider(
@@ -229,6 +235,7 @@ def resolve_provider(
         model=resolved_model,
         api_key=api_key or _env_api_key_for_provider(provider_type) or (cfg.api_key if cfg else None),
         api_base=api_base or (cfg.base_url if cfg else None),
+        reasoning_effort=cfg.reasoning_effort if cfg else None,
     )
 
 

@@ -105,6 +105,7 @@ class Agent:
         messages: list[dict[str, Any]] | None = None,
         max_turns: int = 20,
         max_tokens: int = 8192,
+        reasoning_effort: str | None = None,
         settings: Settings | None = None,
     ):
         self.model = model
@@ -116,6 +117,7 @@ class Agent:
 
         self.max_turns = max_turns
         self.max_tokens = max_tokens
+        self.reasoning_effort = reasoning_effort
 
         self.settings = settings or get_settings(self.cwd)
         self._system_prompt = _load_system_prompt()
@@ -234,6 +236,7 @@ class Agent:
                         tools=cast(Any, TOOLS),
                         tool_choice="auto",
                         max_tokens=self.max_tokens,
+                        reasoning_effort=cast(Any, self.reasoning_effort or "auto"),
                         api_key=self.api_key,
                         api_base=self.api_base,
                         stream=True,
@@ -258,6 +261,10 @@ class Agent:
                         continue
 
                     delta = chunk.choices[0].delta
+
+                    if getattr(delta, "reasoning", None) and getattr(delta.reasoning, "content", None):
+                        part = delta.reasoning.content
+                        yield Event("reasoning", {"content": part})
 
                     if getattr(delta, "content", None):
                         part = delta.content

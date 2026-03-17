@@ -3,7 +3,7 @@
 import asyncio
 import tempfile
 from pathlib import Path
-from unittest.mock import Mock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
@@ -323,3 +323,51 @@ class TestAgentFinalizePendingToolCalls:
             # Should not add any tool messages for the old completed call
             tool_messages = [m for m in agent.messages if m.get("role") == "tool"]
             assert len(tool_messages) == 1  # Only the original one
+
+
+class _FakeDelta:
+    def __init__(self, *, reasoning: str | None = None, content: str | None = None):
+        self.reasoning = Mock(content=reasoning) if reasoning is not None else None
+        self.content = content
+        self.tool_calls = None
+
+
+class _FakeChunk:
+    def __init__(self, delta: _FakeDelta):
+        self.choices = [Mock(delta=delta)]
+
+
+async def _fake_stream(*chunks: _FakeChunk):
+    for chunk in chunks:
+        yield chunk
+
+
+class TestAgentReasoningPersistence:
+    @pytest.mark.asyncio
+    async def test_achat_does_not_persist_reasoning_content(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            session_dir = Path(tmpdir)
+            persisted: list[dict] = []
+
+            agent = Agent(
+                model="gpt-5.4",
+                cwd=tmpdir,
+                session_dir=session_dir,
+            )
+
+            async def on_persist(message: dict) -> None:
+                persisted.append(message)
+
+            stream = _fake_stream(
+                _FakeChunk(_FakeDelta(reasoning="hidden ", content=None)),
+                _FakeChunk(_FakeDelta(reasoning=None, content="Visible answer")),
+            )
+
+            with patch("mycode.core.agent.acompletion", new=AsyncMock(return_value=stream)):
+                events = [event async for event in agent.achat("hello", on_persist=on_persist)]
+
+            assert [event.type for event in events] == ["reasoning", "text"]
+            assistant_messages = [m for m in persisted if m.get("role") == "assistant"]
+            assert len(assistant_messages) == 1
+            assert assistant_messages[0]["content"] == "Visible answer"
+            assert "reasoning_content" not in assistant_messages[0]

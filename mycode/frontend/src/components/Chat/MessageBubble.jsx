@@ -6,6 +6,7 @@
 import { cn } from '../../utils/cn'
 import { MarkdownBlock } from './MarkdownBlock'
 import { ToolCard } from './ToolCard'
+import { ReasoningBlock } from './ReasoningBlock'
 
 export function MessageBubble({ role, parts, isStreaming, index }) {
   const isUser = role === 'user'
@@ -39,6 +40,9 @@ export function MessageBubble({ role, parts, isStreaming, index }) {
         {/* Content */}
         <div className="space-y-3 text-foreground/90 leading-relaxed text-sm">
           {parts.map((part, i) => {
+            if (part.type === 'reasoning') {
+              return <ReasoningBlock key={`reasoning-${i}`} content={part.content} isStreaming={isStreaming} />
+            }
             if (part.type === 'text') {
               return <MarkdownBlock key={part.id || `text-${i}`} content={part.content} />
             }

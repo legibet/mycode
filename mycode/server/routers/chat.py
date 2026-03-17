@@ -47,6 +47,7 @@ async def _stream_chat(req: Request, chat: ChatRequest) -> AsyncIterator[str]:
         api_base=resolved.api_base,
         messages=messages,
         settings=settings,
+        reasoning_effort=resolved.reasoning_effort,
     )
 
     async def on_persist(message: dict) -> None:

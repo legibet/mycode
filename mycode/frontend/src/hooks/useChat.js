@@ -62,7 +62,14 @@ function chatReducer(state, action) {
       }
 
       // Handle event types
-      if (event.type === 'text') {
+      if (event.type === 'reasoning') {
+        const lastPart = assistant.parts[assistant.parts.length - 1]
+        if (lastPart?.type === 'reasoning') {
+          assistant.parts[assistant.parts.length - 1] = { ...lastPart, content: lastPart.content + event.content }
+        } else {
+          assistant.parts.push({ type: 'reasoning', content: event.content })
+        }
+      } else if (event.type === 'text') {
         const lastPart = assistant.parts[assistant.parts.length - 1]
         if (lastPart?.type === 'text') {
           assistant.parts[assistant.parts.length - 1] = { ...lastPart, content: lastPart.content + event.content }
