@@ -22,8 +22,9 @@ repos:
 
   # Frontend - Biome (linter + formatter)
   - repo: https://github.com/biomejs/pre-commit
-    rev: v2.3.11
+    rev: v2.4.7
     hooks:
       - id: biome-check
-        additional_dependencies: ["@biomejs/biome@2.3.11"]
-        files: ^frontend/
+        additional_dependencies: ["@biomejs/biome@2.4.7"]
+        args: ["--config-path=biome.json"]
+        files: ^mycode/frontend/

@@ -7,11 +7,11 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "lint": "biome lint .",
-    "lint:fix": "biome lint --write .",
-    "check": "biome check .",
-    "check:fix": "biome check --write .",
-    "format": "biome format --write ."
+    "lint": "biome lint --config-path ../../biome.json .",
+    "lint:fix": "biome lint --config-path ../../biome.json --write .",
+    "check": "biome check --config-path ../../biome.json .",
+    "check:fix": "biome check --config-path ../../biome.json --write .",
+    "format": "biome format --config-path ../../biome.json --write ."
   },
   "dependencies": {
     "clsx": "^2.1.1",
@@ -25,7 +25,7 @@
     "streamdown": "latest"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.4.8",
+    "@biomejs/biome": "^2.4.7",
     "@vitejs/plugin-react": "^4.3.4",
     "autoprefixer": "^10.4.20",
     "postcss": "^8.4.49",

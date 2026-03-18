@@ -1,12 +1,13 @@
 {
-  "$schema": "https://biomejs.dev/schemas/2.4.8/schema.json",
-  "vcs": {
-    "enabled": true,
-    "clientKind": "git",
-    "useIgnoreFile": false
-  },
+  "$schema": "https://biomejs.dev/schemas/2.4.7/schema.json",
   "files": {
-    "includes": ["**", "!!**/dist"]
+    "includes": [
+      "**",
+      "!mycode/data",
+      "!**/node_modules",
+      "!**/dist",
+      "!**/.vite"
+    ]
   },
   "formatter": {
     "enabled": true,
@@ -18,13 +19,13 @@
     "rules": {
       "recommended": true,
       "suspicious": {
+        "noArrayIndexKey": "off",
         "noUnknownAtRules": {
           "level": "error",
           "options": {
             "ignore": ["tailwind"]
           }
-        },
-        "noArrayIndexKey": "off"
+        }
       }
     }
   },
