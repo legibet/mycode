@@ -10,6 +10,12 @@ from mycode.core.config import setup_logging
 from mycode.server.routers import chat_router, sessions_router, workspaces_router
 
 
+def frontend_dist_path() -> Path:
+    """Return the built frontend directory."""
+
+    return Path(__file__).resolve().parent.parent / "frontend" / "dist"
+
+
 def create_app() -> FastAPI:
     """Create FastAPI application."""
     setup_logging()
@@ -28,7 +34,7 @@ def create_app() -> FastAPI:
     application.include_router(workspaces_router, prefix="/api")
 
     # Serve frontend static files if built
-    frontend_dist = Path(__file__).resolve().parent.parent / "frontend" / "dist"
+    frontend_dist = frontend_dist_path()
     if frontend_dist.exists():
         application.mount("/", StaticFiles(directory=str(frontend_dist), html=True), name="frontend")
 

@@ -9,7 +9,6 @@ from mycode.cli import (
     _history_preview_entries,
     _positive_int,
     _resolve_session_choice,
-    list_cli_sessions,
     resolve_cli_session,
     run_once,
 )
@@ -59,6 +58,7 @@ async def test_resolve_cli_session_defaults_to_new(tmp_path):
 
     resolved = await resolve_cli_session(
         store=store,
+        provider="anthropic",
         cwd=str(tmp_path),
         model="gpt-5.4",
         api_base=None,
@@ -82,6 +82,7 @@ async def test_resolve_cli_session_continue_reuses_latest(tmp_path):
 
     resolved = await resolve_cli_session(
         store=store,
+        provider="anthropic",
         cwd=str(tmp_path),
         model="gpt-5.4",
         api_base=None,
@@ -102,6 +103,7 @@ async def test_resolve_cli_session_explicit_missing_id_errors(tmp_path):
     with pytest.raises(ValueError, match="Unknown session"):
         await resolve_cli_session(
             store=store,
+            provider="anthropic",
             cwd=str(tmp_path),
             model="gpt-5.4",
             api_base=None,
@@ -125,10 +127,11 @@ def test_positive_int_rejects_non_positive_values():
 def test_build_parser_accepts_max_turns_flag():
     parser = _build_parser()
 
-    args = parser.parse_args(["--max-turns", "7", "--once", "hello"])
+    args = parser.parse_args(["run", "--max-turns", "7", "hello"])
 
+    assert args.command == "run"
     assert args.max_turns == 7
-    assert args.once == "hello"
+    assert args.message == ["hello"]
 
 
 def test_history_preview_entries_summarize_tool_only_assistant_messages():
@@ -180,8 +183,8 @@ async def test_list_cli_sessions_filters_current_workspace(tmp_path):
     await store.create_session("Current", model="gpt-5.4", cwd=current_cwd, api_base=None)
     await store.create_session("Other", model="gpt-5.4", cwd=other_cwd, api_base=None)
 
-    current = await list_cli_sessions(store=store, cwd=current_cwd, show_all=False)
-    all_sessions = await list_cli_sessions(store=store, cwd=current_cwd, show_all=True)
+    current = await store.list_sessions(cwd=current_cwd)
+    all_sessions = await store.list_sessions(cwd=None)
 
     assert len(current) == 1
     assert current[0]["title"] == "Current"

@@ -11,8 +11,9 @@ from fastapi.responses import StreamingResponse
 
 from mycode.core.agent import Agent
 from mycode.core.config import get_settings, provider_has_api_key, resolve_provider
+from mycode.core.session import SessionStore
 from mycode.core.tools import cancel_all_tools
-from mycode.server.deps import store
+from mycode.server.deps import StoreDep
 from mycode.server.schemas import ChatRequest, StreamEvent
 
 router = APIRouter()
@@ -22,7 +23,7 @@ def _format_sse(event: StreamEvent) -> str:
     return f"data: {json.dumps(event.model_dump(exclude_none=True), ensure_ascii=False)}\n\n"
 
 
-async def _stream_chat(req: Request, chat: ChatRequest) -> AsyncIterator[str]:
+async def _stream_chat(req: Request, chat: ChatRequest, store: SessionStore) -> AsyncIterator[str]:
     cwd = os.path.abspath(chat.cwd or os.getcwd())
     settings = get_settings(cwd)
     resolved = resolve_provider(
@@ -42,13 +43,11 @@ async def _stream_chat(req: Request, chat: ChatRequest) -> AsyncIterator[str]:
         api_base=resolved.api_base,
     )
     messages = data.get("messages") or []
-    session_dir = store.session_dir(session_id)
-
     agent = Agent(
         model=resolved.model,
         provider=resolved.provider,
         cwd=cwd,
-        session_dir=session_dir,
+        session_dir=store.session_dir(session_id),
         api_key=resolved.api_key,
         api_base=resolved.api_base,
         messages=messages,
@@ -81,9 +80,9 @@ async def _stream_chat(req: Request, chat: ChatRequest) -> AsyncIterator[str]:
 
 
 @router.post("/chat")
-async def chat(req: Request, chat: ChatRequest):
+async def chat(req: Request, chat: ChatRequest, store: StoreDep):
     return StreamingResponse(
-        _stream_chat(req, chat),
+        _stream_chat(req, chat, store),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )

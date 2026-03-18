@@ -219,7 +219,10 @@ Important behavior:
 
 `mycode/cli.py`
 
-- supports interactive mode and `--once`
+- defaults to interactive mode with `mycode`
+- supports one-shot runs with `mycode run "..."`
+- supports web serving with `mycode web`
+- contains the terminal entry flow, rendering, and interactive chat loop
 - default startup creates a fresh session
 - resume is explicit via `--continue`, `--session`, or `/resume`
 - shows thinking during live runs

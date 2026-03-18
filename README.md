@@ -9,31 +9,43 @@ Design principles (inspired by pi):
 - **Low token overhead**: truncation everywhere, explicit "use rg" guidance
 - **Sessions are append-only**: JSONL message log per session
 
-## Run (backend)
+## CLI
 
 ```bash
-cd mycode
-uv run uvicorn app.main:app --reload --port 8000
+mycode
 ```
 
-Then open the frontend dev server or build the static frontend.
+Run one prompt and exit:
+
+```bash
+mycode run "Explain how the session store works"
+```
+
+## Web
+
+Build the frontend first if you want the bundled web UI:
+
+```bash
+pnpm --dir mycode/frontend install
+pnpm --dir mycode/frontend build
+```
+
+Then start the server:
+
+```bash
+mycode web
+```
+
+If the frontend is not built yet, `mycode web` still starts the API server and prints a warning.
 
 ## Run (frontend)
 
 ```bash
-cd mycode/frontend
-pnpm install
-pnpm run dev
+pnpm --dir mycode/frontend install
+pnpm --dir mycode/frontend dev
 ```
 
 Configure the backend URL via Vite proxy if needed.
-
-## CLI
-
-```bash
-cd mycode
-uv run python cli.py
-```
 
 ## Config
 
@@ -89,7 +101,7 @@ Example:
 If you do not need aliases, you can skip config and pass the raw provider directly:
 
 ```bash
-uv run python -m mycode.cli --provider moonshot --model kimi-k2.5
+mycode --provider moonshot --model kimi-k2.5
 ```
 
 Region-specific note:

@@ -1,8 +1,4 @@
-"""CLI for mycode.
-
-Usage:
-  mycode [--provider NAME] [--model MODEL] [--once MESSAGE]
-"""
+"""CLI entrypoint for mycode."""
 
 from __future__ import annotations
 
@@ -12,7 +8,6 @@ import os
 import shutil
 from dataclasses import dataclass
 from datetime import datetime
-from pathlib import Path
 from typing import Any
 
 from prompt_toolkit import PromptSession
@@ -26,8 +21,8 @@ from rich.text import Text
 
 from mycode.core.agent import Agent
 from mycode.core.config import get_settings, resolve_provider
-from mycode.core.provider_registry import is_supported_provider, list_supported_providers
 from mycode.core.session import SessionStore
+from mycode.server.app import create_app, frontend_dist_path
 
 console = Console(highlight=False)
 
@@ -54,8 +49,8 @@ def _positive_int(value: str) -> int:
     return parsed
 
 
-def _build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="mycode CLI")
+def _build_chat_parent_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument(
         "--provider",
         metavar="NAME",
@@ -72,8 +67,21 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Resume the most recent session in the current workspace",
     )
-    parser.add_argument("--once", metavar="MESSAGE", help="Run one prompt and exit")
+    return parser
+
+
+def _build_parser() -> argparse.ArgumentParser:
+    chat_parent = _build_chat_parent_parser()
+    parser = argparse.ArgumentParser(description="mycode CLI", parents=[chat_parent])
     subparsers = parser.add_subparsers(dest="command")
+
+    run_parser = subparsers.add_parser("run", help="Run one prompt and exit", parents=[chat_parent])
+    run_parser.add_argument("message", nargs="+", help="Prompt to run")
+
+    web_parser = subparsers.add_parser("web", help="Start the web server")
+    web_parser.add_argument("--hostname", default="127.0.0.1", help="Hostname to listen on")
+    web_parser.add_argument("--port", type=int, help="Port to listen on")
+
     session_parser = subparsers.add_parser("session", help="Session management commands")
     session_subparsers = session_parser.add_subparsers(dest="session_command", required=True)
     list_parser = session_subparsers.add_parser("list", help="List saved sessions")
@@ -81,35 +89,21 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _sep() -> None:
-    width = min(shutil.get_terminal_size().columns, _MAX_WIDTH)
-    console.print(f"[dim]{'─' * width}[/dim]")
-
-
-def _tool_preview(args: dict) -> str:
-    if not args:
-        return ""
-    value = str(next(iter(args.values())))
-    return value[:60] + "…" if len(value) > 60 else value
-
-
-def _result_preview(result: str) -> str:
-    lines = result.splitlines()
-    if not lines:
-        return ""
-    first = lines[0][:72]
-    if len(lines) > 1:
-        first += f"  (+{len(lines) - 1} lines)"
-    elif len(lines[0]) > 72:
-        first += "…"
-    return first
-
-
 def _compact_text(value: str, *, limit: int = 96) -> str:
     text = " ".join((value or "").split())
     if len(text) <= limit:
         return text
     return text[: limit - 1] + "…"
+
+
+def _format_timestamp(value: str) -> str:
+    if not value:
+        return "-"
+    try:
+        dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        return dt.astimezone().strftime("%Y-%m-%d %H:%M")
+    except ValueError:
+        return value[:16].replace("T", " ")
 
 
 def _history_preview_entries(messages: list[dict[str, Any]], *, limit: int = 6) -> list[tuple[str, str]]:
@@ -120,7 +114,6 @@ def _history_preview_entries(messages: list[dict[str, Any]], *, limit: int = 6) 
         content = msg.get("content")
 
         if role == "user":
-            text = ""
             if isinstance(content, list):
                 text = " ".join(
                     str(block.get("text") or "").strip() for block in content if block.get("type") == "text"
@@ -146,6 +139,7 @@ def _history_preview_entries(messages: list[dict[str, Any]], *, limit: int = 6) 
             tool_names = [str(block.get("name") or "tool") for block in content if block.get("type") == "tool_use"]
         else:
             text = str(content or "")
+
         text = _compact_text(text)
         thinking = _compact_text(thinking)
 
@@ -173,68 +167,6 @@ def _history_preview_entries(messages: list[dict[str, Any]], *, limit: int = 6) 
     return entries[-limit:]
 
 
-def _format_timestamp(value: str) -> str:
-    if not value:
-        return "-"
-    try:
-        dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
-        return dt.astimezone().strftime("%Y-%m-%d %H:%M")
-    except ValueError:
-        return value[:16].replace("T", " ")
-
-
-def _session_line(
-    session: dict[str, Any],
-    *,
-    index: int | None = None,
-    include_cwd: bool = False,
-    current_session_id: str | None = None,
-) -> str:
-    parts: list[str] = []
-    session_id = str(session.get("id") or "-")
-    is_current = bool(current_session_id and session_id == current_session_id)
-    title_limit = 24 if include_cwd else 40
-    model_limit = 18 if include_cwd else 24
-    cwd_limit = 32 if include_cwd else 48
-
-    if index is not None:
-        marker = "*" if is_current else " "
-        parts.append(f"{marker}{index:>2}")
-
-    parts.append(session_id[:12])
-    parts.append(_format_timestamp(str(session.get("updated_at") or "")))
-    parts.append(_compact_text(str(session.get("title") or "New chat"), limit=title_limit))
-
-    model = str(session.get("model") or "")
-    if model:
-        parts.append(f"[{_compact_text(model, limit=model_limit)}]")
-
-    if include_cwd:
-        cwd = str(session.get("cwd") or "")
-        if cwd:
-            parts.append(_compact_text(cwd, limit=cwd_limit))
-
-    return "  ".join(parts)
-
-
-def _print_session_list(
-    sessions: list[dict[str, Any]],
-    *,
-    include_cwd: bool = False,
-    current_session_id: str | None = None,
-    heading: str = "sessions",
-) -> None:
-    if not sessions:
-        console.print("[dim]no sessions found[/dim]")
-        return
-
-    console.print(f"[dim]{heading} ({len(sessions)})[/dim]")
-    for index, session in enumerate(sessions, start=1):
-        console.print(
-            _session_line(session, index=index, include_cwd=include_cwd, current_session_id=current_session_id)
-        )
-
-
 def _resolve_session_choice(choice: str, sessions: list[dict[str, Any]]) -> dict[str, Any] | None:
     value = choice.strip()
     if not value:
@@ -254,7 +186,45 @@ def _resolve_session_choice(choice: str, sessions: list[dict[str, Any]]) -> dict
     return None
 
 
-def _print_header(*, model: str, session: dict[str, Any], mode: str, message_count: int) -> None:
+def print_session_list(
+    sessions: list[dict[str, Any]],
+    *,
+    include_cwd: bool = False,
+    current_session_id: str | None = None,
+    heading: str = "sessions",
+) -> None:
+    if not sessions:
+        console.print("[dim]no sessions found[/dim]")
+        return
+
+    console.print(f"[dim]{heading} ({len(sessions)})[/dim]")
+    for index, session in enumerate(sessions, start=1):
+        parts: list[str] = []
+        session_id = str(session.get("id") or "-")
+        is_current = bool(current_session_id and session_id == current_session_id)
+        title_limit = 24 if include_cwd else 40
+        model_limit = 18 if include_cwd else 24
+        cwd_limit = 32 if include_cwd else 48
+
+        marker = "*" if is_current else " "
+        parts.append(f"{marker}{index:>2}")
+        parts.append(session_id[:12])
+        parts.append(_format_timestamp(str(session.get("updated_at") or "")))
+        parts.append(_compact_text(str(session.get("title") or "New chat"), limit=title_limit))
+
+        model = str(session.get("model") or "")
+        if model:
+            parts.append(f"[{_compact_text(model, limit=model_limit)}]")
+
+        if include_cwd:
+            cwd = str(session.get("cwd") or "")
+            if cwd:
+                parts.append(_compact_text(cwd, limit=cwd_limit))
+
+        console.print("  ".join(parts))
+
+
+def print_header(*, model: str, session: dict[str, Any], mode: str, message_count: int) -> None:
     console.print()
     title = session.get("title") or "New chat"
     session_id = str(session.get("id") or "")[:12]
@@ -277,7 +247,7 @@ def _print_header(*, model: str, session: dict[str, Any], mode: str, message_cou
     console.print(meta_text)
 
 
-def _print_history_preview(messages: list[dict[str, Any]]) -> None:
+def print_history_preview(messages: list[dict[str, Any]]) -> None:
     entries = _history_preview_entries(messages)
     if not entries:
         return
@@ -288,32 +258,18 @@ def _print_history_preview(messages: list[dict[str, Any]]) -> None:
         console.print(f"[dim]{label}[/dim] {content}")
 
 
-def _clone_agent(agent: Agent, *, session_dir: Path, messages: list[dict[str, Any]]) -> Agent:
-    return Agent(
-        model=agent.model,
-        provider=agent.provider,
-        cwd=agent.cwd,
-        session_dir=session_dir,
-        api_key=agent.api_key,
-        api_base=agent.api_base,
-        messages=messages,
-        max_turns=agent.max_turns,
-        max_tokens=agent.max_tokens,
-        reasoning_effort=agent.reasoning_effort,
-        settings=agent.settings,
-    )
-
-
 async def resolve_cli_session(
     *,
     store: SessionStore,
-    provider: str = "anthropic",
+    provider: str,
     cwd: str,
     model: str,
     api_base: str | None,
     requested_session_id: str | None,
     continue_last: bool,
 ) -> CLIResolvedSession:
+    """Resolve the session the CLI should start with."""
+
     if requested_session_id:
         data = await store.load_session(requested_session_id)
         if not data or not data.get("session"):
@@ -339,7 +295,13 @@ async def resolve_cli_session(
         latest = await store.latest_session(cwd=cwd)
         if latest and latest.get("id"):
             session_id = str(latest["id"])
-            data = await store.get_or_create(session_id, provider=provider, model=model, cwd=cwd, api_base=api_base)
+            data = await store.get_or_create(
+                session_id,
+                provider=provider,
+                model=model,
+                cwd=cwd,
+                api_base=api_base,
+            )
             return CLIResolvedSession(
                 session_id=session_id,
                 session=data.get("session") or latest,
@@ -357,22 +319,8 @@ async def resolve_cli_session(
     )
 
 
-async def list_cli_sessions(*, store: SessionStore, cwd: str, show_all: bool) -> list[dict[str, Any]]:
-    return await store.list_sessions(cwd=None if show_all else cwd)
-
-
-# ---------------------------------------------------------------------------
-# TUI Renderer
-# ---------------------------------------------------------------------------
-
-
 class TUIRenderer:
-    """Encapsulates rendering logic for streaming agent output.
-
-    Two modes:
-    - live_mode=True  (interactive chat): Rich Live for markdown + spinner
-    - live_mode=False (--once):           raw text, no Live
-    """
+    """Render streaming agent output for interactive and one-shot CLI modes."""
 
     def __init__(self, con: Console, *, live_mode: bool = True):
         self._con = con
@@ -382,10 +330,26 @@ class TUIRenderer:
         self._text: list[str] = []
         self._printed_static_reasoning = False
 
-    # -- public API --
+    @staticmethod
+    def _tool_preview(args: dict) -> str:
+        if not args:
+            return ""
+        value = str(next(iter(args.values())))
+        return value[:60] + "…" if len(value) > 60 else value
+
+    @staticmethod
+    def _result_preview(result: str) -> str:
+        lines = result.splitlines()
+        if not lines:
+            return ""
+        first = lines[0][:72]
+        if len(lines) > 1:
+            first += f"  (+{len(lines) - 1} lines)"
+        elif len(lines[0]) > 72:
+            first += "…"
+        return first
 
     def start(self) -> None:
-        """Show spinner while waiting for first token."""
         if self._live_mode:
             self._ensure_live()
 
@@ -409,33 +373,33 @@ class TUIRenderer:
         self._flush()
         if not self._live_mode:
             self._con.print()
-        preview = _tool_preview(args)
-        t = Text()
-        t.append("⏺ ", style="green")
-        t.append(name.capitalize(), style="bold green")
+        preview = self._tool_preview(args)
+        text = Text()
+        text.append("⏺ ", style="green")
+        text.append(name.capitalize(), style="bold green")
         if preview:
-            t.append(f" {preview}", style="dim")
-        self._con.print(t)
+            text.append(f" {preview}", style="dim")
+        self._con.print(text)
 
     def tool_output(self, line: str) -> None:
         if line:
-            t = Text("  │ ", style="dim")
-            t.append(line, style="dim")
-            self._con.print(t)
+            text = Text("  │ ", style="dim")
+            text.append(line, style="dim")
+            self._con.print(text)
 
     def tool_done(self, result: str) -> None:
-        preview = _result_preview(result)
+        preview = self._result_preview(result)
         style = "red" if result.startswith("error") else "dim"
-        t = Text("  ⎿ ", style=style)
-        t.append(preview, style=style)
-        self._con.print(t)
+        text = Text("  ⎿ ", style=style)
+        text.append(preview, style=style)
+        self._con.print(text)
 
     def error(self, message: str) -> None:
         self._print_static_reasoning()
         self._flush()
-        t = Text("✕ ", style="red")
-        t.append(message, style="red")
-        self._con.print(t)
+        text = Text("✕ ", style="red")
+        text.append(message, style="red")
+        self._con.print(text)
 
     def finish(self) -> None:
         self._print_static_reasoning()
@@ -448,15 +412,9 @@ class TUIRenderer:
         self._flush()
         self._con.print("[dim]cancelled[/dim]")
 
-    # -- internal --
-
     def _ensure_live(self) -> None:
         if self._live is None:
-            self._live = Live(
-                self._renderable(),
-                console=self._con,
-                refresh_per_second=12,
-            )
+            self._live = Live(self._renderable(), console=self._con, refresh_per_second=12)
             self._live.start()
 
     def _update(self) -> None:
@@ -483,18 +441,13 @@ class TUIRenderer:
             return Spinner("dots", style="dim")
         parts = []
         if self._reasoning:
-            r = Text()
-            r.append("Thinking\n", style="dim bold")
-            r.append("".join(self._reasoning), style="dim")
-            parts.append(r)
+            reasoning = Text()
+            reasoning.append("Thinking\n", style="dim bold")
+            reasoning.append("".join(self._reasoning), style="dim")
+            parts.append(reasoning)
         if self._text:
             parts.append(Markdown("".join(self._text)))
         return Group(*parts) if len(parts) > 1 else parts[0]
-
-
-# ---------------------------------------------------------------------------
-# Entry points
-# ---------------------------------------------------------------------------
 
 
 async def run_once(agent: Agent, *, store: SessionStore, session_id: str, message: str) -> int:
@@ -528,19 +481,36 @@ async def run_once(agent: Agent, *, store: SessionStore, session_id: str, messag
 
 
 async def chat_loop(agent: Agent, *, store: SessionStore, session_id: str) -> None:
-    session: PromptSession = PromptSession(history=FileHistory(_HISTORY_FILE))
+    """Run the interactive terminal loop for a single workspace."""
+
+    prompt_session: PromptSession = PromptSession(history=FileHistory(_HISTORY_FILE))
     active_session_id = session_id
+
+    def create_session_agent(*, next_session_id: str, messages: list[dict[str, Any]]) -> Agent:
+        return Agent(
+            model=agent.model,
+            provider=agent.provider,
+            cwd=agent.cwd,
+            session_dir=store.session_dir(next_session_id),
+            api_key=agent.api_key,
+            api_base=agent.api_base,
+            messages=messages,
+            max_turns=agent.max_turns,
+            max_tokens=agent.max_tokens,
+            reasoning_effort=agent.reasoning_effort,
+            settings=agent.settings,
+        )
 
     async def on_persist(message: dict) -> None:
         await store.append_message(active_session_id, message)
 
     while True:
-        _sep()
+        width = min(shutil.get_terminal_size().columns, _MAX_WIDTH)
+        console.print(f"[dim]{'─' * width}[/dim]")
 
         try:
             user_input: str = await asyncio.get_event_loop().run_in_executor(
-                None,
-                lambda: session.prompt(_PROMPT),
+                None, lambda: prompt_session.prompt(_PROMPT)
             )
         except KeyboardInterrupt:
             continue
@@ -562,6 +532,7 @@ async def chat_loop(agent: Agent, *, store: SessionStore, session_id: str) -> No
             console.print("[green]⏺[/green] [dim]cleared[/dim]")
             continue
 
+        # These slash commands only control local session state.
         if user_input == "/new":
             data = await store.create_session(
                 None,
@@ -570,10 +541,10 @@ async def chat_loop(agent: Agent, *, store: SessionStore, session_id: str) -> No
                 cwd=agent.cwd,
                 api_base=agent.api_base,
             )
-            new_session = data.get("session") or {}
-            active_session_id = str(new_session.get("id") or "")
-            agent = _clone_agent(agent, session_dir=store.session_dir(active_session_id), messages=[])
-            _print_header(model=agent.model, session=new_session, mode="new", message_count=0)
+            session = data.get("session") or {}
+            active_session_id = str(session.get("id") or "")
+            agent = create_session_agent(next_session_id=active_session_id, messages=[])
+            print_header(model=agent.model, session=session, mode="new", message_count=0)
             continue
 
         if user_input == "/resume":
@@ -583,7 +554,7 @@ async def chat_loop(agent: Agent, *, store: SessionStore, session_id: str) -> No
                 console.print("[dim]no other sessions in this workspace[/dim]")
                 continue
 
-            _print_session_list(
+            print_session_list(
                 sessions,
                 current_session_id=active_session_id,
                 heading="resume session: enter number, session id prefix, or blank to cancel",
@@ -593,7 +564,7 @@ async def chat_loop(agent: Agent, *, store: SessionStore, session_id: str) -> No
                 try:
                     selection = await asyncio.get_event_loop().run_in_executor(
                         None,
-                        lambda: session.prompt(ANSI("\033[1mresume>\033[0m ")),
+                        lambda: prompt_session.prompt(ANSI("\033[1mresume>\033[0m ")),
                     )
                 except KeyboardInterrupt:
                     selection = ""
@@ -624,19 +595,10 @@ async def chat_loop(agent: Agent, *, store: SessionStore, session_id: str) -> No
                     api_base=agent.api_base,
                 )
                 messages = data.get("messages") or []
-                resumed_session = data.get("session") or selected
-                agent = _clone_agent(
-                    agent,
-                    session_dir=store.session_dir(active_session_id),
-                    messages=messages,
-                )
-                _print_header(
-                    model=agent.model,
-                    session=resumed_session,
-                    mode="resumed",
-                    message_count=len(messages),
-                )
-                _print_history_preview(messages)
+                session = data.get("session") or selected
+                agent = create_session_agent(next_session_id=active_session_id, messages=messages)
+                print_header(model=agent.model, session=session, mode="resumed", message_count=len(messages))
+                print_history_preview(messages)
                 break
 
             continue
@@ -654,7 +616,8 @@ async def chat_loop(agent: Agent, *, store: SessionStore, session_id: str) -> No
             console.print("[dim]unknown: /c  /q  /new  /resume  /model <name>[/dim]")
             continue
 
-        _sep()
+        width = min(shutil.get_terminal_size().columns, _MAX_WIDTH)
+        console.print(f"[dim]{'─' * width}[/dim]")
 
         renderer = TUIRenderer(console)
         renderer.start()
@@ -674,7 +637,6 @@ async def chat_loop(agent: Agent, *, store: SessionStore, session_id: str) -> No
                         renderer.tool_done(event.data.get("result", ""))
                     case "error":
                         renderer.error(event.data.get("message", ""))
-
         except KeyboardInterrupt:
             agent.cancel()
             renderer.cancel()
@@ -683,32 +645,41 @@ async def chat_loop(agent: Agent, *, store: SessionStore, session_id: str) -> No
         renderer.finish()
 
 
+def _run_web_command(*, cwd: str, hostname: str, port: int | None) -> None:
+    settings = get_settings(cwd)
+    resolved_port = port or settings.port
+
+    if not frontend_dist_path().exists():
+        console.print(
+            "[yellow]frontend build not found; starting API only. "
+            "Run `pnpm --dir mycode/frontend build` to serve the web UI.[/yellow]"
+        )
+
+    import uvicorn
+
+    uvicorn.run(create_app(), host=hostname, port=resolved_port)
+
+
 def main() -> None:
     parser = _build_parser()
     args = parser.parse_args()
+    cwd = os.path.abspath(os.getcwd())
 
-    cwd = os.getcwd()
-    settings = get_settings(cwd)
+    if args.command == "web":
+        _run_web_command(cwd=cwd, hostname=args.hostname, port=args.port)
+        return
+
     store = SessionStore()
 
     if args.command == "session" and args.session_command == "list":
-        sessions = asyncio.run(list_cli_sessions(store=store, cwd=cwd, show_all=args.all))
+        sessions = asyncio.run(store.list_sessions(cwd=None if args.all else cwd))
         heading = "all sessions" if args.all else f"sessions for {cwd}"
-        _print_session_list(sessions, include_cwd=args.all, heading=heading)
+        print_session_list(sessions, include_cwd=args.all, heading=heading)
         return
-
-    if args.provider and args.provider not in settings.providers and not is_supported_provider(args.provider):
-        configured = sorted(settings.providers.keys())
-        available = ", ".join(configured) if configured else "(no configured aliases)"
-        supported = ", ".join(list_supported_providers())
-        console.print(
-            f"[red]unknown provider {args.provider!r}. configured aliases: {available}. supported providers: {supported}[/red]"
-        )
-        return
-
-    resolved = resolve_provider(settings, provider_name=args.provider, model=args.model)
 
     try:
+        settings = get_settings(cwd)
+        resolved = resolve_provider(settings, provider_name=args.provider, model=args.model)
         resolved_session = asyncio.run(
             resolve_cli_session(
                 store=store,
@@ -737,19 +708,19 @@ def main() -> None:
         max_turns=args.max_turns,
     )
 
-    _print_header(
+    if args.command == "run":
+        message = " ".join(args.message).strip()
+        code = asyncio.run(run_once(agent, store=store, session_id=resolved_session.session_id, message=message))
+        raise SystemExit(code)
+
+    print_header(
         model=resolved.model,
         session=resolved_session.session,
         mode=resolved_session.mode,
         message_count=len(resolved_session.messages),
     )
-
-    if args.once:
-        code = asyncio.run(run_once(agent, store=store, session_id=resolved_session.session_id, message=args.once))
-        raise SystemExit(code)
-
     if resolved_session.mode == "resumed":
-        _print_history_preview(resolved_session.messages)
+        print_history_preview(resolved_session.messages)
 
     asyncio.run(chat_loop(agent, store=store, session_id=resolved_session.session_id))
 
