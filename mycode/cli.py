@@ -25,7 +25,7 @@ from rich.spinner import Spinner
 from rich.text import Text
 
 from mycode.core.agent import Agent
-from mycode.core.config import get_settings, resolve_provider
+from mycode.core.config import get_settings, is_any_llm_provider, resolve_provider
 from mycode.core.session import SessionStore
 
 console = Console(highlight=False)
@@ -595,7 +595,11 @@ async def chat_loop(agent: Agent, *, store: SessionStore, session_id: str) -> No
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="mycode CLI")
-    parser.add_argument("--provider", metavar="NAME", help="Provider name from resolved config")
+    parser.add_argument(
+        "--provider",
+        metavar="NAME",
+        help="any-llm provider id, or a configured provider alias",
+    )
     parser.add_argument("--model", metavar="MODEL", help="Model name (overrides resolved default)")
     session_group = parser.add_mutually_exclusive_group()
     session_group.add_argument("--session", metavar="ID", help="Resume a specific session id")
@@ -624,9 +628,10 @@ def main() -> None:
         _print_session_list(sessions, include_cwd=args.all, heading=heading)
         return
 
-    if args.provider and args.provider not in settings.providers:
-        available = ", ".join(settings.providers.keys()) or "(none configured)"
-        console.print(f"[red]unknown provider {args.provider!r}. available: {available}[/red]")
+    if args.provider and args.provider not in settings.providers and not is_any_llm_provider(args.provider):
+        configured = sorted(settings.providers.keys())
+        available = ", ".join(configured) if configured else "(no configured aliases)"
+        console.print(f"[red]unknown provider {args.provider!r}. configured aliases: {available}[/red]")
         return
 
     resolved = resolve_provider(settings, provider_name=args.provider, model=args.model)

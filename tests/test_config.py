@@ -125,6 +125,21 @@ class TestGetSettings:
         assert resolved.api_key == "env-key"
         assert resolved.api_base == "https://config.example/v1"
 
+    def test_resolve_provider_accepts_raw_any_llm_provider(self, tmp_path: Path, monkeypatch) -> None:
+        home = tmp_path / "home"
+        workspace = tmp_path / "workspace"
+        workspace.mkdir()
+
+        monkeypatch.setenv("MYCODE_HOME", str(home / ".mycode"))
+        monkeypatch.setenv("MOONSHOT_API_KEY", "moonshot-env-key")
+
+        settings = get_settings(str(workspace))
+        resolved = resolve_provider(settings, provider_name="moonshot", model="kimi-k2-thinking")
+
+        assert resolved.provider_type == "moonshot"
+        assert resolved.model == "kimi-k2-thinking"
+        assert resolved.api_key == "moonshot-env-key"
+
     def test_resolve_provider_prefers_explicit_api_key_over_env(self, tmp_path: Path, monkeypatch) -> None:
         home = tmp_path / "home"
         workspace = tmp_path / "workspace"

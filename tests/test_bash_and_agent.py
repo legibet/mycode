@@ -3,7 +3,7 @@
 import asyncio
 import tempfile
 from pathlib import Path
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -325,21 +325,32 @@ class TestAgentFinalizePendingToolCalls:
             assert len(tool_messages) == 1  # Only the original one
 
 
-class _FakeDelta:
-    def __init__(self, *, reasoning: str | None = None, content: str | None = None):
-        self.reasoning = Mock(content=reasoning) if reasoning is not None else None
-        self.content = content
-        self.tool_calls = None
+class _FakeContentBlock:
+    def __init__(self, *, type: str, id: str | None = None, name: str | None = None, input: dict | None = None):
+        self.type = type
+        self.id = id
+        self.name = name
+        self.input = input
 
 
-class _FakeChunk:
-    def __init__(self, delta: _FakeDelta):
-        self.choices = [Mock(delta=delta)]
+class _FakeMessageEvent:
+    def __init__(
+        self,
+        type: str,
+        *,
+        index: int | None = None,
+        delta: dict | None = None,
+        content_block: _FakeContentBlock | None = None,
+    ):
+        self.type = type
+        self.index = index
+        self.delta = delta
+        self.content_block = content_block
 
 
-async def _fake_stream(*chunks: _FakeChunk):
-    for chunk in chunks:
-        yield chunk
+async def _fake_stream(*events: _FakeMessageEvent):
+    for event in events:
+        yield event
 
 
 class TestAgentReasoningPersistence:
@@ -359,11 +370,19 @@ class TestAgentReasoningPersistence:
                 persisted.append(message)
 
             stream = _fake_stream(
-                _FakeChunk(_FakeDelta(reasoning="hidden ", content=None)),
-                _FakeChunk(_FakeDelta(reasoning=None, content="Visible answer")),
+                _FakeMessageEvent(
+                    "content_block_delta",
+                    index=0,
+                    delta={"type": "thinking_delta", "thinking": "hidden "},
+                ),
+                _FakeMessageEvent(
+                    "content_block_delta",
+                    index=1,
+                    delta={"type": "text_delta", "text": "Visible answer"},
+                ),
             )
 
-            with patch("mycode.core.agent.acompletion", new=AsyncMock(return_value=stream)):
+            with patch("mycode.core.agent.amessages", new=AsyncMock(return_value=stream)):
                 events = [event async for event in agent.achat("hello", on_persist=on_persist)]
 
             assert [event.type for event in events] == ["reasoning", "text"]
@@ -371,3 +390,45 @@ class TestAgentReasoningPersistence:
             assert len(assistant_messages) == 1
             assert assistant_messages[0]["content"] == "Visible answer"
             assert "reasoning_content" not in assistant_messages[0]
+
+    @pytest.mark.asyncio
+    async def test_achat_persists_tool_calls_from_messages_stream(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            session_dir = Path(tmpdir)
+            persisted: list[dict] = []
+
+            agent = Agent(
+                model="gpt-5.4",
+                cwd=tmpdir,
+                session_dir=session_dir,
+            )
+
+            async def on_persist(message: dict) -> None:
+                persisted.append(message)
+
+            stream = _fake_stream(
+                _FakeMessageEvent(
+                    "content_block_start",
+                    index=0,
+                    content_block=_FakeContentBlock(type="tool_use", id="call-1", name="read", input={}),
+                ),
+                _FakeMessageEvent(
+                    "content_block_delta",
+                    index=0,
+                    delta={"type": "input_json_delta", "partial_json": '{"path":"test.txt"}'},
+                ),
+            )
+
+            with patch("mycode.core.agent.amessages", new=AsyncMock(return_value=stream)):
+                events = [event async for event in agent.achat("hello", on_persist=on_persist)]
+
+            assert [event.type for event in events] == ["tool_start", "tool_done"]
+            assistant_messages = [m for m in persisted if m.get("role") == "assistant" and m.get("tool_calls")]
+            assert len(assistant_messages) == 1
+            assert assistant_messages[0]["tool_calls"] == [
+                {
+                    "id": "call-1",
+                    "type": "function",
+                    "function": {"name": "read", "arguments": '{"path":"test.txt"}'},
+                }
+            ]

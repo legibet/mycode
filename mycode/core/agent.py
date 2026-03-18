@@ -6,7 +6,7 @@ Key goals:
 - Streaming output via SSE-friendly events.
 - Low token overhead via truncation and minimal prompt.
 
-This agent stores messages in OpenAI-style message dicts:
+This agent persists messages in OpenAI-style message dicts:
 - {role: 'user', content: '...'}
 - {role: 'assistant', content: '...', tool_calls: [...]}
 - {role: 'tool', tool_call_id: '...', content: '...'}
@@ -25,7 +25,7 @@ from pathlib import Path
 from typing import Any, cast
 from uuid import uuid4
 
-from any_llm import acompletion
+from any_llm import amessages
 
 from mycode.core.config import Settings, get_settings
 from mycode.core.instructions import load_instructions_prompt
@@ -57,6 +57,49 @@ class ToolCallBuffer:
     # Set True once arguments form valid JSON; extra deltas from misbehaving
     # proxies are then silently dropped rather than corrupting the stored value.
     _args_complete: bool = field(default=False, repr=False)
+
+
+_THINKING_BUDGETS = {
+    "minimal": 1024,
+    "low": 2048,
+    "medium": 8192,
+    "high": 24576,
+    "xhigh": 32768,
+}
+
+
+def _text_content(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value
+    return str(value)
+
+
+def _parse_json_object(raw: Any) -> dict[str, Any]:
+    if isinstance(raw, dict):
+        return raw
+    if raw in (None, ""):
+        return {}
+    try:
+        parsed = json.loads(str(raw))
+    except (TypeError, ValueError):
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def _messages_tools_from_openai(tools: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    converted: list[dict[str, Any]] = []
+    for tool in tools:
+        fn = tool.get("function") or {}
+        converted.append(
+            {
+                "name": fn.get("name") or "",
+                "description": fn.get("description") or "",
+                "input_schema": fn.get("parameters") or {},
+            }
+        )
+    return converted
 
 
 async def _run_bash_to_queue(
@@ -211,6 +254,75 @@ class Agent:
         tool_msg = {"role": "tool", "tool_call_id": tool_id, "content": result}
         await self._persist_message(tool_msg, on_persist)
 
+    def _messages_api_payload(self) -> tuple[str | None, list[dict[str, Any]]]:
+        system: str | None = None
+        conversation = self.messages
+        if conversation and conversation[0].get("role") == "system":
+            system = _text_content(conversation[0].get("content") or "")
+            conversation = conversation[1:]
+
+        payload: list[dict[str, Any]] = []
+        pending_tool_results: list[dict[str, Any]] = []
+
+        def flush_tool_results() -> None:
+            nonlocal pending_tool_results
+            if not pending_tool_results:
+                return
+            payload.append({"role": "user", "content": pending_tool_results})
+            pending_tool_results = []
+
+        for message in conversation:
+            role = message.get("role")
+
+            if role == "user":
+                flush_tool_results()
+                payload.append({"role": "user", "content": _text_content(message.get("content") or "")})
+                continue
+
+            if role == "assistant":
+                flush_tool_results()
+                blocks: list[dict[str, Any]] = []
+                content = _text_content(message.get("content") or "")
+                if content:
+                    blocks.append({"type": "text", "text": content})
+
+                for tc in message.get("tool_calls") or []:
+                    fn = tc.get("function") or {}
+                    blocks.append(
+                        {
+                            "type": "tool_use",
+                            "id": tc.get("id") or uuid4().hex,
+                            "name": fn.get("name") or "",
+                            "input": _parse_json_object(fn.get("arguments")),
+                        }
+                    )
+
+                payload.append({"role": "assistant", "content": blocks or ""})
+                continue
+
+            if role == "tool":
+                pending_tool_results.append(
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": message.get("tool_call_id") or "",
+                        "content": _text_content(message.get("content") or ""),
+                    }
+                )
+
+        flush_tool_results()
+        return system, payload
+
+    def _thinking_config(self) -> dict[str, Any] | None:
+        effort = (self.reasoning_effort or "").strip().lower()
+        if not effort or effort == "auto":
+            return None
+        if effort in {"none", "off", "disabled"}:
+            return {"type": "disabled"}
+        budget = _THINKING_BUDGETS.get(effort)
+        if budget is None:
+            return None
+        return {"type": "enabled", "budget_tokens": budget}
+
     async def achat(self, user_input: str, *, on_persist: PersistCallback | None = None) -> AsyncIterator[Event]:
         """Run the agent loop for a single user message, yielding streaming events."""
 
@@ -225,18 +337,21 @@ class Agent:
                 yield Event("error", {"message": "cancelled"})
                 return
 
-            # Request LLM streaming completion
+            system, messages_payload = self._messages_api_payload()
+
+            # Request LLM streaming message response
             try:
                 stream = cast(
                     AsyncIterator[Any],
-                    await acompletion(
+                    await amessages(
                         model=self.model,
                         provider=self.provider,
-                        messages=cast(Any, self.messages),
-                        tools=cast(Any, TOOLS),
-                        tool_choice="auto",
+                        messages=cast(Any, messages_payload),
+                        system=system,
+                        tools=cast(Any, _messages_tools_from_openai(TOOLS)),
+                        tool_choice={"type": "auto"},
                         max_tokens=self.max_tokens,
-                        reasoning_effort=cast(Any, self.reasoning_effort or "auto"),
+                        thinking=cast(Any, self._thinking_config()),
                         api_key=self.api_key,
                         api_base=self.api_base,
                         stream=True,
@@ -257,52 +372,69 @@ class Agent:
                         yield Event("error", {"message": "cancelled"})
                         return
 
-                    if not chunk.choices:
+                    event_type = getattr(chunk, "type", "")
+                    if event_type == "content_block_start":
+                        idx = int(getattr(chunk, "index", 0) or 0)
+                        block = getattr(chunk, "content_block", None)
+                        if getattr(block, "type", None) != "tool_use":
+                            continue
+
+                        buf = buffers.get(idx)
+                        if buf is None:
+                            buf = ToolCallBuffer(index=idx)
+                            buffers[idx] = buf
+
+                        if getattr(block, "id", None):
+                            buf.id = block.id
+                        if getattr(block, "name", None):
+                            buf.name = block.name
+                        block_input = getattr(block, "input", None)
+                        if isinstance(block_input, dict) and block_input:
+                            buf.arguments = json.dumps(block_input, ensure_ascii=False)
+                            buf._args_complete = True
                         continue
 
-                    delta = chunk.choices[0].delta
+                    if event_type != "content_block_delta":
+                        continue
 
-                    if getattr(delta, "reasoning", None) and getattr(delta.reasoning, "content", None):
-                        part = delta.reasoning.content
-                        yield Event("reasoning", {"content": part})
+                    delta = getattr(chunk, "delta", None) or {}
+                    delta_type = delta.get("type", "")
+                    if delta_type == "thinking_delta":
+                        part = _text_content(delta.get("thinking"))
+                        if part:
+                            yield Event("reasoning", {"content": part})
+                        continue
 
-                    if getattr(delta, "content", None):
-                        part = delta.content
-                        text += part
-                        yield Event("text", {"content": part})
+                    if delta_type == "text_delta":
+                        part = _text_content(delta.get("text"))
+                        if part:
+                            text += part
+                            yield Event("text", {"content": part})
+                        continue
 
-                    tool_deltas = getattr(delta, "tool_calls", None)
-                    if tool_deltas:
-                        for tc in tool_deltas:
-                            idx = int(getattr(tc, "index", 0))
-                            buf = buffers.get(idx)
-                            if buf is None:
-                                buf = ToolCallBuffer(index=idx)
-                                buffers[idx] = buf
+                    if delta_type != "input_json_delta":
+                        continue
 
-                            if getattr(tc, "id", None):
-                                buf.id = tc.id
+                    idx = int(getattr(chunk, "index", 0) or 0)
+                    buf = buffers.get(idx)
+                    if buf is None:
+                        buf = ToolCallBuffer(index=idx)
+                        buffers[idx] = buf
 
-                            fn = getattr(tc, "function", None)
-                            if fn is not None:
-                                if getattr(fn, "name", None):
-                                    buf.name = fn.name
-                                arg_delta = getattr(fn, "arguments", None)
-                                if arg_delta and not buf._args_complete:
-                                    buf.arguments += arg_delta
-                                    # Detect when we have a complete JSON object;
-                                    # subsequent deltas from misbehaving proxies are dropped.
-                                    try:
-                                        json.loads(buf.arguments)
-                                        buf._args_complete = True
-                                    except json.JSONDecodeError:
-                                        pass  # still accumulating partial JSON
-                                elif arg_delta and buf._args_complete:
-                                    logger.debug(
-                                        "tool[%d] dropping extra argument delta (already complete): %r",
-                                        idx,
-                                        arg_delta,
-                                    )
+                    arg_delta = _text_content(delta.get("partial_json"))
+                    if arg_delta and not buf._args_complete:
+                        buf.arguments += arg_delta
+                        try:
+                            json.loads(buf.arguments)
+                            buf._args_complete = True
+                        except json.JSONDecodeError:
+                            pass
+                    elif arg_delta and buf._args_complete:
+                        logger.debug(
+                            "tool[%d] dropping extra argument delta (already complete): %r",
+                            idx,
+                            arg_delta,
+                        )
 
             except Exception as exc:
                 logger.exception("LLM stream failed")

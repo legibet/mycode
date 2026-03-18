@@ -99,6 +99,7 @@ async def get_config(cwd: str | None = None):
     providers_info = {
         name: {
             "name": p.name,
+            "provider": p.type,
             "type": p.type,
             "models": p.models,
             "base_url": p.base_url or "",

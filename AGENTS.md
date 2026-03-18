@@ -72,8 +72,9 @@ AGENTS.md → CLAUDE.md
 
 - `mycode.core.agent`
   - Minimal streaming agent loop with tool calls.
-  - Uses `any_llm.acompletion`.
-  - Aggregates streamed tool calls by `delta.tool_calls[].index`.
+  - Uses `any_llm.amessages` as the primary runtime API.
+  - Keeps persisted session messages in the existing OpenAI-style user/assistant/tool format for compatibility, but converts them to Messages API payloads per request.
+  - Aggregates streamed tool calls from Messages API `tool_use` blocks.
   - Persists user/assistant/tool messages (system prompt is runtime-only).
   - Streams provider reasoning/thinking as transient UI events only; reasoning is not persisted into session history.
   - Handles interrupted previous tool-calls with synthetic tool errors.
@@ -85,6 +86,7 @@ AGENTS.md → CLAUDE.md
   - Uses project/workspace-local config to override global defaults.
   - Does not auto-load `.env` files.
   - LLM `provider` / `model` / `base_url` come from explicit request args or layered config only; standard API key env vars are runtime-only overrides.
+  - Request-time `provider` values may be either configured aliases or raw any-llm provider ids.
   - `resolve_provider()` — shared by CLI and server, eliminates duplicated resolution logic.
   - Exposes workspace root / config path metadata for runtime consumers.
 

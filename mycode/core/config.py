@@ -6,8 +6,11 @@ import json
 import logging
 import os
 from dataclasses import dataclass, field
+from functools import cache, lru_cache
 from pathlib import Path
 from typing import Any
+
+from any_llm import AnyLLM
 
 _DEFAULT_MYCODE_HOME = "~/.mycode"
 
@@ -15,7 +18,7 @@ _DEFAULT_MYCODE_HOME = "~/.mycode"
 @dataclass(frozen=True)
 class ProviderConfig:
     name: str
-    type: str  # maps directly to any_llm provider: openai | anthropic | gemini | …
+    type: str  # any-llm provider id: openai | anthropic | moonshot | minimax | …
     models: list[str]  # available model names (no provider prefix)
     api_key: str | None = None
     base_url: str | None = None
@@ -157,16 +160,40 @@ def _build_providers(raw_providers: dict[str, dict[str, Any]]) -> dict[str, Prov
     return providers
 
 
+@cache
+def _provider_env_api_key_name(provider_type: str | None) -> str | None:
+    if not provider_type:
+        return None
+    try:
+        provider_class = AnyLLM.get_provider_class(provider_type)
+    except Exception:
+        return None
+
+    env_name = getattr(provider_class, "ENV_API_KEY_NAME", None)
+    if isinstance(env_name, str) and env_name:
+        return env_name
+    return None
+
+
 def _env_api_key_for_provider(provider_type: str | None) -> str | None:
-    if provider_type == "openai":
-        return os.environ.get("OPENAI_API_KEY") or None
-    if provider_type == "anthropic":
-        return os.environ.get("ANTHROPIC_API_KEY") or None
+    env_name = _provider_env_api_key_name(provider_type)
+    if env_name:
+        return os.environ.get(env_name) or None
     return None
 
 
 def provider_has_api_key(provider: ProviderConfig) -> bool:
     return bool(_env_api_key_for_provider(provider.type) or provider.api_key)
+
+
+def is_any_llm_provider(provider_name: str | None) -> bool:
+    if not provider_name:
+        return False
+    try:
+        AnyLLM.get_provider_class(provider_name)
+    except Exception:
+        return False
+    return True
 
 
 def get_settings(cwd: str | None = None) -> Settings:
@@ -228,7 +255,10 @@ def resolve_provider(
     else:
         resolved_model = settings.default_model or (cfg.models[0] if cfg and cfg.models else None) or _FALLBACK_MODEL
 
-    provider_type = cfg.type if cfg else _FALLBACK_PROVIDER
+    if provider_name:
+        provider_type = cfg.type if cfg else provider_name
+    else:
+        provider_type = cfg.type if cfg else _FALLBACK_PROVIDER
 
     return ResolvedProvider(
         provider_type=provider_type,
