@@ -16,14 +16,17 @@ export function CodeBlock({ node, inline, className, children, ...props }) {
 
   // Dark is default (:root); light only when explicitly set or system prefers light
   const isLight =
-    theme === 'light' || (theme === 'system' && !window.matchMedia('(prefers-color-scheme: dark)').matches)
+    theme === 'light' ||
+    (theme === 'system' &&
+      !window.matchMedia('(prefers-color-scheme: dark)').matches)
   const isDark = !isLight
 
   const syntaxTheme = useMemo(() => {
     const baseTheme = isDark ? vscDarkPlus : vs
     const clean = { ...baseTheme }
     if (clean['pre[class*="language-"]']) {
-      const { background, backgroundColor, ...rest } = clean['pre[class*="language-"]']
+      const { background, backgroundColor, ...rest } =
+        clean['pre[class*="language-"]']
       clean['pre[class*="language-"]'] = rest
     }
     return clean
@@ -31,7 +34,9 @@ export function CodeBlock({ node, inline, className, children, ...props }) {
 
   const match = /language-(\w+)/.exec(className || '')
   const language = match ? match[1] : ''
-  const rawContent = Array.isArray(children) ? children.join('') : String(children || '')
+  const rawContent = Array.isArray(children)
+    ? children.join('')
+    : String(children || '')
   const codeContent = rawContent.replace(/\n$/, '')
 
   const isInline = inline || (!match && !rawContent.endsWith('\n'))
@@ -48,7 +53,13 @@ export function CodeBlock({ node, inline, className, children, ...props }) {
 
   if (isInline) {
     return (
-      <code className={cn('px-1.5 py-0.5 rounded bg-code font-mono text-[13px] text-accent', className)} {...props}>
+      <code
+        className={cn(
+          'px-1.5 py-0.5 rounded bg-code font-mono text-[13px] text-accent',
+          className,
+        )}
+        {...props}
+      >
         {children}
       </code>
     )
@@ -67,7 +78,9 @@ export function CodeBlock({ node, inline, className, children, ...props }) {
           onClick={handleCopy}
           className={cn(
             'flex items-center gap-1 rounded px-1.5 py-0.5 text-2xs font-mono transition-all duration-200',
-            copied ? 'text-emerald-400' : 'text-muted-foreground/40 hover:text-foreground/60'
+            copied
+              ? 'text-emerald-400'
+              : 'text-muted-foreground/40 hover:text-foreground/60',
           )}
           title="Copy code"
         >
@@ -95,7 +108,9 @@ export function CodeBlock({ node, inline, className, children, ...props }) {
           lineNumberStyle={{
             minWidth: '2em',
             paddingRight: '1em',
-            color: isDark ? 'rgba(128, 128, 128, 0.25)' : 'rgba(128, 128, 128, 0.35)',
+            color: isDark
+              ? 'rgba(128, 128, 128, 0.25)'
+              : 'rgba(128, 128, 128, 0.35)',
             textAlign: 'right',
             userSelect: 'none',
             fontWeight: 400,

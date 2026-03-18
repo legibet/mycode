@@ -3,10 +3,19 @@
  * Terminal-luxe aesthetic: compact, warm amber accents.
  */
 
-import { FolderOpen, History, Laptop, Moon, Plus, Settings, Sun, Terminal, Trash2 } from 'lucide-react'
+import {
+  FolderOpen,
+  History,
+  Laptop,
+  Moon,
+  Plus,
+  Settings,
+  Sun,
+  Terminal,
+  Trash2,
+} from 'lucide-react'
 import { useState } from 'react'
 import { cn } from '../utils/cn'
-import { MODEL_PRESETS } from '../utils/storage'
 import { Button } from './UI/Button'
 import { WorkspacePicker } from './WorkspacePicker'
 
@@ -38,20 +47,32 @@ export function Sidebar({
   const handleProviderChange = (providerName) => {
     const providerInfo = remoteConfig?.providers?.[providerName]
     const firstModel = providerInfo?.models?.[0] || ''
-    onUpdateConfig({ ...config, provider: providerName, model: firstModel, apiBase: '', apiKey: '' })
+    onUpdateConfig({
+      ...config,
+      provider: providerName,
+      model: firstModel,
+      apiBase: '',
+      apiKey: '',
+    })
   }
 
   const activeProviderInfo = remoteConfig?.providers?.[config.provider]
   const providerModels = activeProviderInfo?.models || []
-  const allModelOptions = providerModels.length > 0 ? providerModels : MODEL_PRESETS
 
   return (
-    <div className={cn('flex w-60 flex-col border-r border-border/60 bg-sidebar-bg', className)}>
+    <div
+      className={cn(
+        'flex w-60 flex-col border-r border-border/60 bg-sidebar-bg',
+        className,
+      )}
+    >
       {/* Header */}
       <div className="flex h-14 shrink-0 items-center px-4 border-b border-border/40">
         <div className="flex items-center gap-2.5">
           <Terminal className="h-4 w-4 text-accent" />
-          <span className="font-display text-sm tracking-tight text-foreground">mycode</span>
+          <span className="font-display text-sm tracking-tight text-foreground">
+            mycode
+          </span>
         </div>
       </div>
 
@@ -63,7 +84,9 @@ export function Sidebar({
             onClick={() => setTab('chat')}
             className={cn(
               'flex-1 flex items-center justify-center rounded-md py-1.5 text-xs font-medium transition-all',
-              tab === 'chat' ? 'bg-secondary text-foreground' : 'text-muted-foreground hover:text-foreground'
+              tab === 'chat'
+                ? 'bg-secondary text-foreground'
+                : 'text-muted-foreground hover:text-foreground',
             )}
           >
             <History className="mr-1.5 h-3 w-3" />
@@ -74,7 +97,9 @@ export function Sidebar({
             onClick={() => setTab('settings')}
             className={cn(
               'flex-1 flex items-center justify-center rounded-md py-1.5 text-xs font-medium transition-all',
-              tab === 'settings' ? 'bg-secondary text-foreground' : 'text-muted-foreground hover:text-foreground'
+              tab === 'settings'
+                ? 'bg-secondary text-foreground'
+                : 'text-muted-foreground hover:text-foreground',
             )}
           >
             <Settings className="mr-1.5 h-3 w-3" />
@@ -106,14 +131,16 @@ export function Sidebar({
                     'group relative flex w-full items-center justify-between rounded-md px-3 py-2 text-xs cursor-pointer transition-all text-left',
                     activeSession?.id === session.id
                       ? 'bg-secondary text-foreground'
-                      : 'text-muted-foreground hover:text-foreground hover:bg-secondary/50'
+                      : 'text-muted-foreground hover:text-foreground hover:bg-secondary/50',
                   )}
                   onClick={() => onSelectSession(session.id)}
                 >
                   {activeSession?.id === session.id && (
                     <div className="absolute left-0 top-1/2 -translate-y-1/2 h-4 w-0.5 rounded-r bg-accent" />
                   )}
-                  <span className="truncate flex-1 pl-1">{session.title || 'New Chat'}</span>
+                  <span className="truncate flex-1 pl-1">
+                    {session.title || 'New Chat'}
+                  </span>
                   {activeSession?.id !== session.id && (
                     <Button
                       variant="ghost"
@@ -161,7 +188,7 @@ export function Sidebar({
                       'flex items-center justify-center rounded py-1.5 transition-all text-xs',
                       theme === key
                         ? 'bg-accent text-accent-foreground'
-                        : 'text-muted-foreground hover:text-foreground hover:bg-secondary'
+                        : 'text-muted-foreground hover:text-foreground hover:bg-secondary',
                     )}
                   >
                     <Icon className="h-3.5 w-3.5" />
@@ -187,7 +214,9 @@ export function Sidebar({
               <div className="rounded bg-background/50 px-2.5 py-2">
                 <p
                   className="break-all font-mono text-2xs leading-relaxed text-muted-foreground"
-                  title={config.cwd === '.' ? remoteConfig?.cwd || '.' : config.cwd}
+                  title={
+                    config.cwd === '.' ? remoteConfig?.cwd || '.' : config.cwd
+                  }
                 >
                   {config.cwd === '.' ? remoteConfig?.cwd || '.' : config.cwd}
                 </p>
@@ -200,36 +229,45 @@ export function Sidebar({
                 Provider
               </div>
               <div className="space-y-3">
-                {remoteConfig?.providers && Object.keys(remoteConfig.providers).length > 0 && (
-                  <div className="space-y-1.5">
-                    <label htmlFor="provider-select" className="text-2xs font-mono text-muted-foreground/70">
-                      provider
-                    </label>
-                    <select
-                      id="provider-select"
-                      value={config.provider || ''}
-                      onChange={(e) => handleProviderChange(e.target.value)}
-                      className={SELECT_CLASS}
-                    >
-                      <option value="">select...</option>
-                      {Object.values(remoteConfig.providers).map((p) => (
-                        <option key={p.name} value={p.name}>
-                          {p.name} ({p.type})
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                )}
+                {remoteConfig?.providers &&
+                  Object.keys(remoteConfig.providers).length > 0 && (
+                    <div className="space-y-1.5">
+                      <label
+                        htmlFor="provider-select"
+                        className="text-2xs font-mono text-muted-foreground/70"
+                      >
+                        provider
+                      </label>
+                      <select
+                        id="provider-select"
+                        value={config.provider || ''}
+                        onChange={(e) => handleProviderChange(e.target.value)}
+                        className={SELECT_CLASS}
+                      >
+                        <option value="">select...</option>
+                        {Object.values(remoteConfig.providers).map((p) => (
+                          <option key={p.name} value={p.name}>
+                            {p.name} ({p.type})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
 
                 {providerModels.length > 0 ? (
                   <div className="space-y-1.5">
-                    <label htmlFor="model-input" className="text-2xs font-mono text-muted-foreground/70">
+                    <label
+                      htmlFor="model-input"
+                      className="text-2xs font-mono text-muted-foreground/70"
+                    >
                       model
                     </label>
                     <select
                       id="model-input"
                       value={config.model || ''}
-                      onChange={(e) => onUpdateConfig({ ...config, model: e.target.value })}
+                      onChange={(e) =>
+                        onUpdateConfig({ ...config, model: e.target.value })
+                      }
                       className={SELECT_CLASS}
                     >
                       {providerModels.map((m) => (
@@ -240,7 +278,9 @@ export function Sidebar({
                     </select>
                   </div>
                 ) : (
-                  <div className="text-center text-2xs text-muted-foreground/50 py-2">No models available</div>
+                  <div className="text-center text-2xs text-muted-foreground/50 py-2">
+                    No models available
+                  </div>
                 )}
               </div>
             </div>

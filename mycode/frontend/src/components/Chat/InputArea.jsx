@@ -25,7 +25,7 @@ export function InputArea({ input, setInput, loading, onSend, onCancel }) {
           className={cn(
             'relative rounded-lg border bg-card/50 transition-all duration-300',
             'border-border/40',
-            'focus-within:border-accent/30 focus-within:bg-card'
+            'focus-within:border-accent/30 focus-within:bg-card',
           )}
         >
           <textarea
@@ -61,7 +61,9 @@ export function InputArea({ input, setInput, loading, onSend, onCancel }) {
                 disabled={!hasInput}
                 className={cn(
                   'h-7 w-7 flex items-center justify-center rounded-md transition-all duration-200',
-                  hasInput ? 'bg-accent text-accent-foreground hover:bg-accent/80' : 'text-muted-foreground/30'
+                  hasInput
+                    ? 'bg-accent text-accent-foreground hover:bg-accent/80'
+                    : 'text-muted-foreground/30',
                 )}
                 title="Send message"
               >
@@ -76,7 +78,9 @@ export function InputArea({ input, setInput, loading, onSend, onCancel }) {
       </div>
 
       <div className="mt-2 text-center">
-        <span className="text-2xs font-mono text-muted-foreground/30 tracking-wider">mycode</span>
+        <span className="text-2xs font-mono text-muted-foreground/30 tracking-wider">
+          mycode
+        </span>
       </div>
     </div>
   )

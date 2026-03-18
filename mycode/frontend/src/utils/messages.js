@@ -24,7 +24,9 @@ export function transformMessages(messages) {
         currentAssistant = null
       }
 
-      const toolResults = blocks.filter((block) => block?.type === 'tool_result')
+      const toolResults = blocks.filter(
+        (block) => block?.type === 'tool_result',
+      )
       if (toolResults.length === 0) continue
 
       if (!currentAssistant) {
@@ -93,7 +95,9 @@ export function transformMessages(messages) {
     }
   }
 
-  return result.filter((message) => Array.isArray(message.parts) && message.parts.length > 0)
+  return result.filter(
+    (message) => Array.isArray(message.parts) && message.parts.length > 0,
+  )
 }
 
 export function buildToolIndex(messages) {

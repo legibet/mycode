@@ -10,7 +10,7 @@ export function Layout({ children }) {
     <div
       className={cn(
         'flex h-screen w-full flex-col bg-background font-sans text-foreground antialiased',
-        'transition-colors duration-500'
+        'transition-colors duration-500',
       )}
     >
       {children}

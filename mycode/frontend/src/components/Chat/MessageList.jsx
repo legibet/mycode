@@ -21,7 +21,9 @@ export function MessageList({ messages, loading }) {
             mycode
             <span className="inline-block w-[2px] h-7 bg-accent ml-0.5 align-middle animate-cursor-blink" />
           </h1>
-          <p className="text-xs font-mono text-muted-foreground/50 tracking-wide">ready.</p>
+          <p className="text-xs font-mono text-muted-foreground/50 tracking-wide">
+            ready.
+          </p>
         </div>
       </div>
     )
@@ -35,7 +37,11 @@ export function MessageList({ messages, loading }) {
             key={`${message.role}-${index}-${message.parts.length}`}
             role={message.role}
             parts={message.parts}
-            isStreaming={loading && index === messages.length - 1 && message.role === 'assistant'}
+            isStreaming={
+              loading &&
+              index === messages.length - 1 &&
+              message.role === 'assistant'
+            }
             index={index}
           />
         ))}

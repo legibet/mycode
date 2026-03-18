@@ -3,7 +3,14 @@
  * Handles messages, sessions, and SSE streaming.
  */
 
-import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useReducer,
+  useRef,
+  useState,
+} from 'react'
 import { buildToolIndex, transformMessages } from '../utils/messages'
 
 const EMPTY_SESSION = { id: 'default', title: 'New chat' }
@@ -19,7 +26,10 @@ function chatReducer(state, action) {
     }
 
     case 'append_user': {
-      const messages = [...state.messages, { role: 'user', parts: [{ type: 'text', content: action.content }] }]
+      const messages = [
+        ...state.messages,
+        { role: 'user', parts: [{ type: 'text', content: action.content }] },
+      ]
       return { ...state, messages }
     }
 
@@ -40,7 +50,10 @@ function chatReducer(state, action) {
         assistantIndex = messages.length - 1
       }
 
-      const assistant = { ...messages[assistantIndex], parts: [...messages[assistantIndex].parts] }
+      const assistant = {
+        ...messages[assistantIndex],
+        parts: [...messages[assistantIndex].parts],
+      }
       messages[assistantIndex] = assistant
 
       // Find tool part by id
@@ -65,14 +78,20 @@ function chatReducer(state, action) {
       if (event.type === 'reasoning') {
         const lastPart = assistant.parts[assistant.parts.length - 1]
         if (lastPart?.type === 'reasoning') {
-          assistant.parts[assistant.parts.length - 1] = { ...lastPart, content: lastPart.content + event.content }
+          assistant.parts[assistant.parts.length - 1] = {
+            ...lastPart,
+            content: lastPart.content + event.content,
+          }
         } else {
           assistant.parts.push({ type: 'reasoning', content: event.content })
         }
       } else if (event.type === 'text') {
         const lastPart = assistant.parts[assistant.parts.length - 1]
         if (lastPart?.type === 'text') {
-          assistant.parts[assistant.parts.length - 1] = { ...lastPart, content: lastPart.content + event.content }
+          assistant.parts[assistant.parts.length - 1] = {
+            ...lastPart,
+            content: lastPart.content + event.content,
+          }
         } else {
           assistant.parts.push({ type: 'text', content: event.content })
         }
@@ -86,7 +105,8 @@ function chatReducer(state, action) {
           result: '',
           pending: true,
         })
-        if (event.id) toolIndex[event.id] = { messageIndex: assistantIndex, partIndex }
+        if (event.id)
+          toolIndex[event.id] = { messageIndex: assistantIndex, partIndex }
       } else if (event.type === 'tool_output') {
         const entry = findToolEntry(event.id)
         if (entry) {
@@ -104,11 +124,18 @@ function chatReducer(state, action) {
         if (entry) {
           const targetMsg = messages[entry.messageIndex]
           const targetParts = [...targetMsg.parts]
-          targetParts[entry.partIndex] = { ...targetParts[entry.partIndex], result: event.result, pending: false }
+          targetParts[entry.partIndex] = {
+            ...targetParts[entry.partIndex],
+            result: event.result,
+            pending: false,
+          }
           messages[entry.messageIndex] = { ...targetMsg, parts: targetParts }
         }
       } else if (event.type === 'error') {
-        assistant.parts.push({ type: 'text', content: `\n\n**Error:** ${event.message || event.error || 'Unknown'}` })
+        assistant.parts.push({
+          type: 'text',
+          content: `\n\n**Error:** ${event.message || event.error || 'Unknown'}`,
+        })
       }
 
       return { messages, toolIndex }
@@ -124,7 +151,11 @@ function chatReducer(state, action) {
           if (part?.type !== 'tool' || !part.pending) return part
           changed = true
           msgChanged = true
-          return { ...part, pending: false, result: part.result || result || '' }
+          return {
+            ...part,
+            pending: false,
+            result: part.result || result || '',
+          }
         })
         return msgChanged ? { ...msg, parts } : msg
       })
@@ -137,7 +168,10 @@ function chatReducer(state, action) {
 }
 
 export function useChat(config) {
-  const [chatState, dispatch] = useReducer(chatReducer, { messages: [], toolIndex: {} })
+  const [chatState, dispatch] = useReducer(chatReducer, {
+    messages: [],
+    toolIndex: {},
+  })
   const [sessions, setSessions] = useState([])
   const [activeSession, setActiveSession] = useState(EMPTY_SESSION)
   const [loading, setLoading] = useState(false)
@@ -159,7 +193,9 @@ export function useChat(config) {
   // Fetch sessions list
   const fetchSessions = useCallback(async () => {
     try {
-      const res = await fetch(`/api/sessions?cwd=${encodeURIComponent(config.cwd)}`)
+      const res = await fetch(
+        `/api/sessions?cwd=${encodeURIComponent(config.cwd)}`,
+      )
       if (!res.ok) throw new Error('Failed to load sessions')
       const data = await res.json()
       setSessions(data.sessions || [])
@@ -228,22 +264,31 @@ export function useChat(config) {
           aborted = true
         } else {
           setConnectionState('error')
-          dispatch({ type: 'apply_event', event: { type: 'error', message: e.message } })
+          dispatch({
+            type: 'apply_event',
+            event: { type: 'error', message: e.message },
+          })
           dispatch({ type: 'finalize_pending', result: `error: ${e.message}` })
         }
       } finally {
-        dispatch({ type: 'finalize_pending', result: aborted ? 'error: cancelled' : 'error: stream ended' })
+        dispatch({
+          type: 'finalize_pending',
+          result: aborted ? 'error: cancelled' : 'error: stream ended',
+        })
         setLoading(false)
         fetchSessions()
       }
     },
-    [activeSession.id, config, fetchSessions, loading]
+    [activeSession.id, config, fetchSessions, loading],
   )
 
   // Clear current session
   const clear = useCallback(async () => {
     try {
-      await fetch(`/api/sessions/${encodeURIComponent(activeSession.id)}/clear`, { method: 'POST' })
+      await fetch(
+        `/api/sessions/${encodeURIComponent(activeSession.id)}/clear`,
+        { method: 'POST' },
+      )
       dispatch({ type: 'set_messages', messages: [] })
     } catch (e) {
       console.error('Failed to clear:', e)
@@ -256,7 +301,10 @@ export function useChat(config) {
     setLoading(false)
     dispatch({ type: 'finalize_pending', result: 'error: cancelled' })
     try {
-      await fetch(`/api/cancel?session_id=${encodeURIComponent(activeSession.id)}`, { method: 'POST' })
+      await fetch(
+        `/api/cancel?session_id=${encodeURIComponent(activeSession.id)}`,
+        { method: 'POST' },
+      )
     } catch (e) {
       console.error('Failed to cancel:', e)
     }
@@ -283,7 +331,10 @@ export function useChat(config) {
       if (data.session) {
         setActiveSession(data.session)
         dispatch({ type: 'set_messages', messages: [] })
-        setSessions((prev) => [data.session, ...prev.filter((s) => s.id !== data.session.id)])
+        setSessions((prev) => [
+          data.session,
+          ...prev.filter((s) => s.id !== data.session.id),
+        ])
       }
       await fetchSessions()
     } catch (e) {
@@ -300,7 +351,9 @@ export function useChat(config) {
       initRef.current = true
       setSessionLoading(true)
       try {
-        const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}`)
+        const res = await fetch(
+          `/api/sessions/${encodeURIComponent(sessionId)}`,
+        )
         if (!res.ok) throw new Error('Failed to load session')
         const data = await res.json()
         if (data.session) {
@@ -315,16 +368,19 @@ export function useChat(config) {
         setSessionLoading(false)
       }
     },
-    [activeSession.id]
+    [activeSession.id],
   )
 
   // Delete session
   const deleteSession = useCallback(
     async (sessionId) => {
-      if (!sessionId || sessions.length === 1 || sessionId === activeSession.id) return
+      if (!sessionId || sessions.length === 1 || sessionId === activeSession.id)
+        return
       setSessionLoading(true)
       try {
-        await fetch(`/api/sessions/${encodeURIComponent(sessionId)}`, { method: 'DELETE' })
+        await fetch(`/api/sessions/${encodeURIComponent(sessionId)}`, {
+          method: 'DELETE',
+        })
         setSessions((prev) => prev.filter((s) => s.id !== sessionId))
       } catch (e) {
         console.error('Failed to delete session:', e)
@@ -332,7 +388,7 @@ export function useChat(config) {
         setSessionLoading(false)
       }
     },
-    [activeSession.id, sessions.length]
+    [activeSession.id, sessions.length],
   )
 
   // Initialize sessions on mount

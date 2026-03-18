@@ -28,14 +28,17 @@ const toRelativePath = (root, absolutePath) => {
   const normRoot = normalizeSlashes(root).replace(/\/+$/, '')
   const normPath = normalizeSlashes(absolutePath)
   if (normPath === normRoot) return ''
-  const relative = normPath.startsWith(normRoot) ? normPath.slice(normRoot.length) : normPath
+  const relative = normPath.startsWith(normRoot)
+    ? normPath.slice(normRoot.length)
+    : normPath
   return relative.replace(/^\/+/, '')
 }
 
 const rootLabel = (value) => {
   if (!value || value === '/' || value === '\\') return 'Root'
   const normalized = value.replace(/[\\/]+$/, '')
-  if (/\/Users\/[^/]+$/.test(normalized) || /\/home\/[^/]+$/.test(normalized)) return 'Home'
+  if (/\/Users\/[^/]+$/.test(normalized) || /\/home\/[^/]+$/.test(normalized))
+    return 'Home'
   const parts = normalized.split(/[/\\]/)
   return parts[parts.length - 1] || value
 }
@@ -94,7 +97,12 @@ export function WorkspacePicker({ open, onClose, currentCwd, onSelect }) {
         const roots = await loadRoots()
         if (!active) return
         if (!roots.length) {
-          setState((prev) => ({ ...prev, roots: [], loading: false, error: 'No workspace roots found' }))
+          setState((prev) => ({
+            ...prev,
+            roots: [],
+            loading: false,
+            error: 'No workspace roots found',
+          }))
           return
         }
         setFilter('')
@@ -108,7 +116,8 @@ export function WorkspacePicker({ open, onClose, currentCwd, onSelect }) {
           await browsePath(roots[0], '')
         }
       } catch (e) {
-        if (active) setState((prev) => ({ ...prev, loading: false, error: e.message }))
+        if (active)
+          setState((prev) => ({ ...prev, loading: false, error: e.message }))
       }
     }
     init()
@@ -153,7 +162,9 @@ export function WorkspacePicker({ open, onClose, currentCwd, onSelect }) {
 
   const pathSegments = state.path ? state.path.split('/') : []
   const filteredEntries = filter
-    ? state.entries.filter((e) => e.name.toLowerCase().includes(filter.toLowerCase()))
+    ? state.entries.filter((e) =>
+        e.name.toLowerCase().includes(filter.toLowerCase()),
+      )
     : state.entries
 
   if (!open) return null
@@ -161,8 +172,6 @@ export function WorkspacePicker({ open, onClose, currentCwd, onSelect }) {
   return createPortal(
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
       {/* Backdrop */}
-      {/* biome-ignore lint/a11y/useKeyWithClickEvents: Backdrop does not need keyboard events. */}
-      {/* biome-ignore lint/a11y/noStaticElementInteractions: Backdrop needs click to close modal. */}
       <div
         className="absolute inset-0 bg-background/80 backdrop-blur-sm transition-opacity"
         onClick={onClose}
@@ -174,12 +183,19 @@ export function WorkspacePicker({ open, onClose, currentCwd, onSelect }) {
         {/* Header */}
         <div className="flex shrink-0 items-center justify-between border-b border-border/50 bg-muted/20 px-6 py-4">
           <div>
-            <h2 className="text-lg font-semibold tracking-tight">Select Workspace</h2>
+            <h2 className="text-lg font-semibold tracking-tight">
+              Select Workspace
+            </h2>
             <p className="text-xs text-muted-foreground mt-0.5">
               Browse your file system and select a working directory
             </p>
           </div>
-          <Button variant="ghost" size="sm" onClick={onClose} className="hidden sm:inline-flex">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={onClose}
+            className="hidden sm:inline-flex"
+          >
             Cancel
           </Button>
         </div>
@@ -232,7 +248,7 @@ export function WorkspacePicker({ open, onClose, currentCwd, onSelect }) {
                     'bg-transparent font-medium focus:outline-none cursor-pointer max-w-[150px] truncate outline-none',
                     state.roots.length > 1
                       ? 'hover:text-primary text-muted-foreground'
-                      : 'text-muted-foreground appearance-none'
+                      : 'text-muted-foreground appearance-none',
                   )}
                   title={state.root}
                 >
@@ -246,7 +262,9 @@ export function WorkspacePicker({ open, onClose, currentCwd, onSelect }) {
                   const crumbPath = pathSegments.slice(0, index + 1).join('/')
                   return (
                     <div key={crumbPath} className="flex items-center gap-1.5">
-                      <span className="text-muted-foreground/40 font-semibold">/</span>
+                      <span className="text-muted-foreground/40 font-semibold">
+                        /
+                      </span>
                       <button
                         type="button"
                         onClick={() => browsePath(state.root, crumbPath)}
@@ -254,7 +272,7 @@ export function WorkspacePicker({ open, onClose, currentCwd, onSelect }) {
                           'transition-colors hover:underline',
                           index === pathSegments.length - 1
                             ? 'text-foreground font-semibold'
-                            : 'hover:text-primary text-muted-foreground font-medium'
+                            : 'hover:text-primary text-muted-foreground font-medium',
                         )}
                       >
                         {segment}
@@ -268,7 +286,9 @@ export function WorkspacePicker({ open, onClose, currentCwd, onSelect }) {
             {/* Folder List Window */}
             <div className="flex flex-1 flex-col overflow-hidden">
               <div className="flex items-center justify-between border-b border-border/50 bg-muted/10 px-6 py-2">
-                <div className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Directories</div>
+                <div className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                  Directories
+                </div>
                 <div className="relative">
                   <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground/50" />
                   <Input
@@ -287,14 +307,18 @@ export function WorkspacePicker({ open, onClose, currentCwd, onSelect }) {
                   </div>
                 )}
                 {!state.loading && state.error && (
-                  <div className="flex h-full items-center justify-center text-sm text-destructive">{state.error}</div>
-                )}
-                {!state.loading && !state.error && filteredEntries.length === 0 && (
-                  <div className="flex flex-col h-full items-center justify-center text-muted-foreground gap-3">
-                    <Folder className="h-10 w-10 opacity-20" />
-                    <p className="text-sm">This folder is empty.</p>
+                  <div className="flex h-full items-center justify-center text-sm text-destructive">
+                    {state.error}
                   </div>
                 )}
+                {!state.loading &&
+                  !state.error &&
+                  filteredEntries.length === 0 && (
+                    <div className="flex flex-col h-full items-center justify-center text-muted-foreground gap-3">
+                      <Folder className="h-10 w-10 opacity-20" />
+                      <p className="text-sm">This folder is empty.</p>
+                    </div>
+                  )}
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   {!state.loading &&
@@ -321,7 +345,9 @@ export function WorkspacePicker({ open, onClose, currentCwd, onSelect }) {
         {/* Footer Actions */}
         <div className="flex shrink-0 items-center justify-between border-t border-border/50 bg-muted/10 px-6 py-4">
           <div className="flex items-center gap-2 max-w-[50%]">
-            <span className="text-xs text-muted-foreground">Selected target:</span>
+            <span className="text-xs text-muted-foreground">
+              Selected target:
+            </span>
             <span className="text-xs font-mono font-medium truncate bg-background px-2 py-1 rounded-md border border-border/50 shadow-sm">
               {state.current || 'None'}
             </span>
@@ -341,6 +367,6 @@ export function WorkspacePicker({ open, onClose, currentCwd, onSelect }) {
         </div>
       </div>
     </div>,
-    document.body
+    document.body,
   )
 }

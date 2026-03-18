@@ -11,7 +11,13 @@ import { Layout } from './components/Layout'
 import { Sidebar } from './components/Sidebar'
 import { ThemeProvider, useTheme } from './components/ThemeProvider'
 import { useChat } from './hooks/useChat'
-import { addHistory, loadConfig, loadHistory, saveConfig, saveHistory } from './utils/storage'
+import {
+  addHistory,
+  loadConfig,
+  loadHistory,
+  saveConfig,
+  saveHistory,
+} from './utils/storage'
 
 function AppContent() {
   const [config, setConfig] = useState(loadConfig)
@@ -20,8 +26,17 @@ function AppContent() {
   const [remoteConfig, setRemoteConfig] = useState(null)
   const { theme, setTheme } = useTheme()
 
-  const { messages, loading, sessions, activeSession, send, cancel, createSession, selectSession, deleteSession } =
-    useChat(config)
+  const {
+    messages,
+    loading,
+    sessions,
+    activeSession,
+    send,
+    cancel,
+    createSession,
+    selectSession,
+    deleteSession,
+  } = useChat(config)
 
   useEffect(() => {
     fetch(`/api/config?cwd=${encodeURIComponent(config.cwd)}`)
@@ -31,12 +46,15 @@ function AppContent() {
         setConfig((prev) => {
           const providers = data.providers || {}
           const providerNames = Object.keys(providers)
-          const currentProviderValid = prev.provider && providerNames.includes(prev.provider)
+          const currentProviderValid =
+            prev.provider && providerNames.includes(prev.provider)
           if (currentProviderValid) return prev
 
           const nextProvider = data.default?.provider || ''
-          const nextModel = data.default?.model || providers[nextProvider]?.models?.[0] || ''
-          if (prev.provider === nextProvider && prev.model === nextModel) return prev
+          const nextModel =
+            data.default?.model || providers[nextProvider]?.models?.[0] || ''
+          if (prev.provider === nextProvider && prev.model === nextModel)
+            return prev
 
           const updated = {
             ...prev,
@@ -95,7 +113,13 @@ function AppContent() {
           <div className="pointer-events-none absolute bottom-0 left-0 right-0 h-24 bg-gradient-to-t from-background via-background/80 to-transparent" />
 
           <div className="shrink-0 relative z-10 pb-4 pt-1">
-            <InputArea input={input} setInput={setInput} loading={loading} onSend={handleSend} onCancel={cancel} />
+            <InputArea
+              input={input}
+              setInput={setInput}
+              loading={loading}
+              onSend={handleSend}
+              onCancel={cancel}
+            />
           </div>
         </main>
       </div>

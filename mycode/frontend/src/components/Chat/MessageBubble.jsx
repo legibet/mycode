@@ -5,22 +5,25 @@
 
 import { cn } from '../../utils/cn'
 import { MarkdownBlock } from './MarkdownBlock'
-import { ToolCard } from './ToolCard'
 import { ReasoningBlock } from './ReasoningBlock'
+import { ToolCard } from './ToolCard'
 
 export function MessageBubble({ role, parts, isStreaming, index }) {
   const isUser = role === 'user'
 
   return (
     <div
-      className={cn('group relative px-6 py-4 animate-fade-in-up', isUser ? '' : '')}
+      className={cn(
+        'group relative px-6 py-4 animate-fade-in-up',
+        isUser ? '' : '',
+      )}
       style={{ animationDelay: `${Math.min(index * 30, 150)}ms` }}
     >
       {/* Left border indicator */}
       <div
         className={cn(
           'absolute left-0 top-4 bottom-4 w-[2px] rounded-r transition-colors',
-          isUser ? 'bg-border' : 'bg-accent/60'
+          isUser ? 'bg-border' : 'bg-accent/60',
         )}
       />
 
@@ -30,7 +33,7 @@ export function MessageBubble({ role, parts, isStreaming, index }) {
           <span
             className={cn(
               'font-mono text-2xs uppercase tracking-widest',
-              isUser ? 'text-muted-foreground/60' : 'text-accent/70'
+              isUser ? 'text-muted-foreground/60' : 'text-accent/70',
             )}
           >
             {isUser ? 'you' : 'assistant'}
@@ -41,10 +44,21 @@ export function MessageBubble({ role, parts, isStreaming, index }) {
         <div className="space-y-3 text-foreground/90 leading-relaxed text-sm">
           {parts.map((part, i) => {
             if (part.type === 'reasoning') {
-              return <ReasoningBlock key={`reasoning-${i}`} content={part.content} isStreaming={isStreaming} />
+              return (
+                <ReasoningBlock
+                  key={`reasoning-${i}`}
+                  content={part.content}
+                  isStreaming={isStreaming}
+                />
+              )
             }
             if (part.type === 'text') {
-              return <MarkdownBlock key={part.id || `text-${i}`} content={part.content} />
+              return (
+                <MarkdownBlock
+                  key={part.id || `text-${i}`}
+                  content={part.content}
+                />
+              )
             }
             if (part.type === 'tool') {
               return (
