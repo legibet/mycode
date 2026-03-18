@@ -76,13 +76,13 @@ export function Sidebar({
         </div>
       </div>
 
-      {/* Tab navigation — underline style */}
-      <div className="flex shrink-0 border-b border-border/40">
+      {/* Tab navigation — sliding underline */}
+      <div className="relative flex shrink-0 border-b border-border/40">
         <button
           type="button"
           onClick={() => setTab('chat')}
           className={cn(
-            'flex-1 flex items-center justify-center gap-1.5 py-2.5 text-xs font-medium transition-colors relative',
+            'flex-1 flex items-center justify-center gap-1.5 py-2.5 text-xs font-medium transition-colors',
             tab === 'chat'
               ? 'text-foreground'
               : 'text-muted-foreground hover:text-foreground',
@@ -90,15 +90,12 @@ export function Sidebar({
         >
           <History className="h-3 w-3" />
           History
-          {tab === 'chat' && (
-            <div className="absolute bottom-0 left-3 right-3 h-[2px] bg-accent" />
-          )}
         </button>
         <button
           type="button"
           onClick={() => setTab('settings')}
           className={cn(
-            'flex-1 flex items-center justify-center gap-1.5 py-2.5 text-xs font-medium transition-colors relative',
+            'flex-1 flex items-center justify-center gap-1.5 py-2.5 text-xs font-medium transition-colors',
             tab === 'settings'
               ? 'text-foreground'
               : 'text-muted-foreground hover:text-foreground',
@@ -106,10 +103,16 @@ export function Sidebar({
         >
           <Settings className="h-3 w-3" />
           Settings
-          {tab === 'settings' && (
-            <div className="absolute bottom-0 left-3 right-3 h-[2px] bg-accent" />
-          )}
         </button>
+        {/* Sliding indicator */}
+        <div
+          className="absolute bottom-0 h-[2px] bg-accent transition-all duration-200 ease-out"
+          style={{
+            left: tab === 'chat' ? '12px' : '50%',
+            width: 'calc(50% - 24px)',
+            transform: tab === 'settings' ? 'translateX(12px)' : 'none',
+          }}
+        />
       </div>
 
       <div className="flex-1 overflow-hidden flex flex-col min-h-0">

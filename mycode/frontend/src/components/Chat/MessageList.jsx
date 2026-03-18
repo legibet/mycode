@@ -1,16 +1,30 @@
 /**
  * Scrollable message list with auto-scroll.
+ * Only auto-scrolls when the user is already near the bottom.
  * Empty state: blinking cursor terminal prompt.
  */
 
-import { useEffect, useRef } from 'react'
+import { useCallback, useEffect, useRef } from 'react'
 import { MessageBubble } from './MessageBubble'
 
+const SCROLL_THRESHOLD = 120
+
 export function MessageList({ messages, loading }) {
+  const containerRef = useRef(null)
   const endRef = useRef(null)
+  const stickToBottom = useRef(true)
+
+  const handleScroll = useCallback(() => {
+    const el = containerRef.current
+    if (!el) return
+    stickToBottom.current =
+      el.scrollHeight - el.scrollTop - el.clientHeight < SCROLL_THRESHOLD
+  }, [])
 
   useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: 'smooth' })
+    if (stickToBottom.current) {
+      endRef.current?.scrollIntoView({ behavior: 'smooth' })
+    }
   })
 
   if (messages.length === 0) {
@@ -30,8 +44,12 @@ export function MessageList({ messages, loading }) {
   }
 
   return (
-    <div className="flex-1 overflow-y-auto pb-4 pt-6">
-      <div className="mx-auto max-w-4xl max-md:max-w-none flex flex-col gap-6">
+    <div
+      ref={containerRef}
+      onScroll={handleScroll}
+      className="flex-1 overflow-y-auto pb-4 pt-6"
+    >
+      <div className="mx-auto max-w-4xl max-md:max-w-none flex flex-col gap-6 max-md:gap-4">
         {messages.map((message, index) => (
           <MessageBubble
             key={`${message.role}-${index}-${message.parts.length}`}

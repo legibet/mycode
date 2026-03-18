@@ -24,9 +24,9 @@ export function InputArea({ input, setInput, loading, onSend, onCancel }) {
       <div className="relative group">
         <div
           className={cn(
-            'relative rounded-lg border bg-card/50 transition-all duration-300',
-            'border-border/40',
-            'focus-within:border-accent/30 focus-within:bg-card',
+            'relative rounded-lg border bg-card/40 transition-all duration-300',
+            'border-border/30',
+            'focus-within:border-accent/25 focus-within:bg-card/80 focus-within:shadow-[0_0_12px_-4px_hsl(var(--accent)/0.15)]',
           )}
         >
           <textarea
@@ -50,7 +50,7 @@ export function InputArea({ input, setInput, loading, onSend, onCancel }) {
               <button
                 type="button"
                 onClick={onCancel}
-                className="h-8 w-8 flex items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-secondary transition-all"
+                className="h-8 w-8 flex items-center justify-center rounded-md text-red-400/70 hover:text-red-400 hover:bg-red-500/10 active:scale-90 transition-all"
                 title="Stop generating"
               >
                 <Square className="h-3.5 w-3.5 fill-current" />
@@ -63,8 +63,8 @@ export function InputArea({ input, setInput, loading, onSend, onCancel }) {
                 className={cn(
                   'h-8 w-8 flex items-center justify-center rounded-md transition-all duration-200',
                   hasInput
-                    ? 'bg-accent text-accent-foreground hover:bg-accent/80'
-                    : 'text-muted-foreground/30',
+                    ? 'bg-accent text-accent-foreground hover:bg-accent/80 active:scale-90'
+                    : 'text-muted-foreground/30 opacity-50',
                 )}
                 title="Send message"
               >

@@ -155,6 +155,36 @@
   @apply my-6 border-border;
 }
 
+/* Tables */
+.prose table {
+  @apply my-4 w-full text-sm border-collapse;
+}
+.prose thead {
+  @apply border-b border-border;
+}
+.prose th {
+  @apply px-3 py-2 text-left font-semibold text-foreground text-xs uppercase tracking-wider;
+}
+.prose td {
+  @apply px-3 py-2 border-b border-border/30 text-foreground/80;
+}
+.prose tbody tr:hover {
+  @apply bg-muted/20;
+}
+
+/* Task lists (GFM checkboxes) */
+.prose ul:has(> li > input[type="checkbox"]) {
+  @apply list-none ml-0;
+}
+.prose li > input[type="checkbox"] {
+  @apply mr-2 accent-accent;
+}
+
+/* Strikethrough */
+.prose del {
+  @apply text-muted-foreground line-through;
+}
+
 /* ── Animations ── */
 @keyframes cursor-blink {
   0%,

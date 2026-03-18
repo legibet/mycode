@@ -93,7 +93,7 @@ export function CodeBlock({ node, inline, className, children, ...props }) {
             'flex items-center gap-1 rounded px-1.5 py-0.5 text-2xs font-mono transition-all duration-200',
             copied
               ? 'text-emerald-400'
-              : 'text-muted-foreground/40 hover:text-foreground/60',
+              : 'text-muted-foreground/50 hover:text-foreground/70 hover:bg-muted/30',
           )}
           title="Copy code"
         >

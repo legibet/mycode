@@ -124,7 +124,7 @@ export function ToolCard({ name, args, result, pending }) {
 
       {/* Progress bar for running state */}
       {status === 'pending' && (
-        <div className="h-[1px] bg-border/30 overflow-hidden">
+        <div className="h-[1.5px] bg-border/30 overflow-hidden">
           <div className="h-full w-1/3 bg-amber-400/50 animate-progress-line" />
         </div>
       )}

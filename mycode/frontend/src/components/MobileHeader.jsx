@@ -10,7 +10,7 @@ export function MobileHeader({ title, onMenuToggle, onCreateSession }) {
       <button
         type="button"
         onClick={onMenuToggle}
-        className="flex items-center justify-center h-9 w-9 -ml-1.5 text-muted-foreground hover:text-foreground transition-colors"
+        className="flex items-center justify-center h-10 w-10 -ml-2 text-muted-foreground hover:text-foreground active:scale-90 transition-all"
       >
         <Menu className="h-5 w-5" />
       </button>
@@ -22,7 +22,7 @@ export function MobileHeader({ title, onMenuToggle, onCreateSession }) {
       <button
         type="button"
         onClick={onCreateSession}
-        className="flex items-center justify-center h-9 w-9 -mr-1.5 text-muted-foreground hover:text-foreground transition-colors"
+        className="flex items-center justify-center h-10 w-10 -mr-2 text-muted-foreground hover:text-foreground active:scale-90 transition-all"
       >
         <Plus className="h-5 w-5" />
       </button>
