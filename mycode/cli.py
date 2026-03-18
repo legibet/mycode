@@ -8,9 +8,10 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import hashlib
 import os
 import shutil
+from dataclasses import dataclass
+from typing import Any
 
 from prompt_toolkit import PromptSession
 from prompt_toolkit.formatted_text import ANSI
@@ -30,6 +31,14 @@ console = Console(highlight=False)
 _HISTORY_FILE = os.path.join(os.path.dirname(__file__), ".cli_history")
 _PROMPT = ANSI("\033[1m\033[34m❯\033[0m ")
 _MAX_WIDTH = 88
+
+
+@dataclass
+class CLIResolvedSession:
+    session_id: str
+    session: dict[str, Any]
+    messages: list[dict[str, Any]]
+    mode: str
 
 
 def _sep() -> None:
@@ -54,6 +63,129 @@ def _result_preview(result: str) -> str:
     elif len(lines[0]) > 72:
         first += "…"
     return first
+
+
+def _compact_text(value: str, *, limit: int = 96) -> str:
+    text = " ".join((value or "").split())
+    if len(text) <= limit:
+        return text
+    return text[: limit - 1] + "…"
+
+
+def _history_preview_entries(messages: list[dict[str, Any]], *, limit: int = 6) -> list[tuple[str, str]]:
+    entries: list[tuple[str, str]] = []
+
+    for msg in messages:
+        role = msg.get("role")
+
+        if role == "user":
+            content = _compact_text(str(msg.get("content") or ""))
+            if content:
+                entries.append(("You", content))
+            continue
+
+        if role != "assistant":
+            continue
+
+        content = _compact_text(str(msg.get("content") or ""))
+        tool_calls = msg.get("tool_calls") or []
+
+        if content:
+            if tool_calls:
+                content = f"{content}  [{len(tool_calls)} tool{'s' if len(tool_calls) != 1 else ''}]"
+            entries.append(("Assistant", content))
+            continue
+
+        if tool_calls:
+            names = [tc.get("function", {}).get("name") or "tool" for tc in tool_calls]
+            preview = ", ".join(names[:3])
+            if len(names) > 3:
+                preview += f" +{len(names) - 3}"
+            entries.append(("Assistant", f"[Used tools: {preview}]"))
+
+    if limit <= 0:
+        return entries
+    return entries[-limit:]
+
+
+def _print_header(*, model: str, session: dict[str, Any], mode: str, message_count: int) -> None:
+    console.print()
+    title = session.get("title") or "New chat"
+    session_id = str(session.get("id") or "")[:12]
+
+    title_text = Text()
+    title_text.append("mycode", style="bold")
+    title_text.append(" ── ", style="dim")
+    title_text.append(model)
+    console.print(title_text)
+
+    meta_text = Text()
+    meta_text.append("session ", style="dim")
+    meta_text.append(session_id or "-", style="bold")
+    meta_text.append("  ")
+    meta_text.append(mode, style="green" if mode == "new" else "yellow")
+    meta_text.append("  ")
+    meta_text.append(title)
+    if message_count:
+        meta_text.append(f"  ({message_count} stored messages)", style="dim")
+    console.print(meta_text)
+
+
+def _print_history_preview(messages: list[dict[str, Any]]) -> None:
+    entries = _history_preview_entries(messages)
+    if not entries:
+        return
+
+    console.print(f"[dim]history preview (showing last {len(entries)})[/dim]")
+    for role, content in entries:
+        label = "user" if role == "You" else "assistant"
+        console.print(f"[dim]{label}[/dim] {content}")
+
+
+async def resolve_cli_session(
+    *,
+    store: SessionStore,
+    cwd: str,
+    model: str,
+    api_base: str | None,
+    requested_session_id: str | None,
+    continue_last: bool,
+) -> CLIResolvedSession:
+    if requested_session_id:
+        data = await store.load_session(requested_session_id)
+        if not data or not data.get("session"):
+            raise ValueError(f"Unknown session: {requested_session_id}")
+
+        synced = await store.get_or_create(requested_session_id, model=model, cwd=cwd, api_base=api_base)
+        session = synced.get("session") or data["session"]
+        messages = synced.get("messages") or data.get("messages") or []
+        return CLIResolvedSession(
+            session_id=requested_session_id,
+            session=session,
+            messages=messages,
+            mode="resumed",
+        )
+
+    if continue_last:
+        latest = await store.latest_session(cwd=cwd)
+        if latest and latest.get("id"):
+            session_id = str(latest["id"])
+            data = await store.get_or_create(session_id, model=model, cwd=cwd, api_base=api_base)
+            return CLIResolvedSession(
+                session_id=session_id,
+                session=data.get("session") or latest,
+                messages=data.get("messages") or [],
+                mode="resumed",
+            )
+
+    data = await store.create_session(None, model=model, cwd=cwd, api_base=api_base)
+    session = data.get("session") or {}
+    return CLIResolvedSession(
+        session_id=str(session.get("id") or ""),
+        session=session,
+        messages=[],
+        mode="new",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -289,7 +421,15 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="mycode CLI")
     parser.add_argument("--provider", metavar="NAME", help="Provider name from resolved config")
     parser.add_argument("--model", metavar="MODEL", help="Model name (overrides resolved default)")
-    parser.add_argument("--session", metavar="ID", help="Session id (default: per-cwd hash)")
+    session_group = parser.add_mutually_exclusive_group()
+    session_group.add_argument("--session", metavar="ID", help="Resume a specific session id")
+    session_group.add_argument(
+        "-c",
+        "--continue",
+        dest="continue_last",
+        action="store_true",
+        help="Resume the most recent session in the current workspace",
+    )
     parser.add_argument("--once", metavar="MESSAGE", help="Run one prompt and exit")
     args = parser.parse_args()
 
@@ -304,36 +444,48 @@ def main() -> None:
     resolved = resolve_provider(settings, provider_name=args.provider, model=args.model)
 
     store = SessionStore()
-    session_id = args.session or hashlib.sha1(cwd.encode()).hexdigest()[:12]
-
-    data = asyncio.run(store.get_or_create(session_id, model=resolved.model, cwd=cwd, api_base=resolved.api_base))
-    messages = data.get("messages") or []
+    try:
+        resolved_session = asyncio.run(
+            resolve_cli_session(
+                store=store,
+                cwd=cwd,
+                model=resolved.model,
+                api_base=resolved.api_base,
+                requested_session_id=args.session,
+                continue_last=args.continue_last,
+            )
+        )
+    except ValueError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise SystemExit(1) from exc
 
     agent = Agent(
         model=resolved.model,
         provider=resolved.provider_type,
         cwd=cwd,
-        session_dir=store.session_dir(session_id),
+        session_dir=store.session_dir(resolved_session.session_id),
         api_key=resolved.api_key,
         api_base=resolved.api_base,
-        messages=messages,
+        messages=resolved_session.messages,
         settings=settings,
         reasoning_effort=resolved.reasoning_effort,
     )
 
-    # Header
-    console.print()
-    t = Text()
-    t.append("mycode", style="bold")
-    t.append(" ── ", style="dim")
-    t.append(resolved.model)
-    console.print(t)
+    _print_header(
+        model=resolved.model,
+        session=resolved_session.session,
+        mode=resolved_session.mode,
+        message_count=len(resolved_session.messages),
+    )
 
     if args.once:
-        code = asyncio.run(run_once(agent, store=store, session_id=session_id, message=args.once))
+        code = asyncio.run(run_once(agent, store=store, session_id=resolved_session.session_id, message=args.once))
         raise SystemExit(code)
 
-    asyncio.run(chat_loop(agent, store=store, session_id=session_id))
+    if resolved_session.mode == "resumed":
+        _print_history_preview(resolved_session.messages)
+
+    asyncio.run(chat_loop(agent, store=store, session_id=resolved_session.session_id))
 
 
 if __name__ == "__main__":

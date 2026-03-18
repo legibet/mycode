@@ -133,6 +133,8 @@ mycode/data/sessions/<session_id>/
 
 - Interactive REPL with rich markdown rendering.
 - Single-shot mode (`--once`).
+- CLI session semantics: default launch creates a new session; resuming prior context is explicit via `--continue` or `--session <id>`.
+- When resuming in interactive CLI, show current session identity and a short history preview so restored context is visible to the user.
 - Uses `resolve_provider()` from core for provider/model resolution.
 
 ### Frontend (`mycode/frontend`)
@@ -169,6 +171,7 @@ Do not break these types without coordinated frontend updates.
 6. **Deterministic edit semantics with conservative fallback** — exact match preferred, fuzzy only for whitespace/line-ending differences.
 7. **Tool cancellation semantics** — cancelling during `bash` actively terminates subprocesses.
 8. **Shared provider resolution** — `resolve_provider()` in core eliminates duplication between CLI and server.
+9. **Explicit CLI session resume** — interactive CLI should not silently reuse hidden prior context; resume must be user-selected and visibly indicated.
 
 ---
 

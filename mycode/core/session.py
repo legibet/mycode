@@ -115,6 +115,10 @@ class SessionStore:
 
         return await asyncio.to_thread(load_all)
 
+    async def latest_session(self, *, cwd: str | None = None) -> dict | None:
+        sessions = await self.list_sessions(cwd=cwd)
+        return sessions[0] if sessions else None
+
     async def load_session(self, session_id: str) -> dict | None:
         def load() -> dict | None:
             mp = self.meta_path(session_id)

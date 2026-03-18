@@ -71,6 +71,18 @@ class TestSessionStore:
         assert sessions[0]["updated_at"] >= sessions[1]["updated_at"]
 
     @pytest.mark.asyncio
+    async def test_latest_session_returns_newest_match(self, temp_store):
+        """latest_session should return the most recently updated session."""
+        first = await temp_store.create_session(title="First", model="gpt-5.4", cwd="/tmp", api_base=None)
+        second = await temp_store.create_session(title="Second", model="gpt-5.4", cwd="/tmp", api_base=None)
+        await temp_store.append_message(first["session"]["id"], {"role": "user", "content": "bump first"})
+
+        latest = await temp_store.latest_session(cwd="/tmp")
+        assert latest is not None
+        assert latest["id"] == first["session"]["id"]
+        assert latest["id"] != second["session"]["id"]
+
+    @pytest.mark.asyncio
     async def test_load_session_not_found(self, temp_store):
         """Loading non-existent session should return None."""
         result = await temp_store.load_session("non-existent-id")
