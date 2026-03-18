@@ -1,5 +1,6 @@
 /**
  * Chat input with accent focus line and floating design.
+ * Responsive: full-width on mobile, max-w-4xl on desktop.
  */
 
 import { ArrowUp, Square } from 'lucide-react'
@@ -19,7 +20,7 @@ export function InputArea({ input, setInput, loading, onSend, onCancel }) {
   const hasInput = input.trim().length > 0
 
   return (
-    <div className="mx-auto max-w-4xl px-6 py-4">
+    <div className="mx-auto max-w-4xl max-md:max-w-none px-6 max-md:px-3 py-4 max-md:py-2">
       <div className="relative group">
         <div
           className={cn(
@@ -39,7 +40,7 @@ export function InputArea({ input, setInput, loading, onSend, onCancel }) {
             }}
             onKeyDown={handleKeyDown}
             placeholder="ask anything..."
-            className="w-full resize-none bg-transparent px-4 py-3 pr-12 text-sm font-sans placeholder:text-muted-foreground/40 placeholder:font-mono focus:outline-none max-h-[200px]"
+            className="w-full resize-none bg-transparent px-4 py-3 pr-12 text-sm max-md:text-base font-sans placeholder:text-muted-foreground/40 placeholder:font-mono focus:outline-none max-h-[200px]"
             disabled={loading}
             style={{ minHeight: '44px' }}
           />
@@ -49,10 +50,10 @@ export function InputArea({ input, setInput, loading, onSend, onCancel }) {
               <button
                 type="button"
                 onClick={onCancel}
-                className="h-7 w-7 flex items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-secondary transition-all"
+                className="h-8 w-8 flex items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-secondary transition-all"
                 title="Stop generating"
               >
-                <Square className="h-3 w-3 fill-current" />
+                <Square className="h-3.5 w-3.5 fill-current" />
               </button>
             ) : (
               <button
@@ -60,14 +61,14 @@ export function InputArea({ input, setInput, loading, onSend, onCancel }) {
                 onClick={onSend}
                 disabled={!hasInput}
                 className={cn(
-                  'h-7 w-7 flex items-center justify-center rounded-md transition-all duration-200',
+                  'h-8 w-8 flex items-center justify-center rounded-md transition-all duration-200',
                   hasInput
                     ? 'bg-accent text-accent-foreground hover:bg-accent/80'
                     : 'text-muted-foreground/30',
                 )}
                 title="Send message"
               >
-                <ArrowUp className="h-3.5 w-3.5" />
+                <ArrowUp className="h-4 w-4" />
               </button>
             )}
           </div>
@@ -77,7 +78,7 @@ export function InputArea({ input, setInput, loading, onSend, onCancel }) {
         </div>
       </div>
 
-      <div className="mt-2 text-center">
+      <div className="mt-2 text-center max-md:hidden">
         <span className="text-2xs font-mono text-muted-foreground/30 tracking-wider">
           mycode
         </span>

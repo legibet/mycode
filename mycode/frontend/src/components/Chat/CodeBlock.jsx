@@ -24,10 +24,23 @@ export function CodeBlock({ node, inline, className, children, ...props }) {
   const syntaxTheme = useMemo(() => {
     const baseTheme = isDark ? vscDarkPlus : vs
     const clean = { ...baseTheme }
-    if (clean['pre[class*="language-"]']) {
-      const { background, backgroundColor, ...rest } =
-        clean['pre[class*="language-"]']
-      clean['pre[class*="language-"]'] = rest
+    // Strip layout/font properties from theme — we control these via customStyle
+    const stripKeys = [
+      'background',
+      'backgroundColor',
+      'fontFamily',
+      'fontSize',
+      'lineHeight',
+    ]
+    for (const selector of [
+      'pre[class*="language-"]',
+      'code[class*="language-"]',
+    ]) {
+      if (clean[selector]) {
+        const filtered = { ...clean[selector] }
+        for (const key of stripKeys) delete filtered[key]
+        clean[selector] = filtered
+      }
     }
     return clean
   }, [isDark])
@@ -119,6 +132,7 @@ export function CodeBlock({ node, inline, className, children, ...props }) {
             margin: 0,
             padding: 0,
             background: 'transparent',
+            fontFamily: '"DM Mono", "JetBrains Mono", monospace',
             fontSize: '13px',
             lineHeight: '1.6',
             fontWeight: 400,

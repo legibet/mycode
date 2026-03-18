@@ -59,9 +59,9 @@
     --radius: 0.5rem;
 
     /* Code block */
-    --code-background: 216 30% 94%;
-    --code-header-background: 216 28% 92%;
-    --code-border: 216 25% 86%;
+    --code-background: 220 13% 95%;
+    --code-header-background: 220 13% 93%;
+    --code-border: 216 20% 82%;
 
     /* Sidebar */
     --sidebar-bg: 216 35% 95%;
@@ -77,6 +77,10 @@
     font-feature-settings: "ss01", "ss02", "cv01";
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+  }
+  .light body {
+    -webkit-font-smoothing: auto;
+    -moz-osx-font-smoothing: auto;
   }
 }
 

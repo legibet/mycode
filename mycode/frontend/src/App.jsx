@@ -1,13 +1,14 @@
 /**
  * Main application component.
  * Composes sidebar, chat interface, and theme provider.
- * Adds gradient fade mask above input area.
+ * Mobile: sidebar as overlay, top header bar.
  */
 
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { InputArea } from './components/Chat/InputArea'
 import { MessageList } from './components/Chat/MessageList'
 import { Layout } from './components/Layout'
+import { MobileHeader } from './components/MobileHeader'
 import { Sidebar } from './components/Sidebar'
 import { ThemeProvider, useTheme } from './components/ThemeProvider'
 import { useChat } from './hooks/useChat'
@@ -24,6 +25,7 @@ function AppContent() {
   const [input, setInput] = useState('')
   const [cwdHistory, setCwdHistory] = useState(loadHistory)
   const [remoteConfig, setRemoteConfig] = useState(null)
+  const [sidebarOpen, setSidebarOpen] = useState(false)
   const { theme, setTheme } = useTheme()
 
   const {
@@ -89,30 +91,71 @@ function AppContent() {
     setInput('')
   }
 
+  const handleSelectSession = useCallback(
+    (id) => {
+      selectSession(id)
+      setSidebarOpen(false)
+    },
+    [selectSession],
+  )
+
+  const handleCreateSession = useCallback(() => {
+    createSession()
+    setSidebarOpen(false)
+  }, [createSession])
+
   return (
     <Layout>
-      <div className="flex h-full">
-        <Sidebar
-          sessions={sessions}
-          activeSession={activeSession}
-          onSelectSession={selectSession}
-          onCreateSession={createSession}
-          onDeleteSession={deleteSession}
-          config={config}
-          onUpdateConfig={handleConfigUpdate}
-          cwdHistory={cwdHistory}
-          remoteConfig={remoteConfig}
-          theme={theme}
-          setTheme={setTheme}
-        />
+      <div className="flex h-full relative">
+        {/* Mobile overlay backdrop */}
+        {sidebarOpen && (
+          <button
+            type="button"
+            tabIndex={-1}
+            className="fixed inset-0 z-40 bg-background/60 backdrop-blur-sm md:hidden cursor-default"
+            onClick={() => setSidebarOpen(false)}
+          />
+        )}
 
+        {/* Sidebar — fixed on desktop, overlay on mobile */}
+        <div
+          className={`
+            max-md:fixed max-md:inset-y-0 max-md:left-0 max-md:z-50
+            max-md:transition-transform max-md:duration-300 max-md:ease-out
+            ${sidebarOpen ? 'max-md:translate-x-0' : 'max-md:-translate-x-full'}
+          `}
+        >
+          <Sidebar
+            sessions={sessions}
+            activeSession={activeSession}
+            onSelectSession={handleSelectSession}
+            onCreateSession={handleCreateSession}
+            onDeleteSession={deleteSession}
+            config={config}
+            onUpdateConfig={handleConfigUpdate}
+            cwdHistory={cwdHistory}
+            remoteConfig={remoteConfig}
+            theme={theme}
+            setTheme={setTheme}
+            className="h-full"
+          />
+        </div>
+
+        {/* Main content */}
         <main className="flex min-w-0 flex-1 flex-col bg-background relative">
+          {/* Mobile header */}
+          <MobileHeader
+            title={activeSession?.title}
+            onMenuToggle={() => setSidebarOpen((v) => !v)}
+            onCreateSession={handleCreateSession}
+          />
+
           <MessageList messages={messages} loading={loading} />
 
           {/* Gradient fade above input */}
           <div className="pointer-events-none absolute bottom-0 left-0 right-0 h-24 bg-gradient-to-t from-background via-background/80 to-transparent" />
 
-          <div className="shrink-0 relative z-10 pb-4 pt-1">
+          <div className="shrink-0 relative z-10 pb-4 max-md:pb-2 pt-1">
             <InputArea
               input={input}
               setInput={setInput}

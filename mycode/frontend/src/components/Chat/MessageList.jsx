@@ -31,7 +31,7 @@ export function MessageList({ messages, loading }) {
 
   return (
     <div className="flex-1 overflow-y-auto pb-4 pt-6">
-      <div className="mx-auto max-w-4xl flex flex-col gap-1">
+      <div className="mx-auto max-w-4xl max-md:max-w-none flex flex-col gap-6">
         {messages.map((message, index) => (
           <MessageBubble
             key={`${message.role}-${index}-${message.parts.length}`}
