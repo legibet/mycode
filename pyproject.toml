@@ -9,8 +9,9 @@ description = "Minimal coding agent with web UI"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
-    "any-llm-sdk[anthropic]>=1.11.0",
+    "anthropic>=0.74.0",
     "fastapi>=0.115.0",
+    "openai>=2.11.0",
     "uvicorn[standard]>=0.32.0",
     "rich>=14.2.0",
     "prompt-toolkit>=3.0.52",

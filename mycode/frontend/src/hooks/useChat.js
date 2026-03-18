@@ -272,6 +272,7 @@ export function useChat(config) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          provider: config.provider || undefined,
           model: config.model || undefined,
           cwd: config.cwd,
           api_base: config.apiBase || undefined,

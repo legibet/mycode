@@ -6,9 +6,9 @@ from mycode.core.config import (
     ResolvedProvider,
     Settings,
     get_settings,
-    is_any_llm_provider,
     resolve_provider,
 )
+from mycode.core.provider_registry import is_supported_provider, list_supported_providers
 from mycode.core.session import SessionStore
 from mycode.core.tools import TOOLS, ToolExecutor, cancel_all_tools
 
@@ -23,6 +23,7 @@ __all__ = [
     "ToolExecutor",
     "cancel_all_tools",
     "get_settings",
-    "is_any_llm_provider",
+    "is_supported_provider",
+    "list_supported_providers",
     "resolve_provider",
 ]

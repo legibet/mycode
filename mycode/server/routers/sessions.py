@@ -17,9 +17,15 @@ router = APIRouter(prefix="/sessions", tags=["sessions"])
 async def create_session(req: SessionCreateRequest):
     cwd = os.path.abspath(req.cwd or os.getcwd())
     settings = get_settings(cwd)
-    resolved = resolve_provider(settings, model=req.model)
+    resolved = resolve_provider(settings, provider_name=req.provider, model=req.model)
     api_base = req.api_base or resolved.api_base
-    return await store.create_session(req.title, model=resolved.model, cwd=cwd, api_base=api_base)
+    return await store.create_session(
+        req.title,
+        provider=resolved.provider,
+        model=resolved.model,
+        cwd=cwd,
+        api_base=api_base,
+    )
 
 
 @router.get("")

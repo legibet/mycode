@@ -6,7 +6,7 @@ This module intentionally exposes only **four** tools:
 - edit
 - bash
 
-Tool schemas are passed to the LLM (OpenAI-style function tools).
+Tool schemas are passed to the LLM as native Messages API tools.
 Execution is implemented in :class:`ToolExecutor`.
 
 Design goals (inspired by pi):
@@ -39,81 +39,65 @@ _BASH_MAX_IN_MEMORY_BYTES = 5_000_000
 
 
 # ---------------------------------------------------------------------------
-# Tool schemas (OpenAI compatible)
+# Tool schemas (Messages API)
 # ---------------------------------------------------------------------------
 
 TOOLS: list[dict[str, Any]] = [
     {
-        "type": "function",
-        "function": {
-            "name": "read",
-            "description": (
-                "Read a file. Text output is truncated to 2000 lines or 50KB. Use offset/limit to read large files."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "path": {"type": "string", "description": "File path (relative or absolute)."},
-                    "offset": {"type": "integer", "description": "Line number to start from (1-indexed)."},
-                    "limit": {"type": "integer", "description": "Maximum number of lines to return."},
-                },
-                "required": ["path"],
-                "additionalProperties": False,
+        "name": "read",
+        "description": "Read a file. Text output is truncated to 2000 lines or 50KB. Use offset/limit for large files.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "File path (relative or absolute)."},
+                "offset": {"type": "integer", "description": "Line number to start from (1-indexed)."},
+                "limit": {"type": "integer", "description": "Maximum number of lines to return."},
             },
+            "required": ["path"],
+            "additionalProperties": False,
         },
     },
     {
-        "type": "function",
-        "function": {
-            "name": "write",
-            "description": "Write a file (create or overwrite).",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "path": {"type": "string", "description": "File path (relative or absolute)."},
-                    "content": {"type": "string", "description": "File content."},
-                },
-                "required": ["path", "content"],
-                "additionalProperties": False,
+        "name": "write",
+        "description": "Write a file (create or overwrite).",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "File path (relative or absolute)."},
+                "content": {"type": "string", "description": "File content."},
             },
+            "required": ["path", "content"],
+            "additionalProperties": False,
         },
     },
     {
-        "type": "function",
-        "function": {
-            "name": "edit",
-            "description": (
-                "Edit a file by replacing an exact oldText snippet with newText. oldText must match exactly."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "path": {"type": "string", "description": "File path (relative or absolute)."},
-                    "oldText": {"type": "string", "description": "Exact text to replace (must match exactly)."},
-                    "newText": {"type": "string", "description": "Replacement text."},
-                },
-                "required": ["path", "oldText", "newText"],
-                "additionalProperties": False,
+        "name": "edit",
+        "description": "Edit a file by replacing an exact oldText snippet with newText. oldText must match exactly.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "File path (relative or absolute)."},
+                "oldText": {"type": "string", "description": "Exact text to replace (must match exactly)."},
+                "newText": {"type": "string", "description": "Replacement text."},
             },
+            "required": ["path", "oldText", "newText"],
+            "additionalProperties": False,
         },
     },
     {
-        "type": "function",
-        "function": {
-            "name": "bash",
-            "description": (
-                "Run a shell command in the session working directory. "
-                "Output is truncated; if truncated, the full output is written to a file."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "command": {"type": "string", "description": "Shell command."},
-                    "timeout": {"type": "integer", "description": "Timeout in seconds (optional)."},
-                },
-                "required": ["command"],
-                "additionalProperties": False,
+        "name": "bash",
+        "description": (
+            "Run a shell command in the session working directory. "
+            "Output is truncated; if truncated, the full output is written to a file."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "command": {"type": "string", "description": "Shell command."},
+                "timeout": {"type": "integer", "description": "Timeout in seconds (optional)."},
             },
+            "required": ["command"],
+            "additionalProperties": False,
         },
     },
 ]
@@ -177,6 +161,31 @@ def truncate_text(
         output_bytes=len(content.encode("utf-8")),
     )
     return content, trunc
+
+
+def parse_tool_arguments(raw: str | None) -> dict[str, Any] | str:
+    """Parse a JSON tool-arguments payload.
+
+    Returns either the parsed object or an error string. Keeping this helper here
+    makes tool-argument validation consistent across adapters and tests.
+    """
+
+    if raw is None:
+        return {}
+
+    payload = raw.strip()
+    if not payload:
+        return {}
+
+    try:
+        parsed = json.loads(payload)
+    except json.JSONDecodeError:
+        return "error: invalid JSON arguments"
+
+    if not isinstance(parsed, dict):
+        return "error: tool arguments must decode to a JSON object"
+
+    return parsed
 
 
 def resolve_path(path: str, *, cwd: str) -> str:
@@ -451,23 +460,6 @@ class ToolExecutor:
                         proc.kill()
                     except Exception:
                         pass
-
-
-def parse_tool_arguments(raw: str | None) -> dict[str, Any] | str:
-    """Parse tool arguments JSON.
-
-    Returns dict on success, or an error string on failure.
-    """
-
-    if not raw:
-        return {}
-    try:
-        obj = json.loads(raw)
-    except Exception as exc:
-        return f"invalid tool arguments JSON: {exc}"
-    if not isinstance(obj, dict):
-        return "tool arguments must be a JSON object"
-    return obj
 
 
 def _closest_line_hint(text: str, needle: str) -> str | None:

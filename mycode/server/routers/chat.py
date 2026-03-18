@@ -34,13 +34,19 @@ async def _stream_chat(req: Request, chat: ChatRequest) -> AsyncIterator[str]:
     )
     session_id = chat.session_id or "default"
 
-    data = await store.get_or_create(session_id, model=resolved.model, cwd=cwd, api_base=resolved.api_base)
+    data = await store.get_or_create(
+        session_id,
+        provider=resolved.provider,
+        model=resolved.model,
+        cwd=cwd,
+        api_base=resolved.api_base,
+    )
     messages = data.get("messages") or []
     session_dir = store.session_dir(session_id)
 
     agent = Agent(
         model=resolved.model,
-        provider=resolved.provider_type,
+        provider=resolved.provider,
         cwd=cwd,
         session_dir=session_dir,
         api_key=resolved.api_key,

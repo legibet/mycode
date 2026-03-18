@@ -1,136 +1,116 @@
 /**
  * Message format utilities.
- * Transforms between provider format (OpenAI-style) and UI format.
+ * Transforms native Messages API history into UI message parts.
  */
 
-/**
- * Parse tool arguments from JSON string.
- */
-function parseToolArgs(raw) {
-  if (!raw) return {}
-  try {
-    return JSON.parse(raw)
-  } catch {
-    return {}
-  }
-}
-
-/**
- * Transform provider messages to UI format.
- *
- * Provider format (OpenAI-style):
- *   { role: 'user', content: '...' }
- *   { role: 'assistant', content: '...', tool_calls: [...] }
- *   { role: 'tool', tool_call_id: '...', content: '...' }
- *
- * UI format:
- *   { role: 'user', parts: [{ type: 'text', content: '...' }] }
- *   { role: 'assistant', parts: [{ type: 'text', content: '...' }, { type: 'tool', ... }] }
- *
- * NOTE: Consecutive assistant messages (with only tool messages in between) are merged
- * into a single UI message to match the streaming behavior.
- */
 export function transformMessages(messages) {
   if (!Array.isArray(messages)) return []
 
   const result = []
   let currentAssistant = null
-  const toolIndex = {} // tool_call_id -> part index in current assistant
+  const toolIndex = {}
 
-  for (const msg of messages) {
-    const role = msg.role
-
-    if (role === 'system') continue
+  for (const message of messages) {
+    const role = message?.role
+    const blocks = Array.isArray(message?.content) ? message.content : []
 
     if (role === 'user') {
-      result.push({
-        role: 'user',
-        parts: [{ type: 'text', content: msg.content || '' }],
-      })
-      currentAssistant = null
-      continue
-    }
+      const textParts = blocks
+        .filter((block) => block?.type === 'text' && block.text)
+        .map((block) => ({ type: 'text', content: block.text }))
 
-    if (role === 'assistant') {
-      // Reuse existing assistant message if present (merge consecutive assistant messages)
+      if (textParts.length > 0) {
+        result.push({ role: 'user', parts: textParts })
+        currentAssistant = null
+      }
+
+      const toolResults = blocks.filter((block) => block?.type === 'tool_result')
+      if (toolResults.length === 0) continue
+
       if (!currentAssistant) {
         currentAssistant = { role: 'assistant', parts: [] }
         result.push(currentAssistant)
       }
 
-      // Add text content if present
-      if (msg.content) {
-        currentAssistant.parts.push({ type: 'text', content: msg.content })
-      }
+      for (const block of toolResults) {
+        const toolUseId = block.tool_use_id
+        const resultText = block.content || ''
+        const partIndex = toolUseId ? toolIndex[toolUseId] : undefined
 
-      // Add tool calls
-      const toolCalls = msg.tool_calls || []
-      for (const tc of toolCalls) {
-        const toolId = tc.id
-        const fn = tc.function || {}
-        const part = {
-          type: 'tool',
-          id: toolId,
-          name: fn.name || 'unknown',
-          args: parseToolArgs(fn.arguments),
-          result: '',
-          pending: false,
+        if (partIndex === undefined) {
+          currentAssistant.parts.push({
+            type: 'tool',
+            id: toolUseId,
+            name: 'tool',
+            args: {},
+            result: resultText,
+            pending: false,
+          })
+          continue
         }
-        toolIndex[toolId] = currentAssistant.parts.length
-        currentAssistant.parts.push(part)
-      }
-      continue
-    }
 
-    if (role === 'tool') {
-      // Ensure we have an assistant message to attach to
-      if (!currentAssistant) {
-        currentAssistant = { role: 'assistant', parts: [] }
-        result.push(currentAssistant)
-      }
-
-      const toolCallId = msg.tool_call_id
-      const content = msg.content || ''
-
-      if (toolCallId && toolIndex[toolCallId] !== undefined) {
-        // Update existing tool part with result
-        const partIndex = toolIndex[toolCallId]
         currentAssistant.parts[partIndex] = {
           ...currentAssistant.parts[partIndex],
-          result: content,
-        }
-      } else {
-        // Orphan tool result - create a placeholder
-        currentAssistant.parts.push({
-          type: 'tool',
-          id: toolCallId,
-          name: 'tool',
-          args: {},
-          result: content,
+          result: resultText,
           pending: false,
-        })
+        }
+      }
+
+      continue
+    }
+
+    if (role !== 'assistant') continue
+
+    currentAssistant = { role: 'assistant', parts: [] }
+    result.push(currentAssistant)
+
+    for (const block of blocks) {
+      if (block?.type === 'thinking' && block.text) {
+        currentAssistant.parts.push({ type: 'reasoning', content: block.text })
+        continue
+      }
+
+      if (block?.type === 'text' && block.text) {
+        currentAssistant.parts.push({ type: 'text', content: block.text })
+        continue
+      }
+
+      if (block?.type !== 'tool_use') continue
+
+      const partIndex = currentAssistant.parts.length
+      currentAssistant.parts.push({
+        type: 'tool',
+        id: block.id,
+        name: block.name || 'tool',
+        args: typeof block.input === 'object' && block.input ? block.input : {},
+        result: '',
+        pending: false,
+      })
+
+      if (block.id) {
+        toolIndex[block.id] = partIndex
       }
     }
   }
 
-  return result
+  return result.filter((message) => Array.isArray(message.parts) && message.parts.length > 0)
 }
 
-/**
- * Build a tool index from UI messages for quick lookup.
- */
 export function buildToolIndex(messages) {
   const index = {}
-  for (let msgIndex = 0; msgIndex < messages.length; msgIndex++) {
-    const msg = messages[msgIndex]
-    if (msg?.role !== 'assistant') continue
-    const parts = msg.parts || []
+
+  for (let messageIndex = 0; messageIndex < messages.length; messageIndex++) {
+    const message = messages[messageIndex]
+    if (message?.role !== 'assistant') continue
+
+    const parts = message.parts || []
     for (let partIndex = 0; partIndex < parts.length; partIndex++) {
       const part = parts[partIndex]
       if (part?.type === 'tool' && part.id) {
-        index[part.id] = { messageIndex: msgIndex, partIndex }
+        index[part.id] = { messageIndex, partIndex }
       }
     }
   }
+
   return index
 }

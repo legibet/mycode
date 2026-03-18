@@ -32,7 +32,7 @@ class _FakeAgent:
         yield Event("text", {"content": "Visible answer"})
 
 
-async def test_run_once_ignores_reasoning_output(monkeypatch):
+async def test_run_once_prints_reasoning_output(monkeypatch):
     fake_console = _FakeConsole()
     monkeypatch.setattr("mycode.cli.console", fake_console)
 
@@ -45,7 +45,7 @@ async def test_run_once_ignores_reasoning_output(monkeypatch):
 
     assert code == 0
     printed = [str(args[0]) for args, _kwargs in fake_console.calls if args]
-    assert "Hidden reasoning" not in printed
+    assert "Hidden reasoning" in printed
     assert "Visible answer" in printed
 
 
@@ -72,7 +72,9 @@ async def test_resolve_cli_session_continue_reuses_latest(tmp_path):
     store = SessionStore(data_dir=tmp_path / "sessions")
     first = await store.create_session("First", model="gpt-5.4", cwd=str(tmp_path), api_base=None)
     second = await store.create_session("Second", model="gpt-5.4", cwd=str(tmp_path), api_base=None)
-    await store.append_message(second["session"]["id"], {"role": "user", "content": "hello"})
+    await store.append_message(
+        second["session"]["id"], {"role": "user", "content": [{"type": "text", "text": "hello"}]}
+    )
 
     resolved = await resolve_cli_session(
         store=store,
@@ -86,7 +88,7 @@ async def test_resolve_cli_session_continue_reuses_latest(tmp_path):
     assert resolved.mode == "resumed"
     assert resolved.session_id != first["session"]["id"]
     assert resolved.session_id == second["session"]["id"]
-    assert resolved.messages[0]["content"] == "hello"
+    assert resolved.messages[0]["content"] == [{"type": "text", "text": "hello"}]
 
 
 @pytest.mark.asyncio
@@ -107,13 +109,12 @@ async def test_resolve_cli_session_explicit_missing_id_errors(tmp_path):
 def test_history_preview_entries_summarize_tool_only_assistant_messages():
     entries = _history_preview_entries(
         [
-            {"role": "user", "content": "Inspect project"},
+            {"role": "user", "content": [{"type": "text", "text": "Inspect project"}]},
             {
                 "role": "assistant",
-                "content": "",
-                "tool_calls": [
-                    {"id": "a", "function": {"name": "read", "arguments": "{}"}},
-                    {"id": "b", "function": {"name": "bash", "arguments": "{}"}},
+                "content": [
+                    {"type": "tool_use", "id": "a", "name": "read", "input": {}},
+                    {"type": "tool_use", "id": "b", "name": "bash", "input": {}},
                 ],
             },
         ]

@@ -94,38 +94,38 @@ class TestGetSettings:
         workspace.mkdir()
 
         monkeypatch.setenv("MYCODE_HOME", str(home / ".mycode"))
-        monkeypatch.setenv("OPENAI_API_KEY", "env-key")
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "env-key")
         monkeypatch.setenv("BASE_URL", "https://env.example/v1")
 
         _write(
             home / ".mycode" / "config.json",
             """
             {
-              "providers": {
-                "shared": {
-                  "type": "openai",
-                  "api_key": "config-key",
-                  "base_url": "https://config.example/v1",
-                  "models": ["gpt-5.4"]
+                "providers": {
+                  "shared": {
+                    "type": "anthropic",
+                    "api_key": "config-key",
+                    "base_url": "https://config.example/v1",
+                    "models": ["claude-sonnet-4-6"]
+                  }
+                },
+                "default": {
+                  "provider": "shared",
+                  "model": "claude-sonnet-4-6"
                 }
-              },
-              "default": {
-                "provider": "shared",
-                "model": "gpt-5.4"
               }
-            }
             """,
         )
 
         settings = get_settings(str(workspace))
         resolved = resolve_provider(settings)
 
-        assert resolved.provider_type == "openai"
-        assert resolved.model == "gpt-5.4"
+        assert resolved.provider_type == "anthropic"
+        assert resolved.model == "claude-sonnet-4-6"
         assert resolved.api_key == "env-key"
         assert resolved.api_base == "https://config.example/v1"
 
-    def test_resolve_provider_accepts_raw_any_llm_provider(self, tmp_path: Path, monkeypatch) -> None:
+    def test_resolve_provider_accepts_raw_supported_provider(self, tmp_path: Path, monkeypatch) -> None:
         home = tmp_path / "home"
         workspace = tmp_path / "workspace"
         workspace.mkdir()

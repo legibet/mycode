@@ -6,7 +6,7 @@ from pydantic import BaseModel
 class ChatRequest(BaseModel):
     session_id: str = "default"
     message: str
-    provider: str | None = None  # any-llm provider id, or a configured provider alias
+    provider: str | None = None  # provider id, or a configured provider alias
     model: str | None = None
     cwd: str | None = None
     api_key: str | None = None
@@ -15,6 +15,7 @@ class ChatRequest(BaseModel):
 
 class SessionCreateRequest(BaseModel):
     title: str | None = None
+    provider: str | None = None
     model: str | None = None
     cwd: str | None = None
     api_base: str | None = None

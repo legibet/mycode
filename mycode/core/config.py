@@ -1,4 +1,4 @@
-"""Application configuration and logging setup."""
+"""Application configuration and provider resolution."""
 
 from __future__ import annotations
 
@@ -6,11 +6,16 @@ import json
 import logging
 import os
 from dataclasses import dataclass, field
-from functools import cache, lru_cache
+from functools import cache
 from pathlib import Path
 from typing import Any
 
-from any_llm import AnyLLM
+from mycode.core.provider_registry import (
+    is_supported_provider,
+    list_supported_providers,
+    provider_api_key_from_env,
+    provider_env_api_key_names,
+)
 
 _DEFAULT_MYCODE_HOME = "~/.mycode"
 
@@ -18,7 +23,7 @@ _DEFAULT_MYCODE_HOME = "~/.mycode"
 @dataclass(frozen=True)
 class ProviderConfig:
     name: str
-    type: str  # any-llm provider id: openai | anthropic | moonshot | minimax | …
+    type: str  # internal provider adapter id: anthropic | moonshot | minimax | …
     models: list[str]  # available model names (no provider prefix)
     api_key: str | None = None
     base_url: str | None = None
@@ -92,7 +97,7 @@ def _parse_layer(path: Path, data: dict[str, Any]) -> _ConfigLayer:
 
         provider: dict[str, Any] = {}
         if "type" in raw:
-            provider["type"] = raw.get("type") or "openai"
+            provider["type"] = raw.get("type") or "anthropic"
         if "models" in raw:
             provider["models"] = _normalize_models(raw.get("models"))
         if "api_key" in raw:
@@ -151,7 +156,7 @@ def _build_providers(raw_providers: dict[str, dict[str, Any]]) -> dict[str, Prov
     for name, raw in raw_providers.items():
         providers[name] = ProviderConfig(
             name=name,
-            type=str(raw.get("type") or "openai"),
+            type=str(raw.get("type") or "anthropic"),
             models=_normalize_models(raw.get("models")),
             api_key=raw.get("api_key") or None,
             base_url=raw.get("base_url") or None,
@@ -162,38 +167,16 @@ def _build_providers(raw_providers: dict[str, dict[str, Any]]) -> dict[str, Prov
 
 @cache
 def _provider_env_api_key_name(provider_type: str | None) -> str | None:
-    if not provider_type:
-        return None
-    try:
-        provider_class = AnyLLM.get_provider_class(provider_type)
-    except Exception:
-        return None
-
-    env_name = getattr(provider_class, "ENV_API_KEY_NAME", None)
-    if isinstance(env_name, str) and env_name:
-        return env_name
-    return None
+    names = provider_env_api_key_names(provider_type)
+    return names[0] if names else None
 
 
 def _env_api_key_for_provider(provider_type: str | None) -> str | None:
-    env_name = _provider_env_api_key_name(provider_type)
-    if env_name:
-        return os.environ.get(env_name) or None
-    return None
+    return provider_api_key_from_env(provider_type)
 
 
 def provider_has_api_key(provider: ProviderConfig) -> bool:
     return bool(_env_api_key_for_provider(provider.type) or provider.api_key)
-
-
-def is_any_llm_provider(provider_name: str | None) -> bool:
-    if not provider_name:
-        return False
-    try:
-        AnyLLM.get_provider_class(provider_name)
-    except Exception:
-        return False
-    return True
 
 
 def get_settings(cwd: str | None = None) -> Settings:
@@ -222,11 +205,15 @@ _FALLBACK_PROVIDER = "anthropic"
 class ResolvedProvider:
     """Resolved provider ready for Agent construction."""
 
-    provider_type: str
+    provider: str
     model: str
     api_key: str | None
     api_base: str | None
     reasoning_effort: str | None
+
+    @property
+    def provider_type(self) -> str:
+        return self.provider
 
 
 def resolve_provider(
@@ -237,7 +224,7 @@ def resolve_provider(
     api_key: str | None = None,
     api_base: str | None = None,
 ) -> ResolvedProvider:
-    """Resolve (provider_type, model, api_key, api_base) from settings + overrides.
+    """Resolve provider, model, api_key, and api_base from settings + overrides.
 
     Used by both CLI and server to avoid duplicating resolution logic.
     """
@@ -256,14 +243,18 @@ def resolve_provider(
         resolved_model = settings.default_model or (cfg.models[0] if cfg and cfg.models else None) or _FALLBACK_MODEL
 
     if provider_name:
-        provider_type = cfg.type if cfg else provider_name
+        resolved_provider = cfg.type if cfg else provider_name
     else:
-        provider_type = cfg.type if cfg else _FALLBACK_PROVIDER
+        resolved_provider = cfg.type if cfg else _FALLBACK_PROVIDER
+
+    if not is_supported_provider(resolved_provider):
+        supported = ", ".join(list_supported_providers())
+        raise ValueError(f"unsupported provider {resolved_provider!r}; supported: {supported}")
 
     return ResolvedProvider(
-        provider_type=provider_type,
+        provider=resolved_provider,
         model=resolved_model,
-        api_key=api_key or _env_api_key_for_provider(provider_type) or (cfg.api_key if cfg else None),
+        api_key=api_key or _env_api_key_for_provider(resolved_provider) or (cfg.api_key if cfg else None),
         api_base=api_base or (cfg.base_url if cfg else None),
         reasoning_effort=cfg.reasoning_effort if cfg else None,
     )

@@ -3,11 +3,12 @@
 import asyncio
 import tempfile
 from pathlib import Path
-from unittest.mock import AsyncMock, patch
+from unittest.mock import patch
 
 import pytest
 
 from mycode.core.agent import Agent
+from mycode.core.providers.base import ProviderStreamEvent
 from mycode.core.tools import ToolExecutor, cancel_all_tools
 
 
@@ -193,7 +194,7 @@ class TestCancelAllTools:
 
 
 class TestAgentFinalizePendingToolCalls:
-    """Tests for Agent._finalize_pending_tool_calls()."""
+    """Tests for Agent._finalize_pending_tool_results()."""
 
     def test_finalize_adds_missing_tool_results(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -203,14 +204,7 @@ class TestAgentFinalizePendingToolCalls:
             persisted_messages = [
                 {
                     "role": "assistant",
-                    "content": "",
-                    "tool_calls": [
-                        {
-                            "id": "call-1",
-                            "type": "function",
-                            "function": {"name": "read", "arguments": '{"path": "test.txt"}'},
-                        }
-                    ],
+                    "content": [{"type": "tool_use", "id": "call-1", "name": "read", "input": {"path": "test.txt"}}],
                 }
             ]
 
@@ -222,10 +216,16 @@ class TestAgentFinalizePendingToolCalls:
             )
 
             # Should have added a tool result for the missing call
-            tool_messages = [m for m in agent.messages if m.get("role") == "tool"]
+            tool_messages = [m for m in agent.messages if m.get("role") == "user"]
             assert len(tool_messages) == 1
-            assert tool_messages[0]["tool_call_id"] == "call-1"
-            assert "interrupted" in tool_messages[0]["content"]
+            assert tool_messages[0]["content"] == [
+                {
+                    "type": "tool_result",
+                    "tool_use_id": "call-1",
+                    "content": "error: tool call was interrupted (no result recorded)",
+                    "is_error": True,
+                }
+            ]
 
     def test_finalize_no_action_when_all_results_present(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -235,16 +235,12 @@ class TestAgentFinalizePendingToolCalls:
             persisted_messages = [
                 {
                     "role": "assistant",
-                    "content": "",
-                    "tool_calls": [
-                        {
-                            "id": "call-1",
-                            "type": "function",
-                            "function": {"name": "read", "arguments": '{"path": "test.txt"}'},
-                        }
-                    ],
+                    "content": [{"type": "tool_use", "id": "call-1", "name": "read", "input": {"path": "test.txt"}}],
                 },
-                {"role": "tool", "tool_call_id": "call-1", "content": "file contents"},
+                {
+                    "role": "user",
+                    "content": [{"type": "tool_result", "tool_use_id": "call-1", "content": "file contents"}],
+                },
             ]
 
             original_count = len(persisted_messages)
@@ -257,7 +253,7 @@ class TestAgentFinalizePendingToolCalls:
             )
 
             # Should not add any new messages
-            assert len(agent.messages) == original_count + 1  # +1 for system prompt
+            assert len(agent.messages) == original_count
 
     def test_finalize_multiple_missing_tool_calls(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -266,18 +262,9 @@ class TestAgentFinalizePendingToolCalls:
             persisted_messages = [
                 {
                     "role": "assistant",
-                    "content": "",
-                    "tool_calls": [
-                        {
-                            "id": "call-1",
-                            "type": "function",
-                            "function": {"name": "read", "arguments": "{}"},
-                        },
-                        {
-                            "id": "call-2",
-                            "type": "function",
-                            "function": {"name": "write", "arguments": "{}"},
-                        },
+                    "content": [
+                        {"type": "tool_use", "id": "call-1", "name": "read", "input": {}},
+                        {"type": "tool_use", "id": "call-2", "name": "write", "input": {}},
                     ],
                 }
             ]
@@ -289,9 +276,9 @@ class TestAgentFinalizePendingToolCalls:
                 messages=persisted_messages,
             )
 
-            tool_messages = [m for m in agent.messages if m.get("role") == "tool"]
-            assert len(tool_messages) == 2
-            assert {m["tool_call_id"] for m in tool_messages} == {"call-1", "call-2"}
+            tool_messages = [m for m in agent.messages if m.get("role") == "user"]
+            assert len(tool_messages) == 1
+            assert {block["tool_use_id"] for block in tool_messages[0]["content"]} == {"call-1", "call-2"}
 
     def test_finalize_only_checks_last_assistant_message(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -300,17 +287,16 @@ class TestAgentFinalizePendingToolCalls:
             persisted_messages = [
                 {
                     "role": "assistant",
-                    "content": "First response",
-                    "tool_calls": [
-                        {
-                            "id": "old-call",
-                            "type": "function",
-                            "function": {"name": "read", "arguments": "{}"},
-                        }
+                    "content": [
+                        {"type": "text", "text": "First response"},
+                        {"type": "tool_use", "id": "old-call", "name": "read", "input": {}},
                     ],
                 },
-                {"role": "tool", "tool_call_id": "old-call", "content": "old result"},
-                {"role": "assistant", "content": "Text only, no tools"},
+                {
+                    "role": "user",
+                    "content": [{"type": "tool_result", "tool_use_id": "old-call", "content": "old result"}],
+                },
+                {"role": "assistant", "content": [{"type": "text", "text": "Text only, no tools"}]},
             ]
 
             agent = Agent(
@@ -321,41 +307,23 @@ class TestAgentFinalizePendingToolCalls:
             )
 
             # Should not add any tool messages for the old completed call
-            tool_messages = [m for m in agent.messages if m.get("role") == "tool"]
+            tool_messages = [m for m in agent.messages if m.get("role") == "user"]
             assert len(tool_messages) == 1  # Only the original one
 
 
-class _FakeContentBlock:
-    def __init__(self, *, type: str, id: str | None = None, name: str | None = None, input: dict | None = None):
-        self.type = type
-        self.id = id
-        self.name = name
-        self.input = input
+class _FakeProviderAdapter:
+    def __init__(self, turns: list[list[ProviderStreamEvent]]):
+        self._turns = list(turns)
 
-
-class _FakeMessageEvent:
-    def __init__(
-        self,
-        type: str,
-        *,
-        index: int | None = None,
-        delta: dict | None = None,
-        content_block: _FakeContentBlock | None = None,
-    ):
-        self.type = type
-        self.index = index
-        self.delta = delta
-        self.content_block = content_block
-
-
-async def _fake_stream(*events: _FakeMessageEvent):
-    for event in events:
-        yield event
+    async def stream_turn(self, request):
+        events = self._turns.pop(0) if self._turns else []
+        for event in events:
+            yield event
 
 
 class TestAgentReasoningPersistence:
     @pytest.mark.asyncio
-    async def test_achat_does_not_persist_reasoning_content(self):
+    async def test_achat_persists_reasoning_blocks(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             session_dir = Path(tmpdir)
             persisted: list[dict] = []
@@ -369,27 +337,37 @@ class TestAgentReasoningPersistence:
             async def on_persist(message: dict) -> None:
                 persisted.append(message)
 
-            stream = _fake_stream(
-                _FakeMessageEvent(
-                    "content_block_delta",
-                    index=0,
-                    delta={"type": "thinking_delta", "thinking": "hidden "},
-                ),
-                _FakeMessageEvent(
-                    "content_block_delta",
-                    index=1,
-                    delta={"type": "text_delta", "text": "Visible answer"},
-                ),
+            adapter = _FakeProviderAdapter(
+                [
+                    [
+                        ProviderStreamEvent("thinking_delta", {"text": "hidden "}),
+                        ProviderStreamEvent("text_delta", {"text": "Visible answer"}),
+                        ProviderStreamEvent(
+                            "message_done",
+                            {
+                                "message": {
+                                    "role": "assistant",
+                                    "content": [
+                                        {"type": "thinking", "text": "hidden "},
+                                        {"type": "text", "text": "Visible answer"},
+                                    ],
+                                }
+                            },
+                        ),
+                    ]
+                ]
             )
 
-            with patch("mycode.core.agent.amessages", new=AsyncMock(return_value=stream)):
+            with patch("mycode.core.agent.get_provider_adapter", return_value=adapter):
                 events = [event async for event in agent.achat("hello", on_persist=on_persist)]
 
             assert [event.type for event in events] == ["reasoning", "text"]
             assistant_messages = [m for m in persisted if m.get("role") == "assistant"]
             assert len(assistant_messages) == 1
-            assert assistant_messages[0]["content"] == "Visible answer"
-            assert "reasoning_content" not in assistant_messages[0]
+            assert assistant_messages[0]["content"] == [
+                {"type": "thinking", "text": "hidden "},
+                {"type": "text", "text": "Visible answer"},
+            ]
 
     @pytest.mark.asyncio
     async def test_achat_persists_tool_calls_from_messages_stream(self):
@@ -406,29 +384,56 @@ class TestAgentReasoningPersistence:
             async def on_persist(message: dict) -> None:
                 persisted.append(message)
 
-            stream = _fake_stream(
-                _FakeMessageEvent(
-                    "content_block_start",
-                    index=0,
-                    content_block=_FakeContentBlock(type="tool_use", id="call-1", name="read", input={}),
-                ),
-                _FakeMessageEvent(
-                    "content_block_delta",
-                    index=0,
-                    delta={"type": "input_json_delta", "partial_json": '{"path":"test.txt"}'},
-                ),
+            adapter = _FakeProviderAdapter(
+                [
+                    [
+                        ProviderStreamEvent(
+                            "message_done",
+                            {
+                                "message": {
+                                    "role": "assistant",
+                                    "content": [
+                                        {
+                                            "type": "tool_use",
+                                            "id": "call-1",
+                                            "name": "read",
+                                            "input": {"path": "test.txt"},
+                                        }
+                                    ],
+                                }
+                            },
+                        )
+                    ],
+                    [
+                        ProviderStreamEvent(
+                            "message_done",
+                            {
+                                "message": {
+                                    "role": "assistant",
+                                    "content": [{"type": "text", "text": "done"}],
+                                }
+                            },
+                        )
+                    ],
+                ]
             )
 
-            with patch("mycode.core.agent.amessages", new=AsyncMock(return_value=stream)):
+            with patch("mycode.core.agent.get_provider_adapter", return_value=adapter):
                 events = [event async for event in agent.achat("hello", on_persist=on_persist)]
 
             assert [event.type for event in events] == ["tool_start", "tool_done"]
-            assistant_messages = [m for m in persisted if m.get("role") == "assistant" and m.get("tool_calls")]
-            assert len(assistant_messages) == 1
-            assert assistant_messages[0]["tool_calls"] == [
+            assistant_messages = [m for m in persisted if m.get("role") == "assistant"]
+            assert len(assistant_messages) == 2
+            assert assistant_messages[0]["content"] == [
                 {
+                    "type": "tool_use",
                     "id": "call-1",
-                    "type": "function",
-                    "function": {"name": "read", "arguments": '{"path":"test.txt"}'},
+                    "name": "read",
+                    "input": {"path": "test.txt"},
                 }
             ]
+            assert assistant_messages[1]["content"] == [{"type": "text", "text": "done"}]
+            tool_results = [m for m in persisted if m.get("role") == "user" and m is not persisted[0]]
+            assert len(tool_results) == 1
+            assert tool_results[0]["content"][0]["type"] == "tool_result"
+            assert tool_results[0]["content"][0]["tool_use_id"] == "call-1"

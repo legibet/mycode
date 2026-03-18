@@ -9,7 +9,7 @@ On disk:
 
 mycode/data/sessions/<session_id>/
   meta.json
-  messages.jsonl   # OpenAI-style message dicts (excluding system prompt)
+  messages.jsonl   # Internal message/block dicts (excluding system prompt)
   tool-output/     # large bash outputs (referenced by tool results)
 """
 
@@ -23,6 +23,11 @@ from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
 
+from mycode.core.messages import flatten_message_text
+
+MESSAGE_FORMAT_VERSION = 2
+DEFAULT_SESSION_PROVIDER = "anthropic"
+
 
 def _now() -> str:
     return datetime.now(UTC).isoformat()
@@ -32,9 +37,11 @@ def _now() -> str:
 class SessionMeta:
     id: str
     title: str
+    provider: str
     model: str
     cwd: str
     api_base: str | None
+    message_format_version: int
     created_at: str
     updated_at: str
 
@@ -65,7 +72,15 @@ class SessionStore:
     # CRUD
     # ---------------------------------------------------------------------
 
-    async def create_session(self, title: str | None, *, model: str, cwd: str, api_base: str | None) -> dict:
+    async def create_session(
+        self,
+        title: str | None,
+        *,
+        provider: str = DEFAULT_SESSION_PROVIDER,
+        model: str,
+        cwd: str,
+        api_base: str | None,
+    ) -> dict:
         session_id = uuid4().hex
         cwd = os.path.abspath(cwd)
         now = _now()
@@ -73,9 +88,11 @@ class SessionStore:
         meta = SessionMeta(
             id=session_id,
             title=title or "New chat",
+            provider=provider,
             model=model,
             cwd=cwd,
             api_base=api_base,
+            message_format_version=MESSAGE_FORMAT_VERSION,
             created_at=now,
             updated_at=now,
         )
@@ -188,7 +205,6 @@ class SessionStore:
             sdir.mkdir(parents=True, exist_ok=True)
             (sdir / "tool-output").mkdir(parents=True, exist_ok=True)
 
-            # append JSONL line
             lp = self.messages_path(session_id)
             with lp.open("a", encoding="utf-8") as f:
                 f.write(json.dumps(message, ensure_ascii=False))
@@ -201,9 +217,11 @@ class SessionStore:
                 meta = {
                     "id": session_id,
                     "title": "New chat",
+                    "provider": "",
                     "model": "",
                     "cwd": "",
                     "api_base": None,
+                    "message_format_version": MESSAGE_FORMAT_VERSION,
                     "created_at": _now(),
                     "updated_at": _now(),
                 }
@@ -212,8 +230,10 @@ class SessionStore:
 
             meta["updated_at"] = _now()
 
+            meta.setdefault("message_format_version", MESSAGE_FORMAT_VERSION)
+
             if meta.get("title") == "New chat" and message.get("role") == "user":
-                content = (message.get("content") or "").strip().replace("\n", " ")
+                content = flatten_message_text(message, include_thinking=False).replace("\n", " ").strip()
                 if content:
                     meta["title"] = content[:48]
 
@@ -221,7 +241,15 @@ class SessionStore:
 
         await asyncio.to_thread(append)
 
-    async def get_or_create(self, session_id: str, *, model: str, cwd: str, api_base: str | None) -> dict:
+    async def get_or_create(
+        self,
+        session_id: str,
+        *,
+        provider: str = DEFAULT_SESSION_PROVIDER,
+        model: str,
+        cwd: str,
+        api_base: str | None,
+    ) -> dict:
         """Get an existing session, or create it if missing."""
 
         data = await self.load_session(session_id)
@@ -238,6 +266,9 @@ class SessionStore:
                 changed = False
                 norm_cwd = os.path.abspath(cwd)
 
+                if meta.get("provider") != provider:
+                    meta["provider"] = provider
+                    changed = True
                 if meta.get("model") != model:
                     meta["model"] = model
                     changed = True
@@ -246,6 +277,9 @@ class SessionStore:
                     changed = True
                 if meta.get("api_base") != api_base:
                     meta["api_base"] = api_base
+                    changed = True
+                if meta.get("message_format_version") != MESSAGE_FORMAT_VERSION:
+                    meta["message_format_version"] = MESSAGE_FORMAT_VERSION
                     changed = True
 
                 if changed:
@@ -267,9 +301,11 @@ class SessionStore:
             meta = SessionMeta(
                 id=session_id,
                 title="New chat",
+                provider=provider,
                 model=model,
                 cwd=cwd,
                 api_base=api_base,
+                message_format_version=MESSAGE_FORMAT_VERSION,
                 created_at=now,
                 updated_at=now,
             )

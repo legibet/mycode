@@ -1,219 +1,288 @@
-# AGENTS.md — mycode
+# AGENTS.md - mycode
 
-This file is the **authoritative project context** for future agent runs. Automatically update this file with any architectural changes, new design decisions, or shifts in product vision. The agent will read this file at the start of each run to understand the current state of the codebase and project goals.
+This file is the authoritative project context for future agent runs. Keep it in sync with the actual code.
 
-## 1) Product Vision
+## 1. Product
 
-mycode is a **personal minimal coding agent** inspired by [pi](https://github.com/badlogic/pi-mono)'s design philosophy:
+`mycode` is a personal minimal coding agent with a web UI and CLI.
 
-- Small, stable core.
-- Minimal built-in primitives.
-- Clear agent loop.
-- Low token overhead.
-- Extensibility comes later (skills), not via core complexity.
+Current priorities:
 
-Current scope is intentionally focused on a robust core + web/CLI usability.
+- small, readable core
+- one internal conversation model
+- one agent loop
+- append-only sessions
+- provider adapters at the boundary only
 
----
+The project is intentionally not a general agent framework.
 
-## 2) Non-Negotiable Core Principles
+## 2. Core Rules
 
-1. **Only 4 built-in tools** are exposed to the model:
-   - `read`
-   - `write`
-   - `edit`
-   - `bash`
-2. Do **not** add `grep`, `glob`, or other search tools to the core.
-   - Search should be done via `bash` (`rg`, `find`, etc.).
-3. Keep agent behavior concise and deterministic.
-4. Keep token usage low (truncate tool outputs, avoid noisy prompts).
-5. Prefer simple, readable Python over framework-heavy abstractions.
+- Only 4 built-in tools exist: `read`, `write`, `edit`, `bash`
+- Do not add `grep`, `glob`, or extra search tools to core
+- Keep the runtime deterministic and easy to inspect
+- Prefer simple Python over abstractions that hide control flow
+- Keep provider-specific behavior inside adapters, not inside the agent loop
 
----
+## 3. Runtime Shape
 
-## 3) Project Structure
+The current runtime no longer uses `any-llm`.
 
-```
-mycode/                        # Python package
-  core/                        # Core runtime (single source of truth)
-    agent.py                   # Agent class + streaming agent loop
-    tools.py                   # 4-tool schemas + ToolExecutor
-    config.py                  # Settings, ProviderConfig, resolve_provider
-    session.py                 # SessionStore (append-only JSONL)
-    instructions.py            # AGENTS.md discovery + injection
-    skills.py                  # Skill discovery + prompt formatting
-    system_prompt.md           # Canonical system prompt
-  server/                      # Interface: FastAPI API server
-    app.py                     # create_app(), mounts routers + frontend
-    schemas.py                 # Pydantic request/response models
-    deps.py                    # Shared dependencies (SessionStore instance)
-    routers/
-      chat.py                  # POST /api/chat (SSE), POST /api/cancel, GET /api/config
-      sessions.py              # CRUD for sessions
-      workspaces.py            # Workspace browsing
-  frontend/                    # Interface: React + Vite web UI
-    src/
-    package.json
-    vite.config.js
-  cli.py                       # Interface: CLI/TUI
+It is built from:
 
-tests/
-pyproject.toml
-AGENTS.md → CLAUDE.md
+- one internal message/block format in `mycode/core/messages.py`
+- one agent loop in `mycode/core/agent.py`
+- provider adapters in `mycode/core/providers/`
+
+Both CLI and server import the same core runtime.
+
+## 4. Internal Message Model
+
+The persisted/runtime message format is block-based JSON:
+
+```json
+{
+  "role": "assistant",
+  "content": [
+    {"type": "thinking", "text": "...", "meta": {}},
+    {"type": "text", "text": "..."},
+    {"type": "tool_use", "id": "call_1", "name": "read", "input": {"path": "x.py"}}
+  ],
+  "meta": {
+    "provider": "moonshot",
+    "model": "kimi-k2.5"
+  }
+}
 ```
 
-### Key design: core as single source
+Current block types in active use:
 
-`mycode.core` contains all runtime logic. Both `mycode.server` and `mycode.cli` are thin interface layers that import from core. Provider resolution (`resolve_provider`), session storage, agent construction — all live in core.
+- `text`
+- `thinking`
+- `tool_use`
+- `tool_result`
 
----
+Important notes:
 
-## 4) Core Modules
+- thinking is first-class session data and is persisted
+- provider-native metadata is stored in `meta`
+- user tool results are stored as a `user` message containing `tool_result` blocks
+- the system prompt is runtime-only and is not persisted into sessions
 
-- `mycode.core.agent`
-  - Minimal streaming agent loop with tool calls.
-  - Uses `any_llm.amessages` as the primary runtime API.
-  - Keeps persisted session messages in the existing OpenAI-style user/assistant/tool format for compatibility, but converts them to Messages API payloads per request.
-  - Aggregates streamed tool calls from Messages API `tool_use` blocks.
-  - Persists user/assistant/tool messages (system prompt is runtime-only).
-  - Streams provider reasoning/thinking as transient UI events only; reasoning is not persisted into session history.
-  - Handles interrupted previous tool-calls with synthetic tool errors.
-  - Injects hierarchical AGENTS.md-style instructions and discovered skills into the runtime system prompt.
-  - Supports active cancellation while a `bash` tool call is running (kills subprocesses and returns `error: cancelled`).
+## 5. Agent Loop
 
-- `mycode.core.config`
-  - Loads layered config from `~/.mycode/config.json` and `workspace/.mycode/config.json` only.
-  - Uses project/workspace-local config to override global defaults.
-  - Does not auto-load `.env` files.
-  - LLM `provider` / `model` / `base_url` come from explicit request args or layered config only; standard API key env vars are runtime-only overrides.
-  - Request-time `provider` values may be either configured aliases or raw any-llm provider ids.
-  - `resolve_provider()` — shared by CLI and server, eliminates duplicated resolution logic.
-  - Exposes workspace root / config path metadata for runtime consumers.
+`mycode/core/agent.py` is the only orchestration loop.
 
-- `mycode.core.tools`
-  - Defines OpenAI-compatible tool schemas (`TOOLS`).
-  - Implements `ToolExecutor` for `read/write/edit/bash`.
-  - Includes truncation limits and large-output handling.
-  - `bash` spills very large output to `tool-output/bash-<tool_call_id>.log` once memory threshold is exceeded, while still streaming lines.
-  - `edit` uses exact-match first; if not found, it applies a conservative fuzzy fallback (line-ending + trailing-whitespace normalization only, unique match required), then returns closest-line hints when still unmatched.
+Per turn it does this:
 
-- `mycode.core.session`
-  - Append-only JSONL message log.
-  - Per-session directory layout:
+1. append the user message
+2. ask the selected provider adapter for one assistant turn
+3. stream normalized events to CLI/server
+4. persist the final assistant message
+5. execute any requested tools locally
+6. append one `user` tool-result message
+7. continue until the assistant stops using tools or `max_turns` is reached
 
-```
+Other current behaviors:
+
+- interrupted prior tool calls are repaired with synthetic `tool_result` error blocks on startup
+- cancelling during `bash` actively kills subprocesses via `cancel_all_tools()`
+- tool output is streamed only for `bash`
+
+## 6. Provider Adapters
+
+Provider lookup lives in `mycode/core/provider_registry.py`.
+
+Current built-in adapter ids:
+
+- `anthropic`
+- `moonshot`
+- `minimax`
+- `openai`
+- `openai_chat`
+
+### `anthropic`
+
+- implemented with the official `anthropic` Python SDK
+- uses the Messages API
+- default base URL: `https://api.anthropic.com`
+
+### `moonshot`
+
+- implemented with the official `anthropic` Python SDK against Moonshot's Anthropic-compatible endpoint
+- default base URL: `https://api.moonshot.ai/anthropic`
+- default API key env: `MOONSHOT_API_KEY`
+- for `kimi-k2.5`, the adapter explicitly enables thinking by default
+- real-provider testing showed that when thinking is enabled, prior reasoning must be replayed on later tool-loop turns
+
+### `minimax`
+
+- implemented with the official `anthropic` Python SDK against MiniMax's Anthropic-compatible endpoint
+- default base URL: `https://api.minimax.io/anthropic`
+- default API key env: `MINIMAX_API_KEY`
+- preserves provider-native thinking signatures in block metadata
+- by default it relies on MiniMax's native thinking behavior unless an explicit reasoning mode is requested
+
+### `openai`
+
+- implemented with the official `openai` Python SDK
+- uses the Responses API
+- default base URL: `https://api.openai.com/v1`
+- tool loops continue with `previous_response_id` + `function_call_output`
+- this adapter expects prior assistant messages from the same provider/session so it can reuse `provider_message_id`
+
+### `openai_chat`
+
+- implemented with the official `openai` Python SDK
+- uses Chat Completions
+- intended for third-party OpenAI-compatible providers when Responses API is unavailable
+- preserves common third-party reasoning extensions such as `reasoning_content` and `reasoning_details` when exposed through SDK extras
+- current real-provider validation used Moonshot and MiniMax OpenAI-compatible chat endpoints
+
+## 7. Tool Schema
+
+`mycode/core/tools.py` is still the source of truth for built-in tool definitions.
+
+Current internal schema shape is:
+
+- `name`
+- `description`
+- `input_schema`
+
+Adapters convert this to the upstream provider format:
+
+- Anthropic-style `input_schema`
+- OpenAI Chat `function.parameters`
+- OpenAI Responses `function.parameters`
+
+`tools.py` also owns:
+
+- output truncation rules
+- path resolution
+- exact-match edit behavior with conservative fuzzy fallback
+- large bash output spilling into `tool-output/`
+- `parse_tool_arguments()` used by OpenAI-family adapters
+
+## 8. Sessions
+
+`mycode/core/session.py` stores sessions under:
+
+```text
 mycode/data/sessions/<session_id>/
   meta.json
   messages.jsonl
   tool-output/
 ```
 
-- `mycode.core.instructions`
-  - Discovers AGENTS.md from `~/.mycode/AGENTS.md` with `~/.agents/AGENTS.md` as a compatibility fallback.
-  - Loads project instructions only from `workspace_root/AGENTS.md`.
-  - Truncates injected instruction bytes with a fixed runtime limit.
+Current facts:
 
-- `mycode.core.skills`
-  - Discovers `SKILL.md` files from global `~/.mycode/skills/`, `~/.agents/skills/`, plus project-level `.mycode/skills/` and `.agents/skills/` under the workspace root.
-  - Parses YAML frontmatter (name, description), validates, and deduplicates.
-  - Produces `<available_skills>` XML block for system prompt injection (progressive disclosure).
+- append-only JSONL
+- current `MESSAGE_FORMAT_VERSION = 2`
+- session meta stores `provider`, `model`, `cwd`, `api_base`, and `message_format_version`
+- the first user message auto-updates the title from text content
+- `get_or_create()` keeps meta in sync with the latest request config
 
----
+The runtime expects the current internal block-based message format.
 
-## 5) Interface Layers
+## 9. Config
 
-### Server (`mycode.server`)
+`mycode/core/config.py` loads config from:
 
-- `app.py` — FastAPI app, mounts API routers under `/api`, serves frontend static files from `mycode/frontend/dist`.
-- `deps.py` — shared `SessionStore` instance (single instance for all routers).
-- `routers/chat.py` — SSE streaming chat, cancel, config endpoints.
-- `routers/sessions.py` — session CRUD.
-- `routers/workspaces.py` — workspace browsing.
-- `schemas.py` — Pydantic models for API requests/responses.
+- `~/.mycode/config.json`
+- `<workspace>/.mycode/config.json`
 
-### CLI (`mycode.cli`)
+Important behavior:
 
-- Interactive REPL with rich markdown rendering.
-- Single-shot mode (`--once`).
-- CLI session semantics: default launch creates a new session; resuming prior context is explicit via `--continue` or `--session <id>`.
-- When resuming in interactive CLI, show current session identity and a short history preview so restored context is visible to the user.
-- CLI session management stays minimal but explicit: `mycode session list` for discovery, `/resume` for switching to a saved workspace session, `/new` for starting a fresh session without leaving the TUI.
-- Uses `resolve_provider()` from core for provider/model resolution.
+- explicit request args override config
+- API keys may come from provider-specific env vars
+- provider/model/base URL are not loaded from env vars automatically
+- raw provider ids are allowed if they exist in the registry
+- fallback provider/model are currently `anthropic` + `claude-sonnet-4-6`
 
-### Frontend (`mycode/frontend`)
+`ProviderConfig.type` is the internal adapter id, not a generic vendor label.
 
-- React + Vite
-- Styling: Tailwind CSS 3 with CSS custom properties (HSL tokens)
-- Design system: **Terminal-Luxe Deep Ocean** — dark-first, minimal, content-focused
-- Core hook: `useChat.js` — streams SSE from `/api/chat`
+## 10. Interfaces
 
----
+### Server
 
-## 6) Event Contract (SSE)
+`mycode/server/routers/chat.py`
 
-Current stream event types used by UI:
+- streams SSE from the shared `Agent`
+- persists each message through `SessionStore`
+- keeps SSE event names stable
 
-- `reasoning` → assistant reasoning/thinking delta (stream-only, not persisted into session history)
-- `text` → assistant text delta
-- `tool_start` → tool call started (`id`, `name`, `args`)
-- `tool_output` → incremental tool output (mainly bash)
-- `tool_done` → final tool result (`result`)
-- `error` → error message
+`mycode/server/routers/sessions.py`
 
-Do not break these types without coordinated frontend updates.
+- creates/list/loads/deletes sessions using the shared store
 
----
+### CLI
 
-## 7) Key Technical Decisions
+`mycode/cli.py`
 
-1. **No global `os.chdir()` in request path** — tools execute with explicit `cwd` context.
-2. **Config and instruction loading are workspace-aware** — `~/.agents/` remains a compatibility source for instructions and skills only.
-3. **LLM config precedence is explicit > env API key > project config > global config** — environment variables do not define model/provider/base_url.
-4. **Append-only session writes** — better reliability and crash behavior.
-5. **Truncation-first tool outputs** — keep context lean.
-6. **Deterministic edit semantics with conservative fallback** — exact match preferred, fuzzy only for whitespace/line-ending differences.
-7. **Tool cancellation semantics** — cancelling during `bash` actively terminates subprocesses.
-8. **Shared provider resolution** — `resolve_provider()` in core eliminates duplication between CLI and server.
-9. **Explicit CLI session resume** — interactive CLI should not silently reuse hidden prior context; resume must be user-selected and visibly indicated.
+- supports interactive mode and `--once`
+- default startup creates a fresh session
+- resume is explicit via `--continue`, `--session`, or `/resume`
+- shows thinking during live runs
+- history preview also includes persisted thinking summaries when assistant text is absent
 
----
+### Frontend
 
-## 8) Development Conventions
+Current frontend message reconstruction is in `mycode/frontend/src/utils/messages.js`.
 
-- Python runtime/deps: **uv only**.
-- Keep modules small, typed, and documented.
+Current behavior:
 
-### Common commands
+- assistant `thinking` blocks render as reasoning parts
+- assistant `tool_use` blocks become tool parts
+- later `user` `tool_result` blocks are attached back onto the matching assistant tool part
+- reasoning blocks default to expanded UI state in `mycode/frontend/src/components/Chat/ReasoningBlock.jsx`
 
-```bash
-# Server
-uv run uvicorn mycode.server.app:app --reload --port 8000
+## 11. SSE Contract
 
-# CLI
-uv run mycode
-# or: uv run python -m mycode.cli
+The outer event contract used by server, CLI, and frontend remains:
 
-# Syntax check
-uv run python -m py_compile $(find mycode -name "*.py" -type f)
+- `reasoning`
+- `text`
+- `tool_start`
+- `tool_output`
+- `tool_done`
+- `error`
 
-# Frontend
-cd mycode/frontend && pnpm install && pnpm run build
+Do not change these casually.
 
-# Tests
-uv run python -m pytest tests/ -v
-```
+## 12. Dependencies
 
----
+Runtime Python deps currently include:
 
-## 9) Guardrails for Future Refactors
+- `anthropic`
+- `openai`
+- `fastapi`
+- `uvicorn`
+- `rich`
+- `prompt-toolkit`
 
-If you change architecture, preserve these invariants unless explicitly requested:
+Package management and execution conventions:
 
-- 4-tool core remains unchanged.
-- SSE event contract remains compatible.
-- Session persistence remains append-only and human-inspectable.
-- System prompt remains concise and operationally explicit.
-- Search guidance remains `bash + rg`, not additional built-in search tools.
-- Core as single source — interfaces import from `mycode.core`, never the reverse.
+- use `uv` for Python
+- use `pnpm` for frontend
 
-When in doubt, choose the simpler design.
+## 13. Verified Provider Facts
+
+These have been validated during this redesign:
+
+- Moonshot recommends Anthropic-compatible Messages for coding-agent style development
+- MiniMax officially documents Anthropic SDK / Messages compatibility and explicitly says full assistant content must be appended on multi-turn function-call flows
+- Moonshot `kimi-k2.5` tool loops work through the Anthropic-compatible endpoint, and prior reasoning must be preserved when thinking is enabled
+- MiniMax `MiniMax-M2.5` emits thinking signatures on the Anthropic-compatible endpoint
+- third-party OpenAI-compatible chat endpoints may surface reasoning through non-standard extra fields rather than a uniform schema
+
+## 14. Guardrails
+
+When changing architecture, preserve these unless explicitly asked otherwise:
+
+- 4-tool core stays unchanged
+- append-only sessions stay human-inspectable
+- CLI and server remain thin wrappers over `mycode.core`
+- provider-specific quirks stay in adapters
+- no new framework-style abstraction layers unless they remove real complexity
+
+When in doubt, prefer the simpler and more explicit design.

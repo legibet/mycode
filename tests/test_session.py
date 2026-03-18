@@ -75,7 +75,10 @@ class TestSessionStore:
         """latest_session should return the most recently updated session."""
         first = await temp_store.create_session(title="First", model="gpt-5.4", cwd="/tmp", api_base=None)
         second = await temp_store.create_session(title="Second", model="gpt-5.4", cwd="/tmp", api_base=None)
-        await temp_store.append_message(first["session"]["id"], {"role": "user", "content": "bump first"})
+        await temp_store.append_message(
+            first["session"]["id"],
+            {"role": "user", "content": [{"type": "text", "text": "bump first"}]},
+        )
 
         latest = await temp_store.latest_session(cwd="/tmp")
         assert latest is not None
@@ -96,15 +99,18 @@ class TestSessionStore:
         session_id = result["session"]["id"]
 
         # Append some messages
-        await temp_store.append_message(session_id, {"role": "user", "content": "Hello"})
-        await temp_store.append_message(session_id, {"role": "assistant", "content": "Hi there"})
+        await temp_store.append_message(session_id, {"role": "user", "content": [{"type": "text", "text": "Hello"}]})
+        await temp_store.append_message(
+            session_id,
+            {"role": "assistant", "content": [{"type": "text", "text": "Hi there"}]},
+        )
 
         # Load and verify
         loaded = await temp_store.load_session(session_id)
         assert loaded is not None
         assert len(loaded["messages"]) == 2
         assert loaded["messages"][0]["role"] == "user"
-        assert loaded["messages"][0]["content"] == "Hello"
+        assert loaded["messages"][0]["content"] == [{"type": "text", "text": "Hello"}]
         assert loaded["messages"][1]["role"] == "assistant"
 
     @pytest.mark.asyncio
@@ -113,7 +119,10 @@ class TestSessionStore:
         result = await temp_store.create_session(title="New chat", model="gpt-5.4", cwd="/tmp", api_base=None)
         session_id = result["session"]["id"]
 
-        await temp_store.append_message(session_id, {"role": "user", "content": "How do I write a Python function?"})
+        await temp_store.append_message(
+            session_id,
+            {"role": "user", "content": [{"type": "text", "text": "How do I write a Python function?"}]},
+        )
 
         loaded = await temp_store.load_session(session_id)
         assert loaded["session"]["title"] == "How do I write a Python function?"
@@ -124,7 +133,7 @@ class TestSessionStore:
         result = await temp_store.create_session(title="Test", model="gpt-5.4", cwd="/tmp", api_base=None)
         session_id = result["session"]["id"]
 
-        await temp_store.append_message(session_id, {"role": "user", "content": "Hello"})
+        await temp_store.append_message(session_id, {"role": "user", "content": [{"type": "text", "text": "Hello"}]})
         await temp_store.clear_session(session_id)
 
         loaded = await temp_store.load_session(session_id)
@@ -168,7 +177,7 @@ class TestSessionStore:
         result = await temp_store.create_session(title="Test", model="gpt-5.4", cwd="/tmp", api_base=None)
         session_id = result["session"]["id"]
 
-        msg = {"role": "user", "content": "Test message"}
+        msg = {"role": "user", "content": [{"type": "text", "text": "Test message"}]}
         await temp_store.append_message(session_id, msg)
 
         # Read raw JSONL file
@@ -178,7 +187,7 @@ class TestSessionStore:
 
         parsed = json.loads(lines[0])
         assert parsed["role"] == "user"
-        assert parsed["content"] == "Test message"
+        assert parsed["content"] == [{"type": "text", "text": "Test message"}]
 
 
 class TestSessionStoreEdgeCases:
@@ -201,7 +210,7 @@ class TestSessionStoreEdgeCases:
         session_id = "brand-new-session"
 
         # Session doesn't exist yet
-        await store.append_message(session_id, {"role": "user", "content": "Hello"})
+        await store.append_message(session_id, {"role": "user", "content": [{"type": "text", "text": "Hello"}]})
 
         assert (store.session_dir(session_id) / "tool-output").exists()
         assert store.messages_path(session_id).exists()

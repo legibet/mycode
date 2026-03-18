@@ -25,7 +25,8 @@ from rich.spinner import Spinner
 from rich.text import Text
 
 from mycode.core.agent import Agent
-from mycode.core.config import get_settings, is_any_llm_provider, resolve_provider
+from mycode.core.config import get_settings, resolve_provider
+from mycode.core.provider_registry import is_supported_provider, list_supported_providers
 from mycode.core.session import SessionStore
 
 console = Console(highlight=False)
@@ -79,30 +80,55 @@ def _history_preview_entries(messages: list[dict[str, Any]], *, limit: int = 6) 
 
     for msg in messages:
         role = msg.get("role")
+        content = msg.get("content")
 
         if role == "user":
-            content = _compact_text(str(msg.get("content") or ""))
-            if content:
-                entries.append(("You", content))
+            text = ""
+            if isinstance(content, list):
+                text = " ".join(
+                    str(block.get("text") or "").strip() for block in content if block.get("type") == "text"
+                )
+            else:
+                text = str(content or "")
+            text = _compact_text(text)
+            if text:
+                entries.append(("You", text))
             continue
 
         if role != "assistant":
             continue
 
-        content = _compact_text(str(msg.get("content") or ""))
-        tool_calls = msg.get("tool_calls") or []
+        text = ""
+        thinking = ""
+        tool_names: list[str] = []
+        if isinstance(content, list):
+            text = " ".join(str(block.get("text") or "").strip() for block in content if block.get("type") == "text")
+            thinking = " ".join(
+                str(block.get("text") or "").strip() for block in content if block.get("type") == "thinking"
+            )
+            tool_names = [str(block.get("name") or "tool") for block in content if block.get("type") == "tool_use"]
+        else:
+            text = str(content or "")
+        text = _compact_text(text)
+        thinking = _compact_text(thinking)
 
-        if content:
-            if tool_calls:
-                content = f"{content}  [{len(tool_calls)} tool{'s' if len(tool_calls) != 1 else ''}]"
-            entries.append(("Assistant", content))
+        if text:
+            if tool_names:
+                text = f"{text}  [{len(tool_names)} tool{'s' if len(tool_names) != 1 else ''}]"
+            entries.append(("Assistant", text))
             continue
 
-        if tool_calls:
-            names = [tc.get("function", {}).get("name") or "tool" for tc in tool_calls]
-            preview = ", ".join(names[:3])
-            if len(names) > 3:
-                preview += f" +{len(names) - 3}"
+        if thinking:
+            summary = f"Thinking: {thinking}"
+            if tool_names:
+                summary = f"{summary}  [{len(tool_names)} tool{'s' if len(tool_names) != 1 else ''}]"
+            entries.append(("Assistant", summary))
+            continue
+
+        if tool_names:
+            preview = ", ".join(tool_names[:3])
+            if len(tool_names) > 3:
+                preview += f" +{len(tool_names) - 3}"
             entries.append(("Assistant", f"[Used tools: {preview}]"))
 
     if limit <= 0:
@@ -244,6 +270,7 @@ def _clone_agent(agent: Agent, *, session_dir: Path, messages: list[dict[str, An
 async def resolve_cli_session(
     *,
     store: SessionStore,
+    provider: str = "anthropic",
     cwd: str,
     model: str,
     api_base: str | None,
@@ -255,7 +282,13 @@ async def resolve_cli_session(
         if not data or not data.get("session"):
             raise ValueError(f"Unknown session: {requested_session_id}")
 
-        synced = await store.get_or_create(requested_session_id, model=model, cwd=cwd, api_base=api_base)
+        synced = await store.get_or_create(
+            requested_session_id,
+            provider=provider,
+            model=model,
+            cwd=cwd,
+            api_base=api_base,
+        )
         session = synced.get("session") or data["session"]
         messages = synced.get("messages") or data.get("messages") or []
         return CLIResolvedSession(
@@ -269,7 +302,7 @@ async def resolve_cli_session(
         latest = await store.latest_session(cwd=cwd)
         if latest and latest.get("id"):
             session_id = str(latest["id"])
-            data = await store.get_or_create(session_id, model=model, cwd=cwd, api_base=api_base)
+            data = await store.get_or_create(session_id, provider=provider, model=model, cwd=cwd, api_base=api_base)
             return CLIResolvedSession(
                 session_id=session_id,
                 session=data.get("session") or latest,
@@ -277,7 +310,7 @@ async def resolve_cli_session(
                 mode="resumed",
             )
 
-    data = await store.create_session(None, model=model, cwd=cwd, api_base=api_base)
+    data = await store.create_session(None, provider=provider, model=model, cwd=cwd, api_base=api_base)
     session = data.get("session") or {}
     return CLIResolvedSession(
         session_id=str(session.get("id") or ""),
@@ -310,6 +343,7 @@ class TUIRenderer:
         self._live: Live | None = None
         self._reasoning: list[str] = []
         self._text: list[str] = []
+        self._printed_static_reasoning = False
 
     # -- public API --
 
@@ -319,13 +353,13 @@ class TUIRenderer:
             self._ensure_live()
 
     def reasoning(self, chunk: str) -> None:
-        if not self._live_mode:
-            return
         self._reasoning.append(chunk)
-        self._ensure_live()
-        self._update()
+        if self._live_mode:
+            self._ensure_live()
+            self._update()
 
     def text(self, chunk: str) -> None:
+        self._print_static_reasoning()
         if self._live_mode:
             self._text.append(chunk)
             self._ensure_live()
@@ -334,6 +368,7 @@ class TUIRenderer:
             self._con.print(chunk, end="", markup=False, highlight=False)
 
     def tool_start(self, name: str, args: dict) -> None:
+        self._print_static_reasoning()
         self._flush()
         if not self._live_mode:
             self._con.print()
@@ -359,17 +394,20 @@ class TUIRenderer:
         self._con.print(t)
 
     def error(self, message: str) -> None:
+        self._print_static_reasoning()
         self._flush()
         t = Text("✕ ", style="red")
         t.append(message, style="red")
         self._con.print(t)
 
     def finish(self) -> None:
+        self._print_static_reasoning()
         self._flush()
         if not self._live_mode:
             self._con.print()
 
     def cancel(self) -> None:
+        self._print_static_reasoning()
         self._flush()
         self._con.print("[dim]cancelled[/dim]")
 
@@ -394,6 +432,14 @@ class TUIRenderer:
             self._live = None
         self._reasoning.clear()
         self._text.clear()
+        self._printed_static_reasoning = False
+
+    def _print_static_reasoning(self) -> None:
+        if self._live_mode or self._printed_static_reasoning or not self._reasoning:
+            return
+        self._con.print("Thinking", style="dim bold")
+        self._con.print("".join(self._reasoning), style="dim")
+        self._printed_static_reasoning = True
 
     def _renderable(self):
         if not self._reasoning and not self._text:
@@ -424,7 +470,7 @@ async def run_once(agent: Agent, *, store: SessionStore, session_id: str, messag
     async for event in agent.achat(message, on_persist=on_persist):
         match event.type:
             case "reasoning":
-                pass
+                renderer.reasoning(event.data.get("content", ""))
             case "text":
                 renderer.text(event.data.get("content", ""))
             case "tool_start":
@@ -480,7 +526,13 @@ async def chat_loop(agent: Agent, *, store: SessionStore, session_id: str) -> No
             continue
 
         if user_input == "/new":
-            data = await store.create_session(None, model=agent.model, cwd=agent.cwd, api_base=agent.api_base)
+            data = await store.create_session(
+                None,
+                provider=agent.provider,
+                model=agent.model,
+                cwd=agent.cwd,
+                api_base=agent.api_base,
+            )
             new_session = data.get("session") or {}
             active_session_id = str(new_session.get("id") or "")
             agent = _clone_agent(agent, session_dir=store.session_dir(active_session_id), messages=[])
@@ -529,6 +581,7 @@ async def chat_loop(agent: Agent, *, store: SessionStore, session_id: str) -> No
                 active_session_id = str(selected.get("id") or "")
                 data = await store.get_or_create(
                     active_session_id,
+                    provider=agent.provider,
                     model=agent.model,
                     cwd=agent.cwd,
                     api_base=agent.api_base,
@@ -598,7 +651,7 @@ def main() -> None:
     parser.add_argument(
         "--provider",
         metavar="NAME",
-        help="any-llm provider id, or a configured provider alias",
+        help="provider id, or a configured provider alias",
     )
     parser.add_argument("--model", metavar="MODEL", help="Model name (overrides resolved default)")
     session_group = parser.add_mutually_exclusive_group()
@@ -628,10 +681,13 @@ def main() -> None:
         _print_session_list(sessions, include_cwd=args.all, heading=heading)
         return
 
-    if args.provider and args.provider not in settings.providers and not is_any_llm_provider(args.provider):
+    if args.provider and args.provider not in settings.providers and not is_supported_provider(args.provider):
         configured = sorted(settings.providers.keys())
         available = ", ".join(configured) if configured else "(no configured aliases)"
-        console.print(f"[red]unknown provider {args.provider!r}. configured aliases: {available}[/red]")
+        supported = ", ".join(list_supported_providers())
+        console.print(
+            f"[red]unknown provider {args.provider!r}. configured aliases: {available}. supported providers: {supported}[/red]"
+        )
         return
 
     resolved = resolve_provider(settings, provider_name=args.provider, model=args.model)
@@ -640,6 +696,7 @@ def main() -> None:
         resolved_session = asyncio.run(
             resolve_cli_session(
                 store=store,
+                provider=resolved.provider,
                 cwd=cwd,
                 model=resolved.model,
                 api_base=resolved.api_base,
@@ -653,7 +710,7 @@ def main() -> None:
 
     agent = Agent(
         model=resolved.model,
-        provider=resolved.provider_type,
+        provider=resolved.provider,
         cwd=cwd,
         session_dir=store.session_dir(resolved_session.session_id),
         api_key=resolved.api_key,

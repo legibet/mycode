@@ -1,13 +1,9 @@
 import { BrainCircuit, ChevronRight } from 'lucide-react'
-import { useEffect, useState, useRef } from 'react'
+import { useState } from 'react'
 import { cn } from '../../utils/cn'
 
 export function ReasoningBlock({ content, isStreaming }) {
-  // Auto-expand if streaming when created, otherwise collapse by default for history
-  const [expanded, setExpanded] = useState(isStreaming)
-
-  // Auto-scroll to bottom of reasoning if streaming and expanded
-  const contentRef = useRef(null)
+  const [expanded, setExpanded] = useState(true)
 
   if (!content) return null
 
@@ -38,10 +34,7 @@ export function ReasoningBlock({ content, isStreaming }) {
         className={cn('grid transition-all duration-200 ease-in-out', expanded ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]')}
       >
         <div className="overflow-hidden">
-          <div
-            ref={contentRef}
-            className="px-4 py-3 border-t border-border/30 bg-muted/20 text-xs text-muted-foreground whitespace-pre-wrap font-mono leading-relaxed"
-          >
+          <div className="px-4 py-3 border-t border-border/30 bg-muted/20 text-xs text-muted-foreground whitespace-pre-wrap font-mono leading-relaxed">
             {content}
           </div>
         </div>

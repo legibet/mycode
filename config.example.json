@@ -1,20 +1,33 @@
 {
   "default": {
-    "provider": "openai",
-    "model": "gpt-5.4"
+    "provider": "moonshot",
+    "model": "kimi-k2.5"
   },
   "providers": {
-    "openai": {
-      "type": "openai",
-      "api_key": "sk-your-key",
-      "base_url": "https://api.openai.com/v1",
-      "models": ["gpt-5.4"]
+    "moonshot": {
+      "type": "moonshot",
+      "base_url": "https://api.moonshot.ai/anthropic",
+      "models": ["kimi-k2.5"]
+    },
+    "minimax": {
+      "type": "minimax",
+      "base_url": "https://api.minimax.io/anthropic",
+      "models": ["MiniMax-M2.5", "MiniMax-M2.5-highspeed"]
     },
     "claude": {
       "type": "anthropic",
-      "api_key": "sk-ant-your-key",
       "base_url": "https://api.anthropic.com",
-      "models": ["claude-opus-4-6", "claude-sonnet-4-6", "claude-haiku-4-5"]
+      "models": ["claude-sonnet-4-6", "claude-haiku-4-5"]
+    },
+    "openai": {
+      "type": "openai",
+      "base_url": "https://api.openai.com/v1",
+      "models": ["gpt-5.4", "gpt-5-mini"]
+    },
+    "openrouter": {
+      "type": "openai_chat",
+      "base_url": "https://openrouter.ai/api/v1",
+      "models": ["openai/gpt-4.1-mini"]
     }
   }
 }
