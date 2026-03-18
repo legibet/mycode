@@ -44,6 +44,43 @@ class CLIResolvedSession:
     mode: str
 
 
+def _positive_int(value: str) -> int:
+    try:
+        parsed = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(f"invalid int value: {value!r}") from exc
+    if parsed <= 0:
+        raise argparse.ArgumentTypeError("must be a positive integer")
+    return parsed
+
+
+def _build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="mycode CLI")
+    parser.add_argument(
+        "--provider",
+        metavar="NAME",
+        help="provider id, or a configured provider alias",
+    )
+    parser.add_argument("--model", metavar="MODEL", help="Model name (overrides resolved default)")
+    parser.add_argument("--max-turns", metavar="N", type=_positive_int, help="Limit agent loop to N turns")
+    session_group = parser.add_mutually_exclusive_group()
+    session_group.add_argument("--session", metavar="ID", help="Resume a specific session id")
+    session_group.add_argument(
+        "-c",
+        "--continue",
+        dest="continue_last",
+        action="store_true",
+        help="Resume the most recent session in the current workspace",
+    )
+    parser.add_argument("--once", metavar="MESSAGE", help="Run one prompt and exit")
+    subparsers = parser.add_subparsers(dest="command")
+    session_parser = subparsers.add_parser("session", help="Session management commands")
+    session_subparsers = session_parser.add_subparsers(dest="session_command", required=True)
+    list_parser = session_subparsers.add_parser("list", help="List saved sessions")
+    list_parser.add_argument("--all", action="store_true", help="Show sessions from all workspaces")
+    return parser
+
+
 def _sep() -> None:
     width = min(shutil.get_terminal_size().columns, _MAX_WIDTH)
     console.print(f"[dim]{'─' * width}[/dim]")
@@ -647,28 +684,7 @@ async def chat_loop(agent: Agent, *, store: SessionStore, session_id: str) -> No
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="mycode CLI")
-    parser.add_argument(
-        "--provider",
-        metavar="NAME",
-        help="provider id, or a configured provider alias",
-    )
-    parser.add_argument("--model", metavar="MODEL", help="Model name (overrides resolved default)")
-    session_group = parser.add_mutually_exclusive_group()
-    session_group.add_argument("--session", metavar="ID", help="Resume a specific session id")
-    session_group.add_argument(
-        "-c",
-        "--continue",
-        dest="continue_last",
-        action="store_true",
-        help="Resume the most recent session in the current workspace",
-    )
-    parser.add_argument("--once", metavar="MESSAGE", help="Run one prompt and exit")
-    subparsers = parser.add_subparsers(dest="command")
-    session_parser = subparsers.add_parser("session", help="Session management commands")
-    session_subparsers = session_parser.add_subparsers(dest="session_command", required=True)
-    list_parser = session_subparsers.add_parser("list", help="List saved sessions")
-    list_parser.add_argument("--all", action="store_true", help="Show sessions from all workspaces")
+    parser = _build_parser()
     args = parser.parse_args()
 
     cwd = os.getcwd()
@@ -718,6 +734,7 @@ def main() -> None:
         messages=resolved_session.messages,
         settings=settings,
         reasoning_effort=resolved.reasoning_effort,
+        max_turns=args.max_turns,
     )
 
     _print_header(

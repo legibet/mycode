@@ -1,9 +1,13 @@
 """Tests for CLI output behavior."""
 
+from typing import Any, cast
+
 import pytest
 
 from mycode.cli import (
+    _build_parser,
     _history_preview_entries,
+    _positive_int,
     _resolve_session_choice,
     list_cli_sessions,
     resolve_cli_session,
@@ -37,8 +41,8 @@ async def test_run_once_prints_reasoning_output(monkeypatch):
     monkeypatch.setattr("mycode.cli.console", fake_console)
 
     code = await run_once(
-        _FakeAgent(),
-        store=_FakeStore(),
+        cast(Any, _FakeAgent()),
+        store=cast(Any, _FakeStore()),
         session_id="test-session",
         message="hello",
     )
@@ -104,6 +108,27 @@ async def test_resolve_cli_session_explicit_missing_id_errors(tmp_path):
             requested_session_id="missing",
             continue_last=False,
         )
+
+
+def test_positive_int_accepts_positive_values():
+    assert _positive_int("3") == 3
+
+
+def test_positive_int_rejects_non_positive_values():
+    with pytest.raises(Exception, match="positive integer"):
+        _positive_int("0")
+
+    with pytest.raises(Exception, match="positive integer"):
+        _positive_int("-2")
+
+
+def test_build_parser_accepts_max_turns_flag():
+    parser = _build_parser()
+
+    args = parser.parse_args(["--max-turns", "7", "--once", "hello"])
+
+    assert args.max_turns == 7
+    assert args.once == "hello"
 
 
 def test_history_preview_entries_summarize_tool_only_assistant_messages():

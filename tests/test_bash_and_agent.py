@@ -437,3 +437,118 @@ class TestAgentReasoningPersistence:
             assert len(tool_results) == 1
             assert tool_results[0]["content"][0]["type"] == "tool_result"
             assert tool_results[0]["content"][0]["tool_use_id"] == "call-1"
+
+
+class TestAgentTurnLimits:
+    @pytest.mark.asyncio
+    async def test_achat_has_no_default_turn_limit(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            session_dir = Path(tmpdir)
+
+            agent = Agent(
+                model="gpt-5.4",
+                cwd=tmpdir,
+                session_dir=session_dir,
+            )
+
+            adapter = _FakeProviderAdapter(
+                [
+                    [
+                        ProviderStreamEvent(
+                            "message_done",
+                            {
+                                "message": {
+                                    "role": "assistant",
+                                    "content": [
+                                        {
+                                            "type": "tool_use",
+                                            "id": f"call-{idx}",
+                                            "name": "read",
+                                            "input": {"path": "test.txt"},
+                                        }
+                                    ],
+                                }
+                            },
+                        )
+                    ]
+                    for idx in range(1, 22)
+                ]
+                + [
+                    [
+                        ProviderStreamEvent(
+                            "message_done",
+                            {
+                                "message": {
+                                    "role": "assistant",
+                                    "content": [{"type": "text", "text": "done"}],
+                                }
+                            },
+                        )
+                    ]
+                ]
+            )
+
+            with patch("mycode.core.agent.get_provider_adapter", return_value=adapter):
+                events = [event async for event in agent.achat("hello")]
+
+            assert events[-1].type == "tool_done"
+            assert all(event.data.get("message") != "max_turns reached" for event in events)
+
+    @pytest.mark.asyncio
+    async def test_achat_respects_explicit_turn_limit(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            session_dir = Path(tmpdir)
+
+            agent = Agent(
+                model="gpt-5.4",
+                cwd=tmpdir,
+                session_dir=session_dir,
+                max_turns=2,
+            )
+
+            adapter = _FakeProviderAdapter(
+                [
+                    [
+                        ProviderStreamEvent(
+                            "message_done",
+                            {
+                                "message": {
+                                    "role": "assistant",
+                                    "content": [
+                                        {
+                                            "type": "tool_use",
+                                            "id": "call-1",
+                                            "name": "read",
+                                            "input": {"path": "test.txt"},
+                                        }
+                                    ],
+                                }
+                            },
+                        )
+                    ],
+                    [
+                        ProviderStreamEvent(
+                            "message_done",
+                            {
+                                "message": {
+                                    "role": "assistant",
+                                    "content": [
+                                        {
+                                            "type": "tool_use",
+                                            "id": "call-2",
+                                            "name": "read",
+                                            "input": {"path": "test.txt"},
+                                        }
+                                    ],
+                                }
+                            },
+                        )
+                    ],
+                ]
+            )
+
+            with patch("mycode.core.agent.get_provider_adapter", return_value=adapter):
+                events = [event async for event in agent.achat("hello")]
+
+            assert events[-1].type == "error"
+            assert events[-1].data == {"message": "max_turns reached"}

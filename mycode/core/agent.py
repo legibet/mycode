@@ -73,7 +73,7 @@ class Agent:
         api_key: str | None = None,
         api_base: str | None = None,
         messages: list[dict[str, Any]] | None = None,
-        max_turns: int = 20,
+        max_turns: int | None = None,
         max_tokens: int = 8192,
         reasoning_effort: str | None = None,
         settings: Settings | None = None,
@@ -185,7 +185,9 @@ class Agent:
 
         adapter = get_provider_adapter(self.provider)
 
-        for _turn in range(self.max_turns):
+        turn_count = 0
+        while self.max_turns is None or turn_count < self.max_turns:
+            turn_count += 1
             if self._cancel_event.is_set():
                 yield Event("error", {"message": "cancelled"})
                 return

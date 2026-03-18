@@ -81,7 +81,7 @@ Per turn it does this:
 4. persist the final assistant message
 5. execute any requested tools locally
 6. append one `user` tool-result message
-7. continue until the assistant stops using tools or `max_turns` is reached
+7. continue until the assistant stops using tools; `max_turns` is optional and defaults to no loop cap
 
 Other current behaviors:
 
