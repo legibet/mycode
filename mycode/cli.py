@@ -18,7 +18,7 @@ from prompt_toolkit.history import FileHistory
 from rich.console import Console, Group
 from rich.live import Live
 from rich.markdown import Markdown
-from rich.panel import Panel
+from rich.spinner import Spinner
 from rich.text import Text
 
 from mycode.core.agent import Agent
@@ -29,10 +29,11 @@ console = Console(highlight=False)
 
 _HISTORY_FILE = os.path.join(os.path.dirname(__file__), ".cli_history")
 _PROMPT = ANSI("\033[1m\033[34m❯\033[0m ")
+_MAX_WIDTH = 88
 
 
 def _sep() -> None:
-    width = min(shutil.get_terminal_size().columns, 88)
+    width = min(shutil.get_terminal_size().columns, _MAX_WIDTH)
     console.print(f"[dim]{'─' * width}[/dim]")
 
 
@@ -49,52 +50,162 @@ def _result_preview(result: str) -> str:
         return ""
     first = lines[0][:72]
     if len(lines) > 1:
-        first += f"  [dim]+{len(lines) - 1} lines[/dim]"
+        first += f"  (+{len(lines) - 1} lines)"
     elif len(lines[0]) > 72:
         first += "…"
     return first
+
+
+# ---------------------------------------------------------------------------
+# TUI Renderer
+# ---------------------------------------------------------------------------
+
+
+class TUIRenderer:
+    """Encapsulates rendering logic for streaming agent output.
+
+    Two modes:
+    - live_mode=True  (interactive chat): Rich Live for markdown + spinner
+    - live_mode=False (--once):           raw text, no Live
+    """
+
+    def __init__(self, con: Console, *, live_mode: bool = True):
+        self._con = con
+        self._live_mode = live_mode
+        self._live: Live | None = None
+        self._reasoning: list[str] = []
+        self._text: list[str] = []
+
+    # -- public API --
+
+    def start(self) -> None:
+        """Show spinner while waiting for first token."""
+        if self._live_mode:
+            self._ensure_live()
+
+    def reasoning(self, chunk: str) -> None:
+        if not self._live_mode:
+            return
+        self._reasoning.append(chunk)
+        self._ensure_live()
+        self._update()
+
+    def text(self, chunk: str) -> None:
+        if self._live_mode:
+            self._text.append(chunk)
+            self._ensure_live()
+            self._update()
+        elif chunk:
+            self._con.print(chunk, end="", markup=False, highlight=False)
+
+    def tool_start(self, name: str, args: dict) -> None:
+        self._flush()
+        if not self._live_mode:
+            self._con.print()
+        preview = _tool_preview(args)
+        t = Text()
+        t.append("⏺ ", style="green")
+        t.append(name.capitalize(), style="bold green")
+        if preview:
+            t.append(f" {preview}", style="dim")
+        self._con.print(t)
+
+    def tool_output(self, line: str) -> None:
+        if line:
+            t = Text("  │ ", style="dim")
+            t.append(line, style="dim")
+            self._con.print(t)
+
+    def tool_done(self, result: str) -> None:
+        preview = _result_preview(result)
+        style = "red" if result.startswith("error") else "dim"
+        t = Text("  ⎿ ", style=style)
+        t.append(preview, style=style)
+        self._con.print(t)
+
+    def error(self, message: str) -> None:
+        self._flush()
+        t = Text("✕ ", style="red")
+        t.append(message, style="red")
+        self._con.print(t)
+
+    def finish(self) -> None:
+        self._flush()
+        if not self._live_mode:
+            self._con.print()
+
+    def cancel(self) -> None:
+        self._flush()
+        self._con.print("[dim]cancelled[/dim]")
+
+    # -- internal --
+
+    def _ensure_live(self) -> None:
+        if self._live is None:
+            self._live = Live(
+                self._renderable(),
+                console=self._con,
+                refresh_per_second=12,
+            )
+            self._live.start()
+
+    def _update(self) -> None:
+        if self._live is not None:
+            self._live.update(self._renderable())
+
+    def _flush(self) -> None:
+        if self._live is not None:
+            self._live.stop()
+            self._live = None
+        self._reasoning.clear()
+        self._text.clear()
+
+    def _renderable(self):
+        if not self._reasoning and not self._text:
+            return Spinner("dots", style="dim")
+        parts = []
+        if self._reasoning:
+            r = Text()
+            r.append("Thinking\n", style="dim bold")
+            r.append("".join(self._reasoning), style="dim")
+            parts.append(r)
+        if self._text:
+            parts.append(Markdown("".join(self._text)))
+        return Group(*parts) if len(parts) > 1 else parts[0]
+
+
+# ---------------------------------------------------------------------------
+# Entry points
+# ---------------------------------------------------------------------------
 
 
 async def run_once(agent: Agent, *, store: SessionStore, session_id: str, message: str) -> int:
     async def on_persist(payload: dict) -> None:
         await store.append_message(session_id, payload)
 
+    renderer = TUIRenderer(console, live_mode=False)
     exit_code = 0
 
     async for event in agent.achat(message, on_persist=on_persist):
-        if event.type == "reasoning":
-            continue
-        elif event.type == "text":
-            chunk = event.data.get("content", "")
-            if chunk:
-                console.print(chunk, end="", markup=False, highlight=False)
-        elif event.type == "tool_start":
-            name = event.data.get("name", "")
-            args = event.data.get("args") or {}
-            preview = _tool_preview(args)
-            t = Text()
-            t.append("\n⏺ ", style="green")
-            t.append(name.capitalize(), style="green")
-            if preview:
-                t.append(f"({preview})", style="dim")
-            console.print(t)
-        elif event.type == "tool_output":
-            line = event.data.get("content", "")
-            if line:
-                console.print(f"  [dim]{line}[/dim]")
-        elif event.type == "tool_done":
-            result = event.data.get("result", "")
-            preview = _result_preview(result)
-            if result.startswith("error"):
+        match event.type:
+            case "reasoning":
+                pass
+            case "text":
+                renderer.text(event.data.get("content", ""))
+            case "tool_start":
+                renderer.tool_start(event.data.get("name", ""), event.data.get("args") or {})
+            case "tool_output":
+                renderer.tool_output(event.data.get("content", ""))
+            case "tool_done":
+                result = event.data.get("result", "")
+                renderer.tool_done(result)
+                if result.startswith("error"):
+                    exit_code = 1
+            case "error":
                 exit_code = 1
-                console.print(f"  [red]⎿  {preview}[/red]")
-            else:
-                console.print(f"  [dim]⎿  {preview}[/dim]")
-        elif event.type == "error":
-            exit_code = 1
-            console.print(f"\n[red]⏺ {event.data.get('message', '')}[/red]")
+                renderer.error(event.data.get("message", ""))
 
-    console.print()
+    renderer.finish()
     return exit_code
 
 
@@ -147,100 +258,31 @@ async def chat_loop(agent: Agent, *, store: SessionStore, session_id: str) -> No
 
         _sep()
 
-        reasoning_buffer: list[str] = []
-        text_buffer: list[str] = []
-        live: Live | None = None
-
-        def get_renderable(r_buf: list[str], t_buf: list[str]) -> Group | Markdown:
-            renderables = []
-            if r_buf:
-                r_text = "".join(r_buf)
-                renderables.append(Panel(r_text, title="Thinking", style="dim", border_style="dim"))
-            if t_buf:
-                renderables.append(Markdown("".join(t_buf)))
-
-            if not renderables:
-                return Markdown("")
-            if len(renderables) == 1:
-                return renderables[0]
-            return Group(*renderables)
+        renderer = TUIRenderer(console)
+        renderer.start()
 
         try:
             async for event in agent.achat(user_input, on_persist=on_persist):
-                if event.type == "reasoning":
-                    chunk = event.data.get("content", "")
-                    reasoning_buffer.append(chunk)
-                    if live is None:
-                        live = Live(
-                            get_renderable(reasoning_buffer, text_buffer), console=console, refresh_per_second=12
-                        )
-                        live.start()
-                    else:
-                        live.update(get_renderable(reasoning_buffer, text_buffer))
-
-                elif event.type == "text":
-                    chunk = event.data.get("content", "")
-                    text_buffer.append(chunk)
-                    if live is None:
-                        live = Live(
-                            get_renderable(reasoning_buffer, text_buffer), console=console, refresh_per_second=12
-                        )
-                        live.start()
-                    else:
-                        live.update(get_renderable(reasoning_buffer, text_buffer))
-
-                elif event.type == "tool_start":
-                    if live is not None:
-                        live.stop()
-                        live = None
-                    text_buffer.clear()
-                    reasoning_buffer.clear()
-                    name = event.data.get("name", "")
-                    args = event.data.get("args") or {}
-                    preview = _tool_preview(args)
-                    t = Text()
-                    t.append("⏺ ", style="green")
-                    t.append(name.capitalize(), style="green")
-                    if preview:
-                        t.append(f"({preview})", style="dim")
-                    console.print(t)
-
-                elif event.type == "tool_output":
-                    line = event.data.get("content", "")
-                    if line:
-                        console.print(f"  [dim]{line}[/dim]")
-
-                elif event.type == "tool_done":
-                    result = event.data.get("result", "")
-                    preview = _result_preview(result)
-                    if result.startswith("error"):
-                        console.print(f"  [red]⎿  {preview}[/red]")
-                    else:
-                        console.print(f"  [dim]⎿  {preview}[/dim]")
-
-                elif event.type == "error":
-                    if live is not None:
-                        live.stop()
-                        live = None
-                    text_buffer.clear()
-                    reasoning_buffer.clear()
-                    console.print(f"\n[red]⏺ {event.data.get('message', '')}[/red]")
+                match event.type:
+                    case "reasoning":
+                        renderer.reasoning(event.data.get("content", ""))
+                    case "text":
+                        renderer.text(event.data.get("content", ""))
+                    case "tool_start":
+                        renderer.tool_start(event.data.get("name", ""), event.data.get("args") or {})
+                    case "tool_output":
+                        renderer.tool_output(event.data.get("content", ""))
+                    case "tool_done":
+                        renderer.tool_done(event.data.get("result", ""))
+                    case "error":
+                        renderer.error(event.data.get("message", ""))
 
         except KeyboardInterrupt:
             agent.cancel()
-            if live is not None:
-                live.stop()
-                live = None
-            text_buffer.clear()
-            reasoning_buffer.clear()
-            console.print("\n[dim]cancelled[/dim]")
+            renderer.cancel()
             continue
 
-        if live is not None:
-            live.stop()
-            live = None
-        text_buffer.clear()
-        reasoning_buffer.clear()
+        renderer.finish()
 
 
 def main() -> None:
@@ -254,7 +296,6 @@ def main() -> None:
     cwd = os.getcwd()
     settings = get_settings(cwd)
 
-    # Validate provider name before resolving
     if args.provider and args.provider not in settings.providers:
         available = ", ".join(settings.providers.keys()) or "(none configured)"
         console.print(f"[red]unknown provider {args.provider!r}. available: {available}[/red]")
@@ -284,13 +325,9 @@ def main() -> None:
     console.print()
     t = Text()
     t.append("mycode", style="bold")
-    t.append(" │ ", style="dim")
-    t.append(f"{resolved.model}", style="default")
-    t.append(f" ({args.provider or settings.default_provider or resolved.provider_type})", style="dim")
-    t.append(" │ ", style="dim")
-    t.append(cwd, style="dim")
+    t.append(" ── ", style="dim")
+    t.append(resolved.model)
     console.print(t)
-    # console.print()
 
     if args.once:
         code = asyncio.run(run_once(agent, store=store, session_id=session_id, message=args.once))
