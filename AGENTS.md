@@ -135,6 +135,7 @@ mycode/data/sessions/<session_id>/
 - Single-shot mode (`--once`).
 - CLI session semantics: default launch creates a new session; resuming prior context is explicit via `--continue` or `--session <id>`.
 - When resuming in interactive CLI, show current session identity and a short history preview so restored context is visible to the user.
+- CLI session management stays minimal but explicit: `mycode session list` for discovery, `/resume` for switching to a saved workspace session, `/new` for starting a fresh session without leaving the TUI.
 - Uses `resolve_provider()` from core for provider/model resolution.
 
 ### Frontend (`mycode/frontend`)

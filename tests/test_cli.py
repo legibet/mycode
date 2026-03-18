@@ -2,7 +2,13 @@
 
 import pytest
 
-from mycode.cli import _history_preview_entries, resolve_cli_session, run_once
+from mycode.cli import (
+    _history_preview_entries,
+    _resolve_session_choice,
+    list_cli_sessions,
+    resolve_cli_session,
+    run_once,
+)
 from mycode.core.agent import Event
 from mycode.core.session import SessionStore
 
@@ -117,3 +123,40 @@ def test_history_preview_entries_summarize_tool_only_assistant_messages():
         ("You", "Inspect project"),
         ("Assistant", "[Used tools: read, bash]"),
     ]
+
+
+def test_resolve_session_choice_accepts_index_and_id_prefix():
+    sessions = [
+        {"id": "abc123456789", "title": "First"},
+        {"id": "def987654321", "title": "Second"},
+    ]
+
+    assert _resolve_session_choice("2", sessions) == sessions[1]
+    assert _resolve_session_choice("abc123", sessions) == sessions[0]
+
+
+def test_resolve_session_choice_errors_on_ambiguous_prefix():
+    sessions = [
+        {"id": "abc123456789", "title": "First"},
+        {"id": "abc987654321", "title": "Second"},
+    ]
+
+    with pytest.raises(ValueError, match="Ambiguous session id"):
+        _resolve_session_choice("abc", sessions)
+
+
+@pytest.mark.asyncio
+async def test_list_cli_sessions_filters_current_workspace(tmp_path):
+    store = SessionStore(data_dir=tmp_path / "sessions")
+    current_cwd = str(tmp_path / "project-a")
+    other_cwd = str(tmp_path / "project-b")
+
+    await store.create_session("Current", model="gpt-5.4", cwd=current_cwd, api_base=None)
+    await store.create_session("Other", model="gpt-5.4", cwd=other_cwd, api_base=None)
+
+    current = await list_cli_sessions(store=store, cwd=current_cwd, show_all=False)
+    all_sessions = await list_cli_sessions(store=store, cwd=current_cwd, show_all=True)
+
+    assert len(current) == 1
+    assert current[0]["title"] == "Current"
+    assert len(all_sessions) == 2

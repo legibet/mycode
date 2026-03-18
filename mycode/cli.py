@@ -11,6 +11,8 @@ import asyncio
 import os
 import shutil
 from dataclasses import dataclass
+from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 from prompt_toolkit import PromptSession
@@ -108,6 +110,87 @@ def _history_preview_entries(messages: list[dict[str, Any]], *, limit: int = 6) 
     return entries[-limit:]
 
 
+def _format_timestamp(value: str) -> str:
+    if not value:
+        return "-"
+    try:
+        dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        return dt.astimezone().strftime("%Y-%m-%d %H:%M")
+    except ValueError:
+        return value[:16].replace("T", " ")
+
+
+def _session_line(
+    session: dict[str, Any],
+    *,
+    index: int | None = None,
+    include_cwd: bool = False,
+    current_session_id: str | None = None,
+) -> str:
+    parts: list[str] = []
+    session_id = str(session.get("id") or "-")
+    is_current = bool(current_session_id and session_id == current_session_id)
+    title_limit = 24 if include_cwd else 40
+    model_limit = 18 if include_cwd else 24
+    cwd_limit = 32 if include_cwd else 48
+
+    if index is not None:
+        marker = "*" if is_current else " "
+        parts.append(f"{marker}{index:>2}")
+
+    parts.append(session_id[:12])
+    parts.append(_format_timestamp(str(session.get("updated_at") or "")))
+    parts.append(_compact_text(str(session.get("title") or "New chat"), limit=title_limit))
+
+    model = str(session.get("model") or "")
+    if model:
+        parts.append(f"[{_compact_text(model, limit=model_limit)}]")
+
+    if include_cwd:
+        cwd = str(session.get("cwd") or "")
+        if cwd:
+            parts.append(_compact_text(cwd, limit=cwd_limit))
+
+    return "  ".join(parts)
+
+
+def _print_session_list(
+    sessions: list[dict[str, Any]],
+    *,
+    include_cwd: bool = False,
+    current_session_id: str | None = None,
+    heading: str = "sessions",
+) -> None:
+    if not sessions:
+        console.print("[dim]no sessions found[/dim]")
+        return
+
+    console.print(f"[dim]{heading} ({len(sessions)})[/dim]")
+    for index, session in enumerate(sessions, start=1):
+        console.print(
+            _session_line(session, index=index, include_cwd=include_cwd, current_session_id=current_session_id)
+        )
+
+
+def _resolve_session_choice(choice: str, sessions: list[dict[str, Any]]) -> dict[str, Any] | None:
+    value = choice.strip()
+    if not value:
+        return None
+
+    if value.isdigit():
+        idx = int(value) - 1
+        if 0 <= idx < len(sessions):
+            return sessions[idx]
+        return None
+
+    matches = [session for session in sessions if str(session.get("id") or "").startswith(value)]
+    if len(matches) == 1:
+        return matches[0]
+    if len(matches) > 1:
+        raise ValueError(f"Ambiguous session id: {value}")
+    return None
+
+
 def _print_header(*, model: str, session: dict[str, Any], mode: str, message_count: int) -> None:
     console.print()
     title = session.get("title") or "New chat"
@@ -140,6 +223,22 @@ def _print_history_preview(messages: list[dict[str, Any]]) -> None:
     for role, content in entries:
         label = "user" if role == "You" else "assistant"
         console.print(f"[dim]{label}[/dim] {content}")
+
+
+def _clone_agent(agent: Agent, *, session_dir: Path, messages: list[dict[str, Any]]) -> Agent:
+    return Agent(
+        model=agent.model,
+        provider=agent.provider,
+        cwd=agent.cwd,
+        session_dir=session_dir,
+        api_key=agent.api_key,
+        api_base=agent.api_base,
+        messages=messages,
+        max_turns=agent.max_turns,
+        max_tokens=agent.max_tokens,
+        reasoning_effort=agent.reasoning_effort,
+        settings=agent.settings,
+    )
 
 
 async def resolve_cli_session(
@@ -186,6 +285,10 @@ async def resolve_cli_session(
         messages=[],
         mode="new",
     )
+
+
+async def list_cli_sessions(*, store: SessionStore, cwd: str, show_all: bool) -> list[dict[str, Any]]:
+    return await store.list_sessions(cwd=None if show_all else cwd)
 
 
 # ---------------------------------------------------------------------------
@@ -343,9 +446,10 @@ async def run_once(agent: Agent, *, store: SessionStore, session_id: str, messag
 
 async def chat_loop(agent: Agent, *, store: SessionStore, session_id: str) -> None:
     session: PromptSession = PromptSession(history=FileHistory(_HISTORY_FILE))
+    active_session_id = session_id
 
     async def on_persist(message: dict) -> None:
-        await store.append_message(session_id, message)
+        await store.append_message(active_session_id, message)
 
     while True:
         _sep()
@@ -370,9 +474,81 @@ async def chat_loop(agent: Agent, *, store: SessionStore, session_id: str) -> No
             return
 
         if user_input in ("/c", "/clear"):
-            await store.clear_session(session_id)
+            await store.clear_session(active_session_id)
             agent.clear()
             console.print("[green]⏺[/green] [dim]cleared[/dim]")
+            continue
+
+        if user_input == "/new":
+            data = await store.create_session(None, model=agent.model, cwd=agent.cwd, api_base=agent.api_base)
+            new_session = data.get("session") or {}
+            active_session_id = str(new_session.get("id") or "")
+            agent = _clone_agent(agent, session_dir=store.session_dir(active_session_id), messages=[])
+            _print_header(model=agent.model, session=new_session, mode="new", message_count=0)
+            continue
+
+        if user_input == "/resume":
+            sessions = await store.list_sessions(cwd=agent.cwd)
+            sessions = [item for item in sessions if item.get("id") != active_session_id]
+            if not sessions:
+                console.print("[dim]no other sessions in this workspace[/dim]")
+                continue
+
+            _print_session_list(
+                sessions,
+                current_session_id=active_session_id,
+                heading="resume session: enter number, session id prefix, or blank to cancel",
+            )
+
+            while True:
+                try:
+                    selection = await asyncio.get_event_loop().run_in_executor(
+                        None,
+                        lambda: session.prompt(ANSI("\033[1mresume>\033[0m ")),
+                    )
+                except KeyboardInterrupt:
+                    selection = ""
+                except EOFError:
+                    selection = ""
+
+                selection = selection.strip()
+                if not selection:
+                    console.print("[dim]resume cancelled[/dim]")
+                    break
+
+                try:
+                    selected = _resolve_session_choice(selection, sessions)
+                except ValueError as exc:
+                    console.print(f"[red]{exc}[/red]")
+                    continue
+
+                if not selected:
+                    console.print("[dim]unknown session selection[/dim]")
+                    continue
+
+                active_session_id = str(selected.get("id") or "")
+                data = await store.get_or_create(
+                    active_session_id,
+                    model=agent.model,
+                    cwd=agent.cwd,
+                    api_base=agent.api_base,
+                )
+                messages = data.get("messages") or []
+                resumed_session = data.get("session") or selected
+                agent = _clone_agent(
+                    agent,
+                    session_dir=store.session_dir(active_session_id),
+                    messages=messages,
+                )
+                _print_header(
+                    model=agent.model,
+                    session=resumed_session,
+                    mode="resumed",
+                    message_count=len(messages),
+                )
+                _print_history_preview(messages)
+                break
+
             continue
 
         if user_input.startswith("/model "):
@@ -385,7 +561,7 @@ async def chat_loop(agent: Agent, *, store: SessionStore, session_id: str) -> No
             continue
 
         if user_input.startswith("/"):
-            console.print("[dim]unknown: /c  /q  /model <name>[/dim]")
+            console.print("[dim]unknown: /c  /q  /new  /resume  /model <name>[/dim]")
             continue
 
         _sep()
@@ -431,10 +607,22 @@ def main() -> None:
         help="Resume the most recent session in the current workspace",
     )
     parser.add_argument("--once", metavar="MESSAGE", help="Run one prompt and exit")
+    subparsers = parser.add_subparsers(dest="command")
+    session_parser = subparsers.add_parser("session", help="Session management commands")
+    session_subparsers = session_parser.add_subparsers(dest="session_command", required=True)
+    list_parser = session_subparsers.add_parser("list", help="List saved sessions")
+    list_parser.add_argument("--all", action="store_true", help="Show sessions from all workspaces")
     args = parser.parse_args()
 
     cwd = os.getcwd()
     settings = get_settings(cwd)
+    store = SessionStore()
+
+    if args.command == "session" and args.session_command == "list":
+        sessions = asyncio.run(list_cli_sessions(store=store, cwd=cwd, show_all=args.all))
+        heading = "all sessions" if args.all else f"sessions for {cwd}"
+        _print_session_list(sessions, include_cwd=args.all, heading=heading)
+        return
 
     if args.provider and args.provider not in settings.providers:
         available = ", ".join(settings.providers.keys()) or "(none configured)"
@@ -443,7 +631,6 @@ def main() -> None:
 
     resolved = resolve_provider(settings, provider_name=args.provider, model=args.model)
 
-    store = SessionStore()
     try:
         resolved_session = asyncio.run(
             resolve_cli_session(
