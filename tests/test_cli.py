@@ -8,12 +8,16 @@ from mycode.cli import (
     _build_parser,
     _history_file_path,
     _history_preview_entries,
+    _model_options,
     _positive_int,
     _resolve_session_choice,
+    _select_list_item,
+    _switch_agent_runtime,
     resolve_cli_session,
     run_once,
 )
 from mycode.core.agent import Event
+from mycode.core.config import ProviderConfig, ResolvedProvider, Settings
 from mycode.core.session import SessionStore
 
 
@@ -183,6 +187,120 @@ def test_resolve_session_choice_errors_on_ambiguous_prefix():
 
     with pytest.raises(ValueError, match="Ambiguous session id"):
         _resolve_session_choice("abc", sessions)
+
+
+def test_select_list_item_accepts_index_and_prefix():
+    models = ["claude-sonnet-4-6", "claude-haiku-4-5"]
+
+    assert _select_list_item("2", models, label="model") == "claude-haiku-4-5"
+    assert _select_list_item("claude-sonnet", models, label="model") == "claude-sonnet-4-6"
+
+
+def test_model_options_use_configured_provider_models():
+    settings = Settings(
+        providers={
+            "claude": ProviderConfig(
+                name="claude",
+                type="anthropic",
+                models=["claude-sonnet-4-6", "claude-haiku-4-5"],
+                base_url="https://api.anthropic.com",
+            )
+        },
+        default_provider=None,
+        default_model=None,
+        port=8000,
+        cwd="/tmp/project",
+        workspace_root="/tmp/project",
+        config_paths=[],
+    )
+
+    assert _model_options(
+        settings,
+        provider="anthropic",
+        api_base="https://api.anthropic.com",
+        current_model="claude-haiku-4-5",
+    ) == ["claude-haiku-4-5", "claude-sonnet-4-6"]
+
+
+class _RuntimeAgent:
+    def __init__(self, *, cwd: str, settings: Settings) -> None:
+        self.cwd = cwd
+        self.provider = "anthropic"
+        self.model = "claude-sonnet-4-6"
+        self.api_key = None
+        self.api_base = None
+        self.reasoning_effort = None
+        self.max_tokens = 8192
+        self.settings = settings
+
+
+@pytest.mark.asyncio
+async def test_switch_agent_runtime_updates_agent_and_session(tmp_path, monkeypatch):
+    store = SessionStore(data_dir=tmp_path / "sessions")
+    created = await store.create_session(
+        None,
+        provider="anthropic",
+        model="claude-sonnet-4-6",
+        cwd=str(tmp_path),
+        api_base=None,
+    )
+    session_id = created["session"]["id"]
+
+    old_settings = Settings(
+        providers={},
+        default_provider=None,
+        default_model=None,
+        port=8000,
+        cwd=str(tmp_path),
+        workspace_root=str(tmp_path),
+        config_paths=[],
+    )
+    new_settings = Settings(
+        providers={},
+        default_provider=None,
+        default_model=None,
+        port=8000,
+        cwd=str(tmp_path),
+        workspace_root=str(tmp_path),
+        config_paths=[],
+    )
+    agent = _RuntimeAgent(cwd=str(tmp_path), settings=old_settings)
+
+    monkeypatch.setattr("mycode.cli.get_settings", lambda cwd: new_settings)
+    monkeypatch.setattr(
+        "mycode.cli.resolve_provider",
+        lambda settings, provider_name=None, model=None: ResolvedProvider(
+            provider="openai",
+            model="gpt-5.4",
+            api_key="test-key",
+            api_base="https://api.openai.com/v1",
+            reasoning_effort="medium",
+            max_tokens=16000,
+        ),
+    )
+
+    changed = await _switch_agent_runtime(
+        cast(Any, agent),
+        store=store,
+        session_id=session_id,
+        provider_name="openai",
+        model=None,
+    )
+
+    assert changed is True
+    assert agent.provider == "openai"
+    assert agent.model == "gpt-5.4"
+    assert agent.api_key == "test-key"
+    assert agent.api_base == "https://api.openai.com/v1"
+    assert agent.reasoning_effort == "medium"
+    assert agent.max_tokens == 16000
+    assert agent.settings is new_settings
+
+    loaded = await store.load_session(session_id)
+    assert loaded is not None
+    assert loaded["session"]["provider"] == "openai"
+    assert loaded["session"]["model"] == "gpt-5.4"
+    assert loaded["session"]["api_base"] == "https://api.openai.com/v1"
 
 
 @pytest.mark.asyncio

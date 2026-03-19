@@ -20,7 +20,8 @@ from rich.spinner import Spinner
 from rich.text import Text
 
 from mycode.core.agent import Agent
-from mycode.core.config import get_settings, resolve_mycode_home, resolve_provider
+from mycode.core.config import Settings, get_settings, resolve_mycode_home, resolve_provider
+from mycode.core.provider_registry import list_supported_providers, provider_default_models
 from mycode.core.session import SessionStore
 from mycode.server.app import create_app, frontend_dist_path
 
@@ -36,6 +37,14 @@ class CLIResolvedSession:
     session: dict[str, Any]
     messages: list[dict[str, Any]]
     mode: str
+
+
+@dataclass(frozen=True)
+class ProviderOption:
+    name: str
+    provider: str
+    models: tuple[str, ...]
+    api_base: str | None
 
 
 def _positive_int(value: str) -> int:
@@ -109,6 +118,66 @@ def _format_timestamp(value: str) -> str:
         return dt.astimezone().strftime("%Y-%m-%d %H:%M")
     except ValueError:
         return value[:16].replace("T", " ")
+
+
+def _provider_options(settings: Settings) -> list[ProviderOption]:
+    options: list[ProviderOption] = []
+    seen: set[str] = set()
+
+    for name, config in settings.providers.items():
+        raw_models = config.models or list(provider_default_models(config.type))
+        models = tuple(dict.fromkeys(model.strip() for model in raw_models if model.strip()))
+        options.append(ProviderOption(name=name, provider=config.type, models=models, api_base=config.base_url))
+        seen.add(name)
+
+    for provider_name in list_supported_providers():
+        if provider_name in seen:
+            continue
+        options.append(
+            ProviderOption(
+                name=provider_name, provider=provider_name, models=provider_default_models(provider_name), api_base=None
+            )
+        )
+
+    return options
+
+
+def _find_provider_option(settings: Settings, *, provider: str, api_base: str | None) -> ProviderOption | None:
+    for option in _provider_options(settings):
+        if option.provider == provider and option.api_base == api_base:
+            return option
+    return None
+
+
+def _model_options(settings: Settings, *, provider: str, api_base: str | None, current_model: str) -> list[str]:
+    current = _find_provider_option(settings, provider=provider, api_base=api_base)
+    if current:
+        return list(dict.fromkeys([current_model, *current.models]))
+    return list(dict.fromkeys([current_model, *provider_default_models(provider)]))
+
+
+def _select_list_item(choice: str, options: list[str], *, label: str) -> str | None:
+    value = choice.strip()
+    if not value:
+        return None
+
+    if value.isdigit():
+        idx = int(value) - 1
+        if 0 <= idx < len(options):
+            return options[idx]
+        return None
+
+    lowered = value.lower()
+    exact = [option for option in options if option.lower() == lowered]
+    if len(exact) == 1:
+        return exact[0]
+
+    matches = [option for option in options if option.lower().startswith(lowered)]
+    if len(matches) == 1:
+        return matches[0]
+    if len(matches) > 1:
+        raise ValueError(f"Ambiguous {label}: {value}")
+    return None
 
 
 def _history_preview_entries(messages: list[dict[str, Any]], *, limit: int = 6) -> list[tuple[str, str]]:
@@ -229,7 +298,7 @@ def print_session_list(
         console.print("  ".join(parts))
 
 
-def print_header(*, model: str, session: dict[str, Any], mode: str, message_count: int) -> None:
+def print_header(*, provider: str, model: str, session: dict[str, Any], mode: str, message_count: int) -> None:
     console.print()
     title = session.get("title") or "New chat"
     session_id = str(session.get("id") or "")[:12]
@@ -237,6 +306,8 @@ def print_header(*, model: str, session: dict[str, Any], mode: str, message_coun
     title_text = Text()
     title_text.append("mycode", style="bold")
     title_text.append(" ── ", style="dim")
+    title_text.append(provider, style="cyan")
+    title_text.append(" / ", style="dim")
     title_text.append(model)
     console.print(title_text)
 
@@ -261,6 +332,56 @@ def print_history_preview(messages: list[dict[str, Any]]) -> None:
     for role, content in entries:
         label = "user" if role == "You" else "assistant"
         console.print(f"[dim]{label}[/dim] {content}")
+
+
+async def _prompt_selection(prompt_session: PromptSession, prompt_text: str) -> str:
+    try:
+        return await asyncio.get_event_loop().run_in_executor(None, lambda: prompt_session.prompt(ANSI(prompt_text)))
+    except KeyboardInterrupt:
+        return ""
+    except EOFError:
+        return ""
+
+
+async def _switch_agent_runtime(
+    agent: Agent,
+    *,
+    store: SessionStore,
+    session_id: str,
+    provider_name: str | None,
+    model: str | None,
+) -> bool:
+    settings = get_settings(agent.cwd)
+    resolved = resolve_provider(settings, provider_name=provider_name, model=model)
+
+    changed = (
+        agent.provider != resolved.provider
+        or agent.model != resolved.model
+        or agent.api_base != resolved.api_base
+        or agent.api_key != resolved.api_key
+        or agent.reasoning_effort != resolved.reasoning_effort
+        or agent.max_tokens != resolved.max_tokens
+    )
+
+    await store.get_or_create(
+        session_id,
+        provider=resolved.provider,
+        model=resolved.model,
+        cwd=agent.cwd,
+        api_base=resolved.api_base,
+    )
+
+    # Provider/model switching only changes request settings.
+    # The current conversation and tool executor stay with the same agent.
+    agent.provider = resolved.provider
+    agent.model = resolved.model
+    agent.api_key = resolved.api_key
+    agent.api_base = resolved.api_base
+    agent.reasoning_effort = resolved.reasoning_effort
+    agent.max_tokens = resolved.max_tokens
+    agent.settings = settings
+
+    return changed
 
 
 async def resolve_cli_session(
@@ -549,7 +670,7 @@ async def chat_loop(agent: Agent, *, store: SessionStore, session_id: str) -> No
             session = data.get("session") or {}
             active_session_id = str(session.get("id") or "")
             agent = create_session_agent(next_session_id=active_session_id, messages=[])
-            print_header(model=agent.model, session=session, mode="new", message_count=0)
+            print_header(provider=agent.provider, model=agent.model, session=session, mode="new", message_count=0)
             continue
 
         if user_input == "/resume":
@@ -566,17 +687,7 @@ async def chat_loop(agent: Agent, *, store: SessionStore, session_id: str) -> No
             )
 
             while True:
-                try:
-                    selection = await asyncio.get_event_loop().run_in_executor(
-                        None,
-                        lambda: prompt_session.prompt(ANSI("\033[1mresume>\033[0m ")),
-                    )
-                except KeyboardInterrupt:
-                    selection = ""
-                except EOFError:
-                    selection = ""
-
-                selection = selection.strip()
+                selection = (await _prompt_selection(prompt_session, "\033[1mresume>\033[0m ")).strip()
                 if not selection:
                     console.print("[dim]resume cancelled[/dim]")
                     break
@@ -602,8 +713,145 @@ async def chat_loop(agent: Agent, *, store: SessionStore, session_id: str) -> No
                 messages = data.get("messages") or []
                 session = data.get("session") or selected
                 agent = create_session_agent(next_session_id=active_session_id, messages=messages)
-                print_header(model=agent.model, session=session, mode="resumed", message_count=len(messages))
+                print_header(
+                    provider=agent.provider,
+                    model=agent.model,
+                    session=session,
+                    mode="resumed",
+                    message_count=len(messages),
+                )
                 print_history_preview(messages)
+                break
+
+            continue
+
+        if user_input == "/provider":
+            provider_options = _provider_options(agent.settings)
+            console.print("[dim]switch provider: enter number, provider name, or blank to cancel[/dim]")
+            for index, option in enumerate(provider_options, start=1):
+                marker = "*" if option.provider == agent.provider and option.api_base == agent.api_base else " "
+                models = ", ".join(option.models[:3])
+                if len(option.models) > 3:
+                    models += f" +{len(option.models) - 3}"
+                label = option.name if option.name == option.provider else f"{option.name} ({option.provider})"
+                suffix = f" [{models}]" if models else ""
+                console.print(f"  {marker}{index:>2}  {label}{suffix}")
+            provider_names = [option.name for option in provider_options]
+
+            while True:
+                selection = (await _prompt_selection(prompt_session, "\033[1mprovider>\033[0m ")).strip()
+                if not selection:
+                    console.print("[dim]provider switch cancelled[/dim]")
+                    break
+
+                try:
+                    selected_name = _select_list_item(selection, provider_names, label="provider")
+                except ValueError as exc:
+                    console.print(f"[red]{exc}[/red]")
+                    continue
+
+                if not selected_name:
+                    console.print("[dim]unknown provider selection[/dim]")
+                    continue
+
+                selected = next(option for option in provider_options if option.name == selected_name)
+
+                try:
+                    changed = await _switch_agent_runtime(
+                        agent,
+                        store=store,
+                        session_id=active_session_id,
+                        provider_name=selected.name,
+                        model=None,
+                    )
+                except ValueError as exc:
+                    console.print(f"[red]{exc}[/red]")
+                else:
+                    if changed:
+                        console.print(f"[green]⏺[/green] [dim]provider/model →[/dim] {agent.provider} / {agent.model}")
+                    else:
+                        console.print(f"[green]⏺[/green] [dim]already using[/dim] {agent.provider} / {agent.model}")
+                break
+
+            continue
+
+        if user_input.startswith("/provider "):
+            provider_name = user_input[len("/provider ") :].strip()
+            if not provider_name:
+                console.print("[dim]usage: /provider <name>[/dim]")
+                continue
+            try:
+                changed = await _switch_agent_runtime(
+                    agent,
+                    store=store,
+                    session_id=active_session_id,
+                    provider_name=provider_name,
+                    model=None,
+                )
+            except ValueError as exc:
+                console.print(f"[red]{exc}[/red]")
+            else:
+                if changed:
+                    console.print(f"[green]⏺[/green] [dim]provider/model →[/dim] {agent.provider} / {agent.model}")
+                else:
+                    console.print(f"[green]⏺[/green] [dim]already using[/dim] {agent.provider} / {agent.model}")
+            continue
+
+        if user_input == "/model":
+            current_provider = _find_provider_option(
+                agent.settings,
+                provider=agent.provider,
+                api_base=agent.api_base,
+            )
+            # Keep the configured alias when present so model resolution stays on
+            # the same provider config (base URL, model list, reasoning settings).
+            provider_name = current_provider.name if current_provider else agent.provider
+            models = _model_options(
+                agent.settings, provider=agent.provider, api_base=agent.api_base, current_model=agent.model
+            )
+            if not models:
+                console.print("[dim]no configured models for the current provider[/dim]")
+                continue
+
+            provider_label = provider_name
+            if current_provider and current_provider.name != current_provider.provider:
+                provider_label = f"{current_provider.name} ({current_provider.provider})"
+            console.print(f"[dim]switch model for {provider_label}: enter number, model name, or blank to cancel[/dim]")
+            for index, model in enumerate(models, start=1):
+                marker = "*" if model == agent.model else " "
+                console.print(f"  {marker}{index:>2}  {model}")
+
+            while True:
+                selection = (await _prompt_selection(prompt_session, "\033[1mmodel>\033[0m ")).strip()
+                if not selection:
+                    console.print("[dim]model switch cancelled[/dim]")
+                    break
+
+                try:
+                    selected_model = _select_list_item(selection, models, label="model")
+                except ValueError as exc:
+                    console.print(f"[red]{exc}[/red]")
+                    continue
+
+                if not selected_model:
+                    console.print("[dim]unknown model selection[/dim]")
+                    continue
+
+                try:
+                    changed = await _switch_agent_runtime(
+                        agent,
+                        store=store,
+                        session_id=active_session_id,
+                        provider_name=provider_name,
+                        model=selected_model,
+                    )
+                except ValueError as exc:
+                    console.print(f"[red]{exc}[/red]")
+                else:
+                    if changed:
+                        console.print(f"[green]⏺[/green] [dim]model →[/dim] {agent.model}")
+                    else:
+                        console.print(f"[green]⏺[/green] [dim]already using[/dim] {agent.model}")
                 break
 
             continue
@@ -613,12 +861,33 @@ async def chat_loop(agent: Agent, *, store: SessionStore, session_id: str) -> No
             if not new_model:
                 console.print("[dim]usage: /model <name>[/dim]")
                 continue
-            agent.model = new_model
-            console.print(f"[green]⏺[/green] [dim]model →[/dim] {new_model}")
+            try:
+                current_provider = _find_provider_option(
+                    agent.settings,
+                    provider=agent.provider,
+                    api_base=agent.api_base,
+                )
+                # Same reason as `/model`: prefer the configured alias when the
+                # current runtime came from one.
+                provider_name = current_provider.name if current_provider else agent.provider
+                changed = await _switch_agent_runtime(
+                    agent,
+                    store=store,
+                    session_id=active_session_id,
+                    provider_name=provider_name,
+                    model=new_model,
+                )
+            except ValueError as exc:
+                console.print(f"[red]{exc}[/red]")
+            else:
+                if changed:
+                    console.print(f"[green]⏺[/green] [dim]model →[/dim] {agent.model}")
+                else:
+                    console.print(f"[green]⏺[/green] [dim]already using[/dim] {agent.model}")
             continue
 
         if user_input.startswith("/"):
-            console.print("[dim]unknown: /c  /q  /new  /resume  /model <name>[/dim]")
+            console.print("[dim]unknown: /c  /q  /new  /resume  /provider [name]  /model [name][/dim]")
             continue
 
         width = min(shutil.get_terminal_size().columns, _MAX_WIDTH)
@@ -720,6 +989,7 @@ def main() -> None:
         raise SystemExit(code)
 
     print_header(
+        provider=resolved.provider,
         model=resolved.model,
         session=resolved_session.session,
         mode=resolved_session.mode,
