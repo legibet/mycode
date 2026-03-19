@@ -1,21 +1,14 @@
-"""Tests for CLI output behavior."""
+"""Tests for CLI runtime and terminal behavior."""
 
 from typing import Any, cast
 
 import pytest
 
-from mycode.cli import (
-    _build_parser,
-    _history_file_path,
-    _history_preview_entries,
-    _model_options,
-    _positive_int,
-    _resolve_session_choice,
-    _select_list_item,
-    _switch_agent_runtime,
-    resolve_cli_session,
-    run_once,
-)
+from mycode.cli.chat import TerminalChat, history_file_path
+from mycode.cli.main import create_parser, run_once
+from mycode.cli.render import TerminalView
+from mycode.cli.runtime import list_model_options, resolve_session
+from mycode.cli.runtime import update_agent_runtime as _update_agent_runtime
 from mycode.core.agent import Event
 from mycode.core.config import ProviderConfig, ResolvedProvider, Settings
 from mycode.core.session import SessionStore
@@ -42,7 +35,7 @@ class _FakeAgent:
 
 async def test_run_once_prints_reasoning_output(monkeypatch):
     fake_console = _FakeConsole()
-    monkeypatch.setattr("mycode.cli.console", fake_console)
+    monkeypatch.setattr("mycode.cli.render.console", fake_console)
 
     code = await run_once(
         cast(Any, _FakeAgent()),
@@ -58,10 +51,10 @@ async def test_run_once_prints_reasoning_output(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_resolve_cli_session_defaults_to_new(tmp_path):
+async def test_resolve_session_defaults_to_new(tmp_path):
     store = SessionStore(data_dir=tmp_path / "sessions")
 
-    resolved = await resolve_cli_session(
+    resolved = await resolve_session(
         store=store,
         provider="anthropic",
         cwd=str(tmp_path),
@@ -77,7 +70,7 @@ async def test_resolve_cli_session_defaults_to_new(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_resolve_cli_session_continue_reuses_latest(tmp_path):
+async def test_resolve_session_continue_reuses_latest(tmp_path):
     store = SessionStore(data_dir=tmp_path / "sessions")
     first = await store.create_session("First", model="gpt-5.4", cwd=str(tmp_path), api_base=None)
     second = await store.create_session("Second", model="gpt-5.4", cwd=str(tmp_path), api_base=None)
@@ -85,7 +78,7 @@ async def test_resolve_cli_session_continue_reuses_latest(tmp_path):
         second["session"]["id"], {"role": "user", "content": [{"type": "text", "text": "hello"}]}
     )
 
-    resolved = await resolve_cli_session(
+    resolved = await resolve_session(
         store=store,
         provider="anthropic",
         cwd=str(tmp_path),
@@ -102,11 +95,11 @@ async def test_resolve_cli_session_continue_reuses_latest(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_resolve_cli_session_explicit_missing_id_errors(tmp_path):
+async def test_resolve_session_explicit_missing_id_errors(tmp_path):
     store = SessionStore(data_dir=tmp_path / "sessions")
 
     with pytest.raises(ValueError, match="Unknown session"):
-        await resolve_cli_session(
+        await resolve_session(
             store=store,
             provider="anthropic",
             cwd=str(tmp_path),
@@ -117,20 +110,8 @@ async def test_resolve_cli_session_explicit_missing_id_errors(tmp_path):
         )
 
 
-def test_positive_int_accepts_positive_values():
-    assert _positive_int("3") == 3
-
-
-def test_positive_int_rejects_non_positive_values():
-    with pytest.raises(Exception, match="positive integer"):
-        _positive_int("0")
-
-    with pytest.raises(Exception, match="positive integer"):
-        _positive_int("-2")
-
-
-def test_build_parser_accepts_max_turns_flag():
-    parser = _build_parser()
+def test_create_parser_accepts_max_turns_flag():
+    parser = create_parser()
 
     args = parser.parse_args(["run", "--max-turns", "7", "hello"])
 
@@ -139,18 +120,27 @@ def test_build_parser_accepts_max_turns_flag():
     assert args.message == ["hello"]
 
 
+def test_create_parser_rejects_non_positive_max_turns():
+    parser = create_parser()
+
+    with pytest.raises(SystemExit):
+        parser.parse_args(["run", "--max-turns", "0", "hello"])
+
+
 def test_history_file_path_uses_mycode_home(tmp_path, monkeypatch):
     mycode_home = tmp_path / ".mycode"
     monkeypatch.setenv("MYCODE_HOME", str(mycode_home))
 
-    history_path = _history_file_path()
+    path = history_file_path()
 
-    assert history_path == str((mycode_home / "cli_history").resolve())
+    assert path == str((mycode_home / "cli_history").resolve())
     assert mycode_home.exists()
 
 
 def test_history_preview_entries_summarize_tool_only_assistant_messages():
-    entries = _history_preview_entries(
+    view = TerminalView()
+
+    entries = view.history_preview_entries(
         [
             {"role": "user", "content": [{"type": "text", "text": "Inspect project"}]},
             {
@@ -169,31 +159,42 @@ def test_history_preview_entries_summarize_tool_only_assistant_messages():
     ]
 
 
-def test_resolve_session_choice_accepts_index_and_id_prefix():
+def test_terminal_chat_selects_by_index_and_prefix():
     sessions = [
         {"id": "abc123456789", "title": "First"},
         {"id": "def987654321", "title": "Second"},
     ]
 
-    assert _resolve_session_choice("2", sessions) == sessions[1]
-    assert _resolve_session_choice("abc123", sessions) == sessions[0]
+    assert (
+        TerminalChat._select_by_number_or_prefix(
+            "2", sessions, label="session id", text_of=lambda item: str(item["id"])
+        )
+        == sessions[1]
+    )
+    assert (
+        TerminalChat._select_by_number_or_prefix(
+            "abc123",
+            sessions,
+            label="session id",
+            text_of=lambda item: str(item["id"]),
+        )
+        == sessions[0]
+    )
 
 
-def test_resolve_session_choice_errors_on_ambiguous_prefix():
+def test_terminal_chat_select_rejects_ambiguous_prefix():
     sessions = [
         {"id": "abc123456789", "title": "First"},
         {"id": "abc987654321", "title": "Second"},
     ]
 
     with pytest.raises(ValueError, match="Ambiguous session id"):
-        _resolve_session_choice("abc", sessions)
-
-
-def test_select_list_item_accepts_index_and_prefix():
-    models = ["claude-sonnet-4-6", "claude-haiku-4-5"]
-
-    assert _select_list_item("2", models, label="model") == "claude-haiku-4-5"
-    assert _select_list_item("claude-sonnet", models, label="model") == "claude-sonnet-4-6"
+        TerminalChat._select_by_number_or_prefix(
+            "abc",
+            sessions,
+            label="session id",
+            text_of=lambda item: str(item["id"]),
+        )
 
 
 def test_model_options_use_configured_provider_models():
@@ -214,7 +215,7 @@ def test_model_options_use_configured_provider_models():
         config_paths=[],
     )
 
-    assert _model_options(
+    assert list_model_options(
         settings,
         provider="anthropic",
         api_base="https://api.anthropic.com",
@@ -235,7 +236,7 @@ class _RuntimeAgent:
 
 
 @pytest.mark.asyncio
-async def test_switch_agent_runtime_updates_agent_and_session(tmp_path, monkeypatch):
+async def test_update_agent_runtime_updates_agent_and_session(tmp_path, monkeypatch):
     store = SessionStore(data_dir=tmp_path / "sessions")
     created = await store.create_session(
         None,
@@ -266,9 +267,9 @@ async def test_switch_agent_runtime_updates_agent_and_session(tmp_path, monkeypa
     )
     agent = _RuntimeAgent(cwd=str(tmp_path), settings=old_settings)
 
-    monkeypatch.setattr("mycode.cli.get_settings", lambda cwd: new_settings)
+    monkeypatch.setattr("mycode.cli.runtime.get_settings", lambda cwd: new_settings)
     monkeypatch.setattr(
-        "mycode.cli.resolve_provider",
+        "mycode.cli.runtime.resolve_provider",
         lambda settings, provider_name=None, model=None: ResolvedProvider(
             provider="openai",
             model="gpt-5.4",
@@ -279,7 +280,7 @@ async def test_switch_agent_runtime_updates_agent_and_session(tmp_path, monkeypa
         ),
     )
 
-    changed = await _switch_agent_runtime(
+    changed = await _update_agent_runtime(
         cast(Any, agent),
         store=store,
         session_id=session_id,

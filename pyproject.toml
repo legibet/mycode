@@ -18,7 +18,7 @@ dependencies = [
 ]
 
 [project.scripts]
-mycode = "mycode.cli:main"
+mycode = "mycode.cli.main:main"
 
 [dependency-groups]
 dev = [
