@@ -65,7 +65,8 @@ Current block types in active use:
 Important notes:
 
 - thinking is first-class session data and is persisted
-- provider-native metadata is stored in `meta`
+- assistant message metadata is normalized as `provider` / `model` / `provider_message_id` / `stop_reason` / `usage`
+- provider-native extras live under `meta.native`
 - user tool results are stored as a `user` message containing `tool_result` blocks
 - the system prompt is runtime-only and is not persisted into sessions
 
@@ -177,10 +178,10 @@ mycode/data/sessions/<session_id>/
 Current facts:
 
 - append-only JSONL
-- current `MESSAGE_FORMAT_VERSION = 2`
+- current `MESSAGE_FORMAT_VERSION = 3`
 - session meta stores `provider`, `model`, `cwd`, `api_base`, and `message_format_version`
 - the first user message auto-updates the title from text content
-- `get_or_create()` keeps meta in sync with the latest request config
+- `get_or_create()` preserves existing session meta; request-time provider/model overrides are runtime-only
 
 The runtime expects the current internal block-based message format.
 
@@ -234,9 +235,10 @@ Current frontend message reconstruction is in `mycode/frontend/src/utils/message
 
 Current behavior:
 
-- assistant `thinking` blocks render as reasoning parts
-- assistant `tool_use` blocks become tool parts
-- later `user` `tool_result` blocks are attached back onto the matching assistant tool part
+- `useChat` stores raw block-based conversation messages plus ephemeral tool runtime state
+- `buildRenderMessages()` derives UI messages from canonical blocks instead of maintaining a second source of truth
+- assistant `thinking` blocks render as reasoning blocks
+- assistant `tool_use` blocks render directly, with persisted `tool_result` blocks and live tool runtime folded in at render time
 - reasoning blocks default to expanded UI state in `mycode/frontend/src/components/Chat/ReasoningBlock.jsx`
 
 ## 11. SSE Contract
@@ -249,6 +251,15 @@ The outer event contract used by server, CLI, and frontend remains:
 - `tool_output`
 - `tool_done`
 - `error`
+
+Current payload fields:
+
+- `reasoning`: `delta`
+- `text`: `delta`
+- `tool_start`: `tool_call` with `id` / `name` / `input`
+- `tool_output`: `tool_use_id` + `output`
+- `tool_done`: `tool_use_id` + `result` + `is_error`
+- `error`: `message`
 
 Do not change these casually.
 

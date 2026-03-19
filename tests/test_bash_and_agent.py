@@ -362,6 +362,8 @@ class TestAgentReasoningPersistence:
                 events = [event async for event in agent.achat("hello", on_persist=on_persist)]
 
             assert [event.type for event in events] == ["reasoning", "text"]
+            assert events[0].data == {"delta": "hidden "}
+            assert events[1].data == {"delta": "Visible answer"}
             assistant_messages = [m for m in persisted if m.get("role") == "assistant"]
             assert len(assistant_messages) == 1
             assert assistant_messages[0]["content"] == [
@@ -422,6 +424,9 @@ class TestAgentReasoningPersistence:
                 events = [event async for event in agent.achat("hello", on_persist=on_persist)]
 
             assert [event.type for event in events] == ["tool_start", "tool_done"]
+            assert events[0].data == {"tool_call": {"id": "call-1", "name": "read", "input": {"path": "test.txt"}}}
+            assert events[1].data["tool_use_id"] == "call-1"
+            assert events[1].data["is_error"] is True
             assistant_messages = [m for m in persisted if m.get("role") == "assistant"]
             assert len(assistant_messages) == 2
             assert assistant_messages[0]["content"] == [

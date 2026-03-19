@@ -209,17 +209,18 @@ class ReplyRenderer:
         async for event in agent.achat(message, on_persist=on_persist):
             match event.type:
                 case "reasoning":
-                    self.reasoning(event.data.get("content", ""))
+                    self.reasoning(event.data.get("delta", ""))
                 case "text":
-                    self.text(event.data.get("content", ""))
+                    self.text(event.data.get("delta", ""))
                 case "tool_start":
-                    self.tool_start(event.data.get("name", ""), event.data.get("args") or {})
+                    tool_call = event.data.get("tool_call") or {}
+                    self.tool_start(tool_call.get("name", ""), tool_call.get("input") or {})
                 case "tool_output":
-                    self.tool_output(event.data.get("content", ""))
+                    self.tool_output(event.data.get("output", ""))
                 case "tool_done":
                     result = event.data.get("result", "")
                     self.tool_done(result)
-                    if result.startswith("error"):
+                    if event.data.get("is_error") or result.startswith("error"):
                         exit_code = 1
                 case "error":
                     exit_code = 1

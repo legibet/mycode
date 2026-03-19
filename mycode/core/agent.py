@@ -218,13 +218,13 @@ class Agent:
                     if provider_event.type == "thinking_delta":
                         text = str(provider_event.data.get("text") or "")
                         if text:
-                            yield Event("reasoning", {"content": text})
+                            yield Event("reasoning", {"delta": text})
                         continue
 
                     if provider_event.type == "text_delta":
                         text = str(provider_event.data.get("text") or "")
                         if text:
-                            yield Event("text", {"content": text})
+                            yield Event("text", {"delta": text})
                         continue
 
                     if provider_event.type == "message_done":
@@ -267,11 +267,14 @@ class Agent:
                 if not isinstance(args, dict):
                     args = {}
 
-                yield Event("tool_start", {"id": tool_id, "name": name, "args": args})
+                yield Event("tool_start", {"tool_call": {"id": tool_id, "name": name, "input": args}})
 
                 if self._cancel_event.is_set():
                     result = "error: cancelled"
-                    yield Event("tool_done", {"id": tool_id, "name": name, "result": result})
+                    yield Event(
+                        "tool_done",
+                        {"tool_use_id": tool_id, "result": result, "is_error": True},
+                    )
                     tool_results.append(tool_result_block(tool_use_id=tool_id, content=result, is_error=True))
                     user_tool_result = build_message("user", tool_results)
                     self.messages.append(user_tool_result)
@@ -322,7 +325,7 @@ class Agent:
                                 break
 
                             if not cancelled:
-                                yield Event("tool_output", {"id": tool_id, "name": name, "content": item})
+                                yield Event("tool_output", {"tool_use_id": tool_id, "output": item})
 
                         if cancelled:
                             try:
@@ -343,7 +346,14 @@ class Agent:
                 except Exception as exc:  # pragma: no cover - defensive
                     result = f"error: {exc}"
 
-                yield Event("tool_done", {"id": tool_id, "name": name, "result": result})
+                yield Event(
+                    "tool_done",
+                    {
+                        "tool_use_id": tool_id,
+                        "result": result,
+                        "is_error": result.startswith("error:"),
+                    },
+                )
                 tool_results.append(
                     tool_result_block(tool_use_id=tool_id, content=result, is_error=result.startswith("error:"))
                 )

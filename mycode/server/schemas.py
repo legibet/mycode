@@ -1,5 +1,7 @@
 """Pydantic models for API requests and responses."""
 
+from typing import Any
+
 from pydantic import BaseModel
 
 
@@ -21,14 +23,20 @@ class SessionCreateRequest(BaseModel):
     api_base: str | None = None
 
 
+class ToolCallPayload(BaseModel):
+    id: str
+    name: str
+    input: dict[str, Any]
+
+
 class StreamEvent(BaseModel):
     """SSE event payload for chat streaming."""
 
     type: str
-    content: str | None = None
-    name: str | None = None
-    args: dict | None = None
+    delta: str | None = None
+    tool_call: ToolCallPayload | None = None
+    tool_use_id: str | None = None
+    output: str | None = None
     result: str | None = None
-    error: str | None = None
+    is_error: bool | None = None
     message: str | None = None
-    id: str | None = None

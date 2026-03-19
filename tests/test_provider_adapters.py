@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from typing import Any, cast
+
+from mycode.core.providers.anthropic import AnthropicAdapter
 from mycode.core.providers.openai_chat import OpenAIChatAdapter
 from mycode.core.providers.openai_responses import OpenAIResponsesAdapter
 
@@ -14,13 +17,16 @@ class _Obj:
 
 def test_openai_responses_builds_initial_input_items() -> None:
     adapter = OpenAIResponsesAdapter()
-    request = _Obj(
-        messages=[
-            {
-                "role": "user",
-                "content": [{"type": "text", "text": "hello"}],
-            }
-        ]
+    request = cast(
+        Any,
+        _Obj(
+            messages=[
+                {
+                    "role": "user",
+                    "content": [{"type": "text", "text": "hello"}],
+                }
+            ]
+        ),
     )
 
     input_items, previous_response_id = adapter._build_input_items(request)
@@ -37,18 +43,21 @@ def test_openai_responses_builds_initial_input_items() -> None:
 
 def test_openai_responses_uses_previous_response_id_for_tool_results() -> None:
     adapter = OpenAIResponsesAdapter()
-    request = _Obj(
-        messages=[
-            {
-                "role": "assistant",
-                "content": [{"type": "tool_use", "id": "call_1", "name": "read", "input": {"path": "x.py"}}],
-                "meta": {"provider": "openai", "provider_message_id": "resp_123"},
-            },
-            {
-                "role": "user",
-                "content": [{"type": "tool_result", "tool_use_id": "call_1", "content": "file contents"}],
-            },
-        ]
+    request = cast(
+        Any,
+        _Obj(
+            messages=[
+                {
+                    "role": "assistant",
+                    "content": [{"type": "tool_use", "id": "call_1", "name": "read", "input": {"path": "x.py"}}],
+                    "meta": {"provider": "openai", "provider_message_id": "resp_123"},
+                },
+                {
+                    "role": "user",
+                    "content": [{"type": "tool_result", "tool_use_id": "call_1", "content": "file contents"}],
+                },
+            ]
+        ),
     )
 
     input_items, previous_response_id = adapter._build_input_items(request)
@@ -108,3 +117,22 @@ def test_openai_chat_extracts_reasoning_from_known_extra_fields() -> None:
     text, meta = adapter._extract_reasoning_delta(delta)
     assert text == "step two"
     assert meta["openai_reasoning_field"] == "reasoning_details"
+
+
+def test_anthropic_build_request_payload_includes_reasoning_config() -> None:
+    adapter = AnthropicAdapter()
+    request = cast(
+        Any,
+        _Obj(
+            model="claude-sonnet-4-6",
+            max_tokens=8192,
+            messages=[],
+            system="",
+            tools=[],
+            reasoning_effort="high",
+        ),
+    )
+
+    payload = adapter.build_request_payload(request)
+
+    assert payload["thinking"] == {"type": "enabled", "budget_tokens": 24576}

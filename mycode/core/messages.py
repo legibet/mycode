@@ -87,6 +87,34 @@ def build_message(
     return message
 
 
+def assistant_message(
+    blocks: list[ContentBlock],
+    *,
+    provider: str | None = None,
+    model: str | None = None,
+    provider_message_id: str | None = None,
+    stop_reason: str | None = None,
+    usage: Any = None,
+    native_meta: dict[str, Any] | None = None,
+) -> ConversationMessage:
+    meta: dict[str, Any] = {}
+    if provider:
+        meta["provider"] = provider
+    if model:
+        meta["model"] = model
+    if provider_message_id:
+        meta["provider_message_id"] = provider_message_id
+    if stop_reason:
+        meta["stop_reason"] = stop_reason
+    if usage is not None:
+        meta["usage"] = usage
+    if native_meta:
+        native = {key: value for key, value in native_meta.items() if value is not None}
+        if native:
+            meta["native"] = native
+    return build_message("assistant", blocks, meta=meta or None)
+
+
 def extract_block_text(block: ContentBlock) -> str:
     block_type = block.get("type")
     if block_type in {"text", "thinking"}:

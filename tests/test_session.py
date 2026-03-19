@@ -166,6 +166,31 @@ class TestSessionStore:
         assert got["session"]["title"] == "Test"
 
     @pytest.mark.asyncio
+    async def test_get_or_create_existing_preserves_session_meta(self, temp_store):
+        """Existing session metadata should not be rewritten by later requests."""
+        result = await temp_store.create_session(
+            title="Test",
+            provider="anthropic",
+            model="claude-sonnet-4-6",
+            cwd="/tmp/original",
+            api_base="https://api.original.example",
+        )
+        session_id = result["session"]["id"]
+
+        got = await temp_store.get_or_create(
+            session_id,
+            provider="openai",
+            model="gpt-5.4",
+            cwd="/tmp/changed",
+            api_base="https://api.changed.example",
+        )
+
+        assert got["session"]["provider"] == "anthropic"
+        assert got["session"]["model"] == "claude-sonnet-4-6"
+        assert got["session"]["cwd"] == "/tmp/original"
+        assert got["session"]["api_base"] == "https://api.original.example"
+
+    @pytest.mark.asyncio
     async def test_get_or_create_new(self, temp_store):
         """get_or_create should create new session if ID not found."""
         got = await temp_store.get_or_create("new-session-id", model="gpt-5.4", cwd="/tmp", api_base=None)

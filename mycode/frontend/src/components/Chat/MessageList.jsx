@@ -49,9 +49,9 @@ export function MessageList({ messages, loading }) {
       <div className="mx-auto max-w-4xl max-md:max-w-none flex flex-col gap-6 max-md:gap-5">
         {messages.map((message, index) => (
           <MessageBubble
-            key={`${message.role}-${index}-${message.parts.length}`}
+            key={`${message.role}-${index}-${message.content.length}`}
             role={message.role}
-            parts={message.parts}
+            blocks={message.content}
             isStreaming={
               loading &&
               index === messages.length - 1 &&

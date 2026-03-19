@@ -25,7 +25,7 @@ from uuid import uuid4
 
 from mycode.core.messages import flatten_message_text
 
-MESSAGE_FORMAT_VERSION = 2
+MESSAGE_FORMAT_VERSION = 3
 DEFAULT_SESSION_PROVIDER = "anthropic"
 
 
@@ -254,40 +254,7 @@ class SessionStore:
 
         data = await self.load_session(session_id)
         if data:
-            # Keep meta in sync with the latest request config.
-            # (Pi would store model changes as events; here we keep it simple.)
-            def update_meta() -> None:
-                mp = self.meta_path(session_id)
-                try:
-                    meta = json.loads(mp.read_text(encoding="utf-8"))
-                except Exception:
-                    return
-
-                changed = False
-                norm_cwd = os.path.abspath(cwd)
-
-                if meta.get("provider") != provider:
-                    meta["provider"] = provider
-                    changed = True
-                if meta.get("model") != model:
-                    meta["model"] = model
-                    changed = True
-                if meta.get("cwd") != norm_cwd:
-                    meta["cwd"] = norm_cwd
-                    changed = True
-                if meta.get("api_base") != api_base:
-                    meta["api_base"] = api_base
-                    changed = True
-                if meta.get("message_format_version") != MESSAGE_FORMAT_VERSION:
-                    meta["message_format_version"] = MESSAGE_FORMAT_VERSION
-                    changed = True
-
-                if changed:
-                    meta["updated_at"] = _now()
-                    mp.write_text(json.dumps(meta, indent=2), encoding="utf-8")
-
-            await asyncio.to_thread(update_meta)
-            return await self.load_session(session_id) or data
+            return data
 
         # Create a session with a fixed ID (for compatibility with frontend default session_id).
         cwd = os.path.abspath(cwd)

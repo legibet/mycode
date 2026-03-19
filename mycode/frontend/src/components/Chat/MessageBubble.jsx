@@ -24,13 +24,13 @@ function copyText(text) {
   return Promise.resolve()
 }
 
-export function MessageBubble({ role, parts, isStreaming, index }) {
+export function MessageBubble({ role, blocks, isStreaming, index }) {
   const isUser = role === 'user'
   const [copied, setCopied] = useState(false)
 
-  const textContent = parts
-    .filter((p) => p.type === 'text')
-    .map((p) => p.content)
+  const textContent = blocks
+    .filter((block) => block?.type === 'text')
+    .map((block) => block.text)
     .join('\n\n')
 
   const handleCopy = useCallback(async () => {
@@ -61,34 +61,36 @@ export function MessageBubble({ role, parts, isStreaming, index }) {
         </span>
       </div>
 
-      {/* Content — gap-3 (12px) between parts */}
+      {/* Content — gap-3 (12px) between blocks */}
       <div className="flex flex-col gap-3 text-foreground/90 leading-relaxed text-sm">
-        {parts.map((part, i) => {
-          if (part.type === 'reasoning') {
+        {blocks.map((block, i) => {
+          if (block.type === 'thinking') {
             return (
               <ReasoningBlock
                 key={`reasoning-${i}`}
-                content={part.content}
+                content={block.text}
                 isStreaming={isStreaming}
               />
             )
           }
-          if (part.type === 'text') {
+          if (block.type === 'text') {
             return (
               <MarkdownBlock
-                key={part.id || `text-${i}`}
-                content={part.content}
+                key={block.id || `text-${i}`}
+                content={block.text}
               />
             )
           }
-          if (part.type === 'tool') {
+          if (block.type === 'tool_use') {
             return (
               <ToolCard
-                key={part.id || `tool-${i}`}
-                name={part.name}
-                args={part.args}
-                result={part.result}
-                pending={part.pending}
+                key={block.id || `tool-${i}`}
+                name={block.name}
+                args={block.input}
+                output={block.runtime?.output}
+                result={block.runtime?.result}
+                pending={block.runtime?.pending}
+                isError={block.runtime?.isError}
               />
             )
           }

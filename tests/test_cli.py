@@ -29,8 +29,8 @@ class _FakeStore:
 
 class _FakeAgent:
     async def achat(self, message: str, *, on_persist=None):
-        yield Event("reasoning", {"content": "Hidden reasoning"})
-        yield Event("text", {"content": "Visible answer"})
+        yield Event("reasoning", {"delta": "Hidden reasoning"})
+        yield Event("text", {"delta": "Visible answer"})
 
 
 async def test_run_once_prints_reasoning_output(monkeypatch):
@@ -299,9 +299,9 @@ async def test_update_agent_runtime_updates_agent_and_session(tmp_path, monkeypa
 
     loaded = await store.load_session(session_id)
     assert loaded is not None
-    assert loaded["session"]["provider"] == "openai"
-    assert loaded["session"]["model"] == "gpt-5.4"
-    assert loaded["session"]["api_base"] == "https://api.openai.com/v1"
+    assert loaded["session"]["provider"] == "anthropic"
+    assert loaded["session"]["model"] == "claude-sonnet-4-6"
+    assert loaded["session"]["api_base"] is None
 
 
 @pytest.mark.asyncio

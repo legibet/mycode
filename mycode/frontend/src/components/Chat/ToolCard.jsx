@@ -8,17 +8,24 @@ import { ChevronDown, Loader2 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { cn } from '../../utils/cn'
 
-export function ToolCard({ name, args, result, pending }) {
-  const isError =
-    result && typeof result === 'string' && result.startsWith('error:')
+export function ToolCard({ name, args, output, result, pending, isError }) {
+  const display =
+    typeof result === 'string'
+      ? result
+      : typeof output === 'string'
+        ? output
+        : ''
+  const resolvedIsError =
+    Boolean(isError) ||
+    (display && typeof display === 'string' && display.startsWith('error:'))
   const [expanded, setExpanded] = useState(false)
 
   useEffect(() => {
-    if (isError) setExpanded(true)
-  }, [isError])
+    if (resolvedIsError) setExpanded(true)
+  }, [resolvedIsError])
 
-  const hasResult = result !== null && result !== undefined
-  const status = pending ? 'pending' : isError ? 'error' : 'success'
+  const hasResult = display !== null && display !== undefined && display !== ''
+  const status = pending ? 'pending' : resolvedIsError ? 'error' : 'success'
 
   const argPreview = args
     ? Object.entries(args)
@@ -108,7 +115,7 @@ export function ToolCard({ name, args, result, pending }) {
                     : 'bg-code text-muted-foreground',
                 )}
               >
-                {result}
+                {display}
               </div>
             )}
           </div>

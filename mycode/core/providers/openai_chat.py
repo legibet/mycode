@@ -12,8 +12,20 @@ from typing import Any
 
 from openai import APIError, AsyncOpenAI
 
-from mycode.core.messages import build_message, text_block, thinking_block, tool_use_block
-from mycode.core.providers.base import DEFAULT_REQUEST_TIMEOUT, ProviderAdapter, ProviderRequest, ProviderStreamEvent
+from mycode.core.messages import (
+    assistant_message as build_assistant_message,
+)
+from mycode.core.messages import (
+    text_block,
+    thinking_block,
+    tool_use_block,
+)
+from mycode.core.providers.base import (
+    DEFAULT_REQUEST_TIMEOUT,
+    ProviderAdapter,
+    ProviderRequest,
+    ProviderStreamEvent,
+)
 from mycode.core.tools import parse_tool_arguments
 
 
@@ -115,22 +127,15 @@ class OpenAIChatAdapter(ProviderAdapter):
                 )
             )
 
-        assistant_message = build_message(
-            "assistant",
+        final_message = build_assistant_message(
             blocks,
-            meta={
-                key: value
-                for key, value in {
-                    "provider": self.provider_id,
-                    "model": response_model or request.model,
-                    "provider_message_id": response_id,
-                    "finish_reason": finish_reason,
-                    "usage": _dump_model(usage),
-                }.items()
-                if value is not None
-            },
+            provider=self.provider_id,
+            model=response_model or request.model,
+            provider_message_id=response_id,
+            stop_reason=finish_reason,
+            usage=_dump_model(usage),
         )
-        yield ProviderStreamEvent("message_done", {"message": assistant_message})
+        yield ProviderStreamEvent("message_done", {"message": final_message})
 
     def _build_request_payload(self, request: ProviderRequest) -> dict[str, Any]:
         messages = []
@@ -193,8 +198,11 @@ class OpenAIChatAdapter(ProviderAdapter):
 
         if thinking_blocks:
             thinking_text = "\n".join(str(block.get("text") or "") for block in thinking_blocks if block.get("text"))
-            meta = thinking_blocks[0].get("meta") if isinstance(thinking_blocks[0].get("meta"), dict) else {}
-            reasoning_field = meta.get("openai_reasoning_field")
+            raw_meta = thinking_blocks[0].get("meta")
+            meta: dict[str, Any] = {}
+            if isinstance(raw_meta, dict):
+                meta = dict(raw_meta)
+            reasoning_field = str(meta.get("openai_reasoning_field") or "")
             if reasoning_field == "reasoning_content":
                 payload["reasoning_content"] = thinking_text
             elif reasoning_field == "reasoning_details":
@@ -210,12 +218,16 @@ class OpenAIChatAdapter(ProviderAdapter):
         }
 
     def _serialize_tool_use(self, block: dict[str, Any]) -> dict[str, Any]:
+        raw_input = block.get("input")
+        tool_input: dict[str, Any] = {}
+        if isinstance(raw_input, dict):
+            tool_input = dict(raw_input)
         return {
             "id": block.get("id") or "",
             "type": "function",
             "function": {
                 "name": block.get("name") or "",
-                "arguments": _dump_json(block.get("input") if isinstance(block.get("input"), dict) else {}),
+                "arguments": _dump_json(tool_input),
             },
         }
 

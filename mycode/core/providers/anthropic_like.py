@@ -9,7 +9,7 @@ from anthropic import APIError, AsyncAnthropic
 
 from mycode.core.messages import (
     ConversationMessage,
-    build_message,
+    assistant_message,
     text_block,
     thinking_block,
     tool_result_block,
@@ -43,7 +43,7 @@ class AnthropicLikeAdapter(ProviderAdapter):
     - provider-native metadata carried in content blocks
     """
 
-    def build_thinking_config(self, request: ProviderRequest) -> dict[str, Any] | None:
+    def thinking_config(self, request: ProviderRequest) -> dict[str, Any] | None:
         return None
 
     def build_request_payload(self, request: ProviderRequest) -> dict[str, Any]:
@@ -57,7 +57,7 @@ class AnthropicLikeAdapter(ProviderAdapter):
         if request.tools:
             payload["tools"] = [self._serialize_tool(tool) for tool in request.tools]
             payload["tool_choice"] = {"type": "auto"}
-        thinking = self.build_thinking_config(request)
+        thinking = self.thinking_config(request)
         if thinking is not None:
             payload["thinking"] = thinking
         return payload
@@ -135,20 +135,19 @@ class AnthropicLikeAdapter(ProviderAdapter):
                     )
                 )
 
-        meta = {
-            "provider": self.provider_id,
-            "model": getattr(message, "model", None),
-            "provider_message_id": getattr(message, "id", None),
-            "stop_reason": getattr(message, "stop_reason", None),
+        native_meta = {
             "stop_sequence": getattr(message, "stop_sequence", None),
-            "usage": _dump_model(getattr(message, "usage", None)),
+            "service_tier": getattr(message, "service_tier", None),
         }
-
-        service_tier = getattr(message, "service_tier", None)
-        if service_tier is not None:
-            meta["service_tier"] = service_tier
-
-        return build_message("assistant", blocks, meta={key: value for key, value in meta.items() if value is not None})
+        return assistant_message(
+            blocks,
+            provider=self.provider_id,
+            model=getattr(message, "model", None),
+            provider_message_id=getattr(message, "id", None),
+            stop_reason=getattr(message, "stop_reason", None),
+            usage=_dump_model(getattr(message, "usage", None)),
+            native_meta=native_meta,
+        )
 
     def _serialize_tool(self, tool: dict[str, Any]) -> dict[str, Any]:
         return {
@@ -176,7 +175,10 @@ class AnthropicLikeAdapter(ProviderAdapter):
                 "type": "thinking",
                 "thinking": str(block.get("text") or ""),
             }
-            meta = block.get("meta") if isinstance(block.get("meta"), dict) else {}
+            raw_meta = block.get("meta")
+            meta: dict[str, Any] = {}
+            if isinstance(raw_meta, dict):
+                meta = raw_meta
             signature = meta.get("signature")
             if signature:
                 payload["signature"] = signature
@@ -189,7 +191,10 @@ class AnthropicLikeAdapter(ProviderAdapter):
                 "name": block.get("name"),
                 "input": block.get("input") if isinstance(block.get("input"), dict) else {},
             }
-            meta = block.get("meta") if isinstance(block.get("meta"), dict) else {}
+            raw_meta = block.get("meta")
+            meta: dict[str, Any] = {}
+            if isinstance(raw_meta, dict):
+                meta = raw_meta
             if meta.get("caller") is not None:
                 payload["caller"] = meta["caller"]
             return payload

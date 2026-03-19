@@ -6,7 +6,7 @@ from typing import Any
 
 from openai import APIError, AsyncOpenAI
 
-from mycode.core.messages import build_message, text_block, thinking_block, tool_use_block
+from mycode.core.messages import assistant_message, text_block, thinking_block, tool_use_block
 from mycode.core.providers.base import DEFAULT_REQUEST_TIMEOUT, ProviderAdapter, ProviderRequest, ProviderStreamEvent
 from mycode.core.tools import parse_tool_arguments
 
@@ -78,7 +78,10 @@ class OpenAIResponsesAdapter(ProviderAdapter):
             message = request.messages[index]
             if message.get("role") != "assistant":
                 continue
-            meta = message.get("meta") if isinstance(message.get("meta"), dict) else {}
+            raw_meta = message.get("meta")
+            meta: dict[str, Any] = {}
+            if isinstance(raw_meta, dict):
+                meta = dict(raw_meta)
             if meta.get("provider") != self.provider_id:
                 continue
             previous_response_id = meta.get("provider_message_id")
@@ -209,14 +212,14 @@ class OpenAIResponsesAdapter(ProviderAdapter):
                     )
                 )
 
-        meta = {
-            "provider": self.provider_id,
-            "model": getattr(response, "model", None),
-            "provider_message_id": getattr(response, "id", None),
-            "status": getattr(response, "status", None),
-            "usage": _dump_model(getattr(response, "usage", None)),
-        }
-        return build_message("assistant", blocks, meta={key: value for key, value in meta.items() if value is not None})
+        return assistant_message(
+            blocks,
+            provider=self.provider_id,
+            model=getattr(response, "model", None),
+            provider_message_id=getattr(response, "id", None),
+            stop_reason=getattr(response, "status", None),
+            usage=_dump_model(getattr(response, "usage", None)),
+        )
 
 
 def _extract_reasoning_text(item: Any) -> str:

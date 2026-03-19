@@ -1,6 +1,6 @@
 /**
  * Chat state management hook.
- * Handles messages, sessions, and SSE streaming.
+ * Stores canonical raw messages and derives render messages from them.
  */
 
 import {
@@ -11,155 +11,162 @@ import {
   useRef,
   useState,
 } from 'react'
-import { buildToolIndex, transformMessages } from '../utils/messages'
+import {
+  appendAssistantDelta,
+  appendToolResult,
+  appendToolUse,
+  buildRenderMessages,
+  createAssistantMessage,
+  createUserTextMessage,
+} from '../utils/messages'
 
 const EMPTY_SESSION = { id: 'default', title: 'New chat' }
 
-/**
- * Chat state reducer - handles message updates from SSE events.
- */
+function hasPersistedToolResult(messages, toolUseId) {
+  if (!toolUseId) return false
+
+  return messages.some(
+    (message) =>
+      Array.isArray(message?.content) &&
+      message.content.some(
+        (block) =>
+          block?.type === 'tool_result' && block.tool_use_id === toolUseId,
+      ),
+  )
+}
+
 function chatReducer(state, action) {
   switch (action.type) {
     case 'set_messages': {
-      const messages = Array.isArray(action.messages) ? action.messages : []
-      return { messages, toolIndex: buildToolIndex(messages) }
+      const rawMessages = Array.isArray(action.messages) ? action.messages : []
+      return { rawMessages, toolRuntimeById: {} }
     }
 
     case 'append_user': {
-      const messages = [
-        ...state.messages,
-        { role: 'user', parts: [{ type: 'text', content: action.content }] },
-      ]
-      return { ...state, messages }
+      return {
+        ...state,
+        rawMessages: [
+          ...state.rawMessages,
+          createUserTextMessage(action.content),
+        ],
+      }
     }
 
     case 'start_assistant': {
-      const messages = [...state.messages, { role: 'assistant', parts: [] }]
-      return { ...state, messages }
+      return {
+        ...state,
+        rawMessages: [...state.rawMessages, createAssistantMessage([])],
+      }
     }
 
     case 'apply_event': {
       const event = action.event || {}
-      const messages = [...state.messages]
-      const toolIndex = { ...state.toolIndex }
+      let rawMessages = [...state.rawMessages]
+      const toolRuntimeById = { ...state.toolRuntimeById }
 
-      // Get or create latest assistant message
-      let assistantIndex = messages.length - 1
-      if (assistantIndex < 0 || messages[assistantIndex].role !== 'assistant') {
-        messages.push({ role: 'assistant', parts: [] })
-        assistantIndex = messages.length - 1
-      }
-
-      const assistant = {
-        ...messages[assistantIndex],
-        parts: [...messages[assistantIndex].parts],
-      }
-      messages[assistantIndex] = assistant
-
-      // Find tool part by id
-      const findToolEntry = (toolId) => {
-        if (!toolId) return null
-        if (toolIndex[toolId]) return toolIndex[toolId]
-        // Fallback scan
-        for (let m = messages.length - 1; m >= 0; m--) {
-          const msg = messages[m]
-          if (msg.role !== 'assistant') continue
-          for (let p = (msg.parts || []).length - 1; p >= 0; p--) {
-            if (msg.parts[p]?.type === 'tool' && msg.parts[p].id === toolId) {
-              toolIndex[toolId] = { messageIndex: m, partIndex: p }
-              return toolIndex[toolId]
-            }
-          }
-        }
-        return null
-      }
-
-      // Handle event types
       if (event.type === 'reasoning') {
-        const lastPart = assistant.parts[assistant.parts.length - 1]
-        if (lastPart?.type === 'reasoning') {
-          assistant.parts[assistant.parts.length - 1] = {
-            ...lastPart,
-            content: lastPart.content + event.content,
-          }
-        } else {
-          assistant.parts.push({ type: 'reasoning', content: event.content })
-        }
+        rawMessages = appendAssistantDelta(
+          rawMessages,
+          'thinking',
+          event.delta || '',
+        )
       } else if (event.type === 'text') {
-        const lastPart = assistant.parts[assistant.parts.length - 1]
-        if (lastPart?.type === 'text') {
-          assistant.parts[assistant.parts.length - 1] = {
-            ...lastPart,
-            content: lastPart.content + event.content,
-          }
-        } else {
-          assistant.parts.push({ type: 'text', content: event.content })
-        }
+        rawMessages = appendAssistantDelta(
+          rawMessages,
+          'text',
+          event.delta || '',
+        )
       } else if (event.type === 'tool_start') {
-        const partIndex = assistant.parts.length
-        assistant.parts.push({
-          type: 'tool',
-          id: event.id,
-          name: event.name,
-          args: event.args,
-          result: '',
-          pending: true,
-        })
-        if (event.id)
-          toolIndex[event.id] = { messageIndex: assistantIndex, partIndex }
+        const toolCall = event.tool_call || {}
+        rawMessages = appendToolUse(rawMessages, toolCall)
+        if (toolCall.id) {
+          toolRuntimeById[toolCall.id] = {
+            pending: true,
+            output: '',
+            result: null,
+            isError: false,
+          }
+        }
       } else if (event.type === 'tool_output') {
-        const entry = findToolEntry(event.id)
-        if (entry) {
-          const targetMsg = messages[entry.messageIndex]
-          const targetParts = [...targetMsg.parts]
-          const part = { ...targetParts[entry.partIndex] }
-          const output = event.content || ''
-          part.result = part.result ? `${part.result}\n${output}` : output
-          part.pending = true
-          targetParts[entry.partIndex] = part
-          messages[entry.messageIndex] = { ...targetMsg, parts: targetParts }
+        const toolUseId = event.tool_use_id || ''
+        if (toolUseId) {
+          const current = toolRuntimeById[toolUseId] || {
+            pending: true,
+            output: '',
+            result: null,
+            isError: false,
+          }
+          const nextOutput = event.output || ''
+          toolRuntimeById[toolUseId] = {
+            ...current,
+            pending: true,
+            output: current.output
+              ? `${current.output}\n${nextOutput}`
+              : nextOutput,
+          }
         }
       } else if (event.type === 'tool_done') {
-        const entry = findToolEntry(event.id)
-        if (entry) {
-          const targetMsg = messages[entry.messageIndex]
-          const targetParts = [...targetMsg.parts]
-          targetParts[entry.partIndex] = {
-            ...targetParts[entry.partIndex],
-            result: event.result,
+        const toolUseId = event.tool_use_id || ''
+        const result = event.result || ''
+        const isError = Boolean(
+          event.is_error ||
+            (typeof result === 'string' && result.startsWith('error:')),
+        )
+
+        if (toolUseId) {
+          const current = toolRuntimeById[toolUseId] || {
             pending: false,
+            output: '',
+            result: null,
+            isError: false,
           }
-          messages[entry.messageIndex] = { ...targetMsg, parts: targetParts }
+          toolRuntimeById[toolUseId] = {
+            ...current,
+            pending: false,
+            result,
+            isError,
+          }
+          rawMessages = appendToolResult(
+            rawMessages,
+            toolUseId,
+            result,
+            isError,
+          )
         }
       } else if (event.type === 'error') {
-        assistant.parts.push({
-          type: 'text',
-          content: `\n\n**Error:** ${event.message || event.error || 'Unknown'}`,
-        })
+        rawMessages = appendAssistantDelta(
+          rawMessages,
+          'text',
+          `\n\n**Error:** ${event.message || 'Unknown'}`,
+        )
       }
 
-      return { messages, toolIndex }
+      return { rawMessages, toolRuntimeById }
     }
 
     case 'finalize_pending': {
-      const result = action.result
+      const fallbackResult = action.result || ''
       let changed = false
-      const messages = state.messages.map((msg) => {
-        if (msg.role !== 'assistant') return msg
-        let msgChanged = false
-        const parts = (msg.parts || []).map((part) => {
-          if (part?.type !== 'tool' || !part.pending) return part
-          changed = true
-          msgChanged = true
-          return {
-            ...part,
-            pending: false,
-            result: part.result || result || '',
-          }
-        })
-        return msgChanged ? { ...msg, parts } : msg
-      })
-      return changed ? { ...state, messages } : state
+      let rawMessages = [...state.rawMessages]
+      const toolRuntimeById = { ...state.toolRuntimeById }
+
+      for (const [toolUseId, runtime] of Object.entries(toolRuntimeById)) {
+        if (!runtime?.pending) continue
+
+        const result = runtime.result || fallbackResult
+        toolRuntimeById[toolUseId] = {
+          ...runtime,
+          pending: false,
+          result,
+          isError: true,
+        }
+        if (!hasPersistedToolResult(rawMessages, toolUseId)) {
+          rawMessages = appendToolResult(rawMessages, toolUseId, result, true)
+        }
+        changed = true
+      }
+
+      return changed ? { rawMessages, toolRuntimeById } : state
     }
 
     default:
@@ -169,8 +176,8 @@ function chatReducer(state, action) {
 
 export function useChat(config) {
   const [chatState, dispatch] = useReducer(chatReducer, {
-    messages: [],
-    toolIndex: {},
+    rawMessages: [],
+    toolRuntimeById: {},
   })
   const [sessions, setSessions] = useState([])
   const [activeSession, setActiveSession] = useState(EMPTY_SESSION)
@@ -181,7 +188,10 @@ export function useChat(config) {
   const initRef = useRef(false)
   const cwdRef = useRef(config.cwd)
 
-  const messages = chatState.messages
+  const messages = useMemo(
+    () => buildRenderMessages(chatState.rawMessages, chatState.toolRuntimeById),
+    [chatState.rawMessages, chatState.toolRuntimeById],
+  )
 
   const status = useMemo(() => {
     if (loading) return 'generating'
@@ -190,7 +200,6 @@ export function useChat(config) {
     return 'idle'
   }, [loading, connectionState])
 
-  // Fetch sessions list
   const fetchSessions = useCallback(async () => {
     try {
       const res = await fetch(
@@ -206,7 +215,6 @@ export function useChat(config) {
     }
   }, [config.cwd])
 
-  // Send message and stream response
   const send = useCallback(
     async (input) => {
       if (!input.trim() || loading) return
@@ -246,7 +254,7 @@ export function useChat(config) {
 
           buffer += decoder.decode(value, { stream: true })
           const lines = buffer.split('\n')
-          buffer = lines.pop()
+          buffer = lines.pop() || ''
 
           for (const line of lines) {
             if (!line.startsWith('data: ')) continue
@@ -282,7 +290,6 @@ export function useChat(config) {
     [activeSession.id, config, fetchSessions, loading],
   )
 
-  // Clear current session
   const clear = useCallback(async () => {
     try {
       await fetch(
@@ -295,7 +302,6 @@ export function useChat(config) {
     }
   }, [activeSession.id])
 
-  // Cancel ongoing request
   const cancel = useCallback(async () => {
     abortRef.current?.abort()
     setLoading(false)
@@ -310,7 +316,6 @@ export function useChat(config) {
     }
   }, [activeSession.id])
 
-  // Create new session
   const createSession = useCallback(async () => {
     if (sessionLoading) return
     initRef.current = true
@@ -344,7 +349,6 @@ export function useChat(config) {
     }
   }, [config, fetchSessions, sessionLoading])
 
-  // Select existing session
   const selectSession = useCallback(
     async (sessionId) => {
       if (!sessionId || sessionId === activeSession.id) return
@@ -358,9 +362,7 @@ export function useChat(config) {
         const data = await res.json()
         if (data.session) {
           setActiveSession(data.session)
-          // Transform provider format to UI format
-          const uiMessages = transformMessages(data.messages || [])
-          dispatch({ type: 'set_messages', messages: uiMessages })
+          dispatch({ type: 'set_messages', messages: data.messages || [] })
         }
       } catch (e) {
         console.error('Failed to load session:', e)
@@ -371,7 +373,6 @@ export function useChat(config) {
     [activeSession.id],
   )
 
-  // Delete session
   const deleteSession = useCallback(
     async (sessionId) => {
       if (!sessionId || sessions.length === 1 || sessionId === activeSession.id)
@@ -391,7 +392,6 @@ export function useChat(config) {
     [activeSession.id, sessions.length],
   )
 
-  // Initialize sessions on mount
   const initializeSessions = useCallback(async () => {
     if (initRef.current) return
     initRef.current = true
@@ -412,7 +412,6 @@ export function useChat(config) {
     initializeSessions()
   }, [initializeSessions])
 
-  // Reset on cwd change
   useEffect(() => {
     if (cwdRef.current === config.cwd) return
     cwdRef.current = config.cwd
