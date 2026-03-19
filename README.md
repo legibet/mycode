@@ -57,19 +57,19 @@ Config files are loaded from:
 `provider` can be either:
 
 - a configured alias from `providers`
-- a raw built-in provider id such as `anthropic`, `moonshot`, `minimax`, `openai`, or `openai_chat`
+- a raw built-in provider id such as `anthropic`, `moonshotai`, `minimax`, `openai`, or `openai_chat`
 
 Example:
 
 ```json
 {
   "default": {
-    "provider": "moonshot",
+    "provider": "moonshotai",
     "model": "kimi-k2.5"
   },
   "providers": {
-    "moonshot": {
-      "type": "moonshot",
+    "moonshotai": {
+      "type": "moonshotai",
       "base_url": "https://api.moonshot.ai/anthropic",
       "models": ["kimi-k2.5"]
     },
@@ -94,14 +94,14 @@ Example:
 
 `type` is the internal adapter id used at runtime:
 
-- `anthropic` / `moonshot` / `minimax` use the official Anthropic SDK and the Messages API
+- `anthropic` / `moonshotai` / `minimax` use the official Anthropic SDK and the Messages API
 - `openai` uses the official OpenAI SDK and the Responses API
 - `openai_chat` uses the official OpenAI SDK and the Chat Completions API for third-party OpenAI-compatible providers
 
 If you do not need aliases, you can skip config and pass the raw provider directly:
 
 ```bash
-mycode --provider moonshot --model kimi-k2.5
+mycode --provider moonshotai --model kimi-k2.5
 ```
 
 Region-specific note:

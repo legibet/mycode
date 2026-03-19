@@ -46,6 +46,8 @@ class ProviderAdapter(ABC):
     label: str
     default_base_url: str | None = None
     env_api_key_names: tuple[str, ...] = ()
+    # Used only as lightweight defaults during config resolution.
+    default_models: tuple[str, ...] = ()
 
     @abstractmethod
     def stream_turn(self, request: ProviderRequest) -> AsyncIterator[ProviderStreamEvent]:

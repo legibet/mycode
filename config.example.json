@@ -1,11 +1,11 @@
 {
   "default": {
-    "provider": "moonshot",
+    "provider": "moonshotai",
     "model": "kimi-k2.5"
   },
   "providers": {
-    "moonshot": {
-      "type": "moonshot",
+    "moonshotai": {
+      "type": "moonshotai",
       "base_url": "https://api.moonshot.ai/anthropic",
       "models": ["kimi-k2.5"]
     },

@@ -49,7 +49,7 @@ The persisted/runtime message format is block-based JSON:
     {"type": "tool_use", "id": "call_1", "name": "read", "input": {"path": "x.py"}}
   ],
   "meta": {
-    "provider": "moonshot",
+    "provider": "moonshotai",
     "model": "kimi-k2.5"
   }
 }
@@ -96,7 +96,7 @@ Provider lookup lives in `mycode/core/provider_registry.py`.
 Current built-in adapter ids:
 
 - `anthropic`
-- `moonshot`
+- `moonshotai`
 - `minimax`
 - `openai`
 - `openai_chat`
@@ -107,7 +107,7 @@ Current built-in adapter ids:
 - uses the Messages API
 - default base URL: `https://api.anthropic.com`
 
-### `moonshot`
+### `moonshotai`
 
 - implemented with the official `anthropic` Python SDK against Moonshot's Anthropic-compatible endpoint
 - default base URL: `https://api.moonshot.ai/anthropic`

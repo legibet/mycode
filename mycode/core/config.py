@@ -6,16 +6,15 @@ import json
 import logging
 import os
 from dataclasses import dataclass, field
-from functools import cache
 from pathlib import Path
 from typing import Any
 
-from mycode.core.model_catalog import ModelSpec, default_models_for_provider, lookup_model_spec
+from mycode.core.models import ModelMetadata, lookup_model_metadata
 from mycode.core.provider_registry import (
     is_supported_provider,
     list_supported_providers,
     provider_api_key_from_env,
-    provider_env_api_key_names,
+    provider_default_models,
 )
 
 _DEFAULT_MYCODE_HOME = "~/.mycode"
@@ -24,7 +23,7 @@ _DEFAULT_MYCODE_HOME = "~/.mycode"
 @dataclass(frozen=True)
 class ProviderConfig:
     name: str
-    type: str  # internal provider adapter id: anthropic | moonshot | minimax | …
+    type: str  # internal provider adapter id: anthropic | moonshotai | minimax | …
     models: list[str]  # available model names (no provider prefix)
     api_key: str | None = None
     base_url: str | None = None
@@ -156,7 +155,7 @@ def _build_providers(raw_providers: dict[str, dict[str, Any]]) -> dict[str, Prov
     providers: dict[str, ProviderConfig] = {}
     for name, raw in raw_providers.items():
         provider_type = str(raw.get("type") or "anthropic")
-        models = _normalize_models(raw.get("models")) or default_models_for_provider(provider_type)
+        models = _normalize_models(raw.get("models")) or list(provider_default_models(provider_type))
         providers[name] = ProviderConfig(
             name=name,
             type=provider_type,
@@ -166,12 +165,6 @@ def _build_providers(raw_providers: dict[str, dict[str, Any]]) -> dict[str, Prov
             reasoning_effort=raw.get("reasoning_effort") or None,
         )
     return providers
-
-
-@cache
-def _provider_env_api_key_name(provider_type: str | None) -> str | None:
-    names = provider_env_api_key_names(provider_type)
-    return names[0] if names else None
 
 
 def _env_api_key_for_provider(provider_type: str | None) -> str | None:
@@ -215,7 +208,7 @@ class ResolvedProvider:
     reasoning_effort: str | None
     max_tokens: int = 8192
     context_window: int | None = None
-    model_spec: ModelSpec | None = None
+    model_metadata: ModelMetadata | None = None
 
     @property
     def provider_type(self) -> str:
@@ -259,14 +252,14 @@ def resolve_provider(
     )
 
     resolved_api_base = api_base or (cfg.base_url if cfg else None)
-    model_spec = lookup_model_spec(
+    model_metadata = lookup_model_metadata(
         provider_type=resolved_provider,
         provider_name=provider_name,
         model=resolved_model,
         api_base=resolved_api_base,
     )
     reasoning_effort = cfg.reasoning_effort if cfg else None
-    if model_spec and model_spec.supports_reasoning is False:
+    if model_metadata and model_metadata.supports_reasoning is False:
         reasoning_effort = None
 
     return ResolvedProvider(
@@ -275,9 +268,9 @@ def resolve_provider(
         api_key=api_key or _env_api_key_for_provider(resolved_provider) or (cfg.api_key if cfg else None),
         api_base=resolved_api_base,
         reasoning_effort=reasoning_effort,
-        max_tokens=model_spec.max_output_tokens if model_spec and model_spec.max_output_tokens else 8192,
-        context_window=model_spec.context_window if model_spec else None,
-        model_spec=model_spec,
+        max_tokens=model_metadata.max_output_tokens if model_metadata and model_metadata.max_output_tokens else 8192,
+        context_window=model_metadata.context_window if model_metadata else None,
+        model_metadata=model_metadata,
     )
 
 
@@ -301,7 +294,7 @@ def _resolve_model_name(
         if default_model:
             return default_model
 
-    provider_defaults = default_models_for_provider(provider_type)
+    provider_defaults = provider_default_models(provider_type)
     if provider_defaults:
         return provider_defaults[0]
 

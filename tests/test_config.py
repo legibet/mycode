@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from mycode.core.config import get_settings, resolve_provider
-from mycode.core.model_catalog import ModelSpec, lookup_model_spec
+from mycode.core.models import ModelMetadata, lookup_model_metadata
 
 
 def _write(path: Path, content: str) -> None:
@@ -16,8 +16,8 @@ def _write(path: Path, content: str) -> None:
 
 
 @pytest.fixture(autouse=True)
-def _disable_live_model_catalog(monkeypatch) -> None:
-    monkeypatch.setattr("mycode.core.config.lookup_model_spec", lambda **_: None)
+def _disable_live_models_dev_lookup(monkeypatch) -> None:
+    monkeypatch.setattr("mycode.core.config.lookup_model_metadata", lambda **_: None)
 
 
 class TestGetSettings:
@@ -142,9 +142,9 @@ class TestGetSettings:
         monkeypatch.setenv("MOONSHOT_API_KEY", "moonshot-env-key")
 
         settings = get_settings(str(workspace))
-        resolved = resolve_provider(settings, provider_name="moonshot", model="kimi-k2-thinking")
+        resolved = resolve_provider(settings, provider_name="moonshotai", model="kimi-k2-thinking")
 
-        assert resolved.provider_type == "moonshot"
+        assert resolved.provider_type == "moonshotai"
         assert resolved.model == "kimi-k2-thinking"
         assert resolved.api_key == "moonshot-env-key"
 
@@ -226,12 +226,12 @@ class TestGetSettings:
             """
             {
               "providers": {
-                "moonshot": {
-                  "type": "moonshot"
+                "moonshotai": {
+                  "type": "moonshotai"
                 }
               },
               "default": {
-                "provider": "moonshot"
+                "provider": "moonshotai"
               }
             }
             """,
@@ -239,7 +239,7 @@ class TestGetSettings:
 
         settings = get_settings(str(workspace))
 
-        assert settings.providers["moonshot"].models == ["kimi-k2.5"]
+        assert settings.providers["moonshotai"].models == ["kimi-k2.5"]
 
     def test_resolve_provider_uses_builtin_default_model_for_raw_provider(self, tmp_path: Path, monkeypatch) -> None:
         home = tmp_path / "home"
@@ -265,8 +265,8 @@ class TestGetSettings:
         monkeypatch.setenv("MYCODE_HOME", str(home / ".mycode"))
         monkeypatch.setenv("OPENAI_API_KEY", "env-key")
         monkeypatch.setattr(
-            "mycode.core.config.lookup_model_spec",
-            lambda **_: ModelSpec(
+            "mycode.core.config.lookup_model_metadata",
+            lambda **_: ModelMetadata(
                 provider="openai",
                 model="gpt-4.1-mini",
                 name="GPT-4.1 mini",
@@ -306,7 +306,7 @@ class TestGetSettings:
         assert resolved.reasoning_effort is None
 
 
-def test_lookup_model_spec_prefers_matching_provider_source(monkeypatch) -> None:
+def test_lookup_model_metadata_prefers_matching_provider_source(monkeypatch) -> None:
     fake_catalog = {
         "openai": {
             "models": {
@@ -332,21 +332,21 @@ def test_lookup_model_spec_prefers_matching_provider_source(monkeypatch) -> None
             },
         },
     }
-    monkeypatch.setattr("mycode.core.model_catalog.load_model_catalog", lambda **_: fake_catalog)
+    monkeypatch.setattr("mycode.core.models.load_models_dev", lambda **_: fake_catalog)
 
-    spec = lookup_model_spec(
+    metadata = lookup_model_metadata(
         provider_type="openai_chat",
         provider_name="router",
         model="openai/gpt-5",
         api_base="https://openrouter.ai/api/v1",
     )
 
-    assert spec is not None
-    assert spec.provider == "openrouter"
-    assert spec.max_output_tokens == 64_000
+    assert metadata is not None
+    assert metadata.provider == "openrouter"
+    assert metadata.max_output_tokens == 64_000
 
 
-def test_lookup_model_spec_falls_back_to_canonical_provider(monkeypatch) -> None:
+def test_lookup_model_metadata_falls_back_to_canonical_provider(monkeypatch) -> None:
     fake_catalog = {
         "openai": {
             "models": {
@@ -363,15 +363,15 @@ def test_lookup_model_spec_falls_back_to_canonical_provider(monkeypatch) -> None
             "models": {},
         },
     }
-    monkeypatch.setattr("mycode.core.model_catalog.load_model_catalog", lambda **_: fake_catalog)
+    monkeypatch.setattr("mycode.core.models.load_models_dev", lambda **_: fake_catalog)
 
-    spec = lookup_model_spec(
+    metadata = lookup_model_metadata(
         provider_type="openai_chat",
         provider_name="compat",
         model="openai/gpt-5",
         api_base="https://proxy.example/v1",
     )
 
-    assert spec is not None
-    assert spec.provider == "openai"
-    assert spec.model == "gpt-5"
+    assert metadata is not None
+    assert metadata.provider == "openai"
+    assert metadata.model == "gpt-5"

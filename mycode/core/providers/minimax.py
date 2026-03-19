@@ -13,6 +13,7 @@ class MiniMaxAdapter(AnthropicLikeAdapter):
     label = "MiniMax"
     default_base_url = "https://api.minimax.io/anthropic"
     env_api_key_names = ("MINIMAX_API_KEY",)
+    default_models = ("MiniMax-M2.7", "MiniMax-M2.7-highspeed")
 
     def thinking_config(self, request: ProviderRequest) -> dict[str, Any] | None:
         effort = (request.reasoning_effort or "").strip().lower()

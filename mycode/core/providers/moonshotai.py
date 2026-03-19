@@ -8,11 +8,12 @@ from mycode.core.providers.anthropic_like import THINKING_BUDGETS, AnthropicLike
 from mycode.core.providers.base import ProviderRequest
 
 
-class MoonshotAdapter(AnthropicLikeAdapter):
-    provider_id = "moonshot"
+class MoonshotAIAdapter(AnthropicLikeAdapter):
+    provider_id = "moonshotai"
     label = "Moonshot"
     default_base_url = "https://api.moonshot.ai/anthropic"
     env_api_key_names = ("MOONSHOT_API_KEY",)
+    default_models = ("kimi-k2.5",)
 
     def thinking_config(self, request: ProviderRequest) -> dict[str, Any] | None:
         effort = (request.reasoning_effort or "").strip().lower()
