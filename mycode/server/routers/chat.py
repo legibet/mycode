@@ -53,6 +53,7 @@ async def _stream_chat(req: Request, chat: ChatRequest, store: SessionStore) -> 
         messages=messages,
         settings=settings,
         reasoning_effort=resolved.reasoning_effort,
+        max_tokens=resolved.max_tokens,
     )
 
     async def on_persist(message: dict) -> None:
@@ -100,7 +101,10 @@ async def get_config(cwd: str | None = None):
     resolved_cwd = os.path.abspath(cwd or os.getcwd())
     settings = get_settings(resolved_cwd)
     active = settings.active_provider
-    default_model = settings.default_model or (active.models[0] if active and active.models else "")
+    try:
+        default_model = resolve_provider(settings).model
+    except ValueError:
+        default_model = settings.default_model or (active.models[0] if active and active.models else "")
     providers_info = {
         name: {
             "name": p.name,

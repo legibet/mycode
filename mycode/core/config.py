@@ -10,6 +10,7 @@ from functools import cache
 from pathlib import Path
 from typing import Any
 
+from mycode.core.model_catalog import ModelSpec, default_models_for_provider, lookup_model_spec
 from mycode.core.provider_registry import (
     is_supported_provider,
     list_supported_providers,
@@ -154,10 +155,12 @@ def _load_layered_config(cwd: str) -> _ConfigLayer:
 def _build_providers(raw_providers: dict[str, dict[str, Any]]) -> dict[str, ProviderConfig]:
     providers: dict[str, ProviderConfig] = {}
     for name, raw in raw_providers.items():
+        provider_type = str(raw.get("type") or "anthropic")
+        models = _normalize_models(raw.get("models")) or default_models_for_provider(provider_type)
         providers[name] = ProviderConfig(
             name=name,
-            type=str(raw.get("type") or "anthropic"),
-            models=_normalize_models(raw.get("models")),
+            type=provider_type,
+            models=models,
             api_key=raw.get("api_key") or None,
             base_url=raw.get("base_url") or None,
             reasoning_effort=raw.get("reasoning_effort") or None,
@@ -210,6 +213,9 @@ class ResolvedProvider:
     api_key: str | None
     api_base: str | None
     reasoning_effort: str | None
+    max_tokens: int = 8192
+    context_window: int | None = None
+    model_spec: ModelSpec | None = None
 
     @property
     def provider_type(self) -> str:
@@ -235,13 +241,6 @@ def resolve_provider(
     elif settings.active_provider:
         cfg = settings.active_provider
 
-    if model:
-        resolved_model = model
-    elif provider_name and cfg and cfg.models:
-        resolved_model = cfg.models[0]
-    else:
-        resolved_model = settings.default_model or (cfg.models[0] if cfg and cfg.models else None) or _FALLBACK_MODEL
-
     if provider_name:
         resolved_provider = cfg.type if cfg else provider_name
     else:
@@ -251,13 +250,62 @@ def resolve_provider(
         supported = ", ".join(list_supported_providers())
         raise ValueError(f"unsupported provider {resolved_provider!r}; supported: {supported}")
 
+    resolved_model = _resolve_model_name(
+        settings,
+        provider_name=provider_name,
+        provider_type=resolved_provider,
+        provider_config=cfg,
+        requested_model=model,
+    )
+
+    resolved_api_base = api_base or (cfg.base_url if cfg else None)
+    model_spec = lookup_model_spec(
+        provider_type=resolved_provider,
+        provider_name=provider_name,
+        model=resolved_model,
+        api_base=resolved_api_base,
+    )
+    reasoning_effort = cfg.reasoning_effort if cfg else None
+    if model_spec and model_spec.supports_reasoning is False:
+        reasoning_effort = None
+
     return ResolvedProvider(
         provider=resolved_provider,
         model=resolved_model,
         api_key=api_key or _env_api_key_for_provider(resolved_provider) or (cfg.api_key if cfg else None),
-        api_base=api_base or (cfg.base_url if cfg else None),
-        reasoning_effort=cfg.reasoning_effort if cfg else None,
+        api_base=resolved_api_base,
+        reasoning_effort=reasoning_effort,
+        max_tokens=model_spec.max_output_tokens if model_spec and model_spec.max_output_tokens else 8192,
+        context_window=model_spec.context_window if model_spec else None,
+        model_spec=model_spec,
     )
+
+
+def _resolve_model_name(
+    settings: Settings,
+    *,
+    provider_name: str | None,
+    provider_type: str,
+    provider_config: ProviderConfig | None,
+    requested_model: str | None,
+) -> str:
+    explicit = (requested_model or "").strip()
+    if explicit:
+        return explicit
+
+    if provider_config and provider_config.models:
+        return provider_config.models[0]
+
+    if not provider_name or provider_name == settings.default_provider:
+        default_model = (settings.default_model or "").strip()
+        if default_model:
+            return default_model
+
+    provider_defaults = default_models_for_provider(provider_type)
+    if provider_defaults:
+        return provider_defaults[0]
+
+    return _FALLBACK_MODEL
 
 
 def setup_logging() -> None:

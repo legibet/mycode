@@ -710,6 +710,7 @@ def main() -> None:
         messages=resolved_session.messages,
         settings=settings,
         reasoning_effort=resolved.reasoning_effort,
+        max_tokens=resolved.max_tokens,
         max_turns=args.max_turns,
     )
 

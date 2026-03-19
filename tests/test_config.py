@@ -4,12 +4,20 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from mycode.core.config import get_settings, resolve_provider
+from mycode.core.model_catalog import ModelSpec, lookup_model_spec
 
 
 def _write(path: Path, content: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content, encoding="utf-8")
+
+
+@pytest.fixture(autouse=True)
+def _disable_live_model_catalog(monkeypatch) -> None:
+    monkeypatch.setattr("mycode.core.config.lookup_model_spec", lambda **_: None)
 
 
 class TestGetSettings:
@@ -205,3 +213,165 @@ class TestGetSettings:
         assert settings.providers == {}
         assert settings.default_provider is None
         assert settings.config_paths == []
+
+    def test_provider_without_models_uses_builtin_defaults(self, tmp_path: Path, monkeypatch) -> None:
+        home = tmp_path / "home"
+        workspace = tmp_path / "workspace"
+        workspace.mkdir()
+
+        monkeypatch.setenv("MYCODE_HOME", str(home / ".mycode"))
+
+        _write(
+            home / ".mycode" / "config.json",
+            """
+            {
+              "providers": {
+                "moonshot": {
+                  "type": "moonshot"
+                }
+              },
+              "default": {
+                "provider": "moonshot"
+              }
+            }
+            """,
+        )
+
+        settings = get_settings(str(workspace))
+
+        assert settings.providers["moonshot"].models == ["kimi-k2.5"]
+
+    def test_resolve_provider_uses_builtin_default_model_for_raw_provider(self, tmp_path: Path, monkeypatch) -> None:
+        home = tmp_path / "home"
+        workspace = tmp_path / "workspace"
+        workspace.mkdir()
+
+        monkeypatch.setenv("MYCODE_HOME", str(home / ".mycode"))
+        monkeypatch.setenv("OPENAI_API_KEY", "env-key")
+
+        settings = get_settings(str(workspace))
+        resolved = resolve_provider(settings, provider_name="openai")
+
+        assert resolved.provider_type == "openai"
+        assert resolved.model == "gpt-5.4"
+        assert resolved.api_key == "env-key"
+        assert resolved.max_tokens == 8192
+
+    def test_resolve_provider_applies_catalog_metadata(self, tmp_path: Path, monkeypatch) -> None:
+        home = tmp_path / "home"
+        workspace = tmp_path / "workspace"
+        workspace.mkdir()
+
+        monkeypatch.setenv("MYCODE_HOME", str(home / ".mycode"))
+        monkeypatch.setenv("OPENAI_API_KEY", "env-key")
+        monkeypatch.setattr(
+            "mycode.core.config.lookup_model_spec",
+            lambda **_: ModelSpec(
+                provider="openai",
+                model="gpt-4.1-mini",
+                name="GPT-4.1 mini",
+                context_window=1_000_000,
+                max_input_tokens=500_000,
+                max_output_tokens=32_768,
+                supports_reasoning=False,
+                supports_tools=True,
+                raw={},
+            ),
+        )
+
+        _write(
+            home / ".mycode" / "config.json",
+            """
+            {
+              "providers": {
+                "shared": {
+                  "type": "openai",
+                  "reasoning_effort": "high",
+                  "models": ["gpt-4.1-mini"]
+                }
+              },
+              "default": {
+                "provider": "shared"
+              }
+            }
+            """,
+        )
+
+        settings = get_settings(str(workspace))
+        resolved = resolve_provider(settings)
+
+        assert resolved.model == "gpt-4.1-mini"
+        assert resolved.max_tokens == 32_768
+        assert resolved.context_window == 1_000_000
+        assert resolved.reasoning_effort is None
+
+
+def test_lookup_model_spec_prefers_matching_provider_source(monkeypatch) -> None:
+    fake_catalog = {
+        "openai": {
+            "models": {
+                "gpt-5": {
+                    "id": "gpt-5",
+                    "name": "GPT-5",
+                    "reasoning": True,
+                    "tool_call": True,
+                    "limit": {"context": 400_000, "output": 128_000},
+                }
+            }
+        },
+        "openrouter": {
+            "api": "https://openrouter.ai/api/v1",
+            "models": {
+                "openai/gpt-5": {
+                    "id": "openai/gpt-5",
+                    "name": "GPT-5 via OpenRouter",
+                    "reasoning": True,
+                    "tool_call": True,
+                    "limit": {"context": 256_000, "output": 64_000},
+                }
+            },
+        },
+    }
+    monkeypatch.setattr("mycode.core.model_catalog.load_model_catalog", lambda **_: fake_catalog)
+
+    spec = lookup_model_spec(
+        provider_type="openai_chat",
+        provider_name="router",
+        model="openai/gpt-5",
+        api_base="https://openrouter.ai/api/v1",
+    )
+
+    assert spec is not None
+    assert spec.provider == "openrouter"
+    assert spec.max_output_tokens == 64_000
+
+
+def test_lookup_model_spec_falls_back_to_canonical_provider(monkeypatch) -> None:
+    fake_catalog = {
+        "openai": {
+            "models": {
+                "gpt-5": {
+                    "id": "gpt-5",
+                    "name": "GPT-5",
+                    "reasoning": True,
+                    "tool_call": True,
+                    "limit": {"context": 400_000, "output": 128_000},
+                }
+            }
+        },
+        "other": {
+            "models": {},
+        },
+    }
+    monkeypatch.setattr("mycode.core.model_catalog.load_model_catalog", lambda **_: fake_catalog)
+
+    spec = lookup_model_spec(
+        provider_type="openai_chat",
+        provider_name="compat",
+        model="openai/gpt-5",
+        api_base="https://proxy.example/v1",
+    )
+
+    assert spec is not None
+    assert spec.provider == "openai"
+    assert spec.model == "gpt-5"
