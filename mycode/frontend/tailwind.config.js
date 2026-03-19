@@ -40,8 +40,6 @@ export default {
         },
         code: {
           DEFAULT: 'hsl(var(--code-background))',
-          header: 'hsl(var(--code-header-background))',
-          border: 'hsl(var(--code-border))',
         },
         sidebar: {
           bg: 'hsl(var(--sidebar-bg))',

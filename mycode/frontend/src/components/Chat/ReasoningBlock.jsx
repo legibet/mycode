@@ -1,52 +1,61 @@
-import { BrainCircuit, ChevronRight } from 'lucide-react'
-import { useState } from 'react'
+/**
+ * Reasoning/thinking display.
+ * Soft background section — visually grouped, no border.
+ * Auto-collapses when streaming ends.
+ */
+
+import { ChevronDown } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
 import { cn } from '../../utils/cn'
 
 export function ReasoningBlock({ content, isStreaming }) {
-  const [expanded, setExpanded] = useState(true)
+  const [expanded, setExpanded] = useState(isStreaming)
+  const wasStreaming = useRef(isStreaming)
+
+  useEffect(() => {
+    if (wasStreaming.current && !isStreaming) {
+      setExpanded(false)
+    }
+    wasStreaming.current = isStreaming
+  }, [isStreaming])
 
   if (!content) return null
 
   return (
-    <div className="my-1.5 rounded-md border border-border/40 overflow-hidden transition-all duration-200">
+    <div className="rounded-lg bg-secondary/30 px-3 py-2">
       <button
         type="button"
-        className={cn(
-          'flex w-full cursor-pointer items-center gap-2.5 px-3 py-2 select-none transition-colors text-left',
-          expanded ? 'bg-secondary/50' : 'hover:bg-secondary/30',
-        )}
+        className="flex w-full items-center gap-1.5 select-none cursor-pointer text-left"
         onClick={() => setExpanded(!expanded)}
       >
-        <BrainCircuit
+        <span
           className={cn(
-            'h-3.5 w-3.5 shrink-0',
+            'text-xs transition-colors',
             isStreaming
-              ? 'text-accent animate-pulse'
+              ? 'text-accent/70 animate-pulse font-medium'
               : 'text-muted-foreground/60',
           )}
-        />
-        <span className="font-mono text-xs font-medium text-foreground/70">
+        >
           Thinking
         </span>
-
-        <span className="flex-1" />
-
-        <ChevronRight
+        <ChevronDown
           className={cn(
-            'h-3 w-3 text-muted-foreground/30 transition-transform duration-200 shrink-0',
-            expanded ? 'rotate-90' : '',
+            'h-3 w-3 text-muted-foreground/30 transition-transform duration-200',
+            !expanded && '-rotate-90',
           )}
         />
       </button>
 
       <div
         className={cn(
-          'grid transition-all duration-200 ease-in-out',
-          expanded ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]',
+          'grid transition-all duration-200 ease-out',
+          expanded
+            ? 'grid-rows-[1fr] opacity-100'
+            : 'grid-rows-[0fr] opacity-0',
         )}
       >
         <div className="overflow-hidden">
-          <div className="px-4 py-3 border-t border-border/30 bg-muted/20 text-xs text-muted-foreground whitespace-pre-wrap font-mono leading-relaxed">
+          <div className="pt-2 text-[13px] text-muted-foreground whitespace-pre-wrap font-mono leading-[1.5]">
             {content}
           </div>
         </div>

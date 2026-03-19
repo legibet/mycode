@@ -1,6 +1,7 @@
 /**
- * Chat input with accent focus line and floating design.
- * Responsive: full-width on mobile, max-w-4xl on desktop.
+ * Chat input area.
+ * Shadow-elevated container, clean alignment.
+ * Send button bottom-right with theme-adaptive colors.
  */
 
 import { ArrowUp, Square } from 'lucide-react'
@@ -20,68 +21,55 @@ export function InputArea({ input, setInput, loading, onSend, onCancel }) {
   const hasInput = input.trim().length > 0
 
   return (
-    <div className="mx-auto max-w-4xl max-md:max-w-none px-6 max-md:px-3 py-4 max-md:py-2">
-      <div className="relative group">
-        <div
-          className={cn(
-            'relative rounded-lg border bg-card/40 transition-all duration-300',
-            'border-border/30',
-            'focus-within:border-accent/25 focus-within:bg-card/80 focus-within:shadow-[0_0_12px_-4px_hsl(var(--accent)/0.15)]',
+    <div className="mx-auto max-w-4xl max-md:max-w-none px-5 max-md:px-3 py-3 max-md:py-2">
+      <div
+        className={cn(
+          'relative rounded-xl bg-card border border-border/30 shadow-sm transition-all duration-200',
+          'focus-within:shadow-md focus-within:border-border/50',
+        )}
+      >
+        <textarea
+          ref={textareaRef}
+          rows={1}
+          value={input}
+          onChange={(e) => {
+            setInput(e.target.value)
+            e.target.style.height = 'auto'
+            e.target.style.height = `${Math.min(e.target.scrollHeight, 200)}px`
+          }}
+          onKeyDown={handleKeyDown}
+          placeholder="Message..."
+          className="block w-full resize-none bg-transparent px-4 py-3 max-md:py-2.5 pr-14 text-sm leading-relaxed text-foreground placeholder:text-muted-foreground/40 focus:outline-none max-h-[200px]"
+          disabled={loading}
+        />
+
+        <div className="absolute bottom-2.5 max-md:bottom-2 right-2.5 max-md:right-2">
+          {loading ? (
+            <button
+              type="button"
+              onClick={onCancel}
+              className="h-8 w-8 flex items-center justify-center rounded-lg text-destructive/70 hover:text-destructive hover:bg-destructive/10 active:scale-95 transition-all"
+              title="Stop"
+            >
+              <Square className="h-3.5 w-3.5 fill-current" />
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={onSend}
+              disabled={!hasInput}
+              className={cn(
+                'h-8 w-8 flex items-center justify-center rounded-lg transition-all duration-150',
+                hasInput
+                  ? 'bg-foreground text-background hover:opacity-90 active:scale-95'
+                  : 'text-muted-foreground/20',
+              )}
+              title="Send"
+            >
+              <ArrowUp className="h-4 w-4" strokeWidth={2.5} />
+            </button>
           )}
-        >
-          <textarea
-            ref={textareaRef}
-            rows={1}
-            value={input}
-            onChange={(e) => {
-              setInput(e.target.value)
-              e.target.style.height = 'auto'
-              e.target.style.height = `${Math.min(e.target.scrollHeight, 200)}px`
-            }}
-            onKeyDown={handleKeyDown}
-            placeholder="ask anything..."
-            className="w-full resize-none bg-transparent px-4 py-3 pr-12 text-sm max-md:text-base font-sans placeholder:text-muted-foreground/40 placeholder:font-mono focus:outline-none max-h-[200px]"
-            disabled={loading}
-            style={{ minHeight: '44px' }}
-          />
-
-          <div className="absolute bottom-1.5 right-1.5 flex items-center">
-            {loading ? (
-              <button
-                type="button"
-                onClick={onCancel}
-                className="h-8 w-8 flex items-center justify-center rounded-md text-red-400/70 hover:text-red-400 hover:bg-red-500/10 active:scale-90 transition-all"
-                title="Stop generating"
-              >
-                <Square className="h-3.5 w-3.5 fill-current" />
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={onSend}
-                disabled={!hasInput}
-                className={cn(
-                  'h-8 w-8 flex items-center justify-center rounded-md transition-all duration-200',
-                  hasInput
-                    ? 'bg-accent text-accent-foreground hover:bg-accent/80 active:scale-90'
-                    : 'text-muted-foreground/30 opacity-50',
-                )}
-                title="Send message"
-              >
-                <ArrowUp className="h-4 w-4" />
-              </button>
-            )}
-          </div>
-
-          {/* Accent focus line at bottom */}
-          <div className="absolute bottom-0 left-4 right-4 h-[1px] bg-accent/0 group-focus-within:bg-accent/50 transition-all duration-300" />
         </div>
-      </div>
-
-      <div className="mt-2 text-center max-md:hidden">
-        <span className="text-2xs font-mono text-muted-foreground/30 tracking-wider">
-          mycode
-        </span>
       </div>
     </div>
   )

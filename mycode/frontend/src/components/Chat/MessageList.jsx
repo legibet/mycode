@@ -30,14 +30,11 @@ export function MessageList({ messages, loading }) {
   if (messages.length === 0) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center p-8">
-        <div className="space-y-3 text-center">
-          <h1 className="font-display text-3xl tracking-tighter text-foreground/80">
+        <div className="text-center">
+          <h1 className="font-display text-2xl tracking-tighter text-foreground/70">
             mycode
-            <span className="inline-block w-[2px] h-7 bg-accent ml-0.5 align-middle animate-cursor-blink" />
+            <span className="inline-block w-[2px] h-5 bg-accent/60 ml-0.5 align-middle animate-cursor-blink" />
           </h1>
-          <p className="text-xs font-mono text-muted-foreground/50 tracking-wide">
-            ready.
-          </p>
         </div>
       </div>
     )
@@ -49,7 +46,7 @@ export function MessageList({ messages, loading }) {
       onScroll={handleScroll}
       className="flex-1 overflow-y-auto pb-4 pt-6"
     >
-      <div className="mx-auto max-w-4xl max-md:max-w-none flex flex-col gap-6 max-md:gap-4">
+      <div className="mx-auto max-w-4xl max-md:max-w-none flex flex-col gap-6 max-md:gap-5">
         {messages.map((message, index) => (
           <MessageBubble
             key={`${message.role}-${index}-${message.parts.length}`}

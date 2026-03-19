@@ -28,8 +28,6 @@
 
     /* Code block */
     --code-background: 216 65% 7%; /* #06101E */
-    --code-header-background: 216 55% 10%;
-    --code-border: 216 40% 18%;
 
     /* Sidebar */
     --sidebar-bg: 216 65% 7%; /* #060F1E */
@@ -59,9 +57,7 @@
     --radius: 0.5rem;
 
     /* Code block */
-    --code-background: 220 13% 95%;
-    --code-header-background: 220 13% 93%;
-    --code-border: 216 20% 82%;
+    --code-background: 220 14% 94%;
 
     /* Sidebar */
     --sidebar-bg: 216 35% 95%;
@@ -136,15 +132,13 @@
 .prose li {
   @apply leading-relaxed;
 }
-.prose code {
-  @apply relative rounded bg-code px-1.5 py-0.5 font-mono text-[13px] text-accent;
-}
 .prose pre {
-  @apply my-4 overflow-x-auto rounded-lg border border-code-border bg-code;
+  @apply my-4 overflow-x-auto rounded-lg bg-code;
 }
 .prose pre code {
-  @apply relative rounded-none bg-transparent p-0 font-mono text-[13px] font-normal leading-relaxed text-foreground;
+  @apply rounded-none bg-transparent p-0 font-mono text-[13px] font-normal leading-relaxed text-foreground;
 }
+
 .prose a {
   @apply text-accent underline underline-offset-2 decoration-accent/40 hover:decoration-accent transition-colors;
 }

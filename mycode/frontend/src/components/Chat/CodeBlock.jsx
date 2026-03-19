@@ -1,6 +1,6 @@
 /**
- * Syntax-highlighted code block with copy button.
- * Adapted for ink-on-paper theme.
+ * Syntax-highlighted code block.
+ * Language label and copy button float over code. No border.
  */
 
 import { Check, Copy } from 'lucide-react'
@@ -10,11 +10,24 @@ import { vs, vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism'
 import { cn } from '../../utils/cn'
 import { useTheme } from '../ThemeProvider'
 
+function copyText(text) {
+  if (navigator.clipboard?.writeText) {
+    return navigator.clipboard.writeText(text)
+  }
+  const el = document.createElement('textarea')
+  el.value = text
+  el.style.cssText = 'position:fixed;opacity:0'
+  document.body.appendChild(el)
+  el.select()
+  document.execCommand('copy')
+  document.body.removeChild(el)
+  return Promise.resolve()
+}
+
 export function CodeBlock({ node, inline, className, children, ...props }) {
   const { theme } = useTheme()
   const [copied, setCopied] = useState(false)
 
-  // Dark is default (:root); light only when explicitly set or system prefers light
   const isLight =
     theme === 'light' ||
     (theme === 'system' &&
@@ -24,22 +37,14 @@ export function CodeBlock({ node, inline, className, children, ...props }) {
   const syntaxTheme = useMemo(() => {
     const baseTheme = isDark ? vscDarkPlus : vs
     const clean = { ...baseTheme }
-    // Strip layout/font properties from theme — we control these via customStyle
-    const stripKeys = [
-      'background',
-      'backgroundColor',
-      'fontFamily',
-      'fontSize',
-      'lineHeight',
-    ]
+    // Only keep color from pre/code selectors, strip everything else
     for (const selector of [
       'pre[class*="language-"]',
       'code[class*="language-"]',
     ]) {
       if (clean[selector]) {
-        const filtered = { ...clean[selector] }
-        for (const key of stripKeys) delete filtered[key]
-        clean[selector] = filtered
+        const { color } = clean[selector]
+        clean[selector] = color ? { color } : {}
       }
     }
     return clean
@@ -56,11 +61,11 @@ export function CodeBlock({ node, inline, className, children, ...props }) {
 
   const handleCopy = async () => {
     try {
-      await navigator.clipboard.writeText(codeContent)
+      await copyText(codeContent)
       setCopied(true)
       setTimeout(() => setCopied(false), 2000)
-    } catch (err) {
-      console.error('Failed to copy:', err)
+    } catch {
+      /* ignore */
     }
   }
 
@@ -68,7 +73,7 @@ export function CodeBlock({ node, inline, className, children, ...props }) {
     return (
       <code
         className={cn(
-          'px-1.5 py-0.5 rounded bg-code font-mono text-[13px] text-accent',
+          'px-1.5 py-0.5 rounded bg-code font-mono text-[13px] text-accent font-medium',
           className,
         )}
         {...props}
@@ -79,65 +84,50 @@ export function CodeBlock({ node, inline, className, children, ...props }) {
   }
 
   return (
-    <div className="group relative my-3 overflow-hidden rounded-md border border-code-border bg-code">
-      {/* Header */}
-      <div className="flex items-center justify-between border-b border-code-border bg-code-header px-3 py-1.5">
-        <span className="text-2xs font-mono text-muted-foreground/50 lowercase select-none tracking-wide">
-          {language || 'text'}
-        </span>
+    <div
+      data-code-block
+      className="group/code relative my-3 rounded-md bg-code overflow-x-auto"
+    >
+      <button
+        type="button"
+        onClick={handleCopy}
+        className={cn(
+          'absolute top-1 right-1 z-10 flex items-center justify-center h-7 w-7 rounded-md transition-all duration-150',
+          copied
+            ? 'text-emerald-400 opacity-100'
+            : 'text-muted-foreground/40 opacity-0 group-hover/code:opacity-100 hover:text-foreground/60 hover:bg-muted/20',
+        )}
+        title="Copy"
+      >
+        {copied ? (
+          <Check className="h-3.5 w-3.5" />
+        ) : (
+          <Copy className="h-3.5 w-3.5" />
+        )}
+      </button>
 
-        <button
-          type="button"
-          onClick={handleCopy}
-          className={cn(
-            'flex items-center gap-1 rounded px-1.5 py-0.5 text-2xs font-mono transition-all duration-200',
-            copied
-              ? 'text-emerald-400'
-              : 'text-muted-foreground/50 hover:text-foreground/70 hover:bg-muted/30',
-          )}
-          title="Copy code"
-        >
-          {copied ? (
-            <>
-              <Check className="h-3 w-3" />
-              <span>copied</span>
-            </>
-          ) : (
-            <>
-              <Copy className="h-3 w-3" />
-              <span>copy</span>
-            </>
-          )}
-        </button>
-      </div>
+      <div className="px-3 pt-2 pb-2.5">
+        {language && (
+          <div className="mb-1">
+            <span className="text-[11px] font-mono text-muted-foreground/30 uppercase tracking-wider select-none">
+              {language}
+            </span>
+          </div>
+        )}
 
-      {/* Code */}
-      <div className="relative overflow-x-auto p-3">
         <SyntaxHighlighter
           style={syntaxTheme}
           language={language}
           PreTag="div"
-          showLineNumbers={true}
-          lineNumberStyle={{
-            minWidth: '2em',
-            paddingRight: '1em',
-            color: isDark
-              ? 'rgba(128, 128, 128, 0.25)'
-              : 'rgba(128, 128, 128, 0.35)',
-            textAlign: 'right',
-            userSelect: 'none',
-            fontWeight: 400,
-          }}
+          showLineNumbers={false}
           customStyle={{
             margin: 0,
             padding: 0,
             background: 'transparent',
             fontFamily: '"DM Mono", "JetBrains Mono", monospace',
             fontSize: '13px',
-            lineHeight: '1.6',
+            lineHeight: '1.5',
             fontWeight: 400,
-            display: 'grid',
-            gridTemplateColumns: 'auto 1fr',
           }}
           codeTagProps={{
             style: {

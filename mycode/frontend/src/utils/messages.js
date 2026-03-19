@@ -63,8 +63,11 @@ export function transformMessages(messages) {
 
     if (role !== 'assistant') continue
 
-    currentAssistant = { role: 'assistant', parts: [] }
-    result.push(currentAssistant)
+    // Merge consecutive assistant turns (no user text in between)
+    if (!currentAssistant) {
+      currentAssistant = { role: 'assistant', parts: [] }
+      result.push(currentAssistant)
+    }
 
     for (const block of blocks) {
       if (block?.type === 'thinking' && block.text) {
