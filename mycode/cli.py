@@ -20,13 +20,12 @@ from rich.spinner import Spinner
 from rich.text import Text
 
 from mycode.core.agent import Agent
-from mycode.core.config import get_settings, resolve_provider
+from mycode.core.config import get_settings, resolve_mycode_home, resolve_provider
 from mycode.core.session import SessionStore
 from mycode.server.app import create_app, frontend_dist_path
 
 console = Console(highlight=False)
 
-_HISTORY_FILE = os.path.join(os.path.dirname(__file__), ".cli_history")
 _PROMPT = ANSI("\033[1m\033[34m❯\033[0m ")
 _MAX_WIDTH = 88
 
@@ -87,6 +86,12 @@ def _build_parser() -> argparse.ArgumentParser:
     list_parser = session_subparsers.add_parser("list", help="List saved sessions")
     list_parser.add_argument("--all", action="store_true", help="Show sessions from all workspaces")
     return parser
+
+
+def _history_file_path() -> str:
+    path = resolve_mycode_home() / "cli_history"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    return str(path)
 
 
 def _compact_text(value: str, *, limit: int = 96) -> str:
@@ -483,7 +488,7 @@ async def run_once(agent: Agent, *, store: SessionStore, session_id: str, messag
 async def chat_loop(agent: Agent, *, store: SessionStore, session_id: str) -> None:
     """Run the interactive terminal loop for a single workspace."""
 
-    prompt_session: PromptSession = PromptSession(history=FileHistory(_HISTORY_FILE))
+    prompt_session: PromptSession = PromptSession(history=FileHistory(_history_file_path()))
     active_session_id = session_id
 
     def create_session_agent(*, next_session_id: str, messages: list[dict[str, Any]]) -> Agent:

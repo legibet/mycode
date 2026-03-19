@@ -6,6 +6,7 @@ import pytest
 
 from mycode.cli import (
     _build_parser,
+    _history_file_path,
     _history_preview_entries,
     _positive_int,
     _resolve_session_choice,
@@ -132,6 +133,16 @@ def test_build_parser_accepts_max_turns_flag():
     assert args.command == "run"
     assert args.max_turns == 7
     assert args.message == ["hello"]
+
+
+def test_history_file_path_uses_mycode_home(tmp_path, monkeypatch):
+    mycode_home = tmp_path / ".mycode"
+    monkeypatch.setenv("MYCODE_HOME", str(mycode_home))
+
+    history_path = _history_file_path()
+
+    assert history_path == str((mycode_home / "cli_history").resolve())
+    assert mycode_home.exists()
 
 
 def test_history_preview_entries_summarize_tool_only_assistant_messages():
