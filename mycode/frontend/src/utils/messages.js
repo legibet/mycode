@@ -11,15 +11,18 @@ function getBlocks(message) {
   return Array.isArray(message?.content) ? message.content : []
 }
 
-function cloneBlock(block) {
+function cloneBlock(block, renderKey = null) {
   const next = { ...block }
   if (isObject(block?.meta)) next.meta = { ...block.meta }
   if (isObject(block?.input)) next.input = { ...block.input }
+  if (renderKey) next.renderKey = renderKey
   return next
 }
 
-function createMessage(role, content = []) {
-  return { role, content }
+function createMessage(role, content = [], renderKey = null) {
+  const message = { role, content }
+  if (renderKey) message.renderKey = renderKey
+  return message
 }
 
 function createTextBlock(text) {
@@ -196,24 +199,26 @@ export function buildRenderMessages(messages, toolRuntimeById = {}) {
   const toolIndex = {}
   let currentAssistant = null
 
-  const ensureAssistantRenderMessage = () => {
+  const ensureAssistantRenderMessage = (renderKey) => {
     if (currentAssistant) return currentAssistant
-    currentAssistant = createAssistantMessage([])
+    currentAssistant = createMessage('assistant', [], renderKey)
     result.push(currentAssistant)
     return currentAssistant
   }
 
-  for (const message of messages) {
+  for (const [sourceIndex, message] of messages.entries()) {
     const role = message?.role
     const blocks = getBlocks(message)
 
     if (role === 'user') {
       const textBlocks = blocks
         .filter((block) => block?.type === 'text' && block.text)
-        .map((block) => cloneBlock(block))
+        .map((block, blockIndex) =>
+          cloneBlock(block, `user:${sourceIndex}:${blockIndex}`),
+        )
 
       if (textBlocks.length > 0) {
-        result.push(createMessage('user', textBlocks))
+        result.push(createMessage('user', textBlocks, `user:${sourceIndex}`))
         currentAssistant = null
       }
 
@@ -222,7 +227,9 @@ export function buildRenderMessages(messages, toolRuntimeById = {}) {
       )
       if (toolResults.length === 0) continue
 
-      const assistantMessage = ensureAssistantRenderMessage()
+      const assistantMessage = ensureAssistantRenderMessage(
+        `assistant:${sourceIndex}`,
+      )
       let assistantContent = [...getBlocks(assistantMessage)]
 
       for (const block of toolResults) {
@@ -254,6 +261,8 @@ export function buildRenderMessages(messages, toolRuntimeById = {}) {
           runtime: buildToolRuntime(runtime, block),
         }
         const blockIndex = assistantContent.length
+        nextBlock.renderKey =
+          toolUseId || `tool-result:${sourceIndex}:${blockIndex}`
         assistantContent.push(nextBlock)
         currentAssistant = { ...assistantMessage, content: assistantContent }
         result[result.length - 1] = currentAssistant
@@ -267,25 +276,34 @@ export function buildRenderMessages(messages, toolRuntimeById = {}) {
 
     if (role !== 'assistant') continue
 
-    const assistantMessage = ensureAssistantRenderMessage()
+    const assistantMessage = ensureAssistantRenderMessage(
+      `assistant:${sourceIndex}`,
+    )
     const assistantContent = [...getBlocks(assistantMessage)]
     const messageIndex = result.length - 1
 
-    for (const block of blocks) {
+    for (const [sourceBlockIndex, block] of blocks.entries()) {
       if (block?.type === 'thinking' && block.text) {
-        assistantContent.push(cloneBlock(block))
+        assistantContent.push(
+          cloneBlock(block, `assistant:${sourceIndex}:${sourceBlockIndex}`),
+        )
         continue
       }
 
       if (block?.type === 'text' && block.text) {
-        assistantContent.push(cloneBlock(block))
+        assistantContent.push(
+          cloneBlock(block, `assistant:${sourceIndex}:${sourceBlockIndex}`),
+        )
         continue
       }
 
       if (block?.type !== 'tool_use') continue
 
       const renderBlock = {
-        ...cloneBlock(block),
+        ...cloneBlock(
+          block,
+          block.id || `assistant:${sourceIndex}:${sourceBlockIndex}`,
+        ),
         input: isObject(block.input) ? { ...block.input } : {},
         runtime: buildToolRuntime(
           block.id ? toolRuntimeById[block.id] : undefined,

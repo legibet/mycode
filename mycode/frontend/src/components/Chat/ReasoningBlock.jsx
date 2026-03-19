@@ -5,19 +5,12 @@
  */
 
 import { ChevronDown } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
 import { cn } from '../../utils/cn'
 
 export function ReasoningBlock({ content, isStreaming }) {
-  const [expanded, setExpanded] = useState(isStreaming)
-  const wasStreaming = useRef(isStreaming)
-
-  useEffect(() => {
-    if (wasStreaming.current && !isStreaming) {
-      setExpanded(false)
-    }
-    wasStreaming.current = isStreaming
-  }, [isStreaming])
+  const [expandedOverride, setExpandedOverride] = useState(null)
+  const expanded = expandedOverride ?? isStreaming
 
   if (!content) return null
 
@@ -26,7 +19,7 @@ export function ReasoningBlock({ content, isStreaming }) {
       <button
         type="button"
         className="flex w-full items-center gap-1.5 select-none cursor-pointer text-left"
-        onClick={() => setExpanded(!expanded)}
+        onClick={() => setExpandedOverride(!expanded)}
       >
         <span
           className={cn(

@@ -5,22 +5,13 @@
 const STORAGE_KEY = 'mycode_config'
 const HISTORY_KEY = 'mycode_cwd_history'
 
-export const DEFAULT_CONFIG = {
+const DEFAULT_CONFIG = {
   provider: '', // configured alias or raw any-llm provider id; empty = use server default
   model: '',
   cwd: '.',
   apiKey: '',
   apiBase: '',
 }
-
-export const MODEL_PRESETS = [
-  'anthropic:claude-opus-4-6',
-  'anthropic:claude-sonnet-4-6',
-  'openai:gpt-5.4',
-  'openai:gpt-5-mini',
-  'gemini:gemini-1.5-pro',
-  'gemini:gemini-2.0-flash',
-]
 
 export function loadConfig() {
   try {

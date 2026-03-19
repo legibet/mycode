@@ -5,7 +5,7 @@
  */
 
 import { ChevronDown, Loader2 } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { cn } from '../../utils/cn'
 
 export function ToolCard({ name, args, output, result, pending, isError }) {
@@ -18,11 +18,8 @@ export function ToolCard({ name, args, output, result, pending, isError }) {
   const resolvedIsError =
     Boolean(isError) ||
     (display && typeof display === 'string' && display.startsWith('error:'))
-  const [expanded, setExpanded] = useState(false)
-
-  useEffect(() => {
-    if (resolvedIsError) setExpanded(true)
-  }, [resolvedIsError])
+  const [expandedOverride, setExpandedOverride] = useState(null)
+  const expanded = expandedOverride ?? resolvedIsError
 
   const hasResult = display !== null && display !== undefined && display !== ''
   const status = pending ? 'pending' : resolvedIsError ? 'error' : 'success'
@@ -49,7 +46,7 @@ export function ToolCard({ name, args, output, result, pending, isError }) {
       <button
         type="button"
         className="flex w-full items-center gap-2 select-none cursor-pointer text-left"
-        onClick={() => setExpanded(!expanded)}
+        onClick={() => setExpandedOverride(!expanded)}
       >
         <span
           className={cn(

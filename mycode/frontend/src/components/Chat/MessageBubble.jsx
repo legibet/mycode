@@ -63,11 +63,11 @@ export function MessageBubble({ role, blocks, isStreaming, index }) {
 
       {/* Content — gap-3 (12px) between blocks */}
       <div className="flex flex-col gap-3 text-foreground/90 leading-relaxed text-sm">
-        {blocks.map((block, i) => {
+        {blocks.map((block) => {
           if (block.type === 'thinking') {
             return (
               <ReasoningBlock
-                key={`reasoning-${i}`}
+                key={block.renderKey || `thinking:${block.text || 'block'}`}
                 content={block.text}
                 isStreaming={isStreaming}
               />
@@ -76,7 +76,9 @@ export function MessageBubble({ role, blocks, isStreaming, index }) {
           if (block.type === 'text') {
             return (
               <MarkdownBlock
-                key={block.id || `text-${i}`}
+                key={
+                  block.renderKey || block.id || `text:${block.text || 'block'}`
+                }
                 content={block.text}
               />
             )
@@ -84,7 +86,9 @@ export function MessageBubble({ role, blocks, isStreaming, index }) {
           if (block.type === 'tool_use') {
             return (
               <ToolCard
-                key={block.id || `tool-${i}`}
+                key={
+                  block.renderKey || block.id || `tool:${block.name || 'tool'}`
+                }
                 name={block.name}
                 args={block.input}
                 output={block.runtime?.output}
