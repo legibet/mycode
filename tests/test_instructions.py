@@ -54,7 +54,7 @@ class TestInstructions:
 
         assert "Compat global" in prompt
 
-    def test_truncates_by_max_bytes(self, tmp_path: Path, monkeypatch) -> None:
+    def test_loads_full_instruction_text_without_truncation(self, tmp_path: Path, monkeypatch) -> None:
         home = tmp_path / "home"
         workspace = tmp_path / "workspace"
         workspace.mkdir()
@@ -63,9 +63,7 @@ class TestInstructions:
         _write(home / ".mycode" / "AGENTS.md", "0123456789abcdef")
 
         with patch("mycode.core.instructions.Path.home", return_value=home):
-            monkeypatch.setattr("mycode.core.instructions._MAX_INSTRUCTION_BYTES", 12)
             prompt = load_instructions_prompt(str(workspace))
 
-        assert "0123456789ab" in prompt
-        assert "cdef" not in prompt
-        assert "[Truncated due to instruction size limit.]" in prompt
+        assert "0123456789abcdef" in prompt
+        assert "[Truncated due to instruction size limit.]" not in prompt

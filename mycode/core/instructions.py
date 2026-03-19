@@ -9,8 +9,6 @@ from mycode.core.config import Settings, find_workspace_root, get_settings, reso
 
 logger = logging.getLogger(__name__)
 
-_MAX_INSTRUCTION_BYTES = 32 * 1024
-
 
 def discover_instruction_files(cwd: str, settings: Settings | None = None) -> list[Path]:
     """Discover standard AGENTS.md files from global scope to project scope."""
@@ -40,12 +38,9 @@ def load_instructions_prompt(cwd: str, settings: Settings | None = None) -> str:
     """Load AGENTS.md files into a prompt block ordered from global to project."""
 
     resolved = settings or get_settings(cwd)
-    remaining = _MAX_INSTRUCTION_BYTES
     sections: list[str] = []
 
     for path in discover_instruction_files(cwd, resolved):
-        if remaining <= 0:
-            break
         try:
             text = path.read_text(encoding="utf-8").strip()
         except Exception:
@@ -55,22 +50,7 @@ def load_instructions_prompt(cwd: str, settings: Settings | None = None) -> str:
         if not text:
             continue
 
-        encoded = text.encode("utf-8")
-        truncated = False
-        if len(encoded) > remaining:
-            encoded = encoded[:remaining]
-            text = encoded.decode("utf-8", errors="ignore").rstrip()
-            truncated = True
-
-        if not text:
-            continue
-
         sections.append(f"## {path}\n{text}")
-        remaining -= len(encoded)
-
-        if truncated:
-            sections.append("[Truncated due to instruction size limit.]")
-            break
 
     if not sections:
         return ""
