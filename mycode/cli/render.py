@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from collections.abc import Awaitable, Callable
 from datetime import datetime
 from typing import Any
@@ -14,7 +15,33 @@ from rich.text import Text
 
 from mycode.core.agent import Agent
 
+from .theme import (
+    ACCENT,
+    ERROR,
+    ERROR_MARKER,
+    MUTED,
+    PROVIDER,
+    STATS,
+    SUCCESS,
+    THINKING,
+    TOOL_BORDER,
+    TOOL_END,
+    TOOL_MARKER,
+    TOOL_NAME,
+    WARNING,
+)
+
 console = Console(highlight=False)
+
+
+def _format_usage(usage: dict[str, Any]) -> str:
+    """Format token usage into a compact string."""
+    input_t = usage.get("input_tokens") or usage.get("prompt_tokens") or 0
+    output_t = usage.get("output_tokens") or usage.get("completion_tokens") or 0
+    total = input_t + output_t
+    if total:
+        return f"{total:,} tokens"
+    return ""
 
 
 class TerminalView:
@@ -23,9 +50,6 @@ class TerminalView:
     def __init__(self, output: Console | None = None) -> None:
         self.console = output or console
 
-    def print_rule(self, *, width: int) -> None:
-        self.console.print(f"[dim]{'─' * width}[/dim]")
-
     def print_header(
         self, *, provider: str, model: str, session: dict[str, Any], mode: str, message_count: int
     ) -> None:
@@ -33,27 +57,29 @@ class TerminalView:
 
         self.console.print()
 
-        title = session.get("title") or "New chat"
-        session_id = str(session.get("id") or "")[:12]
+        title = session.get("title") or ""
+        session_id = str(session.get("id") or "")[:8]
 
-        title_text = Text()
-        title_text.append("mycode", style="bold")
-        title_text.append(" -- ", style="dim")
-        title_text.append(provider, style="cyan")
-        title_text.append(" / ", style="dim")
-        title_text.append(model)
-        self.console.print(title_text)
+        line = Text()
+        line.append("mycode", style=ACCENT)
+        line.append("  ")
+        line.append(provider, style=PROVIDER)
+        line.append("/", style=MUTED)
+        line.append(model)
+        if session_id:
+            line.append("  ")
+            line.append(session_id, style=MUTED)
+        self.console.print(line)
 
-        meta_text = Text()
-        meta_text.append("session ", style="dim")
-        meta_text.append(session_id or "-", style="bold")
-        meta_text.append("  ")
-        meta_text.append(mode, style="green" if mode == "new" else "yellow")
-        meta_text.append("  ")
-        meta_text.append(title)
-        if message_count:
-            meta_text.append(f"  ({message_count} stored messages)", style="dim")
-        self.console.print(meta_text)
+        if mode == "resumed":
+            meta = Text()
+            meta.append("resumed", style=WARNING)
+            if title and title != "New chat":
+                meta.append("  ")
+                meta.append(title, style=MUTED)
+            if message_count:
+                meta.append(f"  ({message_count} msgs)", style=MUTED)
+            self.console.print(meta)
 
     def print_history_preview(self, messages: list[dict[str, Any]]) -> None:
         """Print a short summary of recent messages for resumed sessions."""
@@ -62,10 +88,13 @@ class TerminalView:
         if not entries:
             return
 
-        self.console.print(f"[dim]history preview (showing last {len(entries)})[/dim]")
+        self.console.print(Text(f"recent ({len(entries)})", style=MUTED))
         for role, content in entries:
-            label = "user" if role == "You" else "assistant"
-            self.console.print(f"[dim]{label}[/dim] {content}")
+            label = "you" if role == "You" else "assistant"
+            line = Text()
+            line.append(f"{label} ", style=MUTED)
+            line.append(content)
+            self.console.print(line)
 
     def print_session_list(
         self,
@@ -78,10 +107,10 @@ class TerminalView:
         """Print saved sessions in a compact table for selection commands."""
 
         if not sessions:
-            self.console.print("[dim]no sessions found[/dim]")
+            self.console.print(Text("no sessions found", style=MUTED))
             return
 
-        self.console.print(f"[dim]{heading} ({len(sessions)})[/dim]")
+        self.console.print(Text(f"{heading} ({len(sessions)})", style=MUTED))
         for index, session in enumerate(sessions, start=1):
             parts: list[str] = []
             session_id = str(session.get("id") or "-")
@@ -192,6 +221,12 @@ class ReplyRenderer:
         self._reasoning: list[str] = []
         self._text: list[str] = []
         self._printed_static_reasoning = False
+        # Timing & stats
+        self._response_start: float | None = None
+        self._thinking_start: float | None = None
+        self._thinking_collapsed = False
+        self._last_tool_start: float | None = None
+        self._usage: dict[str, Any] | None = None
 
     async def render(
         self,
@@ -203,10 +238,21 @@ class ReplyRenderer:
         """Stream one assistant turn to the terminal and return its exit code."""
 
         exit_code = 0
+        self._response_start = time.monotonic()
+
+        async def _tracking_persist(msg: dict[str, Any]) -> None:
+            if msg.get("role") == "assistant":
+                meta = msg.get("meta") or {}
+                usage = meta.get("usage")
+                if usage:
+                    self._usage = usage
+            if on_persist:
+                await on_persist(msg)
+
         if self._live_mode:
             self._ensure_live()
 
-        async for event in agent.achat(message, on_persist=on_persist):
+        async for event in agent.achat(message, on_persist=_tracking_persist):
             match event.type:
                 case "reasoning":
                     self.reasoning(event.data.get("content", ""))
@@ -229,13 +275,15 @@ class ReplyRenderer:
         return exit_code
 
     def reasoning(self, chunk: str) -> None:
+        if self._thinking_start is None:
+            self._thinking_start = time.monotonic()
         self._reasoning.append(chunk)
         if self._live_mode:
             self._ensure_live()
             self._update()
 
     def text(self, chunk: str) -> None:
-        self._print_static_reasoning()
+        self._maybe_collapse()
         if self._live_mode:
             self._text.append(chunk)
             self._ensure_live()
@@ -244,10 +292,12 @@ class ReplyRenderer:
             self._console.print(chunk, end="", markup=False, highlight=False)
 
     def tool_start(self, name: str, args: dict[str, Any]) -> None:
-        self._print_static_reasoning()
+        self._maybe_collapse()
         self._flush()
         if not self._live_mode:
             self._console.print()
+
+        self._last_tool_start = time.monotonic()
 
         preview = ""
         if args:
@@ -256,17 +306,17 @@ class ReplyRenderer:
                 preview = preview[:60] + "…"
 
         text = Text()
-        text.append("⏺ ", style="green")
-        text.append(name.capitalize(), style="bold green")
+        text.append(f"{TOOL_MARKER} ", style=SUCCESS)
+        text.append(name.capitalize(), style=TOOL_NAME)
         if preview:
-            text.append(f" {preview}", style="dim")
+            text.append(f" {preview}", style=MUTED)
         self._console.print(text)
 
     def tool_output(self, line: str) -> None:
         if not line:
             return
-        text = Text("  │ ", style="dim")
-        text.append(line, style="dim")
+        text = Text(f"  {TOOL_BORDER} ", style=MUTED)
+        text.append(line, style=MUTED)
         self._console.print(text)
 
     def tool_done(self, result: str) -> None:
@@ -279,28 +329,93 @@ class ReplyRenderer:
             elif len(lines[0]) > 72:
                 preview += "…"
 
-        style = "red" if result.startswith("error") else "dim"
-        text = Text("  ⎿ ", style=style)
+        is_error = result.startswith("error")
+        style = ERROR if is_error else MUTED
+
+        duration = ""
+        if self._last_tool_start is not None:
+            elapsed = time.monotonic() - self._last_tool_start
+            if elapsed >= 0.5:
+                duration = f" ({elapsed:.1f}s)"
+            self._last_tool_start = None
+
+        text = Text(f"  {TOOL_END} ", style=style)
         text.append(preview, style=style)
+        if duration:
+            text.append(duration, style=STATS)
         self._console.print(text)
 
     def error(self, message: str) -> None:
-        self._print_static_reasoning()
+        self._maybe_collapse()
         self._flush()
-        text = Text("✕ ", style="red")
-        text.append(message, style="red")
+        text = Text(f"{ERROR_MARKER} ", style=ERROR)
+        text.append(message, style=ERROR)
         self._console.print(text)
 
     def cancel(self) -> None:
-        self._print_static_reasoning()
+        self._maybe_collapse()
         self._flush()
-        self._console.print("[dim]cancelled[/dim]")
+        self._console.print(Text("cancelled", style=MUTED))
 
     def finish(self) -> None:
-        self._print_static_reasoning()
+        self._maybe_collapse()
         self._flush()
+
+        parts: list[str] = []
+        if self._response_start is not None:
+            elapsed = time.monotonic() - self._response_start
+            parts.append(f"{elapsed:.1f}s")
+        if self._usage:
+            token_str = _format_usage(self._usage)
+            if token_str:
+                parts.append(token_str)
+
+        if parts:
+            self._console.print(Text(" · ".join(parts), style=STATS))
+
         if not self._live_mode:
             self._console.print()
+
+    # -- Internal helpers ----------------------------------------------------
+
+    def _maybe_collapse(self) -> None:
+        """Collapse or print reasoning depending on mode."""
+        if self._live_mode:
+            self._collapse_thinking()
+        else:
+            self._print_static_reasoning()
+
+    def _collapse_thinking(self) -> None:
+        """In live mode: stop the spinner and print a one-line summary."""
+        if self._thinking_collapsed or not self._reasoning:
+            return
+        self._thinking_collapsed = True
+
+        if self._live is not None:
+            self._live.stop()
+            self._live = None
+
+        duration = ""
+        if self._thinking_start is not None:
+            elapsed = time.monotonic() - self._thinking_start
+            duration = f" for {elapsed:.1f}s"
+
+        self._console.print(Text(f"Thought{duration}", style=THINKING))
+        self._reasoning.clear()
+
+    def _print_static_reasoning(self) -> None:
+        """Non-live mode: print full reasoning content."""
+        if self._live_mode or self._printed_static_reasoning or not self._reasoning:
+            return
+
+        duration = ""
+        if self._thinking_start is not None:
+            elapsed = time.monotonic() - self._thinking_start
+            duration = f" ({elapsed:.1f}s)"
+
+        self._console.print(Text(f"Thinking{duration}", style=THINKING))
+        self._console.print("".join(self._reasoning), style="dim")
+        self._printed_static_reasoning = True
 
     def _ensure_live(self) -> None:
         if self._live is None:
@@ -318,24 +433,20 @@ class ReplyRenderer:
         self._reasoning.clear()
         self._text.clear()
         self._printed_static_reasoning = False
-
-    def _print_static_reasoning(self) -> None:
-        if self._live_mode or self._printed_static_reasoning or not self._reasoning:
-            return
-        self._console.print("Thinking", style="dim bold")
-        self._console.print("".join(self._reasoning), style="dim")
-        self._printed_static_reasoning = True
+        self._thinking_collapsed = False
+        self._thinking_start = None
 
     def _renderable(self):
+        # No content yet: plain spinner
         if not self._reasoning and not self._text:
             return Spinner("dots", style="dim")
 
-        parts = []
-        if self._reasoning:
-            reasoning = Text()
-            reasoning.append("Thinking\n", style="dim bold")
-            reasoning.append("".join(self._reasoning), style="dim")
-            parts.append(reasoning)
+        # Thinking in progress (no text yet): spinner with label
+        if self._reasoning and not self._text:
+            return Spinner("dots", text=Text(" Thinking…", style=THINKING), style="dim")
+
+        # Text streaming: render as markdown (thinking already collapsed)
         if self._text:
-            parts.append(Markdown("".join(self._text)))
-        return Group(*parts) if len(parts) > 1 else parts[0]
+            return Markdown("".join(self._text))
+
+        return Spinner("dots", style="dim")

@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import asyncio
-import shutil
 from collections.abc import Callable
 from typing import Any
 
 from prompt_toolkit import PromptSession
+from prompt_toolkit.completion import Completer, Completion
 from prompt_toolkit.formatted_text import ANSI
 from prompt_toolkit.history import FileHistory
 
@@ -17,9 +17,30 @@ from mycode.core.session import SessionStore
 
 from .render import ReplyRenderer, TerminalView
 from .runtime import ProviderOption, list_model_options, list_provider_options, update_agent_runtime
+from .theme import MUTED, TOOL_MARKER
 
 _PROMPT = ANSI("\033[1m\033[34m❯\033[0m ")
-_MAX_WIDTH = 88
+
+
+class _SlashCompleter(Completer):
+    """Auto-complete slash commands."""
+
+    _COMMANDS = {
+        "/clear": "Clear conversation",
+        "/new": "New session",
+        "/resume": "Switch session",
+        "/provider": "Switch provider",
+        "/model": "Switch model",
+        "/q": "Quit",
+    }
+
+    def get_completions(self, document, complete_event):
+        text = document.text_before_cursor.lstrip()
+        if not text.startswith("/"):
+            return
+        for cmd, desc in self._COMMANDS.items():
+            if cmd.startswith(text) and cmd != text:
+                yield Completion(cmd, start_position=-len(text), display_meta=desc)
 
 
 def history_file_path() -> str:
@@ -45,13 +66,13 @@ class TerminalChat:
         self.store = store
         self.session_id = session_id
         self.view = view or TerminalView()
-        self.prompt_session = PromptSession(history=FileHistory(history_file_path()))
+        self.prompt_session = PromptSession(history=FileHistory(history_file_path()), completer=_SlashCompleter())
 
     async def run(self) -> None:
         """Run the interactive chat loop until the user exits the terminal UI."""
 
         while True:
-            self.view.print_rule(width=min(shutil.get_terminal_size().columns, _MAX_WIDTH))
+            self.view.console.print()
 
             try:
                 user_input = await asyncio.get_event_loop().run_in_executor(
@@ -72,7 +93,7 @@ class TerminalChat:
                     return
                 continue
 
-            self.view.print_rule(width=min(shutil.get_terminal_size().columns, _MAX_WIDTH))
+            self.view.console.print()
             renderer = ReplyRenderer(self.view.console)
             try:
                 await renderer.render(self.agent, user_input, on_persist=self._persist_message)
@@ -106,7 +127,7 @@ class TerminalChat:
         if text in ("/c", "/clear"):
             await self.store.clear_session(self.session_id)
             self.agent.clear()
-            self.view.console.print("[green]⏺[/green] [dim]cleared[/dim]")
+            self.view.console.print(f"[green]{TOOL_MARKER}[/green] [dim]cleared[/dim]")
             return True
 
         if text == "/new":
@@ -142,10 +163,28 @@ class TerminalChat:
             return True
 
         if text.startswith("/"):
-            self.view.console.print("[dim]unknown: /c  /q  /new  /resume  /provider [name]  /model [name][/dim]")
+            self._print_help()
             return True
 
         return False
+
+    def _print_help(self) -> None:
+        from rich.text import Text
+
+        commands = [
+            ("/c, /clear", "Clear conversation"),
+            ("/new", "New session"),
+            ("/resume", "Switch session"),
+            ("/provider [name]", "Switch provider"),
+            ("/model [name]", "Switch model"),
+            ("/q", "Quit"),
+        ]
+        self.view.console.print()
+        for cmd, desc in commands:
+            line = Text()
+            line.append(f"  {cmd:<20}", style="bold")
+            line.append(desc, style=MUTED)
+            self.view.console.print(line)
 
     async def _start_new_session(self) -> None:
         data = await self.store.create_session(
@@ -313,11 +352,11 @@ class TerminalChat:
 
         if changed:
             self.view.console.print(
-                f"[green]⏺[/green] [dim]provider/model →[/dim] {self.agent.provider} / {self.agent.model}"
+                f"[green]{TOOL_MARKER}[/green] [dim]provider/model →[/dim] {self.agent.provider} / {self.agent.model}"
             )
         else:
             self.view.console.print(
-                f"[green]⏺[/green] [dim]already using[/dim] {self.agent.provider} / {self.agent.model}"
+                f"[green]{TOOL_MARKER}[/green] [dim]already using[/dim] {self.agent.provider} / {self.agent.model}"
             )
 
     async def _apply_model_change(self, model_name: str) -> None:
@@ -337,9 +376,9 @@ class TerminalChat:
             return
 
         if changed:
-            self.view.console.print(f"[green]⏺[/green] [dim]model →[/dim] {self.agent.model}")
+            self.view.console.print(f"[green]{TOOL_MARKER}[/green] [dim]model →[/dim] {self.agent.model}")
         else:
-            self.view.console.print(f"[green]⏺[/green] [dim]already using[/dim] {self.agent.model}")
+            self.view.console.print(f"[green]{TOOL_MARKER}[/green] [dim]already using[/dim] {self.agent.model}")
 
     def _current_provider_option(self) -> ProviderOption | None:
         for option in list_provider_options(self.agent.settings):
