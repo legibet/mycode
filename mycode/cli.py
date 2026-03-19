@@ -23,7 +23,6 @@ from mycode.core.agent import Agent
 from mycode.core.config import Settings, get_settings, resolve_mycode_home, resolve_provider
 from mycode.core.provider_registry import list_supported_providers, provider_default_models
 from mycode.core.session import SessionStore
-from mycode.server.app import create_app, frontend_dist_path
 
 console = Console(highlight=False)
 
@@ -923,13 +922,9 @@ def _run_web_command(*, cwd: str, hostname: str, port: int | None) -> None:
     settings = get_settings(cwd)
     resolved_port = port or settings.port
 
-    if not frontend_dist_path().exists():
-        console.print(
-            "[yellow]frontend build not found; starting API only. "
-            "Run `pnpm --dir mycode/frontend build` to serve the web UI.[/yellow]"
-        )
-
     import uvicorn
+
+    from mycode.server.app import create_app
 
     uvicorn.run(create_app(), host=hostname, port=resolved_port)
 
