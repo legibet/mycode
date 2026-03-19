@@ -13,9 +13,7 @@ from typing import Any
 from openai import APIError, AsyncOpenAI
 
 from mycode.core.messages import (
-    assistant_message as build_assistant_message,
-)
-from mycode.core.messages import (
+    assistant_message,
     text_block,
     thinking_block,
     tool_use_block,
@@ -127,7 +125,7 @@ class OpenAIChatAdapter(ProviderAdapter):
                 )
             )
 
-        final_message = build_assistant_message(
+        final_message = assistant_message(
             blocks,
             provider=self.provider_id,
             model=response_model or request.model,

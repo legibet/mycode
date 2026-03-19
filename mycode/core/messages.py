@@ -97,6 +97,8 @@ def assistant_message(
     usage: Any = None,
     native_meta: dict[str, Any] | None = None,
 ) -> ConversationMessage:
+    """Build a normalized assistant message with shared metadata fields."""
+
     meta: dict[str, Any] = {}
     if provider:
         meta["provider"] = provider

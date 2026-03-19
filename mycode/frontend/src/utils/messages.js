@@ -22,15 +22,15 @@ function createMessage(role, content = []) {
   return { role, content }
 }
 
-export function createTextBlock(text) {
+function createTextBlock(text) {
   return { type: 'text', text }
 }
 
-export function createThinkingBlock(text) {
+function createThinkingBlock(text) {
   return { type: 'thinking', text }
 }
 
-export function createToolUseBlock(toolCall) {
+function createToolUseBlock(toolCall) {
   return {
     type: 'tool_use',
     id: toolCall?.id || '',
@@ -39,7 +39,7 @@ export function createToolUseBlock(toolCall) {
   }
 }
 
-export function createToolResultBlock(toolUseId, content, isError = false) {
+function createToolResultBlock(toolUseId, content, isError = false) {
   return {
     type: 'tool_result',
     tool_use_id: toolUseId,
@@ -185,6 +185,10 @@ function updateRenderToolMessage(result, entry, runtime, toolResultBlock) {
   return updatedMessage
 }
 
+/**
+ * Derive renderable chat messages from canonical persisted messages plus
+ * ephemeral tool runtime state.
+ */
 export function buildRenderMessages(messages, toolRuntimeById = {}) {
   if (!Array.isArray(messages)) return []
 
@@ -240,6 +244,8 @@ export function buildRenderMessages(messages, toolRuntimeById = {}) {
           continue
         }
 
+        // Keep tool results visually attached to the assistant tool block even
+        // though they are persisted as a separate user message.
         const nextBlock = {
           type: 'tool_use',
           id: toolUseId || '',

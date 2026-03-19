@@ -160,6 +160,8 @@ function chatReducer(state, action) {
           result,
           isError: true,
         }
+        // Mirror the backend recovery path so interrupted streams still leave a
+        // closed tool loop in local UI state.
         if (!hasPersistedToolResult(rawMessages, toolUseId)) {
           rawMessages = appendToolResult(rawMessages, toolUseId, result, true)
         }
