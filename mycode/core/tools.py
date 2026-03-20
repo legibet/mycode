@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import json
 import os
+import signal
 import subprocess
 from collections import deque
 from collections.abc import Callable
@@ -219,14 +220,24 @@ def _full_output_note(path: Path | None, *, in_memory: bool) -> str:
 _ACTIVE_PROCS: set[subprocess.Popen] = set()
 
 
-def cancel_all_tools() -> None:
-    """Terminate all running bash subprocesses."""
-
-    for proc in list(_ACTIVE_PROCS):
+def _kill_proc_tree(proc: subprocess.Popen[Any]) -> None:
+    try:
+        if os.name == "posix":
+            os.killpg(proc.pid, signal.SIGKILL)
+        else:
+            proc.kill()
+    except Exception:
         try:
             proc.kill()
         except Exception:
             pass
+
+
+def cancel_all_tools() -> None:
+    """Terminate all running bash subprocesses."""
+
+    for proc in list(_ACTIVE_PROCS):
+        _kill_proc_tree(proc)
     _ACTIVE_PROCS.clear()
 
 
@@ -387,6 +398,7 @@ class ToolExecutor:
                 text=True,
                 bufsize=1,
                 universal_newlines=True,
+                start_new_session=os.name == "posix",
             )
             _ACTIVE_PROCS.add(proc)
 
@@ -423,7 +435,7 @@ class ToolExecutor:
             try:
                 proc.wait(timeout=timeout)
             except subprocess.TimeoutExpired:
-                proc.kill()
+                _kill_proc_tree(proc)
                 return f"error: timeout after {timeout}s"
 
             output_lines = list(tail_lines) if spilled_to_file else out_lines
@@ -456,10 +468,7 @@ class ToolExecutor:
             if proc:
                 _ACTIVE_PROCS.discard(proc)
                 if proc.poll() is None:
-                    try:
-                        proc.kill()
-                    except Exception:
-                        pass
+                    _kill_proc_tree(proc)
 
 
 def _closest_line_hint(text: str, needle: str) -> str | None:
