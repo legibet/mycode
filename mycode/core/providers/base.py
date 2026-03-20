@@ -26,6 +26,7 @@ DEFAULT_REQUEST_TIMEOUT = 300.0
 class ProviderRequest:
     provider: str
     model: str
+    session_id: str | None
     messages: list[ConversationMessage]
     system: str
     tools: list[dict[str, Any]]

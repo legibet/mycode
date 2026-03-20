@@ -30,6 +30,8 @@ THINKING_BUDGETS = {
     "xhigh": 32768,
 }
 
+CACHE_CONTROL_EPHEMERAL = {"type": "ephemeral"}
+
 
 class AnthropicLikeAdapter(ProviderAdapter):
     """Shared Messages adapter for Anthropic-compatible providers.
@@ -47,13 +49,22 @@ class AnthropicLikeAdapter(ProviderAdapter):
         return None
 
     def build_request_payload(self, request: ProviderRequest) -> dict[str, Any]:
+        messages = [self._serialize_message(message) for message in request.messages]
+        self._apply_cache_control(messages)
+
         payload: dict[str, Any] = {
             "model": request.model,
             "max_tokens": request.max_tokens,
-            "messages": [self._serialize_message(message) for message in request.messages],
+            "messages": messages,
         }
         if request.system:
-            payload["system"] = request.system
+            payload["system"] = [
+                {
+                    "type": "text",
+                    "text": request.system,
+                    "cache_control": dict(CACHE_CONTROL_EPHEMERAL),
+                }
+            ]
         if request.tools:
             payload["tools"] = [self._serialize_tool(tool) for tool in request.tools]
             payload["tool_choice"] = {"type": "auto"}
@@ -61,6 +72,26 @@ class AnthropicLikeAdapter(ProviderAdapter):
         if thinking is not None:
             payload["thinking"] = thinking
         return payload
+
+    def _apply_cache_control(self, messages: list[dict[str, Any]]) -> None:
+        for message in reversed(messages):
+            if message.get("role") != "user":
+                continue
+
+            content = message.get("content")
+            if not isinstance(content, list):
+                return
+
+            for block in reversed(content):
+                if not isinstance(block, dict):
+                    continue
+                if block.get("type") not in {"text", "image", "tool_result"}:
+                    continue
+
+                block["cache_control"] = dict(CACHE_CONTROL_EPHEMERAL)
+                return
+
+            return
 
     async def stream_turn(self, request: ProviderRequest) -> AsyncIterator[ProviderStreamEvent]:
         api_key = self.require_api_key(request.api_key)

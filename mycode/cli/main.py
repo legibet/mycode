@@ -133,6 +133,7 @@ def main() -> None:
         provider=resolved_provider.provider,
         cwd=cwd,
         session_dir=store.session_dir(resolved_session.session_id),
+        session_id=resolved_session.session_id,
         api_key=resolved_provider.api_key,
         api_base=resolved_provider.api_base,
         messages=resolved_session.messages,

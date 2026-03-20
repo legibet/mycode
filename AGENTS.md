@@ -107,6 +107,7 @@ Current built-in adapter ids:
 - implemented with the official `anthropic` Python SDK
 - uses the Messages API
 - default base URL: `https://api.anthropic.com`
+- Anthropic-style message adapters now add ephemeral `cache_control` to the system prompt block and the last user content block
 
 ### `moonshotai`
 
@@ -115,6 +116,7 @@ Current built-in adapter ids:
 - default API key env: `MOONSHOT_API_KEY`
 - for `kimi-k2.5`, the adapter explicitly enables thinking by default
 - real-provider testing showed that when thinking is enabled, prior reasoning must be replayed on later tool-loop turns
+- shares the Anthropic-like ephemeral prompt cache markers used by the direct Anthropic adapter
 
 ### `minimax`
 
@@ -123,6 +125,7 @@ Current built-in adapter ids:
 - default API key env: `MINIMAX_API_KEY`
 - preserves provider-native thinking signatures in block metadata
 - by default it relies on MiniMax's native thinking behavior unless an explicit reasoning mode is requested
+- shares the Anthropic-like ephemeral prompt cache markers used by the direct Anthropic adapter
 
 ### `openai`
 
@@ -131,6 +134,7 @@ Current built-in adapter ids:
 - default base URL: `https://api.openai.com/v1`
 - tool loops continue with `previous_response_id` + `function_call_output`
 - this adapter expects prior assistant messages from the same provider/session so it can reuse `provider_message_id`
+- requests also pass `prompt_cache_key` using the current session id
 
 ### `openai_chat`
 

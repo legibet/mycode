@@ -111,6 +111,7 @@ class TerminalChat:
             provider=self.agent.provider,
             cwd=self.agent.cwd,
             session_dir=self.store.session_dir(session_id),
+            session_id=session_id,
             api_key=self.agent.api_key,
             api_base=self.agent.api_base,
             messages=messages,

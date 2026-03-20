@@ -62,6 +62,7 @@ class OpenAIResponsesAdapter(ProviderAdapter):
             "input": input_items,
             "instructions": request.system or None,
             "previous_response_id": previous_response_id,
+            "prompt_cache_key": request.session_id or None,
             "max_output_tokens": request.max_tokens,
             "tools": [self._serialize_tool(tool) for tool in request.tools] or None,
             "tool_choice": "auto" if request.tools else None,

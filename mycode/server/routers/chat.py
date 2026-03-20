@@ -84,6 +84,7 @@ async def chat(chat: ChatRequest, store: StoreDep, runs: RunManagerDep):
         provider=resolved.provider,
         cwd=cwd,
         session_dir=store.session_dir(session_id),
+        session_id=session_id,
         api_key=resolved.api_key,
         api_base=resolved.api_base,
         messages=messages,

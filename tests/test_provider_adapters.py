@@ -3,6 +3,8 @@ from __future__ import annotations
 from typing import Any, cast
 
 from mycode.core.providers.anthropic import AnthropicAdapter
+from mycode.core.providers.minimax import MiniMaxAdapter
+from mycode.core.providers.moonshotai import MoonshotAIAdapter
 from mycode.core.providers.openai_chat import OpenAIChatAdapter
 from mycode.core.providers.openai_responses import OpenAIResponsesAdapter
 
@@ -64,6 +66,31 @@ def test_openai_responses_uses_previous_response_id_for_tool_results() -> None:
 
     assert previous_response_id == "resp_123"
     assert input_items == [{"type": "function_call_output", "call_id": "call_1", "output": "file contents"}]
+
+
+def test_openai_responses_build_request_payload_includes_prompt_cache_key() -> None:
+    adapter = OpenAIResponsesAdapter()
+    request = cast(
+        Any,
+        _Obj(
+            model="gpt-5.4",
+            session_id="session_123",
+            messages=[
+                {
+                    "role": "user",
+                    "content": [{"type": "text", "text": "hello"}],
+                }
+            ],
+            system="You are helpful.",
+            tools=[],
+            max_tokens=4096,
+            reasoning_effort=None,
+        ),
+    )
+
+    payload = adapter._build_request_payload(request)
+
+    assert payload["prompt_cache_key"] == "session_123"
 
 
 def test_openai_responses_converts_final_response_blocks() -> None:
@@ -136,3 +163,53 @@ def test_anthropic_build_request_payload_includes_reasoning_config() -> None:
     payload = adapter.build_request_payload(request)
 
     assert payload["thinking"] == {"type": "enabled", "budget_tokens": 24576}
+
+
+def test_anthropic_like_build_request_payload_adds_cache_control() -> None:
+    adapters = [AnthropicAdapter(), MoonshotAIAdapter(), MiniMaxAdapter()]
+
+    for adapter in adapters:
+        request = cast(
+            Any,
+            _Obj(
+                model="test-model",
+                max_tokens=4096,
+                system="You are helpful.",
+                tools=[],
+                reasoning_effort=None,
+                messages=[
+                    {
+                        "role": "user",
+                        "content": [{"type": "text", "text": "first user message"}],
+                    },
+                    {
+                        "role": "assistant",
+                        "content": [{"type": "text", "text": "assistant reply"}],
+                    },
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": "latest user message"},
+                            {
+                                "type": "tool_result",
+                                "tool_use_id": "call_1",
+                                "content": "tool output",
+                                "is_error": False,
+                            },
+                        ],
+                    },
+                ],
+            ),
+        )
+
+        payload = adapter.build_request_payload(request)
+
+        assert payload["system"] == [
+            {
+                "type": "text",
+                "text": "You are helpful.",
+                "cache_control": {"type": "ephemeral"},
+            }
+        ]
+        assert "cache_control" not in payload["messages"][0]["content"][0]
+        assert payload["messages"][2]["content"][1]["cache_control"] == {"type": "ephemeral"}

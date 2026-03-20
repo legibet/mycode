@@ -69,6 +69,7 @@ class Agent:
         model: str,
         cwd: str,
         session_dir: Path,
+        session_id: str | None = None,
         provider: str | None = None,
         api_key: str | None = None,
         api_base: str | None = None,
@@ -82,6 +83,7 @@ class Agent:
         self.provider = provider or "anthropic"
         self.cwd = str(Path(cwd).resolve(strict=False))
         self.session_dir = session_dir
+        self.session_id = (session_id or session_dir.name).strip() or None
         self.api_key = api_key
         self.api_base = api_base
         self.max_turns = max_turns
@@ -200,6 +202,7 @@ class Agent:
                     ProviderRequest(
                         provider=self.provider,
                         model=self.model,
+                        session_id=self.session_id,
                         messages=self.messages,
                         system=self.system,
                         tools=TOOLS,
