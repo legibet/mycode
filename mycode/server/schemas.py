@@ -32,6 +32,7 @@ class ToolCallPayload(BaseModel):
 class StreamEvent(BaseModel):
     """SSE event payload for chat streaming."""
 
+    seq: int | None = None
     type: str
     delta: str | None = None
     tool_call: ToolCallPayload | None = None

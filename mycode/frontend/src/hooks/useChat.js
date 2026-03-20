@@ -22,19 +22,6 @@ import {
 
 const EMPTY_SESSION = { id: 'default', title: 'New chat' }
 
-function hasPersistedToolResult(messages, toolUseId) {
-  if (!toolUseId) return false
-
-  return messages.some(
-    (message) =>
-      Array.isArray(message?.content) &&
-      message.content.some(
-        (block) =>
-          block?.type === 'tool_result' && block.tool_use_id === toolUseId,
-      ),
-  )
-}
-
 function chatReducer(state, action) {
   switch (action.type) {
     case 'set_messages': {
@@ -143,34 +130,6 @@ function chatReducer(state, action) {
 
       return { rawMessages, toolRuntimeById }
     }
-
-    case 'finalize_pending': {
-      const fallbackResult = action.result || ''
-      let changed = false
-      let rawMessages = [...state.rawMessages]
-      const toolRuntimeById = { ...state.toolRuntimeById }
-
-      for (const [toolUseId, runtime] of Object.entries(toolRuntimeById)) {
-        if (!runtime?.pending) continue
-
-        const result = runtime.result || fallbackResult
-        toolRuntimeById[toolUseId] = {
-          ...runtime,
-          pending: false,
-          result,
-          isError: true,
-        }
-        // Mirror the backend recovery path so interrupted streams still leave a
-        // closed tool loop in local UI state.
-        if (!hasPersistedToolResult(rawMessages, toolUseId)) {
-          rawMessages = appendToolResult(rawMessages, toolUseId, result, true)
-        }
-        changed = true
-      }
-
-      return changed ? { rawMessages, toolRuntimeById } : state
-    }
-
     default:
       return state
   }
@@ -186,9 +145,12 @@ export function useChat(config) {
   const [loading, setLoading] = useState(false)
   const [sessionLoading, setSessionLoading] = useState(false)
   const [connectionState, setConnectionState] = useState('idle')
-  const abortRef = useRef(null)
   const initRef = useRef(false)
   const cwdRef = useRef(config.cwd)
+  const activeSessionIdRef = useRef(EMPTY_SESSION.id)
+  const streamAbortRef = useRef(null)
+  const streamTokenRef = useRef(0)
+  const activeRunRef = useRef(null)
 
   const messages = useMemo(
     () => buildRenderMessages(chatState.rawMessages, chatState.toolRuntimeById),
@@ -217,33 +179,34 @@ export function useChat(config) {
     }
   }, [config.cwd])
 
-  const send = useCallback(
-    async (input) => {
-      if (!input.trim() || loading) return
+  const stopStreaming = useCallback(() => {
+    streamTokenRef.current += 1
+    streamAbortRef.current?.abort()
+    streamAbortRef.current = null
+    activeRunRef.current = null
+    setLoading(false)
+  }, [])
 
+  const streamRun = useCallback(
+    async (run, sessionId, after = 0) => {
+      const runId = run?.id
+      if (!runId) return
+
+      streamTokenRef.current += 1
+      const token = streamTokenRef.current
+      streamAbortRef.current?.abort()
+
+      const controller = new AbortController()
+      streamAbortRef.current = controller
+      activeRunRef.current = run
       setLoading(true)
       setConnectionState('ready')
-      dispatch({ type: 'append_user', content: input })
-      dispatch({ type: 'start_assistant' })
 
-      let aborted = false
       try {
-        abortRef.current = new AbortController()
-        const res = await fetch('/api/chat', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            session_id: activeSession.id,
-            message: input,
-            provider: config.provider || undefined,
-            model: config.model || undefined,
-            cwd: config.cwd,
-            api_key: config.apiKey || undefined,
-            api_base: config.apiBase || undefined,
-          }),
-          signal: abortRef.current.signal,
-        })
-
+        const res = await fetch(
+          `/api/runs/${encodeURIComponent(runId)}/stream?after=${after}`,
+          { signal: controller.signal },
+        )
         if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`)
 
         const reader = res.body.getReader()
@@ -262,42 +225,154 @@ export function useChat(config) {
             if (!line.startsWith('data: ')) continue
             const data = line.slice(6)
             if (data === '[DONE]') continue
+
             try {
-              dispatch({ type: 'apply_event', event: JSON.parse(data) })
+              const event = JSON.parse(data)
+              if (
+                streamTokenRef.current !== token ||
+                activeSessionIdRef.current !== sessionId
+              ) {
+                continue
+              }
+              dispatch({ type: 'apply_event', event })
             } catch (e) {
               console.error('Parse error:', e)
             }
           }
         }
       } catch (e) {
-        if (e.name === 'AbortError') {
-          aborted = true
-        } else {
+        if (e.name !== 'AbortError') {
+          if (
+            streamTokenRef.current === token &&
+            activeSessionIdRef.current === sessionId
+          ) {
+            setConnectionState('error')
+            dispatch({
+              type: 'apply_event',
+              event: {
+                type: 'error',
+                message: 'Stream disconnected. Reload the session to resume.',
+              },
+            })
+          }
+        }
+      } finally {
+        if (streamTokenRef.current === token) {
+          streamAbortRef.current = null
+          activeRunRef.current = null
+
+          if (activeSessionIdRef.current === sessionId) {
+            setLoading(false)
+          }
+
+          fetchSessions()
+        }
+      }
+    },
+    [fetchSessions],
+  )
+
+  const loadSession = useCallback(
+    async (sessionId) => {
+      const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}`)
+      if (!res.ok) throw new Error('Failed to load session')
+
+      const data = await res.json()
+      if (!data.session) return null
+
+      setConnectionState('ready')
+      activeSessionIdRef.current = data.session.id
+      setActiveSession(data.session)
+      dispatch({ type: 'set_messages', messages: data.messages || [] })
+
+      const pendingEvents = Array.isArray(data.pending_events)
+        ? data.pending_events
+        : []
+      for (const event of pendingEvents) {
+        dispatch({ type: 'apply_event', event })
+      }
+
+      const run = data.active_run || null
+      activeRunRef.current = run
+
+      if (run?.id) {
+        const lastSeq = pendingEvents.at(-1)?.seq || 0
+        streamRun(run, data.session.id, lastSeq)
+      } else {
+        setLoading(false)
+      }
+
+      return data
+    },
+    [streamRun],
+  )
+
+  const send = useCallback(
+    async (input) => {
+      const content = input.trim()
+      if (!content || loading) return
+
+      const sessionId = activeSession.id
+      setLoading(true)
+      setConnectionState('ready')
+
+      try {
+        const res = await fetch('/api/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            session_id: sessionId,
+            message: content,
+            provider: config.provider || undefined,
+            model: config.model || undefined,
+            cwd: config.cwd,
+            api_key: config.apiKey || undefined,
+            api_base: config.apiBase || undefined,
+          }),
+        })
+
+        const data = await res.json()
+
+        if (!res.ok) {
+          const existingRun = data?.detail?.run
+          if (res.status === 409 && existingRun?.id) {
+            if (activeSessionIdRef.current === sessionId) {
+              streamRun(existingRun, sessionId, existingRun.last_seq || 0)
+            }
+            return
+          }
+          throw new Error(data?.detail?.message || 'Failed to start task')
+        }
+
+        if (activeSessionIdRef.current !== sessionId) {
+          fetchSessions()
+          return
+        }
+
+        dispatch({ type: 'append_user', content })
+        dispatch({ type: 'start_assistant' })
+        streamRun(data.run, sessionId, 0)
+      } catch (e) {
+        if (activeSessionIdRef.current === sessionId) {
+          setLoading(false)
           setConnectionState('error')
           dispatch({
             type: 'apply_event',
             event: { type: 'error', message: e.message },
           })
-          dispatch({ type: 'finalize_pending', result: `error: ${e.message}` })
         }
-      } finally {
-        dispatch({
-          type: 'finalize_pending',
-          result: aborted ? 'error: cancelled' : 'error: stream ended',
-        })
-        setLoading(false)
-        fetchSessions()
       }
     },
-    [activeSession.id, config, fetchSessions, loading],
+    [activeSession.id, config, fetchSessions, loading, streamRun],
   )
 
   const clear = useCallback(async () => {
     try {
-      await fetch(
+      const res = await fetch(
         `/api/sessions/${encodeURIComponent(activeSession.id)}/clear`,
         { method: 'POST' },
       )
+      if (!res.ok) throw new Error('Failed to clear session')
       dispatch({ type: 'set_messages', messages: [] })
     } catch (e) {
       console.error('Failed to clear:', e)
@@ -305,23 +380,25 @@ export function useChat(config) {
   }, [activeSession.id])
 
   const cancel = useCallback(async () => {
-    abortRef.current?.abort()
-    setLoading(false)
-    dispatch({ type: 'finalize_pending', result: 'error: cancelled' })
+    const runId = activeRunRef.current?.id
+    if (!runId) return
+
     try {
-      await fetch(
-        `/api/cancel?session_id=${encodeURIComponent(activeSession.id)}`,
-        { method: 'POST' },
-      )
+      await fetch(`/api/runs/${encodeURIComponent(runId)}/cancel`, {
+        method: 'POST',
+      })
     } catch (e) {
       console.error('Failed to cancel:', e)
     }
-  }, [activeSession.id])
+  }, [])
 
   const createSession = useCallback(async () => {
     if (sessionLoading) return
+
+    stopStreaming()
     initRef.current = true
     setSessionLoading(true)
+
     try {
       const res = await fetch('/api/sessions', {
         method: 'POST',
@@ -334,57 +411,67 @@ export function useChat(config) {
         }),
       })
       if (!res.ok) throw new Error('Failed to create session')
+
       const data = await res.json()
       if (data.session) {
+        activeSessionIdRef.current = data.session.id
         setActiveSession(data.session)
         dispatch({ type: 'set_messages', messages: [] })
         setSessions((prev) => [
           data.session,
-          ...prev.filter((s) => s.id !== data.session.id),
+          ...prev.filter((session) => session.id !== data.session.id),
         ])
       }
+
       await fetchSessions()
     } catch (e) {
       console.error('Failed to create session:', e)
     } finally {
       setSessionLoading(false)
     }
-  }, [config, fetchSessions, sessionLoading])
+  }, [config, fetchSessions, sessionLoading, stopStreaming])
 
   const selectSession = useCallback(
     async (sessionId) => {
       if (!sessionId || sessionId === activeSession.id) return
+
+      stopStreaming()
       initRef.current = true
       setSessionLoading(true)
+
       try {
-        const res = await fetch(
-          `/api/sessions/${encodeURIComponent(sessionId)}`,
-        )
-        if (!res.ok) throw new Error('Failed to load session')
-        const data = await res.json()
-        if (data.session) {
-          setActiveSession(data.session)
-          dispatch({ type: 'set_messages', messages: data.messages || [] })
-        }
+        await loadSession(sessionId)
       } catch (e) {
         console.error('Failed to load session:', e)
       } finally {
         setSessionLoading(false)
       }
     },
-    [activeSession.id],
+    [activeSession.id, loadSession, stopStreaming],
   )
 
   const deleteSession = useCallback(
     async (sessionId) => {
-      if (!sessionId || sessions.length === 1 || sessionId === activeSession.id)
+      if (
+        !sessionId ||
+        sessions.length === 1 ||
+        sessionId === activeSession.id
+      ) {
         return
+      }
+
       setSessionLoading(true)
       try {
-        await fetch(`/api/sessions/${encodeURIComponent(sessionId)}`, {
-          method: 'DELETE',
-        })
-        setSessions((prev) => prev.filter((s) => s.id !== sessionId))
+        const res = await fetch(
+          `/api/sessions/${encodeURIComponent(sessionId)}`,
+          {
+            method: 'DELETE',
+          },
+        )
+        if (!res.ok) throw new Error('Failed to delete session')
+        setSessions((prev) =>
+          prev.filter((session) => session.id !== sessionId),
+        )
       } catch (e) {
         console.error('Failed to delete session:', e)
       } finally {
@@ -396,6 +483,7 @@ export function useChat(config) {
 
   const initializeSessions = useCallback(async () => {
     if (initRef.current) return
+
     initRef.current = true
     try {
       const list = await fetchSessions()
@@ -403,12 +491,16 @@ export function useChat(config) {
         await createSession()
         return
       }
-      if (list.some((s) => s.id === activeSession.id)) return
-      await selectSession(list[0].id)
+      if (list.some((session) => session.id === activeSession.id)) return
+      await loadSession(list[0].id)
     } catch (e) {
       console.error('Failed to initialize sessions:', e)
     }
-  }, [activeSession.id, createSession, fetchSessions, selectSession])
+  }, [activeSession.id, createSession, fetchSessions, loadSession])
+
+  useEffect(() => {
+    activeSessionIdRef.current = activeSession.id
+  }, [activeSession.id])
 
   useEffect(() => {
     initializeSessions()
@@ -416,13 +508,22 @@ export function useChat(config) {
 
   useEffect(() => {
     if (cwdRef.current === config.cwd) return
+
+    stopStreaming()
     cwdRef.current = config.cwd
     initRef.current = false
     dispatch({ type: 'set_messages', messages: [] })
     setSessions([])
     setActiveSession(EMPTY_SESSION)
+    activeSessionIdRef.current = EMPTY_SESSION.id
     initializeSessions()
-  }, [config.cwd, initializeSessions])
+  }, [config.cwd, initializeSessions, stopStreaming])
+
+  useEffect(() => {
+    return () => {
+      stopStreaming()
+    }
+  }, [stopStreaming])
 
   return {
     messages,
