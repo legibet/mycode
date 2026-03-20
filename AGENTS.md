@@ -196,6 +196,8 @@ Important behavior:
 
 - explicit request args override config
 - API keys may come from provider-specific env vars
+- `providers.<name>.api_key` may also reference an exact env var with `${ENV_NAME}`
+- when config uses `${ENV_NAME}`, that referenced env var takes priority over the provider's built-in default API key env var
 - provider/model/base URL are not loaded from env vars automatically
 - raw provider ids are allowed if they exist in the registry
 - fallback provider/model are currently `anthropic` + `claude-sonnet-4-6`

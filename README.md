@@ -117,4 +117,7 @@ Provider/model/base URL are not loaded from environment variables.
 API keys:
 
 - `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `MOONSHOT_API_KEY` / `MINIMAX_API_KEY`
+- `providers.<name>.api_key` also supports exact env references like `${OPENROUTER_API_KEY}`
+- when config uses `${ENV_NAME}`, that referenced env var is used before the provider's built-in default API key env var
+- if `${ENV_NAME}` is configured but missing at runtime, startup fails with a clear error
 - Or pass `api_key` from the web UI (per request)

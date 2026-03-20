@@ -180,6 +180,78 @@ class TestGetSettings:
 
         assert resolved.api_key == "request-key"
 
+    def test_resolve_provider_uses_configured_api_key_env_var_before_default_env(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        home = tmp_path / "home"
+        workspace = tmp_path / "workspace"
+        workspace.mkdir()
+
+        monkeypatch.setenv("MYCODE_HOME", str(home / ".mycode"))
+        monkeypatch.setenv("OPENAI_API_KEY", "default-env-key")
+        monkeypatch.setenv("OPENROUTER_API_KEY", "router-env-key")
+
+        _write(
+            home / ".mycode" / "config.json",
+            """
+            {
+              "providers": {
+                "router": {
+                  "type": "openai_chat",
+                  "api_key": "${OPENROUTER_API_KEY}",
+                  "base_url": "https://openrouter.ai/api/v1",
+                  "models": ["openai/gpt-5"]
+                }
+              },
+              "default": {
+                "provider": "router",
+                "model": "openai/gpt-5"
+              }
+            }
+            """,
+        )
+
+        settings = get_settings(str(workspace))
+        resolved = resolve_provider(settings)
+
+        assert resolved.api_key == "router-env-key"
+
+    def test_resolve_provider_errors_when_configured_api_key_env_var_is_missing(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        home = tmp_path / "home"
+        workspace = tmp_path / "workspace"
+        workspace.mkdir()
+
+        monkeypatch.setenv("MYCODE_HOME", str(home / ".mycode"))
+        monkeypatch.setenv("OPENAI_API_KEY", "default-env-key")
+        monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+
+        _write(
+            home / ".mycode" / "config.json",
+            """
+            {
+              "providers": {
+                "router": {
+                  "type": "openai_chat",
+                  "api_key": "${OPENROUTER_API_KEY}",
+                  "base_url": "https://openrouter.ai/api/v1",
+                  "models": ["openai/gpt-5"]
+                }
+              },
+              "default": {
+                "provider": "router",
+                "model": "openai/gpt-5"
+              }
+            }
+            """,
+        )
+
+        settings = get_settings(str(workspace))
+
+        with pytest.raises(ValueError, match="OPENROUTER_API_KEY"):
+            resolve_provider(settings)
+
     def test_ignores_agents_config(self, tmp_path: Path, monkeypatch) -> None:
         home = tmp_path / "home"
         workspace = tmp_path / "workspace"

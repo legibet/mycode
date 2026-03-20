@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -18,6 +19,7 @@ from mycode.core.provider_registry import (
 )
 
 _DEFAULT_MYCODE_HOME = "~/.mycode"
+_API_KEY_ENV_REF_RE = re.compile(r"^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$")
 
 
 @dataclass(frozen=True)
@@ -26,6 +28,7 @@ class ProviderConfig:
     type: str  # internal provider adapter id: anthropic | moonshotai | minimax | …
     models: list[str]  # available model names (no provider prefix)
     api_key: str | None = None
+    api_key_env_var: str | None = None
     base_url: str | None = None
     reasoning_effort: str | None = None
 
@@ -89,6 +92,21 @@ def _load_json(path: Path) -> dict[str, Any] | None:
         return None
 
 
+def _parse_config_api_key(value: Any) -> tuple[str | None, str | None]:
+    if not isinstance(value, str):
+        return None, None
+
+    cleaned = value.strip()
+    if not cleaned:
+        return None, None
+
+    match = _API_KEY_ENV_REF_RE.fullmatch(cleaned)
+    if match:
+        return None, match.group(1)
+
+    return cleaned, None
+
+
 def _parse_layer(path: Path, data: dict[str, Any]) -> _ConfigLayer:
     providers: dict[str, dict[str, Any]] = {}
     for name, raw in (data.get("providers") or {}).items():
@@ -101,7 +119,9 @@ def _parse_layer(path: Path, data: dict[str, Any]) -> _ConfigLayer:
         if "models" in raw:
             provider["models"] = _normalize_models(raw.get("models"))
         if "api_key" in raw:
-            provider["api_key"] = raw.get("api_key") or None
+            api_key, api_key_env_var = _parse_config_api_key(raw.get("api_key"))
+            provider["api_key"] = api_key
+            provider["api_key_env_var"] = api_key_env_var
         if "base_url" in raw:
             provider["base_url"] = raw.get("base_url") or None
         if "reasoning_effort" in raw:
@@ -161,6 +181,7 @@ def _build_providers(raw_providers: dict[str, dict[str, Any]]) -> dict[str, Prov
             type=provider_type,
             models=models,
             api_key=raw.get("api_key") or None,
+            api_key_env_var=raw.get("api_key_env_var") or None,
             base_url=raw.get("base_url") or None,
             reasoning_effort=raw.get("reasoning_effort") or None,
         )
@@ -171,7 +192,24 @@ def _env_api_key_for_provider(provider_type: str | None) -> str | None:
     return provider_api_key_from_env(provider_type)
 
 
+def _config_api_key_from_env_var(provider: ProviderConfig, *, require: bool = False) -> str | None:
+    env_name = provider.api_key_env_var
+    if not env_name:
+        return None
+
+    value = (os.environ.get(env_name) or "").strip()
+    if value:
+        return value
+
+    if require:
+        raise ValueError(f"missing API key env var {env_name!r} referenced by provider {provider.name!r}")
+
+    return None
+
+
 def provider_has_api_key(provider: ProviderConfig) -> bool:
+    if provider.api_key_env_var:
+        return bool(_config_api_key_from_env_var(provider))
     return bool(_env_api_key_for_provider(provider.type) or provider.api_key)
 
 
@@ -262,10 +300,15 @@ def resolve_provider(
     if model_metadata and model_metadata.supports_reasoning is False:
         reasoning_effort = None
 
+    config_env_api_key = _config_api_key_from_env_var(cfg, require=True) if cfg else None
+
     return ResolvedProvider(
         provider=resolved_provider,
         model=resolved_model,
-        api_key=api_key or _env_api_key_for_provider(resolved_provider) or (cfg.api_key if cfg else None),
+        api_key=api_key
+        or config_env_api_key
+        or _env_api_key_for_provider(resolved_provider)
+        or (cfg.api_key if cfg else None),
         api_base=resolved_api_base,
         reasoning_effort=reasoning_effort,
         max_tokens=model_metadata.max_output_tokens if model_metadata and model_metadata.max_output_tokens else 8192,
