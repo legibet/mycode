@@ -17,6 +17,7 @@ from mycode.core.agent import Agent
 
 from .theme import (
     ACCENT,
+    CODE_THEME,
     ERROR,
     ERROR_MARKER,
     MUTED,
@@ -399,9 +400,9 @@ class ReplyRenderer:
         duration = ""
         if self._thinking_start is not None:
             elapsed = time.monotonic() - self._thinking_start
-            duration = f" for {elapsed:.1f}s"
+            duration = f" {elapsed:.1f}s"
 
-        self._console.print(Text(f"Thought{duration}", style=THINKING))
+        self._console.print(Text(f"thought{duration}", style=THINKING))
         self._reasoning.clear()
 
     def _print_static_reasoning(self) -> None:
@@ -414,7 +415,7 @@ class ReplyRenderer:
             elapsed = time.monotonic() - self._thinking_start
             duration = f" ({elapsed:.1f}s)"
 
-        self._console.print(Text(f"Thinking{duration}", style=THINKING))
+        self._console.print(Text(f"thinking{duration}", style=THINKING))
         self._console.print("".join(self._reasoning), style="dim")
         self._printed_static_reasoning = True
 
@@ -442,12 +443,18 @@ class ReplyRenderer:
         if not self._reasoning and not self._text:
             return Spinner("dots", style="dim")
 
-        # Thinking in progress (no text yet): spinner with label
+        # Thinking in progress: show rolling preview of reasoning content
         if self._reasoning and not self._text:
-            return Spinner("dots", text=Text(" Thinking…", style=THINKING), style="dim")
+            content = " ".join("".join(self._reasoning).split())
+            if content:
+                preview = content[-80:].strip()
+                if len(content) > 80:
+                    preview = "…" + preview
+                return Spinner("dots", text=Text(f" {preview}", style=THINKING), style="dim")
+            return Spinner("dots", text=Text(" thinking…", style=THINKING), style="dim")
 
         # Text streaming: render as markdown (thinking already collapsed)
         if self._text:
-            return Markdown("".join(self._text))
+            return Markdown("".join(self._text), code_theme=CODE_THEME)
 
         return Spinner("dots", style="dim")
