@@ -10,6 +10,7 @@ from prompt_toolkit import PromptSession
 from prompt_toolkit.completion import Completer, Completion
 from prompt_toolkit.formatted_text import ANSI
 from prompt_toolkit.history import FileHistory
+from rich.text import Text
 
 from mycode.core.agent import Agent
 from mycode.core.config import resolve_mycode_home
@@ -17,7 +18,7 @@ from mycode.core.session import SessionStore
 
 from .render import ReplyRenderer, TerminalView
 from .runtime import ProviderOption, list_model_options, list_provider_options, update_agent_runtime
-from .theme import MUTED, TOOL_MARKER
+from .theme import MUTED, SUCCESS, TOOL_MARKER, TOOL_NAME
 
 _PROMPT = ANSI("\033[1m\033[34m❯\033[0m ")
 
@@ -262,21 +263,25 @@ class TerminalChat:
 
     async def _switch_provider(self) -> None:
         options = list_provider_options(self.agent.settings)
-        self.view.console.print("[dim]switch provider: enter number, provider name, or blank to cancel[/dim]")
+        name_width = max((len(o.name) for o in options), default=10)
 
+        self.view.console.print()
         for index, option in enumerate(options, start=1):
-            marker = "*" if option.provider == self.agent.provider and option.api_base == self.agent.api_base else " "
-            label = option.name if option.name == option.provider else f"{option.name} ({option.provider})"
-            models = ", ".join(option.models[:3])
-            if len(option.models) > 3:
-                models += f" +{len(option.models) - 3}"
-            suffix = f" [{models}]" if models else ""
-            self.view.console.print(f"  {marker}{index:>2}  {label}{suffix}")
+            is_current = option.provider == self.agent.provider and option.api_base == self.agent.api_base
+            line = Text()
+            line.append("  ● " if is_current else "    ", style=SUCCESS if is_current else "")
+            line.append(f"{index}  ", style=MUTED)
+            line.append(f"{option.name:<{name_width}}", style=TOOL_NAME)
+            if option.models:
+                models = "  ".join(option.models[:3])
+                if len(option.models) > 3:
+                    models += f"  +{len(option.models) - 3}"
+                line.append(f"  {models}", style=MUTED)
+            self.view.console.print(line)
 
         while True:
             selection = await self._prompt("\033[1mprovider>\033[0m ")
             if not selection:
-                self.view.console.print("[dim]provider switch cancelled[/dim]")
                 return
 
             try:
@@ -288,15 +293,13 @@ class TerminalChat:
                 continue
 
             if option is None:
-                self.view.console.print("[dim]unknown provider selection[/dim]")
+                self.view.console.print(f"[red]unknown provider: {selection}[/red]")
                 continue
 
             await self._apply_provider_change(option.name)
             return
 
     async def _switch_model(self) -> None:
-        option = self._current_provider_option()
-        provider_name = option.name if option else self.agent.provider
         models = list_model_options(
             self.agent.settings,
             provider=self.agent.provider,
@@ -307,21 +310,18 @@ class TerminalChat:
             self.view.console.print("[dim]no configured models for the current provider[/dim]")
             return
 
-        provider_label = provider_name
-        if option and option.name != option.provider:
-            provider_label = f"{option.name} ({option.provider})"
-
-        self.view.console.print(
-            f"[dim]switch model for {provider_label}: enter number, model name, or blank to cancel[/dim]"
-        )
+        self.view.console.print()
         for index, model in enumerate(models, start=1):
-            marker = "*" if model == self.agent.model else " "
-            self.view.console.print(f"  {marker}{index:>2}  {model}")
+            is_current = model == self.agent.model
+            line = Text()
+            line.append("  ● " if is_current else "    ", style=SUCCESS if is_current else "")
+            line.append(f"{index}  ", style=MUTED)
+            line.append(model, style=TOOL_NAME if is_current else "")
+            self.view.console.print(line)
 
         while True:
             selection = await self._prompt("\033[1mmodel>\033[0m ")
             if not selection:
-                self.view.console.print("[dim]model switch cancelled[/dim]")
                 return
 
             try:
@@ -331,7 +331,7 @@ class TerminalChat:
                 continue
 
             if model is None:
-                self.view.console.print("[dim]unknown model selection[/dim]")
+                self.view.console.print(f"[red]unknown model: {selection}[/red]")
                 continue
 
             await self._apply_model_change(model)
