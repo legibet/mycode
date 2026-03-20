@@ -75,8 +75,7 @@ archive/
 legacy/
 
 # Local data
-mycode/data/
-.cli_history
+/mycode/server/static/
 
 # Config with secrets (use config.example.json as template)
 config.json

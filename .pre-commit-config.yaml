@@ -27,4 +27,4 @@ repos:
       - id: biome-check
         additional_dependencies: ["@biomejs/biome@2.4.7"]
         args: ["--config-path=biome.json"]
-        files: ^mycode/frontend/
+        files: ^frontend/

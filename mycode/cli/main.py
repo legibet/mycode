@@ -52,6 +52,11 @@ def create_parser() -> argparse.ArgumentParser:
     web_parser = subparsers.add_parser("web", help="Start the web server")
     web_parser.add_argument("--hostname", default="127.0.0.1", help="Hostname to listen on")
     web_parser.add_argument("--port", type=int, help="Port to listen on")
+    web_parser.add_argument(
+        "--dev",
+        action="store_true",
+        help="Start API-only backend for frontend dev server workflows",
+    )
 
     session_parser = subparsers.add_parser("session", help="Session management commands")
     session_subparsers = session_parser.add_subparsers(dest="session_command", required=True)
@@ -70,7 +75,7 @@ async def run_once(agent: Agent, *, store: SessionStore, session_id: str, messag
     return await renderer.render(agent, message, on_persist=persist)
 
 
-def run_web_server(*, cwd: str, hostname: str, port: int | None) -> None:
+def run_web_server(*, cwd: str, hostname: str, port: int | None, dev: bool) -> None:
     """Start the shared FastAPI app used by the web interface."""
 
     settings = get_settings(cwd)
@@ -82,7 +87,7 @@ def run_web_server(*, cwd: str, hostname: str, port: int | None) -> None:
     # server logging or other web-only side effects.
     from mycode.server.app import create_app
 
-    uvicorn.run(create_app(), host=hostname, port=resolved_port)
+    uvicorn.run(create_app(serve_frontend=not dev), host=hostname, port=resolved_port)
 
 
 def main() -> None:
@@ -93,7 +98,7 @@ def main() -> None:
     cwd = os.path.abspath(os.getcwd())
 
     if args.command == "web":
-        run_web_server(cwd=cwd, hostname=args.hostname, port=args.port)
+        run_web_server(cwd=cwd, hostname=args.hostname, port=args.port, dev=args.dev)
         return
 
     store = SessionStore()

@@ -127,6 +127,15 @@ def test_create_parser_rejects_non_positive_max_turns():
         parser.parse_args(["run", "--max-turns", "0", "hello"])
 
 
+def test_create_parser_accepts_web_dev_flag():
+    parser = create_parser()
+
+    args = parser.parse_args(["web", "--dev"])
+
+    assert args.command == "web"
+    assert args.dev is True
+
+
 def test_history_file_path_uses_mycode_home(tmp_path, monkeypatch):
     mycode_home = tmp_path / ".mycode"
     monkeypatch.setenv("MYCODE_HOME", str(mycode_home))

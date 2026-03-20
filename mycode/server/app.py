@@ -1,5 +1,6 @@
 """FastAPI application entry point."""
 
+import logging
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -9,14 +10,16 @@ from fastapi.staticfiles import StaticFiles
 from mycode.core.config import setup_logging
 from mycode.server.routers import chat_router, sessions_router, workspaces_router
 
-
-def frontend_dist_path() -> Path:
-    """Return the built frontend directory."""
-
-    return Path(__file__).resolve().parent.parent / "frontend" / "dist"
+logger = logging.getLogger(__name__)
 
 
-def create_app() -> FastAPI:
+def frontend_static_path() -> Path:
+    """Return the packaged frontend static directory."""
+
+    return Path(__file__).resolve().parent / "static"
+
+
+def create_app(*, serve_frontend: bool = True) -> FastAPI:
     """Create FastAPI application."""
     setup_logging()
     application = FastAPI(title="mycode")
@@ -33,10 +36,15 @@ def create_app() -> FastAPI:
     application.include_router(sessions_router, prefix="/api")
     application.include_router(workspaces_router, prefix="/api")
 
-    # Serve frontend static files if built
-    frontend_dist = frontend_dist_path()
-    if frontend_dist.exists():
-        application.mount("/", StaticFiles(directory=str(frontend_dist), html=True), name="frontend")
+    if not serve_frontend:
+        logger.info("frontend disabled; starting in API-only mode")
+        return application
+
+    frontend_static = frontend_static_path()
+    if frontend_static.is_dir():
+        application.mount("/", StaticFiles(directory=str(frontend_static), html=True), name="frontend")
+    else:
+        logger.warning("frontend assets not found at %s; starting in API-only mode", frontend_static)
 
     return application
 

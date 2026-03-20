@@ -65,6 +65,12 @@ def resolve_mycode_home() -> Path:
     return Path(raw).expanduser().resolve(strict=False)
 
 
+def resolve_sessions_dir() -> Path:
+    """Resolve the default directory used for persisted sessions."""
+
+    return resolve_mycode_home() / "sessions"
+
+
 def find_workspace_root(cwd: str) -> Path:
     """Resolve the project/workspace root for the current cwd."""
 

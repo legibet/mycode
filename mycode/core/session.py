@@ -7,7 +7,7 @@ Inspired by pi/mom design principles:
 
 On disk:
 
-mycode/data/sessions/<session_id>/
+~/.mycode/sessions/<session_id>/
   meta.json
   messages.jsonl   # Internal message/block dicts (excluding system prompt)
   tool-output/     # large bash outputs (referenced by tool results)
@@ -23,6 +23,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
 
+from mycode.core.config import resolve_sessions_dir
 from mycode.core.messages import flatten_message_text
 
 MESSAGE_FORMAT_VERSION = 3
@@ -50,7 +51,7 @@ class SessionMeta:
 class SessionStore:
     """File-based session store with a small in-memory cache."""
 
-    data_dir: Path = field(default_factory=lambda: Path(__file__).resolve().parent.parent / "data" / "sessions")
+    data_dir: Path = field(default_factory=resolve_sessions_dir)
 
     def __post_init__(self) -> None:
         self.data_dir.mkdir(parents=True, exist_ok=True)

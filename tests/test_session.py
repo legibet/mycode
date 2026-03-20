@@ -2,7 +2,6 @@
 
 import asyncio
 import json
-import os
 import tempfile
 from pathlib import Path
 
@@ -28,6 +27,16 @@ def sample_session(temp_store):
         cwd="/tmp",
         api_base=None,
     )
+
+
+def test_default_store_uses_mycode_home(tmp_path, monkeypatch):
+    mycode_home = tmp_path / ".mycode"
+    monkeypatch.setenv("MYCODE_HOME", str(mycode_home))
+
+    store = SessionStore()
+
+    assert store.data_dir == (mycode_home / "sessions").resolve()
+    assert store.data_dir.exists()
 
 
 class TestSessionStore:

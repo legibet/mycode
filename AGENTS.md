@@ -169,7 +169,7 @@ Adapters convert this to the upstream provider format:
 `mycode/core/session.py` stores sessions under:
 
 ```text
-mycode/data/sessions/<session_id>/
+~/.mycode/sessions/<session_id>/
   meta.json
   messages.jsonl
   tool-output/
@@ -220,11 +220,12 @@ Important behavior:
 
 ### CLI
 
-`mycode/cli.py`
+`mycode/cli/main.py`
 
 - defaults to interactive mode with `mycode`
 - supports one-shot runs with `mycode run "..."`
 - supports web serving with `mycode web`
+- `mycode web --dev` starts the backend in API-only mode for Vite frontend development
 - contains the terminal entry flow, rendering, and interactive chat loop
 - default startup creates a fresh session
 - resume is explicit via `--continue`, `--session`, or `/resume`
@@ -233,7 +234,9 @@ Important behavior:
 
 ### Frontend
 
-Current frontend message reconstruction is in `mycode/frontend/src/utils/messages.js`.
+Current frontend message reconstruction is in `frontend/src/utils/messages.js`.
+
+Frontend source lives in the top-level `frontend/` app. Built assets are copied into `mycode/server/static/` for packaged web serving.
 
 Current behavior:
 
@@ -241,7 +244,7 @@ Current behavior:
 - `buildRenderMessages()` derives UI messages from canonical blocks instead of maintaining a second source of truth
 - assistant `thinking` blocks render as reasoning blocks
 - assistant `tool_use` blocks render directly, with persisted `tool_result` blocks and live tool runtime folded in at render time
-- reasoning blocks default to expanded UI state in `mycode/frontend/src/components/Chat/ReasoningBlock.jsx`
+- reasoning blocks default to expanded UI state in `frontend/src/components/Chat/ReasoningBlock.jsx`
 
 ## 11. SSE Contract
 

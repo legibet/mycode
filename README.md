@@ -23,29 +23,81 @@ mycode run "Explain how the session store works"
 
 ## Web
 
-Build the frontend first if you want the bundled web UI:
-
-```bash
-pnpm --dir mycode/frontend install
-pnpm --dir mycode/frontend build
-```
-
-Then start the server:
+Installed packages include the bundled web UI. Start the server with:
 
 ```bash
 mycode web
 ```
 
-If the frontend is not built yet, `mycode web` still starts the API server and prints a warning.
+## Development
 
-## Run (frontend)
+Install the project in editable mode with uv:
 
 ```bash
-pnpm --dir mycode/frontend install
-pnpm --dir mycode/frontend dev
+uv sync --dev
 ```
 
-Configure the backend URL via Vite proxy if needed.
+For TUI and CLI development, the editable install is enough:
+
+```bash
+uv run mycode
+```
+
+For web development, run the backend in API-only mode and start the Vite dev server separately:
+
+```bash
+uv run mycode web --dev
+pnpm --dir frontend install
+pnpm --dir frontend dev
+```
+
+In this mode, the backend does not depend on `mycode/server/static`, and the Vite dev server proxies API requests to `http://127.0.0.1:8000`.
+
+When you need to refresh the packaged frontend assets from the repository, build and sync them with:
+
+```bash
+uv run --no-project python scripts/build_frontend.py
+```
+
+`uv build` also runs the frontend build automatically and packages the static assets into the wheel/sdist.
+
+## Release
+
+Build distributable artifacts with:
+
+```bash
+uv build
+```
+
+Users can install a published release with:
+
+```bash
+uv tool install mycode
+```
+
+For a locally built artifact, install the wheel with:
+
+```bash
+uv tool install dist/mycode-0.1.0-py3-none-any.whl
+```
+
+Installed users do not need Node.js or pnpm. `mycode web` serves the bundled frontend directly from the Python package.
+
+## Common Workflows
+
+- Installed user: `uv tool install mycode`, then run `mycode` or `mycode web`
+- Python/CLI development: `uv sync --dev`, then run `uv run mycode`
+- Web development: run `uv run mycode web --dev` and `pnpm --dir frontend dev` in separate terminals
+- Refresh packaged frontend assets in the repository: `uv run --no-project python scripts/build_frontend.py`
+- Release a distributable build: `uv build`
+
+## Runtime Data
+
+Persistent runtime data lives under `~/.mycode/`:
+
+- `config.json`
+- `cli_history`
+- `sessions/`
 
 ## Config
 
