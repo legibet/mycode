@@ -15,18 +15,17 @@ def _write(path: Path, content: str) -> None:
 
 
 class TestInstructions:
-    def test_prefers_mycode_global_agents_and_project_root_agents(self, tmp_path: Path, monkeypatch) -> None:
+    def test_prefers_mycode_global_agents_and_current_cwd_agents(self, tmp_path: Path, monkeypatch) -> None:
         home = tmp_path / "home"
         project = tmp_path / "project"
         cwd = project / "apps" / "api"
         cwd.mkdir(parents=True)
-        (project / ".git").mkdir()
 
         monkeypatch.setenv("MYCODE_HOME", str(home / ".mycode"))
 
         _write(home / ".agents" / "AGENTS.md", "Global compat")
         _write(home / ".mycode" / "AGENTS.md", "Global native")
-        _write(project / "AGENTS.md", "Project root")
+        _write(cwd / "AGENTS.md", "Current cwd")
 
         with patch("mycode.core.instructions.Path.home", return_value=home):
             settings = get_settings(str(cwd))
@@ -35,11 +34,25 @@ class TestInstructions:
 
         assert [str(path.resolve()) for path in files] == [
             str((home / ".mycode" / "AGENTS.md").resolve()),
-            str((project / "AGENTS.md").resolve()),
+            str((cwd / "AGENTS.md").resolve()),
         ]
         assert "Global native" in prompt
-        assert "Project root" in prompt
+        assert "Current cwd" in prompt
         assert "Global compat" not in prompt
+
+    def test_does_not_load_parent_agents_from_nested_cwd(self, tmp_path: Path, monkeypatch) -> None:
+        home = tmp_path / "home"
+        project = tmp_path / "project"
+        cwd = project / "apps" / "api"
+        cwd.mkdir(parents=True)
+
+        monkeypatch.setenv("MYCODE_HOME", str(home / ".mycode"))
+        _write(project / "AGENTS.md", "Parent project")
+
+        with patch("mycode.core.instructions.Path.home", return_value=home):
+            prompt = load_instructions_prompt(str(cwd))
+
+        assert "Parent project" not in prompt
 
     def test_uses_agents_global_when_mycode_missing(self, tmp_path: Path, monkeypatch) -> None:
         home = tmp_path / "home"

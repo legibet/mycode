@@ -1,20 +1,20 @@
-"""Workspace instruction discovery for AGENTS.md files."""
+"""Instruction discovery for AGENTS.md files."""
 
 from __future__ import annotations
 
 import logging
 from pathlib import Path
 
-from mycode.core.config import Settings, find_workspace_root, get_settings, resolve_mycode_home
+from mycode.core.config import Settings, get_settings, resolve_mycode_home
 
 logger = logging.getLogger(__name__)
 
 
 def discover_instruction_files(cwd: str, settings: Settings | None = None) -> list[Path]:
-    """Discover standard AGENTS.md files from global scope to project scope."""
+    """Discover standard AGENTS.md files from global scope to current cwd."""
 
     resolved_cwd = settings.cwd if settings else cwd
-    workspace_root = Path(settings.workspace_root) if settings else find_workspace_root(resolved_cwd)
+    local_dir = Path(resolved_cwd).expanduser().resolve(strict=False)
     home = Path.home().resolve(strict=False)
     mycode_home = resolve_mycode_home()
 
@@ -27,15 +27,15 @@ def discover_instruction_files(cwd: str, settings: Settings | None = None) -> li
     elif compat_candidate.is_file():
         files.append(compat_candidate)
 
-    project_candidate = workspace_root / "AGENTS.md"
-    if project_candidate.is_file():
-        files.append(project_candidate)
+    local_candidate = local_dir / "AGENTS.md"
+    if local_candidate.is_file():
+        files.append(local_candidate)
 
     return files
 
 
 def load_instructions_prompt(cwd: str, settings: Settings | None = None) -> str:
-    """Load AGENTS.md files into a prompt block ordered from global to project."""
+    """Load AGENTS.md files into a prompt block ordered from global to current cwd."""
 
     resolved = settings or get_settings(cwd)
     sections: list[str] = []
@@ -59,7 +59,7 @@ def load_instructions_prompt(cwd: str, settings: Settings | None = None) -> str:
     return "\n".join(
         [
             "<workspace_instructions>",
-            "Instructions are ordered from global to project. Later files are more specific.",
+            "Instructions are ordered from global to current cwd. Later files are more specific.",
             "",
             body,
             "</workspace_instructions>",

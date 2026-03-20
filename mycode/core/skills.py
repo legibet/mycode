@@ -1,8 +1,8 @@
 """Skill discovery, parsing, and prompt formatting.
 
-Scans multiple skill roots for SKILL.md files, parses YAML frontmatter,
-and produces an <available_skills> block for injection into the system prompt.
-The model uses the existing `read` tool to load full skill content on demand.
+Scans skill roots for SKILL.md files, parses YAML frontmatter, and produces an
+<available_skills> block for injection into the system prompt. The model uses
+the existing `read` tool to load full skill content on demand.
 """
 
 from __future__ import annotations
@@ -14,7 +14,7 @@ from pathlib import Path
 
 import yaml
 
-from mycode.core.config import find_workspace_root, resolve_mycode_home
+from mycode.core.config import resolve_mycode_home
 
 logger = logging.getLogger(__name__)
 
@@ -32,15 +32,6 @@ class Skill:
     description: str
     path: str  # absolute path to the SKILL.md file
     source: str  # "project" | "global"
-
-
-def _find_project_root(cwd: str) -> Path | None:
-    """Walk up from *cwd* looking for a .git directory."""
-    current = Path(cwd).resolve()
-    for parent in [current, *current.parents]:
-        if (parent / ".git").exists():
-            return parent
-    return None
 
 
 def _parse_frontmatter(text: str) -> dict | None:
@@ -174,18 +165,18 @@ def discover_skills(cwd: str) -> list[Skill]:
     Scan order (lowest to highest priority):
     1. ~/.agents/skills/  (global)
     2. ~/.mycode/skills/  (global)
-    3. {project_root}/.agents/skills/  (project)
-    4. {project_root}/.mycode/skills/  (project)
+    3. {cwd}/.agents/skills/  (project)
+    4. {cwd}/.mycode/skills/  (project)
     """
     home = Path.home()
     mycode_home = resolve_mycode_home()
-    workspace_root = find_workspace_root(cwd)
+    local_dir = Path(cwd).expanduser().resolve(strict=False)
 
     roots: list[tuple[Path, str]] = [
         (home / ".agents" / "skills", "global"),
         (mycode_home / "skills", "global"),
-        (workspace_root / ".agents" / "skills", "project"),
-        (workspace_root / ".mycode" / "skills", "project"),
+        (local_dir / ".agents" / "skills", "project"),
+        (local_dir / ".mycode" / "skills", "project"),
     ]
 
     # Scan all roots; later entries override earlier for same name

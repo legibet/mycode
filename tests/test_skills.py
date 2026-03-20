@@ -11,7 +11,6 @@ import pytest
 
 from mycode.core.skills import (
     Skill,
-    _find_project_root,
     _parse_skill_md,
     _scan_skill_root,
     discover_skills,
@@ -164,8 +163,6 @@ class TestDiscoverSkills:
     def test_project_overrides_global(self, tmp_path: Path, monkeypatch) -> None:
         global_dir = tmp_path / "home" / ".mycode" / "skills"
         project_dir = tmp_path / "project" / ".mycode" / "skills"
-        git_dir = tmp_path / "project" / ".git"
-        git_dir.mkdir(parents=True)
         monkeypatch.setenv("MYCODE_HOME", str(tmp_path / "home" / ".mycode"))
 
         _write(global_dir / "shared" / "SKILL.md", "---\nname: shared\ndescription: Global version.\n---\n")
@@ -178,24 +175,55 @@ class TestDiscoverSkills:
         assert skills[0].description == "Project version."
         assert skills[0].source == "project"
 
-    def test_project_root_skills_apply_from_nested_cwd(self, tmp_path: Path, monkeypatch) -> None:
-        project = tmp_path / "project"
-        nested_dir = project / "apps" / "api"
-        (project / ".git").mkdir(parents=True)
+    def test_current_cwd_mycode_skills_apply(self, tmp_path: Path, monkeypatch) -> None:
+        nested_dir = tmp_path / "project" / "apps" / "api"
         nested_dir.mkdir(parents=True)
         monkeypatch.setenv("MYCODE_HOME", str(tmp_path / "home" / ".mycode"))
 
         _write(
-            project / ".mycode" / "skills" / "shared" / "SKILL.md",
-            "---\nname: shared\ndescription: Root version.\n---\n",
+            nested_dir / ".mycode" / "skills" / "shared" / "SKILL.md",
+            "---\nname: shared\ndescription: Current cwd version.\n---\n",
         )
 
         with patch("mycode.core.skills.Path.home", return_value=tmp_path / "home"):
             skills = discover_skills(str(nested_dir))
 
         assert len(skills) == 1
-        assert skills[0].description == "Root version."
+        assert skills[0].description == "Current cwd version."
         assert skills[0].source == "project"
+
+    def test_current_cwd_agents_skills_apply(self, tmp_path: Path, monkeypatch) -> None:
+        nested_dir = tmp_path / "project" / "apps" / "api"
+        nested_dir.mkdir(parents=True)
+        monkeypatch.setenv("MYCODE_HOME", str(tmp_path / "home" / ".mycode"))
+
+        _write(
+            nested_dir / ".agents" / "skills" / "shared" / "SKILL.md",
+            "---\nname: shared\ndescription: Current cwd compat version.\n---\n",
+        )
+
+        with patch("mycode.core.skills.Path.home", return_value=tmp_path / "home"):
+            skills = discover_skills(str(nested_dir))
+
+        assert len(skills) == 1
+        assert skills[0].description == "Current cwd compat version."
+        assert skills[0].source == "project"
+
+    def test_parent_skills_do_not_apply_from_nested_cwd(self, tmp_path: Path, monkeypatch) -> None:
+        project = tmp_path / "project"
+        nested_dir = project / "apps" / "api"
+        nested_dir.mkdir(parents=True)
+        monkeypatch.setenv("MYCODE_HOME", str(tmp_path / "home" / ".mycode"))
+
+        _write(
+            project / ".mycode" / "skills" / "shared" / "SKILL.md",
+            "---\nname: shared\ndescription: Parent version.\n---\n",
+        )
+
+        with patch("mycode.core.skills.Path.home", return_value=tmp_path / "home"):
+            skills = discover_skills(str(nested_dir))
+
+        assert skills == []
 
     def test_no_skills(self, tmp_path: Path, monkeypatch) -> None:
         monkeypatch.setenv("MYCODE_HOME", str(tmp_path / "home" / ".mycode"))
@@ -214,23 +242,6 @@ class TestDiscoverSkills:
             skills = discover_skills(str(tmp_path))
 
         assert [s.name for s in skills] == ["alpha", "mid", "zebra"]
-
-
-class TestFindProjectRoot:
-    def test_finds_git(self, tmp_path: Path) -> None:
-        (tmp_path / ".git").mkdir()
-        sub = tmp_path / "a" / "b"
-        sub.mkdir(parents=True)
-        assert _find_project_root(str(sub)) == tmp_path
-
-    def test_no_git(self, tmp_path: Path) -> None:
-        # tmp_path has no .git — but parent dirs might, so we test carefully
-        isolated = tmp_path / "isolated"
-        isolated.mkdir()
-        # This may find a .git in a parent — that's OK, just test it doesn't crash
-        result = _find_project_root(str(isolated))
-        # We can't guarantee None here since tests run inside a git repo
-        assert result is None or isinstance(result, Path)
 
 
 class TestFormatSkillsForPrompt:
