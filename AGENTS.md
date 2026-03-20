@@ -232,11 +232,24 @@ Important behavior:
 - shows thinking during live runs
 - history preview also includes persisted thinking summaries when assistant text is absent
 
+Development and release workflow:
+
+- `uv sync --dev` is the default Python development setup
+- `pnpm --dir frontend dev` runs the Vite frontend during web UI development
+- `uv run mycode web --dev` is the backend companion for Vite dev mode
+- `uv run --no-project python scripts/build_frontend.py` refreshes packaged frontend assets in-repo
+- `uv build` builds the frontend and packages `mycode/server/static/` into wheel/sdist artifacts
+
 ### Frontend
 
 Current frontend message reconstruction is in `frontend/src/utils/messages.js`.
 
 Frontend source lives in the top-level `frontend/` app. Built assets are copied into `mycode/server/static/` for packaged web serving.
+
+Serving modes:
+
+- `mycode web` serves the packaged frontend from `mycode/server/static/`
+- `mycode web --dev` does not mount packaged frontend assets and only serves the API backend
 
 Current behavior:
 
