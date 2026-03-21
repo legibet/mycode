@@ -12,6 +12,7 @@ from mycode.core.providers import (
     OpenRouterAdapter,
     ZAIAdapter,
 )
+from mycode.core.tools import TOOLS
 
 
 class _Obj:
@@ -128,6 +129,27 @@ def test_openai_responses_converts_final_response_blocks() -> None:
     assert message["content"][2]["type"] == "tool_use"
     assert message["content"][2]["id"] == "call_1"
     assert message["content"][2]["input"] == {"path": "x.py"}
+
+
+def test_openai_responses_serializes_strict_tool_schemas() -> None:
+    adapter = OpenAIResponsesAdapter()
+
+    serialized_tools = [adapter._serialize_tool(tool) for tool in TOOLS]
+
+    for tool in serialized_tools:
+        parameters = tool["parameters"]
+        assert tool["strict"] is True
+        assert parameters["required"] == list(parameters["properties"].keys())
+
+    read_tool = next(tool for tool in serialized_tools if tool["name"] == "read")
+    assert read_tool["parameters"]["properties"]["offset"]["type"] == ["integer", "null"]
+    assert read_tool["parameters"]["properties"]["limit"]["type"] == ["integer", "null"]
+
+    bash_tool = next(tool for tool in serialized_tools if tool["name"] == "bash")
+    assert bash_tool["parameters"]["properties"]["timeout"]["type"] == ["integer", "null"]
+
+    read_schema = next(tool for tool in TOOLS if tool["name"] == "read")["input_schema"]
+    assert read_schema["required"] == ["path"]
 
 
 def test_openai_chat_extracts_reasoning_from_known_extra_fields() -> None:

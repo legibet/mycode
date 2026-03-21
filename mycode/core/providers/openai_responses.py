@@ -163,11 +163,45 @@ class OpenAIResponsesAdapter(ProviderAdapter):
         return items
 
     def _serialize_tool(self, tool: dict[str, Any]) -> dict[str, Any]:
+        parameters = dict(tool.get("input_schema") or {"type": "object", "properties": {}})
+        properties = parameters.get("properties")
+        required = parameters.get("required")
+
+        # OpenAI strict tools require every top-level property to appear in
+        # `required`. Our built-in tool schemas are flat, so optional fields only
+        # need a shallow nullable conversion here.
+        if isinstance(properties, dict):
+            copied_properties: dict[str, Any] = {
+                key: dict(value) if isinstance(value, dict) else value for key, value in properties.items()
+            }
+            required_names = {str(name) for name in required} if isinstance(required, list) else set()
+
+            for name, property_schema in copied_properties.items():
+                if name in required_names or not isinstance(property_schema, dict):
+                    continue
+
+                property_type = property_schema.get("type")
+                if isinstance(property_type, str):
+                    property_schema["type"] = [property_type, "null"]
+                elif isinstance(property_type, list):
+                    if "null" not in property_type:
+                        property_schema["type"] = [*property_type, "null"]
+                else:
+                    copied_properties[name] = {"anyOf": [property_schema, {"type": "null"}]}
+                    continue
+
+                enum_values = property_schema.get("enum")
+                if isinstance(enum_values, list) and None not in enum_values:
+                    property_schema["enum"] = [*enum_values, None]
+
+            parameters["properties"] = copied_properties
+            parameters["required"] = list(copied_properties.keys())
+
         return {
             "type": "function",
             "name": tool.get("name") or "",
             "description": tool.get("description") or "",
-            "parameters": tool.get("input_schema") or {"type": "object", "properties": {}},
+            "parameters": parameters,
             "strict": True,
         }
 
