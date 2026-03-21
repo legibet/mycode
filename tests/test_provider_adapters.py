@@ -15,6 +15,8 @@ from mycode.core.providers import (
 
 
 class _Obj:
+    supports_reasoning = False
+
     def __init__(self, **kwargs):
         self.__dict__.update(kwargs)
 
@@ -253,6 +255,46 @@ def test_toggle_reasoning_payloads_disable_cleanly() -> None:
     assert "extra_body" not in DeepSeekAdapter()._build_request_payload(request)
     assert "extra_body" not in ZAIAdapter()._build_request_payload(request)
     assert OpenRouterAdapter()._build_request_payload(request)["extra_body"] == {"reasoning": {"effort": "none"}}
+
+
+def test_thinking_auto_enabled_for_reasoning_models() -> None:
+    request = cast(
+        Any,
+        _Obj(
+            model="deepseek-reasoner",
+            max_tokens=2048,
+            system="",
+            tools=[],
+            reasoning_effort=None,
+            messages=[],
+            supports_reasoning=True,
+        ),
+    )
+
+    deepseek_payload = DeepSeekAdapter()._build_request_payload(request)
+    assert deepseek_payload["extra_body"] == {"thinking": {"type": "enabled"}}
+
+    zai_payload = ZAIAdapter()._build_request_payload(request)
+    assert zai_payload["extra_body"] == {"thinking": {"type": "enabled"}}
+
+    # Base OpenAIChatAdapter should NOT auto-enable thinking
+    base_payload = OpenAIChatAdapter()._build_request_payload(request)
+    assert "extra_body" not in base_payload
+
+    # With effort set, should NOT auto-enable
+    request_with_effort = cast(
+        Any,
+        _Obj(
+            model="deepseek-reasoner",
+            max_tokens=2048,
+            system="",
+            tools=[],
+            reasoning_effort="high",
+            messages=[],
+            supports_reasoning=True,
+        ),
+    )
+    assert "extra_body" not in DeepSeekAdapter()._build_request_payload(request_with_effort)
 
 
 def test_anthropic_build_request_payload_includes_reasoning_config() -> None:

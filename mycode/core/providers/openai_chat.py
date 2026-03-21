@@ -307,6 +307,11 @@ class DeepSeekAdapter(OpenAIChatAdapter):
     auto_discoverable = True
     replay_reasoning_only_for_tool_continuations = True
 
+    def _build_provider_payload_overrides(self, request: ProviderRequest) -> dict[str, Any]:
+        if request.supports_reasoning and not request.reasoning_effort:
+            return {"extra_body": {"thinking": {"type": "enabled"}}}
+        return {}
+
 
 class ZAIAdapter(OpenAIChatAdapter):
     """Z.AI's OpenAI-compatible chat endpoint."""
@@ -318,6 +323,11 @@ class ZAIAdapter(OpenAIChatAdapter):
     default_models = ("glm-5", "glm-4.7")
     auto_discoverable = True
     replay_reasoning_only_for_tool_continuations = True
+
+    def _build_provider_payload_overrides(self, request: ProviderRequest) -> dict[str, Any]:
+        if request.supports_reasoning and not request.reasoning_effort:
+            return {"extra_body": {"thinking": {"type": "enabled"}}}
+        return {}
 
 
 class OpenRouterAdapter(OpenAIChatAdapter):
