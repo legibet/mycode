@@ -1,10 +1,15 @@
 """Tests for CLI runtime and terminal behavior."""
 
+import asyncio
 from typing import Any, cast
 
 import pytest
+from prompt_toolkit import PromptSession
+from prompt_toolkit.history import InMemoryHistory
+from prompt_toolkit.input.defaults import create_pipe_input
+from prompt_toolkit.output import DummyOutput
 
-from mycode.cli.chat import TerminalChat, history_file_path
+from mycode.cli.chat import TerminalChat, _build_chat_key_bindings, _SlashCompleter, history_file_path
 from mycode.cli.main import create_parser, run_once
 from mycode.cli.render import TerminalView
 from mycode.cli.runtime import list_model_options, resolve_session
@@ -25,16 +30,6 @@ class _FakeConsole:
 class _FakeStore:
     async def append_message(self, session_id: str, payload: dict) -> None:
         return None
-
-
-class _PromptRecorder:
-    def __init__(self, result: str) -> None:
-        self.result = result
-        self.calls: list[tuple[tuple[Any, ...], dict[str, Any]]] = []
-
-    async def prompt_async(self, *args: Any, **kwargs: Any) -> str:
-        self.calls.append((args, kwargs))
-        return self.result
 
 
 class _FakeAgent:
@@ -217,26 +212,33 @@ def test_terminal_chat_select_rejects_ambiguous_prefix():
 
 
 @pytest.mark.asyncio
-async def test_terminal_chat_command_prompt_uses_dedicated_session():
-    chat = TerminalChat(
-        agent=cast(Any, object()),
-        store=cast(Any, object()),
-        session_id="test-session",
-        view=TerminalView(),
-    )
-    main_prompt = _PromptRecorder("/provider")
-    command_prompt = _PromptRecorder("anthropic")
-    chat.prompt_session = cast(Any, main_prompt)
-    chat.command_prompt_session = cast(Any, command_prompt)
+async def test_chat_prompt_enter_submits_selected_slash_completion():
+    with create_pipe_input() as pipe_input:
+        session = PromptSession(
+            history=InMemoryHistory(),
+            completer=_SlashCompleter(),
+            key_bindings=_build_chat_key_bindings(),
+            multiline=True,
+            prompt_continuation="  ",
+            input=pipe_input,
+            output=DummyOutput(),
+        )
 
-    result = await chat._prompt("\033[1mprovider>\033[0m ")
+        async def drive_input() -> None:
+            await asyncio.sleep(0.05)
+            pipe_input.send_text("/p")
+            await asyncio.sleep(0.1)
+            pipe_input.send_text("\t")
+            await asyncio.sleep(0.1)
+            pipe_input.send_text("\r")
 
-    assert result == "anthropic"
-    assert len(main_prompt.calls) == 0
-    assert len(command_prompt.calls) == 1
-    args, kwargs = command_prompt.calls[0]
-    assert str(args[0])
-    assert kwargs == {}
+        task = asyncio.create_task(drive_input())
+        try:
+            result = await session.prompt_async("> ")
+        finally:
+            await task
+
+    assert result == "/provider"
 
 
 def test_model_options_use_configured_provider_models():

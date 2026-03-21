@@ -8,7 +8,6 @@ from typing import Any
 
 from prompt_toolkit import PromptSession
 from prompt_toolkit.completion import Completer, Completion
-from prompt_toolkit.filters import completion_is_selected
 from prompt_toolkit.formatted_text import ANSI
 from prompt_toolkit.history import FileHistory
 from prompt_toolkit.key_binding import KeyBindings
@@ -65,9 +64,7 @@ def _build_chat_key_bindings() -> KeyBindings:
     kb.add("c-l")(lambda event: event.app.renderer.clear())
 
     # In multiline mode the default Enter inserts a newline; override it to submit.
-    kb.add("enter", filter=~completion_is_selected, eager=True)(
-        lambda event: event.current_buffer.validate_and_handle()
-    )
+    kb.add("enter", eager=True)(lambda event: event.current_buffer.validate_and_handle())
 
     # Esc+Enter (Meta+Enter) inserts a newline for multiline input.
     kb.add("escape", "enter")(lambda event: event.current_buffer.insert_text("\n"))
@@ -98,17 +95,12 @@ class TerminalChat:
         self.store = store
         self.session_id = session_id
         self.view = view or TerminalView()
-        history = FileHistory(history_file_path())
         self.prompt_session = PromptSession(
-            history=history,
+            history=FileHistory(history_file_path()),
             completer=_SlashCompleter(),
             key_bindings=_build_chat_key_bindings(),
             multiline=True,
             prompt_continuation="  ",
-        )
-        self.command_prompt_session = PromptSession(
-            history=history,
-            multiline=False,
         )
 
     async def run(self) -> None:
@@ -537,7 +529,7 @@ class TerminalChat:
 
     async def _prompt(self, prompt_text: str) -> str:
         try:
-            value = await self.command_prompt_session.prompt_async(ANSI(prompt_text))
+            value = await self.prompt_session.prompt_async(ANSI(prompt_text), multiline=False)
         except (KeyboardInterrupt, EOFError):
             return ""
         return value.strip()
