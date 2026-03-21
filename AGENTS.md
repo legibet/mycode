@@ -369,6 +369,9 @@ These have been validated during this redesign:
 - Moonshot `kimi-k2.5` tool loops work through the Anthropic-compatible endpoint, and prior reasoning must be preserved when thinking is enabled
 - MiniMax `MiniMax-M2.5` emits thinking signatures on the Anthropic-compatible endpoint
 - third-party OpenAI-compatible chat endpoints may surface reasoning through non-standard extra fields rather than a uniform schema
+- DeepSeek `deepseek-reasoner` thinks by default without any explicit parameter; `deepseek-chat` does not think unless `thinking: {"type": "enabled"}` is sent
+- Z.AI GLM models (glm-5, glm-4.7) think by default; explicit parameter is only needed to disable thinking
+- third-party thinking control parameters are not standardized: DeepSeek/Z.AI use `thinking: {type}`, Qwen uses `enable_thinking: bool`, others vary
 
 ## 14. Guardrails
 
