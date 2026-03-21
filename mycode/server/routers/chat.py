@@ -12,7 +12,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
 from mycode.core.agent import Agent
-from mycode.core.config import get_settings, provider_has_api_key, resolve_provider
+from mycode.core.config import get_settings, normalize_reasoning_effort, provider_has_api_key, resolve_provider
 from mycode.core.models import lookup_model_metadata
 from mycode.core.providers import (
     get_provider_adapter,
@@ -59,7 +59,8 @@ def _build_agent(chat: ChatRequest):
         api_key=chat.api_key,
         api_base=chat.api_base,
     )
-    reasoning_effort = chat.reasoning_effort if chat.reasoning_effort is not None else resolved.reasoning_effort
+    request_effort = normalize_reasoning_effort(chat.reasoning_effort)
+    reasoning_effort = request_effort if request_effort is not None else resolved.reasoning_effort
     session_id = chat.session_id or "default"
     return cwd, settings, resolved, reasoning_effort, session_id
 

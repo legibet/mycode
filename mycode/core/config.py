@@ -198,12 +198,12 @@ def _build_providers(raw_providers: dict[str, dict[str, Any]]) -> dict[str, Prov
             api_key=raw.get("api_key") or None,
             api_key_env_var=raw.get("api_key_env_var") or None,
             base_url=raw.get("base_url") or None,
-            reasoning_effort=_normalize_reasoning_effort(raw.get("reasoning_effort")),
+            reasoning_effort=normalize_reasoning_effort(raw.get("reasoning_effort")),
         )
     return providers
 
 
-def _normalize_reasoning_effort(value: Any) -> str | None:
+def normalize_reasoning_effort(value: Any) -> str | None:
     if not isinstance(value, str):
         return None
 
@@ -249,7 +249,7 @@ def get_settings(cwd: str | None = None) -> Settings:
         providers=_build_providers(merged.providers),
         default_provider=merged.default_provider,
         default_model=merged.default_model,
-        default_reasoning_effort=_normalize_reasoning_effort(merged.default_reasoning_effort),
+        default_reasoning_effort=normalize_reasoning_effort(merged.default_reasoning_effort),
         port=int(os.environ.get("PORT", "8000")),
         cwd=resolved_cwd,
         workspace_root=str(workspace_root),
