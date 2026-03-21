@@ -243,6 +243,22 @@ Important behavior:
 
 `ProviderConfig.type` is the internal adapter id, not a generic vendor label.
 
+### Reasoning effort
+
+`reasoning_effort` controls how much thinking a model does. The unified options are:
+
+- `auto` — do not pass any effort parameter; let the provider decide (default when unconfigured)
+- `none` — explicitly disable thinking
+- `low` / `medium` / `high` / `xhigh` — explicit effort levels
+
+Config-file resolution order: `providers.<name>.reasoning_effort` > `default.reasoning_effort`. The resolved value is only applied when both `adapter.supports_reasoning_effort` and `model_metadata.supports_reasoning` (from models.dev) are true.
+
+CLI and web frontend can override reasoning effort at runtime without changing config files. These overrides are per-request and are not persisted into session metadata.
+
+### Model metadata
+
+`mycode/core/models.py` fetches and caches the models.dev catalog (`api.json`) to look up per-model capabilities such as `supports_reasoning`, `context_window`, and `max_output_tokens`. The cache lives at `~/.mycode/cache/models.dev-api.json` with a 24-hour TTL. Requests to models.dev require a `User-Agent` header to avoid 403 responses.
+
 ## 10. Interfaces
 
 ### Server
@@ -252,6 +268,8 @@ Important behavior:
 - streams SSE from the shared `Agent`
 - persists each message through `SessionStore`
 - keeps SSE event names stable
+- `POST /chat` accepts optional `reasoning_effort`; when provided it overrides the config-resolved value
+- `GET /config` returns per-provider reasoning metadata: `supports_reasoning_effort`, `reasoning_models` (subset from models.dev), `reasoning_effort` (config value), plus top-level `default_reasoning_effort` and `reasoning_effort_options`
 
 `mycode/server/routers/sessions.py`
 
@@ -270,6 +288,9 @@ Important behavior:
 - resume is explicit via `--continue`, `--session`, or `/resume`
 - shows thinking during live runs
 - history preview also includes persisted thinking summaries when assistant text is absent
+- interactive slash commands: `/clear`, `/new`, `/resume`, `/provider`, `/model`, `/effort`, `/q`
+- `/effort` allows runtime reasoning effort selection; shows "current model does not support reasoning effort" when the provider+model combination does not support it
+- the session header displays the active reasoning effort when set
 
 Development and release workflow:
 
@@ -297,6 +318,9 @@ Current behavior:
 - assistant `thinking` blocks render as reasoning blocks
 - assistant `tool_use` blocks render directly, with persisted `tool_result` blocks and live tool runtime folded in at render time
 - reasoning blocks default to expanded UI state in `frontend/src/components/Chat/ReasoningBlock.jsx`
+- sidebar settings panel includes provider, model, and conditional reasoning effort selector
+- the effort selector only renders when the current provider+model supports reasoning effort (determined by `supports_reasoning_effort` and `reasoning_models` from the config endpoint)
+- frontend config (provider, model, cwd, reasoningEffort) is persisted to localStorage; `auto` and empty both mean "do not send effort to server"
 
 ## 11. SSE Contract
 

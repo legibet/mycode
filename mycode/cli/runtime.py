@@ -16,7 +16,7 @@ from mycode.core.providers import (
 )
 from mycode.core.session import SessionStore
 
-REASONING_EFFORT_OPTIONS = ("none", "low", "medium", "high", "xhigh")
+REASONING_EFFORT_OPTIONS = ("auto", "none", "low", "medium", "high", "xhigh")
 
 
 @dataclass

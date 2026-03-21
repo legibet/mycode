@@ -328,7 +328,10 @@ export function useChat(config) {
             cwd: config.cwd,
             api_key: config.apiKey || undefined,
             api_base: config.apiBase || undefined,
-            reasoning_effort: config.reasoningEffort || undefined,
+            reasoning_effort:
+              config.reasoningEffort && config.reasoningEffort !== 'auto'
+                ? config.reasoningEffort
+                : undefined,
           }),
         })
 

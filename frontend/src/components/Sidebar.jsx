@@ -64,10 +64,6 @@ export function Sidebar({
     activeProviderInfo?.supports_reasoning_effort &&
     reasoningModels.includes(config.model)
   const effortOptions = remoteConfig?.reasoning_effort_options || []
-  const resolvedDefaultEffort =
-    activeProviderInfo?.reasoning_effort ||
-    remoteConfig?.default_reasoning_effort ||
-    ''
 
   return (
     <div
@@ -312,7 +308,7 @@ export function Sidebar({
                     </label>
                     <select
                       id="effort-select"
-                      value={config.reasoningEffort || ''}
+                      value={config.reasoningEffort || 'auto'}
                       onChange={(e) =>
                         onUpdateConfig({
                           ...config,
@@ -321,11 +317,6 @@ export function Sidebar({
                       }
                       className={SELECT_CLASS}
                     >
-                      <option value="">
-                        {resolvedDefaultEffort
-                          ? `default (${resolvedDefaultEffort})`
-                          : 'default (none)'}
-                      </option>
                       {effortOptions.map((opt) => (
                         <option key={opt} value={opt}>
                           {opt}

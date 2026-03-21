@@ -26,7 +26,7 @@ from mycode.server.schemas import ChatRequest, StreamEvent
 
 router = APIRouter()
 
-REASONING_EFFORT_OPTIONS = ("none", "low", "medium", "high", "xhigh")
+REASONING_EFFORT_OPTIONS = ("auto", "none", "low", "medium", "high", "xhigh")
 
 
 def _reasoning_models(provider_type: str, provider_name: str, models: list[str], api_base: str) -> list[str]:

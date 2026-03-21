@@ -463,8 +463,8 @@ class TerminalChat:
             self.view.console.print("[dim]current model does not support reasoning effort[/dim]")
             return
 
-        options = ["default", *REASONING_EFFORT_OPTIONS]
-        current = self.agent.reasoning_effort or "default"
+        options = list(REASONING_EFFORT_OPTIONS)
+        current = self.agent.reasoning_effort or "auto"
 
         self.view.console.print()
         table = Table(box=None, show_header=False, padding=(0, 2, 0, 0), expand=False)
@@ -507,7 +507,7 @@ class TerminalChat:
             return
 
         cleaned = effort.strip().lower()
-        if cleaned in ("default", "auto", ""):
+        if cleaned in ("auto", ""):
             resolved = None
         elif cleaned in REASONING_EFFORT_OPTIONS:
             resolved = cleaned
