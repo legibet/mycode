@@ -292,9 +292,29 @@ def test_anthropic_build_request_payload_maps_xhigh_and_4_5_correctly() -> None:
 
     payload = adapter.build_request_payload(request)
 
-    assert "thinking" not in payload
-    assert payload["output_config"] == {"effort": "max"}
+    assert payload["thinking"] == {"type": "enabled", "budget_tokens": 32768}
+    assert "output_config" not in payload
     assert adapter.supports_reasoning_effort is True
+
+
+def test_anthropic_build_request_payload_maps_xhigh_for_opus_4_6() -> None:
+    adapter = AnthropicAdapter()
+    request = cast(
+        Any,
+        _Obj(
+            model="claude-opus-4-6",
+            max_tokens=8192,
+            messages=[],
+            system="",
+            tools=[],
+            reasoning_effort="xhigh",
+        ),
+    )
+
+    payload = adapter.build_request_payload(request)
+
+    assert payload["thinking"] == {"type": "adaptive"}
+    assert payload["output_config"] == {"effort": "max"}
 
 
 def test_anthropic_like_build_request_payload_adds_cache_control() -> None:

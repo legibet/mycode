@@ -279,7 +279,9 @@ class AnthropicAdapter(AnthropicLikeAdapter):
         normalized = request.model.lower()
         if normalized.startswith("claude-sonnet-4-6") or normalized.startswith("claude-opus-4-6"):
             return {"type": "adaptive"}
-        return None
+
+        budget = _MANUAL_THINKING_BUDGETS.get(effort)
+        return {"type": "enabled", "budget_tokens": budget} if budget is not None else None
 
     def output_config(self, request: ProviderRequest) -> dict[str, Any] | None:
         effort = request.reasoning_effort
@@ -287,12 +289,15 @@ class AnthropicAdapter(AnthropicLikeAdapter):
             return None
 
         normalized = request.model.lower()
-        if effort == "xhigh":
-            mapped_effort = "high" if normalized.startswith("claude-sonnet-4-6") else "max"
-        else:
-            mapped_effort = effort
+        if normalized.startswith("claude-sonnet-4-6"):
+            mapped_effort = "high" if effort == "xhigh" else effort
+            return {"effort": mapped_effort}
 
-        return {"effort": mapped_effort}
+        if normalized.startswith("claude-opus-4-6"):
+            mapped_effort = "max" if effort == "xhigh" else effort
+            return {"effort": mapped_effort}
+
+        return None
 
 
 class MoonshotAIAdapter(AnthropicLikeAdapter):

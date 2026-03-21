@@ -111,8 +111,8 @@ Current built-in adapter ids:
 - uses the Messages API
 - default base URL: `https://api.anthropic.com`
 - `claude-sonnet-4-6` and `claude-opus-4-6` use Anthropic's adaptive thinking flow when `reasoning_effort` is set
-- other Claude reasoning models use `output_config.effort` without adaptive thinking
-- `reasoning_effort = xhigh` maps to `high` for `claude-sonnet-4-6` and to `max` for other supported Claude reasoning models
+- other Claude reasoning models use manual extended thinking with `thinking = {"type": "enabled", "budget_tokens": ...}`
+- `reasoning_effort = xhigh` maps to `high` for `claude-sonnet-4-6` and to `max` for `claude-opus-4-6`; older Claude reasoning models keep the manual extended-thinking budget mapping
 - Anthropic-style message adapters now add ephemeral `cache_control` to the system prompt block and the last user content block
 
 ### `moonshotai`
