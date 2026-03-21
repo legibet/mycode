@@ -6,7 +6,7 @@
 
 import {
   ChevronDown,
-  Eye,
+  FileText,
   Loader2,
   PenLine,
   SquarePen,
@@ -16,7 +16,7 @@ import { useState } from 'react'
 import { cn } from '../../utils/cn'
 
 const TOOL_META = {
-  read: { icon: Eye, label: 'read' },
+  read: { icon: FileText, label: 'read' },
   write: { icon: PenLine, label: 'write' },
   edit: { icon: SquarePen, label: 'edit' },
   bash: { icon: Terminal, label: 'bash' },
