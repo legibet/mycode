@@ -48,7 +48,7 @@ export function ReasoningBlock({ content, isStreaming }) {
         )}
       >
         <div className="overflow-hidden">
-          <div className="pt-2 text-[13px] text-muted-foreground whitespace-pre-wrap font-mono leading-[1.5]">
+          <div className="pt-2 text-[13px] text-muted-foreground whitespace-pre-wrap italic leading-[1.5]">
             {content}
           </div>
         </div>

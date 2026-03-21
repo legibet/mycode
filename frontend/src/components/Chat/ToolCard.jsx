@@ -6,19 +6,19 @@
 
 import {
   ChevronDown,
-  FilePen,
-  FilePlus2,
-  FileText,
+  Eye,
   Loader2,
+  PenLine,
+  SquarePen,
   Terminal,
 } from 'lucide-react'
 import { useState } from 'react'
 import { cn } from '../../utils/cn'
 
 const TOOL_META = {
-  read: { icon: FileText, label: 'read' },
-  write: { icon: FilePlus2, label: 'write' },
-  edit: { icon: FilePen, label: 'edit' },
+  read: { icon: Eye, label: 'read' },
+  write: { icon: PenLine, label: 'write' },
+  edit: { icon: SquarePen, label: 'edit' },
   bash: { icon: Terminal, label: 'bash' },
 }
 
@@ -70,27 +70,27 @@ export function ToolCard({ name, args, output, result, pending, isError }) {
       {/* Trigger */}
       <button
         type="button"
-        className="flex w-full items-center gap-2 select-none cursor-pointer text-left"
+        className="flex w-full items-center gap-1.5 select-none cursor-pointer text-left"
         onClick={() => setExpandedOverride(!expanded)}
       >
         <Icon
           className={cn(
             'h-3.5 w-3.5 shrink-0',
-            status === 'error' ? 'text-red-400/70' : 'text-muted-foreground/40',
+            status === 'error' ? 'text-red-400' : 'text-foreground/70',
           )}
         />
 
         <span
           className={cn(
             'text-[13px] font-medium shrink-0',
-            status === 'error' ? 'text-red-400' : 'text-foreground/80',
+            status === 'error' ? 'text-red-400' : 'text-foreground/70',
           )}
         >
           {name}
         </span>
 
         {!expanded && preview && (
-          <span className="text-[13px] text-muted-foreground/50 font-mono truncate">
+          <span className="pl-1 text-[13px] text-muted-foreground/50 font-mono truncate">
             {preview}
           </span>
         )}
