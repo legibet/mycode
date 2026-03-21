@@ -58,8 +58,8 @@ class _SlashCompleter(Completer):
                 yield Completion(cmd, start_position=-len(text), display_meta=desc)
 
 
-def _build_key_bindings() -> KeyBindings:
-    """Build prompt key bindings for the interactive session."""
+def _build_chat_key_bindings() -> KeyBindings:
+    """Build key bindings for the main chat prompt."""
     kb = KeyBindings()
 
     kb.add("c-l")(lambda event: event.app.renderer.clear())
@@ -98,12 +98,17 @@ class TerminalChat:
         self.store = store
         self.session_id = session_id
         self.view = view or TerminalView()
+        history = FileHistory(history_file_path())
         self.prompt_session = PromptSession(
-            history=FileHistory(history_file_path()),
+            history=history,
             completer=_SlashCompleter(),
-            key_bindings=_build_key_bindings(),
+            key_bindings=_build_chat_key_bindings(),
             multiline=True,
             prompt_continuation="  ",
+        )
+        self.command_prompt_session = PromptSession(
+            history=history,
+            multiline=False,
         )
 
     async def run(self) -> None:
@@ -532,7 +537,7 @@ class TerminalChat:
 
     async def _prompt(self, prompt_text: str) -> str:
         try:
-            value = await self.prompt_session.prompt_async(ANSI(prompt_text), multiline=False)
+            value = await self.command_prompt_session.prompt_async(ANSI(prompt_text))
         except (KeyboardInterrupt, EOFError):
             return ""
         return value.strip()

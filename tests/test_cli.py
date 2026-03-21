@@ -27,6 +27,16 @@ class _FakeStore:
         return None
 
 
+class _PromptRecorder:
+    def __init__(self, result: str) -> None:
+        self.result = result
+        self.calls: list[tuple[tuple[Any, ...], dict[str, Any]]] = []
+
+    async def prompt_async(self, *args: Any, **kwargs: Any) -> str:
+        self.calls.append((args, kwargs))
+        return self.result
+
+
 class _FakeAgent:
     async def achat(self, message: str, *, on_persist=None):
         yield Event("reasoning", {"delta": "Hidden reasoning"})
@@ -204,6 +214,29 @@ def test_terminal_chat_select_rejects_ambiguous_prefix():
             label="session id",
             text_of=lambda item: str(item["id"]),
         )
+
+
+@pytest.mark.asyncio
+async def test_terminal_chat_command_prompt_uses_dedicated_session():
+    chat = TerminalChat(
+        agent=cast(Any, object()),
+        store=cast(Any, object()),
+        session_id="test-session",
+        view=TerminalView(),
+    )
+    main_prompt = _PromptRecorder("/provider")
+    command_prompt = _PromptRecorder("anthropic")
+    chat.prompt_session = cast(Any, main_prompt)
+    chat.command_prompt_session = cast(Any, command_prompt)
+
+    result = await chat._prompt("\033[1mprovider>\033[0m ")
+
+    assert result == "anthropic"
+    assert len(main_prompt.calls) == 0
+    assert len(command_prompt.calls) == 1
+    args, kwargs = command_prompt.calls[0]
+    assert str(args[0])
+    assert kwargs == {}
 
 
 def test_model_options_use_configured_provider_models():
