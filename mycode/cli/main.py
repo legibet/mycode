@@ -164,7 +164,10 @@ def main() -> None:
     if resolved_session.mode == "resumed":
         view.print_history_preview(resolved_session.messages)
 
-    asyncio.run(TerminalChat(agent=agent, store=store, session_id=resolved_session.session_id, view=view).run())
+    try:
+        asyncio.run(TerminalChat(agent=agent, store=store, session_id=resolved_session.session_id, view=view).run())
+    except KeyboardInterrupt:
+        pass
 
 
 if __name__ == "__main__":

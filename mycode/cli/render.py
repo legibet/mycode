@@ -11,6 +11,7 @@ from rich.console import Console, Group
 from rich.live import Live
 from rich.markdown import Markdown
 from rich.spinner import Spinner
+from rich.table import Table
 from rich.text import Text
 
 from mycode.core.agent import Agent
@@ -25,6 +26,7 @@ from .theme import (
     STATS,
     SUCCESS,
     THINKING,
+    THINKING_SYMBOL,
     TOOL_BORDER,
     TOOL_END,
     TOOL_MARKER,
@@ -33,6 +35,14 @@ from .theme import (
 )
 
 console = Console(highlight=False)
+
+# Maps built-in tool names to the argument key most useful as a one-line preview.
+_TOOL_PREVIEW_KEY: dict[str, str] = {
+    "read": "path",
+    "write": "path",
+    "edit": "path",
+    "bash": "command",
+}
 
 
 def _format_usage(usage: dict[str, Any]) -> str:
@@ -82,6 +92,8 @@ class TerminalView:
                 meta.append(f"  ({message_count} msgs)", style=MUTED)
             self.console.print(meta)
 
+        self.console.rule(style="dim")
+
     def print_history_preview(self, messages: list[dict[str, Any]]) -> None:
         """Print a short summary of recent messages for resumed sessions."""
 
@@ -112,29 +124,46 @@ class TerminalView:
             return
 
         self.console.print(Text(f"{heading} ({len(sessions)})", style=MUTED))
-        for index, session in enumerate(sessions, start=1):
-            parts: list[str] = []
-            session_id = str(session.get("id") or "-")
-            marker = "*" if current_session_id and session_id == current_session_id else " "
-            title_limit = 24 if include_cwd else 40
-            model_limit = 18 if include_cwd else 24
-            cwd_limit = 32 if include_cwd else 48
+        self.console.print()
 
-            parts.append(f"{marker}{index:>2}")
-            parts.append(session_id[:12])
-            parts.append(self._format_timestamp(str(session.get("updated_at") or "")))
-            parts.append(self._shorten(str(session.get("title") or "New chat"), limit=title_limit))
+        title_limit = 24 if include_cwd else 40
+        model_limit = 18 if include_cwd else 24
+        cwd_limit = 32 if include_cwd else 48
+
+        table = Table(box=None, show_header=False, padding=(0, 2, 0, 0), expand=False)
+        table.add_column(no_wrap=True)  # marker
+        table.add_column(no_wrap=True)  # index
+        table.add_column(no_wrap=True)  # session id
+        table.add_column(no_wrap=True)  # timestamp
+        table.add_column()  # title
+        table.add_column(no_wrap=True)  # model
+        if include_cwd:
+            table.add_column()  # cwd
+
+        for index, session in enumerate(sessions, start=1):
+            session_id = str(session.get("id") or "-")
+            is_current = bool(current_session_id and session_id == current_session_id)
+
+            marker = Text("●", style=SUCCESS) if is_current else Text(" ")
+            idx = Text(str(index), style=MUTED)
+            sid = Text(session_id[:12], style=MUTED)
+            ts = Text(self._format_timestamp(str(session.get("updated_at") or "")), style=MUTED)
+            title = Text(self._shorten(str(session.get("title") or "New chat"), limit=title_limit))
 
             model = str(session.get("model") or "")
-            if model:
-                parts.append(f"[{self._shorten(model, limit=model_limit)}]")
+            model_text = Text(
+                f"[{self._shorten(model, limit=model_limit)}]" if model else "",
+                style=MUTED,
+            )
 
+            row: list[Any] = [marker, idx, sid, ts, title, model_text]
             if include_cwd:
                 cwd = str(session.get("cwd") or "")
-                if cwd:
-                    parts.append(self._shorten(cwd, limit=cwd_limit))
+                row.append(Text(self._shorten(cwd, limit=cwd_limit), style=MUTED))
 
-            self.console.print("  ".join(parts))
+            table.add_row(*row)
+
+        self.console.print(table)
 
     def history_preview_entries(self, messages: list[dict[str, Any]], *, limit: int = 6) -> list[tuple[str, str]]:
         """Return the compact history preview used for resumed sessions."""
@@ -303,7 +332,9 @@ class ReplyRenderer:
 
         preview = ""
         if args:
-            preview = str(next(iter(args.values())))
+            key = _TOOL_PREVIEW_KEY.get(name.lower())
+            raw = args.get(key) if key else next(iter(args.values()), "")
+            preview = str(raw or "")
             if len(preview) > 60:
                 preview = preview[:60] + "…"
 
@@ -311,7 +342,7 @@ class ReplyRenderer:
         text.append(f"{TOOL_MARKER} ", style=SUCCESS)
         text.append(name.capitalize(), style=TOOL_NAME)
         if preview:
-            text.append(f" {preview}", style=MUTED)
+            text.append(f"  {preview}", style=MUTED)
         self._console.print(text)
 
     def tool_output(self, line: str) -> None:
@@ -373,7 +404,7 @@ class ReplyRenderer:
                 parts.append(token_str)
 
         if parts:
-            self._console.print(Text(" · ".join(parts), style=STATS))
+            self._console.print(Text("  " + " · ".join(parts), style=STATS))
 
         if not self._live_mode:
             self._console.print()
@@ -400,9 +431,9 @@ class ReplyRenderer:
         duration = ""
         if self._thinking_start is not None:
             elapsed = time.monotonic() - self._thinking_start
-            duration = f" {elapsed:.1f}s"
+            duration = f" · {elapsed:.1f}s"
 
-        self._console.print(Text(f"thought{duration}", style=THINKING))
+        self._console.print(Text(f"{THINKING_SYMBOL} thought{duration}", style=THINKING))
         self._reasoning.clear()
 
     def _print_static_reasoning(self) -> None:
@@ -413,9 +444,9 @@ class ReplyRenderer:
         duration = ""
         if self._thinking_start is not None:
             elapsed = time.monotonic() - self._thinking_start
-            duration = f" ({elapsed:.1f}s)"
+            duration = f" · {elapsed:.1f}s"
 
-        self._console.print(Text(f"thinking{duration}", style=THINKING))
+        self._console.print(Text(f"{THINKING_SYMBOL} thinking{duration}", style=THINKING))
         self._console.print("".join(self._reasoning), style="dim")
         self._printed_static_reasoning = True
 

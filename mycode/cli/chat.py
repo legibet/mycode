@@ -8,8 +8,11 @@ from typing import Any
 
 from prompt_toolkit import PromptSession
 from prompt_toolkit.completion import Completer, Completion
+from prompt_toolkit.filters import completion_is_selected
 from prompt_toolkit.formatted_text import ANSI
 from prompt_toolkit.history import FileHistory
+from prompt_toolkit.key_binding import KeyBindings
+from rich.table import Table
 from rich.text import Text
 
 from mycode.core.agent import Agent
@@ -35,13 +38,30 @@ class _SlashCompleter(Completer):
         "/q": "Quit",
     }
 
-    def get_completions(self, document, complete_event):
+    def get_completions(self, document, _complete_event):
         text = document.text_before_cursor.lstrip()
         if not text.startswith("/"):
             return
         for cmd, desc in self._COMMANDS.items():
             if cmd.startswith(text) and cmd != text:
                 yield Completion(cmd, start_position=-len(text), display_meta=desc)
+
+
+def _build_key_bindings() -> KeyBindings:
+    """Build prompt key bindings for the interactive session."""
+    kb = KeyBindings()
+
+    kb.add("c-l")(lambda event: event.app.renderer.clear())
+
+    # In multiline mode the default Enter inserts a newline; override it to submit.
+    kb.add("enter", filter=~completion_is_selected, eager=True)(
+        lambda event: event.current_buffer.validate_and_handle()
+    )
+
+    # Esc+Enter (Meta+Enter) inserts a newline for multiline input.
+    kb.add("escape", "enter")(lambda event: event.current_buffer.insert_text("\n"))
+
+    return kb
 
 
 def history_file_path() -> str:
@@ -67,7 +87,13 @@ class TerminalChat:
         self.store = store
         self.session_id = session_id
         self.view = view or TerminalView()
-        self.prompt_session = PromptSession(history=FileHistory(history_file_path()), completer=_SlashCompleter())
+        self.prompt_session = PromptSession(
+            history=FileHistory(history_file_path()),
+            completer=_SlashCompleter(),
+            key_bindings=_build_key_bindings(),
+            multiline=True,
+            prompt_continuation="  ",
+        )
 
     async def run(self) -> None:
         """Run the interactive chat loop until the user exits the terminal UI."""
@@ -76,9 +102,7 @@ class TerminalChat:
             self.view.console.print()
 
             try:
-                user_input = await asyncio.get_event_loop().run_in_executor(
-                    None, lambda: self.prompt_session.prompt(_PROMPT)
-                )
+                user_input = await self.prompt_session.prompt_async(_PROMPT)
             except KeyboardInterrupt:
                 continue
             except EOFError:
@@ -98,9 +122,16 @@ class TerminalChat:
             renderer = ReplyRenderer(self.view.console)
             try:
                 await renderer.render(self.agent, user_input, on_persist=self._persist_message)
-            except KeyboardInterrupt:
+            except (KeyboardInterrupt, asyncio.CancelledError):
                 self.agent.cancel()
                 renderer.cancel()
+                # Python 3.11+: uncancel the task so the loop can continue after Ctrl+C.
+                task = asyncio.current_task()
+                if task is not None:
+                    try:
+                        task.uncancel()
+                    except AttributeError:
+                        pass  # Python < 3.11
 
     async def _persist_message(self, message: dict[str, Any]) -> None:
         await self.store.append_message(self.session_id, message)
@@ -171,8 +202,6 @@ class TerminalChat:
         return False
 
     def _print_help(self) -> None:
-        from rich.text import Text
-
         commands = [
             ("/c, /clear", "Clear conversation"),
             ("/new", "New session"),
@@ -264,21 +293,30 @@ class TerminalChat:
 
     async def _switch_provider(self) -> None:
         options = list_provider_options(self.agent.settings)
-        name_width = max((len(o.name) for o in options), default=10)
 
         self.view.console.print()
+        table = Table(box=None, show_header=False, padding=(0, 2, 0, 0), expand=False)
+        table.add_column(no_wrap=True)  # marker
+        table.add_column(no_wrap=True)  # index
+        table.add_column(no_wrap=True)  # name
+        table.add_column()  # models
+
         for index, option in enumerate(options, start=1):
             is_current = option.provider == self.agent.provider and option.api_base == self.agent.api_base
-            line = Text()
-            line.append("  ● " if is_current else "    ", style=SUCCESS if is_current else "")
-            line.append(f"{index}  ", style=MUTED)
-            line.append(f"{option.name:<{name_width}}", style=TOOL_NAME)
+            marker = Text("●", style=SUCCESS) if is_current else Text(" ")
+            idx = Text(str(index), style=MUTED)
+            name = Text(option.name, style=TOOL_NAME if is_current else "")
+
+            models_str = ""
             if option.models:
-                models = "  ".join(option.models[:3])
+                models_str = "  ".join(option.models[:3])
                 if len(option.models) > 3:
-                    models += f"  +{len(option.models) - 3}"
-                line.append(f"  {models}", style=MUTED)
-            self.view.console.print(line)
+                    models_str += f"  +{len(option.models) - 3}"
+            models_text = Text(models_str, style=MUTED)
+
+            table.add_row(marker, idx, name, models_text)
+
+        self.view.console.print(table)
 
         while True:
             selection = await self._prompt("\033[1mprovider>\033[0m ")
@@ -312,13 +350,19 @@ class TerminalChat:
             return
 
         self.view.console.print()
+        table = Table(box=None, show_header=False, padding=(0, 2, 0, 0), expand=False)
+        table.add_column(no_wrap=True)  # marker
+        table.add_column(no_wrap=True)  # index
+        table.add_column()  # model name
+
         for index, model in enumerate(models, start=1):
             is_current = model == self.agent.model
-            line = Text()
-            line.append("  ● " if is_current else "    ", style=SUCCESS if is_current else "")
-            line.append(f"{index}  ", style=MUTED)
-            line.append(model, style=TOOL_NAME if is_current else "")
-            self.view.console.print(line)
+            marker = Text("●", style=SUCCESS) if is_current else Text(" ")
+            idx = Text(str(index), style=MUTED)
+            name = Text(model, style=TOOL_NAME if is_current else "")
+            table.add_row(marker, idx, name)
+
+        self.view.console.print(table)
 
         while True:
             selection = await self._prompt("\033[1mmodel>\033[0m ")
@@ -389,10 +433,7 @@ class TerminalChat:
 
     async def _prompt(self, prompt_text: str) -> str:
         try:
-            value = await asyncio.get_event_loop().run_in_executor(
-                None,
-                lambda: self.prompt_session.prompt(ANSI(prompt_text)),
-            )
+            value = await self.prompt_session.prompt_async(ANSI(prompt_text), multiline=False)
         except (KeyboardInterrupt, EOFError):
             return ""
         return value.strip()

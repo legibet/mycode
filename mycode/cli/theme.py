@@ -37,7 +37,7 @@ SUCCESS = Style(color="green")
 ERROR = Style(color="red")
 WARNING = Style(color="yellow")
 TOOL_NAME = Style(color="cyan")
-THINKING = Style(dim=True, italic=True)
+THINKING = Style(color="blue", dim=True)
 STATS = Style(dim=True)
 PROVIDER = Style(color="cyan")
 
@@ -45,7 +45,8 @@ PROVIDER = Style(color="cyan")
 # Symbols
 # ---------------------------------------------------------------------------
 PROMPT_CHAR = "❯"
+THINKING_SYMBOL = "◇"
 TOOL_MARKER = "⏺"
 TOOL_BORDER = "│"
-TOOL_END = "⎿"
+TOOL_END = "└"
 ERROR_MARKER = "✕"
