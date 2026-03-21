@@ -4,9 +4,41 @@
  * Compact trigger line, expandable body with code-styled content.
  */
 
-import { ChevronDown, Loader2 } from 'lucide-react'
+import {
+  ChevronDown,
+  FilePen,
+  FilePlus2,
+  FileText,
+  Loader2,
+  Terminal,
+} from 'lucide-react'
 import { useState } from 'react'
 import { cn } from '../../utils/cn'
+
+const TOOL_META = {
+  read: { icon: FileText, label: 'read' },
+  write: { icon: FilePlus2, label: 'write' },
+  edit: { icon: FilePen, label: 'edit' },
+  bash: { icon: Terminal, label: 'bash' },
+}
+
+/** Extract a concise, human-readable preview for the trigger line. */
+function getPreview(name, args) {
+  if (!args) return ''
+  switch (name) {
+    case 'bash':
+      return args.command || ''
+    case 'read':
+    case 'write':
+    case 'edit':
+      return args.path || ''
+    default:
+      return Object.entries(args)
+        .filter(([k]) => k !== 'content' && k !== 'prompt')
+        .map(([, v]) => (typeof v === 'object' ? '…' : String(v)))
+        .join(' ')
+  }
+}
 
 export function ToolCard({ name, args, output, result, pending, isError }) {
   const display =
@@ -24,16 +56,9 @@ export function ToolCard({ name, args, output, result, pending, isError }) {
   const hasResult = display !== null && display !== undefined && display !== ''
   const status = pending ? 'pending' : resolvedIsError ? 'error' : 'success'
 
-  const argPreview = args
-    ? Object.entries(args)
-        .map(([key, value]) => {
-          if (key === 'content' || key === 'prompt') return null
-          const valStr = typeof value === 'object' ? '...' : String(value)
-          return `${key}=${valStr}`
-        })
-        .filter(Boolean)
-        .join(' ')
-    : ''
+  const meta = TOOL_META[name] || { icon: Terminal, label: name }
+  const Icon = meta.icon
+  const preview = getPreview(name, args)
 
   return (
     <div
@@ -48,18 +73,16 @@ export function ToolCard({ name, args, output, result, pending, isError }) {
         className="flex w-full items-center gap-2 select-none cursor-pointer text-left"
         onClick={() => setExpandedOverride(!expanded)}
       >
-        <span
+        <Icon
           className={cn(
-            'text-[13px] font-medium shrink-0',
-            status === 'error' ? 'text-red-400' : 'text-foreground/80',
+            'h-3.5 w-3.5 shrink-0',
+            status === 'error' ? 'text-red-400/70' : 'text-muted-foreground/40',
           )}
-        >
-          {name}
-        </span>
+        />
 
-        {!expanded && argPreview && (
-          <span className="text-[13px] text-muted-foreground/50 font-mono truncate">
-            {argPreview}
+        {!expanded && preview && (
+          <span className="text-[13px] text-muted-foreground/60 font-mono truncate">
+            {preview}
           </span>
         )}
 
