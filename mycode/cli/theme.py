@@ -4,29 +4,80 @@ All colors use ANSI base-16 names so terminal themes (dark/light) remap them
 automatically.  Avoid hardcoded RGB or 256-color values.
 """
 
+from __future__ import annotations
+
 import os
+import re
+import select
+import sys
+import termios
+import tty
 
 from rich.style import Style
 
 
+def _query_terminal_bg_luminance() -> float | None:
+    """Query terminal background color via OSC 11 escape sequence.
+
+    Sends ESC]11;?BEL and reads back rgb:RRRR/GGGG/BBBB.
+    Returns perceived luminance in [0, 1], or None if detection fails.
+    Works on iTerm2, Kitty, Alacritty, WezTerm, macOS Terminal, and any
+    terminal that implements xterm's OSC color query protocol.
+    """
+    if not (sys.stdout.isatty() and sys.stdin.isatty()):
+        return None
+
+    fd = sys.stdin.fileno()
+    old = termios.tcgetattr(fd)
+    try:
+        tty.setraw(fd)
+        sys.stdout.write("\033]11;?\007")
+        sys.stdout.flush()
+
+        ready, _, _ = select.select([sys.stdin], [], [], 0.2)
+        if not ready:
+            return None
+
+        buf = ""
+        while len(buf) < 64:
+            ch = sys.stdin.read(1)
+            buf += ch
+            if ch == "\007" or buf.endswith("\033\\"):
+                break
+    except Exception:
+        return None
+    finally:
+        termios.tcsetattr(fd, termios.TCSADRAIN, old)
+
+    m = re.search(r"rgb:([0-9a-fA-F]+)/([0-9a-fA-F]+)/([0-9a-fA-F]+)", buf)
+    if not m:
+        return None
+
+    def _norm(h: str) -> float:
+        # Handles 1-, 2-, or 4-digit hex components
+        return int(h, 16) / (16 ** len(h) - 1)
+
+    r, g, b = _norm(m.group(1)), _norm(m.group(2)), _norm(m.group(3))
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b
+
+
 def _detect_terminal_theme() -> str:
-    """Return 'light' or 'dark' based on terminal background heuristic."""
-    # COLORFGBG is set by many terminals: "fg;bg" with ANSI color index
-    colorfgbg = os.environ.get("COLORFGBG", "")
-    if colorfgbg:
-        try:
-            bg = int(colorfgbg.rsplit(";", 1)[-1])
-            return "light" if bg >= 7 else "dark"
-        except ValueError:
-            pass
-    # macOS Terminal.app defaults to a light profile
-    if os.environ.get("TERM_PROGRAM") == "Apple_Terminal":
-        return "light"
+    """Return 'light' or 'dark'. Falls back to 'dark' if detection fails."""
+    override = os.environ.get("MYCODE_THEME", "").lower()
+    if override in ("light", "dark"):
+        return override
+
+    luminance = _query_terminal_bg_luminance()
+    if luminance is not None:
+        return "light" if luminance > 0.5 else "dark"
+
     return "dark"
 
 
 TERMINAL_THEME = _detect_terminal_theme()
-CODE_THEME = "default" if TERMINAL_THEME == "light" else "monokai"
+# friendly: neutral #f0f0f0 background, dark saturated syntax colors — good on light terminals.
+# monokai:  classic dark background, vivid colors — good on dark terminals.
+CODE_THEME = "friendly" if TERMINAL_THEME == "light" else "monokai"
 
 # ---------------------------------------------------------------------------
 # Color tokens

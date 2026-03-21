@@ -7,12 +7,14 @@ from collections.abc import Awaitable, Callable
 from datetime import datetime
 from typing import Any
 
-from rich.console import Console, Group
+from rich.console import Console, ConsoleOptions, Group, RenderResult
 from rich.live import Live
+from rich.markdown import Heading as _RichHeading
 from rich.markdown import Markdown
 from rich.spinner import Spinner
 from rich.table import Table
 from rich.text import Text
+from rich.theme import Theme
 
 from mycode.core.agent import Agent
 
@@ -25,6 +27,7 @@ from .theme import (
     PROVIDER,
     STATS,
     SUCCESS,
+    TERMINAL_THEME,
     THINKING,
     THINKING_SYMBOL,
     TOOL_BORDER,
@@ -34,7 +37,40 @@ from .theme import (
     WARNING,
 )
 
-console = Console(highlight=False)
+# In light mode, Rich's default inline-code style ("bold cyan on black") is
+# unreadable. Override both inline and indented-block code styles.
+_LIGHT_THEME = Theme(
+    {
+        "markdown.code": "bold blue",
+        "markdown.code_block": "blue",
+    }
+)
+
+console = Console(highlight=False, theme=_LIGHT_THEME if TERMINAL_THEME == "light" else None)
+
+
+class _LeftHeading(_RichHeading):
+    """Heading variant that left-aligns all heading levels."""
+
+    def __rich_console__(self, console: Console, options: ConsoleOptions) -> RenderResult:
+        text = self.text
+        text.justify = "left"
+        if self.tag == "h1":
+            yield Text("")
+            yield text
+            yield Text("")
+        elif self.tag == "h2":
+            yield Text("")
+            yield text
+        else:
+            yield text
+
+
+class _LeftMarkdown(Markdown):
+    """Markdown subclass with left-aligned headings."""
+
+    elements = {**Markdown.elements, "heading_open": _LeftHeading}
+
 
 # Maps built-in tool names to the argument key most useful as a one-line preview.
 _TOOL_PREVIEW_KEY: dict[str, str] = {
@@ -486,6 +522,6 @@ class ReplyRenderer:
 
         # Text streaming: render as markdown (thinking already collapsed)
         if self._text:
-            return Markdown("".join(self._text), code_theme=CODE_THEME)
+            return _LeftMarkdown("".join(self._text), code_theme=CODE_THEME)
 
         return Spinner("dots", style="dim")
