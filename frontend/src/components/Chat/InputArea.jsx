@@ -5,11 +5,17 @@
  */
 
 import { ArrowUp, Square } from 'lucide-react'
-import { useRef } from 'react'
+import { useEffect, useRef } from 'react'
 import { cn } from '../../utils/cn'
 
 export function InputArea({ input, setInput, loading, onSend, onCancel }) {
   const textareaRef = useRef(null)
+
+  useEffect(() => {
+    if (!input && textareaRef.current) {
+      textareaRef.current.style.height = 'auto'
+    }
+  }, [input])
 
   const handleKeyDown = (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
