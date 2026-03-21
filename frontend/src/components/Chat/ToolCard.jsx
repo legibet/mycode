@@ -80,8 +80,17 @@ export function ToolCard({ name, args, output, result, pending, isError }) {
           )}
         />
 
+        <span
+          className={cn(
+            'text-[13px] font-medium shrink-0',
+            status === 'error' ? 'text-red-400' : 'text-foreground/80',
+          )}
+        >
+          {name}
+        </span>
+
         {!expanded && preview && (
-          <span className="text-[13px] text-muted-foreground/60 font-mono truncate">
+          <span className="text-[13px] text-muted-foreground/50 font-mono truncate">
             {preview}
           </span>
         )}
