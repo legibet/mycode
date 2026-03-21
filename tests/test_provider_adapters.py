@@ -222,17 +222,37 @@ def test_openai_compatible_provider_payload_overrides() -> None:
         ),
     )
 
+    assert OpenAIResponsesAdapter().supports_reasoning_effort is True
+
+    openai_chat_payload = OpenAIChatAdapter()._build_request_payload(request)
+    assert "reasoning_effort" not in openai_chat_payload
+
     deepseek_payload = DeepSeekAdapter()._build_request_payload(request)
-    assert deepseek_payload["extra_body"] == {"thinking": {"type": "enabled"}}
-    assert "reasoning_effort" not in deepseek_payload
+    assert "extra_body" not in deepseek_payload
 
     zai_payload = ZAIAdapter()._build_request_payload(request)
-    assert zai_payload["extra_body"] == {"thinking": {"type": "enabled"}}
-    assert "reasoning_effort" not in zai_payload
+    assert "extra_body" not in zai_payload
 
     openrouter_payload = OpenRouterAdapter()._build_request_payload(request)
-    assert "reasoning_effort" not in openrouter_payload
-    assert "extra_body" not in openrouter_payload
+    assert openrouter_payload["extra_body"] == {"reasoning": {"effort": "high"}}
+
+
+def test_toggle_reasoning_payloads_disable_cleanly() -> None:
+    request = cast(
+        Any,
+        _Obj(
+            model="test-model",
+            max_tokens=2048,
+            system="",
+            tools=[],
+            reasoning_effort="none",
+            messages=[],
+        ),
+    )
+
+    assert "extra_body" not in DeepSeekAdapter()._build_request_payload(request)
+    assert "extra_body" not in ZAIAdapter()._build_request_payload(request)
+    assert OpenRouterAdapter()._build_request_payload(request)["extra_body"] == {"reasoning": {"effort": "none"}}
 
 
 def test_anthropic_build_request_payload_includes_reasoning_config() -> None:
@@ -251,7 +271,30 @@ def test_anthropic_build_request_payload_includes_reasoning_config() -> None:
 
     payload = adapter.build_request_payload(request)
 
-    assert payload["thinking"] == {"type": "enabled", "budget_tokens": 24576}
+    assert payload["thinking"] == {"type": "adaptive"}
+    assert payload["output_config"] == {"effort": "high"}
+
+
+def test_anthropic_build_request_payload_maps_xhigh_and_4_5_correctly() -> None:
+    adapter = AnthropicAdapter()
+
+    request = cast(
+        Any,
+        _Obj(
+            model="claude-opus-4-5",
+            max_tokens=8192,
+            messages=[],
+            system="",
+            tools=[],
+            reasoning_effort="xhigh",
+        ),
+    )
+
+    payload = adapter.build_request_payload(request)
+
+    assert "thinking" not in payload
+    assert payload["output_config"] == {"effort": "max"}
+    assert adapter.supports_reasoning_effort is True
 
 
 def test_anthropic_like_build_request_payload_adds_cache_control() -> None:

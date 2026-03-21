@@ -336,6 +336,40 @@ class TestGetSettings:
         with pytest.raises(ValueError, match="OPENROUTER_API_KEY"):
             resolve_provider(settings)
 
+    def test_resolve_provider_ignores_reasoning_effort_for_openai_chat(self, tmp_path: Path, monkeypatch) -> None:
+        home = tmp_path / "home"
+        workspace = tmp_path / "workspace"
+        workspace.mkdir()
+
+        monkeypatch.setenv("MYCODE_HOME", str(home / ".mycode"))
+        monkeypatch.setenv("OPENROUTER_API_KEY", "router-env-key")
+
+        _write(
+            home / ".mycode" / "config.json",
+            """
+            {
+              "providers": {
+                "router": {
+                  "type": "openai_chat",
+                  "api_key": "${OPENROUTER_API_KEY}",
+                  "base_url": "https://openrouter.ai/api/v1",
+                  "models": ["openai/gpt-5"],
+                  "reasoning_effort": "high"
+                }
+              },
+              "default": {
+                "provider": "router"
+              }
+            }
+            """,
+        )
+
+        settings = get_settings(str(workspace))
+        resolved = resolve_provider(settings)
+
+        assert resolved.provider_type == "openai_chat"
+        assert resolved.reasoning_effort is None
+
     def test_resolve_provider_does_not_fallback_away_from_default_provider(self, tmp_path: Path, monkeypatch) -> None:
         home = tmp_path / "home"
         workspace = tmp_path / "workspace"
@@ -501,6 +535,107 @@ class TestGetSettings:
         assert resolved.model == "gpt-4.1-mini"
         assert resolved.max_tokens == 32_768
         assert resolved.context_window == 1_000_000
+        assert resolved.reasoning_effort is None
+
+    def test_resolve_provider_uses_global_default_reasoning_effort(self, tmp_path: Path, monkeypatch) -> None:
+        home = tmp_path / "home"
+        workspace = tmp_path / "workspace"
+        workspace.mkdir()
+
+        monkeypatch.setenv("MYCODE_HOME", str(home / ".mycode"))
+        monkeypatch.setenv("OPENAI_API_KEY", "env-key")
+        monkeypatch.setattr(
+            "mycode.core.config.lookup_model_metadata",
+            lambda **_: ModelMetadata(
+                provider="openai",
+                model="gpt-5.4",
+                name="GPT-5.4",
+                context_window=400_000,
+                max_input_tokens=272_000,
+                max_output_tokens=128_000,
+                supports_reasoning=True,
+                supports_tools=True,
+                raw={},
+            ),
+        )
+
+        _write(
+            home / ".mycode" / "config.json",
+            """
+            {
+              "default": {
+                "provider": "openai",
+                "reasoning_effort": "high"
+              }
+            }
+            """,
+        )
+
+        settings = get_settings(str(workspace))
+        resolved = resolve_provider(settings)
+
+        assert resolved.provider_type == "openai"
+        assert resolved.reasoning_effort == "high"
+
+    def test_resolve_provider_rejects_unsupported_reasoning_effort(self, tmp_path: Path, monkeypatch) -> None:
+        home = tmp_path / "home"
+        workspace = tmp_path / "workspace"
+        workspace.mkdir()
+
+        monkeypatch.setenv("MYCODE_HOME", str(home / ".mycode"))
+        monkeypatch.setenv("OPENAI_API_KEY", "env-key")
+
+        _write(
+            home / ".mycode" / "config.json",
+            """
+            {
+              "default": {
+                "provider": "openai",
+                "reasoning_effort": "minimal"
+              }
+            }
+            """,
+        )
+
+        settings = get_settings(str(workspace))
+
+        with pytest.raises(ValueError, match="unsupported reasoning_effort 'minimal'"):
+            resolve_provider(settings)
+
+    def test_resolve_provider_keeps_default_behavior_when_provider_has_no_effort_support(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        home = tmp_path / "home"
+        workspace = tmp_path / "workspace"
+        workspace.mkdir()
+
+        monkeypatch.setenv("MYCODE_HOME", str(home / ".mycode"))
+        monkeypatch.setenv("OPENROUTER_API_KEY", "router-env-key")
+
+        _write(
+            home / ".mycode" / "config.json",
+            """
+            {
+              "providers": {
+                "router": {
+                  "type": "openai_chat",
+                  "api_key": "${OPENROUTER_API_KEY}",
+                  "base_url": "https://openrouter.ai/api/v1",
+                  "models": ["openai/gpt-5"]
+                }
+              },
+              "default": {
+                "provider": "router",
+                "reasoning_effort": "high"
+              }
+            }
+            """,
+        )
+
+        settings = get_settings(str(workspace))
+        resolved = resolve_provider(settings)
+
+        assert resolved.provider_type == "openai_chat"
         assert resolved.reasoning_effort is None
 
 

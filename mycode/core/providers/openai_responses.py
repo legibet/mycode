@@ -25,6 +25,7 @@ class OpenAIResponsesAdapter(ProviderAdapter):
     default_base_url = "https://api.openai.com/v1"
     env_api_key_names = ("OPENAI_API_KEY",)
     default_models = ("gpt-5.4", "gpt-5.4-mini")
+    supports_reasoning_effort = True
 
     async def stream_turn(self, request: ProviderRequest):
         api_key = self.require_api_key(request.api_key)

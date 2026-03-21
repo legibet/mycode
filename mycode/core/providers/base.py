@@ -64,6 +64,9 @@ class ProviderAdapter(ABC):
     # Auto-discovery is intentionally limited to first-party built-ins that can
     # run from environment variables alone.
     auto_discoverable: bool = True
+    # Whether this adapter accepts the shared `reasoning_effort` knob. Providers
+    # that do not support it keep their upstream default behavior unchanged.
+    supports_reasoning_effort: bool = False
 
     @abstractmethod
     def stream_turn(self, request: ProviderRequest) -> AsyncIterator[ProviderStreamEvent]:

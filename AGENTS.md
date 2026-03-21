@@ -110,6 +110,9 @@ Current built-in adapter ids:
 - implemented with the official `anthropic` Python SDK
 - uses the Messages API
 - default base URL: `https://api.anthropic.com`
+- `claude-sonnet-4-6` and `claude-opus-4-6` use Anthropic's adaptive thinking flow when `reasoning_effort` is set
+- other Claude reasoning models use `output_config.effort` without adaptive thinking
+- `reasoning_effort = xhigh` maps to `high` for `claude-sonnet-4-6` and to `max` for other supported Claude reasoning models
 - Anthropic-style message adapters now add ephemeral `cache_control` to the system prompt block and the last user content block
 
 ### `moonshotai`
@@ -117,8 +120,8 @@ Current built-in adapter ids:
 - implemented with the official `anthropic` Python SDK against Moonshot's Anthropic-compatible endpoint
 - default base URL: `https://api.moonshot.ai/anthropic`
 - default API key env: `MOONSHOT_API_KEY`
-- for `kimi-k2.5`, the adapter explicitly enables thinking by default
-- real-provider testing showed that when thinking is enabled, prior reasoning must be replayed on later tool-loop turns
+- when `reasoning_effort` is set, the adapter maps it to Anthropic-style manual `budget_tokens`
+- prior reasoning must be replayed on later tool-loop turns when thinking is enabled
 - shares the Anthropic-like ephemeral prompt cache markers used by the direct Anthropic adapter
 
 ### `minimax`
@@ -127,7 +130,7 @@ Current built-in adapter ids:
 - default base URL: `https://api.minimax.io/anthropic`
 - default API key env: `MINIMAX_API_KEY`
 - preserves provider-native thinking signatures in block metadata
-- by default it relies on MiniMax's native thinking behavior unless an explicit reasoning mode is requested
+- when `reasoning_effort` is set, the adapter maps it to Anthropic-style manual `budget_tokens`
 - shares the Anthropic-like ephemeral prompt cache markers used by the direct Anthropic adapter
 
 ### `openai`
@@ -135,6 +138,7 @@ Current built-in adapter ids:
 - implemented with the official `openai` Python SDK
 - uses the Responses API
 - default base URL: `https://api.openai.com/v1`
+- GPT-5 family reasoning uses OpenAI's official `reasoning = {"effort": ...}` parameter with supported values `none/low/medium/high/xhigh`
 - tool loops continue with `previous_response_id` + `function_call_output`
 - this adapter expects prior assistant messages from the same provider/session so it can reuse `provider_message_id`
 - requests also pass `prompt_cache_key` using the current session id
@@ -144,6 +148,7 @@ Current built-in adapter ids:
 - implemented with the official `openai` Python SDK
 - uses Chat Completions
 - intended for third-party OpenAI-compatible providers when Responses API is unavailable
+- does not apply the shared `reasoning_effort` setting; unsupported third-party chat providers keep their upstream default behavior
 - preserves common third-party reasoning extensions such as `reasoning_content` and `reasoning_details` when exposed through SDK extras
 - current real-provider validation used Moonshot and MiniMax OpenAI-compatible chat endpoints
 
@@ -153,7 +158,7 @@ Current built-in adapter ids:
 - default base URL: `https://api.deepseek.com`
 - default API key env: `DEEPSEEK_API_KEY`
 - default models: `deepseek-chat`, `deepseek-reasoner`
-- when explicit reasoning is requested on `deepseek-chat`, requests send `extra_body.thinking = {"type": "enabled"}`
+- does not apply the shared `reasoning_effort` setting; requests keep DeepSeek's default thinking behavior
 - `reasoning_content` is replayed only on tool-loop continuation turns, matching DeepSeek's documented thinking/tool-calling flow
 
 ### `zai`
@@ -162,7 +167,7 @@ Current built-in adapter ids:
 - default base URL: `https://api.z.ai/api/paas/v4/`
 - default API key env: `ZAI_API_KEY`
 - default models: `glm-5`, `glm-4.7`
-- when explicit reasoning is requested, requests send `extra_body.thinking = {"type": "enabled"}`
+- does not apply the shared `reasoning_effort` setting; requests keep Z.AI's default thinking behavior
 - `reasoning_content` is replayed only on tool-loop continuation turns for compatibility with GLM thinking/tool-calling flows
 
 ### `openrouter`
@@ -171,6 +176,7 @@ Current built-in adapter ids:
 - default base URL: `https://openrouter.ai/api/v1`
 - default API key env: `OPENROUTER_API_KEY`
 - default models: `openai/gpt-5.2`, `anthropic/claude-sonnet-4.6`
+- `reasoning_effort` is forwarded through `extra_body.reasoning.effort`, letting OpenRouter normalize it for the upstream model
 - although OpenRouter ships its own Python SDK, the runtime intentionally uses the OpenAI-compatible chat API to keep the agent loop thin and provider behavior explicit
 
 ## 7. Tool Schema

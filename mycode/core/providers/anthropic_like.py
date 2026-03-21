@@ -23,8 +23,7 @@ from mycode.core.providers.base import (
     dump_model,
 )
 
-THINKING_BUDGETS = {
-    "minimal": 1024,
+_MANUAL_THINKING_BUDGETS = {
     "low": 2048,
     "medium": 8192,
     "high": 24576,
@@ -47,6 +46,9 @@ class AnthropicLikeAdapter(ProviderAdapter):
     """
 
     def thinking_config(self, request: ProviderRequest) -> dict[str, Any] | None:
+        return None
+
+    def output_config(self, request: ProviderRequest) -> dict[str, Any] | None:
         return None
 
     def build_request_payload(self, request: ProviderRequest) -> dict[str, Any]:
@@ -72,6 +74,9 @@ class AnthropicLikeAdapter(ProviderAdapter):
         thinking = self.thinking_config(request)
         if thinking is not None:
             payload["thinking"] = thinking
+        output_config = self.output_config(request)
+        if output_config is not None:
+            payload["output_config"] = output_config
         return payload
 
     def _apply_cache_control(self, messages: list[dict[str, Any]]) -> None:
@@ -262,17 +267,32 @@ class AnthropicAdapter(AnthropicLikeAdapter):
     default_base_url = "https://api.anthropic.com"
     env_api_key_names = ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN")
     default_models = ("claude-sonnet-4-6", "claude-opus-4-6")
+    supports_reasoning_effort = True
 
     def thinking_config(self, request: ProviderRequest) -> dict[str, Any] | None:
-        effort = (request.reasoning_effort or "").strip().lower()
-        if not effort or effort == "auto":
+        effort = request.reasoning_effort
+        if not effort:
             return None
-        if effort in {"none", "off", "disabled"}:
+        if effort == "none":
             return {"type": "disabled"}
-        budget = THINKING_BUDGETS.get(effort)
-        if budget is None:
+
+        normalized = request.model.lower()
+        if normalized.startswith("claude-sonnet-4-6") or normalized.startswith("claude-opus-4-6"):
+            return {"type": "adaptive"}
+        return None
+
+    def output_config(self, request: ProviderRequest) -> dict[str, Any] | None:
+        effort = request.reasoning_effort
+        if not effort or effort == "none":
             return None
-        return {"type": "enabled", "budget_tokens": budget}
+
+        normalized = request.model.lower()
+        if effort == "xhigh":
+            mapped_effort = "high" if normalized.startswith("claude-sonnet-4-6") else "max"
+        else:
+            mapped_effort = effort
+
+        return {"effort": mapped_effort}
 
 
 class MoonshotAIAdapter(AnthropicLikeAdapter):
@@ -281,23 +301,16 @@ class MoonshotAIAdapter(AnthropicLikeAdapter):
     default_base_url = "https://api.moonshot.ai/anthropic"
     env_api_key_names = ("MOONSHOT_API_KEY",)
     default_models = ("kimi-k2.5",)
+    supports_reasoning_effort = True
 
     def thinking_config(self, request: ProviderRequest) -> dict[str, Any] | None:
-        effort = (request.reasoning_effort or "").strip().lower()
-        if effort in {"none", "off", "disabled"}:
+        effort = request.reasoning_effort
+        if not effort:
+            return None
+        if effort == "none":
             return {"type": "disabled"}
-
-        if effort in THINKING_BUDGETS:
-            return {"type": "enabled", "budget_tokens": THINKING_BUDGETS[effort]}
-
-        model = request.model.lower()
-        # Real-provider testing showed that Moonshot's messages endpoint only
-        # returns reasoning blocks when thinking is enabled explicitly, and
-        # tool loops require the prior reasoning block to be replayed.
-        if model == "kimi-k2.5" or model.startswith("kimi-k2-thinking"):
-            return {"type": "enabled", "budget_tokens": THINKING_BUDGETS["medium"]}
-
-        return None
+        budget = _MANUAL_THINKING_BUDGETS.get(effort)
+        return {"type": "enabled", "budget_tokens": budget} if budget is not None else None
 
 
 class MiniMaxAdapter(AnthropicLikeAdapter):
@@ -306,17 +319,13 @@ class MiniMaxAdapter(AnthropicLikeAdapter):
     default_base_url = "https://api.minimax.io/anthropic"
     env_api_key_names = ("MINIMAX_API_KEY",)
     default_models = ("MiniMax-M2.7", "MiniMax-M2.7-highspeed")
+    supports_reasoning_effort = True
 
     def thinking_config(self, request: ProviderRequest) -> dict[str, Any] | None:
-        effort = (request.reasoning_effort or "").strip().lower()
-        if not effort or effort == "auto":
-            # MiniMax already emits thinking blocks by default on its messages
-            # endpoint, so we only send explicit config when the caller asked
-            # for a non-default reasoning mode.
+        effort = request.reasoning_effort
+        if not effort:
             return None
-        if effort in {"none", "off", "disabled"}:
+        if effort == "none":
             return {"type": "disabled"}
-        budget = THINKING_BUDGETS.get(effort)
-        if budget is None:
-            return None
-        return {"type": "enabled", "budget_tokens": budget}
+        budget = _MANUAL_THINKING_BUDGETS.get(effort)
+        return {"type": "enabled", "budget_tokens": budget} if budget is not None else None

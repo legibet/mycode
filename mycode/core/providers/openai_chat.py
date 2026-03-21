@@ -35,8 +35,6 @@ class OpenAIChatAdapter(ProviderAdapter):
     default_base_url = "https://api.openai.com/v1"
     env_api_key_names = ("OPENAI_API_KEY",)
     auto_discoverable = False
-    supports_reasoning_effort = True
-    uses_explicit_thinking = False
     replay_reasoning_only_for_tool_continuations = False
 
     async def stream_turn(self, request: ProviderRequest):
@@ -147,12 +145,6 @@ class OpenAIChatAdapter(ProviderAdapter):
         return {key: value for key, value in payload.items() if value is not None}
 
     def _build_provider_payload_overrides(self, request: ProviderRequest) -> dict[str, Any]:
-        if self.uses_explicit_thinking and self._is_reasoning_requested(request.reasoning_effort):
-            return {"extra_body": {"thinking": {"type": "enabled"}}}
-
-        if self.supports_reasoning_effort and request.reasoning_effort:
-            return {"reasoning_effort": request.reasoning_effort}
-
         return {}
 
     def _build_messages(self, messages: list[dict[str, Any]], *, system: str) -> list[dict[str, Any]]:
@@ -235,10 +227,6 @@ class OpenAIChatAdapter(ProviderAdapter):
         has_text = any(block.get("type") == "text" and str(block.get("text") or "").strip() for block in blocks)
         return has_tool_result and not has_text
 
-    def _is_reasoning_requested(self, reasoning_effort: str | None) -> bool:
-        value = (reasoning_effort or "").strip().lower()
-        return value not in {"", "none", "off", "disabled"}
-
     def _extract_reasoning_text_from_details(self, reasoning_details: Any) -> str:
         if not isinstance(reasoning_details, list) or not reasoning_details:
             return ""
@@ -317,8 +305,6 @@ class DeepSeekAdapter(OpenAIChatAdapter):
     env_api_key_names = ("DEEPSEEK_API_KEY",)
     default_models = ("deepseek-chat", "deepseek-reasoner")
     auto_discoverable = True
-    supports_reasoning_effort = False
-    uses_explicit_thinking = True
     replay_reasoning_only_for_tool_continuations = True
 
 
@@ -331,8 +317,6 @@ class ZAIAdapter(OpenAIChatAdapter):
     env_api_key_names = ("ZAI_API_KEY",)
     default_models = ("glm-5", "glm-4.7")
     auto_discoverable = True
-    supports_reasoning_effort = False
-    uses_explicit_thinking = True
     replay_reasoning_only_for_tool_continuations = True
 
 
@@ -345,5 +329,10 @@ class OpenRouterAdapter(OpenAIChatAdapter):
     env_api_key_names = ("OPENROUTER_API_KEY",)
     default_models = ("openai/gpt-5.2", "anthropic/claude-sonnet-4.6")
     auto_discoverable = True
-    supports_reasoning_effort = False
+    supports_reasoning_effort = True
     replay_reasoning_only_for_tool_continuations = True
+
+    def _build_provider_payload_overrides(self, request: ProviderRequest) -> dict[str, Any]:
+        if not request.reasoning_effort:
+            return {}
+        return {"extra_body": {"reasoning": {"effort": request.reasoning_effort}}}

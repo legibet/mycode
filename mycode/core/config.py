@@ -12,6 +12,7 @@ from typing import Any
 
 from mycode.core.models import ModelMetadata, lookup_model_metadata
 from mycode.core.providers import (
+    get_provider_adapter,
     is_supported_provider,
     list_auto_discoverable_providers,
     list_supported_providers,
@@ -19,9 +20,11 @@ from mycode.core.providers import (
     provider_default_models,
     provider_env_api_key_names,
 )
+from mycode.core.providers.base import ProviderAdapter
 
 _DEFAULT_MYCODE_HOME = "~/.mycode"
 _API_KEY_ENV_REF_RE = re.compile(r"^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$")
+_VALID_REASONING_EFFORTS = ("none", "low", "medium", "high", "xhigh")
 
 
 @dataclass(frozen=True)
@@ -43,6 +46,7 @@ class Settings:
     port: int
     cwd: str
     workspace_root: str
+    default_reasoning_effort: str | None = None
     config_paths: list[str] = field(default_factory=list)
 
 
@@ -51,6 +55,7 @@ class _ConfigLayer:
     providers: dict[str, dict[str, Any]] = field(default_factory=dict)
     default_provider: str | None = None
     default_model: str | None = None
+    default_reasoning_effort: str | None = None
     config_paths: list[str] = field(default_factory=list)
 
 
@@ -136,6 +141,9 @@ def _parse_layer(path: Path, data: dict[str, Any]) -> _ConfigLayer:
         providers=providers,
         default_provider=default.get("provider") if default and isinstance(default.get("provider"), str) else None,
         default_model=default.get("model") if default and isinstance(default.get("model"), str) else None,
+        default_reasoning_effort=(
+            default.get("reasoning_effort") if default and isinstance(default.get("reasoning_effort"), str) else None
+        ),
         config_paths=[str(path.resolve(strict=False))],
     )
 
@@ -151,6 +159,11 @@ def _merge_layers(base: _ConfigLayer, override: _ConfigLayer) -> _ConfigLayer:
         providers=providers,
         default_provider=override.default_provider if override.default_provider is not None else base.default_provider,
         default_model=override.default_model if override.default_model is not None else base.default_model,
+        default_reasoning_effort=(
+            override.default_reasoning_effort
+            if override.default_reasoning_effort is not None
+            else base.default_reasoning_effort
+        ),
         config_paths=base.config_paths + [path for path in override.config_paths if path not in base.config_paths],
     )
 
@@ -185,9 +198,21 @@ def _build_providers(raw_providers: dict[str, dict[str, Any]]) -> dict[str, Prov
             api_key=raw.get("api_key") or None,
             api_key_env_var=raw.get("api_key_env_var") or None,
             base_url=raw.get("base_url") or None,
-            reasoning_effort=raw.get("reasoning_effort") or None,
+            reasoning_effort=_normalize_reasoning_effort(raw.get("reasoning_effort")),
         )
     return providers
+
+
+def _normalize_reasoning_effort(value: Any) -> str | None:
+    if not isinstance(value, str):
+        return None
+
+    effort = value.strip().lower()
+    if effort in {"", "auto", "default"}:
+        return None
+    if effort in {"off", "disabled"}:
+        return "none"
+    return effort
 
 
 def _config_api_key_from_env_var(provider: ProviderConfig, *, require: bool = False) -> str | None:
@@ -224,6 +249,7 @@ def get_settings(cwd: str | None = None) -> Settings:
         providers=_build_providers(merged.providers),
         default_provider=merged.default_provider,
         default_model=merged.default_model,
+        default_reasoning_effort=_normalize_reasoning_effort(merged.default_reasoning_effort),
         port=int(os.environ.get("PORT", "8000")),
         cwd=resolved_cwd,
         workspace_root=str(workspace_root),
@@ -281,9 +307,13 @@ def resolve_provider(
         model=resolved_model,
         api_base=resolved_api_base,
     )
-    reasoning_effort = provider_config.reasoning_effort if provider_config else None
-    if model_metadata and model_metadata.supports_reasoning is False:
-        reasoning_effort = None
+    adapter = get_provider_adapter(resolved_provider)
+    reasoning_effort = _resolve_reasoning_effort(
+        settings,
+        provider_config=provider_config,
+        adapter=adapter,
+        model_metadata=model_metadata,
+    )
 
     config_env_api_key = _config_api_key_from_env_var(provider_config, require=True) if provider_config else None
     resolved_api_key = api_key or config_env_api_key or provider_api_key_from_env(resolved_provider)
@@ -386,6 +416,33 @@ def _resolve_model_name(
         return provider_defaults[0]
 
     raise ValueError(f"provider {selected_provider_name!r} does not define any default models")
+
+
+def _resolve_reasoning_effort(
+    settings: Settings,
+    *,
+    provider_config: ProviderConfig | None,
+    adapter: ProviderAdapter,
+    model_metadata: ModelMetadata | None,
+) -> str | None:
+    configured_effort = provider_config.reasoning_effort if provider_config else None
+    if configured_effort is None:
+        configured_effort = settings.default_reasoning_effort
+
+    if configured_effort is None:
+        return None
+
+    if configured_effort not in _VALID_REASONING_EFFORTS:
+        supported = ", ".join(_VALID_REASONING_EFFORTS)
+        raise ValueError(f"unsupported reasoning_effort {configured_effort!r}; supported: {supported}")
+
+    if not model_metadata or model_metadata.supports_reasoning is not True:
+        return None
+
+    if not adapter.supports_reasoning_effort:
+        return None
+
+    return configured_effort
 
 
 def setup_logging() -> None:
