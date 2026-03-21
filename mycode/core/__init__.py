@@ -8,7 +8,7 @@ from mycode.core.config import (
     get_settings,
     resolve_provider,
 )
-from mycode.core.provider_registry import is_supported_provider, list_supported_providers
+from mycode.core.providers import is_supported_provider, list_supported_providers
 from mycode.core.session import SessionStore
 from mycode.core.tools import TOOLS, ToolExecutor, cancel_all_tools
 

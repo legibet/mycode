@@ -18,7 +18,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
@@ -28,10 +28,34 @@ from mycode.core.messages import flatten_message_text
 
 MESSAGE_FORMAT_VERSION = 3
 DEFAULT_SESSION_PROVIDER = "anthropic"
+DEFAULT_SESSION_TITLE = "New chat"
 
 
 def _now() -> str:
     return datetime.now(UTC).isoformat()
+
+
+def _build_session_meta(
+    session_id: str,
+    *,
+    title: str,
+    provider: str,
+    model: str,
+    cwd: str,
+    api_base: str | None,
+) -> SessionMeta:
+    now = _now()
+    return SessionMeta(
+        id=session_id,
+        title=title,
+        provider=provider,
+        model=model,
+        cwd=cwd,
+        api_base=api_base,
+        message_format_version=MESSAGE_FORMAT_VERSION,
+        created_at=now,
+        updated_at=now,
+    )
 
 
 @dataclass
@@ -49,7 +73,7 @@ class SessionMeta:
 
 @dataclass
 class SessionStore:
-    """File-based session store with a small in-memory cache."""
+    """File-based session store backed by append-only JSONL files."""
 
     data_dir: Path = field(default_factory=resolve_sessions_dir)
 
@@ -69,6 +93,20 @@ class SessionStore:
     def messages_path(self, session_id: str) -> Path:
         return self.session_dir(session_id) / "messages.jsonl"
 
+    def _ensure_session_dir(self, session_id: str) -> None:
+        session_dir = self.session_dir(session_id)
+        session_dir.mkdir(parents=True, exist_ok=True)
+        (session_dir / "tool-output").mkdir(parents=True, exist_ok=True)
+
+    def _read_meta(self, session_id: str) -> dict | None:
+        path = self.meta_path(session_id)
+        if not path.exists():
+            return None
+        return json.loads(path.read_text(encoding="utf-8"))
+
+    def _write_meta(self, session_id: str, meta: dict) -> None:
+        self.meta_path(session_id).write_text(json.dumps(meta, indent=2), encoding="utf-8")
+
     # ---------------------------------------------------------------------
     # CRUD
     # ---------------------------------------------------------------------
@@ -84,30 +122,25 @@ class SessionStore:
     ) -> dict:
         session_id = uuid4().hex
         cwd = os.path.abspath(cwd)
-        now = _now()
-
-        meta = SessionMeta(
-            id=session_id,
-            title=title or "New chat",
-            provider=provider,
-            model=model,
-            cwd=cwd,
-            api_base=api_base,
-            message_format_version=MESSAGE_FORMAT_VERSION,
-            created_at=now,
-            updated_at=now,
+        meta = asdict(
+            _build_session_meta(
+                session_id,
+                title=title or DEFAULT_SESSION_TITLE,
+                provider=provider,
+                model=model,
+                cwd=cwd,
+                api_base=api_base,
+            )
         )
 
         def write_files() -> None:
-            sdir = self.session_dir(session_id)
-            sdir.mkdir(parents=True, exist_ok=True)
-            (sdir / "tool-output").mkdir(parents=True, exist_ok=True)
-            self.meta_path(session_id).write_text(json.dumps(meta.__dict__, indent=2), encoding="utf-8")
+            self._ensure_session_dir(session_id)
+            self._write_meta(session_id, meta)
             self.messages_path(session_id).touch(exist_ok=True)
 
         await asyncio.to_thread(write_files)
 
-        return {"session": meta.__dict__, "messages": []}
+        return {"session": meta, "messages": []}
 
     async def list_sessions(self, *, cwd: str | None = None) -> list[dict]:
         normalized = os.path.abspath(cwd) if cwd else None
@@ -139,11 +172,9 @@ class SessionStore:
 
     async def load_session(self, session_id: str) -> dict | None:
         def load() -> dict | None:
-            mp = self.meta_path(session_id)
-            if not mp.exists():
+            meta = self._read_meta(session_id)
+            if meta is None:
                 return None
-
-            meta = json.loads(mp.read_text(encoding="utf-8"))
 
             msgs: list[dict] = []
             lp = self.messages_path(session_id)
@@ -186,12 +217,11 @@ class SessionStore:
 
     async def clear_session(self, session_id: str) -> None:
         def clear() -> None:
-            mp = self.meta_path(session_id)
-            if not mp.exists():
+            meta = self._read_meta(session_id)
+            if meta is None:
                 return
-            meta = json.loads(mp.read_text(encoding="utf-8"))
             meta["updated_at"] = _now()
-            mp.write_text(json.dumps(meta, indent=2), encoding="utf-8")
+            self._write_meta(session_id, meta)
             self.messages_path(session_id).write_text("", encoding="utf-8")
 
         await asyncio.to_thread(clear)
@@ -202,9 +232,7 @@ class SessionStore:
 
     async def append_message(self, session_id: str, message: dict) -> None:
         def append() -> None:
-            sdir = self.session_dir(session_id)
-            sdir.mkdir(parents=True, exist_ok=True)
-            (sdir / "tool-output").mkdir(parents=True, exist_ok=True)
+            self._ensure_session_dir(session_id)
 
             lp = self.messages_path(session_id)
             with lp.open("a", encoding="utf-8") as f:
@@ -212,33 +240,29 @@ class SessionStore:
                 f.write("\n")
 
             # update updated_at + maybe infer title
-            mp = self.meta_path(session_id)
-            if not mp.exists():
-                # Create minimal meta if missing
-                meta = {
-                    "id": session_id,
-                    "title": "New chat",
-                    "provider": "",
-                    "model": "",
-                    "cwd": "",
-                    "api_base": None,
-                    "message_format_version": MESSAGE_FORMAT_VERSION,
-                    "created_at": _now(),
-                    "updated_at": _now(),
-                }
-            else:
-                meta = json.loads(mp.read_text(encoding="utf-8"))
+            meta = self._read_meta(session_id)
+            if meta is None:
+                meta = asdict(
+                    _build_session_meta(
+                        session_id,
+                        title=DEFAULT_SESSION_TITLE,
+                        provider="",
+                        model="",
+                        cwd="",
+                        api_base=None,
+                    )
+                )
 
             meta["updated_at"] = _now()
 
             meta.setdefault("message_format_version", MESSAGE_FORMAT_VERSION)
 
-            if meta.get("title") == "New chat" and message.get("role") == "user":
+            if meta.get("title") == DEFAULT_SESSION_TITLE and message.get("role") == "user":
                 content = flatten_message_text(message, include_thinking=False).replace("\n", " ").strip()
                 if content:
                     meta["title"] = content[:48]
 
-            mp.write_text(json.dumps(meta, indent=2), encoding="utf-8")
+            self._write_meta(session_id, meta)
 
         await asyncio.to_thread(append)
 
@@ -259,25 +283,20 @@ class SessionStore:
 
         # Create a session with a fixed ID (for compatibility with frontend default session_id).
         cwd = os.path.abspath(cwd)
-        now = _now()
-
-        def create_fixed() -> None:
-            sdir = self.session_dir(session_id)
-            sdir.mkdir(parents=True, exist_ok=True)
-            (sdir / "tool-output").mkdir(parents=True, exist_ok=True)
-
-            meta = SessionMeta(
-                id=session_id,
-                title="New chat",
+        meta = asdict(
+            _build_session_meta(
+                session_id,
+                title=DEFAULT_SESSION_TITLE,
                 provider=provider,
                 model=model,
                 cwd=cwd,
                 api_base=api_base,
-                message_format_version=MESSAGE_FORMAT_VERSION,
-                created_at=now,
-                updated_at=now,
             )
-            self.meta_path(session_id).write_text(json.dumps(meta.__dict__, indent=2), encoding="utf-8")
+        )
+
+        def create_fixed() -> None:
+            self._ensure_session_dir(session_id)
+            self._write_meta(session_id, meta)
             self.messages_path(session_id).touch(exist_ok=True)
 
         await asyncio.to_thread(create_fixed)

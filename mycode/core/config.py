@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from mycode.core.models import ModelMetadata, lookup_model_metadata
-from mycode.core.provider_registry import (
+from mycode.core.providers import (
     is_supported_provider,
     list_supported_providers,
     provider_api_key_from_env,
@@ -194,10 +194,6 @@ def _build_providers(raw_providers: dict[str, dict[str, Any]]) -> dict[str, Prov
     return providers
 
 
-def _env_api_key_for_provider(provider_type: str | None) -> str | None:
-    return provider_api_key_from_env(provider_type)
-
-
 def _config_api_key_from_env_var(provider: ProviderConfig, *, require: bool = False) -> str | None:
     env_name = provider.api_key_env_var
     if not env_name:
@@ -216,7 +212,7 @@ def _config_api_key_from_env_var(provider: ProviderConfig, *, require: bool = Fa
 def provider_has_api_key(provider: ProviderConfig) -> bool:
     if provider.api_key_env_var:
         return bool(_config_api_key_from_env_var(provider))
-    return bool(_env_api_key_for_provider(provider.type) or provider.api_key)
+    return bool(provider_api_key_from_env(provider.type) or provider.api_key)
 
 
 def get_settings(cwd: str | None = None) -> Settings:
@@ -272,16 +268,8 @@ def resolve_provider(
     Used by both CLI and server to avoid duplicating resolution logic.
     """
 
-    cfg: ProviderConfig | None = None
-    if provider_name and provider_name in settings.providers:
-        cfg = settings.providers[provider_name]
-    elif settings.active_provider:
-        cfg = settings.active_provider
-
-    if provider_name:
-        resolved_provider = cfg.type if cfg else provider_name
-    else:
-        resolved_provider = cfg.type if cfg else _FALLBACK_PROVIDER
+    provider_config = settings.providers.get(provider_name) if provider_name else settings.active_provider
+    resolved_provider = provider_config.type if provider_config else (provider_name or _FALLBACK_PROVIDER)
 
     if not is_supported_provider(resolved_provider):
         supported = ", ".join(list_supported_providers())
@@ -291,30 +279,30 @@ def resolve_provider(
         settings,
         provider_name=provider_name,
         provider_type=resolved_provider,
-        provider_config=cfg,
+        provider_config=provider_config,
         requested_model=model,
     )
 
-    resolved_api_base = api_base or (cfg.base_url if cfg else None)
+    resolved_api_base = api_base or (provider_config.base_url if provider_config else None)
     model_metadata = lookup_model_metadata(
         provider_type=resolved_provider,
         provider_name=provider_name,
         model=resolved_model,
         api_base=resolved_api_base,
     )
-    reasoning_effort = cfg.reasoning_effort if cfg else None
+    reasoning_effort = provider_config.reasoning_effort if provider_config else None
     if model_metadata and model_metadata.supports_reasoning is False:
         reasoning_effort = None
 
-    config_env_api_key = _config_api_key_from_env_var(cfg, require=True) if cfg else None
+    config_env_api_key = _config_api_key_from_env_var(provider_config, require=True) if provider_config else None
 
     return ResolvedProvider(
         provider=resolved_provider,
         model=resolved_model,
         api_key=api_key
         or config_env_api_key
-        or _env_api_key_for_provider(resolved_provider)
-        or (cfg.api_key if cfg else None),
+        or provider_api_key_from_env(resolved_provider)
+        or (provider_config.api_key if provider_config else None),
         api_base=resolved_api_base,
         reasoning_effort=reasoning_effort,
         max_tokens=model_metadata.max_output_tokens if model_metadata and model_metadata.max_output_tokens else 8192,

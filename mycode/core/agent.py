@@ -11,8 +11,8 @@ from typing import Any
 
 from mycode.core.config import Settings, get_settings
 from mycode.core.instructions import load_instructions_prompt
-from mycode.core.messages import ConversationMessage, build_message, text_block, tool_result_block, user_text_message
-from mycode.core.provider_registry import get_provider_adapter
+from mycode.core.messages import ConversationMessage, build_message, tool_result_block, user_text_message
+from mycode.core.providers import get_provider_adapter
 from mycode.core.providers.base import ProviderRequest
 from mycode.core.skills import load_skills_prompt
 from mycode.core.tools import TOOLS, ToolExecutor
@@ -39,6 +39,8 @@ async def _run_bash_to_queue(
     queue: asyncio.Queue[str | None],
     on_output: Callable[[str], None],
 ) -> str:
+    """Run bash in a worker thread and signal the async queue when it ends."""
+
     loop = asyncio.get_running_loop()
     try:
         return await asyncio.to_thread(
@@ -175,8 +177,118 @@ class Agent:
     def clear(self) -> None:
         self.messages = []
 
+    async def _run_bash_tool(self, *, tool_id: str, args: dict[str, Any]) -> AsyncIterator[Event]:
+        """Stream bash output while the subprocess is still running."""
+
+        loop = asyncio.get_running_loop()
+        queue: asyncio.Queue[str | None] = asyncio.Queue()
+        command = str(args.get("command", ""))
+        timeout = args.get("timeout")
+
+        def on_output(
+            line: str,
+            _loop: asyncio.AbstractEventLoop = loop,
+            _queue: asyncio.Queue[str | None] = queue,
+        ) -> None:
+            _loop.call_soon_threadsafe(_queue.put_nowait, line)
+
+        task = asyncio.create_task(
+            _run_bash_to_queue(
+                self.tools,
+                tool_call_id=tool_id,
+                command=command,
+                timeout=timeout,
+                queue=queue,
+                on_output=on_output,
+            )
+        )
+
+        cancelled = False
+        while True:
+            if self._cancel_event.is_set() and not cancelled:
+                cancelled = True
+                self.tools.cancel_active()
+
+            try:
+                item = await asyncio.wait_for(queue.get(), timeout=0.1)
+            except TimeoutError:
+                if task.done():
+                    break
+                continue
+
+            if item is None:
+                break
+
+            if not cancelled:
+                yield Event("tool_output", {"tool_use_id": tool_id, "output": item})
+
+        if cancelled:
+            try:
+                await task
+            except Exception:
+                pass
+            result = "error: cancelled"
+        else:
+            result = await task
+
+        yield Event(
+            "tool_done",
+            {
+                "tool_use_id": tool_id,
+                "result": result,
+                "is_error": result.startswith("error:"),
+            },
+        )
+
+    async def _run_tool_call(self, tool_use: dict[str, Any]) -> AsyncIterator[Event]:
+        """Run one tool call and emit the standard tool events."""
+
+        tool_id = str(tool_use.get("id") or "")
+        name = str(tool_use.get("name") or "")
+        raw_args = tool_use.get("input")
+        args = raw_args if isinstance(raw_args, dict) else {}
+
+        yield Event("tool_start", {"tool_call": {"id": tool_id, "name": name, "input": args}})
+
+        if self._cancel_event.is_set():
+            yield Event(
+                "tool_done",
+                {"tool_use_id": tool_id, "result": "error: cancelled", "is_error": True},
+            )
+            return
+
+        try:
+            if name == "bash":
+                async for event in self._run_bash_tool(tool_id=tool_id, args=args):
+                    yield event
+                return
+            if name == "read":
+                result = self.tools.read(**args)
+            elif name == "write":
+                result = self.tools.write(**args)
+            elif name == "edit":
+                result = self.tools.edit(**args)
+            else:
+                result = f"error: unknown tool: {name}"
+        except Exception as exc:  # pragma: no cover - defensive
+            result = f"error: {exc}"
+
+        yield Event(
+            "tool_done",
+            {
+                "tool_use_id": tool_id,
+                "result": result,
+                "is_error": result.startswith("error:"),
+            },
+        )
+
     async def achat(self, user_input: str, *, on_persist: PersistCallback | None = None) -> AsyncIterator[Event]:
-        """Run the agent loop for a single user message, yielding streaming events."""
+        """Run the full agent loop for one user message.
+
+        Each turn asks the provider for one assistant message. If the assistant
+        requests tools, the agent runs them locally, appends one user-side
+        tool_result message, and continues until the assistant stops using tools.
+        """
 
         self._cancel_event.clear()
 
@@ -264,102 +376,23 @@ class Agent:
 
             tool_results: list[dict[str, Any]] = []
             for tool_use in tool_uses:
-                tool_id = str(tool_use.get("id") or "")
-                name = str(tool_use.get("name") or "")
-                args = tool_use.get("input")
-                if not isinstance(args, dict):
-                    args = {}
+                async for event in self._run_tool_call(tool_use):
+                    yield event
 
-                yield Event("tool_start", {"tool_call": {"id": tool_id, "name": name, "input": args}})
+                    if event.type != "tool_done":
+                        continue
 
-                if self._cancel_event.is_set():
-                    result = "error: cancelled"
-                    yield Event(
-                        "tool_done",
-                        {"tool_use_id": tool_id, "result": result, "is_error": True},
-                    )
-                    tool_results.append(tool_result_block(tool_use_id=tool_id, content=result, is_error=True))
-                    user_tool_result = build_message("user", tool_results)
-                    self.messages.append(user_tool_result)
-                    if on_persist:
-                        await on_persist(user_tool_result)
-                    return
+                    tool_id = str(event.data.get("tool_use_id") or "")
+                    result = str(event.data.get("result") or "")
+                    is_error = bool(event.data.get("is_error"))
+                    tool_results.append(tool_result_block(tool_use_id=tool_id, content=result, is_error=is_error))
 
-                try:
-                    if name == "bash":
-                        command = str(args.get("command", ""))
-                        timeout = args.get("timeout")
-
-                        loop = asyncio.get_running_loop()
-                        queue: asyncio.Queue[str | None] = asyncio.Queue()
-
-                        def on_output(
-                            line: str,
-                            _loop: asyncio.AbstractEventLoop = loop,
-                            _queue: asyncio.Queue[str | None] = queue,
-                        ) -> None:
-                            _loop.call_soon_threadsafe(_queue.put_nowait, line)
-
-                        task = asyncio.create_task(
-                            _run_bash_to_queue(
-                                self.tools,
-                                tool_call_id=tool_id,
-                                command=command,
-                                timeout=timeout,
-                                queue=queue,
-                                on_output=on_output,
-                            )
-                        )
-
-                        cancelled = False
-                        while True:
-                            if self._cancel_event.is_set() and not cancelled:
-                                cancelled = True
-                                self.tools.cancel_active()
-
-                            try:
-                                item = await asyncio.wait_for(queue.get(), timeout=0.1)
-                            except TimeoutError:
-                                if task.done():
-                                    break
-                                continue
-
-                            if item is None:
-                                break
-
-                            if not cancelled:
-                                yield Event("tool_output", {"tool_use_id": tool_id, "output": item})
-
-                        if cancelled:
-                            try:
-                                await task
-                            except Exception:
-                                pass
-                            result = "error: cancelled"
-                        else:
-                            result = await task
-                    elif name == "read":
-                        result = self.tools.read(**args)
-                    elif name == "write":
-                        result = self.tools.write(**args)
-                    elif name == "edit":
-                        result = self.tools.edit(**args)
-                    else:
-                        result = f"error: unknown tool: {name}"
-                except Exception as exc:  # pragma: no cover - defensive
-                    result = f"error: {exc}"
-
-                yield Event(
-                    "tool_done",
-                    {
-                        "tool_use_id": tool_id,
-                        "result": result,
-                        "is_error": result.startswith("error:"),
-                    },
-                )
-                tool_results.append(
-                    tool_result_block(tool_use_id=tool_id, content=result, is_error=result.startswith("error:"))
-                )
+                    if result == "error: cancelled" and self._cancel_event.is_set():
+                        user_tool_result = build_message("user", tool_results)
+                        self.messages.append(user_tool_result)
+                        if on_persist:
+                            await on_persist(user_tool_result)
+                        return
 
             user_tool_result = build_message("user", tool_results)
             self.messages.append(user_tool_result)

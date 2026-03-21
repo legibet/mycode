@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import re
+from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -36,15 +37,26 @@ class Skill:
 
 def _parse_frontmatter(text: str) -> dict | None:
     """Extract YAML frontmatter between --- delimiters."""
-    if not text.startswith("---"):
+
+    lines = text.splitlines()
+    if not lines or lines[0].strip() != "---":
         return None
-    end = text.find("---", 3)
-    if end == -1:
+
+    closing_index: int | None = None
+    for index, line in enumerate(lines[1:], start=1):
+        if line.strip() == "---":
+            closing_index = index
+            break
+
+    if closing_index is None:
         return None
+
     try:
-        return yaml.safe_load(text[3:end])
+        parsed = yaml.safe_load("\n".join(lines[1:closing_index]))
     except yaml.YAMLError:
         return None
+
+    return parsed if isinstance(parsed, dict) else None
 
 
 def _validate_name(name: str | None) -> str | None:
@@ -61,29 +73,29 @@ def _validate_name(name: str | None) -> str | None:
 
 def _parse_skill_md(path: Path, source: str, fallback_name: str | None = None) -> Skill | None:
     """Parse a SKILL.md file and return a Skill, or None if invalid."""
+
     try:
         text = path.read_text(encoding="utf-8")
     except Exception:
         logger.warning("Failed to read skill file: %s", path)
         return None
 
-    fm = _parse_frontmatter(text)
-    if not fm or not isinstance(fm, dict):
-        # No frontmatter — skip unless we can derive both name and description
+    frontmatter = _parse_frontmatter(text)
+    if not frontmatter:
         logger.debug("No valid frontmatter in %s", path)
         return None
 
-    name = _validate_name(fm.get("name")) or _validate_name(fallback_name)
+    name = _validate_name(frontmatter.get("name")) or _validate_name(fallback_name)
     if not name:
         logger.warning("Skill missing valid name: %s", path)
         return None
 
-    description = fm.get("description")
-    if not description or not isinstance(description, str):
+    raw_description = frontmatter.get("description")
+    if not isinstance(raw_description, str) or not raw_description.strip():
         logger.warning("Skill missing description: %s (name=%s)", path, name)
         return None
 
-    description = description.strip()[:_DESC_MAX_LEN]
+    description = raw_description.strip()[:_DESC_MAX_LEN]
 
     return Skill(name=name, description=description, path=str(path.resolve()), source=source)
 
@@ -102,59 +114,62 @@ def _scan_skill_root(root: Path, source: str) -> list[Skill]:
 
     skills: list[Skill] = []
     seen_paths: set[str] = set()
+    root_entries: list[Path]
 
-    # Direct *.md files at root level
     try:
-        for entry in sorted(root.iterdir()):
-            if entry.name.startswith("."):
-                continue
-            if entry.is_file() and entry.suffix == ".md":
-                real = str(entry.resolve())
-                if real in seen_paths:
-                    continue
-                seen_paths.add(real)
-                skill = _parse_skill_md(entry, source, fallback_name=entry.stem)
-                if skill:
-                    skills.append(skill)
+        root_entries = [entry for entry in sorted(root.iterdir()) if not entry.name.startswith(".")]
     except PermissionError:
         logger.warning("Permission denied scanning: %s", root)
-        return skills
+        return []
 
-    # BFS for subdirectories containing SKILL.md
+    for entry in root_entries:
+        if not entry.is_file() or entry.suffix != ".md":
+            continue
+
+        real_path = str(entry.resolve())
+        if real_path in seen_paths:
+            continue
+
+        seen_paths.add(real_path)
+        skill = _parse_skill_md(entry, source, fallback_name=entry.stem)
+        if skill:
+            skills.append(skill)
+
     dirs_scanned = 0
-    queue: list[tuple[Path, int]] = []
+    pending_dirs = deque(
+        (entry, 1)
+        for entry in root_entries
+        if entry.name not in _SKIP_DIRS and entry.is_dir() and not entry.is_symlink()
+    )
 
-    try:
-        for entry in sorted(root.iterdir()):
-            if entry.name.startswith(".") or entry.name in _SKIP_DIRS:
-                continue
-            if entry.is_dir() and not entry.is_symlink():
-                queue.append((entry, 1))
-    except PermissionError:
-        pass
-
-    while queue and dirs_scanned < _MAX_DIRS_PER_ROOT:
-        current, depth = queue.pop(0)
+    while pending_dirs and dirs_scanned < _MAX_DIRS_PER_ROOT:
+        current, depth = pending_dirs.popleft()
         dirs_scanned += 1
 
         skill_md = current / "SKILL.md"
         if skill_md.is_file():
-            real = str(skill_md.resolve())
-            if real not in seen_paths:
-                seen_paths.add(real)
+            real_path = str(skill_md.resolve())
+            if real_path not in seen_paths:
+                seen_paths.add(real_path)
                 skill = _parse_skill_md(skill_md, source, fallback_name=current.name)
                 if skill:
                     skills.append(skill)
 
-        if depth < _MAX_SCAN_DEPTH:
-            try:
-                for entry in sorted(current.iterdir()):
-                    if entry.name.startswith(".") or entry.name in _SKIP_DIRS:
-                        continue
-                    if entry.is_dir() and not entry.is_symlink():
-                        queue.append((entry, depth + 1))
-            except PermissionError:
-                pass
+        if depth >= _MAX_SCAN_DEPTH:
+            continue
+
+        try:
+            child_entries = [
+                entry
+                for entry in sorted(current.iterdir())
+                if not entry.name.startswith(".") and entry.name not in _SKIP_DIRS
+            ]
+        except PermissionError:
+            continue
+
+        for entry in child_entries:
+            if entry.is_dir() and not entry.is_symlink():
+                pending_dirs.append((entry, depth + 1))
 
     return skills
 
@@ -170,24 +185,23 @@ def discover_skills(cwd: str) -> list[Skill]:
     """
     home = Path.home()
     mycode_home = resolve_mycode_home()
-    local_dir = Path(cwd).expanduser().resolve(strict=False)
+    cwd_path = Path(cwd).expanduser().resolve(strict=False)
 
     roots: list[tuple[Path, str]] = [
         (home / ".agents" / "skills", "global"),
         (mycode_home / "skills", "global"),
-        (local_dir / ".agents" / "skills", "project"),
-        (local_dir / ".mycode" / "skills", "project"),
+        (cwd_path / ".agents" / "skills", "project"),
+        (cwd_path / ".mycode" / "skills", "project"),
     ]
 
-    # Scan all roots; later entries override earlier for same name
     skills_by_name: dict[str, Skill] = {}
-    seen_realpaths: set[str] = set()
+    seen_paths: set[str] = set()
 
     for root, source in roots:
         for skill in _scan_skill_root(root, source):
-            if skill.path in seen_realpaths:
+            if skill.path in seen_paths:
                 continue
-            seen_realpaths.add(skill.path)
+            seen_paths.add(skill.path)
 
             if skill.name in skills_by_name:
                 prev = skills_by_name[skill.name]

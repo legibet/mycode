@@ -1,15 +1,10 @@
-"""Provider adapter registry."""
+"""Lookup helpers for built-in provider adapters."""
 
 from __future__ import annotations
 
-from mycode.core.providers import (
-    AnthropicAdapter,
-    MiniMaxAdapter,
-    MoonshotAIAdapter,
-    OpenAIChatAdapter,
-    OpenAIResponsesAdapter,
-)
+from mycode.core.providers.anthropic_like import AnthropicAdapter, MiniMaxAdapter, MoonshotAIAdapter
 from mycode.core.providers.base import ProviderAdapter
+from mycode.core.providers.openai import OpenAIChatAdapter, OpenAIResponsesAdapter
 
 _ADAPTERS: dict[str, ProviderAdapter] = {
     adapter.provider_id: adapter

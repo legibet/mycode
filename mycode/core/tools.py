@@ -29,7 +29,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from difflib import SequenceMatcher
 from pathlib import Path
-from typing import Any, TextIO
+from typing import Any, TextIO, cast
 
 # ---------------------------------------------------------------------------
 # Limits (keep token usage low)
@@ -258,9 +258,30 @@ class ToolExecutor:
         self.cwd = str(Path(cwd).resolve(strict=False))
         self.session_dir = session_dir
         self.session_dir.mkdir(parents=True, exist_ok=True)
-        (self.session_dir / "tool-output").mkdir(parents=True, exist_ok=True)
+        self.tool_output_dir = self.session_dir / "tool-output"
+        self.tool_output_dir.mkdir(parents=True, exist_ok=True)
         self._active_procs: set[subprocess.Popen[str]] = set()
         self._active_procs_lock = threading.Lock()
+
+    def _track_proc(self, proc: subprocess.Popen[str]) -> None:
+        with self._active_procs_lock:
+            self._active_procs.add(proc)
+        with _ACTIVE_PROCS_LOCK:
+            _ACTIVE_PROCS.add(proc)
+
+    def _untrack_proc(self, proc: subprocess.Popen[str]) -> None:
+        with self._active_procs_lock:
+            self._active_procs.discard(proc)
+        with _ACTIVE_PROCS_LOCK:
+            _ACTIVE_PROCS.discard(proc)
+
+    def _resolve_existing_file(self, path: str) -> tuple[Path | None, str | None]:
+        file_path = Path(resolve_path(path, cwd=self.cwd))
+        if not file_path.exists():
+            return None, f"error: file not found: {path}"
+        if not file_path.is_file():
+            return None, f"error: not a file: {path}"
+        return file_path, None
 
     def cancel_active(self) -> None:
         """Terminate only bash subprocesses started by this executor."""
@@ -282,15 +303,13 @@ class ToolExecutor:
         offset is 1-indexed. limit is number of lines.
         """
 
-        abs_path = resolve_path(path, cwd=self.cwd)
-        p = Path(abs_path)
-        if not p.exists():
-            return f"error: file not found: {path}"
-        if not p.is_file():
-            return f"error: not a file: {path}"
+        file_path, error = self._resolve_existing_file(path)
+        if error:
+            return error
+        assert file_path is not None
 
         try:
-            raw = p.read_bytes()
+            raw = file_path.read_bytes()
         except Exception as exc:
             return f"error: failed to read file: {exc}"
 
@@ -344,15 +363,19 @@ class ToolExecutor:
     # ---- edit -----------------------------------------------------------------
 
     def edit(self, *, path: str, oldText: str, newText: str) -> str:  # noqa: N803 (pi-compatible)
-        abs_path = resolve_path(path, cwd=self.cwd)
-        p = Path(abs_path)
-        if not p.exists():
-            return f"error: file not found: {path}"
-        if not p.is_file():
-            return f"error: not a file: {path}"
+        """Replace one exact snippet, with a narrow fuzzy fallback.
+
+        The fallback only tolerates line-ending and trailing-whitespace changes.
+        It still requires a unique match so the edit stays deterministic.
+        """
+
+        file_path, error = self._resolve_existing_file(path)
+        if error:
+            return error
+        assert file_path is not None
 
         try:
-            text = p.read_text(encoding="utf-8")
+            text = file_path.read_text(encoding="utf-8")
         except Exception as exc:
             return f"error: failed to read file: {exc}"
 
@@ -381,7 +404,7 @@ class ToolExecutor:
             updated = text[:start] + newText + text[end:]
 
         try:
-            _atomic_write_text(p, updated)
+            _atomic_write_text(file_path, updated)
         except Exception as exc:
             return f"error: failed to write file: {exc}"
 
@@ -397,18 +420,25 @@ class ToolExecutor:
         timeout: int | None = None,
         on_output: ToolOutputCallback | None = None,
     ) -> str:
+        """Run a shell command and return combined stdout/stderr text.
+
+        Output is streamed line-by-line through ``on_output`` when provided. If
+        the output grows too large for memory or needs truncation, the full log
+        is written under the session's ``tool-output/`` directory.
+        """
+
         timeout = int(timeout or BASH_TIMEOUT_SECONDS)
         if timeout <= 0:
             timeout = BASH_TIMEOUT_SECONDS
 
         proc: subprocess.Popen[str] | None = None
+        log_path = self.tool_output_dir / f"bash-{tool_call_id}.log"
         out_lines: list[str] = []
         out_bytes = 0
         tail_lines: deque[str] = deque(maxlen=DEFAULT_MAX_LINES)
         full_path: Path | None = None
         full_file: TextIO | None = None
         spilled_to_file = False
-        timed_out = False
 
         try:
             proc = subprocess.Popen(
@@ -422,19 +452,16 @@ class ToolExecutor:
                 universal_newlines=True,
                 start_new_session=os.name == "posix",
             )
-            with self._active_procs_lock:
-                self._active_procs.add(proc)
-            with _ACTIVE_PROCS_LOCK:
-                _ACTIVE_PROCS.add(proc)
+            self._track_proc(proc)
 
-            assert proc.stdout is not None
+            stdout = cast(TextIO, proc.stdout)
 
             output_queue: queue.Queue[str | None] = queue.Queue()
             reader_errors: list[Exception] = []
 
             def _read_stdout() -> None:
                 try:
-                    for line in proc.stdout:
+                    for line in stdout:
                         output_queue.put(line)
                 except Exception as exc:  # pragma: no cover - defensive
                     reader_errors.append(exc)
@@ -448,9 +475,8 @@ class ToolExecutor:
             while True:
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
-                    timed_out = True
                     _kill_proc_tree(proc)
-                    break
+                    return f"error: timeout after {timeout}s"
 
                 try:
                     line = output_queue.get(timeout=min(0.1, remaining))
@@ -472,7 +498,7 @@ class ToolExecutor:
                 else:
                     out_lines.append(line)
                     if out_bytes > _BASH_MAX_IN_MEMORY_BYTES:
-                        full_path = self.session_dir / "tool-output" / f"bash-{tool_call_id}.log"
+                        full_path = log_path
                         full_file = full_path.open("w", encoding="utf-8")
                         if out_lines:
                             full_file.write("\n".join(out_lines))
@@ -483,9 +509,6 @@ class ToolExecutor:
 
                 if on_output:
                     on_output(line)
-
-            if timed_out:
-                return f"error: timeout after {timeout}s"
 
             if reader_errors:
                 return f"error: {reader_errors[0]}"
@@ -507,7 +530,7 @@ class ToolExecutor:
 
             if trunc.truncated:
                 # Write full output to session file for later read
-                full_path = self.session_dir / "tool-output" / f"bash-{tool_call_id}.log"
+                full_path = log_path
                 try:
                     full_path.write_text(raw_output, encoding="utf-8")
                 except Exception:
@@ -526,10 +549,7 @@ class ToolExecutor:
                 except Exception:
                     pass
             if proc:
-                with self._active_procs_lock:
-                    self._active_procs.discard(proc)
-                with _ACTIVE_PROCS_LOCK:
-                    _ACTIVE_PROCS.discard(proc)
+                self._untrack_proc(proc)
                 if proc.poll() is None:
                     _kill_proc_tree(proc)
 

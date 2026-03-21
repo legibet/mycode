@@ -7,7 +7,7 @@ from typing import Any
 
 from mycode.core.agent import Agent
 from mycode.core.config import Settings, get_settings, resolve_provider
-from mycode.core.provider_registry import list_supported_providers, provider_default_models
+from mycode.core.providers import list_supported_providers, provider_default_models
 from mycode.core.session import SessionStore
 
 

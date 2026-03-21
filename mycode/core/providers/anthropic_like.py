@@ -20,6 +20,7 @@ from mycode.core.providers.base import (
     ProviderAdapter,
     ProviderRequest,
     ProviderStreamEvent,
+    dump_model,
 )
 
 THINKING_BUDGETS = {
@@ -138,7 +139,7 @@ class AnthropicLikeAdapter(ProviderAdapter):
                 meta = {}
                 citations = getattr(block, "citations", None)
                 if citations:
-                    meta["citations"] = _dump_model(citations)
+                    meta["citations"] = dump_model(citations)
                 blocks.append(text_block(getattr(block, "text", ""), meta=meta or None))
                 continue
 
@@ -176,7 +177,7 @@ class AnthropicLikeAdapter(ProviderAdapter):
             model=getattr(message, "model", None),
             provider_message_id=getattr(message, "id", None),
             stop_reason=getattr(message, "stop_reason", None),
-            usage=_dump_model(getattr(message, "usage", None)),
+            usage=dump_model(getattr(message, "usage", None)),
             native_meta=native_meta,
         )
 
@@ -241,16 +242,6 @@ class AnthropicLikeAdapter(ProviderAdapter):
         return dict(block)
 
 
-def _dump_model(value: Any) -> Any:
-    if value is None:
-        return None
-    if hasattr(value, "model_dump"):
-        return value.model_dump()
-    if isinstance(value, list):
-        return [_dump_model(item) for item in value]
-    return value
-
-
 def _stringify_tool_result_content(content: Any) -> str:
     if isinstance(content, str):
         return content
@@ -263,3 +254,69 @@ def _stringify_tool_result_content(content: Any) -> str:
                 parts.append(str(item))
         return "\n".join(part for part in parts if part)
     return str(content)
+
+
+class AnthropicAdapter(AnthropicLikeAdapter):
+    provider_id = "anthropic"
+    label = "Anthropic"
+    default_base_url = "https://api.anthropic.com"
+    env_api_key_names = ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN")
+    default_models = ("claude-sonnet-4-6", "claude-opus-4-1")
+
+    def thinking_config(self, request: ProviderRequest) -> dict[str, Any] | None:
+        effort = (request.reasoning_effort or "").strip().lower()
+        if not effort or effort == "auto":
+            return None
+        if effort in {"none", "off", "disabled"}:
+            return {"type": "disabled"}
+        budget = THINKING_BUDGETS.get(effort)
+        if budget is None:
+            return None
+        return {"type": "enabled", "budget_tokens": budget}
+
+
+class MoonshotAIAdapter(AnthropicLikeAdapter):
+    provider_id = "moonshotai"
+    label = "Moonshot"
+    default_base_url = "https://api.moonshot.ai/anthropic"
+    env_api_key_names = ("MOONSHOT_API_KEY",)
+    default_models = ("kimi-k2.5",)
+
+    def thinking_config(self, request: ProviderRequest) -> dict[str, Any] | None:
+        effort = (request.reasoning_effort or "").strip().lower()
+        if effort in {"none", "off", "disabled"}:
+            return {"type": "disabled"}
+
+        if effort in THINKING_BUDGETS:
+            return {"type": "enabled", "budget_tokens": THINKING_BUDGETS[effort]}
+
+        model = request.model.lower()
+        # Real-provider testing showed that Moonshot's messages endpoint only
+        # returns reasoning blocks when thinking is enabled explicitly, and
+        # tool loops require the prior reasoning block to be replayed.
+        if model == "kimi-k2.5" or model.startswith("kimi-k2-thinking"):
+            return {"type": "enabled", "budget_tokens": THINKING_BUDGETS["medium"]}
+
+        return None
+
+
+class MiniMaxAdapter(AnthropicLikeAdapter):
+    provider_id = "minimax"
+    label = "MiniMax"
+    default_base_url = "https://api.minimax.io/anthropic"
+    env_api_key_names = ("MINIMAX_API_KEY",)
+    default_models = ("MiniMax-M2.7", "MiniMax-M2.7-highspeed")
+
+    def thinking_config(self, request: ProviderRequest) -> dict[str, Any] | None:
+        effort = (request.reasoning_effort or "").strip().lower()
+        if not effort or effort == "auto":
+            # MiniMax already emits thinking blocks by default on its messages
+            # endpoint, so we only send explicit config when the caller asked
+            # for a non-default reasoning mode.
+            return None
+        if effort in {"none", "off", "disabled"}:
+            return {"type": "disabled"}
+        budget = THINKING_BUDGETS.get(effort)
+        if budget is None:
+            return None
+        return {"type": "enabled", "budget_tokens": budget}

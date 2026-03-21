@@ -42,6 +42,18 @@ class ProviderStreamEvent:
     data: dict[str, Any] = field(default_factory=dict)
 
 
+def dump_model(value: Any) -> Any:
+    """Convert SDK model objects into plain Python data."""
+
+    if value is None:
+        return None
+    if hasattr(value, "model_dump"):
+        return value.model_dump()
+    if isinstance(value, list):
+        return [dump_model(item) for item in value]
+    return value
+
+
 class ProviderAdapter(ABC):
     provider_id: str
     label: str

@@ -92,7 +92,7 @@ Other current behaviors:
 
 ## 6. Provider Adapters
 
-Provider lookup lives in `mycode/core/provider_registry.py`.
+Provider lookup lives in `mycode/core/providers/lookup.py`.
 
 Current built-in adapter ids:
 
