@@ -97,10 +97,13 @@ Provider lookup lives in `mycode/core/providers/lookup.py`.
 Current built-in adapter ids:
 
 - `anthropic`
+- `deepseek`
 - `moonshotai`
 - `minimax`
 - `openai`
 - `openai_chat`
+- `openrouter`
+- `zai`
 
 ### `anthropic`
 
@@ -143,6 +146,32 @@ Current built-in adapter ids:
 - intended for third-party OpenAI-compatible providers when Responses API is unavailable
 - preserves common third-party reasoning extensions such as `reasoning_content` and `reasoning_details` when exposed through SDK extras
 - current real-provider validation used Moonshot and MiniMax OpenAI-compatible chat endpoints
+
+### `deepseek`
+
+- implemented with the official `openai` Python SDK against DeepSeek's OpenAI-compatible chat endpoint
+- default base URL: `https://api.deepseek.com`
+- default API key env: `DEEPSEEK_API_KEY`
+- default models: `deepseek-chat`, `deepseek-reasoner`
+- when explicit reasoning is requested on `deepseek-chat`, requests send `extra_body.thinking = {"type": "enabled"}`
+- `reasoning_content` is replayed only on tool-loop continuation turns, matching DeepSeek's documented thinking/tool-calling flow
+
+### `zai`
+
+- implemented with the official `openai` Python SDK against Z.AI's international OpenAI-compatible chat endpoint
+- default base URL: `https://api.z.ai/api/paas/v4/`
+- default API key env: `ZAI_API_KEY`
+- default models: `glm-5`, `glm-4.7`
+- when explicit reasoning is requested, requests send `extra_body.thinking = {"type": "enabled"}`
+- `reasoning_content` is replayed only on tool-loop continuation turns for compatibility with GLM thinking/tool-calling flows
+
+### `openrouter`
+
+- implemented with the official `openai` Python SDK against OpenRouter's OpenAI-compatible chat endpoint
+- default base URL: `https://openrouter.ai/api/v1`
+- default API key env: `OPENROUTER_API_KEY`
+- default models: `openai/gpt-5.2`, `anthropic/claude-sonnet-4.6`
+- although OpenRouter ships its own Python SDK, the runtime intentionally uses the OpenAI-compatible chat API to keep the agent loop thin and provider behavior explicit
 
 ## 7. Tool Schema
 

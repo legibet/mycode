@@ -11,15 +11,19 @@ from mycode.core.providers.lookup import (
     provider_default_models,
     provider_env_api_key_names,
 )
-from mycode.core.providers.openai import OpenAIChatAdapter, OpenAIResponsesAdapter
+from mycode.core.providers.openai_chat import DeepSeekAdapter, OpenAIChatAdapter, OpenRouterAdapter, ZAIAdapter
+from mycode.core.providers.openai_responses import OpenAIResponsesAdapter
 
 __all__ = [
     "AnthropicAdapter",
     "ProviderAdapter",
     "MiniMaxAdapter",
     "MoonshotAIAdapter",
+    "DeepSeekAdapter",
     "OpenAIChatAdapter",
     "OpenAIResponsesAdapter",
+    "OpenRouterAdapter",
+    "ZAIAdapter",
     "get_provider_adapter",
     "list_auto_discoverable_providers",
     "is_supported_provider",

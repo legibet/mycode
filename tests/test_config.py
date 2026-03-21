@@ -28,6 +28,8 @@ def _clear_provider_env(monkeypatch) -> None:
         "OPENAI_API_KEY",
         "MOONSHOT_API_KEY",
         "MINIMAX_API_KEY",
+        "DEEPSEEK_API_KEY",
+        "ZAI_API_KEY",
         "OPENROUTER_API_KEY",
     ):
         monkeypatch.delenv(env_name, raising=False)
@@ -210,6 +212,25 @@ class TestGetSettings:
         assert resolved.provider_type == "openai"
         assert resolved.model == "gpt-5.4-mini"
         assert resolved.api_key == "config-openai-key"
+
+    def test_resolve_provider_prefers_deepseek_before_openrouter_in_auto_discovery(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        home = tmp_path / "home"
+        workspace = tmp_path / "workspace"
+        workspace.mkdir()
+
+        monkeypatch.setenv("MYCODE_HOME", str(home / ".mycode"))
+        monkeypatch.setenv("DEEPSEEK_API_KEY", "deepseek-env-key")
+        monkeypatch.setenv("OPENROUTER_API_KEY", "openrouter-env-key")
+
+        settings = get_settings(str(workspace))
+        resolved = resolve_provider(settings)
+
+        assert resolved.provider_name == "deepseek"
+        assert resolved.provider_type == "deepseek"
+        assert resolved.model == "deepseek-chat"
+        assert resolved.api_key == "deepseek-env-key"
 
     def test_resolve_provider_prefers_explicit_api_key_over_env(self, tmp_path: Path, monkeypatch) -> None:
         home = tmp_path / "home"

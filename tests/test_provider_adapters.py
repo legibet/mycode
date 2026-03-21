@@ -4,10 +4,13 @@ from typing import Any, cast
 
 from mycode.core.providers import (
     AnthropicAdapter,
+    DeepSeekAdapter,
     MiniMaxAdapter,
     MoonshotAIAdapter,
     OpenAIChatAdapter,
     OpenAIResponsesAdapter,
+    OpenRouterAdapter,
+    ZAIAdapter,
 )
 
 
@@ -130,6 +133,11 @@ def test_openai_responses_converts_final_response_blocks() -> None:
 def test_openai_chat_extracts_reasoning_from_known_extra_fields() -> None:
     adapter = OpenAIChatAdapter()
 
+    delta = _Obj(reasoning_content="step zero")
+    text, meta = adapter._extract_reasoning_delta(delta)
+    assert text == "step zero"
+    assert meta == {"openai_reasoning_field": "reasoning_content"}
+
     delta = _Obj(model_extra={"reasoning_content": "step one"})
     text, meta = adapter._extract_reasoning_delta(delta)
     assert text == "step one"
@@ -146,6 +154,85 @@ def test_openai_chat_extracts_reasoning_from_known_extra_fields() -> None:
     text, meta = adapter._extract_reasoning_delta(delta)
     assert text == "step two"
     assert meta["openai_reasoning_field"] == "reasoning_details"
+
+
+def test_openai_chat_replays_reasoning_by_default() -> None:
+    adapter = OpenAIChatAdapter()
+
+    payload_messages = adapter._build_messages(
+        [
+            {
+                "role": "assistant",
+                "content": [
+                    {"type": "thinking", "text": "think", "meta": {"openai_reasoning_field": "reasoning_content"}},
+                    {"type": "text", "text": "answer"},
+                ],
+            }
+        ],
+        system="",
+    )
+
+    assert payload_messages[0]["reasoning_content"] == "think"
+
+
+def test_deepseek_only_replays_reasoning_during_tool_loop() -> None:
+    adapter = DeepSeekAdapter()
+
+    payload_messages = adapter._build_messages(
+        [
+            {
+                "role": "assistant",
+                "content": [
+                    {"type": "thinking", "text": "think", "meta": {"openai_reasoning_field": "reasoning_content"}},
+                    {"type": "tool_use", "id": "call_1", "name": "read", "input": {"path": "x.py"}},
+                ],
+            },
+            {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "call_1", "content": "done"}]},
+        ],
+        system="",
+    )
+    assert payload_messages[0]["reasoning_content"] == "think"
+
+    payload_messages = adapter._build_messages(
+        [
+            {
+                "role": "assistant",
+                "content": [
+                    {"type": "thinking", "text": "think", "meta": {"openai_reasoning_field": "reasoning_content"}},
+                    {"type": "text", "text": "done"},
+                ],
+            },
+            {"role": "user", "content": [{"type": "text", "text": "next question"}]},
+        ],
+        system="",
+    )
+    assert "reasoning_content" not in payload_messages[0]
+
+
+def test_openai_compatible_provider_payload_overrides() -> None:
+    request = cast(
+        Any,
+        _Obj(
+            model="test-model",
+            max_tokens=2048,
+            system="",
+            tools=[],
+            reasoning_effort="high",
+            messages=[],
+        ),
+    )
+
+    deepseek_payload = DeepSeekAdapter()._build_request_payload(request)
+    assert deepseek_payload["extra_body"] == {"thinking": {"type": "enabled"}}
+    assert "reasoning_effort" not in deepseek_payload
+
+    zai_payload = ZAIAdapter()._build_request_payload(request)
+    assert zai_payload["extra_body"] == {"thinking": {"type": "enabled"}}
+    assert "reasoning_effort" not in zai_payload
+
+    openrouter_payload = OpenRouterAdapter()._build_request_payload(request)
+    assert "reasoning_effort" not in openrouter_payload
+    assert "extra_body" not in openrouter_payload
 
 
 def test_anthropic_build_request_payload_includes_reasoning_config() -> None:
