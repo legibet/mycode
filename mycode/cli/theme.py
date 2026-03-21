@@ -53,16 +53,21 @@ def _query_terminal_bg_luminance() -> float | None:
     if not m:
         return None
 
-    def _norm(h: str) -> float:
+    def _normalize_hex_component(value: str) -> float:
         # Handles 1-, 2-, or 4-digit hex components
-        return int(h, 16) / (16 ** len(h) - 1)
+        return int(value, 16) / (16 ** len(value) - 1)
 
-    r, g, b = _norm(m.group(1)), _norm(m.group(2)), _norm(m.group(3))
+    r, g, b = (
+        _normalize_hex_component(m.group(1)),
+        _normalize_hex_component(m.group(2)),
+        _normalize_hex_component(m.group(3)),
+    )
     return 0.2126 * r + 0.7152 * g + 0.0722 * b
 
 
 def _detect_terminal_theme() -> str:
-    """Return 'light' or 'dark'. Falls back to 'dark' if detection fails."""
+    """Return `light` or `dark`, with env override and safe fallback."""
+
     override = os.environ.get("MYCODE_THEME", "").lower()
     if override in ("light", "dark"):
         return override
@@ -74,6 +79,9 @@ def _detect_terminal_theme() -> str:
     return "dark"
 
 
+# Detect the terminal theme once at import time so render code can stay cheap
+# and deterministic during interactive updates. If probing fails, default to
+# the dark palette because it is the safest choice across terminals.
 TERMINAL_THEME = _detect_terminal_theme()
 # friendly: neutral #f0f0f0 background, dark saturated syntax colors — good on light terminals.
 # monokai:  classic dark background, vivid colors — good on dark terminals.

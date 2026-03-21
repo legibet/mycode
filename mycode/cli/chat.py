@@ -21,9 +21,11 @@ from mycode.core.session import SessionStore
 
 from .render import ReplyRenderer, TerminalView
 from .runtime import ProviderOption, list_model_options, list_provider_options, update_agent_runtime
-from .theme import MUTED, SUCCESS, TOOL_MARKER, TOOL_NAME
+from .theme import MUTED, PROMPT_CHAR, SUCCESS, TOOL_MARKER, TOOL_NAME
 
-_PROMPT = ANSI("\033[1m\033[34m❯\033[0m ")
+_PROMPT = ANSI(f"\033[1m\033[34m{PROMPT_CHAR}\033[0m ")
+_EXIT_COMMANDS = {"/q", "exit", "quit"}
+_CLEAR_COMMANDS = {"/c", "/clear"}
 
 
 class _SlashCompleter(Completer):
@@ -38,7 +40,7 @@ class _SlashCompleter(Completer):
         "/q": "Quit",
     }
 
-    def get_completions(self, document, _complete_event):
+    def get_completions(self, document, complete_event):
         text = document.text_before_cursor.lstrip()
         if not text.startswith("/"):
             return
@@ -114,7 +116,7 @@ class TerminalChat:
                 continue
 
             if await self._handle_command(user_input):
-                if user_input in ("/q", "exit", "quit"):
+                if user_input in _EXIT_COMMANDS:
                     return
                 continue
 
@@ -134,9 +136,13 @@ class TerminalChat:
                         pass  # Python < 3.11
 
     async def _persist_message(self, message: dict[str, Any]) -> None:
+        """Persist one streamed message into the active session."""
+
         await self.store.append_message(self.session_id, message)
 
-    def _copy_agent(self, *, session_id: str, messages: list[dict[str, Any]]) -> Agent:
+    def _clone_agent_for_session(self, *, session_id: str, messages: list[dict[str, Any]]) -> Agent:
+        """Clone the current agent configuration for a different session state."""
+
         return Agent(
             model=self.agent.model,
             provider=self.agent.provider,
@@ -153,11 +159,13 @@ class TerminalChat:
         )
 
     async def _handle_command(self, text: str) -> bool:
-        if text in ("/q", "exit", "quit"):
+        """Handle one slash-style command and return whether it was consumed."""
+
+        if text in _EXIT_COMMANDS:
             self.view.console.print("[dim]bye[/dim]")
             return True
 
-        if text in ("/c", "/clear"):
+        if text in _CLEAR_COMMANDS:
             await self.store.clear_session(self.session_id)
             self.agent.clear()
             self.view.console.print(f"[green]{TOOL_MARKER}[/green] [dim]cleared[/dim]")
@@ -171,35 +179,28 @@ class TerminalChat:
             await self._resume_session()
             return True
 
-        if text == "/provider":
-            await self._switch_provider()
-            return True
+        if not text.startswith("/"):
+            return False
 
-        if text.startswith("/provider "):
-            provider_name = text[len("/provider ") :].strip()
-            if provider_name:
-                await self._apply_provider_change(provider_name)
+        command, _, argument = text.partition(" ")
+        argument = argument.strip()
+
+        if command == "/provider":
+            if argument:
+                await self._apply_provider_change(argument)
             else:
-                self.view.console.print("[dim]usage: /provider <name>[/dim]")
+                await self._switch_provider()
             return True
 
-        if text == "/model":
-            await self._switch_model()
-            return True
-
-        if text.startswith("/model "):
-            model_name = text[len("/model ") :].strip()
-            if model_name:
-                await self._apply_model_change(model_name)
+        if command == "/model":
+            if argument:
+                await self._apply_model_change(argument)
             else:
-                self.view.console.print("[dim]usage: /model <name>[/dim]")
+                await self._switch_model()
             return True
 
-        if text.startswith("/"):
-            self._print_help()
-            return True
-
-        return False
+        self._print_help()
+        return True
 
     def _print_help(self) -> None:
         commands = [
@@ -218,6 +219,8 @@ class TerminalChat:
             self.view.console.print(line)
 
     async def _start_new_session(self) -> None:
+        """Start a fresh session while keeping the current runtime settings."""
+
         data = await self.store.create_session(
             None,
             provider=self.agent.provider,
@@ -227,7 +230,7 @@ class TerminalChat:
         )
         session = data.get("session") or {}
         self.session_id = str(session.get("id") or "")
-        self.agent = self._copy_agent(session_id=self.session_id, messages=[])
+        self.agent = self._clone_agent_for_session(session_id=self.session_id, messages=[])
         self.view.print_header(
             provider=self.agent.provider,
             model=self.agent.model,
@@ -237,6 +240,8 @@ class TerminalChat:
         )
 
     async def _resume_session(self) -> None:
+        """Switch to another saved session in the current workspace."""
+
         sessions = await self.store.list_sessions(cwd=self.agent.cwd)
         sessions = [session for session in sessions if session.get("id") != self.session_id]
         if not sessions:
@@ -280,7 +285,7 @@ class TerminalChat:
             )
             messages = data.get("messages") or []
             loaded_session = data.get("session") or session
-            self.agent = self._copy_agent(session_id=self.session_id, messages=messages)
+            self.agent = self._clone_agent_for_session(session_id=self.session_id, messages=messages)
             self.view.print_header(
                 provider=self.agent.provider,
                 model=self.agent.model,
@@ -292,6 +297,8 @@ class TerminalChat:
             return
 
     async def _switch_provider(self) -> None:
+        """Prompt for a configured provider and apply it to the active agent."""
+
         options = list_provider_options(self.agent.settings)
 
         self.view.console.print()
@@ -339,6 +346,8 @@ class TerminalChat:
             return
 
     async def _switch_model(self) -> None:
+        """Prompt for a model supported by the current provider runtime."""
+
         models = list_model_options(
             self.agent.settings,
             provider=self.agent.provider,
@@ -383,6 +392,8 @@ class TerminalChat:
             return
 
     async def _apply_provider_change(self, provider_name: str) -> None:
+        """Switch the active provider, keeping session history unchanged."""
+
         try:
             changed = await update_agent_runtime(
                 self.agent,
@@ -405,6 +416,8 @@ class TerminalChat:
             )
 
     async def _apply_model_change(self, model_name: str) -> None:
+        """Switch the active model for the current provider runtime."""
+
         option = self._current_provider_option()
         provider_name = option.name if option else self.agent.provider
 
@@ -426,6 +439,8 @@ class TerminalChat:
             self.view.console.print(f"[green]{TOOL_MARKER}[/green] [dim]already using[/dim] {self.agent.model}")
 
     def _current_provider_option(self) -> ProviderOption | None:
+        """Return the configured provider option matching the active runtime."""
+
         for option in list_provider_options(self.agent.settings):
             if option.provider == self.agent.provider and option.api_base == self.agent.api_base:
                 return option

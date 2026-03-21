@@ -13,7 +13,10 @@ from mycode.core.session import SessionStore
 
 @dataclass
 class ResolvedSession:
-    """The session selected for the current CLI run."""
+    """The session selected for the current CLI run.
+
+    `mode` is either `"new"` or `"resumed"`.
+    """
 
     session_id: str
     session: dict[str, Any]
@@ -126,12 +129,17 @@ async def update_agent_runtime(
     provider_name: str | None,
     model: str | None,
 ) -> bool:
-    """Update provider-related request settings on the active agent."""
+    """Update provider-related request settings on the active agent.
+
+    This changes the in-memory agent runtime only. Existing session metadata is
+    intentionally left unchanged so the saved session still reflects how it was
+    originally created.
+    """
 
     settings = get_settings(agent.cwd)
     resolved = resolve_provider(settings, provider_name=provider_name, model=model)
 
-    changed = (
+    runtime_changed = (
         agent.provider != resolved.provider
         or agent.model != resolved.model
         or agent.api_base != resolved.api_base
@@ -140,6 +148,7 @@ async def update_agent_runtime(
         or agent.max_tokens != resolved.max_tokens
     )
 
+    # Keep the session present on disk, but do not rewrite its original meta.
     await store.get_or_create(
         session_id,
         provider=resolved.provider,
@@ -155,4 +164,4 @@ async def update_agent_runtime(
     agent.reasoning_effort = resolved.reasoning_effort
     agent.max_tokens = resolved.max_tokens
     agent.settings = settings
-    return changed
+    return runtime_changed

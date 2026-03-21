@@ -7,7 +7,7 @@ from collections.abc import Awaitable, Callable
 from datetime import datetime
 from typing import Any
 
-from rich.console import Console, ConsoleOptions, Group, RenderResult
+from rich.console import Console, ConsoleOptions, RenderResult
 from rich.live import Live
 from rich.markdown import Heading as _RichHeading
 from rich.markdown import Markdown
@@ -207,51 +207,62 @@ class TerminalView:
         entries: list[tuple[str, str]] = []
 
         for message in messages:
-            role = message.get("role")
-            content = message.get("content")
-
-            if role == "user":
-                text = self._message_text(content)
-                if text:
-                    entries.append(("You", self._shorten(text)))
-                continue
-
-            if role != "assistant":
-                continue
-
-            text = ""
-            thinking = ""
-            tool_names: list[str] = []
-            if isinstance(content, list):
-                text = " ".join(
-                    str(block.get("text") or "").strip() for block in content if block.get("type") == "text"
-                )
-                thinking = " ".join(
-                    str(block.get("text") or "").strip() for block in content if block.get("type") == "thinking"
-                )
-                tool_names = [str(block.get("name") or "tool") for block in content if block.get("type") == "tool_use"]
-            else:
-                text = str(content or "")
-
-            text = self._shorten(text)
-            thinking = self._shorten(thinking)
-            tools_suffix = f"  [{len(tool_names)} tool{'s' if len(tool_names) != 1 else ''}]" if tool_names else ""
-
-            if text:
-                entries.append(("Assistant", f"{text}{tools_suffix}"))
-                continue
-
-            if thinking:
-                entries.append(("Assistant", f"Thinking: {thinking}{tools_suffix}"))
-                continue
-
-            if tool_names:
-                preview = ", ".join(tool_names[:3])
-                if len(tool_names) > 3:
-                    preview += f" +{len(tool_names) - 3}"
-                entries.append(("Assistant", f"[Used tools: {preview}]"))
+            entry = self._history_preview_entry(message)
+            if entry is not None:
+                entries.append(entry)
 
         return entries if limit <= 0 else entries[-limit:]
+
+    def _history_preview_entry(self, message: dict[str, Any]) -> tuple[str, str] | None:
+        """Build one compact preview entry for a stored conversation message."""
+
+        role = message.get("role")
+        content = message.get("content")
+
+        if role == "user":
+            text = self._message_text(content)
+            if text:
+                return ("You", self._shorten(text))
+            return None
+
+        if role != "assistant":
+            return None
+
+        return self._assistant_history_entry(content)
+
+    def _assistant_history_entry(self, content: Any) -> tuple[str, str] | None:
+        """Summarize one assistant message for the session preview."""
+
+        text = ""
+        thinking = ""
+        tool_names: list[str] = []
+
+        if isinstance(content, list):
+            text = " ".join(str(block.get("text") or "").strip() for block in content if block.get("type") == "text")
+            thinking = " ".join(
+                str(block.get("text") or "").strip() for block in content if block.get("type") == "thinking"
+            )
+            tool_names = [str(block.get("name") or "tool") for block in content if block.get("type") == "tool_use"]
+        else:
+            text = str(content or "")
+
+        text = self._shorten(text)
+        thinking = self._shorten(thinking)
+        tools_suffix = f"  [{len(tool_names)} tool{'s' if len(tool_names) != 1 else ''}]" if tool_names else ""
+
+        if text:
+            return ("Assistant", f"{text}{tools_suffix}")
+
+        if thinking:
+            return ("Assistant", f"Thinking: {thinking}{tools_suffix}")
+
+        if not tool_names:
+            return None
+
+        preview = ", ".join(tool_names[:3])
+        if len(tool_names) > 3:
+            preview += f" +{len(tool_names) - 3}"
+        return ("Assistant", f"[Used tools: {preview}]")
 
     @staticmethod
     def _message_text(content: Any) -> str:
@@ -288,10 +299,10 @@ class ReplyRenderer:
         self._text: list[str] = []
         self._printed_static_reasoning = False
         # Timing & stats
-        self._response_start: float | None = None
-        self._thinking_start: float | None = None
+        self._response_start_time: float | None = None
+        self._thinking_start_time: float | None = None
         self._thinking_collapsed = False
-        self._last_tool_start: float | None = None
+        self._tool_start_time: float | None = None
         self._usage: dict[str, Any] | None = None
 
     async def render(
@@ -304,7 +315,7 @@ class ReplyRenderer:
         """Stream one assistant turn to the terminal and return its exit code."""
 
         exit_code = 0
-        self._response_start = time.monotonic()
+        self._response_start_time = time.monotonic()
 
         async def _tracking_persist(msg: dict[str, Any]) -> None:
             if msg.get("role") == "assistant":
@@ -342,15 +353,19 @@ class ReplyRenderer:
         return exit_code
 
     def reasoning(self, chunk: str) -> None:
-        if self._thinking_start is None:
-            self._thinking_start = time.monotonic()
+        """Handle one streamed reasoning chunk from the agent."""
+
+        if self._thinking_start_time is None:
+            self._thinking_start_time = time.monotonic()
         self._reasoning.append(chunk)
         if self._live_mode:
             self._ensure_live()
             self._update()
 
     def text(self, chunk: str) -> None:
-        self._maybe_collapse()
+        """Handle one streamed assistant text chunk."""
+
+        self._finalize_reasoning_phase()
         if self._live_mode:
             self._text.append(chunk)
             self._ensure_live()
@@ -359,12 +374,14 @@ class ReplyRenderer:
             self._console.print(chunk, end="", markup=False, highlight=False)
 
     def tool_start(self, name: str, args: dict[str, Any]) -> None:
-        self._maybe_collapse()
-        self._flush()
+        """Render the start of a tool call."""
+
+        self._finalize_reasoning_phase()
+        self._reset_stream_state()
         if not self._live_mode:
             self._console.print()
 
-        self._last_tool_start = time.monotonic()
+        self._tool_start_time = time.monotonic()
 
         preview = ""
         if args:
@@ -382,6 +399,8 @@ class ReplyRenderer:
         self._console.print(text)
 
     def tool_output(self, line: str) -> None:
+        """Render one streamed output line from a running tool."""
+
         if not line:
             return
         text = Text(f"  {TOOL_BORDER} ", style=MUTED)
@@ -389,6 +408,8 @@ class ReplyRenderer:
         self._console.print(text)
 
     def tool_done(self, result: str) -> None:
+        """Render the final tool result preview."""
+
         lines = result.splitlines()
         preview = ""
         if lines:
@@ -402,11 +423,11 @@ class ReplyRenderer:
         style = ERROR if is_error else MUTED
 
         duration = ""
-        if self._last_tool_start is not None:
-            elapsed = time.monotonic() - self._last_tool_start
+        if self._tool_start_time is not None:
+            elapsed = time.monotonic() - self._tool_start_time
             if elapsed >= 0.5:
                 duration = f" ({elapsed:.1f}s)"
-            self._last_tool_start = None
+            self._tool_start_time = None
 
         text = Text(f"  {TOOL_END} ", style=style)
         text.append(preview, style=style)
@@ -415,24 +436,30 @@ class ReplyRenderer:
         self._console.print(text)
 
     def error(self, message: str) -> None:
-        self._maybe_collapse()
-        self._flush()
+        """Render a terminal-visible error message for the current turn."""
+
+        self._finalize_reasoning_phase()
+        self._reset_stream_state()
         text = Text(f"{ERROR_MARKER} ", style=ERROR)
         text.append(message, style=ERROR)
         self._console.print(text)
 
     def cancel(self) -> None:
-        self._maybe_collapse()
-        self._flush()
+        """Render a cancellation marker and reset transient state."""
+
+        self._finalize_reasoning_phase()
+        self._reset_stream_state()
         self._console.print(Text("cancelled", style=MUTED))
 
     def finish(self) -> None:
-        self._maybe_collapse()
-        self._flush()
+        """Flush the current turn and print timing or token statistics."""
+
+        self._finalize_reasoning_phase()
+        self._reset_stream_state()
 
         parts: list[str] = []
-        if self._response_start is not None:
-            elapsed = time.monotonic() - self._response_start
+        if self._response_start_time is not None:
+            elapsed = time.monotonic() - self._response_start_time
             parts.append(f"{elapsed:.1f}s")
         if self._usage:
             token_str = _format_usage(self._usage)
@@ -447,8 +474,9 @@ class ReplyRenderer:
 
     # -- Internal helpers ----------------------------------------------------
 
-    def _maybe_collapse(self) -> None:
-        """Collapse or print reasoning depending on mode."""
+    def _finalize_reasoning_phase(self) -> None:
+        """Finish the reasoning phase before text, tools, or final output."""
+
         if self._live_mode:
             self._collapse_thinking()
         else:
@@ -465,8 +493,8 @@ class ReplyRenderer:
             self._live = None
 
         duration = ""
-        if self._thinking_start is not None:
-            elapsed = time.monotonic() - self._thinking_start
+        if self._thinking_start_time is not None:
+            elapsed = time.monotonic() - self._thinking_start_time
             duration = f" · {elapsed:.1f}s"
 
         self._console.print(Text(f"{THINKING_SYMBOL} thought{duration}", style=THINKING))
@@ -478,8 +506,8 @@ class ReplyRenderer:
             return
 
         duration = ""
-        if self._thinking_start is not None:
-            elapsed = time.monotonic() - self._thinking_start
+        if self._thinking_start_time is not None:
+            elapsed = time.monotonic() - self._thinking_start_time
             duration = f" · {elapsed:.1f}s"
 
         self._console.print(Text(f"{THINKING_SYMBOL} thinking{duration}", style=THINKING))
@@ -488,14 +516,16 @@ class ReplyRenderer:
 
     def _ensure_live(self) -> None:
         if self._live is None:
-            self._live = Live(self._renderable(), console=self._console, refresh_per_second=12)
+            self._live = Live(self._build_live_renderable(), console=self._console, refresh_per_second=12)
             self._live.start()
 
     def _update(self) -> None:
         if self._live is not None:
-            self._live.update(self._renderable())
+            self._live.update(self._build_live_renderable())
 
-    def _flush(self) -> None:
+    def _reset_stream_state(self) -> None:
+        """Stop live rendering and clear transient buffers for the current phase."""
+
         if self._live is not None:
             self._live.stop()
             self._live = None
@@ -503,9 +533,11 @@ class ReplyRenderer:
         self._text.clear()
         self._printed_static_reasoning = False
         self._thinking_collapsed = False
-        self._thinking_start = None
+        self._thinking_start_time = None
 
-    def _renderable(self):
+    def _build_live_renderable(self):
+        """Build the Rich renderable used while a reply is streaming."""
+
         # No content yet: plain spinner
         if not self._reasoning and not self._text:
             return Spinner("dots", style="dim")
