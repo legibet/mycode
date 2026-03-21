@@ -13,12 +13,36 @@ from fastapi.responses import StreamingResponse
 
 from mycode.core.agent import Agent
 from mycode.core.config import get_settings, provider_has_api_key, resolve_provider
-from mycode.core.providers import list_auto_discoverable_providers, provider_api_key_from_env, provider_default_models
+from mycode.core.models import lookup_model_metadata
+from mycode.core.providers import (
+    get_provider_adapter,
+    list_auto_discoverable_providers,
+    provider_api_key_from_env,
+    provider_default_models,
+)
 from mycode.server.deps import RunManagerDep, StoreDep
 from mycode.server.run_manager import ActiveRunError, RunState
 from mycode.server.schemas import ChatRequest, StreamEvent
 
 router = APIRouter()
+
+REASONING_EFFORT_OPTIONS = ("none", "low", "medium", "high", "xhigh")
+
+
+def _reasoning_models(provider_type: str, provider_name: str, models: list[str], api_base: str) -> list[str]:
+    """Return the subset of models that support reasoning according to models.dev."""
+
+    result = []
+    for model in models:
+        meta = lookup_model_metadata(
+            provider_type=provider_type,
+            provider_name=provider_name,
+            model=model,
+            api_base=api_base or None,
+        )
+        if meta and meta.supports_reasoning is True:
+            result.append(model)
+    return result
 
 
 def _format_sse(event: StreamEvent) -> str:
@@ -35,8 +59,9 @@ def _build_agent(chat: ChatRequest):
         api_key=chat.api_key,
         api_base=chat.api_base,
     )
+    reasoning_effort = chat.reasoning_effort if chat.reasoning_effort is not None else resolved.reasoning_effort
     session_id = chat.session_id or "default"
-    return cwd, settings, resolved, session_id
+    return cwd, settings, resolved, reasoning_effort, session_id
 
 
 async def _stream_run(req: Request, state: RunState, after: int) -> AsyncIterator[str]:
@@ -71,7 +96,7 @@ async def _stream_run(req: Request, state: RunState, after: int) -> AsyncIterato
 
 @router.post("/chat")
 async def chat(chat: ChatRequest, store: StoreDep, runs: RunManagerDep):
-    cwd, settings, resolved, session_id = _build_agent(chat)
+    cwd, settings, resolved, reasoning_effort, session_id = _build_agent(chat)
     data = await store.get_or_create(
         session_id,
         provider=resolved.provider,
@@ -90,7 +115,7 @@ async def chat(chat: ChatRequest, store: StoreDep, runs: RunManagerDep):
         api_base=resolved.api_base,
         messages=messages,
         settings=settings,
-        reasoning_effort=resolved.reasoning_effort,
+        reasoning_effort=reasoning_effort,
         max_tokens=resolved.max_tokens,
     )
 
@@ -148,17 +173,23 @@ async def get_config(cwd: str | None = None):
     except ValueError:
         default_model = (settings.default_model or "").strip()
 
-    providers_info = {
-        name: {
+    providers_info: dict[str, Any] = {}
+    for name, provider in settings.providers.items():
+        adapter = get_provider_adapter(provider.type)
+        models = provider.models
+        info: dict[str, Any] = {
             "name": provider.name,
             "provider": provider.type,
             "type": provider.type,
-            "models": provider.models,
+            "models": models,
             "base_url": provider.base_url or "",
             "has_api_key": provider_has_api_key(provider),
         }
-        for name, provider in settings.providers.items()
-    }
+        if adapter.supports_reasoning_effort:
+            info["supports_reasoning_effort"] = True
+            info["reasoning_models"] = _reasoning_models(provider.type, name, models, provider.base_url or "")
+            info["reasoning_effort"] = provider.reasoning_effort
+        providers_info[name] = info
 
     configured_available_types = {
         provider.type for provider in settings.providers.values() if provider_has_api_key(provider)
@@ -166,14 +197,20 @@ async def get_config(cwd: str | None = None):
     for provider_name in list_auto_discoverable_providers():
         if provider_name in configured_available_types or not provider_api_key_from_env(provider_name):
             continue
-        providers_info[provider_name] = {
+        adapter = get_provider_adapter(provider_name)
+        models = list(provider_default_models(provider_name))
+        info = {
             "name": provider_name,
             "provider": provider_name,
             "type": provider_name,
-            "models": list(provider_default_models(provider_name)),
+            "models": models,
             "base_url": "",
             "has_api_key": True,
         }
+        if adapter.supports_reasoning_effort:
+            info["supports_reasoning_effort"] = True
+            info["reasoning_models"] = _reasoning_models(provider_name, provider_name, models, "")
+        providers_info[provider_name] = info
 
     return {
         "providers": providers_info,
@@ -181,6 +218,8 @@ async def get_config(cwd: str | None = None):
             "provider": resolved_provider_name,
             "model": default_model,
         },
+        "default_reasoning_effort": settings.default_reasoning_effort,
+        "reasoning_effort_options": REASONING_EFFORT_OPTIONS,
         "cwd": resolved_cwd,
         "workspace_root": settings.workspace_root,
         "config_paths": settings.config_paths,

@@ -98,7 +98,14 @@ class TerminalView:
         self.console = output or console
 
     def print_header(
-        self, *, provider: str, model: str, session: dict[str, Any], mode: str, message_count: int
+        self,
+        *,
+        provider: str,
+        model: str,
+        session: dict[str, Any],
+        mode: str,
+        message_count: int,
+        reasoning_effort: str | None = None,
     ) -> None:
         """Print the current session header shown above the interactive chat."""
 
@@ -113,6 +120,8 @@ class TerminalView:
         line.append(provider, style=PROVIDER)
         line.append("/", style=MUTED)
         line.append(model)
+        if reasoning_effort:
+            line.append(f"  [effort: {reasoning_effort}]", style=MUTED)
         if session_id:
             line.append("  ")
             line.append(session_id, style=MUTED)

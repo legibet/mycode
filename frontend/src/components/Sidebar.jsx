@@ -53,11 +53,21 @@ export function Sidebar({
       model: firstModel,
       apiBase: '',
       apiKey: '',
+      reasoningEffort: '',
     })
   }
 
   const activeProviderInfo = remoteConfig?.providers?.[config.provider]
   const providerModels = activeProviderInfo?.models || []
+  const reasoningModels = activeProviderInfo?.reasoning_models || []
+  const supportsEffort =
+    activeProviderInfo?.supports_reasoning_effort &&
+    reasoningModels.includes(config.model)
+  const effortOptions = remoteConfig?.reasoning_effort_options || []
+  const resolvedDefaultEffort =
+    activeProviderInfo?.reasoning_effort ||
+    remoteConfig?.default_reasoning_effort ||
+    ''
 
   return (
     <div
@@ -271,7 +281,11 @@ export function Sidebar({
                       id="model-input"
                       value={config.model || ''}
                       onChange={(e) =>
-                        onUpdateConfig({ ...config, model: e.target.value })
+                        onUpdateConfig({
+                          ...config,
+                          model: e.target.value,
+                          reasoningEffort: '',
+                        })
                       }
                       className={SELECT_CLASS}
                     >
@@ -285,6 +299,39 @@ export function Sidebar({
                 ) : (
                   <div className="text-center text-2xs text-muted-foreground/50 py-2">
                     No models available
+                  </div>
+                )}
+
+                {supportsEffort && (
+                  <div className="space-y-1.5">
+                    <label
+                      htmlFor="effort-select"
+                      className="text-2xs font-mono text-muted-foreground/70"
+                    >
+                      reasoning effort
+                    </label>
+                    <select
+                      id="effort-select"
+                      value={config.reasoningEffort || ''}
+                      onChange={(e) =>
+                        onUpdateConfig({
+                          ...config,
+                          reasoningEffort: e.target.value,
+                        })
+                      }
+                      className={SELECT_CLASS}
+                    >
+                      <option value="">
+                        {resolvedDefaultEffort
+                          ? `default (${resolvedDefaultEffort})`
+                          : 'default (none)'}
+                      </option>
+                      {effortOptions.map((opt) => (
+                        <option key={opt} value={opt}>
+                          {opt}
+                        </option>
+                      ))}
+                    </select>
                   </div>
                 )}
               </div>

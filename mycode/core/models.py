@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
-from urllib.request import urlopen
+from urllib.request import Request, urlopen
 
 _DEFAULT_MYCODE_HOME = "~/.mycode"
 _MODELS_DEV_URL = "https://models.dev/api.json"
@@ -231,7 +231,8 @@ def _write_cached_models_dev(path: Path, data: dict[str, Any]) -> None:
 
 def _fetch_models_dev() -> dict[str, Any] | None:
     try:
-        with urlopen(_MODELS_DEV_URL, timeout=_FETCH_TIMEOUT_SECONDS) as response:
+        request = Request(_MODELS_DEV_URL, headers={"User-Agent": "mycode/1.0"})
+        with urlopen(request, timeout=_FETCH_TIMEOUT_SECONDS) as response:
             data = json.loads(response.read().decode("utf-8"))
     except Exception:
         return None

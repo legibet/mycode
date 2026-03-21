@@ -7,12 +7,16 @@ from typing import Any
 
 from mycode.core.agent import Agent
 from mycode.core.config import Settings, get_settings, provider_has_api_key, resolve_provider
+from mycode.core.models import lookup_model_metadata
 from mycode.core.providers import (
+    get_provider_adapter,
     list_auto_discoverable_providers,
     provider_api_key_from_env,
     provider_default_models,
 )
 from mycode.core.session import SessionStore
+
+REASONING_EFFORT_OPTIONS = ("none", "low", "medium", "high", "xhigh")
 
 
 @dataclass
@@ -73,6 +77,29 @@ def list_model_options(settings: Settings, *, provider: str, api_base: str | Non
         if option.provider == provider and option.api_base == api_base:
             return list(dict.fromkeys([current_model, *option.models]))
     return list(dict.fromkeys([current_model, *provider_default_models(provider)]))
+
+
+def supports_reasoning_effort(agent: Agent) -> bool:
+    """Return whether the current agent provider+model supports reasoning effort."""
+
+    adapter = get_provider_adapter(agent.provider)
+    if not adapter.supports_reasoning_effort:
+        return False
+    meta = lookup_model_metadata(
+        provider_type=agent.provider,
+        provider_name=agent.provider,
+        model=agent.model,
+    )
+    return meta is not None and meta.supports_reasoning is True
+
+
+def update_reasoning_effort(agent: Agent, effort: str | None) -> bool:
+    """Update reasoning effort on the agent. Returns whether a change occurred."""
+
+    if effort == agent.reasoning_effort:
+        return False
+    agent.reasoning_effort = effort
+    return True
 
 
 async def resolve_session(

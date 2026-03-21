@@ -20,7 +20,15 @@ from mycode.core.config import resolve_mycode_home
 from mycode.core.session import SessionStore
 
 from .render import ReplyRenderer, TerminalView
-from .runtime import ProviderOption, list_model_options, list_provider_options, update_agent_runtime
+from .runtime import (
+    REASONING_EFFORT_OPTIONS,
+    ProviderOption,
+    list_model_options,
+    list_provider_options,
+    supports_reasoning_effort,
+    update_agent_runtime,
+    update_reasoning_effort,
+)
 from .theme import MUTED, PROMPT_CHAR, SUCCESS, TOOL_MARKER, TOOL_NAME
 
 _PROMPT = ANSI(f"\033[1m\033[34m{PROMPT_CHAR}\033[0m ")
@@ -37,6 +45,7 @@ class _SlashCompleter(Completer):
         "/resume": "Switch session",
         "/provider": "Switch provider",
         "/model": "Switch model",
+        "/effort": "Set reasoning effort",
         "/q": "Quit",
     }
 
@@ -199,6 +208,13 @@ class TerminalChat:
                 await self._switch_model()
             return True
 
+        if command == "/effort":
+            if argument:
+                self._apply_effort_change(argument)
+            else:
+                await self._switch_effort()
+            return True
+
         self._print_help()
         return True
 
@@ -209,6 +225,7 @@ class TerminalChat:
             ("/resume", "Switch session"),
             ("/provider [name]", "Switch provider"),
             ("/model [name]", "Switch model"),
+            ("/effort [level]", "Set reasoning effort"),
             ("/q", "Quit"),
         ]
         self.view.console.print()
@@ -237,6 +254,7 @@ class TerminalChat:
             session=session,
             mode="new",
             message_count=0,
+            reasoning_effort=self.agent.reasoning_effort,
         )
 
     async def _resume_session(self) -> None:
@@ -292,6 +310,7 @@ class TerminalChat:
                 session=loaded_session,
                 mode="resumed",
                 message_count=len(messages),
+                reasoning_effort=self.agent.reasoning_effort,
             )
             self.view.print_history_preview(messages)
             return
@@ -406,14 +425,13 @@ class TerminalChat:
             self.view.console.print(f"[red]{exc}[/red]")
             return
 
+        label = f"{self.agent.provider} / {self.agent.model}"
+        if self.agent.reasoning_effort:
+            label += f" [effort: {self.agent.reasoning_effort}]"
         if changed:
-            self.view.console.print(
-                f"[green]{TOOL_MARKER}[/green] [dim]provider/model →[/dim] {self.agent.provider} / {self.agent.model}"
-            )
+            self.view.console.print(f"[green]{TOOL_MARKER}[/green] [dim]provider/model →[/dim] {label}")
         else:
-            self.view.console.print(
-                f"[green]{TOOL_MARKER}[/green] [dim]already using[/dim] {self.agent.provider} / {self.agent.model}"
-            )
+            self.view.console.print(f"[green]{TOOL_MARKER}[/green] [dim]already using[/dim] {label}")
 
     async def _apply_model_change(self, model_name: str) -> None:
         """Switch the active model for the current provider runtime."""
@@ -437,6 +455,72 @@ class TerminalChat:
             self.view.console.print(f"[green]{TOOL_MARKER}[/green] [dim]model →[/dim] {self.agent.model}")
         else:
             self.view.console.print(f"[green]{TOOL_MARKER}[/green] [dim]already using[/dim] {self.agent.model}")
+
+    async def _switch_effort(self) -> None:
+        """Prompt for a reasoning effort level."""
+
+        if not supports_reasoning_effort(self.agent):
+            self.view.console.print("[dim]current model does not support reasoning effort[/dim]")
+            return
+
+        options = ["default", *REASONING_EFFORT_OPTIONS]
+        current = self.agent.reasoning_effort or "default"
+
+        self.view.console.print()
+        table = Table(box=None, show_header=False, padding=(0, 2, 0, 0), expand=False)
+        table.add_column(no_wrap=True)
+        table.add_column(no_wrap=True)
+        table.add_column()
+
+        for index, option in enumerate(options, start=1):
+            is_current = option == current
+            marker = Text("●", style=SUCCESS) if is_current else Text(" ")
+            idx = Text(str(index), style=MUTED)
+            name = Text(option, style=TOOL_NAME if is_current else "")
+            table.add_row(marker, idx, name)
+
+        self.view.console.print(table)
+
+        while True:
+            selection = await self._prompt("\033[1meffort>\033[0m ")
+            if not selection:
+                return
+
+            try:
+                chosen = self._select_by_number_or_prefix(selection, options, label="effort", text_of=lambda item: item)
+            except ValueError as exc:
+                self.view.console.print(f"[red]{exc}[/red]")
+                continue
+
+            if chosen is None:
+                self.view.console.print(f"[red]unknown effort: {selection}[/red]")
+                continue
+
+            self._apply_effort_change(chosen)
+            return
+
+    def _apply_effort_change(self, effort: str) -> None:
+        """Apply a reasoning effort change to the active agent."""
+
+        if not supports_reasoning_effort(self.agent):
+            self.view.console.print("[dim]current model does not support reasoning effort[/dim]")
+            return
+
+        cleaned = effort.strip().lower()
+        if cleaned in ("default", "auto", ""):
+            resolved = None
+        elif cleaned in REASONING_EFFORT_OPTIONS:
+            resolved = cleaned
+        else:
+            self.view.console.print(f"[red]unknown effort: {effort}[/red]")
+            return
+
+        changed = update_reasoning_effort(self.agent, resolved)
+        display = resolved or "default"
+        if changed:
+            self.view.console.print(f"[green]{TOOL_MARKER}[/green] [dim]effort →[/dim] {display}")
+        else:
+            self.view.console.print(f"[green]{TOOL_MARKER}[/green] [dim]already using[/dim] {display}")
 
     def _current_provider_option(self) -> ProviderOption | None:
         """Return the configured provider option matching the active runtime."""

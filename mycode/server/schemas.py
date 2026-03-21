@@ -13,6 +13,7 @@ class ChatRequest(BaseModel):
     cwd: str | None = None
     api_key: str | None = None
     api_base: str | None = None
+    reasoning_effort: str | None = None
 
 
 class SessionCreateRequest(BaseModel):

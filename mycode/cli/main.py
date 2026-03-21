@@ -187,6 +187,7 @@ def main() -> None:
         session=resolved_session.session,
         mode=resolved_session.mode,
         message_count=len(resolved_session.messages),
+        reasoning_effort=resolved_provider.reasoning_effort,
     )
     if resolved_session.mode == "resumed":
         view.print_history_preview(resolved_session.messages)

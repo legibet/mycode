@@ -11,6 +11,7 @@ const DEFAULT_CONFIG = {
   cwd: '.',
   apiKey: '',
   apiBase: '',
+  reasoningEffort: '', // empty = use server/config default
 }
 
 export function loadConfig() {
