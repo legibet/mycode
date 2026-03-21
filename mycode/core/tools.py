@@ -19,8 +19,11 @@ from __future__ import annotations
 
 import json
 import os
+import queue
 import signal
 import subprocess
+import threading
+import time
 from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -218,6 +221,7 @@ def _full_output_note(path: Path | None, *, in_memory: bool) -> str:
 
 # Track active subprocesses for cancellation.
 _ACTIVE_PROCS: set[subprocess.Popen] = set()
+_ACTIVE_PROCS_LOCK = threading.Lock()
 
 
 def _kill_proc_tree(proc: subprocess.Popen[Any]) -> None:
@@ -236,9 +240,12 @@ def _kill_proc_tree(proc: subprocess.Popen[Any]) -> None:
 def cancel_all_tools() -> None:
     """Terminate all running bash subprocesses."""
 
-    for proc in list(_ACTIVE_PROCS):
+    with _ACTIVE_PROCS_LOCK:
+        procs = list(_ACTIVE_PROCS)
+        _ACTIVE_PROCS.clear()
+
+    for proc in procs:
         _kill_proc_tree(proc)
-    _ACTIVE_PROCS.clear()
 
 
 ToolOutputCallback = Callable[[str], None]
@@ -252,6 +259,20 @@ class ToolExecutor:
         self.session_dir = session_dir
         self.session_dir.mkdir(parents=True, exist_ok=True)
         (self.session_dir / "tool-output").mkdir(parents=True, exist_ok=True)
+        self._active_procs: set[subprocess.Popen[str]] = set()
+        self._active_procs_lock = threading.Lock()
+
+    def cancel_active(self) -> None:
+        """Terminate only bash subprocesses started by this executor."""
+
+        with self._active_procs_lock:
+            procs = list(self._active_procs)
+            self._active_procs.clear()
+
+        for proc in procs:
+            with _ACTIVE_PROCS_LOCK:
+                _ACTIVE_PROCS.discard(proc)
+            _kill_proc_tree(proc)
 
     # ---- read -----------------------------------------------------------------
 
@@ -387,6 +408,7 @@ class ToolExecutor:
         full_path: Path | None = None
         full_file: TextIO | None = None
         spilled_to_file = False
+        timed_out = False
 
         try:
             proc = subprocess.Popen(
@@ -400,14 +422,44 @@ class ToolExecutor:
                 universal_newlines=True,
                 start_new_session=os.name == "posix",
             )
-            _ACTIVE_PROCS.add(proc)
+            with self._active_procs_lock:
+                self._active_procs.add(proc)
+            with _ACTIVE_PROCS_LOCK:
+                _ACTIVE_PROCS.add(proc)
 
             assert proc.stdout is not None
 
-            # Stream line-by-line
-            for line in iter(proc.stdout.readline, ""):
-                if line == "" and proc.poll() is not None:
+            output_queue: queue.Queue[str | None] = queue.Queue()
+            reader_errors: list[Exception] = []
+
+            def _read_stdout() -> None:
+                try:
+                    for line in proc.stdout:
+                        output_queue.put(line)
+                except Exception as exc:  # pragma: no cover - defensive
+                    reader_errors.append(exc)
+                finally:
+                    output_queue.put(None)
+
+            reader = threading.Thread(target=_read_stdout, daemon=True)
+            reader.start()
+            deadline = time.monotonic() + timeout
+
+            while True:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    timed_out = True
+                    _kill_proc_tree(proc)
                     break
+
+                try:
+                    line = output_queue.get(timeout=min(0.1, remaining))
+                except queue.Empty:
+                    continue
+
+                if line is None:
+                    break
+
                 line = line.rstrip("\n")
                 line_bytes = len((line + "\n").encode("utf-8"))
                 out_bytes += line_bytes
@@ -432,14 +484,22 @@ class ToolExecutor:
                 if on_output:
                     on_output(line)
 
+            if timed_out:
+                return f"error: timeout after {timeout}s"
+
+            if reader_errors:
+                return f"error: {reader_errors[0]}"
+
             try:
-                proc.wait(timeout=timeout)
+                remaining = max(0.1, deadline - time.monotonic())
+                proc.wait(timeout=remaining)
             except subprocess.TimeoutExpired:
                 _kill_proc_tree(proc)
                 return f"error: timeout after {timeout}s"
 
             output_lines = list(tail_lines) if spilled_to_file else out_lines
-            output = "\n".join(output_lines).strip() or "(empty)"
+            raw_output = "\n".join(output_lines)
+            output = raw_output.strip() or "(empty)"
             content, trunc = truncate_text(output)
 
             if spilled_to_file:
@@ -449,7 +509,7 @@ class ToolExecutor:
                 # Write full output to session file for later read
                 full_path = self.session_dir / "tool-output" / f"bash-{tool_call_id}.log"
                 try:
-                    full_path.write_text(output, encoding="utf-8")
+                    full_path.write_text(raw_output, encoding="utf-8")
                 except Exception:
                     full_path = None
 
@@ -466,7 +526,10 @@ class ToolExecutor:
                 except Exception:
                     pass
             if proc:
-                _ACTIVE_PROCS.discard(proc)
+                with self._active_procs_lock:
+                    self._active_procs.discard(proc)
+                with _ACTIVE_PROCS_LOCK:
+                    _ACTIVE_PROCS.discard(proc)
                 if proc.poll() is None:
                     _kill_proc_tree(proc)
 

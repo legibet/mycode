@@ -74,7 +74,6 @@ class TestToolExecutorBash:
 class TestBashTimeout:
     """Tests for bash timeout handling."""
 
-    @pytest.mark.skip(reason="Timeout behavior varies by platform; test is flaky")
     def test_bash_timeout(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             executor = ToolExecutor(cwd=tmpdir, session_dir=Path(tmpdir))
@@ -191,6 +190,49 @@ class TestCancelAllTools:
 
             # Process should have been killed
             assert thread.is_alive() is False
+
+    def test_cancel_active_only_terminates_own_processes(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            first = ToolExecutor(cwd=tmpdir, session_dir=Path(tmpdir) / "session-1")
+            second = ToolExecutor(cwd=tmpdir, session_dir=Path(tmpdir) / "session-2")
+
+            import threading
+            import time
+
+            first_result: dict[str, str] = {}
+            second_result: dict[str, str] = {}
+
+            def run_first() -> None:
+                first_result["result"] = first.bash(
+                    tool_call_id="first",
+                    command="sleep 10",
+                    timeout=15,
+                )
+
+            def run_second() -> None:
+                second_result["result"] = second.bash(
+                    tool_call_id="second",
+                    command="sleep 10",
+                    timeout=15,
+                )
+
+            first_thread = threading.Thread(target=run_first)
+            second_thread = threading.Thread(target=run_second)
+            first_thread.start()
+            second_thread.start()
+
+            time.sleep(0.5)
+            first.cancel_active()
+
+            first_thread.join(timeout=5)
+            assert first_thread.is_alive() is False
+
+            time.sleep(0.5)
+            assert second_thread.is_alive() is True
+
+            second.cancel_active()
+            second_thread.join(timeout=5)
+            assert second_thread.is_alive() is False
 
 
 class TestAgentFinalizePendingToolCalls:

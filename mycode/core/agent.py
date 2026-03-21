@@ -15,7 +15,7 @@ from mycode.core.messages import ConversationMessage, build_message, text_block,
 from mycode.core.provider_registry import get_provider_adapter
 from mycode.core.providers.base import ProviderRequest
 from mycode.core.skills import load_skills_prompt
-from mycode.core.tools import TOOLS, ToolExecutor, cancel_all_tools
+from mycode.core.tools import TOOLS, ToolExecutor
 
 logger = logging.getLogger(__name__)
 
@@ -315,7 +315,7 @@ class Agent:
                         while True:
                             if self._cancel_event.is_set() and not cancelled:
                                 cancelled = True
-                                cancel_all_tools()
+                                self.tools.cancel_active()
 
                             try:
                                 item = await asyncio.wait_for(queue.get(), timeout=0.1)
