@@ -261,7 +261,7 @@ class AnthropicAdapter(AnthropicLikeAdapter):
     label = "Anthropic"
     default_base_url = "https://api.anthropic.com"
     env_api_key_names = ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN")
-    default_models = ("claude-sonnet-4-6", "claude-opus-4-1")
+    default_models = ("claude-sonnet-4-6", "claude-opus-4-6")
 
     def thinking_config(self, request: ProviderRequest) -> dict[str, Any] | None:
         effort = (request.reasoning_effort or "").strip().lower()

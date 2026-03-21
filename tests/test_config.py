@@ -20,6 +20,19 @@ def _disable_live_models_dev_lookup(monkeypatch) -> None:
     monkeypatch.setattr("mycode.core.config.lookup_model_metadata", lambda **_: None)
 
 
+@pytest.fixture(autouse=True)
+def _clear_provider_env(monkeypatch) -> None:
+    for env_name in (
+        "ANTHROPIC_API_KEY",
+        "ANTHROPIC_AUTH_TOKEN",
+        "OPENAI_API_KEY",
+        "MOONSHOT_API_KEY",
+        "MINIMAX_API_KEY",
+        "OPENROUTER_API_KEY",
+    ):
+        monkeypatch.delenv(env_name, raising=False)
+
+
 class TestGetSettings:
     def test_merges_global_and_project_configs(self, tmp_path: Path, monkeypatch) -> None:
         home = tmp_path / "home"
@@ -148,6 +161,56 @@ class TestGetSettings:
         assert resolved.model == "kimi-k2-thinking"
         assert resolved.api_key == "moonshot-env-key"
 
+    def test_resolve_provider_auto_discovers_first_available_provider(self, tmp_path: Path, monkeypatch) -> None:
+        home = tmp_path / "home"
+        workspace = tmp_path / "workspace"
+        workspace.mkdir()
+
+        monkeypatch.setenv("MYCODE_HOME", str(home / ".mycode"))
+        monkeypatch.setenv("OPENAI_API_KEY", "openai-env-key")
+        monkeypatch.setenv("MOONSHOT_API_KEY", "moonshot-env-key")
+
+        settings = get_settings(str(workspace))
+        resolved = resolve_provider(settings)
+
+        assert resolved.provider_name == "openai"
+        assert resolved.provider_type == "openai"
+        assert resolved.model == "gpt-5.4"
+        assert resolved.api_key == "openai-env-key"
+
+    def test_resolve_provider_prefers_first_configured_provider_with_credentials(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        home = tmp_path / "home"
+        workspace = tmp_path / "workspace"
+        workspace.mkdir()
+
+        monkeypatch.setenv("MYCODE_HOME", str(home / ".mycode"))
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "anthropic-env-key")
+
+        _write(
+            home / ".mycode" / "config.json",
+            """
+            {
+              "providers": {
+                "shared": {
+                  "type": "openai",
+                  "api_key": "config-openai-key",
+                  "models": ["gpt-5.4-mini"]
+                }
+              }
+            }
+            """,
+        )
+
+        settings = get_settings(str(workspace))
+        resolved = resolve_provider(settings)
+
+        assert resolved.provider_name == "shared"
+        assert resolved.provider_type == "openai"
+        assert resolved.model == "gpt-5.4-mini"
+        assert resolved.api_key == "config-openai-key"
+
     def test_resolve_provider_prefers_explicit_api_key_over_env(self, tmp_path: Path, monkeypatch) -> None:
         home = tmp_path / "home"
         workspace = tmp_path / "workspace"
@@ -252,6 +315,36 @@ class TestGetSettings:
         with pytest.raises(ValueError, match="OPENROUTER_API_KEY"):
             resolve_provider(settings)
 
+    def test_resolve_provider_does_not_fallback_away_from_default_provider(self, tmp_path: Path, monkeypatch) -> None:
+        home = tmp_path / "home"
+        workspace = tmp_path / "workspace"
+        workspace.mkdir()
+
+        monkeypatch.setenv("MYCODE_HOME", str(home / ".mycode"))
+        monkeypatch.setenv("OPENAI_API_KEY", "openai-env-key")
+
+        _write(
+            home / ".mycode" / "config.json",
+            """
+            {
+              "providers": {
+                "claude": {
+                  "type": "anthropic",
+                  "models": ["claude-sonnet-4-6"]
+                }
+              },
+              "default": {
+                "provider": "claude"
+              }
+            }
+            """,
+        )
+
+        settings = get_settings(str(workspace))
+
+        with pytest.raises(ValueError, match="provider 'claude' is selected"):
+            resolve_provider(settings)
+
     def test_ignores_agents_config(self, tmp_path: Path, monkeypatch) -> None:
         home = tmp_path / "home"
         workspace = tmp_path / "workspace"
@@ -312,6 +405,18 @@ class TestGetSettings:
         settings = get_settings(str(workspace))
 
         assert settings.providers["moonshotai"].models == ["kimi-k2.5"]
+
+    def test_resolve_provider_errors_when_no_providers_are_available(self, tmp_path: Path, monkeypatch) -> None:
+        home = tmp_path / "home"
+        workspace = tmp_path / "workspace"
+        workspace.mkdir()
+
+        monkeypatch.setenv("MYCODE_HOME", str(home / ".mycode"))
+
+        settings = get_settings(str(workspace))
+
+        with pytest.raises(ValueError, match="no available providers found"):
+            resolve_provider(settings)
 
     def test_resolve_provider_uses_builtin_default_model_for_raw_provider(self, tmp_path: Path, monkeypatch) -> None:
         home = tmp_path / "home"

@@ -61,6 +61,9 @@ class ProviderAdapter(ABC):
     env_api_key_names: tuple[str, ...] = ()
     # Used only as lightweight defaults during config resolution.
     default_models: tuple[str, ...] = ()
+    # Auto-discovery is intentionally limited to first-party built-ins that can
+    # run from environment variables alone.
+    auto_discoverable: bool = True
 
     @abstractmethod
     def stream_turn(self, request: ProviderRequest) -> AsyncIterator[ProviderStreamEvent]:

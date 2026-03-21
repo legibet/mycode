@@ -6,8 +6,12 @@ from dataclasses import dataclass
 from typing import Any
 
 from mycode.core.agent import Agent
-from mycode.core.config import Settings, get_settings, resolve_provider
-from mycode.core.providers import list_supported_providers, provider_default_models
+from mycode.core.config import Settings, get_settings, provider_has_api_key, resolve_provider
+from mycode.core.providers import (
+    list_auto_discoverable_providers,
+    provider_api_key_from_env,
+    provider_default_models,
+)
 from mycode.core.session import SessionStore
 
 
@@ -35,19 +39,20 @@ class ProviderOption:
 
 
 def list_provider_options(settings: Settings) -> list[ProviderOption]:
-    """Return configured provider choices followed by built-in providers."""
+    """Return configured providers plus env-discovered built-ins."""
 
     options: list[ProviderOption] = []
-    seen: set[str] = set()
+    configured_types: set[str] = set()
 
     for name, config in settings.providers.items():
         raw_models = config.models or list(provider_default_models(config.type))
         models = tuple(dict.fromkeys(model.strip() for model in raw_models if model.strip()))
         options.append(ProviderOption(name=name, provider=config.type, models=models, api_base=config.base_url))
-        seen.add(name)
+        if provider_has_api_key(config):
+            configured_types.add(config.type)
 
-    for provider_name in list_supported_providers():
-        if provider_name in seen:
+    for provider_name in list_auto_discoverable_providers():
+        if provider_name in configured_types or not provider_api_key_from_env(provider_name):
             continue
         options.append(
             ProviderOption(

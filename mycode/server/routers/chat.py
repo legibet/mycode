@@ -13,6 +13,7 @@ from fastapi.responses import StreamingResponse
 
 from mycode.core.agent import Agent
 from mycode.core.config import get_settings, provider_has_api_key, resolve_provider
+from mycode.core.providers import list_auto_discoverable_providers, provider_api_key_from_env, provider_default_models
 from mycode.server.deps import RunManagerDep, StoreDep
 from mycode.server.run_manager import ActiveRunError, RunState
 from mycode.server.schemas import ChatRequest, StreamEvent
@@ -139,11 +140,14 @@ async def cancel_run(run_id: str, runs: RunManagerDep):
 async def get_config(cwd: str | None = None):
     resolved_cwd = os.path.abspath(cwd or os.getcwd())
     settings = get_settings(resolved_cwd)
-    active = settings.active_provider
+    resolved_provider_name = settings.default_provider or ""
     try:
-        default_model = resolve_provider(settings).model
+        resolved = resolve_provider(settings)
+        resolved_provider_name = resolved.provider_name
+        default_model = resolved.model
     except ValueError:
-        default_model = settings.default_model or (active.models[0] if active and active.models else "")
+        default_model = (settings.default_model or "").strip()
+
     providers_info = {
         name: {
             "name": provider.name,
@@ -155,10 +159,26 @@ async def get_config(cwd: str | None = None):
         }
         for name, provider in settings.providers.items()
     }
+
+    configured_available_types = {
+        provider.type for provider in settings.providers.values() if provider_has_api_key(provider)
+    }
+    for provider_name in list_auto_discoverable_providers():
+        if provider_name in configured_available_types or not provider_api_key_from_env(provider_name):
+            continue
+        providers_info[provider_name] = {
+            "name": provider_name,
+            "provider": provider_name,
+            "type": provider_name,
+            "models": list(provider_default_models(provider_name)),
+            "base_url": "",
+            "has_api_key": True,
+        }
+
     return {
         "providers": providers_info,
         "default": {
-            "provider": settings.default_provider or "",
+            "provider": resolved_provider_name,
             "model": default_model,
         },
         "cwd": resolved_cwd,

@@ -260,6 +260,7 @@ class OpenAIChatAdapter(ProviderAdapter):
     label = "OpenAI Chat Completions"
     default_base_url = "https://api.openai.com/v1"
     env_api_key_names = ("OPENAI_API_KEY",)
+    auto_discoverable = False
 
     async def stream_turn(self, request: ProviderRequest):
         api_key = self.require_api_key(request.api_key)

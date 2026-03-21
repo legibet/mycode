@@ -1,4 +1,9 @@
-"""Lookup helpers for built-in provider adapters."""
+"""Lookup helpers for built-in provider adapters.
+
+Adapters are registered once, in a deterministic order. That order is also used
+for automatic provider discovery when the user has not selected a provider
+explicitly.
+"""
 
 from __future__ import annotations
 
@@ -10,9 +15,9 @@ _ADAPTERS: dict[str, ProviderAdapter] = {
     adapter.provider_id: adapter
     for adapter in (
         AnthropicAdapter(),
+        OpenAIResponsesAdapter(),
         MoonshotAIAdapter(),
         MiniMaxAdapter(),
-        OpenAIResponsesAdapter(),
         OpenAIChatAdapter(),
     )
 }
@@ -20,6 +25,12 @@ _ADAPTERS: dict[str, ProviderAdapter] = {
 
 def list_supported_providers() -> list[str]:
     return sorted(_ADAPTERS)
+
+
+def list_auto_discoverable_providers() -> list[str]:
+    """Return provider ids that can be selected from env vars alone."""
+
+    return [provider_id for provider_id, adapter in _ADAPTERS.items() if adapter.auto_discoverable]
 
 
 def is_supported_provider(provider_name: str | None) -> bool:

@@ -5,6 +5,7 @@ from mycode.core.providers.base import ProviderAdapter
 from mycode.core.providers.lookup import (
     get_provider_adapter,
     is_supported_provider,
+    list_auto_discoverable_providers,
     list_supported_providers,
     provider_api_key_from_env,
     provider_default_models,
@@ -20,6 +21,7 @@ __all__ = [
     "OpenAIChatAdapter",
     "OpenAIResponsesAdapter",
     "get_provider_adapter",
+    "list_auto_discoverable_providers",
     "is_supported_provider",
     "list_supported_providers",
     "provider_api_key_from_env",

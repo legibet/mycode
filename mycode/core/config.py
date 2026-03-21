@@ -13,9 +13,11 @@ from typing import Any
 from mycode.core.models import ModelMetadata, lookup_model_metadata
 from mycode.core.providers import (
     is_supported_provider,
+    list_auto_discoverable_providers,
     list_supported_providers,
     provider_api_key_from_env,
     provider_default_models,
+    provider_env_api_key_names,
 )
 
 _DEFAULT_MYCODE_HOME = "~/.mycode"
@@ -42,12 +44,6 @@ class Settings:
     cwd: str
     workspace_root: str
     config_paths: list[str] = field(default_factory=list)
-
-    @property
-    def active_provider(self) -> ProviderConfig | None:
-        if not self.default_provider:
-            return None
-        return self.providers.get(self.default_provider)
 
 
 @dataclass
@@ -210,6 +206,8 @@ def _config_api_key_from_env_var(provider: ProviderConfig, *, require: bool = Fa
 
 
 def provider_has_api_key(provider: ProviderConfig) -> bool:
+    """Return whether a configured provider can authenticate right now."""
+
     if provider.api_key_env_var:
         return bool(_config_api_key_from_env_var(provider))
     return bool(provider_api_key_from_env(provider.type) or provider.api_key)
@@ -233,10 +231,6 @@ def get_settings(cwd: str | None = None) -> Settings:
     )
 
 
-_FALLBACK_MODEL = "claude-sonnet-4-6"
-_FALLBACK_PROVIDER = "anthropic"
-
-
 @dataclass(frozen=True)
 class ResolvedProvider:
     """Resolved provider ready for Agent construction."""
@@ -249,6 +243,7 @@ class ResolvedProvider:
     max_tokens: int = 8192
     context_window: int | None = None
     model_metadata: ModelMetadata | None = None
+    provider_name: str | None = None
 
     @property
     def provider_type(self) -> str:
@@ -268,16 +263,12 @@ def resolve_provider(
     Used by both CLI and server to avoid duplicating resolution logic.
     """
 
-    provider_config = settings.providers.get(provider_name) if provider_name else settings.active_provider
-    resolved_provider = provider_config.type if provider_config else (provider_name or _FALLBACK_PROVIDER)
-
-    if not is_supported_provider(resolved_provider):
-        supported = ", ".join(list_supported_providers())
-        raise ValueError(f"unsupported provider {resolved_provider!r}; supported: {supported}")
+    selected_provider_name, provider_config = _select_provider(settings, provider_name=provider_name)
+    resolved_provider = provider_config.type if provider_config else selected_provider_name
 
     resolved_model = _resolve_model_name(
         settings,
-        provider_name=provider_name,
+        selected_provider_name=selected_provider_name,
         provider_type=resolved_provider,
         provider_config=provider_config,
         requested_model=model,
@@ -286,7 +277,7 @@ def resolve_provider(
     resolved_api_base = api_base or (provider_config.base_url if provider_config else None)
     model_metadata = lookup_model_metadata(
         provider_type=resolved_provider,
-        provider_name=provider_name,
+        provider_name=selected_provider_name,
         model=resolved_model,
         api_base=resolved_api_base,
     )
@@ -295,14 +286,21 @@ def resolve_provider(
         reasoning_effort = None
 
     config_env_api_key = _config_api_key_from_env_var(provider_config, require=True) if provider_config else None
+    resolved_api_key = api_key or config_env_api_key or provider_api_key_from_env(resolved_provider)
+    if not resolved_api_key and provider_config:
+        resolved_api_key = provider_config.api_key
+
+    if not resolved_api_key:
+        checked = ", ".join(provider_env_api_key_names(resolved_provider)) or "<api key env>"
+        raise ValueError(
+            f"provider {selected_provider_name!r} is selected but no API key is available; checked: {checked}"
+        )
 
     return ResolvedProvider(
+        provider_name=selected_provider_name,
         provider=resolved_provider,
         model=resolved_model,
-        api_key=api_key
-        or config_env_api_key
-        or provider_api_key_from_env(resolved_provider)
-        or (provider_config.api_key if provider_config else None),
+        api_key=resolved_api_key,
         api_base=resolved_api_base,
         reasoning_effort=reasoning_effort,
         max_tokens=model_metadata.max_output_tokens if model_metadata and model_metadata.max_output_tokens else 8192,
@@ -311,10 +309,62 @@ def resolve_provider(
     )
 
 
+def _select_provider(settings: Settings, *, provider_name: str | None) -> tuple[str, ProviderConfig | None]:
+    """Select the provider alias/raw id to use for this run.
+
+    Resolution order is:
+
+    1. explicit request provider
+    2. configured default provider
+    3. first configured provider with available credentials
+    4. first auto-discoverable built-in provider with env credentials
+    """
+
+    if provider_name:
+        return _resolve_provider_reference(settings, provider_name)
+
+    default_provider = (settings.default_provider or "").strip()
+    if default_provider:
+        return _resolve_provider_reference(settings, default_provider)
+
+    for name, provider in settings.providers.items():
+        if provider_has_api_key(provider):
+            return name, provider
+
+    for provider_id in list_auto_discoverable_providers():
+        if provider_api_key_from_env(provider_id):
+            return provider_id, None
+
+    env_names: list[str] = []
+    for provider_id in list_auto_discoverable_providers():
+        for env_name in provider_env_api_key_names(provider_id):
+            if env_name not in env_names:
+                env_names.append(env_name)
+    checked = ", ".join(env_names) or "<api key env>"
+    raise ValueError(
+        "no available providers found; set one of the supported API key env vars "
+        f"({checked}) or configure a provider in ~/.mycode/config.json or <workspace>/.mycode/config.json"
+    )
+
+
+def _resolve_provider_reference(settings: Settings, provider_name: str) -> tuple[str, ProviderConfig | None]:
+    """Resolve a configured alias or a raw built-in provider id."""
+
+    cleaned_name = provider_name.strip()
+    provider_config = settings.providers.get(cleaned_name)
+    resolved_provider = provider_config.type if provider_config else cleaned_name
+
+    if not is_supported_provider(resolved_provider):
+        supported = ", ".join(list_supported_providers())
+        raise ValueError(f"unsupported provider {resolved_provider!r}; supported: {supported}")
+
+    return cleaned_name, provider_config
+
+
 def _resolve_model_name(
     settings: Settings,
     *,
-    provider_name: str | None,
+    selected_provider_name: str,
     provider_type: str,
     provider_config: ProviderConfig | None,
     requested_model: str | None,
@@ -326,7 +376,7 @@ def _resolve_model_name(
     if provider_config and provider_config.models:
         return provider_config.models[0]
 
-    if not provider_name or provider_name == settings.default_provider:
+    if selected_provider_name == settings.default_provider:
         default_model = (settings.default_model or "").strip()
         if default_model:
             return default_model
@@ -335,7 +385,7 @@ def _resolve_model_name(
     if provider_defaults:
         return provider_defaults[0]
 
-    return _FALLBACK_MODEL
+    raise ValueError(f"provider {selected_provider_name!r} does not define any default models")
 
 
 def setup_logging() -> None:
