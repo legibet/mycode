@@ -34,7 +34,6 @@ class ProviderRequest:
     api_key: str | None
     api_base: str | None
     reasoning_effort: str | None = None
-    supports_reasoning: bool = False
 
 
 @dataclass

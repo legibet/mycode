@@ -12,7 +12,6 @@ from typing import Any
 from mycode.core.config import Settings, get_settings
 from mycode.core.instructions import load_instructions_prompt
 from mycode.core.messages import ConversationMessage, build_message, tool_result_block, user_text_message
-from mycode.core.models import lookup_model_metadata
 from mycode.core.providers import get_provider_adapter
 from mycode.core.providers.base import ProviderRequest
 from mycode.core.skills import load_skills_prompt
@@ -299,13 +298,6 @@ class Agent:
             await on_persist(user_message)
 
         adapter = get_provider_adapter(self.provider)
-        model_meta = lookup_model_metadata(
-            provider_type=self.provider,
-            provider_name=self.provider,
-            model=self.model,
-            api_base=self.api_base,
-        )
-        supports_reasoning = bool(model_meta and model_meta.supports_reasoning is True)
 
         turn_count = 0
         while self.max_turns is None or turn_count < self.max_turns:
@@ -330,7 +322,6 @@ class Agent:
                         api_key=self.api_key,
                         api_base=self.api_base,
                         reasoning_effort=self.reasoning_effort,
-                        supports_reasoning=supports_reasoning,
                     )
                 )
 
