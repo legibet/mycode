@@ -41,7 +41,11 @@ function AppContent() {
   } = useChat(config)
 
   useEffect(() => {
-    fetch(`/api/config?cwd=${encodeURIComponent(config.cwd)}`)
+    const controller = new AbortController()
+
+    fetch(`/api/config?cwd=${encodeURIComponent(config.cwd)}`, {
+      signal: controller.signal,
+    })
       .then((r) => r.json())
       .then((data) => {
         setRemoteConfig(data)
@@ -67,7 +71,13 @@ function AppContent() {
           return updated
         })
       })
-      .catch(() => {})
+      .catch((error) => {
+        if (error.name !== 'AbortError') {
+          console.error('Failed to load config:', error)
+        }
+      })
+
+    return () => controller.abort()
   }, [config.cwd])
 
   const handleConfigUpdate = (newConfig) => {

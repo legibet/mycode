@@ -4,7 +4,7 @@
  */
 
 import { CornerUpLeft, Folder, Search } from 'lucide-react'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { cn } from '../utils/cn'
 import { Button } from './UI/Button'
@@ -55,6 +55,7 @@ export function WorkspacePicker({ open, onClose, currentCwd, onSelect }) {
   })
   const [pathInput, setPathInput] = useState('')
   const [filter, setFilter] = useState('')
+  const browseTokenRef = useRef(0)
 
   const loadRoots = useCallback(async () => {
     const res = await fetch('/api/workspaces/roots')
@@ -64,7 +65,10 @@ export function WorkspacePicker({ open, onClose, currentCwd, onSelect }) {
   }, [])
 
   const browsePath = useCallback(async (root, path = '') => {
+    const browseToken = browseTokenRef.current + 1
+    browseTokenRef.current = browseToken
     setState((prev) => ({ ...prev, loading: true, error: '' }))
+
     try {
       const params = new URLSearchParams({ root })
       if (path) params.set('path', path)
@@ -72,6 +76,9 @@ export function WorkspacePicker({ open, onClose, currentCwd, onSelect }) {
       if (!res.ok) throw new Error('Failed to browse directory')
       const data = await res.json()
       if (data.error) throw new Error(data.error)
+
+      if (browseTokenRef.current !== browseToken) return
+
       setState((prev) => ({
         ...prev,
         root: data.root,
@@ -83,6 +90,7 @@ export function WorkspacePicker({ open, onClose, currentCwd, onSelect }) {
       }))
       setPathInput(data.current || '')
     } catch (e) {
+      if (browseTokenRef.current !== browseToken) return
       setState((prev) => ({ ...prev, loading: false, error: e.message }))
     }
   }, [])

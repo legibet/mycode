@@ -8,7 +8,7 @@ import { lazy, Suspense, useState } from 'react'
 import { copyText } from '../../utils/clipboard'
 import { cn } from '../../utils/cn'
 
-const LANGUAGE_RE = /language-(\w+)/
+const LANGUAGE_RE = /language-([a-z0-9+#-]+)/i
 let highlightedCodePromise
 
 function loadHighlightedCode() {

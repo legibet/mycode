@@ -29,20 +29,14 @@ function chatReducer(state, action) {
       return { rawMessages, toolRuntimeById: {} }
     }
 
-    case 'append_user': {
+    case 'start_turn': {
       return {
         ...state,
         rawMessages: [
           ...state.rawMessages,
           createUserTextMessage(action.content),
+          createAssistantMessage([]),
         ],
-      }
-    }
-
-    case 'start_assistant': {
-      return {
-        ...state,
-        rawMessages: [...state.rawMessages, createAssistantMessage([])],
       }
     }
 
@@ -148,6 +142,8 @@ export function useChat(config) {
   const initRef = useRef(false)
   const cwdRef = useRef(config.cwd)
   const activeSessionIdRef = useRef(EMPTY_SESSION.id)
+  const requestTokenRef = useRef(0)
+  const pendingRequestTokenRef = useRef(0)
   const streamAbortRef = useRef(null)
   const streamTokenRef = useRef(0)
   const activeRunRef = useRef(null)
@@ -164,6 +160,18 @@ export function useChat(config) {
       : connectionState === 'ready'
         ? 'ready'
         : 'idle'
+
+  const cancelRun = useCallback(async (runId) => {
+    if (!runId) return
+
+    try {
+      await fetch(`/api/runs/${encodeURIComponent(runId)}/cancel`, {
+        method: 'POST',
+      })
+    } catch (e) {
+      console.error('Failed to cancel:', e)
+    }
+  }, [])
 
   const fetchSessions = useCallback(async () => {
     try {
@@ -182,10 +190,12 @@ export function useChat(config) {
 
   const stopStreaming = useCallback(() => {
     streamTokenRef.current += 1
+    pendingRequestTokenRef.current = 0
     streamAbortRef.current?.abort()
     streamAbortRef.current = null
     activeRunRef.current = null
     setLoading(false)
+    setConnectionState('ready')
   }, [])
 
   const streamRun = useCallback(
@@ -314,6 +324,13 @@ export function useChat(config) {
       if (!content || loading) return
 
       const sessionId = activeSession.id
+      const previousMessages = chatState.rawMessages
+      const requestToken = requestTokenRef.current + 1
+
+      requestTokenRef.current = requestToken
+      pendingRequestTokenRef.current = requestToken
+
+      dispatch({ type: 'start_turn', content })
       setLoading(true)
       setConnectionState('ready')
 
@@ -337,11 +354,16 @@ export function useChat(config) {
         })
 
         const data = await res.json()
+        const isCurrentRequest =
+          pendingRequestTokenRef.current === requestToken &&
+          activeSessionIdRef.current === sessionId
 
         if (!res.ok) {
           const existingRun = data?.detail?.run
           if (res.status === 409 && existingRun?.id) {
-            if (activeSessionIdRef.current === sessionId) {
+            if (isCurrentRequest) {
+              pendingRequestTokenRef.current = 0
+              dispatch({ type: 'set_messages', messages: previousMessages })
               streamRun(existingRun, sessionId, existingRun.last_seq || 0)
             }
             return
@@ -349,16 +371,20 @@ export function useChat(config) {
           throw new Error(data?.detail?.message || 'Failed to start task')
         }
 
-        if (activeSessionIdRef.current !== sessionId) {
-          fetchSessions()
+        pendingRequestTokenRef.current = 0
+
+        if (!isCurrentRequest) {
+          await cancelRun(data.run?.id)
           return
         }
 
-        dispatch({ type: 'append_user', content })
-        dispatch({ type: 'start_assistant' })
         streamRun(data.run, sessionId, 0)
       } catch (e) {
-        if (activeSessionIdRef.current === sessionId) {
+        if (
+          pendingRequestTokenRef.current === requestToken &&
+          activeSessionIdRef.current === sessionId
+        ) {
+          pendingRequestTokenRef.current = 0
           setLoading(false)
           setConnectionState('error')
           dispatch({
@@ -368,7 +394,14 @@ export function useChat(config) {
         }
       }
     },
-    [activeSession.id, config, fetchSessions, loading, streamRun],
+    [
+      activeSession.id,
+      cancelRun,
+      chatState.rawMessages,
+      config,
+      loading,
+      streamRun,
+    ],
   )
 
   const clear = useCallback(async () => {
@@ -384,18 +417,13 @@ export function useChat(config) {
     }
   }, [activeSession.id])
 
-  const cancel = useCallback(async () => {
+  const cancel = useCallback(() => {
     const runId = activeRunRef.current?.id
-    if (!runId) return
+    stopStreaming()
 
-    try {
-      await fetch(`/api/runs/${encodeURIComponent(runId)}/cancel`, {
-        method: 'POST',
-      })
-    } catch (e) {
-      console.error('Failed to cancel:', e)
-    }
-  }, [])
+    if (!runId) return
+    void cancelRun(runId)
+  }, [cancelRun, stopStreaming])
 
   const createSession = useCallback(async () => {
     if (sessionLoading) return

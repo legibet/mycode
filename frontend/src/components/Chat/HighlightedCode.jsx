@@ -6,15 +6,10 @@ import { useTheme } from '../ThemeProvider'
 const THEME_SELECTORS = ['pre[class*="language-"]', 'code[class*="language-"]']
 
 export default function HighlightedCode({ code, language }) {
-  const { theme } = useTheme()
-
-  const isLight =
-    theme === 'light' ||
-    (theme === 'system' &&
-      !window.matchMedia('(prefers-color-scheme: dark)').matches)
+  const { resolvedTheme } = useTheme()
 
   const syntaxTheme = useMemo(() => {
-    const baseTheme = isLight ? vs : vscDarkPlus
+    const baseTheme = resolvedTheme === 'light' ? vs : vscDarkPlus
     const cleanTheme = { ...baseTheme }
 
     for (const selector of THEME_SELECTORS) {
@@ -24,7 +19,7 @@ export default function HighlightedCode({ code, language }) {
     }
 
     return cleanTheme
-  }, [isLight])
+  }, [resolvedTheme])
 
   return (
     <SyntaxHighlighter

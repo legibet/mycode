@@ -2,22 +2,40 @@
  * Theme context provider for light/dark/system modes.
  */
 
-import { createContext, useContext, useEffect, useState } from 'react'
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+} from 'react'
 
 const ThemeProviderContext = createContext({
   theme: 'system',
+  resolvedTheme: 'dark',
   setTheme: () => null,
 })
 
+function resolveTheme(theme) {
+  if (theme !== 'system') return theme
+
+  return window.matchMedia('(prefers-color-scheme: dark)').matches
+    ? 'dark'
+    : 'light'
+}
+
 function applyTheme(theme) {
   const root = window.document.documentElement
-  const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches
+  const resolvedTheme = resolveTheme(theme)
 
   root.classList.remove('light', 'dark')
 
-  if (theme === 'light' || (theme === 'system' && !prefersDark)) {
+  if (resolvedTheme === 'light') {
     root.classList.add('light')
   }
+
+  return resolvedTheme
 }
 
 export function ThemeProvider({
@@ -26,31 +44,39 @@ export function ThemeProvider({
   storageKey = 'vite-ui-theme',
   ...props
 }) {
-  const [theme, setTheme] = useState(() => {
+  const [theme, setThemeState] = useState(() => {
     return localStorage.getItem(storageKey) || defaultTheme
   })
+  const [resolvedTheme, setResolvedTheme] = useState(() => resolveTheme(theme))
 
   useEffect(() => {
-    applyTheme(theme)
+    setResolvedTheme(applyTheme(theme))
   }, [theme])
 
   useEffect(() => {
     if (theme !== 'system') return
 
     const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)')
-    const handleChange = () => applyTheme('system')
+    const handleChange = () => {
+      setResolvedTheme(applyTheme('system'))
+    }
 
     mediaQuery.addEventListener('change', handleChange)
     return () => mediaQuery.removeEventListener('change', handleChange)
   }, [theme])
 
-  const value = {
-    theme,
-    setTheme: (theme) => {
-      localStorage.setItem(storageKey, theme)
-      setTheme(theme)
+  const setTheme = useCallback(
+    (nextTheme) => {
+      localStorage.setItem(storageKey, nextTheme)
+      setThemeState(nextTheme)
     },
-  }
+    [storageKey],
+  )
+
+  const value = useMemo(
+    () => ({ theme, resolvedTheme, setTheme }),
+    [theme, resolvedTheme, setTheme],
+  )
 
   return (
     <ThemeProviderContext.Provider {...props} value={value}>
