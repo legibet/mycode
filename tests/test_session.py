@@ -123,6 +123,46 @@ class TestSessionStore:
         assert loaded["messages"][1]["role"] == "assistant"
 
     @pytest.mark.asyncio
+    async def test_load_session_repairs_interrupted_tool_loop(self, temp_store):
+        """Loading should append a synthetic result for an interrupted tool loop."""
+
+        result = await temp_store.create_session(title="Test", model="gpt-5.4", cwd="/tmp", api_base=None)
+        session_id = result["session"]["id"]
+
+        await temp_store.append_message(
+            session_id,
+            {
+                "role": "assistant",
+                "content": [{"type": "tool_use", "id": "call_1", "name": "read", "input": {"path": "x.py"}}],
+            },
+        )
+
+        loaded = await temp_store.load_session(session_id)
+
+        assert loaded is not None
+        assert loaded["messages"] == [
+            {
+                "role": "assistant",
+                "content": [{"type": "tool_use", "id": "call_1", "name": "read", "input": {"path": "x.py"}}],
+            },
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": "call_1",
+                        "content": "error: tool call was interrupted (no result recorded)",
+                        "is_error": True,
+                    }
+                ],
+            },
+        ]
+
+        loaded_again = await temp_store.load_session(session_id)
+        assert loaded_again is not None
+        assert loaded_again["messages"] == loaded["messages"]
+
+    @pytest.mark.asyncio
     async def test_append_message_updates_title(self, temp_store):
         """First user message should auto-update session title."""
         result = await temp_store.create_session(title="New chat", model="gpt-5.4", cwd="/tmp", api_base=None)
