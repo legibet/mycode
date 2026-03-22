@@ -94,6 +94,8 @@ class _LeftMarkdown(Markdown):
     }
 
 
+_TOOL_OUTPUT_MAX_LINES = 10
+
 # Maps built-in tool names to the argument key most useful as a one-line preview.
 _TOOL_PREVIEW_KEY: dict[str, str] = {
     "read": "path",
@@ -335,6 +337,7 @@ class ReplyRenderer:
         self._thinking_start_time: float | None = None
         self._thinking_collapsed = False
         self._had_prior_output = False
+        self._tool_output_count = 0
         self._tool_start_time: float | None = None
         self._usage: dict[str, Any] | None = None
 
@@ -418,6 +421,7 @@ class ReplyRenderer:
             self._console.print()
 
         self._tool_start_time = time.monotonic()
+        self._tool_output_count = 0
 
         preview = ""
         if args:
@@ -439,21 +443,14 @@ class ReplyRenderer:
 
         if not line:
             return
-        text = Text(f"  {TOOL_BORDER} ", style=MUTED)
-        text.append(line, style=MUTED)
-        self._console.print(text)
+        self._tool_output_count += 1
+        if self._tool_output_count <= _TOOL_OUTPUT_MAX_LINES:
+            text = Text(f"  {TOOL_BORDER} ", style=MUTED)
+            text.append(line, style=MUTED)
+            self._console.print(text)
 
     def tool_done(self, result: str) -> None:
         """Render the final tool result preview."""
-
-        lines = result.splitlines()
-        preview = ""
-        if lines:
-            preview = lines[0][:72]
-            if len(lines) > 1:
-                preview += f"  (+{len(lines) - 1} lines)"
-            elif len(lines[0]) > 72:
-                preview += "…"
 
         is_error = result.startswith("error")
         style = ERROR if is_error else MUTED
@@ -462,13 +459,33 @@ class ReplyRenderer:
         if self._tool_start_time is not None:
             elapsed = time.monotonic() - self._tool_start_time
             if elapsed >= 0.5:
-                duration = f" ({elapsed:.1f}s)"
+                duration = f"{elapsed:.1f}s"
             self._tool_start_time = None
 
+        had_streaming = self._tool_output_count > 0
         text = Text(f"  {TOOL_END} ", style=style)
-        text.append(preview, style=style)
-        if duration:
-            text.append(duration, style=STATS)
+
+        if had_streaming:
+            parts: list[str] = []
+            truncated = self._tool_output_count - _TOOL_OUTPUT_MAX_LINES
+            if truncated > 0:
+                parts.append(f"+{truncated} lines")
+            if duration:
+                parts.append(duration)
+            text.append(" · ".join(parts), style=style)
+        else:
+            lines = result.splitlines()
+            preview = ""
+            if lines:
+                preview = lines[0][:72]
+                if len(lines) > 1:
+                    preview += f"  (+{len(lines) - 1} lines)"
+                elif len(lines[0]) > 72:
+                    preview += "…"
+            text.append(preview, style=style)
+            if duration:
+                text.append(f" ({duration})", style=STATS)
+
         self._console.print(text)
         self._had_prior_output = True
 
