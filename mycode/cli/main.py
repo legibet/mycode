@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
-import argparse
 import asyncio
 import os
 import sys
+from typing import Annotated
+
+import typer
 
 from mycode.core.agent import Agent
 from mycode.core.config import get_settings, resolve_provider
@@ -15,61 +17,12 @@ from .chat import TerminalChat
 from .render import TerminalView
 from .runtime import resolve_session
 
-
-def _parse_positive_int(value: str) -> int:
-    """Parse a positive integer argument for argparse."""
-
-    try:
-        parsed = int(value)
-    except ValueError as exc:
-        raise argparse.ArgumentTypeError(f"invalid int value: {value!r}") from exc
-    if parsed <= 0:
-        raise argparse.ArgumentTypeError("must be a positive integer")
-    return parsed
+app = typer.Typer(add_completion=False, pretty_exceptions_enable=False)
+session_app = typer.Typer(help="Session management")
+app.add_typer(session_app, name="session")
 
 
-def _add_chat_options(parser: argparse.ArgumentParser) -> None:
-    """Add the shared chat/session options used by CLI commands."""
-
-    parser.add_argument("--provider", metavar="NAME", help="provider id, or a configured provider alias")
-    parser.add_argument("--model", metavar="MODEL", help="Model name (overrides resolved default)")
-    parser.add_argument("--max-turns", metavar="N", type=_parse_positive_int, help="Limit agent loop to N turns")
-    session_group = parser.add_mutually_exclusive_group()
-    session_group.add_argument("--session", metavar="ID", help="Resume a specific session id")
-    session_group.add_argument(
-        "-c",
-        "--continue",
-        dest="continue_last",
-        action="store_true",
-        help="Resume the most recent session in the current workspace",
-    )
-
-
-def create_parser() -> argparse.ArgumentParser:
-    """Create the top-level argument parser for the CLI."""
-
-    parser = argparse.ArgumentParser(description="mycode CLI")
-    _add_chat_options(parser)
-    subparsers = parser.add_subparsers(dest="command")
-
-    run_parser = subparsers.add_parser("run", help="Send one message and exit")
-    _add_chat_options(run_parser)
-    run_parser.add_argument("message", nargs="+", help="Prompt to run")
-
-    web_parser = subparsers.add_parser("web", help="Start the web server")
-    web_parser.add_argument("--hostname", default="127.0.0.1", help="Hostname to listen on")
-    web_parser.add_argument("--port", type=int, help="Port to listen on")
-    web_parser.add_argument(
-        "--dev",
-        action="store_true",
-        help="Start API-only backend for frontend dev server workflows",
-    )
-
-    session_parser = subparsers.add_parser("session", help="Session management commands")
-    session_subparsers = session_parser.add_subparsers(dest="session_command", required=True)
-    list_parser = session_subparsers.add_parser("list", help="List saved sessions")
-    list_parser.add_argument("--all", action="store_true", help="Show sessions from all workspaces")
-    return parser
+# -- Shared helpers ----------------------------------------------------------
 
 
 async def run_noninteractive(agent: Agent, *, store: SessionStore, session_id: str, message: str) -> int:
@@ -134,78 +87,79 @@ def _build_agent(
     )
 
 
-def run_web_server(*, cwd: str, hostname: str, port: int | None, dev: bool) -> None:
-    """Start the shared FastAPI app used by the web interface."""
+def _resolve_and_build(
+    *,
+    cwd: str,
+    store: SessionStore,
+    provider: str | None,
+    model: str | None,
+    max_turns: int | None,
+    session: str | None,
+    continue_last: bool,
+) -> tuple:
+    """Resolve provider + session, build agent. Returns (agent, resolved_provider, resolved_session)."""
 
     settings = get_settings(cwd)
-    resolved_port = port or settings.port
-
-    import uvicorn
-
-    # Import the web app lazily so normal CLI and TUI startup does not pull in
-    # server logging or other web-only side effects.
-    from mycode.server.app import create_app
-
-    uvicorn.run(create_app(serve_frontend=not dev), host=hostname, port=resolved_port)
-
-
-def main() -> None:
-    """Run the mycode CLI entrypoint."""
-
-    parser = create_parser()
-    args = parser.parse_args()
-    cwd = os.path.abspath(os.getcwd())
-
-    if args.command == "web":
-        run_web_server(cwd=cwd, hostname=args.hostname, port=args.port, dev=args.dev)
-        return
-
-    store = SessionStore()
-    view = TerminalView()
-
-    if args.command == "session" and args.session_command == "list":
-        sessions = asyncio.run(store.list_sessions(cwd=None if args.all else cwd))
-        heading = "all sessions" if args.all else f"sessions for {cwd}"
-        view.print_session_list(sessions, include_cwd=args.all, heading=heading)
-        return
-
-    try:
-        settings = get_settings(cwd)
-        resolved_provider = resolve_provider(settings, provider_name=args.provider, model=args.model)
-        resolved_session = asyncio.run(
-            resolve_session(
-                store=store,
-                provider=resolved_provider.provider,
-                cwd=cwd,
-                model=resolved_provider.model,
-                api_base=resolved_provider.api_base,
-                requested_session_id=args.session,
-                continue_last=args.continue_last,
-            )
+    resolved_provider = resolve_provider(settings, provider_name=provider, model=model)
+    resolved_session = asyncio.run(
+        resolve_session(
+            store=store,
+            provider=resolved_provider.provider,
+            cwd=cwd,
+            model=resolved_provider.model,
+            api_base=resolved_provider.api_base,
+            requested_session_id=session,
+            continue_last=continue_last,
         )
-    except ValueError as exc:
-        view.console.print(f"[red]{exc}[/red]")
-        raise SystemExit(1) from exc
-
+    )
     agent = _build_agent(
         store=store,
         cwd=cwd,
         settings=settings,
         resolved_provider=resolved_provider,
         resolved_session=resolved_session,
-        max_turns=args.max_turns,
+        max_turns=max_turns,
     )
+    return agent, resolved_provider, resolved_session
 
-    if args.command == "run":
-        code = asyncio.run(
-            run_noninteractive(
-                agent,
-                store=store,
-                session_id=resolved_session.session_id,
-                message=" ".join(args.message).strip(),
-            )
+
+# -- Commands ----------------------------------------------------------------
+
+
+@app.callback(invoke_without_command=True)
+def chat(
+    ctx: typer.Context,
+    provider: Annotated[str | None, typer.Option(help="Provider id or configured alias")] = None,
+    model: Annotated[str | None, typer.Option(help="Model name (overrides default)")] = None,
+    max_turns: Annotated[int | None, typer.Option(min=1, help="Limit agent loop turns")] = None,
+    session: Annotated[str | None, typer.Option(help="Resume a specific session id")] = None,
+    continue_last: Annotated[bool, typer.Option("--continue", "-c", help="Resume the most recent session")] = False,
+) -> None:
+    """Interactive coding agent."""
+
+    if ctx.invoked_subcommand is not None:
+        return
+
+    if session and continue_last:
+        raise typer.BadParameter("--session and --continue are mutually exclusive")
+
+    cwd = os.path.abspath(os.getcwd())
+    store = SessionStore()
+    view = TerminalView()
+
+    try:
+        agent, resolved_provider, resolved_session = _resolve_and_build(
+            cwd=cwd,
+            store=store,
+            provider=provider,
+            model=model,
+            max_turns=max_turns,
+            session=session,
+            continue_last=continue_last,
         )
-        raise SystemExit(code)
+    except ValueError as exc:
+        view.console.print(f"[red]{exc}[/red]")
+        raise SystemExit(1) from exc
 
     view.print_header(
         provider=resolved_provider.provider,
@@ -222,6 +176,88 @@ def main() -> None:
         asyncio.run(TerminalChat(agent=agent, store=store, session_id=resolved_session.session_id, view=view).run())
     except KeyboardInterrupt:
         pass
+
+
+@app.command()
+def run(
+    message: Annotated[list[str], typer.Argument(help="Prompt to send")],
+    provider: Annotated[str | None, typer.Option(help="Provider id or configured alias")] = None,
+    model: Annotated[str | None, typer.Option(help="Model name (overrides default)")] = None,
+    max_turns: Annotated[int | None, typer.Option(min=1, help="Limit agent loop turns")] = None,
+    session: Annotated[str | None, typer.Option(help="Resume a specific session id")] = None,
+    continue_last: Annotated[bool, typer.Option("--continue", "-c", help="Resume the most recent session")] = False,
+) -> None:
+    """Send one message and exit."""
+
+    if session and continue_last:
+        raise typer.BadParameter("--session and --continue are mutually exclusive")
+
+    cwd = os.path.abspath(os.getcwd())
+    store = SessionStore()
+    view = TerminalView()
+
+    try:
+        agent, _, resolved_session = _resolve_and_build(
+            cwd=cwd,
+            store=store,
+            provider=provider,
+            model=model,
+            max_turns=max_turns,
+            session=session,
+            continue_last=continue_last,
+        )
+    except ValueError as exc:
+        view.console.print(f"[red]{exc}[/red]")
+        raise SystemExit(1) from exc
+
+    code = asyncio.run(
+        run_noninteractive(
+            agent,
+            store=store,
+            session_id=resolved_session.session_id,
+            message=" ".join(message).strip(),
+        )
+    )
+    raise SystemExit(code)
+
+
+@app.command()
+def web(
+    hostname: Annotated[str, typer.Option(help="Hostname to listen on")] = "127.0.0.1",
+    port: Annotated[int | None, typer.Option(help="Port to listen on")] = None,
+    dev: Annotated[bool, typer.Option(help="API-only backend for frontend dev workflows")] = False,
+) -> None:
+    """Start the web server."""
+
+    cwd = os.path.abspath(os.getcwd())
+    settings = get_settings(cwd)
+    resolved_port = port or settings.port
+
+    import uvicorn
+
+    from mycode.server.app import create_app
+
+    uvicorn.run(create_app(serve_frontend=not dev), host=hostname, port=resolved_port)
+
+
+@session_app.command("list")
+def session_list(
+    all_workspaces: Annotated[bool, typer.Option("--all", help="Show sessions from all workspaces")] = False,
+) -> None:
+    """List saved sessions."""
+
+    cwd = os.path.abspath(os.getcwd())
+    store = SessionStore()
+    view = TerminalView()
+
+    sessions = asyncio.run(store.list_sessions(cwd=None if all_workspaces else cwd))
+    heading = "all sessions" if all_workspaces else f"sessions for {cwd}"
+    view.print_session_list(sessions, include_cwd=all_workspaces, heading=heading)
+
+
+def main() -> None:
+    """CLI entrypoint."""
+    app()
 
 
 if __name__ == "__main__":

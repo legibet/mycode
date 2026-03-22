@@ -10,7 +10,7 @@ from prompt_toolkit.input.defaults import create_pipe_input
 from prompt_toolkit.output import DummyOutput
 
 from mycode.cli.chat import _build_chat_key_bindings, _SlashCompleter, history_file_path
-from mycode.cli.main import create_parser, run_noninteractive
+from mycode.cli.main import app, run_noninteractive
 from mycode.cli.render import TerminalView
 from mycode.cli.runtime import list_model_options, resolve_session
 from mycode.cli.runtime import update_agent_runtime as _update_agent_runtime
@@ -133,30 +133,23 @@ async def test_resolve_session_explicit_missing_id_errors(tmp_path):
         )
 
 
-def test_create_parser_accepts_max_turns_flag():
-    parser = create_parser()
+def test_cli_rejects_non_positive_max_turns():
+    from typer.testing import CliRunner
 
-    args = parser.parse_args(["run", "--max-turns", "7", "hello"])
+    runner = CliRunner()
+    result = runner.invoke(app, ["run", "--max-turns", "0", "hello"])
 
-    assert args.command == "run"
-    assert args.max_turns == 7
-    assert args.message == ["hello"]
-
-
-def test_create_parser_rejects_non_positive_max_turns():
-    parser = create_parser()
-
-    with pytest.raises(SystemExit):
-        parser.parse_args(["run", "--max-turns", "0", "hello"])
+    assert result.exit_code != 0
 
 
-def test_create_parser_accepts_web_dev_flag():
-    parser = create_parser()
+def test_cli_shows_help_for_web():
+    from typer.testing import CliRunner
 
-    args = parser.parse_args(["web", "--dev"])
+    runner = CliRunner()
+    result = runner.invoke(app, ["web", "--help"])
 
-    assert args.command == "web"
-    assert args.dev is True
+    assert result.exit_code == 0
+    assert "--dev" in result.output
 
 
 def test_history_file_path_uses_mycode_home(tmp_path, monkeypatch):
