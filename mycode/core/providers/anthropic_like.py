@@ -267,14 +267,14 @@ class AnthropicLikeAdapter(ProviderAdapter):
                 candidate = raw_meta.get("native")
                 if isinstance(candidate, dict):
                     native_meta = candidate
+            payload = {
+                "type": "thinking",
+                "thinking": thinking,
+            }
             signature = native_meta.get("signature")
             if signature:
-                return {
-                    "type": "thinking",
-                    "thinking": thinking,
-                    "signature": signature,
-                }
-            return {"type": "text", "text": thinking}
+                payload["signature"] = signature
+            return payload
 
         if block_type == "tool_use":
             payload = {

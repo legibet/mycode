@@ -509,6 +509,28 @@ def test_anthropic_replays_native_block_metadata() -> None:
     }
 
 
+def test_anthropic_replays_thinking_without_signature() -> None:
+    adapter = MoonshotAIAdapter()
+
+    payload = adapter._serialize_message(
+        {
+            "role": "assistant",
+            "content": [
+                {"type": "thinking", "text": "Need the tool result first."},
+                {"type": "tool_use", "id": "call_1", "name": "read", "input": {}},
+            ],
+        }
+    )
+
+    assert payload == {
+        "role": "assistant",
+        "content": [
+            {"type": "thinking", "thinking": "Need the tool result first."},
+            {"type": "tool_use", "id": "call_1", "name": "read", "input": {}},
+        ],
+    }
+
+
 def test_openai_compatible_provider_payload_overrides() -> None:
     request = cast(
         Any,
