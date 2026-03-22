@@ -213,10 +213,12 @@ def test_openai_responses_converts_final_response_blocks() -> None:
     assert message["role"] == "assistant"
     assert message["content"][0]["type"] == "thinking"
     assert message["content"][0]["text"] == "think"
+    assert message["content"][0]["meta"] == {"native": {"item_id": "rs_1", "status": "completed"}}
     assert message["content"][1] == {"type": "text", "text": "answer"}
     assert message["content"][2]["type"] == "tool_use"
     assert message["content"][2]["id"] == "call_1"
     assert message["content"][2]["input"] == {"path": "x.py"}
+    assert message["content"][2]["meta"] == {"native": {"item_id": "fc_1", "status": "completed"}}
 
 
 def test_openai_responses_serializes_strict_tool_schemas() -> None:
@@ -246,12 +248,12 @@ def test_openai_chat_extracts_reasoning_from_known_extra_fields() -> None:
     delta = _Obj(reasoning_content="step zero")
     text, meta = adapter._extract_reasoning_delta(delta)
     assert text == "step zero"
-    assert meta == {"openai_reasoning_field": "reasoning_content"}
+    assert meta == {"reasoning_field": "reasoning_content"}
 
     delta = _Obj(model_extra={"reasoning_content": "step one"})
     text, meta = adapter._extract_reasoning_delta(delta)
     assert text == "step one"
-    assert meta == {"openai_reasoning_field": "reasoning_content"}
+    assert meta == {"reasoning_field": "reasoning_content"}
 
     delta = _Obj(
         model_extra={
@@ -263,7 +265,7 @@ def test_openai_chat_extracts_reasoning_from_known_extra_fields() -> None:
     )
     text, meta = adapter._extract_reasoning_delta(delta)
     assert text == "step two"
-    assert meta["openai_reasoning_field"] == "reasoning_details"
+    assert meta["reasoning_field"] == "reasoning_details"
 
 
 def test_provider_prepare_messages_closes_interrupted_tool_loop() -> None:
@@ -425,7 +427,7 @@ def test_openai_chat_replays_reasoning_by_default() -> None:
             {
                 "role": "assistant",
                 "content": [
-                    {"type": "thinking", "text": "think", "meta": {"openai_reasoning_field": "reasoning_content"}},
+                    {"type": "thinking", "text": "think", "meta": {"native": {"reasoning_field": "reasoning_content"}}},
                     {"type": "text", "text": "answer"},
                 ],
             }
@@ -444,7 +446,7 @@ def test_deepseek_only_replays_reasoning_during_tool_loop() -> None:
             {
                 "role": "assistant",
                 "content": [
-                    {"type": "thinking", "text": "think", "meta": {"openai_reasoning_field": "reasoning_content"}},
+                    {"type": "thinking", "text": "think", "meta": {"native": {"reasoning_field": "reasoning_content"}}},
                     {"type": "tool_use", "id": "call_1", "name": "read", "input": {"path": "x.py"}},
                 ],
             },
@@ -459,7 +461,7 @@ def test_deepseek_only_replays_reasoning_during_tool_loop() -> None:
             {
                 "role": "assistant",
                 "content": [
-                    {"type": "thinking", "text": "think", "meta": {"openai_reasoning_field": "reasoning_content"}},
+                    {"type": "thinking", "text": "think", "meta": {"native": {"reasoning_field": "reasoning_content"}}},
                     {"type": "text", "text": "done"},
                 ],
             },
@@ -468,6 +470,34 @@ def test_deepseek_only_replays_reasoning_during_tool_loop() -> None:
         system="",
     )
     assert "reasoning_content" not in payload_messages[0]
+
+
+def test_anthropic_replays_native_block_metadata() -> None:
+    adapter = AnthropicAdapter()
+
+    payload = adapter._serialize_message(
+        {
+            "role": "assistant",
+            "content": [
+                {"type": "thinking", "text": "think", "meta": {"native": {"signature": "sig_1"}}},
+                {
+                    "type": "tool_use",
+                    "id": "call_1",
+                    "name": "read",
+                    "input": {},
+                    "meta": {"native": {"caller": "server"}},
+                },
+            ],
+        }
+    )
+
+    assert payload == {
+        "role": "assistant",
+        "content": [
+            {"type": "thinking", "thinking": "think", "signature": "sig_1"},
+            {"type": "tool_use", "id": "call_1", "name": "read", "input": {}, "caller": "server"},
+        ],
+    }
 
 
 def test_openai_compatible_provider_payload_overrides() -> None:

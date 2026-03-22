@@ -48,7 +48,7 @@ class OpenAIChatAdapter(ProviderAdapter):
         tool_calls: dict[int, _ChatToolCallState] = {}
         text_parts: list[str] = []
         thinking_parts: list[str] = []
-        thinking_meta: dict[str, Any] = {}
+        thinking_native_meta: dict[str, Any] = {}
         response_id: str | None = None
         response_model: str | None = None
         finish_reason: str | None = None
@@ -74,7 +74,7 @@ class OpenAIChatAdapter(ProviderAdapter):
                 reasoning_delta, reasoning_meta_update = self._extract_reasoning_delta(delta)
                 if reasoning_delta:
                     thinking_parts.append(reasoning_delta)
-                    thinking_meta.update(reasoning_meta_update)
+                    thinking_native_meta.update(reasoning_meta_update)
                     yield ProviderStreamEvent("thinking_delta", {"text": reasoning_delta})
 
                 if delta.content:
@@ -98,7 +98,12 @@ class OpenAIChatAdapter(ProviderAdapter):
 
         blocks = []
         if thinking_parts:
-            blocks.append(thinking_block("".join(thinking_parts), meta=thinking_meta or None))
+            blocks.append(
+                thinking_block(
+                    "".join(thinking_parts),
+                    meta={"native": thinking_native_meta} if thinking_native_meta else None,
+                )
+            )
         if text_parts:
             blocks.append(text_block("".join(text_parts)))
 
@@ -108,7 +113,7 @@ class OpenAIChatAdapter(ProviderAdapter):
             parsed_arguments = parse_tool_arguments(raw_arguments)
             if isinstance(parsed_arguments, str):
                 tool_input = {}
-                meta = {"raw_arguments": raw_arguments}
+                meta = {"native": {"raw_arguments": raw_arguments}}
             else:
                 tool_input = parsed_arguments
                 meta = None
@@ -236,15 +241,17 @@ class OpenAIChatAdapter(ProviderAdapter):
     def _serialize_reasoning(self, thinking_blocks: list[dict[str, Any]]) -> dict[str, Any]:
         thinking_text = "\n".join(str(block.get("text") or "") for block in thinking_blocks if block.get("text"))
         raw_meta = thinking_blocks[0].get("meta")
-        meta: dict[str, Any] = {}
+        native_meta: dict[str, Any] = {}
         if isinstance(raw_meta, dict):
-            meta = dict(raw_meta)
+            candidate = raw_meta.get("native")
+            if isinstance(candidate, dict):
+                native_meta = dict(candidate)
 
-        reasoning_field = str(meta.get("openai_reasoning_field") or "")
+        reasoning_field = str(native_meta.get("reasoning_field") or "")
         if reasoning_field == "reasoning_content":
             return {"reasoning_content": thinking_text}
         if reasoning_field == "reasoning_details":
-            return {"reasoning_details": meta.get("reasoning_details") or []}
+            return {"reasoning_details": native_meta.get("reasoning_details") or []}
         return {}
 
     def _serialize_tool_result(self, block: dict[str, Any]) -> dict[str, Any]:
@@ -271,26 +278,26 @@ class OpenAIChatAdapter(ProviderAdapter):
     def _extract_reasoning_delta(self, delta: Any) -> tuple[str, dict[str, Any]]:
         reasoning_content = getattr(delta, "reasoning_content", None)
         if isinstance(reasoning_content, str) and reasoning_content:
-            return reasoning_content, {"openai_reasoning_field": "reasoning_content"}
+            return reasoning_content, {"reasoning_field": "reasoning_content"}
 
         reasoning_details = getattr(delta, "reasoning_details", None)
         reasoning_text = self._extract_reasoning_text_from_details(reasoning_details)
         if reasoning_text:
             return reasoning_text, {
-                "openai_reasoning_field": "reasoning_details",
+                "reasoning_field": "reasoning_details",
                 "reasoning_details": reasoning_details,
             }
 
         extras = getattr(delta, "model_extra", None) or {}
         reasoning_content = extras.get("reasoning_content")
         if isinstance(reasoning_content, str) and reasoning_content:
-            return reasoning_content, {"openai_reasoning_field": "reasoning_content"}
+            return reasoning_content, {"reasoning_field": "reasoning_content"}
 
         reasoning_details = extras.get("reasoning_details")
         reasoning_text = self._extract_reasoning_text_from_details(reasoning_details)
         if reasoning_text:
             return reasoning_text, {
-                "openai_reasoning_field": "reasoning_details",
+                "reasoning_field": "reasoning_details",
                 "reasoning_details": reasoning_details,
             }
 

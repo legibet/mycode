@@ -246,15 +246,19 @@ class OpenAIResponsesAdapter(ProviderAdapter):
 
             if item_type == "reasoning":
                 text = _extract_reasoning_text(item)
-                meta = {
+                native_meta = {
                     "item_id": getattr(item, "id", None),
                     "status": getattr(item, "status", None),
                 }
                 summary = dump_model(getattr(item, "summary", None))
                 if summary:
-                    meta["summary"] = summary
+                    native_meta["summary"] = summary
+                filtered_native_meta = {key: value for key, value in native_meta.items() if value is not None}
                 blocks.append(
-                    thinking_block(text, meta={key: value for key, value in meta.items() if value is not None})
+                    thinking_block(
+                        text,
+                        meta={"native": filtered_native_meta} if filtered_native_meta else None,
+                    )
                 )
                 continue
 
@@ -262,31 +266,37 @@ class OpenAIResponsesAdapter(ProviderAdapter):
                 for part in getattr(item, "content", []) or []:
                     if getattr(part, "type", None) != "output_text":
                         continue
-                    meta = {}
+                    native_meta = {}
                     annotations = dump_model(getattr(part, "annotations", None))
                     if annotations:
-                        meta["annotations"] = annotations
-                    blocks.append(text_block(getattr(part, "text", ""), meta=meta or None))
+                        native_meta["annotations"] = annotations
+                    blocks.append(
+                        text_block(
+                            getattr(part, "text", ""),
+                            meta={"native": native_meta} if native_meta else None,
+                        )
+                    )
                 continue
 
             if item_type == "function_call":
                 raw_arguments = getattr(item, "arguments", "") or ""
                 parsed_arguments = parse_tool_arguments(raw_arguments)
-                meta = {
+                native_meta = {
                     "item_id": getattr(item, "id", None),
                     "status": getattr(item, "status", None),
                 }
                 if isinstance(parsed_arguments, str):
                     tool_input = {}
-                    meta["raw_arguments"] = raw_arguments
+                    native_meta["raw_arguments"] = raw_arguments
                 else:
                     tool_input = parsed_arguments
+                filtered_native_meta = {key: value for key, value in native_meta.items() if value is not None}
                 blocks.append(
                     tool_use_block(
                         tool_id=getattr(item, "call_id", ""),
                         name=getattr(item, "name", ""),
                         input=tool_input,
-                        meta={key: value for key, value in meta.items() if value is not None},
+                        meta={"native": filtered_native_meta} if filtered_native_meta else None,
                     )
                 )
 

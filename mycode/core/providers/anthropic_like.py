@@ -160,32 +160,39 @@ class AnthropicLikeAdapter(ProviderAdapter):
             block_type = getattr(block, "type", None)
 
             if block_type == "thinking":
-                meta = {}
+                native_meta = {}
                 signature = getattr(block, "signature", None)
                 if signature:
-                    meta["signature"] = signature
-                blocks.append(thinking_block(getattr(block, "thinking", ""), meta=meta or None))
+                    native_meta["signature"] = signature
+                blocks.append(
+                    thinking_block(
+                        getattr(block, "thinking", ""),
+                        meta={"native": native_meta} if native_meta else None,
+                    )
+                )
                 continue
 
             if block_type == "text":
-                meta = {}
+                native_meta = {}
                 citations = getattr(block, "citations", None)
                 if citations:
-                    meta["citations"] = dump_model(citations)
-                blocks.append(text_block(getattr(block, "text", ""), meta=meta or None))
+                    native_meta["citations"] = dump_model(citations)
+                blocks.append(
+                    text_block(getattr(block, "text", ""), meta={"native": native_meta} if native_meta else None)
+                )
                 continue
 
             if block_type == "tool_use":
-                meta = {}
+                native_meta = {}
                 caller = getattr(block, "caller", None)
                 if caller is not None:
-                    meta["caller"] = caller
+                    native_meta["caller"] = caller
                 blocks.append(
                     tool_use_block(
                         tool_id=getattr(block, "id", ""),
                         name=getattr(block, "name", ""),
                         input=getattr(block, "input", None),
-                        meta=meta or None,
+                        meta={"native": native_meta} if native_meta else None,
                     )
                 )
                 continue
@@ -237,10 +244,12 @@ class AnthropicLikeAdapter(ProviderAdapter):
         if block_type == "thinking":
             thinking = str(block.get("text") or "")
             raw_meta = block.get("meta")
-            meta: dict[str, Any] = {}
+            native_meta: dict[str, Any] = {}
             if isinstance(raw_meta, dict):
-                meta = raw_meta
-            signature = meta.get("signature")
+                candidate = raw_meta.get("native")
+                if isinstance(candidate, dict):
+                    native_meta = candidate
+            signature = native_meta.get("signature")
             if signature:
                 return {
                     "type": "thinking",
@@ -257,11 +266,13 @@ class AnthropicLikeAdapter(ProviderAdapter):
                 "input": block.get("input") if isinstance(block.get("input"), dict) else {},
             }
             raw_meta = block.get("meta")
-            meta: dict[str, Any] = {}
+            native_meta: dict[str, Any] = {}
             if isinstance(raw_meta, dict):
-                meta = raw_meta
-            if meta.get("caller") is not None:
-                payload["caller"] = meta["caller"]
+                candidate = raw_meta.get("native")
+                if isinstance(candidate, dict):
+                    native_meta = candidate
+            if native_meta.get("caller") is not None:
+                payload["caller"] = native_meta["caller"]
             return payload
 
         if block_type == "tool_result":

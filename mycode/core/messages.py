@@ -8,6 +8,13 @@ The runtime persists a single message shape everywhere:
 Provider adapters translate between this internal shape and provider-specific wire
 formats. The agent loop and session store should never need to know provider wire
 details.
+
+Metadata contract:
+
+- assistant message `meta` keeps normalized top-level fields only:
+  `provider`, `model`, `provider_message_id`, `stop_reason`, `usage`
+- provider-specific assistant message extras live under `meta.native`
+- provider-specific block replay hints live under `block.meta.native`
 """
 
 from __future__ import annotations

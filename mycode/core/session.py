@@ -26,7 +26,7 @@ from uuid import uuid4
 from mycode.core.config import resolve_sessions_dir
 from mycode.core.messages import build_message, flatten_message_text, tool_result_block
 
-MESSAGE_FORMAT_VERSION = 3
+MESSAGE_FORMAT_VERSION = 4
 DEFAULT_SESSION_PROVIDER = "anthropic"
 DEFAULT_SESSION_TITLE = "New chat"
 

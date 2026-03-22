@@ -66,7 +66,8 @@ Important notes:
 
 - thinking is first-class session data and is persisted
 - assistant message metadata is normalized as `provider` / `model` / `provider_message_id` / `stop_reason` / `usage`
-- provider-native extras live under `meta.native`
+- provider-native assistant-message extras live under `meta.native`
+- provider-native block replay hints live under `block.meta.native`
 - user tool results are stored as a `user` message containing `tool_result` blocks
 - the system prompt is runtime-only and is not persisted into sessions
 
@@ -217,7 +218,7 @@ Adapters convert this to the upstream provider format:
 Current facts:
 
 - append-only JSONL
-- current `MESSAGE_FORMAT_VERSION = 3`
+- current `MESSAGE_FORMAT_VERSION = 4`
 - session meta stores `provider`, `model`, `cwd`, `api_base`, and `message_format_version`
 - the first user message auto-updates the title from text content
 - `get_or_create()` preserves existing session meta; request-time provider/model overrides are runtime-only
