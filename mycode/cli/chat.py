@@ -3,15 +3,17 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable
+from datetime import datetime
 from typing import Any
 
 from prompt_toolkit import PromptSession
+from prompt_toolkit.application import Application, get_app
 from prompt_toolkit.completion import Completer, Completion
 from prompt_toolkit.formatted_text import ANSI
 from prompt_toolkit.history import FileHistory
 from prompt_toolkit.key_binding import KeyBindings
-from rich.table import Table
+from prompt_toolkit.layout import Layout
+from prompt_toolkit.widgets import RadioList
 from rich.text import Text
 
 from mycode.core.agent import Agent
@@ -21,18 +23,75 @@ from mycode.core.session import SessionStore
 from .render import ReplyRenderer, TerminalView
 from .runtime import (
     REASONING_EFFORT_OPTIONS,
-    ProviderOption,
     list_model_options,
     list_provider_options,
     supports_reasoning_effort,
     update_agent_runtime,
     update_reasoning_effort,
 )
-from .theme import MUTED, PROMPT_CHAR, SUCCESS, TOOL_MARKER, TOOL_NAME
+from .theme import MUTED, PROMPT_CHAR, TERMINAL_THEME, TOOL_MARKER
 
 _PROMPT = ANSI(f"\033[1m\033[34m{PROMPT_CHAR}\033[0m ")
-_EXIT_COMMANDS = {"/q", "exit", "quit"}
-_CLEAR_COMMANDS = {"/c", "/clear"}
+
+# All primary slash commands for prefix resolution.
+_SLASH_COMMANDS = ("/clear", "/new", "/resume", "/provider", "/model", "/effort", "/q")
+
+
+def _resolve_slash(command: str) -> str:
+    """Resolve a partial /command to its full form via unique prefix match."""
+
+    matches = [c for c in _SLASH_COMMANDS if c.startswith(command)]
+    return matches[0] if len(matches) == 1 else command
+
+
+# Style for the focused row in the inline selector.
+_FOCUSED_STYLE = "bold blue" if TERMINAL_THEME == "light" else "bold cyan"
+
+
+class _InlineRadioList[T](RadioList):
+    """Arrow-key list that shows > on the focused item and exits on Enter."""
+
+    def _handle_enter(self) -> None:
+        # Only called by Enter/Space (not arrows), so safe to exit.
+        self.current_value = self.values[self._selected_index][0]
+        get_app().exit(result=self.current_value)
+
+    def _get_text_fragments(self):
+        # Override rendering: show > based on focus, not checked state.
+        result: list[tuple[str, str]] = []
+        for i, (_value, text) in enumerate(self.values):
+            focused = i == self._selected_index
+            style = _FOCUSED_STYLE if focused else ""
+            result.append((style, "> " if focused else "  "))
+            result.append((style, str(text)))
+            result.append(("", "\n"))
+        result.pop()  # remove trailing newline
+        return result
+
+
+async def choose[T](options: list[tuple[T, str]], *, default: T | None = None) -> T | None:
+    """Inline arrow-key selector. Returns the selected value or None on cancel."""
+
+    radio = _InlineRadioList(
+        values=options,
+        default=default,
+        show_scrollbar=False,
+        show_cursor=False,
+    )
+
+    kb = KeyBindings()
+
+    @kb.add("c-c")
+    @kb.add("escape")
+    def _cancel(event) -> None:
+        event.app.exit(result=None)
+
+    app: Application[T | None] = Application(
+        layout=Layout(radio),
+        key_bindings=kb,
+        full_screen=False,
+    )
+    return await app.run_async()
 
 
 class _SlashCompleter(Completer):
@@ -121,9 +180,10 @@ class TerminalChat:
             if not user_input:
                 continue
 
-            if await self._handle_command(user_input):
-                if user_input in _EXIT_COMMANDS:
-                    return
+            result = await self._handle_command(user_input)
+            if result == "exit":
+                return
+            if result:
                 continue
 
             self.view.console.print()
@@ -164,55 +224,51 @@ class TerminalChat:
             settings=self.agent.settings,
         )
 
-    async def _handle_command(self, text: str) -> bool:
-        """Handle one slash-style command and return whether it was consumed."""
+    async def _handle_command(self, text: str) -> str | bool:
+        """Handle a slash command. Returns "exit" to quit, True if consumed, False otherwise."""
 
-        if text in _EXIT_COMMANDS:
+        # Non-slash exit aliases.
+        if text in ("exit", "quit"):
             self.view.console.print("[dim]bye[/dim]")
-            return True
-
-        if text in _CLEAR_COMMANDS:
-            await self.store.clear_session(self.session_id)
-            self.agent.clear()
-            self.view.console.print(f"[green]{TOOL_MARKER}[/green] [dim]cleared[/dim]")
-            return True
-
-        if text == "/new":
-            await self._start_new_session()
-            return True
-
-        if text == "/resume":
-            await self._resume_session()
-            return True
+            return "exit"
 
         if not text.startswith("/"):
             return False
 
         command, _, argument = text.partition(" ")
         argument = argument.strip()
+        command = _resolve_slash(command)
 
-        if command == "/provider":
-            if argument:
-                await self._apply_provider_change(argument)
-            else:
-                await self._switch_provider()
-            return True
+        match command:
+            case "/q":
+                self.view.console.print("[dim]bye[/dim]")
+                return "exit"
+            case "/c" | "/clear":
+                await self.store.clear_session(self.session_id)
+                self.agent.clear()
+                self.view.console.print(f"[green]{TOOL_MARKER}[/green] [dim]cleared[/dim]")
+            case "/new":
+                await self._start_new_session()
+            case "/resume":
+                await self._resume_session()
+            case "/provider":
+                if argument:
+                    await self._apply_provider_change(argument)
+                else:
+                    await self._switch_provider()
+            case "/model":
+                if argument:
+                    await self._apply_model_change(argument)
+                else:
+                    await self._switch_model()
+            case "/effort":
+                if argument:
+                    self._apply_effort_change(argument)
+                else:
+                    await self._switch_effort()
+            case _:
+                self._print_help()
 
-        if command == "/model":
-            if argument:
-                await self._apply_model_change(argument)
-            else:
-                await self._switch_model()
-            return True
-
-        if command == "/effort":
-            if argument:
-                self._apply_effort_change(argument)
-            else:
-                await self._switch_effort()
-            return True
-
-        self._print_help()
         return True
 
     def _print_help(self) -> None:
@@ -258,108 +314,62 @@ class TerminalChat:
         """Switch to another saved session in the current workspace."""
 
         sessions = await self.store.list_sessions(cwd=self.agent.cwd)
-        sessions = [session for session in sessions if session.get("id") != self.session_id]
+        sessions = [s for s in sessions if s.get("id") != self.session_id]
         if not sessions:
             self.view.console.print("[dim]no other sessions in this workspace[/dim]")
             return
 
-        self.view.print_session_list(
-            sessions,
-            current_session_id=self.session_id,
-            heading="resume session: enter number, session id prefix, or blank to cancel",
-        )
+        options: list[tuple[dict[str, Any], str]] = []
+        for s in sessions:
+            title = str(s.get("title") or "New chat")[:40]
+            ts = self._format_session_time(str(s.get("updated_at") or ""))
+            label = f"{title}  {ts}" if ts else title
+            options.append((s, label))
 
-        while True:
-            selection = await self._prompt("\033[1mresume>\033[0m ")
-            if not selection:
-                self.view.console.print("[dim]resume cancelled[/dim]")
-                return
-
-            try:
-                session = self._select_by_number_or_prefix(
-                    selection,
-                    sessions,
-                    label="session id",
-                    text_of=lambda item: str(item.get("id") or ""),
-                )
-            except ValueError as exc:
-                self.view.console.print(f"[red]{exc}[/red]")
-                continue
-
-            if session is None:
-                self.view.console.print("[dim]unknown session selection[/dim]")
-                continue
-
-            self.session_id = str(session.get("id") or "")
-            data = await self.store.get_or_create(
-                self.session_id,
-                provider=self.agent.provider,
-                model=self.agent.model,
-                cwd=self.agent.cwd,
-                api_base=self.agent.api_base,
-            )
-            messages = data.get("messages") or []
-            loaded_session = data.get("session") or session
-            self.agent = self._clone_agent_for_session(session_id=self.session_id, messages=messages)
-            self.view.print_header(
-                provider=self.agent.provider,
-                model=self.agent.model,
-                session=loaded_session,
-                mode="resumed",
-                message_count=len(messages),
-                reasoning_effort=self.agent.reasoning_effort,
-            )
-            self.view.print_history_preview(messages)
+        session = await choose(options)
+        if session is None:
             return
+
+        self.session_id = str(session.get("id") or "")
+        data = await self.store.get_or_create(
+            self.session_id,
+            provider=self.agent.provider,
+            model=self.agent.model,
+            cwd=self.agent.cwd,
+            api_base=self.agent.api_base,
+        )
+        messages = data.get("messages") or []
+        loaded_session = data.get("session") or session
+        self.agent = self._clone_agent_for_session(session_id=self.session_id, messages=messages)
+        self.view.print_header(
+            provider=self.agent.provider,
+            model=self.agent.model,
+            session=loaded_session,
+            mode="resumed",
+            message_count=len(messages),
+            reasoning_effort=self.agent.reasoning_effort,
+        )
+        self.view.print_history_preview(messages)
 
     async def _switch_provider(self) -> None:
         """Prompt for a configured provider and apply it to the active agent."""
 
         options = list_provider_options(self.agent.settings)
+        current = next(
+            (o for o in options if o.provider == self.agent.provider and o.api_base == self.agent.api_base),
+            None,
+        )
 
-        self.view.console.print()
-        table = Table(box=None, show_header=False, padding=(0, 2, 0, 0), expand=False)
-        table.add_column(no_wrap=True)  # marker
-        table.add_column(no_wrap=True)  # index
-        table.add_column(no_wrap=True)  # name
-        table.add_column()  # models
+        choices: list[tuple[str, str]] = []
+        for option in options:
+            models = "  ".join(option.models[:3])
+            if len(option.models) > 3:
+                models += f"  +{len(option.models) - 3}"
+            choices.append((option.name, f"{option.name}  {models}"))
 
-        for index, option in enumerate(options, start=1):
-            is_current = option.provider == self.agent.provider and option.api_base == self.agent.api_base
-            marker = Text("●", style=SUCCESS) if is_current else Text(" ")
-            idx = Text(str(index), style=MUTED)
-            name = Text(option.name, style=TOOL_NAME if is_current else "")
-
-            models_str = ""
-            if option.models:
-                models_str = "  ".join(option.models[:3])
-                if len(option.models) > 3:
-                    models_str += f"  +{len(option.models) - 3}"
-            models_text = Text(models_str, style=MUTED)
-
-            table.add_row(marker, idx, name, models_text)
-
-        self.view.console.print(table)
-
-        while True:
-            selection = await self._prompt("\033[1mprovider>\033[0m ")
-            if not selection:
-                return
-
-            try:
-                option = self._select_by_number_or_prefix(
-                    selection, options, label="provider", text_of=lambda item: item.name
-                )
-            except ValueError as exc:
-                self.view.console.print(f"[red]{exc}[/red]")
-                continue
-
-            if option is None:
-                self.view.console.print(f"[red]unknown provider: {selection}[/red]")
-                continue
-
-            await self._apply_provider_change(option.name)
-            return
+        selected = await choose(choices, default=current.name if current else None)
+        if selected is not None:
+            await self._apply_provider_change(selected)
 
     async def _switch_model(self) -> None:
         """Prompt for a model supported by the current provider runtime."""
@@ -374,38 +384,10 @@ class TerminalChat:
             self.view.console.print("[dim]no configured models for the current provider[/dim]")
             return
 
-        self.view.console.print()
-        table = Table(box=None, show_header=False, padding=(0, 2, 0, 0), expand=False)
-        table.add_column(no_wrap=True)  # marker
-        table.add_column(no_wrap=True)  # index
-        table.add_column()  # model name
-
-        for index, model in enumerate(models, start=1):
-            is_current = model == self.agent.model
-            marker = Text("●", style=SUCCESS) if is_current else Text(" ")
-            idx = Text(str(index), style=MUTED)
-            name = Text(model, style=TOOL_NAME if is_current else "")
-            table.add_row(marker, idx, name)
-
-        self.view.console.print(table)
-
-        while True:
-            selection = await self._prompt("\033[1mmodel>\033[0m ")
-            if not selection:
-                return
-
-            try:
-                model = self._select_by_number_or_prefix(selection, models, label="model", text_of=lambda item: item)
-            except ValueError as exc:
-                self.view.console.print(f"[red]{exc}[/red]")
-                continue
-
-            if model is None:
-                self.view.console.print(f"[red]unknown model: {selection}[/red]")
-                continue
-
-            await self._apply_model_change(model)
-            return
+        choices = [(m, m) for m in models]
+        selected = await choose(choices, default=self.agent.model)
+        if selected is not None:
+            await self._apply_model_change(selected)
 
     async def _apply_provider_change(self, provider_name: str) -> None:
         """Switch the active provider, keeping session history unchanged."""
@@ -433,8 +415,12 @@ class TerminalChat:
     async def _apply_model_change(self, model_name: str) -> None:
         """Switch the active model for the current provider runtime."""
 
-        option = self._current_provider_option()
-        provider_name = option.name if option else self.agent.provider
+        options = list_provider_options(self.agent.settings)
+        current = next(
+            (o for o in options if o.provider == self.agent.provider and o.api_base == self.agent.api_base),
+            None,
+        )
+        provider_name = current.name if current else self.agent.provider
 
         try:
             changed = await update_agent_runtime(
@@ -460,41 +446,11 @@ class TerminalChat:
             self.view.console.print("[dim]current model does not support reasoning effort[/dim]")
             return
 
-        options = list(REASONING_EFFORT_OPTIONS)
         current = self.agent.reasoning_effort or "auto"
-
-        self.view.console.print()
-        table = Table(box=None, show_header=False, padding=(0, 2, 0, 0), expand=False)
-        table.add_column(no_wrap=True)
-        table.add_column(no_wrap=True)
-        table.add_column()
-
-        for index, option in enumerate(options, start=1):
-            is_current = option == current
-            marker = Text("●", style=SUCCESS) if is_current else Text(" ")
-            idx = Text(str(index), style=MUTED)
-            name = Text(option, style=TOOL_NAME if is_current else "")
-            table.add_row(marker, idx, name)
-
-        self.view.console.print(table)
-
-        while True:
-            selection = await self._prompt("\033[1meffort>\033[0m ")
-            if not selection:
-                return
-
-            try:
-                chosen = self._select_by_number_or_prefix(selection, options, label="effort", text_of=lambda item: item)
-            except ValueError as exc:
-                self.view.console.print(f"[red]{exc}[/red]")
-                continue
-
-            if chosen is None:
-                self.view.console.print(f"[red]unknown effort: {selection}[/red]")
-                continue
-
-            self._apply_effort_change(chosen)
-            return
+        choices = [(o, o) for o in REASONING_EFFORT_OPTIONS]
+        selected = await choose(choices, default=current)
+        if selected is not None:
+            self._apply_effort_change(selected)
 
     def _apply_effort_change(self, effort: str) -> None:
         """Apply a reasoning effort change to the active agent."""
@@ -519,47 +475,12 @@ class TerminalChat:
         else:
             self.view.console.print(f"[green]{TOOL_MARKER}[/green] [dim]already using[/dim] {display}")
 
-    def _current_provider_option(self) -> ProviderOption | None:
-        """Return the configured provider option matching the active runtime."""
-
-        for option in list_provider_options(self.agent.settings):
-            if option.provider == self.agent.provider and option.api_base == self.agent.api_base:
-                return option
-        return None
-
-    async def _prompt(self, prompt_text: str) -> str:
-        try:
-            value = await self.prompt_session.prompt_async(ANSI(prompt_text), multiline=False)
-        except (KeyboardInterrupt, EOFError):
-            return ""
-        return value.strip()
-
     @staticmethod
-    def _select_by_number_or_prefix[T](
-        selection: str,
-        items: list[T],
-        *,
-        label: str,
-        text_of: Callable[[T], str],
-    ) -> T | None:
-        value = selection.strip()
+    def _format_session_time(value: str) -> str:
         if not value:
-            return None
-
-        if value.isdigit():
-            index = int(value) - 1
-            if 0 <= index < len(items):
-                return items[index]
-            return None
-
-        lowered = value.lower()
-        exact = [item for item in items if text_of(item).lower() == lowered]
-        if len(exact) == 1:
-            return exact[0]
-
-        matches = [item for item in items if text_of(item).lower().startswith(lowered)]
-        if len(matches) == 1:
-            return matches[0]
-        if len(matches) > 1:
-            raise ValueError(f"Ambiguous {label}: {value}")
-        return None
+            return ""
+        try:
+            ts = datetime.fromisoformat(value.replace("Z", "+00:00"))
+            return ts.astimezone().strftime("%m-%d %H:%M")
+        except ValueError:
+            return value[:16].replace("T", " ")

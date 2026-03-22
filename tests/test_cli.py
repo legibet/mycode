@@ -9,7 +9,7 @@ from prompt_toolkit.history import InMemoryHistory
 from prompt_toolkit.input.defaults import create_pipe_input
 from prompt_toolkit.output import DummyOutput
 
-from mycode.cli.chat import TerminalChat, _build_chat_key_bindings, _SlashCompleter, history_file_path
+from mycode.cli.chat import _build_chat_key_bindings, _SlashCompleter, history_file_path
 from mycode.cli.main import create_parser, run_noninteractive
 from mycode.cli.render import TerminalView
 from mycode.cli.runtime import list_model_options, resolve_session
@@ -189,44 +189,6 @@ def test_history_preview_entries_summarize_tool_only_assistant_messages():
         ("You", "Inspect project"),
         ("Assistant", "[Used tools: read, bash]"),
     ]
-
-
-def test_terminal_chat_selects_by_index_and_prefix():
-    sessions = [
-        {"id": "abc123456789", "title": "First"},
-        {"id": "def987654321", "title": "Second"},
-    ]
-
-    assert (
-        TerminalChat._select_by_number_or_prefix(
-            "2", sessions, label="session id", text_of=lambda item: str(item["id"])
-        )
-        == sessions[1]
-    )
-    assert (
-        TerminalChat._select_by_number_or_prefix(
-            "abc123",
-            sessions,
-            label="session id",
-            text_of=lambda item: str(item["id"]),
-        )
-        == sessions[0]
-    )
-
-
-def test_terminal_chat_select_rejects_ambiguous_prefix():
-    sessions = [
-        {"id": "abc123456789", "title": "First"},
-        {"id": "abc987654321", "title": "Second"},
-    ]
-
-    with pytest.raises(ValueError, match="Ambiguous session id"):
-        TerminalChat._select_by_number_or_prefix(
-            "abc",
-            sessions,
-            label="session id",
-            text_of=lambda item: str(item["id"]),
-        )
 
 
 @pytest.mark.asyncio
