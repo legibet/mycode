@@ -52,7 +52,7 @@ class AnthropicLikeAdapter(ProviderAdapter):
         return None
 
     def build_request_payload(self, request: ProviderRequest) -> dict[str, Any]:
-        messages = [self._serialize_message(message) for message in request.messages]
+        messages = [self._serialize_message(message) for message in self.prepare_messages(request)]
         self._apply_cache_control(messages)
 
         payload: dict[str, Any] = {
@@ -78,6 +78,12 @@ class AnthropicLikeAdapter(ProviderAdapter):
         if output_config is not None:
             payload["output_config"] = output_config
         return payload
+
+    def normalize_tool_call_id(self, tool_call_id: str) -> str:
+        """Anthropic-compatible endpoints only accept short ASCII tool IDs."""
+
+        normalized = "".join(char if char.isalnum() or char in "_-" else "_" for char in tool_call_id)
+        return normalized[:64]
 
     def _apply_cache_control(self, messages: list[dict[str, Any]]) -> None:
         for message in reversed(messages):
@@ -208,18 +214,19 @@ class AnthropicLikeAdapter(ProviderAdapter):
             return {"type": "text", "text": str(block.get("text") or "")}
 
         if block_type == "thinking":
-            payload = {
-                "type": "thinking",
-                "thinking": str(block.get("text") or ""),
-            }
+            thinking = str(block.get("text") or "")
             raw_meta = block.get("meta")
             meta: dict[str, Any] = {}
             if isinstance(raw_meta, dict):
                 meta = raw_meta
             signature = meta.get("signature")
             if signature:
-                payload["signature"] = signature
-            return payload
+                return {
+                    "type": "thinking",
+                    "thinking": thinking,
+                    "signature": signature,
+                }
+            return {"type": "text", "text": thinking}
 
         if block_type == "tool_use":
             payload = {

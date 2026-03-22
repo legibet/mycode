@@ -133,9 +133,10 @@ class OpenAIChatAdapter(ProviderAdapter):
         yield ProviderStreamEvent("message_done", {"message": final_message})
 
     def _build_request_payload(self, request: ProviderRequest) -> dict[str, Any]:
+        prepared_messages = self.prepare_messages(request)
         payload: dict[str, Any] = {
             "model": request.model,
-            "messages": self._build_messages(request.messages, system=request.system),
+            "messages": self._build_messages(prepared_messages, system=request.system),
             "tools": [self._serialize_tool(tool) for tool in request.tools] or None,
             "tool_choice": "auto" if request.tools else None,
             "max_tokens": request.max_tokens,

@@ -28,16 +28,18 @@ def test_openai_responses_builds_initial_input_items() -> None:
     request = cast(
         Any,
         _Obj(
+            model="gpt-5.4",
             messages=[
                 {
                     "role": "user",
                     "content": [{"type": "text", "text": "hello"}],
                 }
-            ]
+            ],
         ),
     )
 
-    input_items, previous_response_id = adapter._build_input_items(request)
+    prepared_messages = adapter.prepare_messages(request)
+    input_items, previous_response_id = adapter._build_input_items(request, prepared_messages)
 
     assert previous_response_id is None
     assert input_items == [
@@ -54,24 +56,108 @@ def test_openai_responses_uses_previous_response_id_for_tool_results() -> None:
     request = cast(
         Any,
         _Obj(
+            model="gpt-5.4",
             messages=[
                 {
                     "role": "assistant",
                     "content": [{"type": "tool_use", "id": "call_1", "name": "read", "input": {"path": "x.py"}}],
-                    "meta": {"provider": "openai", "provider_message_id": "resp_123"},
+                    "meta": {"provider": "openai", "model": "gpt-5.4", "provider_message_id": "resp_123"},
                 },
                 {
                     "role": "user",
                     "content": [{"type": "tool_result", "tool_use_id": "call_1", "content": "file contents"}],
                 },
-            ]
+            ],
         ),
     )
 
-    input_items, previous_response_id = adapter._build_input_items(request)
+    prepared_messages = adapter.prepare_messages(request)
+    input_items, previous_response_id = adapter._build_input_items(request, prepared_messages)
 
     assert previous_response_id == "resp_123"
     assert input_items == [{"type": "function_call_output", "call_id": "call_1", "output": "file contents"}]
+
+
+def test_openai_responses_falls_back_to_full_replay_for_cross_provider_history() -> None:
+    adapter = OpenAIResponsesAdapter()
+    request = cast(
+        Any,
+        _Obj(
+            model="gpt-5.4",
+            messages=[
+                {"role": "user", "content": [{"type": "text", "text": "double 21"}]},
+                {
+                    "role": "assistant",
+                    "content": [
+                        {"type": "thinking", "text": "Need the tool first."},
+                        {"type": "tool_use", "id": "call_1", "name": "read", "input": {"path": "x.py"}},
+                    ],
+                    "meta": {"provider": "anthropic", "model": "claude-sonnet-4-6"},
+                },
+                {
+                    "role": "user",
+                    "content": [{"type": "tool_result", "tool_use_id": "call_1", "content": "42"}],
+                },
+            ],
+        ),
+    )
+
+    prepared_messages = adapter.prepare_messages(request)
+    input_items, previous_response_id = adapter._build_input_items(request, prepared_messages)
+
+    assert previous_response_id is None
+    assert input_items == [
+        {
+            "type": "message",
+            "role": "user",
+            "content": [{"type": "input_text", "text": "double 21"}],
+        },
+        {
+            "type": "message",
+            "role": "assistant",
+            "content": [{"type": "output_text", "text": "Need the tool first."}],
+        },
+        {
+            "type": "function_call",
+            "call_id": "call_1",
+            "name": "read",
+            "arguments": '{"path": "x.py"}',
+        },
+        {
+            "type": "function_call_output",
+            "call_id": "call_1",
+            "output": "42",
+        },
+    ]
+
+
+def test_openai_responses_ignores_previous_response_id_when_later_assistant_exists() -> None:
+    adapter = OpenAIResponsesAdapter()
+    request = cast(
+        Any,
+        _Obj(
+            model="gpt-5.4",
+            messages=[
+                {
+                    "role": "assistant",
+                    "content": [{"type": "text", "text": "openai turn"}],
+                    "meta": {"provider": "openai", "model": "gpt-5.4", "provider_message_id": "resp_123"},
+                },
+                {"role": "user", "content": [{"type": "text", "text": "switched"}]},
+                {
+                    "role": "assistant",
+                    "content": [{"type": "text", "text": "other provider"}],
+                    "meta": {"provider": "anthropic", "model": "claude-sonnet-4-6"},
+                },
+                {"role": "user", "content": [{"type": "text", "text": "come back"}]},
+            ],
+        ),
+    )
+
+    prepared_messages = adapter.prepare_messages(request)
+    _, previous_response_id = adapter._build_input_items(request, prepared_messages)
+
+    assert previous_response_id is None
 
 
 def test_openai_responses_build_request_payload_includes_prompt_cache_key() -> None:
@@ -176,6 +262,139 @@ def test_openai_chat_extracts_reasoning_from_known_extra_fields() -> None:
     text, meta = adapter._extract_reasoning_delta(delta)
     assert text == "step two"
     assert meta["openai_reasoning_field"] == "reasoning_details"
+
+
+def test_provider_prepare_messages_closes_interrupted_tool_loop() -> None:
+    adapter = OpenAIChatAdapter()
+    original_messages = [
+        {
+            "role": "assistant",
+            "content": [{"type": "tool_use", "id": "call_1", "name": "read", "input": {"path": "x.py"}}],
+            "meta": {"provider": "openai_chat", "model": "test-model"},
+        },
+        {"role": "user", "content": [{"type": "text", "text": "next question"}]},
+    ]
+    request = cast(Any, _Obj(model="test-model", messages=original_messages))
+
+    prepared_messages = adapter.prepare_messages(request)
+
+    assert original_messages == request.messages
+    assert prepared_messages == [
+        {
+            "role": "assistant",
+            "content": [{"type": "tool_use", "id": "call_1", "name": "read", "input": {"path": "x.py"}}],
+            "meta": {"provider": "openai_chat", "model": "test-model"},
+        },
+        {
+            "role": "user",
+            "content": [
+                {
+                    "type": "tool_result",
+                    "tool_use_id": "call_1",
+                    "content": "error: tool call was interrupted (no result recorded)",
+                    "is_error": True,
+                }
+            ],
+        },
+        {"role": "user", "content": [{"type": "text", "text": "next question"}]},
+    ]
+
+
+def test_provider_prepare_messages_drops_aborted_assistant_turn() -> None:
+    adapter = OpenAIChatAdapter()
+    request = cast(
+        Any,
+        _Obj(
+            model="test-model",
+            messages=[
+                {
+                    "role": "assistant",
+                    "content": [{"type": "thinking", "text": "partial"}],
+                    "meta": {"provider": "openai_chat", "model": "test-model", "stop_reason": "aborted"},
+                },
+                {"role": "user", "content": [{"type": "text", "text": "hello"}]},
+            ],
+        ),
+    )
+
+    assert adapter.prepare_messages(request) == [{"role": "user", "content": [{"type": "text", "text": "hello"}]}]
+
+
+def test_provider_prepare_messages_downgrades_foreign_tool_thinking_to_text() -> None:
+    adapter = OpenAIChatAdapter()
+    request = cast(
+        Any,
+        _Obj(
+            model="target-model",
+            messages=[
+                {
+                    "role": "assistant",
+                    "content": [
+                        {"type": "thinking", "text": "Need to inspect the file first."},
+                        {"type": "tool_use", "id": "call_1", "name": "read", "input": {"path": "x.py"}},
+                    ],
+                    "meta": {"provider": "anthropic", "model": "claude-sonnet-4-6"},
+                }
+            ],
+        ),
+    )
+
+    assert adapter.prepare_messages(request) == [
+        {
+            "role": "assistant",
+            "content": [
+                {"type": "text", "text": "Need to inspect the file first."},
+                {"type": "tool_use", "id": "call_1", "name": "read", "input": {"path": "x.py"}},
+            ],
+            "meta": {"provider": "anthropic", "model": "claude-sonnet-4-6"},
+        },
+        {
+            "role": "user",
+            "content": [
+                {
+                    "type": "tool_result",
+                    "tool_use_id": "call_1",
+                    "content": "error: tool call was interrupted (no result recorded)",
+                    "is_error": True,
+                }
+            ],
+        },
+    ]
+
+
+def test_anthropic_prepare_messages_normalizes_tool_ids() -> None:
+    adapter = AnthropicAdapter()
+    request = cast(
+        Any,
+        _Obj(
+            model="claude-sonnet-4-6",
+            messages=[
+                {
+                    "role": "assistant",
+                    "content": [
+                        {"type": "tool_use", "id": "call|with/slash", "name": "read", "input": {"path": "x.py"}}
+                    ],
+                    "meta": {"provider": "anthropic", "model": "claude-sonnet-4-6"},
+                },
+                {
+                    "role": "user",
+                    "content": [{"type": "tool_result", "tool_use_id": "call|with/slash", "content": "done"}],
+                },
+            ],
+        ),
+    )
+
+    assert adapter.prepare_messages(request) == [
+        {
+            "role": "assistant",
+            "content": [{"type": "tool_use", "id": "call_with_slash", "name": "read", "input": {"path": "x.py"}}],
+            "meta": {"provider": "anthropic", "model": "claude-sonnet-4-6"},
+        },
+        {
+            "role": "user",
+            "content": [{"type": "tool_result", "tool_use_id": "call_with_slash", "content": "done"}],
+        },
+    ]
 
 
 def test_openai_chat_replays_reasoning_by_default() -> None:

@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from typing import Any
+import json
+from typing import Any, cast
 
 from openai import APIError, AsyncOpenAI
 
-from mycode.core.messages import assistant_message, text_block, thinking_block, tool_use_block
+from mycode.core.messages import ConversationMessage, assistant_message, text_block, thinking_block, tool_use_block
 from mycode.core.providers.base import (
     DEFAULT_REQUEST_TIMEOUT,
     ProviderAdapter,
@@ -65,7 +66,8 @@ class OpenAIResponsesAdapter(ProviderAdapter):
         yield ProviderStreamEvent("message_done", {"message": self._convert_final_response(final_response)})
 
     def _build_request_payload(self, request: ProviderRequest) -> dict[str, Any]:
-        input_items, previous_response_id = self._build_input_items(request)
+        prepared_messages = self.prepare_messages(request)
+        input_items, previous_response_id = self._build_input_items(request, prepared_messages)
         payload: dict[str, Any] = {
             "model": request.model,
             "input": input_items,
@@ -80,58 +82,48 @@ class OpenAIResponsesAdapter(ProviderAdapter):
             payload["reasoning"] = {"effort": request.reasoning_effort}
         return {key: value for key, value in payload.items() if value is not None}
 
-    def _build_input_items(self, request: ProviderRequest) -> tuple[list[dict[str, Any]], str | None]:
-        last_assistant_index = -1
-        previous_response_id: str | None = None
-
-        for index in range(len(request.messages) - 1, -1, -1):
-            message = request.messages[index]
-            if message.get("role") != "assistant":
-                continue
-            raw_meta = message.get("meta")
-            meta: dict[str, Any] = {}
-            if isinstance(raw_meta, dict):
-                meta = dict(raw_meta)
-            if meta.get("provider") != self.provider_id:
-                continue
-            previous_response_id = meta.get("provider_message_id")
-            if previous_response_id:
-                last_assistant_index = index
-                break
-
-        if previous_response_id:
+    def _build_input_items(
+        self,
+        request: ProviderRequest,
+        messages: list[ConversationMessage],
+    ) -> tuple[list[dict[str, Any]], str | None]:
+        resume = self._native_resume_anchor(messages, request.model)
+        if resume is not None:
+            anchor_index, previous_response_id = resume
             input_items: list[dict[str, Any]] = []
-            for message in request.messages[last_assistant_index + 1 :]:
+            for message in messages[anchor_index + 1 :]:
                 input_items.extend(self._serialize_followup_message(message))
             return input_items, previous_response_id
 
-        if any(message.get("role") == "assistant" for message in request.messages):
-            raise ValueError(
-                "OpenAI Responses sessions require provider_message_id on prior assistant messages; start a new session"
-            )
-
         input_items: list[dict[str, Any]] = []
-        for message in request.messages:
-            input_items.extend(self._serialize_user_message(message))
+        for message in messages:
+            input_items.extend(self._serialize_replay_message(message))
         return input_items, None
 
-    def _serialize_user_message(self, message: dict[str, Any]) -> list[dict[str, Any]]:
-        if message.get("role") != "user":
-            return []
+    def _native_resume_anchor(self, messages: list[ConversationMessage], model: str) -> tuple[int, str] | None:
+        """Return the latest safe `previous_response_id` anchor.
 
-        text_blocks = [
-            block for block in message.get("content") or [] if isinstance(block, dict) and block.get("type") == "text"
-        ]
-        if not text_blocks:
-            return []
+        Responses API chaining only works when the latest assistant turn belongs
+        to the same provider/model and exposes a stored response ID. Mixed-model
+        or cross-provider history falls back to stateless full replay.
+        """
 
-        return [
-            {
-                "type": "message",
-                "role": "user",
-                "content": [{"type": "input_text", "text": str(block.get("text") or "")} for block in text_blocks],
-            }
-        ]
+        for index in range(len(messages) - 1, -1, -1):
+            message = messages[index]
+            if message.get("role") != "assistant":
+                continue
+
+            raw_meta = message.get("meta")
+            meta = raw_meta if isinstance(raw_meta, dict) else {}
+            if meta.get("provider") != self.provider_id or meta.get("model") != model:
+                return None
+
+            provider_message_id = str(meta.get("provider_message_id") or "")
+            if provider_message_id:
+                return index, provider_message_id
+            return None
+
+        return None
 
     def _serialize_followup_message(self, message: dict[str, Any]) -> list[dict[str, Any]]:
         if message.get("role") != "user":
@@ -162,8 +154,48 @@ class OpenAIResponsesAdapter(ProviderAdapter):
 
         return items
 
+    def _serialize_replay_message(self, message: ConversationMessage) -> list[dict[str, Any]]:
+        role = message.get("role")
+        if role == "user":
+            return self._serialize_followup_message(message)
+        if role != "assistant":
+            return []
+
+        blocks = [block for block in message.get("content") or [] if isinstance(block, dict)]
+        text_parts = [
+            str(block.get("text") or "") for block in blocks if block.get("type") == "text" and block.get("text")
+        ]
+        if not text_parts and any(block.get("type") == "tool_use" for block in blocks):
+            text_parts = [
+                str(block.get("text") or "")
+                for block in blocks
+                if block.get("type") == "thinking" and block.get("text")
+            ]
+
+        items: list[dict[str, Any]] = []
+        if text_parts:
+            message_item: dict[str, Any] = {
+                "type": "message",
+                "role": "assistant",
+                "content": [{"type": "output_text", "text": "\n".join(text_parts)}],
+            }
+            items.append(message_item)
+
+        for block in blocks:
+            if block.get("type") != "tool_use":
+                continue
+            call_item: dict[str, Any] = {
+                "type": "function_call",
+                "call_id": block.get("id") or "",
+                "name": block.get("name") or "",
+                "arguments": json.dumps(block.get("input") if isinstance(block.get("input"), dict) else {}),
+            }
+            items.append(call_item)
+
+        return items
+
     def _serialize_tool(self, tool: dict[str, Any]) -> dict[str, Any]:
-        parameters = dict(tool.get("input_schema") or {"type": "object", "properties": {}})
+        parameters = cast(dict[str, Any], dict(tool.get("input_schema") or {"type": "object", "properties": {}}))
         properties = parameters.get("properties")
         required = parameters.get("required")
 

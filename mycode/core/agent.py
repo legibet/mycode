@@ -105,71 +105,7 @@ class Agent:
         self.system = "\n\n".join(prompt_parts)
 
         self.messages: list[ConversationMessage] = list(messages or [])
-        self._finalize_pending_tool_results()
         self.tools = ToolExecutor(cwd=self.cwd, session_dir=self.session_dir)
-
-    def _finalize_pending_tool_results(self) -> None:
-        """Ensure the last tool-use turn always has matching tool results.
-
-        A previous run may have been cancelled after the assistant emitted tool
-        calls but before all tool results were persisted. We recover that gap so
-        the next provider turn always sees a closed tool loop.
-        """
-
-        last_tool_use_ids: list[str] = []
-        last_idx: int | None = None
-
-        for idx in range(len(self.messages) - 1, -1, -1):
-            message = self.messages[idx]
-            if message.get("role") != "assistant":
-                continue
-
-            blocks = message.get("content")
-            if not isinstance(blocks, list):
-                continue
-
-            last_tool_use_ids = [
-                str(block.get("id"))
-                for block in blocks
-                if isinstance(block, dict) and block.get("type") == "tool_use" and block.get("id")
-            ]
-            if last_tool_use_ids:
-                last_idx = idx
-                break
-
-        if last_idx is None:
-            return
-
-        seen: set[str] = set()
-        for message in self.messages[last_idx + 1 :]:
-            if message.get("role") != "user":
-                continue
-
-            blocks = message.get("content")
-            if not isinstance(blocks, list):
-                continue
-
-            for block in blocks:
-                if isinstance(block, dict) and block.get("type") == "tool_result" and block.get("tool_use_id"):
-                    seen.add(str(block["tool_use_id"]))
-
-        missing = [tool_use_id for tool_use_id in last_tool_use_ids if tool_use_id not in seen]
-        if not missing:
-            return
-
-        self.messages.append(
-            build_message(
-                "user",
-                [
-                    tool_result_block(
-                        tool_use_id=tool_use_id,
-                        content="error: tool call was interrupted (no result recorded)",
-                        is_error=True,
-                    )
-                    for tool_use_id in missing
-                ],
-            )
-        )
 
     def cancel(self) -> None:
         self._cancel_event.set()
