@@ -4,27 +4,19 @@
  */
 
 import { Check, Copy } from 'lucide-react'
-import { useCallback, useState } from 'react'
+import { memo, useCallback, useState } from 'react'
+import { copyText } from '../../utils/clipboard'
 import { cn } from '../../utils/cn'
 import { MarkdownBlock } from './MarkdownBlock'
 import { ReasoningBlock } from './ReasoningBlock'
 import { ToolCard } from './ToolCard'
 
-function copyText(text) {
-  if (navigator.clipboard?.writeText) {
-    return navigator.clipboard.writeText(text)
-  }
-  const el = document.createElement('textarea')
-  el.value = text
-  el.style.cssText = 'position:fixed;opacity:0'
-  document.body.appendChild(el)
-  el.select()
-  document.execCommand('copy')
-  document.body.removeChild(el)
-  return Promise.resolve()
-}
-
-export function MessageBubble({ role, blocks, isStreaming, index }) {
+export const MessageBubble = memo(function MessageBubble({
+  role,
+  blocks,
+  isStreaming,
+  index,
+}) {
   const isUser = role === 'user'
   const [copied, setCopied] = useState(false)
 
@@ -130,4 +122,4 @@ export function MessageBubble({ role, blocks, isStreaming, index }) {
       )}
     </div>
   )
-}
+})

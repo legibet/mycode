@@ -7,22 +7,11 @@ import { Check, Copy } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { vs, vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism'
+import { copyText } from '../../utils/clipboard'
 import { cn } from '../../utils/cn'
 import { useTheme } from '../ThemeProvider'
 
-function copyText(text) {
-  if (navigator.clipboard?.writeText) {
-    return navigator.clipboard.writeText(text)
-  }
-  const el = document.createElement('textarea')
-  el.value = text
-  el.style.cssText = 'position:fixed;opacity:0'
-  document.body.appendChild(el)
-  el.select()
-  document.execCommand('copy')
-  document.body.removeChild(el)
-  return Promise.resolve()
-}
+const LANGUAGE_RE = /language-(\w+)/
 
 export function CodeBlock({ node, inline, className, children, ...props }) {
   const { theme } = useTheme()
@@ -50,7 +39,7 @@ export function CodeBlock({ node, inline, className, children, ...props }) {
     return clean
   }, [isDark])
 
-  const match = /language-(\w+)/.exec(className || '')
+  const match = LANGUAGE_RE.exec(className || '')
   const language = match ? match[1] : ''
   const rawContent = Array.isArray(children)
     ? children.join('')

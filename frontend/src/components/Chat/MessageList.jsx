@@ -21,11 +21,12 @@ export function MessageList({ messages, loading }) {
       el.scrollHeight - el.scrollTop - el.clientHeight < SCROLL_THRESHOLD
   }, [])
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: trigger scroll when messages update
   useEffect(() => {
     if (stickToBottom.current) {
       endRef.current?.scrollIntoView({ behavior: 'smooth' })
     }
-  })
+  }, [messages])
 
   if (messages.length === 0) {
     return (

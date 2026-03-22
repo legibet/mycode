@@ -80,12 +80,6 @@ function AppContent() {
     saveConfig(newConfig)
   }
 
-  useEffect(() => {
-    const nextHistory = addHistory(loadHistory(), config.cwd)
-    setCwdHistory(nextHistory)
-    saveHistory(nextHistory)
-  }, [config.cwd])
-
   const handleSend = () => {
     send(input)
     setInput('')

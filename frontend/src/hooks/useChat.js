@@ -157,12 +157,13 @@ export function useChat(config) {
     [chatState.rawMessages, chatState.toolRuntimeById],
   )
 
-  const status = useMemo(() => {
-    if (loading) return 'generating'
-    if (connectionState === 'error') return 'offline'
-    if (connectionState === 'ready') return 'ready'
-    return 'idle'
-  }, [loading, connectionState])
+  const status = loading
+    ? 'generating'
+    : connectionState === 'error'
+      ? 'offline'
+      : connectionState === 'ready'
+        ? 'ready'
+        : 'idle'
 
   const fetchSessions = useCallback(async () => {
     try {
