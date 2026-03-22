@@ -9,9 +9,11 @@ from typing import Any
 
 from rich.console import Console, ConsoleOptions, RenderResult
 from rich.live import Live
+from rich.markdown import CodeBlock as _RichCodeBlock
 from rich.markdown import Heading as _RichHeading
 from rich.markdown import Markdown
 from rich.spinner import Spinner
+from rich.syntax import Syntax
 from rich.table import Table
 from rich.text import Text
 from rich.theme import Theme
@@ -37,16 +39,16 @@ from .theme import (
     WARNING,
 )
 
-# In light mode, Rich's default inline-code style ("bold cyan on black") is
-# unreadable. Override both inline and indented-block code styles.
-_LIGHT_THEME = Theme(
+# Override Rich's default inline-code style ("bold cyan on black") to remove
+# the hardcoded background color that clashes with terminal themes.
+_THEME = Theme(
     {
-        "markdown.code": "bold blue",
-        "markdown.code_block": "blue",
+        "markdown.code": "bold blue" if TERMINAL_THEME == "light" else "bold cyan",
+        "markdown.code_block": "blue" if TERMINAL_THEME == "light" else "cyan",
     }
 )
 
-console = Console(highlight=False, theme=_LIGHT_THEME if TERMINAL_THEME == "light" else None)
+console = Console(highlight=False, theme=_THEME)
 
 
 class _LeftHeading(_RichHeading):
@@ -66,10 +68,30 @@ class _LeftHeading(_RichHeading):
             yield text
 
 
-class _LeftMarkdown(Markdown):
-    """Markdown subclass with left-aligned headings."""
+class _CleanCodeBlock(_RichCodeBlock):
+    """Code block that uses the terminal background instead of the theme background."""
 
-    elements = {**Markdown.elements, "heading_open": _LeftHeading}
+    def __rich_console__(self, console: Console, options: ConsoleOptions) -> RenderResult:
+        code = str(self.text).rstrip()
+        yield Syntax(
+            code,
+            self.lexer_name,
+            theme=self.theme,
+            word_wrap=True,
+            padding=0,
+            background_color="default",
+        )
+
+
+class _LeftMarkdown(Markdown):
+    """Markdown subclass with left-aligned headings and clean code blocks."""
+
+    elements = {
+        **Markdown.elements,
+        "heading_open": _LeftHeading,
+        "fence": _CleanCodeBlock,
+        "code_block": _CleanCodeBlock,
+    }
 
 
 # Maps built-in tool names to the argument key most useful as a one-line preview.
@@ -116,14 +138,15 @@ class TerminalView:
 
         line = Text()
         line.append("mycode", style=ACCENT)
-        line.append("  ")
+        line.append(" · ", style=MUTED)
         line.append(provider, style=PROVIDER)
-        line.append("/", style=MUTED)
+        line.append(" / ", style=MUTED)
         line.append(model)
         if reasoning_effort:
-            line.append(f"  [effort: {reasoning_effort}]", style=MUTED)
+            line.append(" · ", style=MUTED)
+            line.append(reasoning_effort, style=MUTED)
         if session_id:
-            line.append("  ")
+            line.append(" · ", style=MUTED)
             line.append(session_id, style=MUTED)
         self.console.print(line)
 
@@ -131,13 +154,12 @@ class TerminalView:
             meta = Text()
             meta.append("resumed", style=WARNING)
             if title and title != "New chat":
-                meta.append("  ")
+                meta.append(" · ", style=MUTED)
                 meta.append(title, style=MUTED)
             if message_count:
-                meta.append(f"  ({message_count} msgs)", style=MUTED)
+                meta.append(" · ", style=MUTED)
+                meta.append(f"{message_count} msgs", style=MUTED)
             self.console.print(meta)
-
-        self.console.rule(style="dim")
 
     def print_history_preview(self, messages: list[dict[str, Any]]) -> None:
         """Print a short summary of recent messages for resumed sessions."""
@@ -306,11 +328,13 @@ class ReplyRenderer:
         self._live: Live | None = None
         self._reasoning: list[str] = []
         self._text: list[str] = []
+        self._text_started = False
         self._printed_static_reasoning = False
         # Timing & stats
         self._response_start_time: float | None = None
         self._thinking_start_time: float | None = None
         self._thinking_collapsed = False
+        self._had_prior_output = False
         self._tool_start_time: float | None = None
         self._usage: dict[str, Any] | None = None
 
@@ -375,6 +399,9 @@ class ReplyRenderer:
         """Handle one streamed assistant text chunk."""
 
         self._finalize_reasoning_phase()
+        if not self._text_started and self._had_prior_output:
+            self._console.print()
+            self._text_started = True
         if self._live_mode:
             self._text.append(chunk)
             self._ensure_live()
@@ -443,6 +470,7 @@ class ReplyRenderer:
         if duration:
             text.append(duration, style=STATS)
         self._console.print(text)
+        self._had_prior_output = True
 
     def error(self, message: str) -> None:
         """Render a terminal-visible error message for the current turn."""
@@ -498,6 +526,7 @@ class ReplyRenderer:
         self._thinking_collapsed = True
 
         if self._live is not None:
+            self._live.transient = True
             self._live.stop()
             self._live = None
 
@@ -507,6 +536,7 @@ class ReplyRenderer:
             duration = f" · {elapsed:.1f}s"
 
         self._console.print(Text(f"{THINKING_SYMBOL} thought{duration}", style=THINKING))
+        self._had_prior_output = True
         self._reasoning.clear()
 
     def _print_static_reasoning(self) -> None:
@@ -522,6 +552,7 @@ class ReplyRenderer:
         self._console.print(Text(f"{THINKING_SYMBOL} thinking{duration}", style=THINKING))
         self._console.print("".join(self._reasoning), style="dim")
         self._printed_static_reasoning = True
+        self._had_prior_output = True
 
     def _ensure_live(self) -> None:
         if self._live is None:
