@@ -5,13 +5,14 @@ from __future__ import annotations
 import argparse
 import asyncio
 import os
+import sys
 
 from mycode.core.agent import Agent
 from mycode.core.config import get_settings, resolve_provider
 from mycode.core.session import SessionStore
 
 from .chat import TerminalChat
-from .render import ReplyRenderer, TerminalView
+from .render import TerminalView
 from .runtime import resolve_session
 
 
@@ -51,7 +52,7 @@ def create_parser() -> argparse.ArgumentParser:
     _add_chat_options(parser)
     subparsers = parser.add_subparsers(dest="command")
 
-    run_parser = subparsers.add_parser("run", help="Run one prompt and exit")
+    run_parser = subparsers.add_parser("run", help="Send one message and exit")
     _add_chat_options(run_parser)
     run_parser.add_argument("message", nargs="+", help="Prompt to run")
 
@@ -71,14 +72,39 @@ def create_parser() -> argparse.ArgumentParser:
     return parser
 
 
-async def run_once(agent: Agent, *, store: SessionStore, session_id: str, message: str) -> int:
-    """Run one prompt and return the CLI exit code."""
+async def run_noninteractive(agent: Agent, *, store: SessionStore, session_id: str, message: str) -> int:
+    """Run one CLI message and print only the final assistant reply."""
+
+    latest_assistant: dict | None = None
 
     async def persist(payload: dict) -> None:
+        nonlocal latest_assistant
+        if payload.get("role") == "assistant":
+            latest_assistant = payload
         await store.append_message(session_id, payload)
 
-    renderer = ReplyRenderer(live_mode=False)
-    return await renderer.render(agent, message, on_persist=persist)
+    error_message = ""
+    async for event in agent.achat(message, on_persist=persist):
+        if event.type == "error":
+            error_message = str(event.data.get("message") or "agent error")
+
+    if error_message:
+        print(error_message, file=sys.stderr)
+        return 1
+
+    reply = ""
+    if latest_assistant:
+        reply = "".join(
+            str(block.get("text") or "")
+            for block in latest_assistant.get("content") or []
+            if isinstance(block, dict) and block.get("type") == "text"
+        )
+
+    if reply:
+        sys.stdout.write(reply)
+        if not reply.endswith("\n"):
+            sys.stdout.write("\n")
+    return 0
 
 
 def _build_agent(
@@ -172,7 +198,7 @@ def main() -> None:
 
     if args.command == "run":
         code = asyncio.run(
-            run_once(
+            run_noninteractive(
                 agent,
                 store=store,
                 session_id=resolved_session.session_id,

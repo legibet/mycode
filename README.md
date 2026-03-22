@@ -15,7 +15,7 @@ Design principles (inspired by pi):
 mycode
 ```
 
-Run one prompt and exit:
+Send one message and exit:
 
 ```bash
 mycode run "Explain how the session store works"

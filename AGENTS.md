@@ -281,7 +281,7 @@ CLI and web frontend can override reasoning effort at runtime without changing c
 `mycode/cli/main.py`
 
 - defaults to interactive mode with `mycode`
-- supports one-shot runs with `mycode run "..."`
+- supports non-interactive single-message runs with `mycode run "..."`; sessions can later be resumed via `--continue`, `--session`, or `/resume`
 - supports web serving with `mycode web`
 - `mycode web --dev` starts the backend in API-only mode for Vite frontend development
 - contains the terminal entry flow, rendering, and interactive chat loop

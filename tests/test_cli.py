@@ -10,21 +10,13 @@ from prompt_toolkit.input.defaults import create_pipe_input
 from prompt_toolkit.output import DummyOutput
 
 from mycode.cli.chat import TerminalChat, _build_chat_key_bindings, _SlashCompleter, history_file_path
-from mycode.cli.main import create_parser, run_once
+from mycode.cli.main import create_parser, run_noninteractive
 from mycode.cli.render import TerminalView
 from mycode.cli.runtime import list_model_options, resolve_session
 from mycode.cli.runtime import update_agent_runtime as _update_agent_runtime
 from mycode.core.agent import Event
 from mycode.core.config import ProviderConfig, ResolvedProvider, Settings
 from mycode.core.session import SessionStore
-
-
-class _FakeConsole:
-    def __init__(self) -> None:
-        self.calls: list[tuple[tuple, dict]] = []
-
-    def print(self, *args, **kwargs) -> None:
-        self.calls.append((args, kwargs))
 
 
 class _FakeStore:
@@ -34,15 +26,21 @@ class _FakeStore:
 
 class _FakeAgent:
     async def achat(self, message: str, *, on_persist=None):
+        if on_persist:
+            await on_persist({"role": "user", "content": [{"type": "text", "text": message}]})
+            await on_persist(
+                {
+                    "role": "assistant",
+                    "content": [{"type": "text", "text": "Persisted final answer"}],
+                }
+            )
         yield Event("reasoning", {"delta": "Hidden reasoning"})
-        yield Event("text", {"delta": "Visible answer"})
+        yield Event("text", {"delta": "Streamed answer should stay hidden"})
 
 
-async def test_run_once_prints_reasoning_output(monkeypatch):
-    fake_console = _FakeConsole()
-    monkeypatch.setattr("mycode.cli.render.console", fake_console)
-
-    code = await run_once(
+@pytest.mark.asyncio
+async def test_run_noninteractive_prints_only_final_reply(capsys):
+    code = await run_noninteractive(
         cast(Any, _FakeAgent()),
         store=cast(Any, _FakeStore()),
         session_id="test-session",
@@ -50,9 +48,29 @@ async def test_run_once_prints_reasoning_output(monkeypatch):
     )
 
     assert code == 0
-    printed = [str(args[0]) for args, _kwargs in fake_console.calls if args]
-    assert "Hidden reasoning" in printed
-    assert "Visible answer" in printed
+    captured = capsys.readouterr()
+    assert captured.out == "Persisted final answer\n"
+    assert captured.err == ""
+
+
+class _ErrorAgent:
+    async def achat(self, message: str, *, on_persist=None):
+        yield Event("error", {"message": "provider error"})
+
+
+@pytest.mark.asyncio
+async def test_run_noninteractive_prints_errors_to_stderr(capsys):
+    code = await run_noninteractive(
+        cast(Any, _ErrorAgent()),
+        store=cast(Any, _FakeStore()),
+        session_id="test-session",
+        message="hello",
+    )
+
+    assert code == 1
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == "provider error\n"
 
 
 @pytest.mark.asyncio
