@@ -15,7 +15,7 @@ from mycode.core.messages import ConversationMessage, build_message, tool_result
 from mycode.core.providers import get_provider_adapter
 from mycode.core.providers.base import ProviderAdapter, ProviderRequest, ProviderStreamEvent
 from mycode.core.skills import load_skills_prompt
-from mycode.core.tools import TOOLS, ToolExecutor
+from mycode.core.tools import ToolExecutor
 
 logger = logging.getLogger(__name__)
 
@@ -30,24 +30,24 @@ class Event:
     data: dict[str, Any] = field(default_factory=dict)
 
 
-async def _run_bash_to_queue(
+async def _run_streaming_tool_to_queue(
     tools: ToolExecutor,
     *,
+    name: str,
     tool_call_id: str,
-    command: str,
-    timeout: Any,
+    args: dict[str, Any],
     queue: asyncio.Queue[str | None],
     on_output: Callable[[str], None],
 ) -> str:
-    """Run bash in a worker thread and signal the async queue when it ends."""
+    """Run one streaming tool in a worker thread and signal completion."""
 
     loop = asyncio.get_running_loop()
     try:
         return await asyncio.to_thread(
-            tools.bash,
+            tools.run_streaming,
+            name,
             tool_call_id=tool_call_id,
-            command=command,
-            timeout=timeout,
+            args=args,
             on_output=on_output,
         )
     finally:
@@ -98,6 +98,7 @@ class Agent:
         reasoning_effort: str | None = None,
         settings: Settings | None = None,
         system: str | None = None,
+        tool_executor: ToolExecutor | None = None,
     ):
         self.model = model
         self.provider = provider or "anthropic"
@@ -115,7 +116,7 @@ class Agent:
         self._provider_event_task: asyncio.Future[ProviderStreamEvent] | None = None
 
         self.messages: list[ConversationMessage] = list(messages or [])
-        self.tools = ToolExecutor(cwd=self.cwd, session_dir=self.session_dir)
+        self.tools = tool_executor or ToolExecutor(cwd=self.cwd, session_dir=self.session_dir)
 
     def cancel(self) -> None:
         self._cancel_event.set()
@@ -126,13 +127,11 @@ class Agent:
     def clear(self) -> None:
         self.messages = []
 
-    async def _run_bash_tool(self, *, tool_id: str, args: dict[str, Any]) -> AsyncIterator[Event]:
-        """Stream bash output while the subprocess is still running."""
+    async def _run_streaming_tool(self, *, tool_id: str, name: str, args: dict[str, Any]) -> AsyncIterator[Event]:
+        """Stream tool output while a streaming tool is still running."""
 
         loop = asyncio.get_running_loop()
         queue: asyncio.Queue[str | None] = asyncio.Queue()
-        command = str(args.get("command", ""))
-        timeout = args.get("timeout")
 
         def on_output(
             line: str,
@@ -142,11 +141,11 @@ class Agent:
             _loop.call_soon_threadsafe(_queue.put_nowait, line)
 
         task = asyncio.create_task(
-            _run_bash_to_queue(
+            _run_streaming_tool_to_queue(
                 self.tools,
+                name=name,
                 tool_call_id=tool_id,
-                command=command,
-                timeout=timeout,
+                args=args,
                 queue=queue,
                 on_output=on_output,
             )
@@ -206,19 +205,20 @@ class Agent:
             )
             return
 
+        tool = self.tools.get_tool(name)
+        if tool is None:
+            yield Event(
+                "tool_done",
+                {"tool_use_id": tool_id, "result": f"error: unknown tool: {name}", "is_error": True},
+            )
+            return
+
         try:
-            if name == "bash":
-                async for event in self._run_bash_tool(tool_id=tool_id, args=args):
+            if tool.streams_output:
+                async for event in self._run_streaming_tool(tool_id=tool_id, name=name, args=args):
                     yield event
                 return
-            if name == "read":
-                result = self.tools.read(**args)
-            elif name == "write":
-                result = self.tools.write(**args)
-            elif name == "edit":
-                result = self.tools.edit(**args)
-            else:
-                result = f"error: unknown tool: {name}"
+            result = self.tools.run(name, args=args)
         except Exception as exc:  # pragma: no cover - defensive
             result = f"error: {exc}"
 
@@ -291,7 +291,7 @@ class Agent:
                 session_id=self.session_id,
                 messages=self.messages,
                 system=self.system,
-                tools=TOOLS,
+                tools=self.tools.definitions,
                 max_tokens=self.max_tokens,
                 api_key=self.api_key,
                 api_base=self.api_base,

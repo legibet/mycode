@@ -9,7 +9,7 @@ import pytest
 
 from mycode.core.agent import Agent
 from mycode.core.providers.base import ProviderStreamEvent
-from mycode.core.tools import ToolExecutor, cancel_all_tools
+from mycode.core.tools import ToolExecutor, ToolSpec, cancel_all_tools
 
 
 class TestToolExecutorBash:
@@ -243,6 +243,30 @@ class _FakeProviderAdapter:
         events = self._turns.pop(0) if self._turns else []
         for event in events:
             yield event
+
+
+class _CustomToolExecutor(ToolExecutor):
+    def __init__(self, *, cwd: str, session_dir: Path) -> None:
+        super().__init__(
+            cwd=cwd,
+            session_dir=session_dir,
+            tools=(
+                ToolSpec(
+                    name="ping",
+                    description="Echoes a short string.",
+                    input_schema={
+                        "type": "object",
+                        "properties": {"text": {"type": "string", "description": "Text to echo."}},
+                        "required": ["text"],
+                        "additionalProperties": False,
+                    },
+                    method_name="ping",
+                ),
+            ),
+        )
+
+    def ping(self, *, text: str) -> str:
+        return f"pong: {text}"
 
 
 class _SlowProviderAdapter:
@@ -493,6 +517,63 @@ class TestAgentTurnLimits:
 
             assert events[-1].type == "error"
             assert events[-1].data == {"message": "max_turns reached"}
+
+
+class TestCustomTools:
+    @pytest.mark.asyncio
+    async def test_agent_executes_custom_tool_executor_tools(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            session_dir = Path(tmpdir)
+            agent = Agent(
+                model="gpt-5.4",
+                cwd=tmpdir,
+                session_dir=session_dir,
+                tool_executor=_CustomToolExecutor(cwd=tmpdir, session_dir=session_dir),
+            )
+
+            adapter = _FakeProviderAdapter(
+                [
+                    [
+                        ProviderStreamEvent(
+                            "message_done",
+                            {
+                                "message": {
+                                    "role": "assistant",
+                                    "content": [
+                                        {
+                                            "type": "tool_use",
+                                            "id": "call-1",
+                                            "name": "ping",
+                                            "input": {"text": "hello"},
+                                        }
+                                    ],
+                                }
+                            },
+                        )
+                    ],
+                    [
+                        ProviderStreamEvent(
+                            "message_done",
+                            {
+                                "message": {
+                                    "role": "assistant",
+                                    "content": [{"type": "text", "text": "done"}],
+                                }
+                            },
+                        )
+                    ],
+                ]
+            )
+
+            with patch("mycode.core.agent.get_provider_adapter", return_value=adapter):
+                events = [event async for event in agent.achat("hello")]
+
+            assert [event.type for event in events] == ["tool_start", "tool_done"]
+            assert events[1].data == {
+                "tool_use_id": "call-1",
+                "result": "pong: hello",
+                "is_error": False,
+            }
 
 
 class TestAgentCancel:

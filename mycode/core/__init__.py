@@ -10,7 +10,7 @@ from mycode.core.config import (
 )
 from mycode.core.providers import is_supported_provider, list_supported_providers
 from mycode.core.session import SessionStore
-from mycode.core.tools import TOOLS, ToolExecutor, cancel_all_tools
+from mycode.core.tools import DEFAULT_TOOL_SPECS, ToolExecutor, ToolSpec, cancel_all_tools
 
 __all__ = [
     "Agent",
@@ -19,7 +19,8 @@ __all__ = [
     "ResolvedProvider",
     "Settings",
     "SessionStore",
-    "TOOLS",
+    "DEFAULT_TOOL_SPECS",
+    "ToolSpec",
     "ToolExecutor",
     "cancel_all_tools",
     "get_settings",

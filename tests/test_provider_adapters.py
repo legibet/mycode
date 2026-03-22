@@ -12,7 +12,7 @@ from mycode.core.providers import (
     OpenRouterAdapter,
     ZAIAdapter,
 )
-from mycode.core.tools import TOOLS
+from mycode.core.tools import DEFAULT_TOOL_SPECS
 
 
 class _Obj:
@@ -224,7 +224,16 @@ def test_openai_responses_converts_final_response_blocks() -> None:
 def test_openai_responses_serializes_strict_tool_schemas() -> None:
     adapter = OpenAIResponsesAdapter()
 
-    serialized_tools = [adapter._serialize_tool(tool) for tool in TOOLS]
+    serialized_tools = [
+        adapter._serialize_tool(
+            {
+                "name": tool.name,
+                "description": tool.description,
+                "input_schema": tool.input_schema,
+            }
+        )
+        for tool in DEFAULT_TOOL_SPECS
+    ]
 
     for tool in serialized_tools:
         parameters = tool["parameters"]
@@ -238,7 +247,7 @@ def test_openai_responses_serializes_strict_tool_schemas() -> None:
     bash_tool = next(tool for tool in serialized_tools if tool["name"] == "bash")
     assert bash_tool["parameters"]["properties"]["timeout"]["type"] == ["integer", "null"]
 
-    read_schema = next(tool for tool in TOOLS if tool["name"] == "read")["input_schema"]
+    read_schema = next(tool for tool in DEFAULT_TOOL_SPECS if tool.name == "read").input_schema
     assert read_schema["required"] == ["path"]
 
 

@@ -1,18 +1,11 @@
 """Core tool definitions and execution.
 
-This module intentionally exposes only **four** tools:
-- read
-- write
-- edit
-- bash
+This module intentionally ships with only four built-in tools: `read`,
+`write`, `edit`, and `bash`.
 
-Tool schemas are passed to the LLM as native Messages API tools.
-Execution is implemented in :class:`ToolExecutor`.
-
-Design goals (inspired by pi):
-- minimal primitives
-- predictable truncation
-- actionable continuation hints
+`ToolSpec` is the internal source of truth for built-in tool metadata.
+`ToolExecutor` owns both execution and the provider-facing tool definitions used
+by the agent loop.
 """
 
 from __future__ import annotations
@@ -25,7 +18,7 @@ import subprocess
 import threading
 import time
 from collections import deque
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from difflib import SequenceMatcher
 from pathlib import Path
@@ -42,15 +35,22 @@ BASH_TIMEOUT_SECONDS = 120
 _BASH_MAX_IN_MEMORY_BYTES = 5_000_000
 
 
-# ---------------------------------------------------------------------------
-# Tool schemas (Messages API)
-# ---------------------------------------------------------------------------
+@dataclass(frozen=True)
+class ToolSpec:
+    """Built-in tool metadata and executor binding."""
 
-TOOLS: list[dict[str, Any]] = [
-    {
-        "name": "read",
-        "description": "Read a file. Text output is truncated to 2000 lines or 50KB. Use offset/limit for large files.",
-        "input_schema": {
+    name: str
+    description: str
+    input_schema: dict[str, Any]
+    method_name: str
+    streams_output: bool = False
+
+
+DEFAULT_TOOL_SPECS: tuple[ToolSpec, ...] = (
+    ToolSpec(
+        name="read",
+        description="Read a file. Text output is truncated to 2000 lines or 50KB. Use offset/limit for large files.",
+        input_schema={
             "type": "object",
             "properties": {
                 "path": {"type": "string", "description": "File path (relative or absolute)."},
@@ -60,11 +60,12 @@ TOOLS: list[dict[str, Any]] = [
             "required": ["path"],
             "additionalProperties": False,
         },
-    },
-    {
-        "name": "write",
-        "description": "Write a file (create or overwrite).",
-        "input_schema": {
+        method_name="read",
+    ),
+    ToolSpec(
+        name="write",
+        description="Write a file (create or overwrite).",
+        input_schema={
             "type": "object",
             "properties": {
                 "path": {"type": "string", "description": "File path (relative or absolute)."},
@@ -73,11 +74,12 @@ TOOLS: list[dict[str, Any]] = [
             "required": ["path", "content"],
             "additionalProperties": False,
         },
-    },
-    {
-        "name": "edit",
-        "description": "Edit a file by replacing an exact oldText snippet with newText. oldText must match exactly.",
-        "input_schema": {
+        method_name="write",
+    ),
+    ToolSpec(
+        name="edit",
+        description="Edit a file by replacing an exact oldText snippet with newText. oldText must match exactly.",
+        input_schema={
             "type": "object",
             "properties": {
                 "path": {"type": "string", "description": "File path (relative or absolute)."},
@@ -87,14 +89,15 @@ TOOLS: list[dict[str, Any]] = [
             "required": ["path", "oldText", "newText"],
             "additionalProperties": False,
         },
-    },
-    {
-        "name": "bash",
-        "description": (
+        method_name="edit",
+    ),
+    ToolSpec(
+        name="bash",
+        description=(
             "Run a shell command in the session working directory. "
             "Output is truncated; if truncated, the full output is written to a file."
         ),
-        "input_schema": {
+        input_schema={
             "type": "object",
             "properties": {
                 "command": {"type": "string", "description": "Shell command."},
@@ -103,8 +106,10 @@ TOOLS: list[dict[str, Any]] = [
             "required": ["command"],
             "additionalProperties": False,
         },
-    },
-]
+        method_name="bash",
+        streams_output=True,
+    ),
+)
 
 
 # ---------------------------------------------------------------------------
@@ -254,7 +259,7 @@ ToolOutputCallback = Callable[[str], None]
 class ToolExecutor:
     """Execute tool calls for a single session."""
 
-    def __init__(self, *, cwd: str, session_dir: Path):
+    def __init__(self, *, cwd: str, session_dir: Path, tools: Sequence[ToolSpec] | None = None):
         self.cwd = str(Path(cwd).resolve(strict=False))
         self.session_dir = session_dir
         self.session_dir.mkdir(parents=True, exist_ok=True)
@@ -262,6 +267,64 @@ class ToolExecutor:
         self.tool_output_dir.mkdir(parents=True, exist_ok=True)
         self._active_procs: set[subprocess.Popen[str]] = set()
         self._active_procs_lock = threading.Lock()
+        self.tool_specs = tuple(tools or DEFAULT_TOOL_SPECS)
+        self._tools_by_name: dict[str, ToolSpec] = {}
+
+        for spec in self.tool_specs:
+            if spec.name in self._tools_by_name:
+                raise ValueError(f"duplicate tool name: {spec.name}")
+            if not callable(getattr(self, spec.method_name, None)):
+                raise ValueError(f"missing tool method: {spec.method_name}")
+            self._tools_by_name[spec.name] = spec
+
+    @property
+    def definitions(self) -> list[dict[str, Any]]:
+        """Return provider-facing tool definitions for the configured tools."""
+
+        return [
+            {
+                "name": spec.name,
+                "description": spec.description,
+                "input_schema": spec.input_schema,
+            }
+            for spec in self.tool_specs
+        ]
+
+    def get_tool(self, name: str) -> ToolSpec | None:
+        """Return the configured tool spec for a tool name."""
+
+        return self._tools_by_name.get(name)
+
+    def run(self, name: str, *, args: dict[str, Any]) -> str:
+        """Execute a non-streaming tool call."""
+
+        spec = self.get_tool(name)
+        if spec is None:
+            return f"error: unknown tool: {name}"
+        if spec.streams_output:
+            raise ValueError(f"tool requires streaming execution: {name}")
+
+        handler = cast(Callable[..., str], getattr(self, spec.method_name))
+        return handler(**args)
+
+    def run_streaming(
+        self,
+        name: str,
+        *,
+        tool_call_id: str,
+        args: dict[str, Any],
+        on_output: ToolOutputCallback,
+    ) -> str:
+        """Execute a tool call that emits incremental output."""
+
+        spec = self.get_tool(name)
+        if spec is None:
+            return f"error: unknown tool: {name}"
+        if not spec.streams_output:
+            raise ValueError(f"tool does not support streaming execution: {name}")
+
+        handler = cast(Callable[..., str], getattr(self, spec.method_name))
+        return handler(tool_call_id=tool_call_id, on_output=on_output, **args)
 
     def _track_proc(self, proc: subprocess.Popen[str]) -> None:
         with self._active_procs_lock:
