@@ -84,6 +84,7 @@ class ProviderAdapter(ABC):
 
         prepared: list[ConversationMessage] = []
         tool_id_map: dict[str, str] = {}
+        projected_tool_ids: set[str] = set()
         pending_tool_use_ids: list[str] = []
 
         for message in request.messages:
@@ -94,7 +95,7 @@ class ProviderAdapter(ABC):
                     prepared.append(self._interrupted_tool_result_message(pending_tool_use_ids))
                     pending_tool_use_ids = []
 
-                prepared_message = self._prepare_assistant_message(message, request, tool_id_map)
+                prepared_message = self._prepare_assistant_message(message, request, tool_id_map, projected_tool_ids)
                 if prepared_message is None:
                     continue
 
@@ -129,11 +130,12 @@ class ProviderAdapter(ABC):
 
         return prepared
 
-    def normalize_tool_call_id(self, tool_call_id: str) -> str:
-        """Return a provider-safe tool call ID.
+    def project_tool_call_id(self, tool_call_id: str, used_tool_call_ids: set[str]) -> str:
+        """Project one canonical tool call ID into a provider-safe ID.
 
-        Most providers accept our canonical IDs as-is. Adapters can override
-        this when their upstream protocol restricts character sets or length.
+        Most providers accept canonical tool IDs as-is. Adapters can override
+        this when the upstream protocol restricts character sets or length, as
+        long as the returned ID stays unique within the projected request.
         """
 
         return tool_call_id
@@ -167,6 +169,7 @@ class ProviderAdapter(ABC):
         message: ConversationMessage,
         request: ProviderRequest,
         tool_id_map: dict[str, str],
+        projected_tool_ids: set[str],
     ) -> ConversationMessage | None:
         """Copy one assistant message into replay form."""
 
@@ -220,10 +223,13 @@ class ProviderAdapter(ABC):
                 block["input"] = dict(raw_input)
 
             original_id = str(block.get("id") or "")
-            normalized_id = self.normalize_tool_call_id(original_id)
-            if original_id and normalized_id != original_id:
-                tool_id_map[original_id] = normalized_id
-                block["id"] = normalized_id
+            projected_id = tool_id_map.get(original_id, "")
+            if original_id and not projected_id:
+                projected_id = self.project_tool_call_id(original_id, projected_tool_ids)
+                tool_id_map[original_id] = projected_id
+            if projected_id:
+                projected_tool_ids.add(projected_id)
+                block["id"] = projected_id
             prepared_blocks.append(block)
 
         if not prepared_blocks:

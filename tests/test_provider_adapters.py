@@ -114,7 +114,9 @@ def test_openai_responses_falls_back_to_full_replay_for_cross_provider_history()
         },
         {
             "type": "message",
+            "id": "replay_assistant_1",
             "role": "assistant",
+            "status": "completed",
             "content": [{"type": "output_text", "text": "Need the tool first."}],
         },
         {
@@ -372,27 +374,45 @@ def test_anthropic_prepare_messages_normalizes_tool_ids() -> None:
                 {
                     "role": "assistant",
                     "content": [
-                        {"type": "tool_use", "id": "call|with/slash", "name": "read", "input": {"path": "x.py"}}
+                        {"type": "tool_use", "id": "a/b", "name": "read", "input": {"path": "x.py"}},
+                        {"type": "tool_use", "id": "a|b", "name": "write", "input": {"path": "y.py"}},
                     ],
                     "meta": {"provider": "anthropic", "model": "claude-sonnet-4-6"},
                 },
                 {
                     "role": "user",
-                    "content": [{"type": "tool_result", "tool_use_id": "call|with/slash", "content": "done"}],
+                    "content": [
+                        {"type": "tool_result", "tool_use_id": "a/b", "content": "done a"},
+                        {"type": "tool_result", "tool_use_id": "a|b", "content": "done b"},
+                    ],
                 },
             ],
         ),
     )
 
-    assert adapter.prepare_messages(request) == [
+    prepared_messages = adapter.prepare_messages(request)
+    assistant_blocks = prepared_messages[0]["content"]
+    first_tool_id = assistant_blocks[0]["id"]
+    second_tool_id = assistant_blocks[1]["id"]
+
+    assert first_tool_id != second_tool_id
+    assert first_tool_id.startswith("a_b_")
+    assert second_tool_id.startswith("a_b_")
+    assert prepared_messages == [
         {
             "role": "assistant",
-            "content": [{"type": "tool_use", "id": "call_with_slash", "name": "read", "input": {"path": "x.py"}}],
+            "content": [
+                {"type": "tool_use", "id": first_tool_id, "name": "read", "input": {"path": "x.py"}},
+                {"type": "tool_use", "id": second_tool_id, "name": "write", "input": {"path": "y.py"}},
+            ],
             "meta": {"provider": "anthropic", "model": "claude-sonnet-4-6"},
         },
         {
             "role": "user",
-            "content": [{"type": "tool_result", "tool_use_id": "call_with_slash", "content": "done"}],
+            "content": [
+                {"type": "tool_result", "tool_use_id": first_tool_id, "content": "done a"},
+                {"type": "tool_result", "tool_use_id": second_tool_id, "content": "done b"},
+            ],
         },
     ]
 

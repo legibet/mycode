@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from collections.abc import AsyncIterator
 from typing import Any
 
@@ -79,11 +80,31 @@ class AnthropicLikeAdapter(ProviderAdapter):
             payload["output_config"] = output_config
         return payload
 
-    def normalize_tool_call_id(self, tool_call_id: str) -> str:
-        """Anthropic-compatible endpoints only accept short ASCII tool IDs."""
+    def project_tool_call_id(self, tool_call_id: str, used_tool_call_ids: set[str]) -> str:
+        """Return a short ASCII ID without introducing collisions.
 
-        normalized = "".join(char if char.isalnum() or char in "_-" else "_" for char in tool_call_id)
-        return normalized[:64]
+        Anthropic-compatible endpoints only accept IDs containing letters,
+        numbers, underscores, and dashes. When projection changes the original
+        ID, append a short hash so distinct canonical IDs stay distinct.
+        """
+
+        safe_id = "".join(char if char.isalnum() or char in "_-" else "_" for char in tool_call_id)
+        if safe_id == tool_call_id and len(safe_id) <= 64 and safe_id not in used_tool_call_ids:
+            return safe_id
+
+        prefix = (safe_id or "tool")[:55]
+        digest = hashlib.sha1(tool_call_id.encode("utf-8")).hexdigest()[:8]
+        candidate = f"{prefix}_{digest}"
+        if candidate not in used_tool_call_ids:
+            return candidate
+
+        counter = 2
+        while True:
+            suffix = f"_{digest}_{counter}"
+            candidate = f"{(safe_id or 'tool')[: 64 - len(suffix)]}{suffix}"
+            if candidate not in used_tool_call_ids:
+                return candidate
+            counter += 1
 
     def _apply_cache_control(self, messages: list[dict[str, Any]]) -> None:
         for message in reversed(messages):

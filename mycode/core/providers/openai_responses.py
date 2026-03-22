@@ -96,8 +96,8 @@ class OpenAIResponsesAdapter(ProviderAdapter):
             return input_items, previous_response_id
 
         input_items: list[dict[str, Any]] = []
-        for message in messages:
-            input_items.extend(self._serialize_replay_message(message))
+        for message_index, message in enumerate(messages):
+            input_items.extend(self._serialize_replay_message(message, message_index))
         return input_items, None
 
     def _native_resume_anchor(self, messages: list[ConversationMessage], model: str) -> tuple[int, str] | None:
@@ -154,7 +154,7 @@ class OpenAIResponsesAdapter(ProviderAdapter):
 
         return items
 
-    def _serialize_replay_message(self, message: ConversationMessage) -> list[dict[str, Any]]:
+    def _serialize_replay_message(self, message: ConversationMessage, message_index: int) -> list[dict[str, Any]]:
         role = message.get("role")
         if role == "user":
             return self._serialize_followup_message(message)
@@ -176,7 +176,9 @@ class OpenAIResponsesAdapter(ProviderAdapter):
         if text_parts:
             message_item: dict[str, Any] = {
                 "type": "message",
+                "id": f"replay_assistant_{message_index}",
                 "role": "assistant",
+                "status": "completed",
                 "content": [{"type": "output_text", "text": "\n".join(text_parts)}],
             }
             items.append(message_item)
