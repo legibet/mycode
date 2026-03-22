@@ -7,13 +7,13 @@ import logging
 from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from mycode.core.config import Settings, get_settings
 from mycode.core.instructions import load_instructions_prompt
 from mycode.core.messages import ConversationMessage, build_message, tool_result_block, user_text_message
 from mycode.core.providers import get_provider_adapter
-from mycode.core.providers.base import ProviderRequest
+from mycode.core.providers.base import ProviderAdapter, ProviderRequest, ProviderStreamEvent
 from mycode.core.skills import load_skills_prompt
 from mycode.core.tools import TOOLS, ToolExecutor
 
@@ -62,6 +62,23 @@ def _load_system_prompt() -> str:
         return "You are mycode, an expert coding assistant."
 
 
+def build_system_prompt(cwd: str, settings: Settings | None = None) -> str:
+    """Build the default runtime system prompt for a workspace."""
+
+    resolved_cwd = str(Path(cwd).resolve(strict=False))
+    resolved_settings = settings or get_settings(resolved_cwd)
+    prompt_parts = [_load_system_prompt()]
+
+    instructions_prompt = load_instructions_prompt(resolved_cwd, resolved_settings)
+    skills_prompt = load_skills_prompt(resolved_cwd)
+    if instructions_prompt:
+        prompt_parts.append(instructions_prompt)
+    if skills_prompt:
+        prompt_parts.append(skills_prompt)
+    prompt_parts.append(f"Current working directory: {resolved_cwd}")
+    return "\n\n".join(prompt_parts)
+
+
 class Agent:
     """Minimal coding agent with one internal loop and provider adapters."""
 
@@ -80,6 +97,7 @@ class Agent:
         max_tokens: int = 8192,
         reasoning_effort: str | None = None,
         settings: Settings | None = None,
+        system: str | None = None,
     ):
         self.model = model
         self.provider = provider or "anthropic"
@@ -92,23 +110,18 @@ class Agent:
         self.max_tokens = max_tokens
         self.reasoning_effort = reasoning_effort
         self.settings = settings or get_settings(self.cwd)
+        self.system = system or build_system_prompt(self.cwd, self.settings)
         self._cancel_event = asyncio.Event()
-
-        prompt_parts = [_load_system_prompt()]
-        instructions_prompt = load_instructions_prompt(self.cwd, self.settings)
-        skills_prompt = load_skills_prompt(self.cwd)
-        if instructions_prompt:
-            prompt_parts.append(instructions_prompt)
-        if skills_prompt:
-            prompt_parts.append(skills_prompt)
-        prompt_parts.append(f"Current working directory: {self.cwd}")
-        self.system = "\n\n".join(prompt_parts)
+        self._provider_event_task: asyncio.Future[ProviderStreamEvent] | None = None
 
         self.messages: list[ConversationMessage] = list(messages or [])
         self.tools = ToolExecutor(cwd=self.cwd, session_dir=self.session_dir)
 
     def cancel(self) -> None:
         self._cancel_event.set()
+        self.tools.cancel_active()
+        if self._provider_event_task and not self._provider_event_task.done():
+            self._provider_event_task.cancel()
 
     def clear(self) -> None:
         self.messages = []
@@ -218,6 +231,35 @@ class Agent:
             },
         )
 
+    async def _stream_provider_turn(
+        self,
+        adapter: ProviderAdapter,
+        request: ProviderRequest,
+    ) -> AsyncIterator[ProviderStreamEvent]:
+        """Iterate one provider turn with best-effort cancellation support."""
+
+        provider_stream: AsyncIterator[ProviderStreamEvent] = adapter.stream_turn(request)
+        try:
+            while True:
+                if self._cancel_event.is_set():
+                    raise asyncio.CancelledError
+
+                next_event = cast(Awaitable[ProviderStreamEvent], anext(provider_stream))
+                self._provider_event_task = asyncio.ensure_future(next_event)
+                try:
+                    yield await self._provider_event_task
+                except StopAsyncIteration:
+                    return
+                finally:
+                    self._provider_event_task = None
+        finally:
+            close = getattr(provider_stream, "aclose", None)
+            if callable(close):
+                try:
+                    await cast(Callable[[], Awaitable[Any]], close)()
+                except Exception:
+                    pass
+
     async def achat(self, user_input: str, *, on_persist: PersistCallback | None = None) -> AsyncIterator[Event]:
         """Run the full agent loop for one user message.
 
@@ -243,25 +285,22 @@ class Agent:
                 return
 
             assistant_message: ConversationMessage | None = None
+            request = ProviderRequest(
+                provider=self.provider,
+                model=self.model,
+                session_id=self.session_id,
+                messages=self.messages,
+                system=self.system,
+                tools=TOOLS,
+                max_tokens=self.max_tokens,
+                api_key=self.api_key,
+                api_base=self.api_base,
+                reasoning_effort=self.reasoning_effort,
+            )
 
             try:
                 # Phase 1: ask the provider for exactly one assistant turn.
-                provider_stream = adapter.stream_turn(
-                    ProviderRequest(
-                        provider=self.provider,
-                        model=self.model,
-                        session_id=self.session_id,
-                        messages=self.messages,
-                        system=self.system,
-                        tools=TOOLS,
-                        max_tokens=self.max_tokens,
-                        api_key=self.api_key,
-                        api_base=self.api_base,
-                        reasoning_effort=self.reasoning_effort,
-                    )
-                )
-
-                async for provider_event in provider_stream:
+                async for provider_event in self._stream_provider_turn(adapter, request):
                     if self._cancel_event.is_set():
                         yield Event("error", {"message": "cancelled"})
                         return
@@ -287,6 +326,9 @@ class Agent:
                     if provider_event.type == "provider_error":
                         raise ValueError(str(provider_event.data.get("message") or "provider error"))
 
+            except asyncio.CancelledError:
+                yield Event("error", {"message": "cancelled"})
+                return
             except Exception as exc:
                 logger.exception("Provider request failed")
                 yield Event("error", {"message": str(exc)})

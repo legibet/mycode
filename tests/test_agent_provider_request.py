@@ -53,3 +53,20 @@ async def test_agent_falls_back_to_session_dir_name_for_provider_request(tmp_pat
         _ = [event async for event in agent.achat("hello")]
 
     assert adapter.requests[0].session_id == "session-derived"
+
+
+@pytest.mark.asyncio
+async def test_agent_uses_explicit_system_prompt_when_provided(tmp_path: Path) -> None:
+    adapter = _CaptureAdapter()
+    agent = Agent(
+        model="gpt-5.4",
+        provider="openai",
+        cwd=str(tmp_path),
+        session_dir=tmp_path / "session-explicit-system",
+        system="Use this exact system prompt.",
+    )
+
+    with patch("mycode.core.agent.get_provider_adapter", return_value=adapter):
+        _ = [event async for event in agent.achat("hello")]
+
+    assert adapter.requests[0].system == "Use this exact system prompt."

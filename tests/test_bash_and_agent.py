@@ -245,6 +245,18 @@ class _FakeProviderAdapter:
             yield event
 
 
+class _SlowProviderAdapter:
+    def __init__(self):
+        self.closed = asyncio.Event()
+
+    async def stream_turn(self, _request):
+        try:
+            yield ProviderStreamEvent("thinking_delta", {"text": "working"})
+            await asyncio.sleep(10)
+        finally:
+            self.closed.set()
+
+
 class TestAgentReasoningPersistence:
     @pytest.mark.asyncio
     async def test_achat_persists_reasoning_blocks(self):
@@ -481,3 +493,29 @@ class TestAgentTurnLimits:
 
             assert events[-1].type == "error"
             assert events[-1].data == {"message": "max_turns reached"}
+
+
+class TestAgentCancel:
+    @pytest.mark.asyncio
+    async def test_cancel_stops_inflight_provider_stream(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            agent = Agent(
+                model="gpt-5.4",
+                cwd=tmpdir,
+                session_dir=Path(tmpdir),
+            )
+            adapter = _SlowProviderAdapter()
+
+            with patch("mycode.core.agent.get_provider_adapter", return_value=adapter):
+                stream = agent.achat("hello")
+                first_event = await anext(stream)
+                assert first_event.type == "reasoning"
+                assert first_event.data == {"delta": "working"}
+
+                agent.cancel()
+                remaining_events = [event async for event in stream]
+
+            assert len(remaining_events) == 1
+            assert remaining_events[0].type == "error"
+            assert remaining_events[0].data == {"message": "cancelled"}
+            assert adapter.closed.is_set()

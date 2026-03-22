@@ -87,7 +87,7 @@ Per turn it does this:
 Other current behaviors:
 
 - interrupted prior tool calls are repaired with synthetic `tool_result` error blocks when sessions are loaded
-- cancelling during `bash` actively kills subprocesses via `cancel_all_tools()`
+- cancelling stops the in-flight provider stream and actively kills running `bash` subprocesses via `cancel_all_tools()`
 - tool output is streamed only for `bash`
 
 ## 6. Provider Adapters
