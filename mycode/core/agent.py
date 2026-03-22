@@ -59,7 +59,7 @@ def _load_system_prompt() -> str:
     try:
         return path.read_text(encoding="utf-8").strip()
     except Exception:
-        return "You are a minimal coding assistant. Be concise."
+        return "You are mycode, an expert coding assistant."
 
 
 class Agent:
