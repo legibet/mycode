@@ -35,7 +35,6 @@ class OpenAIChatAdapter(ProviderAdapter):
     default_base_url = "https://api.openai.com/v1"
     env_api_key_names = ("OPENAI_API_KEY",)
     auto_discoverable = False
-    replay_reasoning_only_for_tool_continuations = False
 
     async def stream_turn(self, request: ProviderRequest):
         api_key = self.require_api_key(request.api_key)
@@ -157,8 +156,8 @@ class OpenAIChatAdapter(ProviderAdapter):
         payload_messages = []
         if system:
             payload_messages.append({"role": "system", "content": system})
-        for index in range(len(messages)):
-            payload_messages.extend(self._serialize_message(messages, index))
+        for message in messages:
+            payload_messages.extend(self._serialize_message(message))
         return payload_messages
 
     def _serialize_tool(self, tool: dict[str, Any]) -> dict[str, Any]:
@@ -171,8 +170,7 @@ class OpenAIChatAdapter(ProviderAdapter):
             },
         }
 
-    def _serialize_message(self, messages: list[dict[str, Any]], index: int) -> list[dict[str, Any]]:
-        message = messages[index]
+    def _serialize_message(self, message: dict[str, Any]) -> list[dict[str, Any]]:
         role = str(message.get("role") or "user")
         blocks = [block for block in message.get("content") or [] if isinstance(block, dict)]
 
@@ -222,38 +220,19 @@ class OpenAIChatAdapter(ProviderAdapter):
                 for block in tool_use_blocks
             ]
 
-        if thinking_blocks and self._should_replay_assistant_reasoning(messages, index):
+        if thinking_blocks:
             payload.update(self._serialize_reasoning(thinking_blocks))
 
         return [payload]
 
-    def _should_replay_assistant_reasoning(self, messages: list[dict[str, Any]], index: int) -> bool:
-        if not self.replay_reasoning_only_for_tool_continuations:
-            return True
+    def _serialize_reasoning(self, thinking_blocks: list[dict[str, Any]]) -> dict[str, Any]:
+        """Replay canonical thinking through the provider's reasoning field.
 
-        return self._is_tool_continuation_turn(messages, index)
-
-    def _is_tool_continuation_turn(self, messages: list[dict[str, Any]], index: int) -> bool:
-        """Return whether the next user message only contains tool results.
-
-        DeepSeek and Z.AI require assistant reasoning to be replayed during the
-        same tool loop, but not when the user starts a fresh question.
+        When the source provider did not record a native field name, default to
+        `reasoning_content`, which is the common reasoning slot used by the
+        OpenAI-compatible thinking providers we support.
         """
 
-        next_index = index + 1
-        if next_index >= len(messages):
-            return False
-
-        next_message = messages[next_index]
-        if next_message.get("role") != "user":
-            return False
-
-        blocks = [block for block in next_message.get("content") or [] if isinstance(block, dict)]
-        has_tool_result = any(block.get("type") == "tool_result" for block in blocks)
-        has_text = any(block.get("type") == "text" and str(block.get("text") or "").strip() for block in blocks)
-        return has_tool_result and not has_text
-
-    def _serialize_reasoning(self, thinking_blocks: list[dict[str, Any]]) -> dict[str, Any]:
         thinking_text = "\n".join(str(block.get("text") or "") for block in thinking_blocks if block.get("text"))
         raw_meta = thinking_blocks[0].get("meta")
         native_meta: dict[str, Any] = {}
@@ -263,11 +242,9 @@ class OpenAIChatAdapter(ProviderAdapter):
                 native_meta = dict(candidate)
 
         reasoning_field = str(native_meta.get("reasoning_field") or "")
-        if reasoning_field == "reasoning_content":
-            return {"reasoning_content": thinking_text}
         if reasoning_field == "reasoning_details":
             return {"reasoning_details": native_meta.get("reasoning_details") or []}
-        return {}
+        return {"reasoning_content": thinking_text} if thinking_text else {}
 
     def _extract_reasoning_delta(self, delta: Any) -> tuple[str, dict[str, Any]]:
         for source in (delta, getattr(delta, "model_extra", None) or {}):
@@ -303,7 +280,6 @@ class DeepSeekAdapter(OpenAIChatAdapter):
     env_api_key_names = ("DEEPSEEK_API_KEY",)
     default_models = ("deepseek-chat", "deepseek-reasoner")
     auto_discoverable = True
-    replay_reasoning_only_for_tool_continuations = True
 
 
 class ZAIAdapter(OpenAIChatAdapter):
@@ -315,7 +291,9 @@ class ZAIAdapter(OpenAIChatAdapter):
     env_api_key_names = ("ZAI_API_KEY",)
     default_models = ("glm-5", "glm-4.7")
     auto_discoverable = True
-    replay_reasoning_only_for_tool_continuations = True
+
+    def _build_provider_payload_overrides(self, request: ProviderRequest) -> dict[str, Any]:
+        return {"extra_body": {"thinking": {"type": "enabled", "clear_thinking": False}}}
 
 
 class OpenRouterAdapter(OpenAIChatAdapter):
@@ -328,7 +306,6 @@ class OpenRouterAdapter(OpenAIChatAdapter):
     default_models = ("openai/gpt-5.2", "anthropic/claude-sonnet-4.6")
     auto_discoverable = True
     supports_reasoning_effort = True
-    replay_reasoning_only_for_tool_continuations = True
 
     def _build_provider_payload_overrides(self, request: ProviderRequest) -> dict[str, Any]:
         if not request.reasoning_effort:

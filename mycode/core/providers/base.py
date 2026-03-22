@@ -18,7 +18,7 @@ from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from typing import Any
 
-from mycode.core.messages import ConversationMessage, build_message, text_block, tool_result_block
+from mycode.core.messages import ConversationMessage, build_message, tool_result_block
 
 DEFAULT_REQUEST_TIMEOUT = 300.0
 
@@ -59,7 +59,7 @@ class ProviderAdapter(ABC):
     """Base class for provider adapters.
 
     New adapters usually only need to implement `stream_turn()` and optionally
-    override a small set of replay policy hooks.
+    override tool-call ID projection.
     """
 
     provider_id: str
@@ -93,30 +93,6 @@ class ProviderAdapter(ABC):
         """
 
         return tool_call_id
-
-    def should_reuse_native_assistant_state(self, message: ConversationMessage, request: ProviderRequest) -> bool:
-        """Return whether provider-native assistant state can be replayed.
-
-        Cross-provider and cross-model handoffs should be conservative. Native
-        thinking/signature state is only reused when the target adapter and
-        model exactly match the original assistant turn.
-        """
-
-        raw_meta = message.get("meta")
-        meta = raw_meta if isinstance(raw_meta, dict) else {}
-        return meta.get("provider") == self.provider_id and meta.get("model") == request.model
-
-    def should_downgrade_thinking_to_text(self, message: ConversationMessage) -> bool:
-        """Return whether readable thinking should be downgraded to text.
-
-        We only carry thinking across handoffs when it is needed to explain a
-        tool-using assistant turn that otherwise has no visible text.
-        """
-
-        blocks = [block for block in message.get("content") or [] if isinstance(block, dict)]
-        has_tool_use = any(block.get("type") == "tool_use" for block in blocks)
-        has_visible_text = any(block.get("type") == "text" and str(block.get("text") or "").strip() for block in blocks)
-        return has_tool_use and not has_visible_text
 
     def api_key_from_env(self) -> str | None:
         import os
@@ -194,8 +170,6 @@ class _ReplayProjector:
         if str((meta or {}).get("stop_reason") or "") in {"error", "aborted", "cancelled"}:
             return None
 
-        reuse_native_state = self.adapter.should_reuse_native_assistant_state(message, self.request)
-        downgrade_thinking = not reuse_native_state and self.adapter.should_downgrade_thinking_to_text(message)
         projected_blocks: list[dict[str, Any]] = []
 
         for raw_block in message.get("content") or []:
@@ -203,33 +177,19 @@ class _ReplayProjector:
                 continue
 
             block_type = raw_block.get("type")
-            if block_type == "text":
-                text = str(raw_block.get("text") or "")
-                if text:
-                    projected_blocks.append(self._copy_block(raw_block))
-                continue
-
-            if block_type == "thinking":
-                thinking = str(raw_block.get("text") or "")
-                if reuse_native_state:
-                    if thinking or isinstance(raw_block.get("meta"), dict):
-                        projected_blocks.append(self._copy_block(raw_block))
-                elif downgrade_thinking and thinking:
-                    projected_blocks.append(text_block(thinking))
-                continue
-
-            if block_type != "tool_use":
+            if block_type not in {"text", "thinking", "tool_use"}:
                 continue
 
             projected_block = self._copy_block(raw_block)
-            original_id = str(projected_block.get("id") or "")
-            projected_id = self.tool_id_map.get(original_id, "")
-            if original_id and not projected_id:
-                projected_id = self.adapter.project_tool_call_id(original_id, self.used_tool_call_ids)
-                self.tool_id_map[original_id] = projected_id
-            if projected_id:
-                self.used_tool_call_ids.add(projected_id)
-                projected_block["id"] = projected_id
+            if block_type == "tool_use":
+                original_id = str(projected_block.get("id") or "")
+                projected_id = self.tool_id_map.get(original_id, "")
+                if original_id and not projected_id:
+                    projected_id = self.adapter.project_tool_call_id(original_id, self.used_tool_call_ids)
+                    self.tool_id_map[original_id] = projected_id
+                if projected_id:
+                    self.used_tool_call_ids.add(projected_id)
+                    projected_block["id"] = projected_id
             projected_blocks.append(projected_block)
 
         if not projected_blocks:

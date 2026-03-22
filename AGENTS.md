@@ -160,7 +160,7 @@ Current built-in adapter ids:
 - default API key env: `DEEPSEEK_API_KEY`
 - default models: `deepseek-chat`, `deepseek-reasoner`
 - does not apply the shared `reasoning_effort` setting; requests keep DeepSeek's default thinking behavior
-- `reasoning_content` is replayed only on tool-loop continuation turns, matching DeepSeek's documented thinking/tool-calling flow
+- assistant reasoning is preserved in canonical history; chat-based providers replay stored reasoning content on later requests when their protocol supports it
 
 ### `zai`
 
@@ -169,7 +169,7 @@ Current built-in adapter ids:
 - default API key env: `ZAI_API_KEY`
 - default models: `glm-5`, `glm-4.7`
 - does not apply the shared `reasoning_effort` setting; requests keep Z.AI's default thinking behavior
-- `reasoning_content` is replayed only on tool-loop continuation turns for compatibility with GLM thinking/tool-calling flows
+- the standard API now enables preserved thinking for coding/agent use by sending `thinking: {type: "enabled", clear_thinking: false}` and replaying stored reasoning content on later requests
 
 ### `openrouter`
 

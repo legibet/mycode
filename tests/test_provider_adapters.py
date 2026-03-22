@@ -333,7 +333,7 @@ def test_provider_prepare_messages_drops_aborted_assistant_turn() -> None:
     assert adapter.prepare_messages(request) == [{"role": "user", "content": [{"type": "text", "text": "hello"}]}]
 
 
-def test_provider_prepare_messages_downgrades_foreign_tool_thinking_to_text() -> None:
+def test_provider_prepare_messages_preserves_foreign_thinking_blocks() -> None:
     adapter = OpenAIChatAdapter()
     request = cast(
         Any,
@@ -356,7 +356,7 @@ def test_provider_prepare_messages_downgrades_foreign_tool_thinking_to_text() ->
         {
             "role": "assistant",
             "content": [
-                {"type": "text", "text": "Need to inspect the file first."},
+                {"type": "thinking", "text": "Need to inspect the file first."},
                 {"type": "tool_use", "id": "call_1", "name": "read", "input": {"path": "x.py"}},
             ],
             "meta": {"provider": "anthropic", "model": "claude-sonnet-4-6"},
@@ -447,7 +447,26 @@ def test_openai_chat_replays_reasoning_by_default() -> None:
     assert payload_messages[0]["reasoning_content"] == "think"
 
 
-def test_deepseek_only_replays_reasoning_during_tool_loop() -> None:
+def test_openai_chat_defaults_cross_provider_thinking_to_reasoning_content() -> None:
+    adapter = OpenAIChatAdapter()
+
+    payload_messages = adapter._build_messages(
+        [
+            {
+                "role": "assistant",
+                "content": [
+                    {"type": "thinking", "text": "think"},
+                    {"type": "text", "text": "answer"},
+                ],
+            }
+        ],
+        system="",
+    )
+
+    assert payload_messages[0]["reasoning_content"] == "think"
+
+
+def test_deepseek_replays_reasoning_across_turns() -> None:
     adapter = DeepSeekAdapter()
 
     payload_messages = adapter._build_messages(
@@ -464,7 +483,6 @@ def test_deepseek_only_replays_reasoning_during_tool_loop() -> None:
         system="",
     )
     assert payload_messages[0]["reasoning_content"] == "think"
-
     payload_messages = adapter._build_messages(
         [
             {
@@ -478,7 +496,7 @@ def test_deepseek_only_replays_reasoning_during_tool_loop() -> None:
         ],
         system="",
     )
-    assert "reasoning_content" not in payload_messages[0]
+    assert payload_messages[0]["reasoning_content"] == "think"
 
 
 def test_anthropic_replays_native_block_metadata() -> None:
@@ -531,6 +549,28 @@ def test_anthropic_replays_thinking_without_signature() -> None:
     }
 
 
+def test_anthropic_replays_unsigned_thinking_without_signature() -> None:
+    adapter = AnthropicAdapter()
+
+    payload = adapter._serialize_message(
+        {
+            "role": "assistant",
+            "content": [
+                {"type": "thinking", "text": "Need the tool result first."},
+                {"type": "tool_use", "id": "call_1", "name": "read", "input": {}},
+            ],
+        }
+    )
+
+    assert payload == {
+        "role": "assistant",
+        "content": [
+            {"type": "thinking", "thinking": "Need the tool result first."},
+            {"type": "tool_use", "id": "call_1", "name": "read", "input": {}},
+        ],
+    }
+
+
 def test_openai_compatible_provider_payload_overrides() -> None:
     request = cast(
         Any,
@@ -553,7 +593,7 @@ def test_openai_compatible_provider_payload_overrides() -> None:
     assert "extra_body" not in deepseek_payload
 
     zai_payload = ZAIAdapter()._build_request_payload(request)
-    assert "extra_body" not in zai_payload
+    assert zai_payload["extra_body"] == {"thinking": {"type": "enabled", "clear_thinking": False}}
 
     openrouter_payload = OpenRouterAdapter()._build_request_payload(request)
     assert openrouter_payload["extra_body"] == {"reasoning": {"effort": "high"}}
@@ -573,7 +613,9 @@ def test_toggle_reasoning_payloads_disable_cleanly() -> None:
     )
 
     assert "extra_body" not in DeepSeekAdapter()._build_request_payload(request)
-    assert "extra_body" not in ZAIAdapter()._build_request_payload(request)
+    assert ZAIAdapter()._build_request_payload(request)["extra_body"] == {
+        "thinking": {"type": "enabled", "clear_thinking": False}
+    }
     assert OpenRouterAdapter()._build_request_payload(request)["extra_body"] == {"reasoning": {"effort": "none"}}
 
 
