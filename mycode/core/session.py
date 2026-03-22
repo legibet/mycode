@@ -111,7 +111,7 @@ class SessionStore:
     # CRUD
     # ---------------------------------------------------------------------
 
-    async def create_session(
+    def draft_session(
         self,
         title: str | None,
         *,
@@ -121,26 +121,44 @@ class SessionStore:
         api_base: str | None,
     ) -> dict:
         session_id = uuid4().hex
-        cwd = os.path.abspath(cwd)
         meta = asdict(
             _build_session_meta(
                 session_id,
                 title=title or DEFAULT_SESSION_TITLE,
                 provider=provider,
                 model=model,
-                cwd=cwd,
+                cwd=os.path.abspath(cwd),
                 api_base=api_base,
             )
         )
+        return {"session": meta, "messages": []}
+
+    async def create_session(
+        self,
+        title: str | None,
+        *,
+        provider: str = DEFAULT_SESSION_PROVIDER,
+        model: str,
+        cwd: str,
+        api_base: str | None,
+    ) -> dict:
+        data = self.draft_session(
+            title,
+            provider=provider,
+            model=model,
+            cwd=cwd,
+            api_base=api_base,
+        )
+        session = data["session"]
+        session_id = str(session["id"])
 
         def write_files() -> None:
             self._ensure_session_dir(session_id)
-            self._write_meta(session_id, meta)
+            self._write_meta(session_id, session)
             self.messages_path(session_id).touch(exist_ok=True)
 
         await asyncio.to_thread(write_files)
-
-        return {"session": meta, "messages": []}
+        return data
 
     async def list_sessions(self, *, cwd: str | None = None) -> list[dict]:
         normalized = os.path.abspath(cwd) if cwd else None
@@ -310,28 +328,36 @@ class SessionStore:
     # Append-only updates
     # ---------------------------------------------------------------------
 
-    async def append_message(self, session_id: str, message: dict) -> None:
+    async def append_message(
+        self,
+        session_id: str,
+        message: dict,
+        *,
+        provider: str,
+        model: str,
+        cwd: str,
+        api_base: str | None,
+    ) -> None:
         def append() -> None:
-            self._ensure_session_dir(session_id)
+            meta = self._read_meta(session_id)
+            if meta is None:
+                # Create the on-disk session only when the first message is persisted.
+                self._ensure_session_dir(session_id)
+                meta = asdict(
+                    _build_session_meta(
+                        session_id,
+                        title=DEFAULT_SESSION_TITLE,
+                        provider=provider,
+                        model=model,
+                        cwd=os.path.abspath(cwd),
+                        api_base=api_base,
+                    )
+                )
 
             lp = self.messages_path(session_id)
             with lp.open("a", encoding="utf-8") as f:
                 f.write(json.dumps(message, ensure_ascii=False))
                 f.write("\n")
-
-            # update updated_at + maybe infer title
-            meta = self._read_meta(session_id)
-            if meta is None:
-                meta = asdict(
-                    _build_session_meta(
-                        session_id,
-                        title=DEFAULT_SESSION_TITLE,
-                        provider="",
-                        model="",
-                        cwd="",
-                        api_base=None,
-                    )
-                )
 
             meta["updated_at"] = _now()
 
@@ -345,39 +371,3 @@ class SessionStore:
             self._write_meta(session_id, meta)
 
         await asyncio.to_thread(append)
-
-    async def get_or_create(
-        self,
-        session_id: str,
-        *,
-        provider: str = DEFAULT_SESSION_PROVIDER,
-        model: str,
-        cwd: str,
-        api_base: str | None,
-    ) -> dict:
-        """Get an existing session, or create it if missing."""
-
-        data = await self.load_session(session_id)
-        if data:
-            return data
-
-        # Create a session with a fixed ID (for compatibility with frontend default session_id).
-        cwd = os.path.abspath(cwd)
-        meta = asdict(
-            _build_session_meta(
-                session_id,
-                title=DEFAULT_SESSION_TITLE,
-                provider=provider,
-                model=model,
-                cwd=cwd,
-                api_base=api_base,
-            )
-        )
-
-        def create_fixed() -> None:
-            self._ensure_session_dir(session_id)
-            self._write_meta(session_id, meta)
-            self.messages_path(session_id).touch(exist_ok=True)
-
-        await asyncio.to_thread(create_fixed)
-        return await self.load_session(session_id) or {"session": None, "messages": []}

@@ -204,7 +204,14 @@ class TerminalChat:
     async def _persist_message(self, message: dict[str, Any]) -> None:
         """Persist one streamed message into the active session."""
 
-        await self.store.append_message(self.session_id, message)
+        await self.store.append_message(
+            self.session_id,
+            message,
+            provider=self.agent.provider,
+            model=self.agent.model,
+            cwd=self.agent.cwd,
+            api_base=self.agent.api_base,
+        )
 
     def _clone_agent_for_session(self, *, session_id: str, messages: list[dict[str, Any]]) -> Agent:
         """Clone the current agent configuration for a different session state."""
@@ -291,7 +298,7 @@ class TerminalChat:
     async def _start_new_session(self) -> None:
         """Start a fresh session while keeping the current runtime settings."""
 
-        data = await self.store.create_session(
+        data = self.store.draft_session(
             None,
             provider=self.agent.provider,
             model=self.agent.model,
@@ -331,13 +338,10 @@ class TerminalChat:
             return
 
         self.session_id = str(session.get("id") or "")
-        data = await self.store.get_or_create(
-            self.session_id,
-            provider=self.agent.provider,
-            model=self.agent.model,
-            cwd=self.agent.cwd,
-            api_base=self.agent.api_base,
-        )
+        data = await self.store.load_session(self.session_id)
+        if not data:
+            self.view.console.print("[red]failed to load session[/red]")
+            return
         messages = data.get("messages") or []
         loaded_session = data.get("session") or session
         self.agent = self._clone_agent_for_session(session_id=self.session_id, messages=messages)
@@ -395,8 +399,6 @@ class TerminalChat:
         try:
             changed = await update_agent_runtime(
                 self.agent,
-                store=self.store,
-                session_id=self.session_id,
                 provider_name=provider_name,
                 model=None,
             )
@@ -425,8 +427,6 @@ class TerminalChat:
         try:
             changed = await update_agent_runtime(
                 self.agent,
-                store=self.store,
-                session_id=self.session_id,
                 provider_name=provider_name,
                 model=model_name,
             )

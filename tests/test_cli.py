@@ -20,11 +20,16 @@ from mycode.core.session import SessionStore
 
 
 class _FakeStore:
-    async def append_message(self, session_id: str, payload: dict) -> None:
+    async def append_message(self, session_id: str, payload: dict, **_: Any) -> None:
         return None
 
 
 class _FakeAgent:
+    provider = "anthropic"
+    model = "claude-sonnet-4-6"
+    cwd = "/tmp"
+    api_base = None
+
     async def achat(self, message: str, *, on_persist=None):
         if on_persist:
             await on_persist({"role": "user", "content": [{"type": "text", "text": message}]})
@@ -90,6 +95,7 @@ async def test_resolve_session_defaults_to_new(tmp_path):
     assert resolved.mode == "new"
     assert resolved.messages == []
     assert resolved.session["cwd"] == str(tmp_path)
+    assert await store.list_sessions() == []
 
 
 @pytest.mark.asyncio
@@ -98,7 +104,12 @@ async def test_resolve_session_continue_reuses_latest(tmp_path):
     first = await store.create_session("First", model="gpt-5.4", cwd=str(tmp_path), api_base=None)
     second = await store.create_session("Second", model="gpt-5.4", cwd=str(tmp_path), api_base=None)
     await store.append_message(
-        second["session"]["id"], {"role": "user", "content": [{"type": "text", "text": "hello"}]}
+        second["session"]["id"],
+        {"role": "user", "content": [{"type": "text", "text": "hello"}]},
+        provider="anthropic",
+        model="gpt-5.4",
+        cwd=str(tmp_path),
+        api_base=None,
     )
 
     resolved = await resolve_session(
@@ -253,7 +264,7 @@ class _RuntimeAgent:
 
 
 @pytest.mark.asyncio
-async def test_update_agent_runtime_updates_agent_and_session(tmp_path, monkeypatch):
+async def test_update_agent_runtime_updates_agent_without_rewriting_session(tmp_path, monkeypatch):
     store = SessionStore(data_dir=tmp_path / "sessions")
     created = await store.create_session(
         None,
@@ -263,6 +274,14 @@ async def test_update_agent_runtime_updates_agent_and_session(tmp_path, monkeypa
         api_base=None,
     )
     session_id = created["session"]["id"]
+    await store.append_message(
+        session_id,
+        {"role": "user", "content": [{"type": "text", "text": "hello"}]},
+        provider="anthropic",
+        model="claude-sonnet-4-6",
+        cwd=str(tmp_path),
+        api_base=None,
+    )
 
     old_settings = Settings(
         providers={},
@@ -299,8 +318,6 @@ async def test_update_agent_runtime_updates_agent_and_session(tmp_path, monkeypa
 
     changed = await _update_agent_runtime(
         cast(Any, agent),
-        store=store,
-        session_id=session_id,
         provider_name="openai",
         model=None,
     )
@@ -327,8 +344,34 @@ async def test_list_cli_sessions_filters_current_workspace(tmp_path):
     current_cwd = str(tmp_path / "project-a")
     other_cwd = str(tmp_path / "project-b")
 
-    await store.create_session("Current", model="gpt-5.4", cwd=current_cwd, api_base=None)
-    await store.create_session("Other", model="gpt-5.4", cwd=other_cwd, api_base=None)
+    current_session = await store.create_session(
+        "Current",
+        model="gpt-5.4",
+        cwd=current_cwd,
+        api_base=None,
+    )
+    other_session = await store.create_session(
+        "Other",
+        model="gpt-5.4",
+        cwd=other_cwd,
+        api_base=None,
+    )
+    await store.append_message(
+        current_session["session"]["id"],
+        {"role": "user", "content": [{"type": "text", "text": "hello"}]},
+        provider="anthropic",
+        model="gpt-5.4",
+        cwd=current_cwd,
+        api_base=None,
+    )
+    await store.append_message(
+        other_session["session"]["id"],
+        {"role": "user", "content": [{"type": "text", "text": "hello"}]},
+        provider="anthropic",
+        model="gpt-5.4",
+        cwd=other_cwd,
+        api_base=None,
+    )
 
     current = await store.list_sessions(cwd=current_cwd)
     all_sessions = await store.list_sessions(cwd=None)

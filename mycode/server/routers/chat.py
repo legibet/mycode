@@ -98,14 +98,8 @@ async def _stream_run(req: Request, state: RunState, after: int) -> AsyncIterato
 @router.post("/chat")
 async def chat(chat: ChatRequest, store: StoreDep, runs: RunManagerDep):
     cwd, settings, resolved, reasoning_effort, session_id = _build_agent(chat)
-    data = await store.get_or_create(
-        session_id,
-        provider=resolved.provider,
-        model=resolved.model,
-        cwd=cwd,
-        api_base=resolved.api_base,
-    )
-    messages = data.get("messages") or []
+    data = await store.load_session(session_id)
+    messages = (data or {}).get("messages") or []
     agent = Agent(
         model=resolved.model,
         provider=resolved.provider,
@@ -121,7 +115,14 @@ async def chat(chat: ChatRequest, store: StoreDep, runs: RunManagerDep):
     )
 
     async def on_persist(message: dict) -> None:
-        await store.append_message(session_id, message)
+        await store.append_message(
+            session_id,
+            message,
+            provider=resolved.provider,
+            model=resolved.model,
+            cwd=cwd,
+            api_base=resolved.api_base,
+        )
 
     try:
         run = await runs.start_run(

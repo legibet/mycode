@@ -25,7 +25,13 @@ app.add_typer(session_app, name="session")
 # -- Shared helpers ----------------------------------------------------------
 
 
-async def run_noninteractive(agent: Agent, *, store: SessionStore, session_id: str, message: str) -> int:
+async def run_noninteractive(
+    agent: Agent,
+    *,
+    store: SessionStore,
+    session_id: str,
+    message: str,
+) -> int:
     """Run one CLI message and print only the final assistant reply."""
 
     latest_assistant: dict | None = None
@@ -34,7 +40,14 @@ async def run_noninteractive(agent: Agent, *, store: SessionStore, session_id: s
         nonlocal latest_assistant
         if payload.get("role") == "assistant":
             latest_assistant = payload
-        await store.append_message(session_id, payload)
+        await store.append_message(
+            session_id,
+            payload,
+            provider=agent.provider,
+            model=agent.model,
+            cwd=agent.cwd,
+            api_base=agent.api_base,
+        )
 
     error_message = ""
     async for event in agent.achat(message, on_persist=persist):
@@ -173,7 +186,14 @@ def chat(
         view.print_history_preview(resolved_session.messages)
 
     try:
-        asyncio.run(TerminalChat(agent=agent, store=store, session_id=resolved_session.session_id, view=view).run())
+        asyncio.run(
+            TerminalChat(
+                agent=agent,
+                store=store,
+                session_id=resolved_session.session_id,
+                view=view,
+            ).run()
+        )
     except KeyboardInterrupt:
         pass
 

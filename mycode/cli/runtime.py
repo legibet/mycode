@@ -118,29 +118,20 @@ async def resolve_session(
         data = await store.load_session(requested_session_id)
         if not data or not data.get("session"):
             raise ValueError(f"Unknown session: {requested_session_id}")
-
-        synced = await store.get_or_create(
+        return ResolvedSession(
             requested_session_id,
-            provider=provider,
-            model=model,
-            cwd=cwd,
-            api_base=api_base,
+            data.get("session") or {},
+            data.get("messages") or [],
+            "resumed",
         )
-        session = synced.get("session") or data["session"]
-        messages = synced.get("messages") or data.get("messages") or []
-        return ResolvedSession(requested_session_id, session, messages, "resumed")
 
     if continue_last:
         latest = await store.latest_session(cwd=cwd)
         if latest and latest.get("id"):
             session_id = str(latest["id"])
-            data = await store.get_or_create(
-                session_id,
-                provider=provider,
-                model=model,
-                cwd=cwd,
-                api_base=api_base,
-            )
+            data = await store.load_session(session_id)
+            if not data:
+                raise ValueError(f"Unknown session: {session_id}")
             return ResolvedSession(
                 session_id,
                 data.get("session") or latest,
@@ -148,7 +139,7 @@ async def resolve_session(
                 "resumed",
             )
 
-    data = await store.create_session(None, provider=provider, model=model, cwd=cwd, api_base=api_base)
+    data = store.draft_session(None, provider=provider, model=model, cwd=cwd, api_base=api_base)
     session = data.get("session") or {}
     return ResolvedSession(str(session.get("id") or ""), session, [], "new")
 
@@ -156,16 +147,12 @@ async def resolve_session(
 async def update_agent_runtime(
     agent: Agent,
     *,
-    store: SessionStore,
-    session_id: str,
     provider_name: str | None,
     model: str | None,
 ) -> bool:
     """Update provider-related request settings on the active agent.
 
-    This changes the in-memory agent runtime only. Existing session metadata is
-    intentionally left unchanged so the saved session still reflects how it was
-    originally created.
+    This changes the in-memory agent runtime only.
     """
 
     settings = get_settings(agent.cwd)
@@ -178,15 +165,6 @@ async def update_agent_runtime(
         or agent.api_key != resolved.api_key
         or agent.reasoning_effort != resolved.reasoning_effort
         or agent.max_tokens != resolved.max_tokens
-    )
-
-    # Keep the session present on disk, but do not rewrite its original meta.
-    await store.get_or_create(
-        session_id,
-        provider=resolved.provider,
-        model=resolved.model,
-        cwd=agent.cwd,
-        api_base=resolved.api_base,
     )
 
     agent.provider = resolved.provider
