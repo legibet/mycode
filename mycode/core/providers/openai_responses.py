@@ -245,7 +245,18 @@ class OpenAIResponsesAdapter(ProviderAdapter):
             item_type = getattr(item, "type", None)
 
             if item_type == "reasoning":
-                text = _extract_reasoning_text(item)
+                text_parts = []
+                for content in getattr(item, "content", None) or []:
+                    text = getattr(content, "text", None)
+                    if text:
+                        text_parts.append(text)
+
+                if not text_parts:
+                    for summary in getattr(item, "summary", None) or []:
+                        text = getattr(summary, "text", None)
+                        if text:
+                            text_parts.append(text)
+
                 native_meta = {
                     "item_id": getattr(item, "id", None),
                     "status": getattr(item, "status", None),
@@ -256,7 +267,7 @@ class OpenAIResponsesAdapter(ProviderAdapter):
                 filtered_native_meta = {key: value for key, value in native_meta.items() if value is not None}
                 blocks.append(
                     thinking_block(
-                        text,
+                        "".join(text_parts),
                         meta={"native": filtered_native_meta} if filtered_native_meta else None,
                     )
                 )
@@ -308,20 +319,3 @@ class OpenAIResponsesAdapter(ProviderAdapter):
             stop_reason=getattr(response, "status", None),
             usage=dump_model(getattr(response, "usage", None)),
         )
-
-
-def _extract_reasoning_text(item: Any) -> str:
-    parts: list[str] = []
-    for content in getattr(item, "content", None) or []:
-        text = getattr(content, "text", None)
-        if text:
-            parts.append(text)
-
-    if parts:
-        return "".join(parts)
-
-    for summary in getattr(item, "summary", None) or []:
-        text = getattr(summary, "text", None)
-        if text:
-            parts.append(text)
-    return "".join(parts)

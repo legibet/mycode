@@ -52,6 +52,15 @@ class AnthropicLikeAdapter(ProviderAdapter):
     def output_config(self, request: ProviderRequest) -> dict[str, Any] | None:
         return None
 
+    def manual_thinking_config(self, effort: str | None) -> dict[str, Any] | None:
+        if not effort:
+            return None
+        if effort == "none":
+            return {"type": "disabled"}
+
+        budget = _MANUAL_THINKING_BUDGETS.get(effort)
+        return {"type": "enabled", "budget_tokens": budget} if budget is not None else None
+
     def build_request_payload(self, request: ProviderRequest) -> dict[str, Any]:
         messages = [self._serialize_message(message) for message in self.prepare_messages(request)]
         self._apply_cache_control(messages)
@@ -198,10 +207,19 @@ class AnthropicLikeAdapter(ProviderAdapter):
                 continue
 
             if block_type == "tool_result":
+                content = getattr(block, "content", "")
+                if isinstance(content, list):
+                    parts: list[str] = []
+                    for item in content:
+                        if isinstance(item, dict) and item.get("type") == "text":
+                            parts.append(str(item.get("text") or ""))
+                        else:
+                            parts.append(str(item))
+                    content = "\n".join(part for part in parts if part)
                 blocks.append(
                     tool_result_block(
                         tool_use_id=getattr(block, "tool_use_id", ""),
-                        content=_stringify_tool_result_content(getattr(block, "content", "")),
+                        content=str(content),
                         is_error=bool(getattr(block, "is_error", False)),
                     )
                 )
@@ -286,20 +304,6 @@ class AnthropicLikeAdapter(ProviderAdapter):
         return dict(block)
 
 
-def _stringify_tool_result_content(content: Any) -> str:
-    if isinstance(content, str):
-        return content
-    if isinstance(content, list):
-        parts: list[str] = []
-        for item in content:
-            if isinstance(item, dict) and item.get("type") == "text":
-                parts.append(str(item.get("text") or ""))
-            else:
-                parts.append(str(item))
-        return "\n".join(part for part in parts if part)
-    return str(content)
-
-
 class AnthropicAdapter(AnthropicLikeAdapter):
     provider_id = "anthropic"
     label = "Anthropic"
@@ -310,17 +314,14 @@ class AnthropicAdapter(AnthropicLikeAdapter):
 
     def thinking_config(self, request: ProviderRequest) -> dict[str, Any] | None:
         effort = request.reasoning_effort
-        if not effort:
-            return None
-        if effort == "none":
-            return {"type": "disabled"}
+        if not effort or effort == "none":
+            return self.manual_thinking_config(effort)
 
         normalized = request.model.lower()
         if normalized.startswith("claude-sonnet-4-6") or normalized.startswith("claude-opus-4-6"):
             return {"type": "adaptive"}
 
-        budget = _MANUAL_THINKING_BUDGETS.get(effort)
-        return {"type": "enabled", "budget_tokens": budget} if budget is not None else None
+        return self.manual_thinking_config(effort)
 
     def output_config(self, request: ProviderRequest) -> dict[str, Any] | None:
         effort = request.reasoning_effort
@@ -348,13 +349,7 @@ class MoonshotAIAdapter(AnthropicLikeAdapter):
     supports_reasoning_effort = True
 
     def thinking_config(self, request: ProviderRequest) -> dict[str, Any] | None:
-        effort = request.reasoning_effort
-        if not effort:
-            return None
-        if effort == "none":
-            return {"type": "disabled"}
-        budget = _MANUAL_THINKING_BUDGETS.get(effort)
-        return {"type": "enabled", "budget_tokens": budget} if budget is not None else None
+        return self.manual_thinking_config(request.reasoning_effort)
 
 
 class MiniMaxAdapter(AnthropicLikeAdapter):
@@ -366,10 +361,4 @@ class MiniMaxAdapter(AnthropicLikeAdapter):
     supports_reasoning_effort = True
 
     def thinking_config(self, request: ProviderRequest) -> dict[str, Any] | None:
-        effort = request.reasoning_effort
-        if not effort:
-            return None
-        if effort == "none":
-            return {"type": "disabled"}
-        budget = _MANUAL_THINKING_BUDGETS.get(effort)
-        return {"type": "enabled", "budget_tokens": budget} if budget is not None else None
+        return self.manual_thinking_config(request.reasoning_effort)

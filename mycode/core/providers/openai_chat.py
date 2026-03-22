@@ -177,14 +177,21 @@ class OpenAIChatAdapter(ProviderAdapter):
         blocks = [block for block in message.get("content") or [] if isinstance(block, dict)]
 
         if role == "user":
-            tool_result_messages = [
-                self._serialize_tool_result(block) for block in blocks if block.get("type") == "tool_result"
-            ]
             text_parts = [str(block.get("text") or "") for block in blocks if block.get("type") == "text"]
             payload_messages = []
             if text_parts:
                 payload_messages.append({"role": "user", "content": "\n".join(part for part in text_parts if part)})
-            payload_messages.extend(tool_result_messages)
+
+            for block in blocks:
+                if block.get("type") != "tool_result":
+                    continue
+                payload_messages.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": block.get("tool_use_id") or "",
+                        "content": str(block.get("content") or ""),
+                    }
+                )
             return payload_messages
 
         if role != "assistant":
@@ -200,7 +207,20 @@ class OpenAIChatAdapter(ProviderAdapter):
         }
 
         if tool_use_blocks:
-            payload["tool_calls"] = [self._serialize_tool_use(block) for block in tool_use_blocks]
+            payload["tool_calls"] = [
+                {
+                    "id": block.get("id") or "",
+                    "type": "function",
+                    "function": {
+                        "name": block.get("name") or "",
+                        "arguments": json.dumps(
+                            block.get("input") if isinstance(block.get("input"), dict) else {},
+                            ensure_ascii=False,
+                        ),
+                    },
+                }
+                for block in tool_use_blocks
+            ]
 
         if thinking_blocks and self._should_replay_assistant_reasoning(messages, index):
             payload.update(self._serialize_reasoning(thinking_blocks))
@@ -233,11 +253,6 @@ class OpenAIChatAdapter(ProviderAdapter):
         has_text = any(block.get("type") == "text" and str(block.get("text") or "").strip() for block in blocks)
         return has_tool_result and not has_text
 
-    def _extract_reasoning_text_from_details(self, reasoning_details: Any) -> str:
-        if not isinstance(reasoning_details, list) or not reasoning_details:
-            return ""
-        return "".join(str(item.get("text") or "") for item in reasoning_details if isinstance(item, dict))
-
     def _serialize_reasoning(self, thinking_blocks: list[dict[str, Any]]) -> dict[str, Any]:
         thinking_text = "\n".join(str(block.get("text") or "") for block in thinking_blocks if block.get("text"))
         raw_meta = thinking_blocks[0].get("meta")
@@ -254,52 +269,27 @@ class OpenAIChatAdapter(ProviderAdapter):
             return {"reasoning_details": native_meta.get("reasoning_details") or []}
         return {}
 
-    def _serialize_tool_result(self, block: dict[str, Any]) -> dict[str, Any]:
-        return {
-            "role": "tool",
-            "tool_call_id": block.get("tool_use_id") or "",
-            "content": str(block.get("content") or ""),
-        }
-
-    def _serialize_tool_use(self, block: dict[str, Any]) -> dict[str, Any]:
-        raw_input = block.get("input")
-        tool_input: dict[str, Any] = {}
-        if isinstance(raw_input, dict):
-            tool_input = dict(raw_input)
-        return {
-            "id": block.get("id") or "",
-            "type": "function",
-            "function": {
-                "name": block.get("name") or "",
-                "arguments": json.dumps(tool_input, ensure_ascii=False),
-            },
-        }
-
     def _extract_reasoning_delta(self, delta: Any) -> tuple[str, dict[str, Any]]:
-        reasoning_content = getattr(delta, "reasoning_content", None)
-        if isinstance(reasoning_content, str) and reasoning_content:
-            return reasoning_content, {"reasoning_field": "reasoning_content"}
+        for source in (delta, getattr(delta, "model_extra", None) or {}):
+            if isinstance(source, dict):
+                reasoning_content = source.get("reasoning_content")
+                reasoning_details = source.get("reasoning_details")
+            else:
+                reasoning_content = getattr(source, "reasoning_content", None)
+                reasoning_details = getattr(source, "reasoning_details", None)
 
-        reasoning_details = getattr(delta, "reasoning_details", None)
-        reasoning_text = self._extract_reasoning_text_from_details(reasoning_details)
-        if reasoning_text:
-            return reasoning_text, {
-                "reasoning_field": "reasoning_details",
-                "reasoning_details": reasoning_details,
-            }
+            if isinstance(reasoning_content, str) and reasoning_content:
+                return reasoning_content, {"reasoning_field": "reasoning_content"}
 
-        extras = getattr(delta, "model_extra", None) or {}
-        reasoning_content = extras.get("reasoning_content")
-        if isinstance(reasoning_content, str) and reasoning_content:
-            return reasoning_content, {"reasoning_field": "reasoning_content"}
-
-        reasoning_details = extras.get("reasoning_details")
-        reasoning_text = self._extract_reasoning_text_from_details(reasoning_details)
-        if reasoning_text:
-            return reasoning_text, {
-                "reasoning_field": "reasoning_details",
-                "reasoning_details": reasoning_details,
-            }
+            if isinstance(reasoning_details, list) and reasoning_details:
+                reasoning_text = "".join(
+                    str(item.get("text") or "") for item in reasoning_details if isinstance(item, dict)
+                )
+                if reasoning_text:
+                    return reasoning_text, {
+                        "reasoning_field": "reasoning_details",
+                        "reasoning_details": reasoning_details,
+                    }
 
         return "", {}
 
