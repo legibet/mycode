@@ -20,7 +20,16 @@ class _Obj:
         self.__dict__.update(kwargs)
 
     def model_dump(self):
-        return dict(self.__dict__)
+        def _dump(value):
+            if hasattr(value, "model_dump"):
+                return value.model_dump()
+            if isinstance(value, list):
+                return [_dump(item) for item in value]
+            if isinstance(value, dict):
+                return {key: _dump(item) for key, item in value.items()}
+            return value
+
+        return {key: _dump(value) for key, value in self.__dict__.items()}
 
 
 def test_openai_responses_builds_initial_input_items() -> None:
@@ -29,19 +38,22 @@ def test_openai_responses_builds_initial_input_items() -> None:
         Any,
         _Obj(
             model="gpt-5.4",
+            session_id=None,
             messages=[
                 {
                     "role": "user",
                     "content": [{"type": "text", "text": "hello"}],
                 }
             ],
+            system="",
+            tools=[],
+            max_tokens=4096,
+            reasoning_effort=None,
         ),
     )
 
-    prepared_messages = adapter.prepare_messages(request)
-    input_items, previous_response_id = adapter._build_input_items(request, prepared_messages)
+    input_items = adapter._build_request_payload(request)["input"]
 
-    assert previous_response_id is None
     assert input_items == [
         {
             "type": "message",
@@ -51,31 +63,66 @@ def test_openai_responses_builds_initial_input_items() -> None:
     ]
 
 
-def test_openai_responses_uses_previous_response_id_for_tool_results() -> None:
+def test_openai_responses_replays_native_output_items_for_tool_results() -> None:
     adapter = OpenAIResponsesAdapter()
     request = cast(
         Any,
         _Obj(
             model="gpt-5.4",
+            session_id=None,
             messages=[
                 {
                     "role": "assistant",
                     "content": [{"type": "tool_use", "id": "call_1", "name": "read", "input": {"path": "x.py"}}],
-                    "meta": {"provider": "openai", "model": "gpt-5.4", "provider_message_id": "resp_123"},
+                    "meta": {
+                        "provider": "openai",
+                        "model": "gpt-5.4",
+                        "native": {
+                            "output_items": [
+                                {
+                                    "type": "reasoning",
+                                    "id": "rs_1",
+                                    "summary": [],
+                                    "encrypted_content": "enc_1",
+                                },
+                                {
+                                    "type": "function_call",
+                                    "id": "fc_1",
+                                    "call_id": "call_1",
+                                    "name": "read",
+                                    "arguments": '{"path": "x.py"}',
+                                    "status": "completed",
+                                },
+                            ]
+                        },
+                    },
                 },
                 {
                     "role": "user",
                     "content": [{"type": "tool_result", "tool_use_id": "call_1", "content": "file contents"}],
                 },
             ],
+            system="",
+            tools=[],
+            max_tokens=4096,
+            reasoning_effort=None,
         ),
     )
 
-    prepared_messages = adapter.prepare_messages(request)
-    input_items, previous_response_id = adapter._build_input_items(request, prepared_messages)
+    input_items = adapter._build_request_payload(request)["input"]
 
-    assert previous_response_id == "resp_123"
-    assert input_items == [{"type": "function_call_output", "call_id": "call_1", "output": "file contents"}]
+    assert input_items == [
+        {"type": "reasoning", "id": "rs_1", "summary": [], "encrypted_content": "enc_1"},
+        {
+            "type": "function_call",
+            "id": "fc_1",
+            "call_id": "call_1",
+            "name": "read",
+            "arguments": '{"path": "x.py"}',
+            "status": "completed",
+        },
+        {"type": "function_call_output", "call_id": "call_1", "output": "file contents"},
+    ]
 
 
 def test_openai_responses_falls_back_to_full_replay_for_cross_provider_history() -> None:
@@ -84,6 +131,7 @@ def test_openai_responses_falls_back_to_full_replay_for_cross_provider_history()
         Any,
         _Obj(
             model="gpt-5.4",
+            session_id=None,
             messages=[
                 {"role": "user", "content": [{"type": "text", "text": "double 21"}]},
                 {
@@ -99,25 +147,20 @@ def test_openai_responses_falls_back_to_full_replay_for_cross_provider_history()
                     "content": [{"type": "tool_result", "tool_use_id": "call_1", "content": "42"}],
                 },
             ],
+            system="",
+            tools=[],
+            max_tokens=4096,
+            reasoning_effort=None,
         ),
     )
 
-    prepared_messages = adapter.prepare_messages(request)
-    input_items, previous_response_id = adapter._build_input_items(request, prepared_messages)
+    input_items = adapter._build_request_payload(request)["input"]
 
-    assert previous_response_id is None
     assert input_items == [
         {
             "type": "message",
             "role": "user",
             "content": [{"type": "input_text", "text": "double 21"}],
-        },
-        {
-            "type": "message",
-            "id": "replay_assistant_1",
-            "role": "assistant",
-            "status": "completed",
-            "content": [{"type": "output_text", "text": "Need the tool first."}],
         },
         {
             "type": "function_call",
@@ -133,33 +176,53 @@ def test_openai_responses_falls_back_to_full_replay_for_cross_provider_history()
     ]
 
 
-def test_openai_responses_ignores_previous_response_id_when_later_assistant_exists() -> None:
+def test_openai_responses_fallback_replay_skips_reasoning_blocks() -> None:
     adapter = OpenAIResponsesAdapter()
     request = cast(
         Any,
         _Obj(
             model="gpt-5.4",
+            session_id=None,
             messages=[
                 {
                     "role": "assistant",
-                    "content": [{"type": "text", "text": "openai turn"}],
-                    "meta": {"provider": "openai", "model": "gpt-5.4", "provider_message_id": "resp_123"},
+                    "content": [
+                        {"type": "thinking", "text": "Need the tool first."},
+                        {"type": "text", "text": "I will inspect the file."},
+                        {"type": "tool_use", "id": "call_1", "name": "read", "input": {"path": "x.py"}},
+                    ],
+                    "meta": {"provider": "openai", "model": "gpt-5.4"},
                 },
-                {"role": "user", "content": [{"type": "text", "text": "switched"}]},
-                {
-                    "role": "assistant",
-                    "content": [{"type": "text", "text": "other provider"}],
-                    "meta": {"provider": "anthropic", "model": "claude-sonnet-4-6"},
-                },
-                {"role": "user", "content": [{"type": "text", "text": "come back"}]},
             ],
+            system="",
+            tools=[],
+            max_tokens=4096,
+            reasoning_effort=None,
         ),
     )
 
-    prepared_messages = adapter.prepare_messages(request)
-    _, previous_response_id = adapter._build_input_items(request, prepared_messages)
+    input_items = adapter._build_request_payload(request)["input"]
 
-    assert previous_response_id is None
+    assert input_items == [
+        {
+            "type": "message",
+            "id": "replay_assistant_0",
+            "role": "assistant",
+            "status": "completed",
+            "content": [{"type": "output_text", "text": "I will inspect the file."}],
+        },
+        {
+            "type": "function_call",
+            "call_id": "call_1",
+            "name": "read",
+            "arguments": '{"path": "x.py"}',
+        },
+        {
+            "type": "function_call_output",
+            "call_id": "call_1",
+            "output": "error: tool call was interrupted (no result recorded)",
+        },
+    ]
 
 
 def test_openai_responses_build_request_payload_includes_prompt_cache_key() -> None:
@@ -185,6 +248,9 @@ def test_openai_responses_build_request_payload_includes_prompt_cache_key() -> N
     payload = adapter._build_request_payload(request)
 
     assert payload["prompt_cache_key"] == "session_123"
+    assert payload["store"] is False
+    assert payload["include"] == ["reasoning.encrypted_content"]
+    assert "previous_response_id" not in payload
 
 
 def test_openai_responses_converts_final_response_blocks() -> None:
@@ -219,6 +285,18 @@ def test_openai_responses_converts_final_response_blocks() -> None:
     assert message["content"][2]["id"] == "call_1"
     assert message["content"][2]["input"] == {"path": "x.py"}
     assert message["content"][2]["meta"] == {"native": {"item_id": "fc_1", "status": "completed"}}
+    assert message["meta"]["native"]["output_items"] == [
+        {"type": "reasoning", "id": "rs_1", "status": "completed", "content": [{"text": "think"}], "summary": []},
+        {"type": "message", "content": [{"type": "output_text", "text": "answer", "annotations": []}]},
+        {
+            "type": "function_call",
+            "id": "fc_1",
+            "call_id": "call_1",
+            "name": "read",
+            "arguments": '{"path": "x.py"}',
+            "status": "completed",
+        },
+    ]
 
 
 def test_openai_responses_serializes_strict_tool_schemas() -> None:

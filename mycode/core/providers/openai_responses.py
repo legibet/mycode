@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from copy import deepcopy
 from typing import Any, cast
 
 from openai import APIError, AsyncOpenAI
@@ -67,12 +68,29 @@ class OpenAIResponsesAdapter(ProviderAdapter):
 
     def _build_request_payload(self, request: ProviderRequest) -> dict[str, Any]:
         prepared_messages = self.prepare_messages(request)
-        input_items, previous_response_id = self._build_input_items(request, prepared_messages)
+        input_items: list[dict[str, Any]] = []
+        for message_index, message in enumerate(prepared_messages):
+            role = message.get("role")
+            if role == "user":
+                input_items.extend(self._serialize_user_message(message))
+                continue
+
+            if role != "assistant":
+                continue
+
+            native_output_items = self._native_output_items(message)
+            if native_output_items is not None:
+                input_items.extend(native_output_items)
+                continue
+
+            input_items.extend(self._serialize_fallback_assistant_message(message, message_index))
+
         payload: dict[str, Any] = {
             "model": request.model,
             "input": input_items,
             "instructions": request.system or None,
-            "previous_response_id": previous_response_id,
+            "store": False,
+            "include": ["reasoning.encrypted_content"],
             "prompt_cache_key": request.session_id or None,
             "max_output_tokens": request.max_tokens,
             "tools": [self._serialize_tool(tool) for tool in request.tools] or None,
@@ -82,50 +100,7 @@ class OpenAIResponsesAdapter(ProviderAdapter):
             payload["reasoning"] = {"effort": request.reasoning_effort}
         return {key: value for key, value in payload.items() if value is not None}
 
-    def _build_input_items(
-        self,
-        request: ProviderRequest,
-        messages: list[ConversationMessage],
-    ) -> tuple[list[dict[str, Any]], str | None]:
-        resume = self._native_resume_anchor(messages, request.model)
-        if resume is not None:
-            anchor_index, previous_response_id = resume
-            input_items: list[dict[str, Any]] = []
-            for message in messages[anchor_index + 1 :]:
-                input_items.extend(self._serialize_followup_message(message))
-            return input_items, previous_response_id
-
-        input_items: list[dict[str, Any]] = []
-        for message_index, message in enumerate(messages):
-            input_items.extend(self._serialize_replay_message(message, message_index))
-        return input_items, None
-
-    def _native_resume_anchor(self, messages: list[ConversationMessage], model: str) -> tuple[int, str] | None:
-        """Return the latest safe `previous_response_id` anchor.
-
-        Responses API chaining only works when the latest assistant turn belongs
-        to the same provider/model and exposes a stored response ID. Mixed-model
-        or cross-provider history falls back to stateless full replay.
-        """
-
-        for index in range(len(messages) - 1, -1, -1):
-            message = messages[index]
-            if message.get("role") != "assistant":
-                continue
-
-            raw_meta = message.get("meta")
-            meta = raw_meta if isinstance(raw_meta, dict) else {}
-            if meta.get("provider") != self.provider_id or meta.get("model") != model:
-                return None
-
-            provider_message_id = str(meta.get("provider_message_id") or "")
-            if provider_message_id:
-                return index, provider_message_id
-            return None
-
-        return None
-
-    def _serialize_followup_message(self, message: dict[str, Any]) -> list[dict[str, Any]]:
+    def _serialize_user_message(self, message: ConversationMessage) -> list[dict[str, Any]]:
         if message.get("role") != "user":
             return []
 
@@ -154,23 +129,28 @@ class OpenAIResponsesAdapter(ProviderAdapter):
 
         return items
 
-    def _serialize_replay_message(self, message: ConversationMessage, message_index: int) -> list[dict[str, Any]]:
-        role = message.get("role")
-        if role == "user":
-            return self._serialize_followup_message(message)
-        if role != "assistant":
-            return []
+    def _native_output_items(self, message: ConversationMessage) -> list[dict[str, Any]] | None:
+        raw_meta = message.get("meta")
+        meta = raw_meta if isinstance(raw_meta, dict) else None
+        if not isinstance(meta, dict) or meta.get("provider") != self.provider_id:
+            return None
 
+        native_meta = meta.get("native")
+        output_items = native_meta.get("output_items") if isinstance(native_meta, dict) else None
+        if not isinstance(output_items, list) or not output_items:
+            return None
+
+        return cast(list[dict[str, Any]], deepcopy(output_items))
+
+    def _serialize_fallback_assistant_message(
+        self,
+        message: ConversationMessage,
+        message_index: int,
+    ) -> list[dict[str, Any]]:
         blocks = [block for block in message.get("content") or [] if isinstance(block, dict)]
         text_parts = [
             str(block.get("text") or "") for block in blocks if block.get("type") == "text" and block.get("text")
         ]
-        if not text_parts and any(block.get("type") == "tool_use" for block in blocks):
-            text_parts = [
-                str(block.get("text") or "")
-                for block in blocks
-                if block.get("type") == "thinking" and block.get("text")
-            ]
 
         items: list[dict[str, Any]] = []
         if text_parts:
@@ -240,6 +220,7 @@ class OpenAIResponsesAdapter(ProviderAdapter):
         }
 
     def _convert_final_response(self, response: Any) -> dict[str, Any]:
+        output_items = dump_model(getattr(response, "output", None))
         blocks = []
         for item in getattr(response, "output", []) or []:
             item_type = getattr(item, "type", None)
@@ -318,4 +299,5 @@ class OpenAIResponsesAdapter(ProviderAdapter):
             provider_message_id=getattr(response, "id", None),
             stop_reason=getattr(response, "status", None),
             usage=dump_model(getattr(response, "usage", None)),
+            native_meta={"output_items": output_items} if output_items else None,
         )

@@ -140,8 +140,9 @@ Current built-in adapter ids:
 - uses the Responses API
 - default base URL: `https://api.openai.com/v1`
 - GPT-5 family reasoning uses OpenAI's official `reasoning = {"effort": ...}` parameter with supported values `none/low/medium/high/xhigh`
-- tool loops continue with `previous_response_id` + `function_call_output`
-- this adapter expects prior assistant messages from the same provider/session so it can reuse `provider_message_id`
+- requests run stateless with `store=false` and `include=["reasoning.encrypted_content"]`
+- OpenAI-native `response.output` items are persisted under `assistant.meta.native.output_items` and replayed directly on later turns
+- user tool results replay as `function_call_output`; foreign provider thinking is never converted into OpenAI reasoning items
 - requests also pass `prompt_cache_key` using the current session id
 
 ### `openai_chat`
