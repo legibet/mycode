@@ -4,7 +4,7 @@
  * Empty state: blinking cursor terminal prompt.
  */
 
-import { useCallback, useEffect, useRef } from 'react'
+import { useCallback, useLayoutEffect, useRef } from 'react'
 import { MessageBubble } from './MessageBubble'
 
 const SCROLL_THRESHOLD = 120
@@ -13,6 +13,7 @@ export function MessageList({ messages, loading }) {
   const containerRef = useRef(null)
   const endRef = useRef(null)
   const stickToBottom = useRef(true)
+  const previousMessageCount = useRef(0)
 
   const handleScroll = useCallback(() => {
     const el = containerRef.current
@@ -21,12 +22,17 @@ export function MessageList({ messages, loading }) {
       el.scrollHeight - el.scrollTop - el.clientHeight < SCROLL_THRESHOLD
   }, [])
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: trigger scroll when messages update
-  useEffect(() => {
-    if (stickToBottom.current) {
-      endRef.current?.scrollIntoView({ behavior: 'smooth' })
-    }
-  }, [messages])
+  useLayoutEffect(() => {
+    const previousCount = previousMessageCount.current
+    previousMessageCount.current = messages.length
+
+    if (!messages.length || !stickToBottom.current) return
+
+    endRef.current?.scrollIntoView({
+      behavior: loading || previousCount === 0 ? 'auto' : 'smooth',
+      block: 'end',
+    })
+  }, [loading, messages])
 
   if (messages.length === 0) {
     return (

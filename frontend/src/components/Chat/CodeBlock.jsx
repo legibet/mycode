@@ -4,40 +4,40 @@
  */
 
 import { Check, Copy } from 'lucide-react'
-import { useMemo, useState } from 'react'
-import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
-import { vs, vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism'
+import { lazy, Suspense, useState } from 'react'
 import { copyText } from '../../utils/clipboard'
 import { cn } from '../../utils/cn'
-import { useTheme } from '../ThemeProvider'
 
 const LANGUAGE_RE = /language-(\w+)/
+let highlightedCodePromise
+
+function loadHighlightedCode() {
+  if (!highlightedCodePromise) {
+    highlightedCodePromise = import('./HighlightedCode')
+  }
+
+  return highlightedCodePromise
+}
+
+const HighlightedCode = lazy(loadHighlightedCode)
+
+export function preloadHighlightedCode() {
+  return loadHighlightedCode()
+}
+
+function HighlightedCodeFallback({ code }) {
+  return (
+    <pre
+      className="m-0 overflow-x-auto whitespace-pre font-mono text-[13px] font-normal leading-[1.5] text-foreground"
+      style={{ fontFamily: '"DM Mono", "JetBrains Mono", monospace' }}
+    >
+      <code>{code}</code>
+    </pre>
+  )
+}
 
 export function CodeBlock({ node, inline, className, children, ...props }) {
-  const { theme } = useTheme()
   const [copied, setCopied] = useState(false)
-
-  const isLight =
-    theme === 'light' ||
-    (theme === 'system' &&
-      !window.matchMedia('(prefers-color-scheme: dark)').matches)
-  const isDark = !isLight
-
-  const syntaxTheme = useMemo(() => {
-    const baseTheme = isDark ? vscDarkPlus : vs
-    const clean = { ...baseTheme }
-    // Only keep color from pre/code selectors, strip everything else
-    for (const selector of [
-      'pre[class*="language-"]',
-      'code[class*="language-"]',
-    ]) {
-      if (clean[selector]) {
-        const { color } = clean[selector]
-        clean[selector] = color ? { color } : {}
-      }
-    }
-    return clean
-  }, [isDark])
 
   const match = LANGUAGE_RE.exec(className || '')
   const language = match ? match[1] : ''
@@ -104,29 +104,9 @@ export function CodeBlock({ node, inline, className, children, ...props }) {
           </div>
         )}
 
-        <SyntaxHighlighter
-          style={syntaxTheme}
-          language={language}
-          PreTag="div"
-          showLineNumbers={false}
-          customStyle={{
-            margin: 0,
-            padding: 0,
-            background: 'transparent',
-            fontFamily: '"DM Mono", "JetBrains Mono", monospace',
-            fontSize: '13px',
-            lineHeight: '1.5',
-            fontWeight: 400,
-          }}
-          codeTagProps={{
-            style: {
-              fontFamily: 'inherit',
-              fontWeight: 'inherit',
-            },
-          }}
-        >
-          {codeContent}
-        </SyntaxHighlighter>
+        <Suspense fallback={<HighlightedCodeFallback code={codeContent} />}>
+          <HighlightedCode language={language} code={codeContent} />
+        </Suspense>
       </div>
     </div>
   )
