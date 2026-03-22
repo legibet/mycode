@@ -56,6 +56,12 @@ def dump_model(value: Any) -> Any:
 
 
 class ProviderAdapter(ABC):
+    """Base class for provider adapters.
+
+    New adapters usually only need to implement `stream_turn()` and optionally
+    override a small set of replay policy hooks.
+    """
+
     provider_id: str
     label: str
     default_base_url: str | None = None
@@ -74,61 +80,9 @@ class ProviderAdapter(ABC):
         """Stream exactly one assistant turn."""
 
     def prepare_messages(self, request: ProviderRequest) -> list[ConversationMessage]:
-        """Return a provider-safe replay transcript.
+        """Project canonical session history into a provider-safe replay transcript."""
 
-        The persisted session history stays canonical and provider-agnostic.
-        Before each upstream call, adapters project that history into a replay
-        form that closes interrupted tool loops, drops incomplete assistant
-        turns, and keeps native thinking only when it is safe to reuse.
-        """
-
-        prepared: list[ConversationMessage] = []
-        tool_id_map: dict[str, str] = {}
-        projected_tool_ids: set[str] = set()
-        pending_tool_use_ids: list[str] = []
-
-        for message in request.messages:
-            role = str(message.get("role") or "")
-
-            if role == "assistant":
-                if pending_tool_use_ids:
-                    prepared.append(self._interrupted_tool_result_message(pending_tool_use_ids))
-                    pending_tool_use_ids = []
-
-                prepared_message = self._prepare_assistant_message(message, request, tool_id_map, projected_tool_ids)
-                if prepared_message is None:
-                    continue
-
-                prepared.append(prepared_message)
-                pending_tool_use_ids = [
-                    str(block.get("id") or "")
-                    for block in prepared_message.get("content") or []
-                    if isinstance(block, dict) and block.get("type") == "tool_use" and block.get("id")
-                ]
-                continue
-
-            if role != "user":
-                continue
-
-            prepared_message, seen_tool_result_ids, has_text = self._prepare_user_message(message, tool_id_map)
-            if prepared_message is None:
-                continue
-
-            if pending_tool_use_ids and has_text:
-                prepared.append(self._interrupted_tool_result_message(pending_tool_use_ids))
-                pending_tool_use_ids = []
-
-            prepared.append(prepared_message)
-
-            if seen_tool_result_ids:
-                pending_tool_use_ids = [
-                    tool_id for tool_id in pending_tool_use_ids if tool_id not in seen_tool_result_ids
-                ]
-
-        if pending_tool_use_ids:
-            prepared.append(self._interrupted_tool_result_message(pending_tool_use_ids))
-
-        return prepared
+        return _ReplayProjector(self, request).run()
 
     def project_tool_call_id(self, tool_call_id: str, used_tool_call_ids: set[str]) -> str:
         """Project one canonical tool call ID into a provider-safe ID.
@@ -140,7 +94,7 @@ class ProviderAdapter(ABC):
 
         return tool_call_id
 
-    def can_replay_assistant_state(self, message: ConversationMessage, request: ProviderRequest) -> bool:
+    def should_reuse_native_assistant_state(self, message: ConversationMessage, request: ProviderRequest) -> bool:
         """Return whether provider-native assistant state can be replayed.
 
         Cross-provider and cross-model handoffs should be conservative. Native
@@ -152,7 +106,7 @@ class ProviderAdapter(ABC):
         meta = raw_meta if isinstance(raw_meta, dict) else {}
         return meta.get("provider") == self.provider_id and meta.get("model") == request.model
 
-    def keep_thinking_as_text(self, message: ConversationMessage) -> bool:
+    def should_downgrade_thinking_to_text(self, message: ConversationMessage) -> bool:
         """Return whether readable thinking should be downgraded to text.
 
         We only carry thinking across handoffs when it is needed to explain a
@@ -163,148 +117,6 @@ class ProviderAdapter(ABC):
         has_tool_use = any(block.get("type") == "tool_use" for block in blocks)
         has_visible_text = any(block.get("type") == "text" and str(block.get("text") or "").strip() for block in blocks)
         return has_tool_use and not has_visible_text
-
-    def _prepare_assistant_message(
-        self,
-        message: ConversationMessage,
-        request: ProviderRequest,
-        tool_id_map: dict[str, str],
-        projected_tool_ids: set[str],
-    ) -> ConversationMessage | None:
-        """Copy one assistant message into replay form."""
-
-        raw_meta = message.get("meta")
-        meta = dict(raw_meta) if isinstance(raw_meta, dict) else None
-        if str((meta or {}).get("stop_reason") or "") in {"error", "aborted", "cancelled"}:
-            return None
-
-        keep_native_state = self.can_replay_assistant_state(message, request)
-        downgrade_thinking = not keep_native_state and self.keep_thinking_as_text(message)
-        prepared_blocks: list[dict[str, Any]] = []
-
-        for raw_block in message.get("content") or []:
-            if not isinstance(raw_block, dict):
-                continue
-
-            block_type = raw_block.get("type")
-
-            if block_type == "text":
-                text = str(raw_block.get("text") or "")
-                if text:
-                    block = dict(raw_block)
-                    block_meta = raw_block.get("meta")
-                    if isinstance(block_meta, dict):
-                        block["meta"] = dict(block_meta)
-                    prepared_blocks.append(block)
-                continue
-
-            if block_type == "thinking":
-                thinking = str(raw_block.get("text") or "")
-                if keep_native_state:
-                    if thinking or isinstance(raw_block.get("meta"), dict):
-                        block = dict(raw_block)
-                        block_meta = raw_block.get("meta")
-                        if isinstance(block_meta, dict):
-                            block["meta"] = dict(block_meta)
-                        prepared_blocks.append(block)
-                elif downgrade_thinking and thinking:
-                    prepared_blocks.append(text_block(thinking))
-                continue
-
-            if block_type != "tool_use":
-                continue
-
-            block = dict(raw_block)
-            block_meta = raw_block.get("meta")
-            if isinstance(block_meta, dict):
-                block["meta"] = dict(block_meta)
-            raw_input = raw_block.get("input")
-            if isinstance(raw_input, dict):
-                block["input"] = dict(raw_input)
-
-            original_id = str(block.get("id") or "")
-            projected_id = tool_id_map.get(original_id, "")
-            if original_id and not projected_id:
-                projected_id = self.project_tool_call_id(original_id, projected_tool_ids)
-                tool_id_map[original_id] = projected_id
-            if projected_id:
-                projected_tool_ids.add(projected_id)
-                block["id"] = projected_id
-            prepared_blocks.append(block)
-
-        if not prepared_blocks:
-            return None
-
-        prepared_message = dict(message)
-        if meta is not None:
-            prepared_message["meta"] = meta
-        prepared_message["content"] = prepared_blocks
-        return prepared_message
-
-    def _prepare_user_message(
-        self,
-        message: ConversationMessage,
-        tool_id_map: dict[str, str],
-    ) -> tuple[ConversationMessage | None, set[str], bool]:
-        """Copy one user message into replay form."""
-
-        prepared_blocks: list[dict[str, Any]] = []
-        seen_tool_result_ids: set[str] = set()
-        has_text = False
-
-        for raw_block in message.get("content") or []:
-            if not isinstance(raw_block, dict):
-                continue
-
-            block_type = raw_block.get("type")
-            if block_type == "text":
-                text = str(raw_block.get("text") or "")
-                if text:
-                    block = dict(raw_block)
-                    block_meta = raw_block.get("meta")
-                    if isinstance(block_meta, dict):
-                        block["meta"] = dict(block_meta)
-                    prepared_blocks.append(block)
-                    has_text = True
-                continue
-
-            if block_type != "tool_result":
-                continue
-
-            block = dict(raw_block)
-            block_meta = raw_block.get("meta")
-            if isinstance(block_meta, dict):
-                block["meta"] = dict(block_meta)
-            original_id = str(block.get("tool_use_id") or "")
-            block["tool_use_id"] = tool_id_map.get(original_id, original_id)
-            prepared_blocks.append(block)
-            if block["tool_use_id"]:
-                seen_tool_result_ids.add(str(block["tool_use_id"]))
-
-        if not prepared_blocks:
-            return None, set(), False
-
-        prepared_message = dict(message)
-        raw_meta = message.get("meta")
-        if isinstance(raw_meta, dict):
-            prepared_message["meta"] = dict(raw_meta)
-        prepared_message["content"] = prepared_blocks
-        return prepared_message, seen_tool_result_ids, has_text
-
-    def _interrupted_tool_result_message(self, tool_use_ids: list[str]) -> ConversationMessage:
-        """Close an interrupted tool loop without mutating persisted session data."""
-
-        return build_message(
-            "user",
-            [
-                tool_result_block(
-                    tool_use_id=tool_use_id,
-                    content="error: tool call was interrupted (no result recorded)",
-                    is_error=True,
-                )
-                for tool_use_id in tool_use_ids
-            ],
-        )
 
     def api_key_from_env(self) -> str | None:
         import os
@@ -326,3 +138,171 @@ class ProviderAdapter(ABC):
     def resolve_base_url(self, api_base: str | None) -> str | None:
         base = (api_base or self.default_base_url or "").strip()
         return base.rstrip("/") or None
+
+
+@dataclass
+class _ReplayProjector:
+    """Project canonical transcript messages into one replay-safe transcript."""
+
+    adapter: ProviderAdapter
+    request: ProviderRequest
+    messages: list[ConversationMessage] = field(default_factory=list)
+    tool_id_map: dict[str, str] = field(default_factory=dict)
+    used_tool_call_ids: set[str] = field(default_factory=set)
+    pending_tool_call_ids: list[str] = field(default_factory=list)
+
+    def run(self) -> list[ConversationMessage]:
+        for message in self.request.messages:
+            role = str(message.get("role") or "")
+
+            if role == "assistant":
+                self._flush_interrupted_tool_calls()
+                projected_message = self._project_assistant_message(message)
+                if projected_message is None:
+                    continue
+
+                self.messages.append(projected_message)
+                self.pending_tool_call_ids = [
+                    str(block.get("id") or "")
+                    for block in projected_message.get("content") or []
+                    if isinstance(block, dict) and block.get("type") == "tool_use" and block.get("id")
+                ]
+                continue
+
+            if role != "user":
+                continue
+
+            projected_message, seen_tool_result_ids, has_text = self._project_user_message(message)
+            if projected_message is None:
+                continue
+
+            if self.pending_tool_call_ids and has_text:
+                self._flush_interrupted_tool_calls()
+
+            self.messages.append(projected_message)
+            if seen_tool_result_ids:
+                self.pending_tool_call_ids = [
+                    tool_id for tool_id in self.pending_tool_call_ids if tool_id not in seen_tool_result_ids
+                ]
+
+        self._flush_interrupted_tool_calls()
+        return self.messages
+
+    def _project_assistant_message(self, message: ConversationMessage) -> ConversationMessage | None:
+        raw_meta = message.get("meta")
+        meta = dict(raw_meta) if isinstance(raw_meta, dict) else None
+        if str((meta or {}).get("stop_reason") or "") in {"error", "aborted", "cancelled"}:
+            return None
+
+        reuse_native_state = self.adapter.should_reuse_native_assistant_state(message, self.request)
+        downgrade_thinking = not reuse_native_state and self.adapter.should_downgrade_thinking_to_text(message)
+        projected_blocks: list[dict[str, Any]] = []
+
+        for raw_block in message.get("content") or []:
+            if not isinstance(raw_block, dict):
+                continue
+
+            block_type = raw_block.get("type")
+            if block_type == "text":
+                text = str(raw_block.get("text") or "")
+                if text:
+                    projected_blocks.append(self._copy_block(raw_block))
+                continue
+
+            if block_type == "thinking":
+                thinking = str(raw_block.get("text") or "")
+                if reuse_native_state:
+                    if thinking or isinstance(raw_block.get("meta"), dict):
+                        projected_blocks.append(self._copy_block(raw_block))
+                elif downgrade_thinking and thinking:
+                    projected_blocks.append(text_block(thinking))
+                continue
+
+            if block_type != "tool_use":
+                continue
+
+            projected_block = self._copy_block(raw_block)
+            original_id = str(projected_block.get("id") or "")
+            projected_id = self.tool_id_map.get(original_id, "")
+            if original_id and not projected_id:
+                projected_id = self.adapter.project_tool_call_id(original_id, self.used_tool_call_ids)
+                self.tool_id_map[original_id] = projected_id
+            if projected_id:
+                self.used_tool_call_ids.add(projected_id)
+                projected_block["id"] = projected_id
+            projected_blocks.append(projected_block)
+
+        if not projected_blocks:
+            return None
+
+        projected_message = dict(message)
+        if meta is not None:
+            projected_message["meta"] = meta
+        projected_message["content"] = projected_blocks
+        return projected_message
+
+    def _project_user_message(self, message: ConversationMessage) -> tuple[ConversationMessage | None, set[str], bool]:
+        projected_blocks: list[dict[str, Any]] = []
+        seen_tool_result_ids: set[str] = set()
+        has_text = False
+
+        for raw_block in message.get("content") or []:
+            if not isinstance(raw_block, dict):
+                continue
+
+            block_type = raw_block.get("type")
+            if block_type == "text":
+                text = str(raw_block.get("text") or "")
+                if text:
+                    projected_blocks.append(self._copy_block(raw_block))
+                    has_text = True
+                continue
+
+            if block_type != "tool_result":
+                continue
+
+            projected_block = self._copy_block(raw_block)
+            original_id = str(projected_block.get("tool_use_id") or "")
+            projected_block["tool_use_id"] = self.tool_id_map.get(original_id, original_id)
+            projected_blocks.append(projected_block)
+            if projected_block["tool_use_id"]:
+                seen_tool_result_ids.add(str(projected_block["tool_use_id"]))
+
+        if not projected_blocks:
+            return None, set(), False
+
+        projected_message = dict(message)
+        raw_meta = message.get("meta")
+        if isinstance(raw_meta, dict):
+            projected_message["meta"] = dict(raw_meta)
+        projected_message["content"] = projected_blocks
+        return projected_message, seen_tool_result_ids, has_text
+
+    def _flush_interrupted_tool_calls(self) -> None:
+        if not self.pending_tool_call_ids:
+            return
+
+        self.messages.append(
+            build_message(
+                "user",
+                [
+                    tool_result_block(
+                        tool_use_id=tool_use_id,
+                        content="error: tool call was interrupted (no result recorded)",
+                        is_error=True,
+                    )
+                    for tool_use_id in self.pending_tool_call_ids
+                ],
+            )
+        )
+        self.pending_tool_call_ids = []
+
+    def _copy_block(self, block: dict[str, Any]) -> dict[str, Any]:
+        copied = dict(block)
+        raw_meta = block.get("meta")
+        if isinstance(raw_meta, dict):
+            copied["meta"] = dict(raw_meta)
+        raw_input = block.get("input")
+        if isinstance(raw_input, dict):
+            copied["input"] = dict(raw_input)
+        return copied
