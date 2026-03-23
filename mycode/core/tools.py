@@ -471,7 +471,35 @@ class ToolExecutor:
         except Exception as exc:
             return f"error: failed to write file: {exc}"
 
-        return "ok"
+        return self._edit_result(text, updated, oldText, newText)
+
+    @staticmethod
+    def _edit_result(original: str, updated: str, old_text: str, new_text: str) -> str:
+        """Build a JSON result with line context for the frontend diff view."""
+        import json
+
+        _CTX = 3
+        match_pos = original.index(old_text)
+        start_line = original[:match_pos].count("\n") + 1  # 1-indexed
+
+        old_lc = len(old_text.splitlines()) or 1
+        new_lc = len(new_text.splitlines()) or 1
+
+        lines = updated.splitlines()
+        edit_start = start_line - 1  # 0-indexed
+        before = lines[max(0, edit_start - _CTX) : edit_start]
+        after = lines[edit_start + new_lc : edit_start + new_lc + _CTX]
+
+        return json.dumps(
+            {
+                "status": "ok",
+                "start_line": start_line,
+                "old_line_count": old_lc,
+                "new_line_count": new_lc,
+                "context_before": before,
+                "context_after": after,
+            }
+        )
 
     # ---- bash -----------------------------------------------------------------
 

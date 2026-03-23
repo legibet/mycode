@@ -12,8 +12,24 @@ import {
   SquarePen,
   Terminal,
 } from 'lucide-react'
-import { useState } from 'react'
+import { lazy, Suspense, useState } from 'react'
 import { cn } from '../../utils/cn'
+
+let editDiffPromise
+function loadEditDiff() {
+  if (!editDiffPromise) editDiffPromise = import('./EditDiff')
+  return editDiffPromise
+}
+const EditDiff = lazy(loadEditDiff)
+
+function EditDiffFallback({ oldText, newText }) {
+  return (
+    <div className="rounded-md bg-code px-3 py-2 font-mono text-[13px] leading-[1.5] overflow-x-auto whitespace-pre-wrap">
+      {oldText && <div className="diff-line-removed px-1">{oldText}</div>}
+      {newText && <div className="diff-line-added px-1">{newText}</div>}
+    </div>
+  )
+}
 
 const TOOL_META = {
   read: { icon: FileText, label: 'read' },
@@ -120,22 +136,40 @@ export function ToolCard({ name, args, output, result, pending, isError }) {
       >
         <div className="overflow-hidden">
           <div className="pt-2 space-y-2">
-            {args && Object.keys(args).length > 0 && (
-              <div className="rounded-md bg-code px-3 py-2 font-mono text-[13px] leading-[1.5] overflow-x-auto">
-                {Object.entries(args).map(([key, value]) => (
-                  <div key={key}>
-                    <span className="text-accent/60">{key}: </span>
-                    <span className="text-foreground/70 break-all whitespace-pre-wrap">
-                      {typeof value === 'object'
-                        ? JSON.stringify(value, null, 2)
-                        : String(value)}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            )}
+            {args &&
+              Object.keys(args).length > 0 &&
+              (name === 'edit' && args.oldText !== undefined ? (
+                <Suspense
+                  fallback={
+                    <EditDiffFallback
+                      oldText={args.oldText}
+                      newText={args.newText}
+                    />
+                  }
+                >
+                  <EditDiff
+                    path={args.path}
+                    oldText={args.oldText}
+                    newText={args.newText}
+                    result={display}
+                  />
+                </Suspense>
+              ) : (
+                <div className="rounded-md bg-code px-3 py-2 font-mono text-[13px] leading-[1.5] overflow-x-auto">
+                  {Object.entries(args).map(([key, value]) => (
+                    <div key={key}>
+                      <span className="text-accent/60">{key}: </span>
+                      <span className="text-foreground/70 break-all whitespace-pre-wrap">
+                        {typeof value === 'object'
+                          ? JSON.stringify(value, null, 2)
+                          : String(value)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              ))}
 
-            {hasResult && (
+            {hasResult && !(name === 'edit' && !resolvedIsError) && (
               <div
                 className={cn(
                   'rounded-md px-3 py-2 font-mono text-[13px] leading-[1.5] overflow-x-auto whitespace-pre-wrap max-h-[240px] overflow-y-auto',

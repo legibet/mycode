@@ -29,6 +29,12 @@
     /* Code block */
     --code-background: 216 65% 7%; /* #06101E */
 
+    /* Diff */
+    --diff-removed-bg: rgba(248, 81, 73, 0.1);
+    --diff-added-bg: rgba(63, 185, 80, 0.1);
+    --diff-removed-indicator: rgba(248, 81, 73, 0.5);
+    --diff-added-indicator: rgba(63, 185, 80, 0.5);
+
     /* Sidebar */
     --sidebar-bg: 216 65% 7%; /* #060F1E */
   }
@@ -58,6 +64,12 @@
 
     /* Code block */
     --code-background: 220 14% 94%;
+
+    /* Diff */
+    --diff-removed-bg: rgba(255, 99, 71, 0.08);
+    --diff-added-bg: rgba(46, 160, 67, 0.08);
+    --diff-removed-indicator: rgba(208, 58, 40, 0.55);
+    --diff-added-indicator: rgba(36, 134, 54, 0.55);
 
     /* Sidebar */
     --sidebar-bg: 216 35% 95%;
@@ -199,6 +211,20 @@
   margin: 0;
   padding: 0;
   overflow: visible;
+}
+
+/* ── Diff backgrounds ── */
+.diff-line-removed {
+  background-color: var(--diff-removed-bg);
+}
+.diff-line-added {
+  background-color: var(--diff-added-bg);
+}
+.diff-gutter-removed {
+  color: var(--diff-removed-indicator);
+}
+.diff-gutter-added {
+  color: var(--diff-added-indicator);
 }
 
 /* ── Animations ── */

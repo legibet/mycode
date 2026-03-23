@@ -1,40 +1,9 @@
 import { use } from 'react'
-import { createHighlighter } from 'shiki/bundle/web'
-import { createJavaScriptRegexEngine } from 'shiki/engine/javascript'
-
-const highlighterPromise = createHighlighter({
-  themes: ['dark-plus', 'light-plus'],
-  langs: [
-    'javascript',
-    'typescript',
-    'python',
-    'json',
-    'bash',
-    'html',
-    'css',
-    'jsx',
-    'tsx',
-  ],
-  engine: createJavaScriptRegexEngine(),
-})
-
-const langLoadCache = new Map()
-
-function loadLang(highlighter, lang) {
-  if (!langLoadCache.has(lang)) {
-    langLoadCache.set(
-      lang,
-      highlighter
-        .loadLanguage(lang)
-        .then(() => lang)
-        .catch(() => {
-          langLoadCache.delete(lang)
-          return null
-        }),
-    )
-  }
-  return langLoadCache.get(lang)
-}
+import {
+  highlighterPromise,
+  loadLang,
+  SHIKI_OPTIONS,
+} from '../../utils/highlighter'
 
 // Safety note: shiki codeToHtml generates HTML from a tokenized AST,
 // producing only <pre>/<code>/<span> elements with inline styles.
@@ -56,8 +25,7 @@ export default function HighlightedCode({ code, language }) {
 
   const html = highlighter.codeToHtml(code, {
     lang: lang || 'text',
-    themes: { dark: 'dark-plus', light: 'light-plus' },
-    defaultColor: false,
+    ...SHIKI_OPTIONS,
   })
 
   return (
