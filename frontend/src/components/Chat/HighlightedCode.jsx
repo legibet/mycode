@@ -1,49 +1,78 @@
-import { useMemo } from 'react'
-import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
-import { vs, vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism'
-import { useTheme } from '../ThemeProvider'
+import { use } from 'react'
+import { createHighlighter } from 'shiki/bundle/web'
+import { createJavaScriptRegexEngine } from 'shiki/engine/javascript'
 
-const THEME_SELECTORS = ['pre[class*="language-"]', 'code[class*="language-"]']
+const highlighterPromise = createHighlighter({
+  themes: ['dark-plus', 'light-plus'],
+  langs: [
+    'javascript',
+    'typescript',
+    'python',
+    'json',
+    'bash',
+    'html',
+    'css',
+    'jsx',
+    'tsx',
+  ],
+  engine: createJavaScriptRegexEngine(),
+})
+
+const langLoadCache = new Map()
+
+function loadLang(highlighter, lang) {
+  if (!langLoadCache.has(lang)) {
+    langLoadCache.set(
+      lang,
+      highlighter
+        .loadLanguage(lang)
+        .then(() => lang)
+        .catch(() => {
+          langLoadCache.delete(lang)
+          return null
+        }),
+    )
+  }
+  return langLoadCache.get(lang)
+}
+
+// Safety note: shiki codeToHtml generates HTML from a tokenized AST,
+// producing only <pre>/<code>/<span> elements with inline styles.
+// It does not pass through raw user input, so the output is safe.
 
 export default function HighlightedCode({ code, language }) {
-  const { resolvedTheme } = useTheme()
+  const highlighter = use(highlighterPromise)
 
-  const syntaxTheme = useMemo(() => {
-    const baseTheme = resolvedTheme === 'light' ? vs : vscDarkPlus
-    const cleanTheme = { ...baseTheme }
+  const loaded = highlighter.getLoadedLanguages()
+  let lang = language && loaded.includes(language) ? language : null
 
-    for (const selector of THEME_SELECTORS) {
-      if (!cleanTheme[selector]) continue
-      const { color } = cleanTheme[selector]
-      cleanTheme[selector] = color ? { color } : {}
+  if (!lang && language && language !== 'text' && language !== 'plaintext') {
+    const result = loadLang(highlighter, language)
+    if (result instanceof Promise) {
+      const resolved = use(result)
+      if (resolved) lang = resolved
     }
+  }
 
-    return cleanTheme
-  }, [resolvedTheme])
+  const html = highlighter.codeToHtml(code, {
+    lang: lang || 'text',
+    themes: { dark: 'dark-plus', light: 'light-plus' },
+    defaultColor: false,
+  })
 
   return (
-    <SyntaxHighlighter
-      style={syntaxTheme}
-      language={language || undefined}
-      PreTag="div"
-      showLineNumbers={false}
-      customStyle={{
+    <div
+      className="shiki-wrapper"
+      style={{
         margin: 0,
         padding: 0,
-        background: 'transparent',
         fontFamily: '"DM Mono", "JetBrains Mono", monospace',
         fontSize: '13px',
         lineHeight: '1.5',
         fontWeight: 400,
       }}
-      codeTagProps={{
-        style: {
-          fontFamily: 'inherit',
-          fontWeight: 'inherit',
-        },
-      }}
-    >
-      {code}
-    </SyntaxHighlighter>
+      // biome-ignore lint/security/noDangerouslySetInnerHtml: shiki output is from tokenized AST, not user input
+      dangerouslySetInnerHTML={{ __html: html }}
+    />
   )
 }

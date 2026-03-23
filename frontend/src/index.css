@@ -179,6 +179,28 @@
   @apply text-muted-foreground line-through;
 }
 
+/* ── Shiki dual-theme (defaultColor: false) ── */
+.shiki,
+.shiki span {
+  color: var(--shiki-dark);
+  background-color: transparent;
+  font-style: var(--shiki-dark-font-style);
+  font-weight: var(--shiki-dark-font-weight);
+  text-decoration: var(--shiki-dark-text-decoration);
+}
+.light .shiki,
+.light .shiki span {
+  color: var(--shiki-light);
+  font-style: var(--shiki-light-font-style);
+  font-weight: var(--shiki-light-font-weight);
+  text-decoration: var(--shiki-light-text-decoration);
+}
+.shiki-wrapper pre.shiki {
+  margin: 0;
+  padding: 0;
+  overflow: visible;
+}
+
 /* ── Animations ── */
 @keyframes cursor-blink {
   0%,
