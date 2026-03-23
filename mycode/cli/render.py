@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import time
 from collections.abc import Awaitable, Callable
 from datetime import datetime
@@ -32,8 +33,6 @@ from .theme import (
     TERMINAL_THEME,
     THINKING,
     THINKING_SYMBOL,
-    TOOL_BORDER,
-    TOOL_END,
     TOOL_MARKER,
     TOOL_NAME,
     WARNING,
@@ -94,7 +93,7 @@ class _LeftMarkdown(Markdown):
     }
 
 
-_TOOL_OUTPUT_MAX_LINES = 10
+_TOOL_OUTPUT_MAX_LINES = 5
 
 # Maps built-in tool names to the argument key most useful as a one-line preview.
 _TOOL_PREVIEW_KEY: dict[str, str] = {
@@ -339,6 +338,9 @@ class ReplyRenderer:
         self._had_prior_output = False
         self._tool_output_count = 0
         self._tool_start_time: float | None = None
+        self._tool_name: str = ""
+        self._tool_args: dict[str, Any] = {}
+        self._tool_buffered = False
         self._usage: dict[str, Any] | None = None
 
     async def render(
@@ -422,6 +424,74 @@ class ReplyRenderer:
 
         self._tool_start_time = time.monotonic()
         self._tool_output_count = 0
+        self._tool_name = name
+        self._tool_args = args
+
+        # Bash streams output — print header immediately.
+        # Other tools are fast — defer to tool_done for single-line display.
+        if name.lower() == "bash":
+            self._print_tool_header(name, args)
+            self._tool_buffered = False
+        else:
+            self._tool_buffered = True
+
+    def tool_output(self, line: str) -> None:
+        """Render one streamed output line from a running tool."""
+
+        if not line:
+            return
+        self._tool_output_count += 1
+        if self._tool_output_count <= _TOOL_OUTPUT_MAX_LINES:
+            text = Text("    ", style=MUTED)
+            text.append(line, style=MUTED)
+            self._console.print(text)
+
+    def tool_done(self, result: str) -> None:
+        """Render the final tool result."""
+
+        is_error = result.startswith("error")
+
+        elapsed = 0.0
+        if self._tool_start_time is not None:
+            elapsed = time.monotonic() - self._tool_start_time
+            self._tool_start_time = None
+        duration = f"{elapsed:.1f}s" if elapsed >= 0.5 else ""
+
+        if self._tool_buffered:
+            # Non-streaming tools (read, write, edit): single-line output
+            self._tool_buffered = False
+            if is_error:
+                self._print_tool_header(self._tool_name, self._tool_args)
+                first_line = result.split("\n", 1)[0][:100]
+                self._console.print(Text(f"    {first_line}", style=ERROR))
+            else:
+                suffix = self._format_edit_suffix(result)
+                self._print_tool_header(self._tool_name, self._tool_args, suffix=suffix)
+        else:
+            # Bash: streaming tool
+            if is_error and self._tool_output_count == 0:
+                first_line = result.split("\n", 1)[0][:100]
+                self._console.print(Text(f"    {first_line}", style=ERROR))
+            else:
+                parts: list[str] = []
+                truncated = self._tool_output_count - _TOOL_OUTPUT_MAX_LINES
+                if truncated > 0:
+                    parts.append(f"+{truncated} lines")
+                if duration:
+                    parts.append(duration)
+                if parts:
+                    self._console.print(Text(f"    {' · '.join(parts)}", style=MUTED))
+
+        self._had_prior_output = True
+
+    def _print_tool_header(
+        self,
+        name: str,
+        args: dict[str, Any],
+        *,
+        suffix: Text | None = None,
+    ) -> None:
+        """Print the ``⏺ Name  preview  [suffix]`` tool header line."""
 
         preview = ""
         if args:
@@ -436,58 +506,28 @@ class ReplyRenderer:
         text.append(name.capitalize(), style=TOOL_NAME)
         if preview:
             text.append(f"  {preview}", style=MUTED)
+        if suffix:
+            text.append("  ")
+            text.append_text(suffix)
         self._console.print(text)
 
-    def tool_output(self, line: str) -> None:
-        """Render one streamed output line from a running tool."""
+    @staticmethod
+    def _format_edit_suffix(result: str) -> Text | None:
+        """Parse edit JSON result and return a ``+N −M`` styled suffix."""
 
-        if not line:
-            return
-        self._tool_output_count += 1
-        if self._tool_output_count <= _TOOL_OUTPUT_MAX_LINES:
-            text = Text(f"  {TOOL_BORDER} ", style=MUTED)
-            text.append(line, style=MUTED)
-            self._console.print(text)
+        try:
+            data = json.loads(result)
+            if data.get("status") != "ok":
+                return None
+        except (json.JSONDecodeError, TypeError, ValueError):
+            return None
 
-    def tool_done(self, result: str) -> None:
-        """Render the final tool result preview."""
-
-        is_error = result.startswith("error")
-        style = ERROR if is_error else MUTED
-
-        duration = ""
-        if self._tool_start_time is not None:
-            elapsed = time.monotonic() - self._tool_start_time
-            if elapsed >= 0.5:
-                duration = f"{elapsed:.1f}s"
-            self._tool_start_time = None
-
-        had_streaming = self._tool_output_count > 0
-        text = Text(f"  {TOOL_END} ", style=style)
-
-        if had_streaming:
-            parts: list[str] = []
-            truncated = self._tool_output_count - _TOOL_OUTPUT_MAX_LINES
-            if truncated > 0:
-                parts.append(f"+{truncated} lines")
-            if duration:
-                parts.append(duration)
-            text.append(" · ".join(parts), style=style)
-        else:
-            lines = result.splitlines()
-            preview = ""
-            if lines:
-                preview = lines[0][:72]
-                if len(lines) > 1:
-                    preview += f"  (+{len(lines) - 1} lines)"
-                elif len(lines[0]) > 72:
-                    preview += "…"
-            text.append(preview, style=style)
-            if duration:
-                text.append(f" ({duration})", style=STATS)
-
-        self._console.print(text)
-        self._had_prior_output = True
+        old_lc = data.get("old_line_count", 0)
+        new_lc = data.get("new_line_count", 0)
+        suffix = Text()
+        suffix.append(f"+{new_lc}", style="green")
+        suffix.append(f" −{old_lc}", style="red")
+        return suffix
 
     def error(self, message: str) -> None:
         """Render a terminal-visible error message for the current turn."""

@@ -106,6 +106,4 @@ PROVIDER = Style(color="cyan")
 PROMPT_CHAR = "❯"
 THINKING_SYMBOL = "◇"
 TOOL_MARKER = "⏺"
-TOOL_BORDER = "│"
-TOOL_END = "└"
 ERROR_MARKER = "✕"
