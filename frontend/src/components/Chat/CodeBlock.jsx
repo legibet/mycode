@@ -4,37 +4,12 @@
  */
 
 import { Check, Copy } from 'lucide-react'
-import { lazy, Suspense, useState } from 'react'
+import { useState } from 'react'
 import { copyText } from '../../utils/clipboard'
 import { cn } from '../../utils/cn'
+import HighlightedCode from './HighlightedCode'
 
 const LANGUAGE_RE = /language-([a-z0-9+#-]+)/i
-let highlightedCodePromise
-
-function loadHighlightedCode() {
-  if (!highlightedCodePromise) {
-    highlightedCodePromise = import('./HighlightedCode')
-  }
-
-  return highlightedCodePromise
-}
-
-const HighlightedCode = lazy(loadHighlightedCode)
-
-export function preloadHighlightedCode() {
-  return loadHighlightedCode()
-}
-
-function HighlightedCodeFallback({ code }) {
-  return (
-    <pre
-      className="m-0 overflow-x-auto whitespace-pre font-mono text-[13px] font-normal leading-[1.5] text-foreground"
-      style={{ fontFamily: '"DM Mono", "JetBrains Mono", monospace' }}
-    >
-      <code>{code}</code>
-    </pre>
-  )
-}
 
 export function CodeBlock({ node, inline, className, children, ...props }) {
   const [copied, setCopied] = useState(false)
@@ -104,9 +79,7 @@ export function CodeBlock({ node, inline, className, children, ...props }) {
           </div>
         )}
 
-        <Suspense fallback={<HighlightedCodeFallback code={codeContent} />}>
-          <HighlightedCode language={language} code={codeContent} />
-        </Suspense>
+        <HighlightedCode language={language} code={codeContent} />
       </div>
     </div>
   )

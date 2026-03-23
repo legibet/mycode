@@ -1,6 +1,8 @@
 import { createHighlighter } from 'shiki/bundle/web'
 import { createJavaScriptRegexEngine } from 'shiki/engine/javascript'
 
+let highlighterInstance = null
+
 export const highlighterPromise = createHighlighter({
   themes: ['dark-plus', 'light-plus'],
   langs: [
@@ -15,7 +17,22 @@ export const highlighterPromise = createHighlighter({
     'tsx',
   ],
   engine: createJavaScriptRegexEngine(),
+}).then((highlighter) => {
+  highlighterInstance = highlighter
+  return highlighter
 })
+
+export function preloadHighlighter() {
+  return highlighterPromise
+}
+
+export function getHighlighter() {
+  if (!highlighterInstance) {
+    throw new Error('Shiki highlighter is not ready')
+  }
+
+  return highlighterInstance
+}
 
 const langLoadCache = new Map()
 
