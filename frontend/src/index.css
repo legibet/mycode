@@ -150,6 +150,21 @@
 .prose pre code {
   @apply rounded-none bg-transparent p-0 font-mono text-[13px] font-normal leading-relaxed text-foreground;
 }
+.prose .math-pre {
+  @apply my-4 overflow-x-auto bg-transparent p-0 rounded-none;
+}
+.prose .math-pre code {
+  @apply bg-transparent p-0 text-inherit;
+}
+.prose code.language-math {
+  @apply bg-transparent p-0 text-inherit font-normal;
+}
+.prose .katex {
+  font-size: 1.05em;
+}
+.prose .katex-display {
+  @apply my-4 overflow-x-auto overflow-y-hidden py-1;
+}
 
 .prose a {
   @apply text-accent underline underline-offset-2 decoration-accent/40 hover:decoration-accent transition-colors;
