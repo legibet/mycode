@@ -72,6 +72,7 @@ export const MessageBubble = memo(function MessageBubble({
                   block.renderKey || block.id || `text:${block.text || 'block'}`
                 }
                 content={block.text}
+                isStreaming={isStreaming}
               />
             )
           }

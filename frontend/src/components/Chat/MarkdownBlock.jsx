@@ -4,7 +4,7 @@
 
 import 'katex/dist/katex.min.css'
 import renderMathInElement from 'katex/contrib/auto-render'
-import { useEffect, useRef } from 'react'
+import { useLayoutEffect, useRef } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { CodeBlock } from './CodeBlock'
@@ -21,10 +21,21 @@ const MARKDOWN_COMPONENTS = {
   code: CodeBlock,
 }
 
+function PlainMarkdown({ content }) {
+  return (
+    <ReactMarkdown
+      remarkPlugins={REMARK_PLUGINS}
+      components={MARKDOWN_COMPONENTS}
+    >
+      {content}
+    </ReactMarkdown>
+  )
+}
+
 function RenderedMarkdown({ content }) {
   const contentRef = useRef(null)
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!contentRef.current) return
 
     renderMathInElement(contentRef.current, {
@@ -35,21 +46,20 @@ function RenderedMarkdown({ content }) {
 
   return (
     <div ref={contentRef}>
-      <ReactMarkdown
-        remarkPlugins={REMARK_PLUGINS}
-        components={MARKDOWN_COMPONENTS}
-      >
-        {content}
-      </ReactMarkdown>
+      <PlainMarkdown content={content} />
     </div>
   )
 }
 
-export function MarkdownBlock({ content }) {
+export function MarkdownBlock({ content, isStreaming = false }) {
   return (
     <div className="prose prose-sm max-w-none dark:prose-invert">
-      {/* KaTeX mutates the rendered DOM, so remount the markdown subtree when content changes. */}
-      <RenderedMarkdown key={content} content={content} />
+      {isStreaming ? (
+        <PlainMarkdown content={content} />
+      ) : (
+        // KaTeX mutates the DOM, so render it only once after streaming settles.
+        <RenderedMarkdown key={content} content={content} />
+      )}
     </div>
   )
 }
