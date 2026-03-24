@@ -3,64 +3,53 @@
  */
 
 import 'katex/dist/katex.min.css'
+import renderMathInElement from 'katex/contrib/auto-render'
+import { useEffect, useRef } from 'react'
 import ReactMarkdown from 'react-markdown'
-import rehypeKatex from 'rehype-katex'
 import remarkGfm from 'remark-gfm'
-import remarkMath from 'remark-math'
-import { normalizeMarkdownMath } from '../../utils/markdown'
 import { CodeBlock } from './CodeBlock'
 
-const REMARK_PLUGINS = [remarkGfm, remarkMath]
-const REHYPE_PLUGINS = [rehypeKatex]
-
-function isMathClassName(className) {
-  return typeof className === 'string' && className.includes('language-math')
-}
-
-function MarkdownPre({ children, ...props }) {
-  const child = Array.isArray(children) ? children[0] : children
-  if (isMathClassName(child?.props?.className)) {
-    return (
-      <pre className="math-pre" {...props}>
-        {children}
-      </pre>
-    )
-  }
-
-  return <>{children}</>
-}
-
-function MarkdownCode({ className, children, ...props }) {
-  if (isMathClassName(className)) {
-    return (
-      <code className={className} {...props}>
-        {children}
-      </code>
-    )
-  }
-
-  return (
-    <CodeBlock className={className} {...props}>
-      {children}
-    </CodeBlock>
-  )
-}
+const REMARK_PLUGINS = [remarkGfm]
+const MATH_DELIMITERS = [
+  { left: '$$', right: '$$', display: true },
+  { left: '$', right: '$', display: false },
+  { left: '\\(', right: '\\)', display: false },
+  { left: '\\[', right: '\\]', display: true },
+]
 
 const MARKDOWN_COMPONENTS = {
-  pre: MarkdownPre,
-  code: MarkdownCode,
+  code: CodeBlock,
+}
+
+function RenderedMarkdown({ content }) {
+  const contentRef = useRef(null)
+
+  useEffect(() => {
+    if (!contentRef.current) return
+
+    renderMathInElement(contentRef.current, {
+      delimiters: MATH_DELIMITERS,
+      throwOnError: false,
+    })
+  }, [])
+
+  return (
+    <div ref={contentRef}>
+      <ReactMarkdown
+        remarkPlugins={REMARK_PLUGINS}
+        components={MARKDOWN_COMPONENTS}
+      >
+        {content}
+      </ReactMarkdown>
+    </div>
+  )
 }
 
 export function MarkdownBlock({ content }) {
   return (
     <div className="prose prose-sm max-w-none dark:prose-invert">
-      <ReactMarkdown
-        remarkPlugins={REMARK_PLUGINS}
-        rehypePlugins={REHYPE_PLUGINS}
-        components={MARKDOWN_COMPONENTS}
-      >
-        {normalizeMarkdownMath(content)}
-      </ReactMarkdown>
+      {/* KaTeX mutates the rendered DOM, so remount the markdown subtree when content changes. */}
+      <RenderedMarkdown key={content} content={content} />
     </div>
   )
 }
