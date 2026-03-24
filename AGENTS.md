@@ -99,6 +99,7 @@ Current built-in adapter ids:
 
 - `anthropic`
 - `deepseek`
+- `google`
 - `moonshotai`
 - `minimax`
 - `openai`
@@ -124,6 +125,20 @@ Current built-in adapter ids:
 - when `reasoning_effort` is set, the adapter maps it to Anthropic-style manual `budget_tokens`
 - prior reasoning must be replayed on later tool-loop turns when thinking is enabled
 - shares the Anthropic-like ephemeral prompt cache markers used by the direct Anthropic adapter
+
+### `google`
+
+- implemented with the official `google-genai` Python SDK
+- targets the Gemini Developer API
+- default base URL: `https://generativelanguage.googleapis.com`
+- default API key envs: `GEMINI_API_KEY`, `GOOGLE_API_KEY`
+- default models: `gemini-3.1-pro-preview`, `gemini-3-flash-preview`
+- uses `models.generate_content_stream()` with manual function-calling replay so it fits the shared agent loop
+- replays Gemini `Part` metadata through `block.meta.native.part`, preserving function-call ids and thought signatures across tool-loop turns
+- `reasoning_effort` is mapped only for Gemini 3 models through `thinking_level`
+- Gemini 2.5 models can still be requested explicitly, but this adapter does not add extra 2.5-specific compatibility branches
+- when replaying a current-turn tool loop that came from a non-Gemini provider, the adapter adds Gemini's documented dummy thought signature to the first fallback `function_call` part so cross-provider tool loops do not 400
+- streaming responses may emit a thought signature in an empty-text part; that part must still be persisted for correct replay
 
 ### `minimax`
 
@@ -351,6 +366,7 @@ Do not change these casually.
 Runtime Python deps currently include:
 
 - `anthropic`
+- `google-genai`
 - `openai`
 - `fastapi`
 - `uvicorn`
@@ -366,6 +382,9 @@ Package management and execution conventions:
 
 These have been validated during this redesign:
 
+- Gemini function calling requires returning the model turn before the matching function response turn, and function responses should include the exact function-call `id`
+- Gemini thinking models require preserving thought signatures across tool-loop turns when conversation history is reconstructed manually
+- Gemini 3 cross-provider tool-loop fallback can use the documented dummy signatures `context_engineering_is_the_way_to_go` or `skip_thought_signature_validator` when no real signature exists
 - Moonshot recommends Anthropic-compatible Messages for coding-agent style development
 - MiniMax officially documents Anthropic SDK / Messages compatibility and explicitly says full assistant content must be appended on multi-turn function-call flows
 - Moonshot `kimi-k2.5` tool loops work through the Anthropic-compatible endpoint, and prior reasoning must be preserved when thinking is enabled

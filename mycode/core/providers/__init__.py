@@ -2,6 +2,7 @@
 
 from mycode.core.providers.anthropic_like import AnthropicAdapter, MiniMaxAdapter, MoonshotAIAdapter
 from mycode.core.providers.base import ProviderAdapter
+from mycode.core.providers.gemini import GoogleGeminiAdapter
 from mycode.core.providers.lookup import (
     get_provider_adapter,
     is_supported_provider,
@@ -17,6 +18,7 @@ from mycode.core.providers.openai_responses import OpenAIResponsesAdapter
 __all__ = [
     "AnthropicAdapter",
     "ProviderAdapter",
+    "GoogleGeminiAdapter",
     "MiniMaxAdapter",
     "MoonshotAIAdapter",
     "DeepSeekAdapter",
