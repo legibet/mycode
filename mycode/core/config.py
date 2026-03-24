@@ -300,18 +300,27 @@ def resolve_provider(
             api_base=api_base,
         )
 
+    default_provider = (settings.default_provider or "").strip()
+    if default_provider:
+        selected_provider_name, provider_config = _resolve_provider_reference(settings, default_provider)
+        return _resolve_selected_provider(
+            settings,
+            selected_provider_name=selected_provider_name,
+            provider_config=provider_config,
+            model=model,
+            api_key=api_key,
+            api_base=api_base,
+        )
+
     for selected_provider_name, provider_config in _available_provider_references(settings):
-        try:
-            return _resolve_selected_provider(
-                settings,
-                selected_provider_name=selected_provider_name,
-                provider_config=provider_config,
-                model=model,
-                api_key=api_key,
-                api_base=api_base,
-            )
-        except ValueError:
-            continue
+        return _resolve_selected_provider(
+            settings,
+            selected_provider_name=selected_provider_name,
+            provider_config=provider_config,
+            model=model,
+            api_key=api_key,
+            api_base=api_base,
+        )
 
     env_names: list[str] = []
     for provider_id in list_env_discoverable_providers():

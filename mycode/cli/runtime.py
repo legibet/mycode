@@ -6,9 +6,14 @@ from dataclasses import dataclass
 from typing import Any
 
 from mycode.core.agent import Agent
-from mycode.core.config import Settings, get_settings, resolve_provider, resolve_provider_choices
+from mycode.core.config import Settings, get_settings, provider_has_api_key, resolve_provider
 from mycode.core.models import lookup_model_metadata
-from mycode.core.providers import get_provider_adapter, provider_default_models
+from mycode.core.providers import (
+    get_provider_adapter,
+    list_env_discoverable_providers,
+    provider_api_key_from_env,
+    provider_default_models,
+)
 from mycode.core.session import SessionStore
 
 REASONING_EFFORT_OPTIONS = ("auto", "none", "low", "medium", "high", "xhigh")
@@ -38,23 +43,34 @@ class ProviderOption:
 
 
 def list_provider_options(settings: Settings) -> list[ProviderOption]:
-    """Return currently selectable providers for the CLI switcher."""
+    """Return configured providers plus env-discovered built-ins."""
 
     options: list[ProviderOption] = []
-    for resolved in resolve_provider_choices(settings):
-        raw_models = list(provider_default_models(resolved.provider))
-        config = settings.providers.get(resolved.provider_name or "")
-        if config:
-            raw_models = config.models
-        if not raw_models:
-            raw_models = [resolved.model]
+    configured_types: set[str] = set()
+
+    for name, config in settings.providers.items():
+        raw_models = config.models or list(provider_default_models(config.type))
         models = tuple(dict.fromkeys(model.strip() for model in raw_models if model.strip()))
         options.append(
             ProviderOption(
-                name=resolved.provider_name or resolved.provider,
-                provider=resolved.provider,
+                name=name,
+                provider=config.type,
                 models=models,
-                api_base=resolved.api_base,
+                api_base=config.base_url,
+            )
+        )
+        if provider_has_api_key(config):
+            configured_types.add(config.type)
+
+    for provider_name in list_env_discoverable_providers():
+        if provider_name in configured_types or not provider_api_key_from_env(provider_name):
+            continue
+        options.append(
+            ProviderOption(
+                name=provider_name,
+                provider=provider_name,
+                models=provider_default_models(provider_name),
+                api_base=None,
             )
         )
 
