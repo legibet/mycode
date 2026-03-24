@@ -332,10 +332,18 @@ def test_openai_responses_serializes_strict_tool_schemas() -> None:
 
 
 @pytest.mark.parametrize(
-    ("delta", "expected_text", "expected_field"),
+    ("delta", "expected_text", "expected_meta"),
     [
-        (_Obj(reasoning_content="step zero"), "step zero", "reasoning_content"),
-        (_Obj(model_extra={"reasoning_content": "step one"}), "step one", "reasoning_content"),
+        (
+            _Obj(reasoning_content="step zero"),
+            "step zero",
+            {"reasoning_field": "reasoning_content"},
+        ),
+        (
+            _Obj(model_extra={"reasoning_content": "step one"}),
+            "step one",
+            {"reasoning_field": "reasoning_content"},
+        ),
         (
             _Obj(
                 model_extra={
@@ -346,16 +354,22 @@ def test_openai_responses_serializes_strict_tool_schemas() -> None:
                 }
             ),
             "step two",
-            "reasoning_details",
+            {
+                "reasoning_field": "reasoning_details",
+                "reasoning_details": [
+                    {"type": "reasoning.text", "text": "step "},
+                    {"type": "reasoning.text", "text": "two"},
+                ],
+            },
         ),
     ],
 )
-def test_openai_chat_extracts_reasoning_from_known_extra_fields(delta, expected_text, expected_field) -> None:
+def test_openai_chat_extracts_reasoning_from_known_extra_fields(delta, expected_text, expected_meta) -> None:
     adapter = OpenAIChatAdapter()
     text, meta = adapter._extract_reasoning_delta(delta)
 
     assert text == expected_text
-    assert meta["reasoning_field"] == expected_field
+    assert meta == expected_meta
 
 
 def test_provider_prepare_messages_closes_interrupted_tool_loop() -> None:

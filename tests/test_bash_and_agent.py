@@ -61,6 +61,13 @@ class TestToolExecutorBash:
             # Should count 2 words
             assert "2" in result
 
+    def test_bash_runs_in_shell_environment(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            executor = ToolExecutor(cwd=tmpdir, session_dir=Path(tmpdir))
+            result = executor.bash(tool_call_id="test-7", command='printf "%s" "$HOME"')
+
+            assert result == str(Path.home())
+
 
 class TestBashTimeout:
     """Tests for bash timeout handling."""
