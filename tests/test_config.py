@@ -25,6 +25,8 @@ def _clear_provider_env(monkeypatch) -> None:
     for env_name in (
         "ANTHROPIC_API_KEY",
         "ANTHROPIC_AUTH_TOKEN",
+        "GEMINI_API_KEY",
+        "GOOGLE_API_KEY",
         "OPENAI_API_KEY",
         "MOONSHOT_API_KEY",
         "MINIMAX_API_KEY",
@@ -162,6 +164,21 @@ class TestGetSettings:
         assert resolved.provider_type == "moonshotai"
         assert resolved.model == "kimi-k2-thinking"
         assert resolved.api_key == "moonshot-env-key"
+
+    def test_resolve_provider_accepts_raw_google_provider(self, tmp_path: Path, monkeypatch) -> None:
+        home = tmp_path / "home"
+        workspace = tmp_path / "workspace"
+        workspace.mkdir()
+
+        monkeypatch.setenv("MYCODE_HOME", str(home / ".mycode"))
+        monkeypatch.setenv("GEMINI_API_KEY", "gemini-env-key")
+
+        settings = get_settings(str(workspace))
+        resolved = resolve_provider(settings, provider_name="google")
+
+        assert resolved.provider_type == "google"
+        assert resolved.model == "gemini-3.1-pro-preview"
+        assert resolved.api_key == "gemini-env-key"
 
     def test_resolve_provider_auto_discovers_first_available_provider(self, tmp_path: Path, monkeypatch) -> None:
         home = tmp_path / "home"

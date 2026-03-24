@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from mycode.core.providers.anthropic_like import AnthropicAdapter, MiniMaxAdapter, MoonshotAIAdapter
 from mycode.core.providers.base import ProviderAdapter
+from mycode.core.providers.gemini import GoogleGeminiAdapter
 from mycode.core.providers.openai_chat import DeepSeekAdapter, OpenAIChatAdapter, OpenRouterAdapter, ZAIAdapter
 from mycode.core.providers.openai_responses import OpenAIResponsesAdapter
 
@@ -17,6 +18,7 @@ _ADAPTERS: dict[str, ProviderAdapter] = {
     for adapter in (
         AnthropicAdapter(),
         OpenAIResponsesAdapter(),
+        GoogleGeminiAdapter(),
         DeepSeekAdapter(),
         ZAIAdapter(),
         MoonshotAIAdapter(),

@@ -7,6 +7,7 @@ import pytest
 from mycode.core.providers import (
     AnthropicAdapter,
     DeepSeekAdapter,
+    GoogleGeminiAdapter,
     MiniMaxAdapter,
     MoonshotAIAdapter,
     OpenAIChatAdapter,
@@ -14,6 +15,7 @@ from mycode.core.providers import (
     OpenRouterAdapter,
     ZAIAdapter,
 )
+from mycode.core.providers.base import ProviderStreamEvent
 from mycode.core.tools import DEFAULT_TOOL_SPECS
 
 
@@ -329,6 +331,232 @@ def test_openai_responses_serializes_strict_tool_schemas() -> None:
 
     read_schema = next(tool for tool in DEFAULT_TOOL_SPECS if tool.name == "read").input_schema
     assert read_schema["required"] == ["path"]
+
+
+def test_google_gemini_builds_initial_contents() -> None:
+    adapter = GoogleGeminiAdapter()
+    request = cast(
+        Any,
+        _Obj(
+            model="gemini-3-flash-preview",
+            messages=[
+                {
+                    "role": "user",
+                    "content": [{"type": "text", "text": "hello"}],
+                }
+            ],
+        ),
+    )
+
+    assert adapter._build_contents(request) == [{"role": "user", "parts": [{"text": "hello"}]}]
+
+
+def test_google_gemini_falls_back_to_full_replay_for_cross_provider_history() -> None:
+    adapter = GoogleGeminiAdapter()
+    request = cast(
+        Any,
+        _Obj(
+            model="gemini-3-flash-preview",
+            messages=[
+                {"role": "user", "content": [{"type": "text", "text": "double 21"}]},
+                {
+                    "role": "assistant",
+                    "content": [
+                        {"type": "thinking", "text": "Need the tool first."},
+                        {"type": "text", "text": "I will inspect the file."},
+                        {"type": "tool_use", "id": "call_1", "name": "read", "input": {"path": "x.py"}},
+                    ],
+                    "meta": {"provider": "anthropic", "model": "claude-sonnet-4-6"},
+                },
+                {
+                    "role": "user",
+                    "content": [{"type": "tool_result", "tool_use_id": "call_1", "content": "42"}],
+                },
+            ],
+        ),
+    )
+
+    assert adapter._build_contents(request) == [
+        {"role": "user", "parts": [{"text": "double 21"}]},
+        {
+            "role": "model",
+            "parts": [
+                {"text": "Need the tool first.", "thought": True},
+                {"text": "I will inspect the file."},
+                {"function_call": {"id": "call_1", "name": "read", "args": {"path": "x.py"}}},
+            ],
+        },
+        {
+            "role": "user",
+            "parts": [
+                {
+                    "function_response": {
+                        "id": "call_1",
+                        "name": "read",
+                        "response": {"result": "42"},
+                    }
+                }
+            ],
+        },
+    ]
+
+
+def test_google_gemini_replays_native_parts_for_same_provider_history() -> None:
+    adapter = GoogleGeminiAdapter()
+    request = cast(
+        Any,
+        _Obj(
+            model="gemini-3-flash-preview",
+            messages=[
+                {
+                    "role": "assistant",
+                    "content": [
+                        {
+                            "type": "thinking",
+                            "text": "Think",
+                            "meta": {
+                                "native": {
+                                    "part": {
+                                        "text": "Think",
+                                        "thought": True,
+                                        "thought_signature": "c2ln",
+                                    }
+                                }
+                            },
+                        },
+                        {
+                            "type": "tool_use",
+                            "id": "call_1",
+                            "name": "read",
+                            "input": {"path": "x.py"},
+                            "meta": {
+                                "native": {
+                                    "part": {
+                                        "function_call": {
+                                            "id": "call_1",
+                                            "name": "read",
+                                            "args": {"path": "x.py"},
+                                        },
+                                        "thought_signature": "c2ln",
+                                    }
+                                }
+                            },
+                        },
+                    ],
+                    "meta": {"provider": "google", "model": "gemini-3-flash-preview"},
+                },
+                {
+                    "role": "user",
+                    "content": [{"type": "tool_result", "tool_use_id": "call_1", "content": "file contents"}],
+                },
+            ],
+        ),
+    )
+
+    assert adapter._build_contents(request) == [
+        {
+            "role": "model",
+            "parts": [
+                {"text": "Think", "thought": True, "thought_signature": "c2ln"},
+                {
+                    "function_call": {"id": "call_1", "name": "read", "args": {"path": "x.py"}},
+                    "thought_signature": "c2ln",
+                },
+            ],
+        },
+        {
+            "role": "user",
+            "parts": [
+                {
+                    "function_response": {
+                        "id": "call_1",
+                        "name": "read",
+                        "response": {"result": "file contents"},
+                    }
+                }
+            ],
+        },
+    ]
+
+
+def test_google_gemini_build_request_config_maps_reasoning_effort() -> None:
+    adapter = GoogleGeminiAdapter()
+
+    pro_request = cast(
+        Any,
+        _Obj(
+            model="gemini-3.1-pro-preview",
+            system="You are helpful.",
+            tools=[],
+            max_tokens=2048,
+            reasoning_effort="none",
+        ),
+    )
+    flash_request = cast(
+        Any,
+        _Obj(
+            model="gemini-3-flash-preview",
+            system="You are helpful.",
+            tools=[],
+            max_tokens=2048,
+            reasoning_effort="none",
+        ),
+    )
+
+    pro_config = adapter._build_config(pro_request).model_dump(mode="json", exclude_none=True)
+    flash_config = adapter._build_config(flash_request).model_dump(mode="json", exclude_none=True)
+
+    assert pro_config["thinking_config"] == {"include_thoughts": True, "thinking_level": "LOW"}
+    assert flash_config["thinking_config"] == {"include_thoughts": True, "thinking_level": "MINIMAL"}
+
+
+def test_google_gemini_streaming_parts_merge_into_final_blocks() -> None:
+    adapter = GoogleGeminiAdapter()
+    blocks: list[dict[str, Any]] = []
+
+    events = adapter._consume_part(
+        blocks,
+        _Obj(text="step ", thought=True, thought_signature=None, function_call=None),
+    )
+    assert events == [ProviderStreamEvent("thinking_delta", {"text": "step "})]
+
+    events = adapter._consume_part(
+        blocks,
+        _Obj(text="one", thought=True, thought_signature="c2ln", function_call=None),
+    )
+    assert events == [ProviderStreamEvent("thinking_delta", {"text": "one"})]
+
+    events = adapter._consume_part(
+        blocks,
+        _Obj(
+            text=None,
+            thought=False,
+            thought_signature="c2ln",
+            function_call=_Obj(id="call_1", name="read", args={"path": "x.py"}),
+        ),
+    )
+    assert events == []
+    assert blocks == [
+        {
+            "type": "thinking",
+            "text": "step one",
+            "meta": {"native": {"part": {"text": "step one", "thought": True, "thought_signature": "c2ln"}}},
+        },
+        {
+            "type": "tool_use",
+            "id": "call_1",
+            "name": "read",
+            "input": {"path": "x.py"},
+            "meta": {
+                "native": {
+                    "part": {
+                        "function_call": {"id": "call_1", "name": "read", "args": {"path": "x.py"}},
+                        "thought_signature": "c2ln",
+                    }
+                }
+            },
+        },
+    ]
 
 
 @pytest.mark.parametrize(
