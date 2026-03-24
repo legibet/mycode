@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import os
 import queue
+import shlex
 import signal
 import subprocess
 import threading
@@ -30,6 +31,7 @@ from typing import Any, TextIO, cast
 
 DEFAULT_MAX_LINES = 2000
 DEFAULT_MAX_BYTES = 50 * 1024
+READ_MAX_LINE_CHARS = 2000
 
 BASH_TIMEOUT_SECONDS = 120
 _BASH_MAX_IN_MEMORY_BYTES = 5_000_000
@@ -49,7 +51,10 @@ class ToolSpec:
 DEFAULT_TOOL_SPECS: tuple[ToolSpec, ...] = (
     ToolSpec(
         name="read",
-        description="Read a file. Text output is truncated to 2000 lines or 50KB. Use offset/limit for large files.",
+        description=(
+            "Read a UTF-8 text file. Returns up to 2000 lines. "
+            "Use offset/limit for large files. Very long lines are shortened."
+        ),
         input_schema={
             "type": "object",
             "properties": {
@@ -95,7 +100,7 @@ DEFAULT_TOOL_SPECS: tuple[ToolSpec, ...] = (
         name="bash",
         description=(
             "Run a shell command in the session working directory. "
-            "Output is truncated; if truncated, the full output is written to a file."
+            "Large output returns the tail and saves the full log to a file."
         ),
         input_schema={
             "type": "object",
@@ -134,7 +139,11 @@ class Truncation:
 
 
 def truncate_text(
-    text: str, *, max_lines: int = DEFAULT_MAX_LINES, max_bytes: int = DEFAULT_MAX_BYTES
+    text: str,
+    *,
+    max_lines: int = DEFAULT_MAX_LINES,
+    max_bytes: int = DEFAULT_MAX_BYTES,
+    tail: bool = False,
 ) -> tuple[str, Truncation]:
     """Truncate text by both line and byte limits.
 
@@ -145,13 +154,20 @@ def truncate_text(
     out_lines: list[str] = []
     out_bytes = 0
 
-    for line in lines[:max_lines]:
+    source = reversed(lines) if tail else lines
+
+    for line in source:
+        if len(out_lines) >= max_lines:
+            break
         # +1 for newline when joined later
         b = len((line + "\n").encode("utf-8"))
         if out_bytes + b > max_bytes:
             break
         out_lines.append(line)
         out_bytes += b
+
+    if tail:
+        out_lines.reverse()
 
     content = "\n".join(out_lines)
     truncated = len(out_lines) < len(lines) or out_bytes < len(text.encode("utf-8"))
@@ -210,13 +226,6 @@ def _atomic_write_text(path: Path, content: str) -> None:
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(content, encoding="utf-8")
     tmp.replace(path)
-
-
-def _full_output_note(path: Path | None, *, in_memory: bool) -> str:
-    note = "\n\n[Output truncated in memory.]" if in_memory else "\n\n[Output truncated.]"
-    if path is not None:
-        note += f" Full output saved to: {path} (use read)."
-    return note
 
 
 # ---------------------------------------------------------------------------
@@ -371,45 +380,65 @@ class ToolExecutor:
             return error
         assert file_path is not None
 
+        start_line = offset if offset and offset > 0 else 1
+        line_limit = limit if limit and limit > 0 else DEFAULT_MAX_LINES
+        lines: list[str] = []
+        total_lines = 0
+        next_offset: int | None = None
+        first_shortened_line: int | None = None
+        shortened_lines = 0
+
         try:
-            raw = file_path.read_bytes()
+            with file_path.open("r", encoding="utf-8") as f:
+                for total_lines, raw_line in enumerate(f, start=1):
+                    if total_lines < start_line:
+                        continue
+                    if len(lines) >= line_limit:
+                        next_offset = total_lines
+                        break
+
+                    # Keep reads predictable: page by lines and only shorten pathological lines.
+                    line = raw_line.rstrip("\r\n")
+                    if len(line) > READ_MAX_LINE_CHARS:
+                        if first_shortened_line is None:
+                            first_shortened_line = total_lines
+                        shortened_lines += 1
+                        line = line[:READ_MAX_LINE_CHARS] + " ... [line truncated]"
+                    lines.append(line)
+        except UnicodeDecodeError:
+            return f"error: file is not valid utf-8 text: {path}"
         except Exception as exc:
             return f"error: failed to read file: {exc}"
 
-        try:
-            text = raw.decode("utf-8")
-        except UnicodeDecodeError:
-            return f"error: file is not valid utf-8 text: {path}"
-
-        all_lines = text.splitlines()
-        total_lines = len(all_lines)
-
-        start = max(0, (offset or 1) - 1)
-        if start >= total_lines:
+        if total_lines < start_line and not (total_lines == 0 and start_line == 1):
             return f"error: offset {offset} beyond end of file ({total_lines} lines)"
 
-        selected = all_lines[start : start + (limit or total_lines)]
-        selected_text = "\n".join(selected)
+        parts: list[str] = []
+        content = "\n".join(lines)
+        if content:
+            parts.append(content)
 
-        content, trunc = truncate_text(selected_text)
+        if next_offset is not None:
+            parts.append(f"[Showing lines {start_line}-{next_offset - 1}. Use offset={next_offset} to continue.]")
 
-        if trunc.truncated:
-            shown_from = start + 1
-            shown_to = start + trunc.output_lines
-            next_offset = shown_to + 1
-            note = (
-                f"\n\n[Showing lines {shown_from}-{shown_to} of {total_lines} "
-                f"({_format_size(DEFAULT_MAX_BYTES)} limit). Use offset={next_offset} to continue.]"
+        if first_shortened_line is not None:
+            quoted = shlex.quote(str(file_path))
+            prefix = f"[Line {first_shortened_line} was shortened to {READ_MAX_LINE_CHARS} chars."
+            if shortened_lines > 1:
+                prefix = (
+                    f"[{shortened_lines} lines were shortened to {READ_MAX_LINE_CHARS} chars. "
+                    f"First shortened line: {first_shortened_line}."
+                )
+            parts.append(
+                f"{prefix}\n"
+                "Use bash to inspect it in bytes:\n"
+                f"sed -n '{first_shortened_line}p' {quoted} | head -c 2000\n"
+                f"sed -n '{first_shortened_line}p' {quoted} | tail -c +2001 | head -c 2000]"
             )
-            return content + note
 
-        # User-limited (but not truncated)
-        if limit is not None and (start + len(selected)) < total_lines:
-            next_offset = start + len(selected) + 1
-            remaining = total_lines - (start + len(selected))
-            return content + f"\n\n[{remaining} more lines. Use offset={next_offset} to continue.]"
-
-        return content
+        if not parts:
+            return ""
+        return "\n\n".join(parts)
 
     # ---- write ----------------------------------------------------------------
 
@@ -625,20 +654,28 @@ class ToolExecutor:
             output_lines = list(tail_lines) if spilled_to_file else out_lines
             raw_output = "\n".join(output_lines)
             output = raw_output.strip() or "(empty)"
-            content, trunc = truncate_text(output)
+            content, trunc = truncate_text(output, tail=True)
 
-            if spilled_to_file:
-                return content + _full_output_note(full_path, in_memory=True)
-
-            if trunc.truncated:
-                # Write full output to session file for later read
+            if not spilled_to_file and trunc.truncated:
                 full_path = log_path
                 try:
                     full_path.write_text(raw_output, encoding="utf-8")
                 except Exception:
                     full_path = None
 
-                return content + _full_output_note(full_path, in_memory=False)
+            if spilled_to_file or trunc.truncated:
+                result = content
+                result += "\n\n[Output truncated in memory.]" if spilled_to_file else "\n\n[Output truncated.]"
+                if full_path is not None:
+                    result += f" Full output saved to: {full_path}. Use read with offset/limit."
+                    if not content:
+                        quoted = shlex.quote(str(full_path))
+                        result += (
+                            "\nUse bash to inspect bytes:\n"
+                            f"head -c 2000 {quoted}\n"
+                            f"tail -c +2001 {quoted} | head -c 2000"
+                        )
+                return result
 
             return content
 

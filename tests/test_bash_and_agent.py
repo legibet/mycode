@@ -111,6 +111,8 @@ class TestBashTruncation:
             )
 
             assert "truncated" in result.lower() or "showing" in result.lower()
+            assert "line 3000" in result
+            assert "Use read with offset/limit" in result
             # Full output should be saved to file
             tool_output_dir = Path(tmpdir) / "tool-output"
             assert (tool_output_dir / "bash-test-large.log").exists()
@@ -128,6 +130,18 @@ class TestBashTruncation:
             # Log file should contain all lines
             content = log_file.read_text()
             assert "3000" in content
+
+    def test_bash_long_single_line_adds_byte_slice_hint(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            executor = ToolExecutor(cwd=tmpdir, session_dir=Path(tmpdir))
+            result = executor.bash(
+                tool_call_id="long-line",
+                command="python -c \"print('x' * 60000, end='')\"",
+            )
+
+            assert "Full output saved to:" in result
+            assert "Use bash to inspect bytes:" in result
+            assert "head -c 2000" in result
 
 
 class TestBashCallback:

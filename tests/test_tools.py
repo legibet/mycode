@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from mycode.core.tools import (
+    READ_MAX_LINE_CHARS,
     ToolExecutor,
     Truncation,
     _format_size,
@@ -86,6 +87,16 @@ class TestTruncateText:
         assert content == "single line"
         assert trunc.truncated is False
         assert trunc.output_lines == 1
+
+    def test_tail_truncation_keeps_last_lines(self):
+        text = "\n".join([f"line {i}" for i in range(20)])
+        content, trunc = truncate_text(text, max_lines=5, max_bytes=1000, tail=True)
+
+        assert trunc.truncated is True
+        assert trunc.truncated_by == "lines"
+        assert "line 19" in content
+        assert "line 15" in content
+        assert "line 14" not in content
 
 
 class TestFormatSize:
@@ -210,13 +221,25 @@ class TestToolExecutorRead:
         with tempfile.TemporaryDirectory() as tmpdir:
             executor = ToolExecutor(cwd=tmpdir, session_dir=Path(tmpdir))
             test_file = Path(tmpdir) / "large.txt"
-            # Create a file larger than default truncation limits
+            # Create a file larger than the default line window
             lines = [f"line {i}" for i in range(3000)]
             test_file.write_text("\n".join(lines))
 
             result = executor.read(path="large.txt")
-            assert "truncated" in result.lower() or "Showing lines" in result
-            assert "offset=" in result
+            assert "[Showing lines 1-2000. Use offset=2001 to continue.]" in result
+
+    def test_read_shortens_long_line_and_adds_slice_hint(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            executor = ToolExecutor(cwd=tmpdir, session_dir=Path(tmpdir))
+            test_file = Path(tmpdir) / "long.txt"
+            test_file.write_text("short\n" + ("x" * (READ_MAX_LINE_CHARS + 50)))
+
+            result = executor.read(path="long.txt")
+
+            assert "... [line truncated]" in result
+            assert f"shortened to {READ_MAX_LINE_CHARS} chars" in result
+            assert "sed -n '2p'" in result
+            assert "head -c 2000" in result
 
 
 class TestToolExecutorWrite:
