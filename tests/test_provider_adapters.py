@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any, cast
 
+import pytest
+
 from mycode.core.providers import (
     AnthropicAdapter,
     DeepSeekAdapter,
@@ -329,30 +331,31 @@ def test_openai_responses_serializes_strict_tool_schemas() -> None:
     assert read_schema["required"] == ["path"]
 
 
-def test_openai_chat_extracts_reasoning_from_known_extra_fields() -> None:
+@pytest.mark.parametrize(
+    ("delta", "expected_text", "expected_field"),
+    [
+        (_Obj(reasoning_content="step zero"), "step zero", "reasoning_content"),
+        (_Obj(model_extra={"reasoning_content": "step one"}), "step one", "reasoning_content"),
+        (
+            _Obj(
+                model_extra={
+                    "reasoning_details": [
+                        {"type": "reasoning.text", "text": "step "},
+                        {"type": "reasoning.text", "text": "two"},
+                    ]
+                }
+            ),
+            "step two",
+            "reasoning_details",
+        ),
+    ],
+)
+def test_openai_chat_extracts_reasoning_from_known_extra_fields(delta, expected_text, expected_field) -> None:
     adapter = OpenAIChatAdapter()
-
-    delta = _Obj(reasoning_content="step zero")
     text, meta = adapter._extract_reasoning_delta(delta)
-    assert text == "step zero"
-    assert meta == {"reasoning_field": "reasoning_content"}
 
-    delta = _Obj(model_extra={"reasoning_content": "step one"})
-    text, meta = adapter._extract_reasoning_delta(delta)
-    assert text == "step one"
-    assert meta == {"reasoning_field": "reasoning_content"}
-
-    delta = _Obj(
-        model_extra={
-            "reasoning_details": [
-                {"type": "reasoning.text", "text": "step "},
-                {"type": "reasoning.text", "text": "two"},
-            ]
-        }
-    )
-    text, meta = adapter._extract_reasoning_delta(delta)
-    assert text == "step two"
-    assert meta["reasoning_field"] == "reasoning_details"
+    assert text == expected_text
+    assert meta["reasoning_field"] == expected_field
 
 
 def test_provider_prepare_messages_closes_interrupted_tool_loop() -> None:
@@ -506,7 +509,14 @@ def test_anthropic_prepare_messages_normalizes_tool_ids() -> None:
     ]
 
 
-def test_openai_chat_replays_reasoning_by_default() -> None:
+@pytest.mark.parametrize(
+    "thinking_block",
+    [
+        {"type": "thinking", "text": "think", "meta": {"native": {"reasoning_field": "reasoning_content"}}},
+        {"type": "thinking", "text": "think"},
+    ],
+)
+def test_openai_chat_replays_reasoning_by_default(thinking_block: dict[str, Any]) -> None:
     adapter = OpenAIChatAdapter()
 
     payload_messages = adapter._build_messages(
@@ -514,26 +524,7 @@ def test_openai_chat_replays_reasoning_by_default() -> None:
             {
                 "role": "assistant",
                 "content": [
-                    {"type": "thinking", "text": "think", "meta": {"native": {"reasoning_field": "reasoning_content"}}},
-                    {"type": "text", "text": "answer"},
-                ],
-            }
-        ],
-        system="",
-    )
-
-    assert payload_messages[0]["reasoning_content"] == "think"
-
-
-def test_openai_chat_defaults_cross_provider_thinking_to_reasoning_content() -> None:
-    adapter = OpenAIChatAdapter()
-
-    payload_messages = adapter._build_messages(
-        [
-            {
-                "role": "assistant",
-                "content": [
-                    {"type": "thinking", "text": "think"},
+                    thinking_block,
                     {"type": "text", "text": "answer"},
                 ],
             }
@@ -605,31 +596,8 @@ def test_anthropic_replays_native_block_metadata() -> None:
     }
 
 
-def test_anthropic_replays_thinking_without_signature() -> None:
-    adapter = MoonshotAIAdapter()
-
-    payload = adapter._serialize_message(
-        {
-            "role": "assistant",
-            "content": [
-                {"type": "thinking", "text": "Need the tool result first."},
-                {"type": "tool_use", "id": "call_1", "name": "read", "input": {}},
-            ],
-        }
-    )
-
-    assert payload == {
-        "role": "assistant",
-        "content": [
-            {"type": "thinking", "thinking": "Need the tool result first."},
-            {"type": "tool_use", "id": "call_1", "name": "read", "input": {}},
-        ],
-    }
-
-
-def test_anthropic_replays_unsigned_thinking_without_signature() -> None:
-    adapter = AnthropicAdapter()
-
+@pytest.mark.parametrize("adapter", [MoonshotAIAdapter(), AnthropicAdapter()])
+def test_anthropic_like_replays_unsigned_thinking_without_signature(adapter) -> None:
     payload = adapter._serialize_message(
         {
             "role": "assistant",

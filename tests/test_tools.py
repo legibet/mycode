@@ -1,5 +1,6 @@
 """Basic tests for tool execution and truncation."""
 
+import json
 import tempfile
 from pathlib import Path
 
@@ -12,6 +13,20 @@ from mycode.core.tools import (
     parse_tool_arguments,
     truncate_text,
 )
+
+
+def assert_edit_ok(
+    result: str,
+    *,
+    start_line: int,
+    old_line_count: int,
+    new_line_count: int,
+) -> None:
+    payload = json.loads(result)
+    assert payload["status"] == "ok"
+    assert payload["start_line"] == start_line
+    assert payload["old_line_count"] == old_line_count
+    assert payload["new_line_count"] == new_line_count
 
 
 class TestTruncateText:
@@ -249,7 +264,7 @@ class TestToolExecutorEdit:
             test_file.write_text("Hello, World!")
 
             result = executor.edit(path="test.txt", oldText="World", newText="Universe")
-            assert result == "ok"
+            assert_edit_ok(result, start_line=1, old_line_count=1, new_line_count=1)
             assert test_file.read_text() == "Hello, Universe!"
 
     def test_edit_not_found(self):
@@ -274,15 +289,14 @@ class TestToolExecutorEdit:
             # Should not have changed
             assert test_file.read_text() == "apple apple apple"
 
-    def test_edit_exact_match_required(self):
+    def test_edit_exact_snippet_replacement(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             executor = ToolExecutor(cwd=tmpdir, session_dir=Path(tmpdir))
             test_file = Path(tmpdir) / "test.txt"
             test_file.write_text("Hello World")
 
-            # Partial match should not work
             result = executor.edit(path="test.txt", oldText="Hello", newText="Hi")
-            assert result == "ok"
+            assert_edit_ok(result, start_line=1, old_line_count=1, new_line_count=1)
             assert test_file.read_text() == "Hi World"
 
     def test_edit_nonexistent_file(self):
@@ -316,7 +330,7 @@ class TestToolExecutorEdit:
                 newText="def f():\n    return 2\n",
             )
 
-            assert result == "ok"
+            assert_edit_ok(result, start_line=1, old_line_count=2, new_line_count=2)
             assert test_file.read_text() == "def f():\n    return 2\n"
 
     def test_edit_fuzzy_matches_crlf(self):
@@ -327,7 +341,7 @@ class TestToolExecutorEdit:
 
             result = executor.edit(path="test.txt", oldText="line1\nline2\n", newText="line1\nlineX\n")
 
-            assert result == "ok"
+            assert_edit_ok(result, start_line=1, old_line_count=2, new_line_count=2)
             assert test_file.read_text(encoding="utf-8") == "line1\nlineX\n"
 
     def test_edit_fuzzy_requires_unique_match(self):

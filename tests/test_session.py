@@ -17,17 +17,6 @@ def temp_store():
         yield store
 
 
-@pytest.fixture
-def sample_session(temp_store):
-    """Create a sample session for testing."""
-    return temp_store.create_session(
-        title="Test Session",
-        model="gpt-5.4",
-        cwd="/tmp",
-        api_base=None,
-    )
-
-
 def test_default_store_uses_mycode_home(tmp_path, monkeypatch):
     mycode_home = tmp_path / ".mycode"
     monkeypatch.setenv("MYCODE_HOME", str(mycode_home))

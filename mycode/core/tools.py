@@ -444,7 +444,9 @@ class ToolExecutor:
 
         # Exact match first (deterministic and preferred)
         exact_count = text.count(oldText)
+        match_pos: int | None = None
         if exact_count == 1:
+            match_pos = text.index(oldText)
             updated = text.replace(oldText, newText, 1)
         elif exact_count > 1:
             return f"error: oldText occurs {exact_count} times; provide a more specific oldText"
@@ -464,6 +466,7 @@ class ToolExecutor:
                 return "error: oldText not found"
 
             start, end = fuzzy_span
+            match_pos = start
             updated = text[:start] + newText + text[end:]
 
         try:
@@ -471,15 +474,23 @@ class ToolExecutor:
         except Exception as exc:
             return f"error: failed to write file: {exc}"
 
-        return self._edit_result(text, updated, oldText, newText)
+        return self._edit_result(text, updated, oldText, newText, match_pos=match_pos)
 
     @staticmethod
-    def _edit_result(original: str, updated: str, old_text: str, new_text: str) -> str:
+    def _edit_result(
+        original: str,
+        updated: str,
+        old_text: str,
+        new_text: str,
+        *,
+        match_pos: int | None = None,
+    ) -> str:
         """Build a JSON result with line context for the frontend diff view."""
         import json
 
         _CTX = 3
-        match_pos = original.index(old_text)
+        if match_pos is None:
+            match_pos = original.index(old_text)
         start_line = original[:match_pos].count("\n") + 1  # 1-indexed
 
         old_lc = len(old_text.splitlines()) or 1

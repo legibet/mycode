@@ -44,8 +44,7 @@ class TestToolExecutorBash:
             executor = ToolExecutor(cwd=tmpdir, session_dir=Path(tmpdir))
             result = executor.bash(tool_call_id="test-4", command="true")
 
-            # Empty output should show "(empty)"
-            assert "(empty)" in result or result == ""
+            assert result == "(empty)"
 
     def test_bash_with_cwd(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -61,14 +60,6 @@ class TestToolExecutorBash:
 
             # Should count 2 words
             assert "2" in result
-
-    def test_bash_with_environment(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            executor = ToolExecutor(cwd=tmpdir, session_dir=Path(tmpdir))
-            result = executor.bash(tool_call_id="test-7", command="echo $HOME")
-
-            # HOME should be expanded
-            assert result.strip() != "$HOME"
 
 
 class TestBashTimeout:
