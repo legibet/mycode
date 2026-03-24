@@ -6,7 +6,7 @@ const STORAGE_KEY = 'mycode_config'
 const HISTORY_KEY = 'mycode_cwd_history'
 
 const DEFAULT_CONFIG = {
-  provider: '', // configured alias or raw any-llm provider id; empty = use server default
+  provider: '', // configured alias or raw provider id; empty = use server default
   model: '',
   cwd: '.',
   apiKey: '',

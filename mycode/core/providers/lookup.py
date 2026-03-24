@@ -33,8 +33,8 @@ def list_supported_providers() -> list[str]:
     return sorted(_ADAPTERS)
 
 
-def list_auto_discoverable_providers() -> list[str]:
-    """Return provider ids that can be selected from env vars alone."""
+def list_env_discoverable_providers() -> list[str]:
+    """Return built-in provider ids that can be discovered from env vars alone."""
 
     return [provider_id for provider_id, adapter in _ADAPTERS.items() if adapter.auto_discoverable]
 

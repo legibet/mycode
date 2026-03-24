@@ -14,7 +14,7 @@ from mycode.core.models import ModelMetadata, lookup_model_metadata
 from mycode.core.providers import (
     get_provider_adapter,
     is_supported_provider,
-    list_auto_discoverable_providers,
+    list_env_discoverable_providers,
     list_supported_providers,
     provider_api_key_from_env,
     provider_default_models,
@@ -289,7 +289,71 @@ def resolve_provider(
     Used by both CLI and server to avoid duplicating resolution logic.
     """
 
-    selected_provider_name, provider_config = _select_provider(settings, provider_name=provider_name)
+    if provider_name:
+        selected_provider_name, provider_config = _resolve_provider_reference(settings, provider_name)
+        return _resolve_selected_provider(
+            settings,
+            selected_provider_name=selected_provider_name,
+            provider_config=provider_config,
+            model=model,
+            api_key=api_key,
+            api_base=api_base,
+        )
+
+    for selected_provider_name, provider_config in _available_provider_references(settings):
+        try:
+            return _resolve_selected_provider(
+                settings,
+                selected_provider_name=selected_provider_name,
+                provider_config=provider_config,
+                model=model,
+                api_key=api_key,
+                api_base=api_base,
+            )
+        except ValueError:
+            continue
+
+    env_names: list[str] = []
+    for provider_id in list_env_discoverable_providers():
+        for env_name in provider_env_api_key_names(provider_id):
+            if env_name not in env_names:
+                env_names.append(env_name)
+    checked = ", ".join(env_names) or "<api key env>"
+    raise ValueError(
+        "no available providers found; set one of the supported API key env vars "
+        f"({checked}) or configure a provider in ~/.mycode/config.json or <workspace>/.mycode/config.json"
+    )
+
+
+def resolve_provider_choices(settings: Settings) -> list[ResolvedProvider]:
+    """Return currently selectable providers in stable selection order."""
+
+    providers: list[ResolvedProvider] = []
+    for selected_provider_name, provider_config in _available_provider_references(settings):
+        try:
+            providers.append(
+                _resolve_selected_provider(
+                    settings,
+                    selected_provider_name=selected_provider_name,
+                    provider_config=provider_config,
+                )
+            )
+        except ValueError:
+            continue
+    return providers
+
+
+def _resolve_selected_provider(
+    settings: Settings,
+    *,
+    selected_provider_name: str,
+    provider_config: ProviderConfig | None,
+    model: str | None = None,
+    api_key: str | None = None,
+    api_base: str | None = None,
+) -> ResolvedProvider:
+    """Resolve one explicit provider reference into a runnable runtime config."""
+
     resolved_provider = provider_config.type if provider_config else selected_provider_name
 
     resolved_model = _resolve_model_name(
@@ -339,42 +403,45 @@ def resolve_provider(
     )
 
 
-def _select_provider(settings: Settings, *, provider_name: str | None) -> tuple[str, ProviderConfig | None]:
-    """Select the provider alias/raw id to use for this run.
+def _available_provider_references(settings: Settings) -> list[tuple[str, ProviderConfig | None]]:
+    """Return usable provider references with configured default first."""
 
-    Resolution order is:
+    available: list[tuple[str, ProviderConfig | None]] = []
+    seen: set[str] = set()
+    configured_available_types: set[str] = set()
 
-    1. explicit request provider
-    2. configured default provider
-    3. first configured provider with available credentials
-    4. first auto-discoverable built-in provider with env credentials
-    """
+    def add(provider_name: str | None) -> None:
+        cleaned_name = (provider_name or "").strip()
+        if not cleaned_name or cleaned_name in seen:
+            return
 
-    if provider_name:
-        return _resolve_provider_reference(settings, provider_name)
+        try:
+            selected_provider_name, provider_config = _resolve_provider_reference(settings, cleaned_name)
+        except ValueError:
+            return
 
-    default_provider = (settings.default_provider or "").strip()
-    if default_provider:
-        return _resolve_provider_reference(settings, default_provider)
+        if provider_config:
+            if not provider_has_api_key(provider_config):
+                return
+            configured_available_types.add(provider_config.type)
+        elif not provider_api_key_from_env(selected_provider_name):
+            return
+
+        seen.add(selected_provider_name)
+        available.append((selected_provider_name, provider_config))
+
+    add((settings.default_provider or "").strip())
 
     for name, provider in settings.providers.items():
         if provider_has_api_key(provider):
-            return name, provider
+            add(name)
 
-    for provider_id in list_auto_discoverable_providers():
-        if provider_api_key_from_env(provider_id):
-            return provider_id, None
+    for provider_id in list_env_discoverable_providers():
+        if provider_id in configured_available_types or not provider_api_key_from_env(provider_id):
+            continue
+        add(provider_id)
 
-    env_names: list[str] = []
-    for provider_id in list_auto_discoverable_providers():
-        for env_name in provider_env_api_key_names(provider_id):
-            if env_name not in env_names:
-                env_names.append(env_name)
-    checked = ", ".join(env_names) or "<api key env>"
-    raise ValueError(
-        "no available providers found; set one of the supported API key env vars "
-        f"({checked}) or configure a provider in ~/.mycode/config.json or <workspace>/.mycode/config.json"
-    )
+    return available
 
 
 def _resolve_provider_reference(settings: Settings, provider_name: str) -> tuple[str, ProviderConfig | None]:

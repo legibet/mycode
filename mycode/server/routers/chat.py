@@ -12,14 +12,14 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
 from mycode.core.agent import Agent
-from mycode.core.config import get_settings, normalize_reasoning_effort, provider_has_api_key, resolve_provider
-from mycode.core.models import lookup_model_metadata
-from mycode.core.providers import (
-    get_provider_adapter,
-    list_auto_discoverable_providers,
-    provider_api_key_from_env,
-    provider_default_models,
+from mycode.core.config import (
+    get_settings,
+    normalize_reasoning_effort,
+    resolve_provider,
+    resolve_provider_choices,
 )
+from mycode.core.models import lookup_model_metadata
+from mycode.core.providers import get_provider_adapter, provider_default_models
 from mycode.server.deps import RunManagerDep, StoreDep
 from mycode.server.run_manager import ActiveRunError, RunState
 from mycode.server.schemas import ChatRequest, StreamEvent
@@ -167,58 +167,45 @@ async def cancel_run(run_id: str, runs: RunManagerDep):
 async def get_config(cwd: str | None = None):
     resolved_cwd = os.path.abspath(cwd or os.getcwd())
     settings = get_settings(resolved_cwd)
-    resolved_provider_name = settings.default_provider or ""
     try:
         resolved = resolve_provider(settings)
-        resolved_provider_name = resolved.provider_name
-        default_model = resolved.model
-    except ValueError:
-        default_model = (settings.default_model or "").strip()
+    except ValueError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
     providers_info: dict[str, Any] = {}
-    for name, provider in settings.providers.items():
-        adapter = get_provider_adapter(provider.type)
-        models = provider.models
-        info: dict[str, Any] = {
-            "name": provider.name,
-            "provider": provider.type,
-            "type": provider.type,
-            "models": models,
-            "base_url": provider.base_url or "",
-            "has_api_key": provider_has_api_key(provider),
-        }
-        if adapter.supports_reasoning_effort:
-            info["supports_reasoning_effort"] = True
-            info["reasoning_models"] = _reasoning_models(provider.type, name, models, provider.base_url or "")
-            info["reasoning_effort"] = provider.reasoning_effort
-        providers_info[name] = info
+    for provider in resolve_provider_choices(settings):
+        adapter = get_provider_adapter(provider.provider)
+        models = list(provider_default_models(provider.provider))
+        provider_config = settings.providers.get(provider.provider_name or "")
+        if provider_config:
+            models = provider_config.models
+        if not models:
+            models = [provider.model]
 
-    configured_available_types = {
-        provider.type for provider in settings.providers.values() if provider_has_api_key(provider)
-    }
-    for provider_name in list_auto_discoverable_providers():
-        if provider_name in configured_available_types or not provider_api_key_from_env(provider_name):
-            continue
-        adapter = get_provider_adapter(provider_name)
-        models = list(provider_default_models(provider_name))
-        info = {
-            "name": provider_name,
-            "provider": provider_name,
-            "type": provider_name,
+        info: dict[str, Any] = {
+            "name": provider.provider_name,
+            "provider": provider.provider,
+            "type": provider.provider,
             "models": models,
-            "base_url": "",
+            "base_url": provider.api_base or "",
             "has_api_key": True,
         }
         if adapter.supports_reasoning_effort:
             info["supports_reasoning_effort"] = True
-            info["reasoning_models"] = _reasoning_models(provider_name, provider_name, models, "")
-        providers_info[provider_name] = info
+            info["reasoning_models"] = _reasoning_models(
+                provider.provider,
+                provider.provider_name or provider.provider,
+                models,
+                provider.api_base or "",
+            )
+            info["reasoning_effort"] = provider.reasoning_effort
+        providers_info[provider.provider_name or provider.provider] = info
 
     return {
         "providers": providers_info,
         "default": {
-            "provider": resolved_provider_name,
-            "model": default_model,
+            "provider": resolved.provider_name,
+            "model": resolved.model,
         },
         "default_reasoning_effort": settings.default_reasoning_effort,
         "reasoning_effort_options": REASONING_EFFORT_OPTIONS,

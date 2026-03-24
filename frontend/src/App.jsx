@@ -24,7 +24,14 @@ import {
 async function fetchJson(url) {
   const response = await fetch(url)
   if (!response.ok) {
-    throw new Error(`Request failed with status ${response.status}`)
+    let message = `Request failed with status ${response.status}`
+    try {
+      const data = await response.json()
+      if (typeof data?.detail === 'string' && data.detail) {
+        message = data.detail
+      }
+    } catch {}
+    throw new Error(message)
   }
   return response.json()
 }
@@ -36,12 +43,16 @@ function AppContent() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const { theme, setTheme } = useTheme()
   const configUrl = `/api/config?cwd=${encodeURIComponent(config.cwd)}`
-  const { data: remoteConfig = null } = useSWR(configUrl, fetchJson, {
-    keepPreviousData: true,
-    onError: (error) => {
-      console.error('Failed to load config:', error)
+  const { data: remoteConfig = null, error: remoteConfigError } = useSWR(
+    configUrl,
+    fetchJson,
+    {
+      keepPreviousData: true,
+      onError: (error) => {
+        console.error('Failed to load config:', error)
+      },
     },
-  })
+  )
 
   const {
     messages,
@@ -60,16 +71,24 @@ function AppContent() {
 
     setConfig((prev) => {
       const providers = remoteConfig.providers || {}
-      const providerNames = Object.keys(providers)
-      const currentProviderValid =
-        prev.provider && providerNames.includes(prev.provider)
-      if (currentProviderValid) return prev
+      const currentProvider = providers[prev.provider]
+      if (currentProvider) {
+        const nextModel = currentProvider.models?.includes(prev.model)
+          ? prev.model
+          : currentProvider.models?.[0] || ''
+        if (prev.model === nextModel) return prev
 
-      const nextProvider = remoteConfig.default?.provider || ''
-      const nextModel =
-        remoteConfig.default?.model ||
-        providers[nextProvider]?.models?.[0] ||
-        ''
+        const updated = {
+          ...prev,
+          model: nextModel,
+          reasoningEffort: '',
+        }
+        saveConfig(updated)
+        return updated
+      }
+
+      const nextProvider = remoteConfig.default.provider
+      const nextModel = remoteConfig.default.model
       if (prev.provider === nextProvider && prev.model === nextModel)
         return prev
 
@@ -77,6 +96,7 @@ function AppContent() {
         ...prev,
         provider: nextProvider,
         model: nextModel,
+        reasoningEffort: '',
       }
       saveConfig(updated)
       return updated
@@ -157,20 +177,30 @@ function AppContent() {
             onCreateSession={handleCreateSession}
           />
 
-          <MessageList messages={messages} loading={loading} />
+          {remoteConfigError && !remoteConfig ? (
+            <div className="flex flex-1 items-center justify-center px-6">
+              <div className="max-w-xl font-mono text-xs leading-6 text-muted-foreground">
+                {remoteConfigError.message}
+              </div>
+            </div>
+          ) : (
+            <>
+              <MessageList messages={messages} loading={loading} />
 
-          {/* Gradient fade above input */}
-          <div className="pointer-events-none absolute bottom-0 left-0 right-0 h-24 bg-gradient-to-t from-background via-background/80 to-transparent" />
+              {/* Gradient fade above input */}
+              <div className="pointer-events-none absolute bottom-0 left-0 right-0 h-24 bg-gradient-to-t from-background via-background/80 to-transparent" />
 
-          <div className="shrink-0 relative z-10 pb-4 max-md:pb-2 pt-1">
-            <InputArea
-              input={input}
-              setInput={setInput}
-              loading={loading}
-              onSend={handleSend}
-              onCancel={cancel}
-            />
-          </div>
+              <div className="shrink-0 relative z-10 pb-4 max-md:pb-2 pt-1">
+                <InputArea
+                  input={input}
+                  setInput={setInput}
+                  loading={loading}
+                  onSend={handleSend}
+                  onCancel={cancel}
+                />
+              </div>
+            </>
+          )}
         </main>
       </div>
     </Layout>

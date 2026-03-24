@@ -57,6 +57,7 @@ export function Sidebar({
     })
   }
 
+  const providerEntries = Object.entries(remoteConfig?.providers || {})
   const activeProviderInfo = remoteConfig?.providers?.[config.provider]
   const providerModels = activeProviderInfo?.models || []
   const reasoningModels = activeProviderInfo?.reasoning_models || []
@@ -251,13 +252,12 @@ export function Sidebar({
                       </label>
                       <select
                         id="provider-select"
-                        value={config.provider || ''}
+                        value={config.provider}
                         onChange={(e) => handleProviderChange(e.target.value)}
                         className={SELECT_CLASS}
                       >
-                        <option value="">select...</option>
-                        {Object.values(remoteConfig.providers).map((p) => (
-                          <option key={p.name} value={p.name}>
+                        {providerEntries.map(([providerName, p]) => (
+                          <option key={providerName} value={providerName}>
                             {p.name} ({p.type})
                           </option>
                         ))}
@@ -275,7 +275,7 @@ export function Sidebar({
                     </label>
                     <select
                       id="model-input"
-                      value={config.model || ''}
+                      value={config.model}
                       onChange={(e) =>
                         onUpdateConfig({
                           ...config,
