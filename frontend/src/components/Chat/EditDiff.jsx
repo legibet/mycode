@@ -101,6 +101,7 @@ function buildRows(oldText, newText, oldLines, newLines, meta) {
   // Context before (from backend)
   for (let i = 0; i < ctxBefore.length; i++) {
     rows.push({
+      key: `ctx-before-${ln}`,
       type: 'context',
       ln: ln++,
       html: escapeHtml(ctxBefore[i]),
@@ -112,7 +113,9 @@ function buildRows(oldText, newText, oldLines, newLines, meta) {
     const lines = change.value.replace(/\n$/, '').split('\n')
     if (change.removed) {
       for (const line of lines) {
+        const oldLineIndex = oldIdx
         rows.push({
+          key: `removed-${oldLineIndex}`,
           type: 'removed',
           ln: null,
           html: oldLines[oldIdx++] ?? escapeHtml(line),
@@ -120,7 +123,9 @@ function buildRows(oldText, newText, oldLines, newLines, meta) {
       }
     } else if (change.added) {
       for (const line of lines) {
+        const newLineIndex = newIdx
         rows.push({
+          key: `added-${newLineIndex}`,
           type: 'added',
           ln: ln++,
           html: newLines[newIdx++] ?? escapeHtml(line),
@@ -128,7 +133,9 @@ function buildRows(oldText, newText, oldLines, newLines, meta) {
       }
     } else {
       for (const line of lines) {
+        const oldLineIndex = oldIdx
         rows.push({
+          key: `context-${ln}-${oldLineIndex}`,
           type: 'context',
           ln: ln++,
           html: oldLines[oldIdx++] ?? escapeHtml(line),
@@ -141,6 +148,7 @@ function buildRows(oldText, newText, oldLines, newLines, meta) {
   // Context after (from backend)
   for (let i = 0; i < ctxAfter.length; i++) {
     rows.push({
+      key: `ctx-after-${ln}`,
       type: 'context',
       ln: ln++,
       html: escapeHtml(ctxAfter[i]),
@@ -242,9 +250,9 @@ export default function EditDiff({ path, oldText, newText, result }) {
           }}
         >
           <tbody>
-            {rows.map((row, i) => (
+            {rows.map((row) => (
               <tr
-                key={i}
+                key={row.key}
                 className={
                   row.type === 'removed'
                     ? 'diff-line-removed'

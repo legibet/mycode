@@ -5,6 +5,7 @@
  */
 
 import { useCallback, useEffect, useState } from 'react'
+import useSWR from 'swr'
 import { InputArea } from './components/Chat/InputArea'
 import { MessageList } from './components/Chat/MessageList'
 import { Layout } from './components/Layout'
@@ -20,13 +21,27 @@ import {
   saveHistory,
 } from './utils/storage'
 
+async function fetchJson(url) {
+  const response = await fetch(url)
+  if (!response.ok) {
+    throw new Error(`Request failed with status ${response.status}`)
+  }
+  return response.json()
+}
+
 function AppContent() {
   const [config, setConfig] = useState(loadConfig)
   const [input, setInput] = useState('')
   const [cwdHistory, setCwdHistory] = useState(loadHistory)
-  const [remoteConfig, setRemoteConfig] = useState(null)
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const { theme, setTheme } = useTheme()
+  const configUrl = `/api/config?cwd=${encodeURIComponent(config.cwd)}`
+  const { data: remoteConfig = null } = useSWR(configUrl, fetchJson, {
+    keepPreviousData: true,
+    onError: (error) => {
+      console.error('Failed to load config:', error)
+    },
+  })
 
   const {
     messages,
@@ -41,44 +56,32 @@ function AppContent() {
   } = useChat(config)
 
   useEffect(() => {
-    const controller = new AbortController()
+    if (!remoteConfig) return
 
-    fetch(`/api/config?cwd=${encodeURIComponent(config.cwd)}`, {
-      signal: controller.signal,
+    setConfig((prev) => {
+      const providers = remoteConfig.providers || {}
+      const providerNames = Object.keys(providers)
+      const currentProviderValid =
+        prev.provider && providerNames.includes(prev.provider)
+      if (currentProviderValid) return prev
+
+      const nextProvider = remoteConfig.default?.provider || ''
+      const nextModel =
+        remoteConfig.default?.model ||
+        providers[nextProvider]?.models?.[0] ||
+        ''
+      if (prev.provider === nextProvider && prev.model === nextModel)
+        return prev
+
+      const updated = {
+        ...prev,
+        provider: nextProvider,
+        model: nextModel,
+      }
+      saveConfig(updated)
+      return updated
     })
-      .then((r) => r.json())
-      .then((data) => {
-        setRemoteConfig(data)
-        setConfig((prev) => {
-          const providers = data.providers || {}
-          const providerNames = Object.keys(providers)
-          const currentProviderValid =
-            prev.provider && providerNames.includes(prev.provider)
-          if (currentProviderValid) return prev
-
-          const nextProvider = data.default?.provider || ''
-          const nextModel =
-            data.default?.model || providers[nextProvider]?.models?.[0] || ''
-          if (prev.provider === nextProvider && prev.model === nextModel)
-            return prev
-
-          const updated = {
-            ...prev,
-            provider: nextProvider,
-            model: nextModel,
-          }
-          saveConfig(updated)
-          return updated
-        })
-      })
-      .catch((error) => {
-        if (error.name !== 'AbortError') {
-          console.error('Failed to load config:', error)
-        }
-      })
-
-    return () => controller.abort()
-  }, [config.cwd])
+  }, [remoteConfig])
 
   const handleConfigUpdate = (newConfig) => {
     if (newConfig.cwd !== config.cwd) {
