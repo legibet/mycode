@@ -13,6 +13,8 @@ from google.genai.errors import APIError
 from mycode.core.messages import assistant_message, text_block, thinking_block, tool_use_block
 from mycode.core.providers.base import DEFAULT_REQUEST_TIMEOUT, ProviderAdapter, ProviderRequest, ProviderStreamEvent
 
+_DUMMY_THOUGHT_SIGNATURE = "skip_thought_signature_validator"
+
 
 def _to_json(value: Any) -> Any:
     """Convert SDK objects into JSON-safe plain data."""
@@ -114,6 +116,7 @@ class GoogleGeminiAdapter(ProviderAdapter):
 
             if role == "assistant":
                 parts: list[dict[str, Any]] = []
+                needs_dummy_signature = True
                 for block in blocks:
                     if block.get("type") == "tool_use":
                         tool_id = str(block.get("id") or "")
@@ -126,6 +129,8 @@ class GoogleGeminiAdapter(ProviderAdapter):
                     native_part = native_meta.get("part") if isinstance(native_meta, dict) else None
                     if isinstance(native_part, dict):
                         parts.append(dict(native_part))
+                        if native_part.get("function_call") and native_part.get("thought_signature"):
+                            needs_dummy_signature = False
                         continue
 
                     block_type = block.get("type")
@@ -134,15 +139,22 @@ class GoogleGeminiAdapter(ProviderAdapter):
                     elif block_type == "text":
                         parts.append({"text": str(block.get("text") or "")})
                     elif block_type == "tool_use":
-                        parts.append(
-                            {
-                                "function_call": {
-                                    "id": block.get("id") or "",
-                                    "name": block.get("name") or "",
-                                    "args": block.get("input") if isinstance(block.get("input"), dict) else {},
-                                }
+                        part = {
+                            "function_call": {
+                                "id": block.get("id") or "",
+                                "name": block.get("name") or "",
+                                "args": block.get("input") if isinstance(block.get("input"), dict) else {},
                             }
-                        )
+                        }
+                        # Gemini 3 validates the first function call in each step of
+                        # the current turn. When history came from another provider,
+                        # there is no real thought signature to replay, so we use the
+                        # official dummy signature to keep cross-provider tool loops
+                        # working.
+                        if needs_dummy_signature:
+                            part["thought_signature"] = _DUMMY_THOUGHT_SIGNATURE
+                            needs_dummy_signature = False
+                        parts.append(part)
 
                 if parts:
                     contents.append({"role": "model", "parts": parts})
@@ -246,7 +258,18 @@ class GoogleGeminiAdapter(ProviderAdapter):
             return []
 
         text = getattr(part, "text", None)
-        if not text:
+        if text is None or text == "":
+            if not native_part.get("thought_signature"):
+                return []
+
+            # Gemini may put the final thought signature into an empty-text part.
+            # Keep it as a separate empty block so replay preserves the original
+            # part boundary instead of merging the signature into another block.
+            blocks.append(
+                thinking_block("", meta={"native": {"part": native_part}})
+                if bool(getattr(part, "thought", False))
+                else text_block("", meta={"native": {"part": native_part}})
+            )
             return []
 
         is_thought = bool(getattr(part, "thought", False))

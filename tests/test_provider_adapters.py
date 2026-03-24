@@ -383,7 +383,10 @@ def test_google_gemini_falls_back_to_full_replay_for_cross_provider_history() ->
             "parts": [
                 {"text": "Need the tool first.", "thought": True},
                 {"text": "I will inspect the file."},
-                {"function_call": {"id": "call_1", "name": "read", "args": {"path": "x.py"}}},
+                {
+                    "function_call": {"id": "call_1", "name": "read", "args": {"path": "x.py"}},
+                    "thought_signature": "skip_thought_signature_validator",
+                },
             ],
         },
         {
@@ -556,6 +559,25 @@ def test_google_gemini_streaming_parts_merge_into_final_blocks() -> None:
                 }
             },
         },
+    ]
+
+
+def test_google_gemini_keeps_signature_only_stream_chunk() -> None:
+    adapter = GoogleGeminiAdapter()
+    blocks: list[dict[str, Any]] = []
+
+    events = adapter._consume_part(
+        blocks,
+        _Obj(text="", thought=False, thought_signature="c2ln", function_call=None),
+    )
+
+    assert events == []
+    assert blocks == [
+        {
+            "type": "text",
+            "text": "",
+            "meta": {"native": {"part": {"text": "", "thought_signature": "c2ln"}}},
+        }
     ]
 
 

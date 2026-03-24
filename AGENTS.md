@@ -137,6 +137,8 @@ Current built-in adapter ids:
 - replays Gemini `Part` metadata through `block.meta.native.part`, preserving function-call ids and thought signatures across tool-loop turns
 - `reasoning_effort` is mapped only for Gemini 3 models through `thinking_level`
 - Gemini 2.5 models can still be requested explicitly, but this adapter does not add extra 2.5-specific compatibility branches
+- when replaying a current-turn tool loop that came from a non-Gemini provider, the adapter adds Gemini's documented dummy thought signature to the first fallback `function_call` part so cross-provider tool loops do not 400
+- streaming responses may emit a thought signature in an empty-text part; that part must still be persisted for correct replay
 
 ### `minimax`
 
@@ -382,6 +384,7 @@ These have been validated during this redesign:
 
 - Gemini function calling requires returning the model turn before the matching function response turn, and function responses should include the exact function-call `id`
 - Gemini thinking models require preserving thought signatures across tool-loop turns when conversation history is reconstructed manually
+- Gemini 3 cross-provider tool-loop fallback can use the documented dummy signatures `context_engineering_is_the_way_to_go` or `skip_thought_signature_validator` when no real signature exists
 - Moonshot recommends Anthropic-compatible Messages for coding-agent style development
 - MiniMax officially documents Anthropic SDK / Messages compatibility and explicitly says full assistant content must be appended on multi-turn function-call flows
 - Moonshot `kimi-k2.5` tool loops work through the Anthropic-compatible endpoint, and prior reasoning must be preserved when thinking is enabled
