@@ -21,7 +21,10 @@ export function loadConfig() {
     if (saved) {
       const parsed = JSON.parse(saved)
       if (parsed._v !== SCHEMA_VERSION) return DEFAULT_CONFIG
-      return { ...DEFAULT_CONFIG, ...parsed }
+      // The web UI no longer exposes per-request auth/base overrides.
+      // Drop any stale browser-side values so they cannot shadow backend config.
+      const { apiKey: _apiKey, apiBase: _apiBase, ...rest } = parsed
+      return { ...DEFAULT_CONFIG, ...rest }
     }
   } catch (e) {
     console.error('Failed to load config:', e)
@@ -31,8 +34,8 @@ export function loadConfig() {
 
 export function saveConfig(config) {
   try {
-    // Never persist raw api key to localStorage
-    const { apiKey, ...rest } = config
+    // Keep browser config aligned with the visible settings only.
+    const { apiKey, apiBase, ...rest } = config
     localStorage.setItem(
       STORAGE_KEY,
       JSON.stringify({ ...rest, _v: SCHEMA_VERSION }),
