@@ -1,8 +1,10 @@
 import { diffLines } from 'diff'
 import { use } from 'react'
 import {
+  codeToHtmlSafely,
   highlighterPromise,
   loadLang,
+  resolveLanguage,
   SHIKI_OPTIONS,
 } from '../../utils/highlighter'
 
@@ -83,7 +85,10 @@ function parseEditResult(result) {
 }
 
 function highlight(highlighter, code, opts) {
-  const html = highlighter.codeToHtml(code, opts)
+  const html = codeToHtmlSafely(highlighter, code, opts)
+  if (!html) {
+    return code.split('\n').map(escapeHtml)
+  }
   return splitHtmlLines(html)
 }
 
@@ -164,11 +169,11 @@ function buildRows(oldText, newText, oldLines, newLines, meta) {
 export default function EditDiff({ path, oldText, newText, result }) {
   const highlighter = use(highlighterPromise)
 
-  const language = getLangFromPath(path)
+  const language = resolveLanguage(getLangFromPath(path))
   const loaded = highlighter.getLoadedLanguages()
-  let lang = loaded.includes(language) ? language : null
+  let lang = loaded.includes(language) ? language : 'text'
 
-  if (!lang && language !== 'text') {
+  if (lang === 'text' && language !== 'text') {
     const loadResult = loadLang(highlighter, language)
     if (loadResult instanceof Promise) {
       const resolved = use(loadResult)
@@ -176,7 +181,7 @@ export default function EditDiff({ path, oldText, newText, result }) {
     }
   }
 
-  const opts = { lang: lang || 'text', ...SHIKI_OPTIONS }
+  const opts = { lang, ...SHIKI_OPTIONS }
   const meta = parseEditResult(result)
 
   // Highlight oldText, newText, and context lines together for proper syntax

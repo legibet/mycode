@@ -1,7 +1,9 @@
 import { startTransition, useEffect, useState } from 'react'
 import {
+  codeToHtmlSafely,
   getHighlighter,
   loadLang,
+  resolveLanguage,
   SHIKI_OPTIONS,
 } from '../../utils/highlighter'
 
@@ -20,36 +22,34 @@ const MONO_STYLE = {
 
 export default function HighlightedCode({ code, language }) {
   const highlighter = getHighlighter()
+  const targetLanguage = resolveLanguage(language)
   const loadedLanguages = highlighter?.getLoadedLanguages()
-  const immediateLanguage =
-    language && loadedLanguages?.includes(language) ? language : null
+  const immediateLanguage = loadedLanguages?.includes(targetLanguage)
+    ? targetLanguage
+    : 'text'
   const [resolvedLanguage, setResolvedLanguage] = useState(immediateLanguage)
 
   useEffect(() => {
     if (!highlighter) return
 
-    const nextLanguage =
-      language && highlighter.getLoadedLanguages().includes(language)
-        ? language
-        : null
+    const nextLanguage = highlighter
+      .getLoadedLanguages()
+      .includes(targetLanguage)
+      ? targetLanguage
+      : 'text'
 
     setResolvedLanguage((current) =>
       current === nextLanguage ? current : nextLanguage,
     )
 
-    if (
-      nextLanguage ||
-      !language ||
-      language === 'text' ||
-      language === 'plaintext'
-    ) {
+    if (nextLanguage !== 'text' || targetLanguage === 'text') {
       return
     }
 
     let cancelled = false
 
-    void loadLang(highlighter, language).then((loadedLanguage) => {
-      if (cancelled || !loadedLanguage) {
+    void loadLang(highlighter, targetLanguage).then((loadedLanguage) => {
+      if (cancelled || loadedLanguage === 'text') {
         return
       }
 
@@ -63,7 +63,7 @@ export default function HighlightedCode({ code, language }) {
     return () => {
       cancelled = true
     }
-  }, [highlighter, language])
+  }, [highlighter, targetLanguage])
 
   if (!highlighter) {
     return (
@@ -73,10 +73,18 @@ export default function HighlightedCode({ code, language }) {
     )
   }
 
-  const html = highlighter.codeToHtml(code, {
-    lang: resolvedLanguage || 'text',
+  const html = codeToHtmlSafely(highlighter, code, {
+    lang: resolvedLanguage,
     ...SHIKI_OPTIONS,
   })
+
+  if (!html) {
+    return (
+      <pre style={MONO_STYLE}>
+        <code>{code}</code>
+      </pre>
+    )
+  }
 
   return (
     <div
