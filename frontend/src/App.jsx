@@ -13,6 +13,7 @@ import { MobileHeader } from './components/MobileHeader'
 import { Sidebar } from './components/Sidebar'
 import { ThemeProvider, useTheme } from './components/ThemeProvider'
 import { useChat } from './hooks/useChat'
+import { normalizeConfigWithRemoteDefaults } from './utils/config'
 import {
   addHistory,
   loadConfig,
@@ -70,33 +71,13 @@ function AppContent() {
     if (!remoteConfig) return
 
     setConfig((prev) => {
-      const providers = remoteConfig.providers || {}
-      const currentProvider = providers[prev.provider]
-      if (currentProvider) {
-        const nextModel = currentProvider.models?.includes(prev.model)
-          ? prev.model
-          : currentProvider.models?.[0] || ''
-        if (prev.model === nextModel) return prev
-
-        const updated = {
-          ...prev,
-          model: nextModel,
-          reasoningEffort: '',
-        }
-        saveConfig(updated)
-        return updated
-      }
-
-      const nextProvider = remoteConfig.default.provider
-      const nextModel = remoteConfig.default.model
-      if (prev.provider === nextProvider && prev.model === nextModel)
+      const updated = normalizeConfigWithRemoteDefaults(prev, remoteConfig)
+      if (
+        prev.provider === updated.provider &&
+        prev.model === updated.model &&
+        prev.reasoningEffort === updated.reasoningEffort
+      ) {
         return prev
-
-      const updated = {
-        ...prev,
-        provider: nextProvider,
-        model: nextModel,
-        reasoningEffort: '',
       }
       saveConfig(updated)
       return updated

@@ -11,7 +11,7 @@ const DEFAULT_CONFIG = {
   cwd: '.',
   apiKey: '',
   apiBase: '',
-  reasoningEffort: '', // empty = use server/config default
+  reasoningEffort: '', // empty until remote config resolves the current default
 }
 
 export function loadConfig() {

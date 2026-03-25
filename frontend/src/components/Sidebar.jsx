@@ -16,6 +16,7 @@ import {
 } from 'lucide-react'
 import { useState } from 'react'
 import { cn } from '../utils/cn'
+import { getDefaultReasoningEffort } from '../utils/config'
 import { Button } from './UI/Button'
 import { WorkspacePicker } from './WorkspacePicker'
 
@@ -53,7 +54,11 @@ export function Sidebar({
       model: firstModel,
       apiBase: '',
       apiKey: '',
-      reasoningEffort: '',
+      reasoningEffort: getDefaultReasoningEffort(
+        remoteConfig,
+        providerName,
+        firstModel,
+      ),
     })
   }
 
@@ -276,13 +281,18 @@ export function Sidebar({
                     <select
                       id="model-input"
                       value={config.model}
-                      onChange={(e) =>
-                        onUpdateConfig({
+                      onChange={(e) => {
+                        const nextModel = e.target.value
+                        return onUpdateConfig({
                           ...config,
-                          model: e.target.value,
-                          reasoningEffort: '',
+                          model: nextModel,
+                          reasoningEffort: getDefaultReasoningEffort(
+                            remoteConfig,
+                            config.provider,
+                            nextModel,
+                          ),
                         })
-                      }
+                      }}
                       className={SELECT_CLASS}
                     >
                       {providerModels.map((m) => (
@@ -308,7 +318,15 @@ export function Sidebar({
                     </label>
                     <select
                       id="effort-select"
-                      value={config.reasoningEffort || 'auto'}
+                      value={
+                        config.reasoningEffort ||
+                        getDefaultReasoningEffort(
+                          remoteConfig,
+                          config.provider,
+                          config.model,
+                        ) ||
+                        'auto'
+                      }
                       onChange={(e) =>
                         onUpdateConfig({
                           ...config,
