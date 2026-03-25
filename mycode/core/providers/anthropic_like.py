@@ -13,7 +13,6 @@ from mycode.core.messages import (
     assistant_message,
     text_block,
     thinking_block,
-    tool_result_block,
     tool_use_block,
 )
 from mycode.core.providers.base import (
@@ -22,6 +21,7 @@ from mycode.core.providers.base import (
     ProviderRequest,
     ProviderStreamEvent,
     dump_model,
+    get_native_meta,
 )
 
 _MANUAL_THINKING_BUDGETS = {
@@ -206,24 +206,6 @@ class AnthropicLikeAdapter(ProviderAdapter):
                 )
                 continue
 
-            if block_type == "tool_result":
-                content = getattr(block, "content", "")
-                if isinstance(content, list):
-                    parts: list[str] = []
-                    for item in content:
-                        if isinstance(item, dict) and item.get("type") == "text":
-                            parts.append(str(item.get("text") or ""))
-                        else:
-                            parts.append(str(item))
-                    content = "\n".join(part for part in parts if part)
-                blocks.append(
-                    tool_result_block(
-                        tool_use_id=getattr(block, "tool_use_id", ""),
-                        content=str(content),
-                        is_error=bool(getattr(block, "is_error", False)),
-                    )
-                )
-
         native_meta = {
             "stop_sequence": getattr(message, "stop_sequence", None),
             "service_tier": getattr(message, "service_tier", None),
@@ -260,35 +242,23 @@ class AnthropicLikeAdapter(ProviderAdapter):
             return {"type": "text", "text": str(block.get("text") or "")}
 
         if block_type == "thinking":
-            thinking = str(block.get("text") or "")
-            raw_meta = block.get("meta")
-            native_meta: dict[str, Any] = {}
-            if isinstance(raw_meta, dict):
-                candidate = raw_meta.get("native")
-                if isinstance(candidate, dict):
-                    native_meta = candidate
-            payload = {
+            native_meta = get_native_meta(block)
+            payload: dict[str, Any] = {
                 "type": "thinking",
-                "thinking": thinking,
+                "thinking": str(block.get("text") or ""),
             }
-            signature = native_meta.get("signature")
-            if signature:
-                payload["signature"] = signature
+            if native_meta.get("signature"):
+                payload["signature"] = native_meta["signature"]
             return payload
 
         if block_type == "tool_use":
+            native_meta = get_native_meta(block)
             payload = {
                 "type": "tool_use",
                 "id": block.get("id"),
                 "name": block.get("name"),
                 "input": block.get("input") if isinstance(block.get("input"), dict) else {},
             }
-            raw_meta = block.get("meta")
-            native_meta: dict[str, Any] = {}
-            if isinstance(raw_meta, dict):
-                candidate = raw_meta.get("native")
-                if isinstance(candidate, dict):
-                    native_meta = candidate
             if native_meta.get("caller") is not None:
                 payload["caller"] = native_meta["caller"]
             return payload

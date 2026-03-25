@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import AsyncIterator
 from copy import deepcopy
 from typing import Any, cast
 
@@ -29,7 +30,7 @@ class OpenAIResponsesAdapter(ProviderAdapter):
     default_models = ("gpt-5.4", "gpt-5.4-mini")
     supports_reasoning_effort = True
 
-    async def stream_turn(self, request: ProviderRequest):
+    async def stream_turn(self, request: ProviderRequest) -> AsyncIterator[ProviderStreamEvent]:
         api_key = self.require_api_key(request.api_key)
         client = AsyncOpenAI(
             api_key=api_key,
@@ -101,9 +102,6 @@ class OpenAIResponsesAdapter(ProviderAdapter):
         return {key: value for key, value in payload.items() if value is not None}
 
     def _serialize_user_message(self, message: ConversationMessage) -> list[dict[str, Any]]:
-        if message.get("role") != "user":
-            return []
-
         items: list[dict[str, Any]] = []
         blocks = [block for block in message.get("content") or [] if isinstance(block, dict)]
         text_blocks = [block for block in blocks if block.get("type") == "text"]
@@ -131,11 +129,10 @@ class OpenAIResponsesAdapter(ProviderAdapter):
 
     def _native_output_items(self, message: ConversationMessage) -> list[dict[str, Any]] | None:
         raw_meta = message.get("meta")
-        meta = raw_meta if isinstance(raw_meta, dict) else None
-        if not isinstance(meta, dict) or meta.get("provider") != self.provider_id:
+        if not isinstance(raw_meta, dict) or raw_meta.get("provider") != self.provider_id:
             return None
 
-        native_meta = meta.get("native")
+        native_meta = raw_meta.get("native")
         output_items = native_meta.get("output_items") if isinstance(native_meta, dict) else None
         if not isinstance(output_items, list) or not output_items:
             return None

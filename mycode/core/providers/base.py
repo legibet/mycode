@@ -55,6 +55,17 @@ def dump_model(value: Any) -> Any:
     return value
 
 
+def get_native_meta(block: dict[str, Any]) -> dict[str, Any]:
+    """Return block.meta.native as a dict, or {} if absent."""
+
+    raw_meta = block.get("meta")
+    if isinstance(raw_meta, dict):
+        candidate = raw_meta.get("native")
+        if isinstance(candidate, dict):
+            return candidate
+    return {}
+
+
 class ProviderAdapter(ABC):
     """Base class for provider adapters.
 

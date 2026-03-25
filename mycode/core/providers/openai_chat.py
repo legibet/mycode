@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -15,6 +16,7 @@ from mycode.core.providers.base import (
     ProviderRequest,
     ProviderStreamEvent,
     dump_model,
+    get_native_meta,
 )
 from mycode.core.tools import parse_tool_arguments
 
@@ -36,7 +38,7 @@ class OpenAIChatAdapter(ProviderAdapter):
     env_api_key_names = ("OPENAI_API_KEY",)
     auto_discoverable = False
 
-    async def stream_turn(self, request: ProviderRequest):
+    async def stream_turn(self, request: ProviderRequest) -> AsyncIterator[ProviderStreamEvent]:
         api_key = self.require_api_key(request.api_key)
         client = AsyncOpenAI(
             api_key=api_key,
@@ -234,13 +236,7 @@ class OpenAIChatAdapter(ProviderAdapter):
         """
 
         thinking_text = "\n".join(str(block.get("text") or "") for block in thinking_blocks if block.get("text"))
-        raw_meta = thinking_blocks[0].get("meta")
-        native_meta: dict[str, Any] = {}
-        if isinstance(raw_meta, dict):
-            candidate = raw_meta.get("native")
-            if isinstance(candidate, dict):
-                native_meta = dict(candidate)
-
+        native_meta = get_native_meta(thinking_blocks[0])
         reasoning_field = str(native_meta.get("reasoning_field") or "")
         if reasoning_field == "reasoning_details":
             return {"reasoning_details": native_meta.get("reasoning_details") or []}

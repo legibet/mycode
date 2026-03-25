@@ -11,7 +11,13 @@ from google.genai import types
 from google.genai.errors import APIError
 
 from mycode.core.messages import assistant_message, text_block, thinking_block, tool_use_block
-from mycode.core.providers.base import DEFAULT_REQUEST_TIMEOUT, ProviderAdapter, ProviderRequest, ProviderStreamEvent
+from mycode.core.providers.base import (
+    DEFAULT_REQUEST_TIMEOUT,
+    ProviderAdapter,
+    ProviderRequest,
+    ProviderStreamEvent,
+    get_native_meta,
+)
 
 _DUMMY_THOUGHT_SIGNATURE = "skip_thought_signature_validator"
 
@@ -124,9 +130,7 @@ class GoogleGeminiAdapter(ProviderAdapter):
                         if tool_id and tool_name:
                             tool_names[tool_id] = tool_name
 
-                    raw_meta = block.get("meta")
-                    native_meta = raw_meta.get("native") if isinstance(raw_meta, dict) else None
-                    native_part = native_meta.get("part") if isinstance(native_meta, dict) else None
+                    native_part = get_native_meta(block).get("part")
                     if isinstance(native_part, dict):
                         parts.append(dict(native_part))
                         if native_part.get("function_call") and native_part.get("thought_signature"):
@@ -280,9 +284,7 @@ class GoogleGeminiAdapter(ProviderAdapter):
         # Merge only when the block kind matches and we are not combining
         # distinct thought signatures.
         if blocks and blocks[-1].get("type") == block_type:
-            raw_meta = blocks[-1].get("meta")
-            native_meta = raw_meta.get("native") if isinstance(raw_meta, dict) else None
-            last_part = native_meta.get("part") if isinstance(native_meta, dict) else None
+            last_part = get_native_meta(blocks[-1]).get("part")
             if isinstance(last_part, dict):
                 last_signature = last_part.get("thought_signature")
                 current_signature = native_part.get("thought_signature")
