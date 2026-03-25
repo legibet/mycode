@@ -4,12 +4,12 @@
  * Empty state: blinking cursor terminal prompt.
  */
 
-import { useCallback, useLayoutEffect, useRef } from 'react'
+import { memo, useCallback, useLayoutEffect, useRef } from 'react'
 import { MessageBubble } from './MessageBubble'
 
 const SCROLL_THRESHOLD = 120
 
-export function MessageList({ messages, loading }) {
+export const MessageList = memo(function MessageList({ messages, loading }) {
   const containerRef = useRef(null)
   const endRef = useRef(null)
   const stickToBottom = useRef(true)
@@ -56,9 +56,7 @@ export function MessageList({ messages, loading }) {
       <div className="mx-auto max-w-4xl max-md:max-w-none flex flex-col gap-6 max-md:gap-5">
         {messages.map((message, index) => (
           <MessageBubble
-            key={
-              message.renderKey || `${message.role}:${message.content.length}`
-            }
+            key={message.renderKey || `msg-${index}`}
             role={message.role}
             blocks={message.content}
             isStreaming={
@@ -73,4 +71,4 @@ export function MessageList({ messages, loading }) {
       </div>
     </div>
   )
-}
+})

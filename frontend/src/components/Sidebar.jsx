@@ -14,7 +14,7 @@ import {
   Terminal,
   Trash2,
 } from 'lucide-react'
-import { useState } from 'react'
+import { memo, useState } from 'react'
 import { cn } from '../utils/cn'
 import { getDefaultReasoningEffort } from '../utils/config'
 import { Button } from './UI/Button'
@@ -24,7 +24,7 @@ import { WorkspacePicker } from './WorkspacePicker'
 const SELECT_CLASS =
   'w-full border-0 border-b border-border/40 bg-transparent px-1 py-2 text-sm font-mono text-foreground outline-none focus:border-accent/50 disabled:opacity-50 transition-colors'
 
-export function Sidebar({
+export const Sidebar = memo(function Sidebar({
   className,
   sessions,
   activeSession,
@@ -351,4 +351,4 @@ export function Sidebar({
       />
     </div>
   )
-}
+})

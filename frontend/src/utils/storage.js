@@ -4,6 +4,7 @@
 
 const STORAGE_KEY = 'mycode_config'
 const HISTORY_KEY = 'mycode_cwd_history'
+const SCHEMA_VERSION = 1
 
 const DEFAULT_CONFIG = {
   provider: '', // configured alias or raw provider id; empty = use server default
@@ -17,7 +18,11 @@ const DEFAULT_CONFIG = {
 export function loadConfig() {
   try {
     const saved = localStorage.getItem(STORAGE_KEY)
-    if (saved) return { ...DEFAULT_CONFIG, ...JSON.parse(saved) }
+    if (saved) {
+      const parsed = JSON.parse(saved)
+      if (parsed._v !== SCHEMA_VERSION) return DEFAULT_CONFIG
+      return { ...DEFAULT_CONFIG, ...parsed }
+    }
   } catch (e) {
     console.error('Failed to load config:', e)
   }
@@ -28,7 +33,10 @@ export function saveConfig(config) {
   try {
     // Never persist raw api key to localStorage
     const { apiKey, ...rest } = config
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(rest))
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({ ...rest, _v: SCHEMA_VERSION }),
+    )
   } catch (e) {
     console.error('Failed to save config:', e)
   }

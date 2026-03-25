@@ -5,10 +5,16 @@
  */
 
 import { ArrowUp, Square } from 'lucide-react'
-import { useEffect, useRef } from 'react'
+import { memo, useEffect, useRef } from 'react'
 import { cn } from '../../utils/cn'
 
-export function InputArea({ input, setInput, loading, onSend, onCancel }) {
+export const InputArea = memo(function InputArea({
+  input,
+  setInput,
+  loading,
+  onSend,
+  onCancel,
+}) {
   const textareaRef = useRef(null)
 
   useEffect(() => {
@@ -79,4 +85,4 @@ export function InputArea({ input, setInput, loading, onSend, onCancel }) {
       </div>
     </div>
   )
-}
+})

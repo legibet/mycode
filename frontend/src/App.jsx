@@ -4,7 +4,7 @@
  * Mobile: sidebar as overlay, top header bar.
  */
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import useSWR from 'swr'
 import { InputArea } from './components/Chat/InputArea'
 import { MessageList } from './components/Chat/MessageList'
@@ -94,10 +94,13 @@ function AppContent() {
     saveConfig(newConfig)
   }
 
-  const handleSend = () => {
-    send(input)
+  const inputRef = useRef(input)
+  inputRef.current = input
+
+  const handleSend = useCallback(() => {
+    send(inputRef.current)
     setInput('')
-  }
+  }, [send])
 
   const handleSelectSession = useCallback(
     (id) => {
