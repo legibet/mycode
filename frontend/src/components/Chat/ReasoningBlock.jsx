@@ -28,7 +28,7 @@ export const ReasoningBlock = memo(function ReasoningBlock({
           className={cn(
             'text-xs transition-colors',
             isStreaming
-              ? 'text-accent/70 animate-pulse font-medium'
+              ? 'text-accent/70 animate-breathing font-medium'
               : 'text-muted-foreground/60',
           )}
         >

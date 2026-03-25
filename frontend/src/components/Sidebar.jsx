@@ -131,7 +131,7 @@ export const Sidebar = memo(function Sidebar({
               <button
                 type="button"
                 onClick={onCreateSession}
-                className="w-full flex items-center justify-center gap-1.5 py-2 text-xs font-medium text-muted-foreground hover:text-accent transition-colors"
+                className="w-full flex items-center justify-center gap-1.5 py-2 text-xs font-medium text-muted-foreground hover:text-accent border border-dashed border-border/40 hover:border-accent/30 rounded-lg transition-colors"
               >
                 <Plus className="h-3 w-3" />
                 New Chat
@@ -194,11 +194,13 @@ export const Sidebar = memo(function Sidebar({
                   { key: 'light', icon: Sun, label: 'Light' },
                   { key: 'dark', icon: Moon, label: 'Dark' },
                   { key: 'system', icon: Laptop, label: 'Auto' },
-                ].map(({ key, icon: Icon }) => (
+                ].map(({ key, icon: Icon, label }) => (
                   <button
                     key={key}
                     type="button"
                     onClick={() => setTheme(key)}
+                    aria-label={label}
+                    title={label}
                     className={cn(
                       'flex items-center justify-center py-1.5 transition-colors text-xs',
                       theme === key

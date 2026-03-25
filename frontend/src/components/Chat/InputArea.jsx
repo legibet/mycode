@@ -26,7 +26,7 @@ export const InputArea = memo(function InputArea({
   const handleKeyDown = (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
-      onSend()
+      if (!loading) onSend()
     }
   }
 
@@ -52,7 +52,6 @@ export const InputArea = memo(function InputArea({
           onKeyDown={handleKeyDown}
           placeholder="Message..."
           className="block w-full resize-none bg-transparent px-4 py-3 max-md:py-2.5 pr-14 text-sm leading-relaxed text-foreground placeholder:text-muted-foreground/40 focus:outline-none max-h-[200px]"
-          disabled={loading}
         />
 
         <div className="absolute bottom-2.5 max-md:bottom-2 right-2.5 max-md:right-2">
@@ -74,7 +73,7 @@ export const InputArea = memo(function InputArea({
                 'h-8 w-8 flex items-center justify-center rounded-lg transition-all duration-150',
                 hasInput
                   ? 'bg-foreground text-background hover:opacity-90 active:scale-95'
-                  : 'text-muted-foreground/20',
+                  : 'text-muted-foreground/40',
               )}
               title="Send"
             >

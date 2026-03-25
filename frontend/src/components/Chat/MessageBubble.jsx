@@ -42,7 +42,10 @@ export const MessageBubble = memo(function MessageBubble({
 
   return (
     <div
-      className="group/msg relative px-5 max-md:px-4 animate-fade-in-up"
+      className={cn(
+        'group/msg relative px-5 max-md:px-4 animate-fade-in-up',
+        isUser && 'rounded-lg bg-secondary/20 py-3 mx-1 max-md:mx-0',
+      )}
       style={{ animationDelay: `${Math.min(index * 30, 150)}ms` }}
     >
       {/* Role label */}
@@ -105,7 +108,7 @@ export const MessageBubble = memo(function MessageBubble({
 
       {/* Copy button — bottom of message, hover to show */}
       {!isUser && textContent && !isStreaming && (
-        <div className="mt-2 opacity-0 group-hover/msg:opacity-100 transition-opacity duration-150">
+        <div className="mt-2 max-md:opacity-60 opacity-0 group-hover/msg:opacity-100 transition-opacity duration-150">
           <button
             type="button"
             onClick={handleCopy}
@@ -113,7 +116,7 @@ export const MessageBubble = memo(function MessageBubble({
               'flex items-center justify-center h-6 w-6 rounded transition-all duration-150',
               copied
                 ? 'text-emerald-400'
-                : 'text-muted-foreground/30 hover:text-muted-foreground/60',
+                : 'text-muted-foreground/40 hover:text-muted-foreground/70',
             )}
             title="Copy"
           >

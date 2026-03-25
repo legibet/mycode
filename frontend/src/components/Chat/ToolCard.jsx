@@ -5,6 +5,7 @@
  */
 
 import {
+  Check,
   ChevronDown,
   FileText,
   Loader2,
@@ -122,6 +123,9 @@ export const ToolCard = memo(function ToolCard({
 
         {status === 'pending' && (
           <Loader2 className="h-3.5 w-3.5 text-muted-foreground/40 animate-spin shrink-0" />
+        )}
+        {status === 'success' && (
+          <Check className="h-3 w-3 text-emerald-500/50 shrink-0" />
         )}
 
         <ChevronDown

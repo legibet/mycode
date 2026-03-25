@@ -52,6 +52,12 @@ export function CodeBlock({ node, inline, className, children, ...props }) {
       data-code-block
       className="group/code relative my-3 rounded-md bg-code overflow-x-auto"
     >
+      {language && (
+        <span className="absolute top-1.5 left-3 text-[11px] font-mono text-muted-foreground/50 uppercase tracking-wider select-none">
+          {language}
+        </span>
+      )}
+
       <button
         type="button"
         onClick={handleCopy}
@@ -59,7 +65,7 @@ export function CodeBlock({ node, inline, className, children, ...props }) {
           'absolute top-1 right-1 z-10 flex items-center justify-center h-7 w-7 rounded-md transition-all duration-150',
           copied
             ? 'text-emerald-400 opacity-100'
-            : 'text-muted-foreground/40 opacity-0 group-hover/code:opacity-100 hover:text-foreground/60 hover:bg-muted/20',
+            : 'text-muted-foreground/40 max-md:opacity-60 opacity-0 group-hover/code:opacity-100 hover:text-foreground/60 hover:bg-muted/20',
         )}
         title="Copy"
       >
@@ -70,15 +76,7 @@ export function CodeBlock({ node, inline, className, children, ...props }) {
         )}
       </button>
 
-      <div className="px-3 pt-2 pb-2.5">
-        {language && (
-          <div className="mb-1">
-            <span className="text-[11px] font-mono text-muted-foreground/30 uppercase tracking-wider select-none">
-              {language}
-            </span>
-          </div>
-        )}
-
+      <div className={cn('px-3 pb-2.5', language ? 'pt-6' : 'pt-2')}>
         <HighlightedCode language={language} code={codeContent} />
       </div>
     </div>
