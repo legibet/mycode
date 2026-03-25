@@ -4,7 +4,7 @@
  */
 
 import { Check, Copy } from 'lucide-react'
-import { memo, useCallback, useState } from 'react'
+import { memo, useCallback, useMemo, useState } from 'react'
 import { copyText } from '../../utils/clipboard'
 import { cn } from '../../utils/cn'
 import { MarkdownBlock } from './MarkdownBlock'
@@ -20,10 +20,14 @@ export const MessageBubble = memo(function MessageBubble({
   const isUser = role === 'user'
   const [copied, setCopied] = useState(false)
 
-  const textContent = blocks
-    .filter((block) => block?.type === 'text')
-    .map((block) => block.text)
-    .join('\n\n')
+  const textContent = useMemo(
+    () =>
+      blocks
+        .filter((block) => block?.type === 'text')
+        .map((block) => block.text)
+        .join('\n\n'),
+    [blocks],
+  )
 
   const handleCopy = useCallback(async () => {
     if (!textContent) return

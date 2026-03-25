@@ -5,10 +5,13 @@
  */
 
 import { ChevronDown } from 'lucide-react'
-import { useState } from 'react'
+import { memo, useState } from 'react'
 import { cn } from '../../utils/cn'
 
-export function ReasoningBlock({ content, isStreaming }) {
+export const ReasoningBlock = memo(function ReasoningBlock({
+  content,
+  isStreaming,
+}) {
   const [expandedOverride, setExpandedOverride] = useState(null)
   const expanded = expandedOverride ?? isStreaming
 
@@ -55,4 +58,4 @@ export function ReasoningBlock({ content, isStreaming }) {
       </div>
     </div>
   )
-}
+})

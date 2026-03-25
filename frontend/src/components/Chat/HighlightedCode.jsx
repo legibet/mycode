@@ -9,14 +9,25 @@ import {
 // producing only <pre>/<code>/<span> elements with inline styles.
 // It does not pass through raw user input, so the output is safe.
 
+const MONO_STYLE = {
+  margin: 0,
+  padding: 0,
+  fontFamily: '"DM Mono", "JetBrains Mono", monospace',
+  fontSize: '13px',
+  lineHeight: '1.5',
+  fontWeight: 400,
+}
+
 export default function HighlightedCode({ code, language }) {
   const highlighter = getHighlighter()
-  const loadedLanguages = highlighter.getLoadedLanguages()
+  const loadedLanguages = highlighter?.getLoadedLanguages()
   const immediateLanguage =
-    language && loadedLanguages.includes(language) ? language : null
+    language && loadedLanguages?.includes(language) ? language : null
   const [resolvedLanguage, setResolvedLanguage] = useState(immediateLanguage)
 
   useEffect(() => {
+    if (!highlighter) return
+
     const nextLanguage =
       language && highlighter.getLoadedLanguages().includes(language)
         ? language
@@ -54,6 +65,14 @@ export default function HighlightedCode({ code, language }) {
     }
   }, [highlighter, language])
 
+  if (!highlighter) {
+    return (
+      <pre style={MONO_STYLE}>
+        <code>{code}</code>
+      </pre>
+    )
+  }
+
   const html = highlighter.codeToHtml(code, {
     lang: resolvedLanguage || 'text',
     ...SHIKI_OPTIONS,
@@ -62,14 +81,7 @@ export default function HighlightedCode({ code, language }) {
   return (
     <div
       className="shiki-wrapper"
-      style={{
-        margin: 0,
-        padding: 0,
-        fontFamily: '"DM Mono", "JetBrains Mono", monospace',
-        fontSize: '13px',
-        lineHeight: '1.5',
-        fontWeight: 400,
-      }}
+      style={MONO_STYLE}
       // biome-ignore lint/security/noDangerouslySetInnerHtml: shiki output is from tokenized AST, not user input
       dangerouslySetInnerHTML={{ __html: html }}
     />

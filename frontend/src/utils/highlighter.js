@@ -27,10 +27,6 @@ export function preloadHighlighter() {
 }
 
 export function getHighlighter() {
-  if (!highlighterInstance) {
-    throw new Error('Shiki highlighter is not ready')
-  }
-
   return highlighterInstance
 }
 

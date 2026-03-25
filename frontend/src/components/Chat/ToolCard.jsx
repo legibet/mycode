@@ -12,7 +12,7 @@ import {
   SquarePen,
   Terminal,
 } from 'lucide-react'
-import { lazy, Suspense, useState } from 'react'
+import { lazy, memo, Suspense, useState } from 'react'
 import { cn } from '../../utils/cn'
 
 let editDiffPromise
@@ -56,7 +56,14 @@ function getPreview(name, args) {
   }
 }
 
-export function ToolCard({ name, args, output, result, pending, isError }) {
+export const ToolCard = memo(function ToolCard({
+  name,
+  args,
+  output,
+  result,
+  pending,
+  isError,
+}) {
   const display =
     typeof result === 'string'
       ? result
@@ -186,4 +193,4 @@ export function ToolCard({ name, args, output, result, pending, isError }) {
       </div>
     </div>
   )
-}
+})
