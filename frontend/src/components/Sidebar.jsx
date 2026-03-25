@@ -54,11 +54,7 @@ export function Sidebar({
       model: firstModel,
       apiBase: '',
       apiKey: '',
-      reasoningEffort: getDefaultReasoningEffort(
-        remoteConfig,
-        providerName,
-        firstModel,
-      ),
+      reasoningEffort: '',
     })
   }
 
@@ -286,11 +282,7 @@ export function Sidebar({
                         return onUpdateConfig({
                           ...config,
                           model: nextModel,
-                          reasoningEffort: getDefaultReasoningEffort(
-                            remoteConfig,
-                            config.provider,
-                            nextModel,
-                          ),
+                          reasoningEffort: '',
                         })
                       }}
                       className={SELECT_CLASS}

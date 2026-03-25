@@ -14,17 +14,15 @@ export function getDefaultReasoningEffort(remoteConfig, providerName, model) {
 
 export function normalizeConfigWithRemoteDefaults(config, remoteConfig) {
   const providers = remoteConfig?.providers || {}
-  const provider =
-    config.provider && providers[config.provider]
-      ? config.provider
-      : remoteConfig?.default?.provider || ''
+  const providerChanged = !config.provider || !providers[config.provider]
+  const provider = providerChanged
+    ? remoteConfig?.default?.provider || ''
+    : config.provider
   const providerInfo = providers[provider]
-  const model = providerInfo?.models?.includes(config.model)
-    ? config.model
-    : providerInfo?.models?.[0] || ''
+  const modelChanged = !providerInfo?.models?.includes(config.model)
+  const model = modelChanged ? providerInfo?.models?.[0] || '' : config.model
   const reasoningEffort =
-    config.reasoningEffort ||
-    getDefaultReasoningEffort(remoteConfig, provider, model)
+    providerChanged || modelChanged ? '' : config.reasoningEffort
 
   return {
     ...config,
