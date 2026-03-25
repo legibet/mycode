@@ -1,6 +1,8 @@
 /**
- * Message block with role label.
- * Flat, content-first. Copy button for assistant text on hover.
+ * Message display.
+ * No role labels — layout conveys who is speaking.
+ * User: right-aligned compact bubble.
+ * Assistant: left-aligned, full-width, content-first.
  */
 
 import { Check, Copy } from 'lucide-react'
@@ -40,27 +42,24 @@ export const MessageBubble = memo(function MessageBubble({
     }
   }, [textContent])
 
+  if (isUser) {
+    return (
+      <div
+        className="flex justify-end px-5 max-md:px-4 animate-fade-in-up"
+        style={{ animationDelay: `${Math.min(index * 30, 150)}ms` }}
+      >
+        <div className="max-w-[85%] rounded-2xl bg-card px-4 py-2.5 text-sm leading-relaxed text-foreground/90 whitespace-pre-wrap">
+          {textContent}
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div
-      className={cn(
-        'group/msg relative px-5 max-md:px-4 animate-fade-in-up',
-        isUser && 'rounded-lg bg-secondary/20 py-3 mx-1 max-md:mx-0',
-      )}
+      className="group/msg relative px-5 max-md:px-4 animate-fade-in-up"
       style={{ animationDelay: `${Math.min(index * 30, 150)}ms` }}
     >
-      {/* Role label */}
-      <div className="mb-1.5">
-        <span
-          className={cn(
-            'font-mono text-2xs uppercase tracking-widest',
-            isUser ? 'text-muted-foreground/60' : 'text-accent/70',
-          )}
-        >
-          {isUser ? 'you' : 'assistant'}
-        </span>
-      </div>
-
-      {/* Content — gap-3 (12px) between blocks */}
       <div className="flex flex-col gap-3 text-foreground/90 leading-relaxed text-sm">
         {blocks.map((block) => {
           if (block.type === 'thinking') {
@@ -106,7 +105,6 @@ export const MessageBubble = memo(function MessageBubble({
         )}
       </div>
 
-      {/* Copy button — bottom of message, hover to show */}
       {!isUser && textContent && !isStreaming && (
         <div className="mt-2 max-md:opacity-60 opacity-0 group-hover/msg:opacity-100 transition-opacity duration-150">
           <button
