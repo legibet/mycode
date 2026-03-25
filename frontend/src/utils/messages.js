@@ -323,6 +323,8 @@ export function buildRenderMessages(messages, toolRuntimeById = {}) {
   }
 
   return result.filter(
-    (message) => Array.isArray(message.content) && message.content.length > 0,
+    (message, index) =>
+      (Array.isArray(message.content) && message.content.length > 0) ||
+      (index === result.length - 1 && message.role === 'assistant'),
   )
 }
