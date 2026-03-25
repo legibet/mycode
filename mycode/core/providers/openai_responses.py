@@ -70,7 +70,7 @@ class OpenAIResponsesAdapter(ProviderAdapter):
     def _build_request_payload(self, request: ProviderRequest) -> dict[str, Any]:
         prepared_messages = self.prepare_messages(request)
         input_items: list[dict[str, Any]] = []
-        for message_index, message in enumerate(prepared_messages):
+        for message in prepared_messages:
             role = message.get("role")
             if role == "user":
                 input_items.extend(self._serialize_user_message(message))
@@ -84,7 +84,7 @@ class OpenAIResponsesAdapter(ProviderAdapter):
                 input_items.extend(native_output_items)
                 continue
 
-            input_items.extend(self._serialize_fallback_assistant_message(message, message_index))
+            input_items.extend(self._serialize_fallback_assistant_message(message))
 
         payload: dict[str, Any] = {
             "model": request.model,
@@ -137,13 +137,17 @@ class OpenAIResponsesAdapter(ProviderAdapter):
         if not isinstance(output_items, list) or not output_items:
             return None
 
-        return cast(list[dict[str, Any]], deepcopy(output_items))
+        replay_items: list[dict[str, Any]] = []
+        for item in cast(list[dict[str, Any]], deepcopy(output_items)):
+            item_type = str(item.get("type") or "")
+            item.pop("status", None)
+            if item_type != "reasoning":
+                item.pop("id", None)
+            replay_items.append(item)
 
-    def _serialize_fallback_assistant_message(
-        self,
-        message: ConversationMessage,
-        message_index: int,
-    ) -> list[dict[str, Any]]:
+        return replay_items
+
+    def _serialize_fallback_assistant_message(self, message: ConversationMessage) -> list[dict[str, Any]]:
         blocks = [block for block in message.get("content") or [] if isinstance(block, dict)]
         text_parts = [
             str(block.get("text") or "") for block in blocks if block.get("type") == "text" and block.get("text")
@@ -153,9 +157,7 @@ class OpenAIResponsesAdapter(ProviderAdapter):
         if text_parts:
             message_item: dict[str, Any] = {
                 "type": "message",
-                "id": f"replay_assistant_{message_index}",
                 "role": "assistant",
-                "status": "completed",
                 "content": [{"type": "output_text", "text": "\n".join(text_parts)}],
             }
             items.append(message_item)

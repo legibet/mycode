@@ -86,8 +86,17 @@ def test_openai_responses_replays_native_output_items_for_tool_results() -> None
                                 {
                                     "type": "reasoning",
                                     "id": "rs_1",
+                                    "status": "completed",
                                     "summary": [],
                                     "encrypted_content": "enc_1",
+                                },
+                                {
+                                    "type": "message",
+                                    "id": "msg_1",
+                                    "role": "assistant",
+                                    "phase": "commentary",
+                                    "status": "completed",
+                                    "content": [{"type": "output_text", "text": "Checking the file."}],
                                 },
                                 {
                                     "type": "function_call",
@@ -118,12 +127,16 @@ def test_openai_responses_replays_native_output_items_for_tool_results() -> None
     assert input_items == [
         {"type": "reasoning", "id": "rs_1", "summary": [], "encrypted_content": "enc_1"},
         {
+            "type": "message",
+            "role": "assistant",
+            "phase": "commentary",
+            "content": [{"type": "output_text", "text": "Checking the file."}],
+        },
+        {
             "type": "function_call",
-            "id": "fc_1",
             "call_id": "call_1",
             "name": "read",
             "arguments": '{"path": "x.py"}',
-            "status": "completed",
         },
         {"type": "function_call_output", "call_id": "call_1", "output": "file contents"},
     ]
@@ -210,9 +223,7 @@ def test_openai_responses_fallback_replay_skips_reasoning_blocks() -> None:
     assert input_items == [
         {
             "type": "message",
-            "id": "replay_assistant_0",
             "role": "assistant",
-            "status": "completed",
             "content": [{"type": "output_text", "text": "I will inspect the file."}],
         },
         {
