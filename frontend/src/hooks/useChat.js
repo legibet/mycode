@@ -527,16 +527,16 @@ export function useChat(config) {
     initRef.current = true
     try {
       const list = await fetchSessions()
-      if (list.length === 0) {
+      const saved = list.find((session) => !session.isDraft)
+      if (saved) {
+        await loadSession(saved.id)
+      } else {
         createSession()
-        return
       }
-      if (list.some((session) => session.id === activeSession.id)) return
-      await loadSession(list[0].id)
     } catch (e) {
       console.error('Failed to initialize sessions:', e)
     }
-  }, [activeSession.id, createSession, fetchSessions, loadSession])
+  }, [createSession, fetchSessions, loadSession])
 
   useEffect(() => {
     activeSessionRef.current = activeSession
