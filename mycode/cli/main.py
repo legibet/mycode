@@ -96,6 +96,8 @@ def _build_agent(
         settings=settings,
         reasoning_effort=resolved_provider.reasoning_effort,
         max_tokens=resolved_provider.max_tokens,
+        context_window=resolved_provider.context_window,
+        compact_threshold=settings.compact_threshold,
         max_turns=max_turns,
     )
 

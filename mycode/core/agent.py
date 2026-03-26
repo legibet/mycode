@@ -9,9 +9,22 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, cast
 
+from mycode.core.compact import (
+    COMPACT_SUMMARY_PROMPT,
+    DEFAULT_COMPACT_THRESHOLD,
+    apply_compact,
+    build_compact_event,
+    should_compact,
+)
 from mycode.core.config import Settings, get_settings
 from mycode.core.instructions import load_instructions_prompt
-from mycode.core.messages import ConversationMessage, build_message, tool_result_block, user_text_message
+from mycode.core.messages import (
+    ConversationMessage,
+    build_message,
+    flatten_message_text,
+    tool_result_block,
+    user_text_message,
+)
 from mycode.core.providers import get_provider_adapter
 from mycode.core.providers.base import ProviderAdapter, ProviderRequest, ProviderStreamEvent
 from mycode.core.skills import load_skills_prompt
@@ -79,6 +92,14 @@ def build_system_prompt(cwd: str, settings: Settings | None = None) -> str:
     return "\n\n".join(prompt_parts)
 
 
+def _extract_last_usage(messages: list[ConversationMessage]) -> dict[str, Any] | None:
+    """Return the usage dict from the last assistant message, if available."""
+    for msg in reversed(messages):
+        if msg.get("role") == "assistant":
+            return (msg.get("meta") or {}).get("usage")
+    return None
+
+
 class Agent:
     """Minimal coding agent with one internal loop and provider adapters."""
 
@@ -95,6 +116,8 @@ class Agent:
         messages: list[dict[str, Any]] | None = None,
         max_turns: int | None = None,
         max_tokens: int = 8192,
+        context_window: int | None = None,
+        compact_threshold: float | None = None,
         reasoning_effort: str | None = None,
         settings: Settings | None = None,
         system: str | None = None,
@@ -109,6 +132,8 @@ class Agent:
         self.api_base = api_base
         self.max_turns = max_turns
         self.max_tokens = max_tokens
+        self.context_window = context_window
+        self.compact_threshold = compact_threshold if compact_threshold is not None else DEFAULT_COMPACT_THRESHOLD
         self.reasoning_effort = reasoning_effort
         self.settings = settings or get_settings(self.cwd)
         self.system = system or build_system_prompt(self.cwd, self.settings)
@@ -350,7 +375,7 @@ class Agent:
                 if isinstance(block, dict) and block.get("type") == "tool_use"
             ]
             if not tool_uses:
-                return
+                break
 
             tool_results: list[dict[str, Any]] = []
             for tool_use in tool_uses:
@@ -377,4 +402,96 @@ class Agent:
             if on_persist:
                 await on_persist(user_tool_result)
 
-        yield Event("error", {"message": "max_turns reached"})
+        else:
+            # while loop exhausted max_turns without breaking
+            yield Event("error", {"message": "max_turns reached"})
+            return
+
+        # Turn completed normally (assistant stopped calling tools).
+        # Check whether context compaction is needed.
+        if not self._cancel_event.is_set():
+            async for event in self._maybe_compact(adapter, on_persist):
+                yield event
+
+    # -----------------------------------------------------------------
+    # Context compaction
+    # -----------------------------------------------------------------
+
+    async def _maybe_compact(
+        self,
+        adapter: ProviderAdapter,
+        on_persist: PersistCallback | None,
+    ) -> AsyncIterator[Event]:
+        """Check token usage and run compaction if above threshold."""
+        usage = _extract_last_usage(self.messages)
+        if not should_compact(usage, self.context_window, self.compact_threshold):
+            return
+
+        try:
+            async for event in self._compact(adapter, on_persist):
+                yield event
+        except Exception:
+            logger.warning("Context compaction failed, continuing without compaction", exc_info=True)
+
+    async def _compact(
+        self,
+        adapter: ProviderAdapter,
+        on_persist: PersistCallback | None,
+    ) -> AsyncIterator[Event]:
+        """Generate a conversation summary and replace in-memory messages."""
+        compacted_count = len(self.messages)
+
+        # Ask the same provider for a summary — no tools, just text generation.
+        compact_messages = list(self.messages) + [user_text_message(COMPACT_SUMMARY_PROMPT)]
+        request = ProviderRequest(
+            provider=self.provider,
+            model=self.model,
+            session_id=self.session_id,
+            messages=compact_messages,
+            system=self.system,
+            tools=[],
+            max_tokens=min(self.max_tokens, 8192),
+            api_key=self.api_key,
+            api_base=self.api_base,
+        )
+
+        summary_message: ConversationMessage | None = None
+        async for provider_event in self._stream_provider_turn(adapter, request):
+            if provider_event.type == "message_done":
+                msg = provider_event.data.get("message")
+                if isinstance(msg, dict):
+                    summary_message = msg
+
+        if not summary_message:
+            logger.warning("Compaction produced no response")
+            return
+
+        summary_text = flatten_message_text(summary_message, include_thinking=False)
+        if not summary_text:
+            logger.warning("Compaction produced empty summary")
+            return
+
+        summary_usage = (summary_message.get("meta") or {}).get("usage")
+        compact_event = build_compact_event(
+            summary_text,
+            provider=self.provider,
+            model=self.model,
+            compacted_count=compacted_count,
+            usage=summary_usage,
+        )
+
+        # Persist the compact event (append-only — original messages stay in JSONL).
+        if on_persist:
+            await on_persist(compact_event)
+
+        # Rebuild in-memory messages from the compact event.
+        self.messages.append(compact_event)
+        self.messages = apply_compact(self.messages)
+
+        yield Event(
+            "compact",
+            {
+                "message": f"Context compacted ({compacted_count} messages → summary)",
+                "compacted_count": compacted_count,
+            },
+        )

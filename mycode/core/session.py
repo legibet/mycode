@@ -23,6 +23,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
 
+from mycode.core.compact import apply_compact
 from mycode.core.config import resolve_sessions_dir
 from mycode.core.messages import build_message, flatten_message_text, tool_result_block
 
@@ -209,6 +210,7 @@ class SessionStore:
                         continue
 
             self._repair_interrupted_tool_loop(session_id, meta, msgs)
+            msgs = apply_compact(msgs)
 
             return {"session": meta, "messages": msgs}
 

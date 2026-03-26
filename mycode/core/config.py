@@ -47,6 +47,7 @@ class Settings:
     cwd: str
     workspace_root: str
     default_reasoning_effort: str | None = None
+    compact_threshold: float | None = None
     config_paths: list[str] = field(default_factory=list)
 
 
@@ -56,6 +57,7 @@ class _ConfigLayer:
     default_provider: str | None = None
     default_model: str | None = None
     default_reasoning_effort: str | None = None
+    default_compact_threshold: float | None = None
     config_paths: list[str] = field(default_factory=list)
 
 
@@ -144,6 +146,7 @@ def _parse_layer(path: Path, data: dict[str, Any]) -> _ConfigLayer:
         default_reasoning_effort=(
             default.get("reasoning_effort") if default and isinstance(default.get("reasoning_effort"), str) else None
         ),
+        default_compact_threshold=_parse_compact_threshold(default.get("compact_threshold")) if default else None,
         config_paths=[str(path.resolve(strict=False))],
     )
 
@@ -163,6 +166,11 @@ def _merge_layers(base: _ConfigLayer, override: _ConfigLayer) -> _ConfigLayer:
             override.default_reasoning_effort
             if override.default_reasoning_effort is not None
             else base.default_reasoning_effort
+        ),
+        default_compact_threshold=(
+            override.default_compact_threshold
+            if override.default_compact_threshold is not None
+            else base.default_compact_threshold
         ),
         config_paths=base.config_paths + [path for path in override.config_paths if path not in base.config_paths],
     )
@@ -201,6 +209,19 @@ def _build_providers(raw_providers: dict[str, dict[str, Any]]) -> dict[str, Prov
             reasoning_effort=normalize_reasoning_effort(raw.get("reasoning_effort")),
         )
     return providers
+
+
+def _parse_compact_threshold(value: Any) -> float | None:
+    """Parse compact_threshold from config. Returns None if invalid or disabled."""
+    if value is None or value is False:
+        return None
+    try:
+        threshold = float(value)
+    except (TypeError, ValueError):
+        return None
+    if threshold <= 0 or threshold > 1:
+        return None
+    return threshold
 
 
 def normalize_reasoning_effort(value: Any) -> str | None:
@@ -250,6 +271,7 @@ def get_settings(cwd: str | None = None) -> Settings:
         default_provider=merged.default_provider,
         default_model=merged.default_model,
         default_reasoning_effort=normalize_reasoning_effort(merged.default_reasoning_effort),
+        compact_threshold=merged.default_compact_threshold,
         port=int(os.environ.get("PORT", "8000")),
         cwd=resolved_cwd,
         workspace_root=str(workspace_root),

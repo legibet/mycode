@@ -383,6 +383,8 @@ class ReplyRenderer:
                     self.tool_done(result)
                     if event.data.get("is_error") or result.startswith("error"):
                         exit_code = 1
+                case "compact":
+                    self.compact(event.data.get("message", ""))
                 case "error":
                     exit_code = 1
                     self.error(event.data.get("message", ""))
@@ -528,6 +530,14 @@ class ReplyRenderer:
         suffix.append(f"+{new_lc}", style="green")
         suffix.append(f" −{old_lc}", style="red")
         return suffix
+
+    def compact(self, message: str) -> None:
+        """Render a context compaction notification."""
+
+        self._finalize_reasoning_phase()
+        self._reset_stream_state()
+        text = Text(f"⟳ {message}", style=MUTED)
+        self._console.print(text)
 
     def error(self, message: str) -> None:
         """Render a terminal-visible error message for the current turn."""

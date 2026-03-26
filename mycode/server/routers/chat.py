@@ -112,6 +112,8 @@ async def chat(chat: ChatRequest, store: StoreDep, runs: RunManagerDep):
         settings=settings,
         reasoning_effort=reasoning_effort,
         max_tokens=resolved.max_tokens,
+        context_window=resolved.context_window,
+        compact_threshold=settings.compact_threshold,
     )
 
     async def on_persist(message: dict) -> None:
