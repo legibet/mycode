@@ -138,6 +138,7 @@ class SessionStore:
         self,
         title: str | None,
         *,
+        session_id: str | None = None,
         provider: str = DEFAULT_SESSION_PROVIDER,
         model: str,
         cwd: str,
@@ -151,6 +152,8 @@ class SessionStore:
             api_base=api_base,
         )
         session = data["session"]
+        if session_id:
+            session["id"] = session_id
         session_id = str(session["id"])
 
         def write_files() -> None:

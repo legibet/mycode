@@ -348,7 +348,6 @@ export function useChat(config) {
 
   const loadSession = useCallback(
     async (sessionId) => {
-      const previousSession = activeSessionRef.current
       const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}`)
       if (!res.ok) throw new Error('Failed to load session')
 
@@ -359,11 +358,6 @@ export function useChat(config) {
       activeSessionRef.current = data.session
       activeSessionIdRef.current = data.session.id
       setActiveSession(data.session)
-      if (previousSession.isDraft) {
-        setSessions((prev) =>
-          prev.filter((session) => session.id !== previousSession.id),
-        )
-      }
       dispatch({ type: 'set_messages', messages: data.messages || [] })
 
       const pendingEvents = Array.isArray(data.pending_events)
@@ -450,6 +444,17 @@ export function useChat(config) {
           return
         }
 
+        // Update active session from backend response (has real title, id, etc.)
+        if (data.session) {
+          const session = data.session
+          activeSessionRef.current = session
+          activeSessionIdRef.current = session.id
+          setActiveSession(session)
+        }
+
+        // Refresh sidebar immediately so title + is_running are visible
+        fetchSessions()
+
         streamRun(data.run, sessionId, 0)
       } catch (e) {
         if (
@@ -471,6 +476,7 @@ export function useChat(config) {
       cancelRun,
       chatState.rawMessages,
       config,
+      fetchSessions,
       loading,
       streamRun,
     ],
@@ -508,8 +514,9 @@ export function useChat(config) {
     activeSessionIdRef.current = session.id
     setActiveSession(session)
     dispatch({ type: 'set_messages', messages: [] })
-    setSessions((prev) => [session, ...prev.filter((item) => !item.isDraft)])
-  }, [sessionLoading, stopStreaming])
+    // Refresh from server to get accurate is_running, then prepend the new draft
+    fetchSessions()
+  }, [fetchSessions, sessionLoading, stopStreaming])
 
   const selectSession = useCallback(
     async (sessionId) => {
@@ -521,13 +528,14 @@ export function useChat(config) {
 
       try {
         await loadSession(sessionId)
+        fetchSessions()
       } catch (e) {
         console.error('Failed to load session:', e)
       } finally {
         setSessionLoading(false)
       }
     },
-    [activeSession.id, loadSession, stopStreaming],
+    [activeSession.id, fetchSessions, loadSession, stopStreaming],
   )
 
   const deleteSession = useCallback(
@@ -566,17 +574,25 @@ export function useChat(config) {
 
     initRef.current = true
     try {
-      const list = await fetchSessions()
-      const saved = list.find((session) => !session.isDraft)
-      if (saved) {
-        await loadSession(saved.id)
+      // Fetch raw server list first without setting state
+      const res = await fetch(
+        `/api/sessions?cwd=${encodeURIComponent(config.cwd)}`,
+      )
+      if (!res.ok) throw new Error('Failed to load sessions')
+      const data = await res.json()
+      const savedSessions = data.sessions || []
+
+      if (savedSessions.length > 0) {
+        // Load the most recent session, then set the list
+        await loadSession(savedSessions[0].id)
+        await fetchSessions()
       } else {
         createSession()
       }
     } catch (e) {
       console.error('Failed to initialize sessions:', e)
     }
-  }, [createSession, fetchSessions, loadSession])
+  }, [config.cwd, createSession, fetchSessions, loadSession])
 
   useEffect(() => {
     activeSessionRef.current = activeSession

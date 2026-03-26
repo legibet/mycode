@@ -333,6 +333,9 @@
 .animate-progress-line {
   animation: progress-line 1.5s ease-in-out infinite;
 }
+.animate-breathing {
+  animation: breathing 2s ease-in-out infinite;
+}
 
 /* ── Gradient mask for chat scroll fade ── */
 .scroll-fade-top {

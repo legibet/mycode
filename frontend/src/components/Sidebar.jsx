@@ -143,7 +143,7 @@ export const Sidebar = memo(function Sidebar({
                   type="button"
                   key={session.id}
                   className={cn(
-                    'group relative flex w-full items-center justify-between px-4 py-2 text-xs cursor-pointer transition-colors text-left',
+                    'group relative flex w-full items-center justify-between gap-2 px-4 py-2 text-xs cursor-pointer transition-colors text-left',
                     activeSession?.id === session.id
                       ? 'bg-secondary/60 text-foreground'
                       : 'text-muted-foreground hover:text-foreground hover:bg-secondary/30',
@@ -152,6 +152,9 @@ export const Sidebar = memo(function Sidebar({
                 >
                   {activeSession?.id === session.id && (
                     <div className="absolute left-0 top-0 bottom-0 w-[2px] bg-accent" />
+                  )}
+                  {session.is_running && (
+                    <span className="h-2 w-2 shrink-0 rounded-full bg-accent animate-breathing" />
                   )}
                   <span className="truncate flex-1">
                     {session.title || 'New Chat'}

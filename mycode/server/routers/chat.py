@@ -99,7 +99,21 @@ async def _stream_run(req: Request, state: RunState, after: int) -> AsyncIterato
 async def chat(chat: ChatRequest, store: StoreDep, runs: RunManagerDep):
     cwd, settings, resolved, reasoning_effort, session_id = _build_agent(chat)
     data = await store.load_session(session_id)
+    session = (data or {}).get("session")
     messages = (data or {}).get("messages") or []
+
+    if not session:
+        title = chat.message.replace("\n", " ").strip()[:48] or "New chat"
+        data = await store.create_session(
+            title,
+            session_id=session_id,
+            provider=resolved.provider,
+            model=resolved.model,
+            cwd=cwd,
+            api_base=resolved.api_base,
+        )
+        session = data["session"]
+
     agent = Agent(
         model=resolved.model,
         provider=resolved.provider,
@@ -141,7 +155,7 @@ async def chat(chat: ChatRequest, store: StoreDep, runs: RunManagerDep):
             detail["run"] = existing.info()
         raise HTTPException(status_code=409, detail=detail) from exc
 
-    return {"run": run}
+    return {"run": run, "session": session}
 
 
 @router.get("/runs/{run_id}/stream")

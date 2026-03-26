@@ -28,8 +28,11 @@ async def create_session(req: SessionCreateRequest, store: StoreDep):
 
 
 @router.get("")
-async def list_sessions(store: StoreDep, cwd: str | None = None):
-    return {"sessions": await store.list_sessions(cwd=cwd)}
+async def list_sessions(store: StoreDep, runs: RunManagerDep, cwd: str | None = None):
+    sessions = await store.list_sessions(cwd=cwd)
+    for session in sessions:
+        session["is_running"] = await runs.has_active_run(session.get("id", ""))
+    return {"sessions": sessions}
 
 
 @router.get("/{session_id}")
