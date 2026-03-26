@@ -212,14 +212,20 @@ def _build_providers(raw_providers: dict[str, dict[str, Any]]) -> dict[str, Prov
 
 
 def _parse_compact_threshold(value: Any) -> float | None:
-    """Parse compact_threshold from config. Returns None if invalid or disabled."""
-    if value is None or value is False:
+    """Parse compact_threshold from config.
+
+    Returns ``None`` when the key is absent (use default), ``0.0`` when
+    explicitly disabled (``false`` / ``0``), or a valid float in ``(0, 1]``.
+    """
+    if value is None:
         return None
+    if value is False:
+        return 0.0
     try:
         threshold = float(value)
     except (TypeError, ValueError):
         return None
-    if threshold <= 0 or threshold > 1:
+    if threshold < 0 or threshold > 1:
         return None
     return threshold
 

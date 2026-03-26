@@ -43,6 +43,16 @@ concrete details.
 _COMPACT_ACK = "Understood. I have the context from the conversation summary and will continue the work."
 
 
+def _get_input_tokens(usage: dict[str, Any]) -> int:
+    """Extract input token count from provider-specific usage shapes.
+
+    Anthropic / OpenAI Responses: ``input_tokens``
+    OpenAI Chat / DeepSeek / ZAI / OpenRouter: ``prompt_tokens``
+    Gemini: ``prompt_token_count``
+    """
+    return int(usage.get("input_tokens") or usage.get("prompt_tokens") or usage.get("prompt_token_count") or 0)
+
+
 def should_compact(
     last_usage: dict[str, Any] | None,
     context_window: int | None,
@@ -51,8 +61,7 @@ def should_compact(
     """Return True when the last response's input tokens exceed the threshold."""
     if not last_usage or not context_window or threshold <= 0:
         return False
-    input_tokens = last_usage.get("input_tokens", 0)
-    return input_tokens >= context_window * threshold
+    return _get_input_tokens(last_usage) >= context_window * threshold
 
 
 def build_compact_event(

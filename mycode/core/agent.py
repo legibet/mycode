@@ -430,7 +430,7 @@ class Agent:
         try:
             async for event in self._compact(adapter, on_persist):
                 yield event
-        except Exception:
+        except (Exception, asyncio.CancelledError):
             logger.warning("Context compaction failed, continuing without compaction", exc_info=True)
 
     async def _compact(
