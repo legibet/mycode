@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-import json
 import time
 from collections.abc import Awaitable, Callable
 from datetime import datetime
+from difflib import SequenceMatcher
 from typing import Any
 
 from rich.console import Console, ConsoleOptions, RenderResult
@@ -468,7 +468,7 @@ class ReplyRenderer:
                 first_line = shown_text.split("\n", 1)[0][:100]
                 self._console.print(Text(f"    {first_line}", style=ERROR))
             else:
-                suffix = self._format_edit_suffix(model_text)
+                suffix = self._format_edit_suffix(self._tool_name, self._tool_args)
                 self._print_tool_header(self._tool_name, self._tool_args, suffix=suffix)
         else:
             # Bash: streaming tool
@@ -515,21 +515,32 @@ class ReplyRenderer:
         self._console.print(text)
 
     @staticmethod
-    def _format_edit_suffix(result: str) -> Text | None:
-        """Parse edit JSON result and return a ``+N −M`` styled suffix."""
+    def _format_edit_suffix(name: str, args: dict[str, Any]) -> Text | None:
+        """Return the real added/removed line counts for one edit call."""
 
-        try:
-            data = json.loads(result)
-            if data.get("status") != "ok":
-                return None
-        except (json.JSONDecodeError, TypeError, ValueError):
+        if name.lower() != "edit":
             return None
 
-        old_lc = data.get("old_line_count", 0)
-        new_lc = data.get("new_line_count", 0)
+        old_text = args.get("oldText")
+        new_text = args.get("newText")
+        if not isinstance(old_text, str) or not isinstance(new_text, str):
+            return None
+
+        added = 0
+        removed = 0
+        for tag, old_start, old_end, new_start, new_end in SequenceMatcher(
+            None,
+            old_text.splitlines(),
+            new_text.splitlines(),
+        ).get_opcodes():
+            if tag in {"replace", "delete"}:
+                removed += old_end - old_start
+            if tag in {"replace", "insert"}:
+                added += new_end - new_start
+
         suffix = Text()
-        suffix.append(f"+{new_lc}", style="green")
-        suffix.append(f" −{old_lc}", style="red")
+        suffix.append(f"+{added}", style="green")
+        suffix.append(f" −{removed}", style="red")
         return suffix
 
     def compact(self, message: str) -> None:

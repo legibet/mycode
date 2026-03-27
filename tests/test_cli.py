@@ -11,7 +11,7 @@ from prompt_toolkit.output import DummyOutput
 
 from mycode.cli.chat import _build_chat_key_bindings, _SlashCompleter, history_file_path
 from mycode.cli.main import app, run_noninteractive
-from mycode.cli.render import TerminalView
+from mycode.cli.render import ReplyRenderer, TerminalView
 from mycode.cli.runtime import list_model_options, resolve_session
 from mycode.cli.runtime import update_agent_runtime as _update_agent_runtime
 from mycode.core.agent import Event
@@ -193,6 +193,20 @@ def test_history_preview_entries_summarize_tool_only_assistant_messages():
         ("You", "Inspect project"),
         ("Assistant", "[Used tools: read, bash]"),
     ]
+
+
+def test_edit_suffix_uses_real_diff_line_counts():
+    suffix = ReplyRenderer._format_edit_suffix(
+        "edit",
+        {
+            "path": "test.py",
+            "oldText": "def f():\n    return 1\n",
+            "newText": "def f():\n    return 2\n",
+        },
+    )
+
+    assert suffix is not None
+    assert suffix.plain == "+1 −1"
 
 
 @pytest.mark.asyncio
