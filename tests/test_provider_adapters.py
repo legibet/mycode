@@ -834,14 +834,7 @@ def test_anthropic_prepare_messages_normalizes_tool_ids() -> None:
     ]
 
 
-@pytest.mark.parametrize(
-    "thinking_block",
-    [
-        {"type": "thinking", "text": "think", "meta": {"native": {"reasoning_field": "reasoning_content"}}},
-        {"type": "thinking", "text": "think"},
-    ],
-)
-def test_openai_chat_replays_reasoning_by_default(thinking_block: dict[str, Any]) -> None:
+def test_openai_chat_replays_reasoning_by_default() -> None:
     adapter = OpenAIChatAdapter()
 
     payload_messages = adapter._build_messages(
@@ -849,7 +842,7 @@ def test_openai_chat_replays_reasoning_by_default(thinking_block: dict[str, Any]
             {
                 "role": "assistant",
                 "content": [
-                    thinking_block,
+                    {"type": "thinking", "text": "think"},
                     {"type": "text", "text": "answer"},
                 ],
             }

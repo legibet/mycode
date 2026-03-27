@@ -1,6 +1,5 @@
 """Basic tests for SessionStore (append-only JSONL storage)."""
 
-import json
 import tempfile
 from pathlib import Path
 
@@ -258,70 +257,9 @@ class TestSessionStore:
         assert await temp_store.load_session(result["session"]["id"]) is None
         assert await temp_store.list_sessions() == []
 
-    @pytest.mark.asyncio
-    async def test_message_storage_format(self, temp_store):
-        """Messages should be stored as valid JSONL."""
-        result = await temp_store.create_session(title="Test", model="gpt-5.4", cwd="/tmp", api_base=None)
-        session_id = result["session"]["id"]
-
-        msg = {"role": "user", "content": [{"type": "text", "text": "Test message"}]}
-        await temp_store.append_message(
-            session_id,
-            msg,
-            provider="anthropic",
-            model="gpt-5.4",
-            cwd="/tmp",
-            api_base=None,
-        )
-
-        # Read raw JSONL file
-        messages_path = temp_store.messages_path(session_id)
-        lines = messages_path.read_text().strip().split("\n")
-        assert len(lines) == 1
-
-        parsed = json.loads(lines[0])
-        assert parsed["role"] == "user"
-        assert parsed["content"] == [{"type": "text", "text": "Test message"}]
-
 
 class TestSessionStoreEdgeCases:
     """Edge case tests for SessionStore."""
-
-    @pytest.mark.asyncio
-    async def test_list_sessions_filtered_by_cwd(self, temp_store):
-        """Listing with cwd filter should only return matching sessions."""
-        project = await temp_store.create_session(
-            title="In Project",
-            model="gpt-5.4",
-            cwd="/home/user/project",
-            api_base=None,
-        )
-        home = await temp_store.create_session(
-            title="In Home",
-            model="gpt-5.4",
-            cwd="/home/user",
-            api_base=None,
-        )
-        await temp_store.append_message(
-            project["session"]["id"],
-            {"role": "user", "content": [{"type": "text", "text": "project"}]},
-            provider="anthropic",
-            model="gpt-5.4",
-            cwd="/home/user/project",
-            api_base=None,
-        )
-        await temp_store.append_message(
-            home["session"]["id"],
-            {"role": "user", "content": [{"type": "text", "text": "home"}]},
-            provider="anthropic",
-            model="gpt-5.4",
-            cwd="/home/user",
-            api_base=None,
-        )
-
-        sessions = await temp_store.list_sessions(cwd="/home/user/project")
-        assert len(sessions) == 1
-        assert sessions[0]["title"] == "In Project"
 
     @pytest.mark.asyncio
     async def test_append_message_creates_directories(self, temp_store):

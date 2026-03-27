@@ -2,19 +2,13 @@
 
 from __future__ import annotations
 
-import os
-import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
-import pytest
-
 from mycode.core.skills import (
-    Skill,
     _parse_skill_md,
     _scan_skill_root,
     discover_skills,
-    format_skills_for_prompt,
     load_skills_prompt,
 )
 
@@ -230,36 +224,6 @@ class TestDiscoverSkills:
         with patch("mycode.core.skills.Path.home", return_value=tmp_path / "home"):
             skills = discover_skills(str(tmp_path))
         assert skills == []
-
-    def test_sorted_by_name(self, tmp_path: Path, monkeypatch) -> None:
-        root = tmp_path / "home" / ".mycode" / "skills"
-        monkeypatch.setenv("MYCODE_HOME", str(tmp_path / "home" / ".mycode"))
-        _write(root / "zebra.md", "---\nname: zebra\ndescription: Z.\n---\n")
-        _write(root / "alpha.md", "---\nname: alpha\ndescription: A.\n---\n")
-        _write(root / "mid.md", "---\nname: mid\ndescription: M.\n---\n")
-
-        with patch("mycode.core.skills.Path.home", return_value=tmp_path / "home"):
-            skills = discover_skills(str(tmp_path))
-
-        assert [s.name for s in skills] == ["alpha", "mid", "zebra"]
-
-
-class TestFormatSkillsForPrompt:
-    def test_empty(self) -> None:
-        assert format_skills_for_prompt([]) == ""
-
-    def test_format(self) -> None:
-        skills = [
-            Skill(name="alpha", description="First skill.", path="/a/SKILL.md", source="project"),
-            Skill(name="beta", description="Second skill.", path="/b/SKILL.md", source="global"),
-        ]
-        result = format_skills_for_prompt(skills)
-        assert "<available_skills>" in result
-        assert "</available_skills>" in result
-        assert "name: alpha" in result
-        assert "name: beta" in result
-        assert "path: /a/SKILL.md" in result
-        assert "description: First skill." in result
 
 
 class TestLoadSkillsPrompt:

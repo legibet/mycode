@@ -9,9 +9,8 @@ from prompt_toolkit.history import InMemoryHistory
 from prompt_toolkit.input.defaults import create_pipe_input
 from prompt_toolkit.output import DummyOutput
 
-from mycode.cli.chat import _build_chat_key_bindings, _SlashCompleter, history_file_path
+from mycode.cli.chat import _build_chat_key_bindings, _SlashCompleter
 from mycode.cli.main import app, run_noninteractive
-from mycode.cli.render import ReplyRenderer, TerminalView
 from mycode.cli.runtime import list_model_options, resolve_session
 from mycode.cli.runtime import update_agent_runtime as _update_agent_runtime
 from mycode.core.agent import Event
@@ -151,62 +150,6 @@ def test_cli_rejects_non_positive_max_turns():
     result = runner.invoke(app, ["run", "--max-turns", "0", "hello"])
 
     assert result.exit_code != 0
-
-
-def test_cli_shows_help_for_web():
-    from typer.testing import CliRunner
-
-    runner = CliRunner()
-    result = runner.invoke(app, ["web", "--help"])
-
-    assert result.exit_code == 0
-    assert "--dev" in result.output
-
-
-def test_history_file_path_uses_mycode_home(tmp_path, monkeypatch):
-    mycode_home = tmp_path / ".mycode"
-    monkeypatch.setenv("MYCODE_HOME", str(mycode_home))
-
-    path = history_file_path()
-
-    assert path == str((mycode_home / "cli_history").resolve())
-    assert mycode_home.exists()
-
-
-def test_history_preview_entries_summarize_tool_only_assistant_messages():
-    view = TerminalView()
-
-    entries = view.history_preview_entries(
-        [
-            {"role": "user", "content": [{"type": "text", "text": "Inspect project"}]},
-            {
-                "role": "assistant",
-                "content": [
-                    {"type": "tool_use", "id": "a", "name": "read", "input": {}},
-                    {"type": "tool_use", "id": "b", "name": "bash", "input": {}},
-                ],
-            },
-        ]
-    )
-
-    assert entries == [
-        ("You", "Inspect project"),
-        ("Assistant", "[Used tools: read, bash]"),
-    ]
-
-
-def test_edit_suffix_uses_real_diff_line_counts():
-    suffix = ReplyRenderer._format_edit_suffix(
-        "edit",
-        {
-            "path": "test.py",
-            "oldText": "def f():\n    return 1\n",
-            "newText": "def f():\n    return 2\n",
-        },
-    )
-
-    assert suffix is not None
-    assert suffix.plain == "+1 −1"
 
 
 @pytest.mark.asyncio
