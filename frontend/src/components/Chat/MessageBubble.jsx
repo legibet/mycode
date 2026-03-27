@@ -91,7 +91,8 @@ export const MessageBubble = memo(function MessageBubble({
                 name={block.name}
                 args={block.input}
                 output={block.runtime?.output}
-                result={block.runtime?.result}
+                modelText={block.runtime?.modelText}
+                displayText={block.runtime?.displayText}
                 pending={block.runtime?.pending}
                 isError={block.runtime?.isError}
               />

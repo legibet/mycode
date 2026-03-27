@@ -9,7 +9,7 @@ import pytest
 
 from mycode.core.agent import Agent
 from mycode.core.providers.base import ProviderStreamEvent
-from mycode.core.tools import ToolExecutor, ToolSpec, cancel_all_tools
+from mycode.core.tools import ToolExecutionResult, ToolExecutor, ToolSpec, cancel_all_tools
 
 
 class TestToolExecutorBash:
@@ -20,16 +20,16 @@ class TestToolExecutorBash:
             executor = ToolExecutor(cwd=tmpdir, session_dir=Path(tmpdir))
             result = executor.bash(tool_call_id="test-1", command="echo Hello")
 
-            assert "Hello" in result
-            assert "error" not in result.lower()
+            assert "Hello" in result.model_text
+            assert result.is_error is False
 
     def test_bash_multiple_lines(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             executor = ToolExecutor(cwd=tmpdir, session_dir=Path(tmpdir))
             result = executor.bash(tool_call_id="test-2", command="echo 'line1\nline2'")
 
-            assert "line1" in result
-            assert "line2" in result
+            assert "line1" in result.model_text
+            assert "line2" in result.model_text
 
     def test_bash_stderr_included(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -37,21 +37,21 @@ class TestToolExecutorBash:
             result = executor.bash(tool_call_id="test-3", command="echo error >&2")
 
             # stderr should be captured via stderr=STDOUT
-            assert "error" in result
+            assert "error" in result.model_text
 
     def test_bash_empty_output(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             executor = ToolExecutor(cwd=tmpdir, session_dir=Path(tmpdir))
             result = executor.bash(tool_call_id="test-4", command="true")
 
-            assert result == "(empty)"
+            assert result.model_text == "(empty)"
 
     def test_bash_with_cwd(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             executor = ToolExecutor(cwd=tmpdir, session_dir=Path(tmpdir))
             result = executor.bash(tool_call_id="test-5", command="pwd")
 
-            assert tmpdir in result
+            assert tmpdir in result.model_text
 
     def test_bash_with_pipes(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -59,14 +59,14 @@ class TestToolExecutorBash:
             result = executor.bash(tool_call_id="test-6", command="echo 'hello world' | wc -w")
 
             # Should count 2 words
-            assert "2" in result
+            assert "2" in result.model_text
 
     def test_bash_runs_in_shell_environment(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             executor = ToolExecutor(cwd=tmpdir, session_dir=Path(tmpdir))
             result = executor.bash(tool_call_id="test-7", command='printf "%s" "$HOME"')
 
-            assert result == str(Path.home())
+            assert result.model_text == str(Path.home())
 
 
 class TestBashTimeout:
@@ -78,24 +78,24 @@ class TestBashTimeout:
             # Use a command that sleeps longer than timeout
             result = executor.bash(tool_call_id="test-timeout", command="sleep 5", timeout=1)
 
-            assert "timeout" in result.lower()
-            assert "error" in result.lower()
+            assert "timeout" in result.model_text.lower()
+            assert result.is_error is True
 
     def test_bash_quick_command_no_timeout(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             executor = ToolExecutor(cwd=tmpdir, session_dir=Path(tmpdir))
             result = executor.bash(tool_call_id="test-quick", command="echo fast", timeout=10)
 
-            assert "fast" in result
-            assert "timeout" not in result.lower()
+            assert "fast" in result.model_text
+            assert "timeout" not in result.model_text.lower()
 
     def test_bash_zero_timeout_falls_back_to_default(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             executor = ToolExecutor(cwd=tmpdir, session_dir=Path(tmpdir))
             result = executor.bash(tool_call_id="test-zero-timeout", command="echo ok", timeout=0)
 
-            assert "ok" in result
-            assert "timeout" not in result.lower()
+            assert "ok" in result.model_text
+            assert "timeout" not in result.model_text.lower()
 
 
 class TestBashTruncation:
@@ -110,9 +110,9 @@ class TestBashTruncation:
                 command='for i in $(seq 1 3000); do echo "line $i"; done',
             )
 
-            assert "truncated" in result.lower() or "showing" in result.lower()
-            assert "line 3000" in result
-            assert "Use read with offset/limit" in result
+            assert "truncated" in result.model_text.lower() or "showing" in result.model_text.lower()
+            assert "line 3000" in result.model_text
+            assert "Use read with offset/limit" in result.model_text
             # Full output should be saved to file
             tool_output_dir = Path(tmpdir) / "tool-output"
             assert (tool_output_dir / "bash-test-large.log").exists()
@@ -139,9 +139,9 @@ class TestBashTruncation:
                 command="python -c \"print('x' * 60000, end='')\"",
             )
 
-            assert "Full output saved to:" in result
-            assert "Use bash to inspect bytes:" in result
-            assert "head -c 2000" in result
+            assert "Full output saved to:" in result.model_text
+            assert "Use bash to inspect bytes:" in result.model_text
+            assert "head -c 2000" in result.model_text
 
 
 class TestBashCallback:
@@ -177,7 +177,7 @@ class TestCancelAllTools:
             import threading
             import time
 
-            result_holder = {}
+            result_holder: dict[str, ToolExecutionResult] = {}
 
             def run_bash():
                 result = executor.bash(
@@ -211,8 +211,8 @@ class TestCancelAllTools:
             import threading
             import time
 
-            first_result: dict[str, str] = {}
-            second_result: dict[str, str] = {}
+            first_result: dict[str, ToolExecutionResult] = {}
+            second_result: dict[str, ToolExecutionResult] = {}
 
             def run_first() -> None:
                 first_result["result"] = first.bash(
@@ -277,8 +277,8 @@ class _CustomToolExecutor(ToolExecutor):
             ),
         )
 
-    def ping(self, *, text: str) -> str:
-        return f"pong: {text}"
+    def ping(self, *, text: str) -> ToolExecutionResult:
+        return ToolExecutionResult(model_text=f"pong: {text}", display_text=f"pong: {text}")
 
 
 class _SlowProviderAdapter:
@@ -583,7 +583,8 @@ class TestCustomTools:
             assert [event.type for event in events] == ["tool_start", "tool_done"]
             assert events[1].data == {
                 "tool_use_id": "call-1",
-                "result": "pong: hello",
+                "model_text": "pong: hello",
+                "display_text": "pong: hello",
                 "is_error": False,
             }
 

@@ -379,9 +379,11 @@ class ReplyRenderer:
                 case "tool_output":
                     self.tool_output(event.data.get("output", ""))
                 case "tool_done":
-                    result = event.data.get("result", "")
-                    self.tool_done(result)
-                    if event.data.get("is_error") or result.startswith("error"):
+                    model_text = str(event.data.get("model_text") or "")
+                    display_text = str(event.data.get("display_text") or "")
+                    is_error = bool(event.data.get("is_error"))
+                    self.tool_done(model_text, display_text, is_error=is_error)
+                    if is_error:
                         exit_code = 1
                 case "compact":
                     self.compact(event.data.get("message", ""))
@@ -448,10 +450,9 @@ class ReplyRenderer:
             text.append(line, style=MUTED)
             self._console.print(text)
 
-    def tool_done(self, result: str) -> None:
+    def tool_done(self, model_text: str, display_text: str, *, is_error: bool) -> None:
         """Render the final tool result."""
-
-        is_error = result.startswith("error")
+        shown_text = display_text or model_text
 
         elapsed = 0.0
         if self._tool_start_time is not None:
@@ -464,15 +465,15 @@ class ReplyRenderer:
             self._tool_buffered = False
             if is_error:
                 self._print_tool_header(self._tool_name, self._tool_args)
-                first_line = result.split("\n", 1)[0][:100]
+                first_line = shown_text.split("\n", 1)[0][:100]
                 self._console.print(Text(f"    {first_line}", style=ERROR))
             else:
-                suffix = self._format_edit_suffix(result)
+                suffix = self._format_edit_suffix(model_text)
                 self._print_tool_header(self._tool_name, self._tool_args, suffix=suffix)
         else:
             # Bash: streaming tool
             if is_error and self._tool_output_count == 0:
-                first_line = result.split("\n", 1)[0][:100]
+                first_line = shown_text.split("\n", 1)[0][:100]
                 self._console.print(Text(f"    {first_line}", style=ERROR))
             else:
                 parts: list[str] = []

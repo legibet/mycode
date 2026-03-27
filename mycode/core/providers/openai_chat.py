@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import AsyncIterator
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 from openai import APIError, AsyncOpenAI
@@ -23,10 +23,12 @@ from mycode.core.tools import parse_tool_arguments
 
 @dataclass
 class _ChatToolCallState:
+    """Accumulate one streamed tool call from chat-completions deltas."""
+
     index: int
     tool_id: str | None = None
     name: str = ""
-    arguments_parts: list[str] = field(default_factory=list)
+    arguments_text: str = ""
 
 
 class OpenAIChatAdapter(ProviderAdapter):
@@ -46,6 +48,8 @@ class OpenAIChatAdapter(ProviderAdapter):
             timeout=DEFAULT_REQUEST_TIMEOUT,
         )
 
+        # Keep the streamed turn state local to this adapter so the wire-format
+        # mapping stays readable in one file.
         tool_calls: dict[int, _ChatToolCallState] = {}
         text_parts: list[str] = []
         thinking_parts: list[str] = []
@@ -93,7 +97,7 @@ class OpenAIChatAdapter(ProviderAdapter):
                     if function.name:
                         state.name = function.name
                     if function.arguments:
-                        state.arguments_parts.append(function.arguments)
+                        state.arguments_text += function.arguments
         except APIError as exc:
             raise ValueError(str(exc)) from exc
 
@@ -110,7 +114,7 @@ class OpenAIChatAdapter(ProviderAdapter):
 
         for index in sorted(tool_calls):
             state = tool_calls[index]
-            raw_arguments = "".join(state.arguments_parts)
+            raw_arguments = state.arguments_text
             parsed_arguments = parse_tool_arguments(raw_arguments)
             if isinstance(parsed_arguments, str):
                 tool_input = {}
@@ -189,7 +193,7 @@ class OpenAIChatAdapter(ProviderAdapter):
                     {
                         "role": "tool",
                         "tool_call_id": block.get("tool_use_id") or "",
-                        "content": str(block.get("content") or ""),
+                        "content": str(block.get("model_text") or ""),
                     }
                 )
             return payload_messages

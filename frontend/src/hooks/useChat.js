@@ -72,7 +72,8 @@ function chatReducer(state, action) {
           toolRuntimeById[toolCall.id] = {
             pending: true,
             output: '',
-            result: null,
+            modelText: null,
+            displayText: null,
             isError: false,
           }
         }
@@ -82,7 +83,8 @@ function chatReducer(state, action) {
           const current = toolRuntimeById[toolUseId] || {
             pending: true,
             output: '',
-            result: null,
+            modelText: null,
+            displayText: null,
             isError: false,
           }
           const nextOutput = event.output || ''
@@ -96,29 +98,33 @@ function chatReducer(state, action) {
         }
       } else if (event.type === 'tool_done') {
         const toolUseId = event.tool_use_id || ''
-        const result = event.result || ''
+        const modelText = event.model_text || ''
+        const displayText = event.display_text || ''
         const isError = Boolean(
           event.is_error ||
-            (typeof result === 'string' && result.startsWith('error:')),
+            (typeof modelText === 'string' && modelText.startsWith('error:')),
         )
 
         if (toolUseId) {
           const current = toolRuntimeById[toolUseId] || {
             pending: false,
             output: '',
-            result: null,
+            modelText: null,
+            displayText: null,
             isError: false,
           }
           toolRuntimeById[toolUseId] = {
             ...current,
             pending: false,
-            result,
+            modelText,
+            displayText,
             isError,
           }
           rawMessages = appendToolResult(
             rawMessages,
             toolUseId,
-            result,
+            modelText,
+            displayText,
             isError,
           )
         }

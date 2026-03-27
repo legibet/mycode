@@ -61,19 +61,20 @@ export const ToolCard = memo(function ToolCard({
   name,
   args,
   output,
-  result,
+  modelText,
+  displayText,
   pending,
   isError,
 }) {
   const display =
-    typeof result === 'string'
-      ? result
+    typeof displayText === 'string'
+      ? displayText
       : typeof output === 'string'
         ? output
         : ''
   const resolvedIsError =
     Boolean(isError) ||
-    (display && typeof display === 'string' && display.startsWith('error:'))
+    (typeof modelText === 'string' && modelText.startsWith('error:'))
   const [expandedOverride, setExpandedOverride] = useState(null)
   const expanded = expandedOverride ?? resolvedIsError
 
@@ -162,7 +163,7 @@ export const ToolCard = memo(function ToolCard({
                     path={args.path}
                     oldText={args.oldText}
                     newText={args.newText}
-                    result={display}
+                    result={modelText}
                   />
                 </Suspense>
               ) : (

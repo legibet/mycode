@@ -259,7 +259,8 @@ class _ReplayProjector:
                 [
                     tool_result_block(
                         tool_use_id=tool_use_id,
-                        content="error: tool call was interrupted (no result recorded)",
+                        model_text="error: tool call was interrupted (no result recorded)",
+                        display_text="Tool call was interrupted before it returned a result",
                         is_error=True,
                     )
                     for tool_use_id in self.pending_tool_call_ids

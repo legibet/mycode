@@ -48,6 +48,19 @@ class ToolSpec:
     streams_output: bool = False
 
 
+@dataclass(frozen=True)
+class ToolExecutionResult:
+    """Structured tool result used by the runtime.
+
+    `model_text` is appended to session history for future provider replay.
+    `display_text` is shown to the user.
+    """
+
+    model_text: str
+    display_text: str
+    is_error: bool = False
+
+
 DEFAULT_TOOL_SPECS: tuple[ToolSpec, ...] = (
     ToolSpec(
         name="read",
@@ -304,16 +317,20 @@ class ToolExecutor:
 
         return self._tools_by_name.get(name)
 
-    def run(self, name: str, *, args: dict[str, Any]) -> str:
+    def run(self, name: str, *, args: dict[str, Any]) -> ToolExecutionResult:
         """Execute a non-streaming tool call."""
 
         spec = self.get_tool(name)
         if spec is None:
-            return f"error: unknown tool: {name}"
+            return ToolExecutionResult(
+                model_text=f"error: unknown tool: {name}",
+                display_text=f"Unknown tool: {name}",
+                is_error=True,
+            )
         if spec.streams_output:
             raise ValueError(f"tool requires streaming execution: {name}")
 
-        handler = cast(Callable[..., str], getattr(self, spec.method_name))
+        handler = cast(Callable[..., ToolExecutionResult], getattr(self, spec.method_name))
         return handler(**args)
 
     def run_streaming(
@@ -323,16 +340,20 @@ class ToolExecutor:
         tool_call_id: str,
         args: dict[str, Any],
         on_output: ToolOutputCallback,
-    ) -> str:
+    ) -> ToolExecutionResult:
         """Execute a tool call that emits incremental output."""
 
         spec = self.get_tool(name)
         if spec is None:
-            return f"error: unknown tool: {name}"
+            return ToolExecutionResult(
+                model_text=f"error: unknown tool: {name}",
+                display_text=f"Unknown tool: {name}",
+                is_error=True,
+            )
         if not spec.streams_output:
             raise ValueError(f"tool does not support streaming execution: {name}")
 
-        handler = cast(Callable[..., str], getattr(self, spec.method_name))
+        handler = cast(Callable[..., ToolExecutionResult], getattr(self, spec.method_name))
         return handler(tool_call_id=tool_call_id, on_output=on_output, **args)
 
     def _track_proc(self, proc: subprocess.Popen[str]) -> None:
@@ -347,12 +368,20 @@ class ToolExecutor:
         with _ACTIVE_PROCS_LOCK:
             _ACTIVE_PROCS.discard(proc)
 
-    def _resolve_existing_file(self, path: str) -> tuple[Path | None, str | None]:
+    def _resolve_existing_file(self, path: str) -> tuple[Path | None, ToolExecutionResult | None]:
         file_path = Path(resolve_path(path, cwd=self.cwd))
         if not file_path.exists():
-            return None, f"error: file not found: {path}"
+            return None, ToolExecutionResult(
+                model_text=f"error: file not found: {path}",
+                display_text=f"File not found: {path}",
+                is_error=True,
+            )
         if not file_path.is_file():
-            return None, f"error: not a file: {path}"
+            return None, ToolExecutionResult(
+                model_text=f"error: not a file: {path}",
+                display_text=f"Not a file: {path}",
+                is_error=True,
+            )
         return file_path, None
 
     def cancel_active(self) -> None:
@@ -369,7 +398,7 @@ class ToolExecutor:
 
     # ---- read -----------------------------------------------------------------
 
-    def read(self, *, path: str, offset: int | None = None, limit: int | None = None) -> str:
+    def read(self, *, path: str, offset: int | None = None, limit: int | None = None) -> ToolExecutionResult:
         """Read a text file.
 
         offset is 1-indexed. limit is number of lines.
@@ -406,12 +435,24 @@ class ToolExecutor:
                         line = line[:READ_MAX_LINE_CHARS] + " ... [line truncated]"
                     lines.append(line)
         except UnicodeDecodeError:
-            return f"error: file is not valid utf-8 text: {path}"
+            return ToolExecutionResult(
+                model_text=f"error: file is not valid utf-8 text: {path}",
+                display_text=f"File is not valid UTF-8 text: {path}",
+                is_error=True,
+            )
         except Exception as exc:
-            return f"error: failed to read file: {exc}"
+            return ToolExecutionResult(
+                model_text=f"error: failed to read file: {exc}",
+                display_text=f"Failed to read file: {path}",
+                is_error=True,
+            )
 
         if total_lines < start_line and not (total_lines == 0 and start_line == 1):
-            return f"error: offset {offset} beyond end of file ({total_lines} lines)"
+            return ToolExecutionResult(
+                model_text=f"error: offset {offset} beyond end of file ({total_lines} lines)",
+                display_text=f"Offset {offset} beyond end of file: {path}",
+                is_error=True,
+            )
 
         parts: list[str] = []
         content = "\n".join(lines)
@@ -436,25 +477,28 @@ class ToolExecutor:
                 f"sed -n '{first_shortened_line}p' {quoted} | tail -c +2001 | head -c 2000]"
             )
 
-        if not parts:
-            return ""
-        return "\n\n".join(parts)
+        content = "\n\n".join(parts) if parts else ""
+        return ToolExecutionResult(model_text=content, display_text=content)
 
     # ---- write ----------------------------------------------------------------
 
-    def write(self, *, path: str, content: str) -> str:
+    def write(self, *, path: str, content: str) -> ToolExecutionResult:
         abs_path = resolve_path(path, cwd=self.cwd)
         p = Path(abs_path)
         try:
             p.parent.mkdir(parents=True, exist_ok=True)
             _atomic_write_text(p, content)
         except Exception as exc:
-            return f"error: failed to write file: {exc}"
-        return "ok"
+            return ToolExecutionResult(
+                model_text=f"error: failed to write file: {exc}",
+                display_text=f"Failed to write file: {path}",
+                is_error=True,
+            )
+        return ToolExecutionResult(model_text="ok", display_text=f"Wrote {path}")
 
     # ---- edit -----------------------------------------------------------------
 
-    def edit(self, *, path: str, oldText: str, newText: str) -> str:  # noqa: N803 (pi-compatible)
+    def edit(self, *, path: str, oldText: str, newText: str) -> ToolExecutionResult:  # noqa: N803 (pi-compatible)
         """Replace one exact snippet, with a narrow fuzzy fallback.
 
         The fallback only tolerates line-ending and trailing-whitespace changes.
@@ -469,7 +513,11 @@ class ToolExecutor:
         try:
             text = file_path.read_text(encoding="utf-8")
         except Exception as exc:
-            return f"error: failed to read file: {exc}"
+            return ToolExecutionResult(
+                model_text=f"error: failed to read file: {exc}",
+                display_text=f"Failed to read file: {path}",
+                is_error=True,
+            )
 
         # Exact match first (deterministic and preferred)
         exact_count = text.count(oldText)
@@ -478,21 +526,37 @@ class ToolExecutor:
             match_pos = text.index(oldText)
             updated = text.replace(oldText, newText, 1)
         elif exact_count > 1:
-            return f"error: oldText occurs {exact_count} times; provide a more specific oldText"
+            return ToolExecutionResult(
+                model_text=f"error: oldText occurs {exact_count} times; provide a more specific oldText",
+                display_text="Edit target is ambiguous; provide a more specific oldText",
+                is_error=True,
+            )
         else:
             # Conservative fuzzy fallback:
             # tolerate line-ending and trailing-whitespace differences only.
             fuzzy_span, fuzzy_count = _find_fuzzy_edit_span(text, oldText)
             if fuzzy_span is None:
                 if fuzzy_count > 1:
-                    return (
-                        f"error: oldText occurs {fuzzy_count} times after normalization; "
-                        "provide a more specific oldText"
+                    return ToolExecutionResult(
+                        model_text=(
+                            f"error: oldText occurs {fuzzy_count} times after normalization; "
+                            "provide a more specific oldText"
+                        ),
+                        display_text="Edit target is ambiguous after normalization",
+                        is_error=True,
                     )
                 hint = _closest_line_hint(text, oldText)
                 if hint:
-                    return f"error: oldText not found. closest line: {hint}"
-                return "error: oldText not found"
+                    return ToolExecutionResult(
+                        model_text=f"error: oldText not found. closest line: {hint}",
+                        display_text="Edit target not found",
+                        is_error=True,
+                    )
+                return ToolExecutionResult(
+                    model_text="error: oldText not found",
+                    display_text="Edit target not found",
+                    is_error=True,
+                )
 
             start, end = fuzzy_span
             match_pos = start
@@ -501,9 +565,16 @@ class ToolExecutor:
         try:
             _atomic_write_text(file_path, updated)
         except Exception as exc:
-            return f"error: failed to write file: {exc}"
+            return ToolExecutionResult(
+                model_text=f"error: failed to write file: {exc}",
+                display_text=f"Failed to write file: {path}",
+                is_error=True,
+            )
 
-        return self._edit_result(text, updated, oldText, newText, match_pos=match_pos)
+        return ToolExecutionResult(
+            model_text=self._edit_result(text, updated, oldText, newText, match_pos=match_pos),
+            display_text=f"Updated {path}",
+        )
 
     @staticmethod
     def _edit_result(
@@ -550,7 +621,7 @@ class ToolExecutor:
         command: str,
         timeout: int | None = None,
         on_output: ToolOutputCallback | None = None,
-    ) -> str:
+    ) -> ToolExecutionResult:
         """Run a shell command and return combined stdout/stderr text.
 
         Output is streamed line-by-line through ``on_output`` when provided. If
@@ -607,7 +678,11 @@ class ToolExecutor:
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
                     _kill_proc_tree(proc)
-                    return f"error: timeout after {timeout}s"
+                    return ToolExecutionResult(
+                        model_text=f"error: timeout after {timeout}s",
+                        display_text=f"Command timed out after {timeout}s",
+                        is_error=True,
+                    )
 
                 try:
                     line = output_queue.get(timeout=min(0.1, remaining))
@@ -642,14 +717,23 @@ class ToolExecutor:
                     on_output(line)
 
             if reader_errors:
-                return f"error: {reader_errors[0]}"
+                message = str(reader_errors[0])
+                return ToolExecutionResult(
+                    model_text=f"error: {message}",
+                    display_text=message,
+                    is_error=True,
+                )
 
             try:
                 remaining = max(0.1, deadline - time.monotonic())
                 proc.wait(timeout=remaining)
             except subprocess.TimeoutExpired:
                 _kill_proc_tree(proc)
-                return f"error: timeout after {timeout}s"
+                return ToolExecutionResult(
+                    model_text=f"error: timeout after {timeout}s",
+                    display_text=f"Command timed out after {timeout}s",
+                    is_error=True,
+                )
 
             output_lines = list(tail_lines) if spilled_to_file else out_lines
             raw_output = "\n".join(output_lines)
@@ -675,12 +759,17 @@ class ToolExecutor:
                             f"head -c 2000 {quoted}\n"
                             f"tail -c +2001 {quoted} | head -c 2000"
                         )
-                return result
+                return ToolExecutionResult(model_text=result, display_text=result)
 
-            return content
+            return ToolExecutionResult(model_text=content, display_text=content)
 
         except Exception as exc:
-            return f"error: {exc}"
+            message = str(exc)
+            return ToolExecutionResult(
+                model_text=f"error: {message}",
+                display_text=message,
+                is_error=True,
+            )
         finally:
             if full_file is not None:
                 try:

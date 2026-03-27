@@ -42,11 +42,17 @@ function createToolUseBlock(toolCall) {
   }
 }
 
-function createToolResultBlock(toolUseId, content, isError = false) {
+function createToolResultBlock(
+  toolUseId,
+  modelText,
+  displayText,
+  isError = false,
+) {
   return {
     type: 'tool_result',
     tool_use_id: toolUseId,
-    content,
+    model_text: modelText,
+    display_text: displayText,
     is_error: isError,
   }
 }
@@ -131,10 +137,16 @@ function isToolResultOnlyUserMessage(message) {
 export function appendToolResult(
   messages,
   toolUseId,
-  content,
+  modelText,
+  displayText,
   isError = false,
 ) {
-  const block = createToolResultBlock(toolUseId, content, isError)
+  const block = createToolResultBlock(
+    toolUseId,
+    modelText,
+    displayText,
+    isError,
+  )
   const next = [...messages]
   const lastIndex = next.length - 1
 
@@ -153,22 +165,31 @@ export function appendToolResult(
 
 function buildToolRuntime(runtime, toolResultBlock) {
   const output = typeof runtime?.output === 'string' ? runtime.output : ''
-  const hasRuntimeResult = typeof runtime?.result === 'string'
-  const persistedResult =
-    typeof toolResultBlock?.content === 'string'
-      ? toolResultBlock.content
+  const hasRuntimeModelText = typeof runtime?.modelText === 'string'
+  const persistedModelText =
+    typeof toolResultBlock?.model_text === 'string'
+      ? toolResultBlock.model_text
       : null
-  const result = hasRuntimeResult ? runtime.result : persistedResult
+  const hasRuntimeDisplayText = typeof runtime?.displayText === 'string'
+  const persistedDisplayText =
+    typeof toolResultBlock?.display_text === 'string'
+      ? toolResultBlock.display_text
+      : null
+  const modelText = hasRuntimeModelText ? runtime.modelText : persistedModelText
+  const displayText = hasRuntimeDisplayText
+    ? runtime.displayText
+    : (persistedDisplayText ?? modelText)
   const isError = Boolean(
     runtime?.isError ||
       toolResultBlock?.is_error ||
-      (typeof result === 'string' && result.startsWith('error:')),
+      (typeof modelText === 'string' && modelText.startsWith('error:')),
   )
 
   return {
     pending: Boolean(runtime?.pending),
     output,
-    result,
+    modelText,
+    displayText,
     isError,
   }
 }

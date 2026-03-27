@@ -143,7 +143,7 @@ class GoogleGeminiAdapter(ProviderAdapter):
                     elif block_type == "text":
                         parts.append({"text": str(block.get("text") or "")})
                     elif block_type == "tool_use":
-                        part = {
+                        part: dict[str, Any] = {
                             "function_call": {
                                 "id": block.get("id") or "",
                                 "name": block.get("name") or "",
@@ -177,7 +177,7 @@ class GoogleGeminiAdapter(ProviderAdapter):
                     continue
 
                 tool_id = str(block.get("tool_use_id") or "")
-                response = {"result": str(block.get("content") or "")}
+                response: dict[str, Any] = {"result": str(block.get("model_text") or "")}
                 if block.get("is_error"):
                     response["is_error"] = True
                 parts.append(

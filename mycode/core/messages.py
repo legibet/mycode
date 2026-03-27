@@ -60,14 +60,22 @@ def tool_use_block(
 def tool_result_block(
     *,
     tool_use_id: str,
-    content: str,
+    model_text: str,
+    display_text: str,
     is_error: bool = False,
     meta: dict[str, Any] | None = None,
 ) -> ContentBlock:
+    """Build a tool-result block.
+
+    `model_text` is replayed back to providers on later turns.
+    `display_text` is the user-facing text shown by CLI and web UI.
+    """
+
     block: ContentBlock = {
         "type": "tool_result",
         "tool_use_id": tool_use_id,
-        "content": content,
+        "model_text": model_text,
+        "display_text": display_text,
         "is_error": is_error,
     }
     if meta:

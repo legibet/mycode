@@ -39,6 +39,7 @@ class StreamEvent(BaseModel):
     tool_call: ToolCallPayload | None = None
     tool_use_id: str | None = None
     output: str | None = None
-    result: str | None = None
+    model_text: str | None = None
+    display_text: str | None = None
     is_error: bool | None = None
     message: str | None = None

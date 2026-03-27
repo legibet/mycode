@@ -27,7 +27,7 @@ from mycode.core.compact import apply_compact
 from mycode.core.config import resolve_sessions_dir
 from mycode.core.messages import build_message, flatten_message_text, tool_result_block
 
-MESSAGE_FORMAT_VERSION = 4
+MESSAGE_FORMAT_VERSION = 5
 DEFAULT_SESSION_PROVIDER = "anthropic"
 DEFAULT_SESSION_TITLE = "New chat"
 
@@ -282,7 +282,8 @@ class SessionStore:
             [
                 tool_result_block(
                     tool_use_id=tool_use_id,
-                    content="error: tool call was interrupted (no result recorded)",
+                    model_text="error: tool call was interrupted (no result recorded)",
+                    display_text="Tool call was interrupted before it returned a result",
                     is_error=True,
                 )
                 for tool_use_id in missing_tool_use_ids

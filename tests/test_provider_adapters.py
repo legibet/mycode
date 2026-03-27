@@ -112,7 +112,14 @@ def test_openai_responses_replays_native_output_items_for_tool_results() -> None
                 },
                 {
                     "role": "user",
-                    "content": [{"type": "tool_result", "tool_use_id": "call_1", "content": "file contents"}],
+                    "content": [
+                        {
+                            "type": "tool_result",
+                            "tool_use_id": "call_1",
+                            "model_text": "file contents",
+                            "display_text": "file contents",
+                        }
+                    ],
                 },
             ],
             system="",
@@ -161,7 +168,14 @@ def test_openai_responses_falls_back_to_full_replay_for_cross_provider_history()
                 },
                 {
                     "role": "user",
-                    "content": [{"type": "tool_result", "tool_use_id": "call_1", "content": "42"}],
+                    "content": [
+                        {
+                            "type": "tool_result",
+                            "tool_use_id": "call_1",
+                            "model_text": "42",
+                            "display_text": "42",
+                        }
+                    ],
                 },
             ],
             system="",
@@ -381,7 +395,14 @@ def test_google_gemini_falls_back_to_full_replay_for_cross_provider_history() ->
                 },
                 {
                     "role": "user",
-                    "content": [{"type": "tool_result", "tool_use_id": "call_1", "content": "42"}],
+                    "content": [
+                        {
+                            "type": "tool_result",
+                            "tool_use_id": "call_1",
+                            "model_text": "42",
+                            "display_text": "42",
+                        }
+                    ],
                 },
             ],
         ),
@@ -461,7 +482,14 @@ def test_google_gemini_replays_native_parts_for_same_provider_history() -> None:
                 },
                 {
                     "role": "user",
-                    "content": [{"type": "tool_result", "tool_use_id": "call_1", "content": "file contents"}],
+                    "content": [
+                        {
+                            "type": "tool_result",
+                            "tool_use_id": "call_1",
+                            "model_text": "file contents",
+                            "display_text": "file contents",
+                        }
+                    ],
                 },
             ],
         ),
@@ -660,7 +688,8 @@ def test_provider_prepare_messages_closes_interrupted_tool_loop() -> None:
                 {
                     "type": "tool_result",
                     "tool_use_id": "call_1",
-                    "content": "error: tool call was interrupted (no result recorded)",
+                    "model_text": "error: tool call was interrupted (no result recorded)",
+                    "display_text": "Tool call was interrupted before it returned a result",
                     "is_error": True,
                 }
             ],
@@ -723,7 +752,8 @@ def test_provider_prepare_messages_preserves_foreign_thinking_blocks() -> None:
                 {
                     "type": "tool_result",
                     "tool_use_id": "call_1",
-                    "content": "error: tool call was interrupted (no result recorded)",
+                    "model_text": "error: tool call was interrupted (no result recorded)",
+                    "display_text": "Tool call was interrupted before it returned a result",
                     "is_error": True,
                 }
             ],
@@ -749,8 +779,18 @@ def test_anthropic_prepare_messages_normalizes_tool_ids() -> None:
                 {
                     "role": "user",
                     "content": [
-                        {"type": "tool_result", "tool_use_id": "a/b", "content": "done a"},
-                        {"type": "tool_result", "tool_use_id": "a|b", "content": "done b"},
+                        {
+                            "type": "tool_result",
+                            "tool_use_id": "a/b",
+                            "model_text": "done a",
+                            "display_text": "done a",
+                        },
+                        {
+                            "type": "tool_result",
+                            "tool_use_id": "a|b",
+                            "model_text": "done b",
+                            "display_text": "done b",
+                        },
                     ],
                 },
             ],
@@ -777,8 +817,18 @@ def test_anthropic_prepare_messages_normalizes_tool_ids() -> None:
         {
             "role": "user",
             "content": [
-                {"type": "tool_result", "tool_use_id": first_tool_id, "content": "done a"},
-                {"type": "tool_result", "tool_use_id": second_tool_id, "content": "done b"},
+                {
+                    "type": "tool_result",
+                    "tool_use_id": first_tool_id,
+                    "model_text": "done a",
+                    "display_text": "done a",
+                },
+                {
+                    "type": "tool_result",
+                    "tool_use_id": second_tool_id,
+                    "model_text": "done b",
+                    "display_text": "done b",
+                },
             ],
         },
     ]
@@ -822,7 +872,17 @@ def test_deepseek_replays_reasoning_across_turns() -> None:
                     {"type": "tool_use", "id": "call_1", "name": "read", "input": {"path": "x.py"}},
                 ],
             },
-            {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "call_1", "content": "done"}]},
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": "call_1",
+                        "model_text": "done",
+                        "display_text": "done",
+                    }
+                ],
+            },
         ],
         system="",
     )
@@ -1030,7 +1090,8 @@ def test_anthropic_like_build_request_payload_adds_cache_control() -> None:
                             {
                                 "type": "tool_result",
                                 "tool_use_id": "call_1",
-                                "content": "tool output",
+                                "model_text": "tool output",
+                                "display_text": "tool output",
                                 "is_error": False,
                             },
                         ],

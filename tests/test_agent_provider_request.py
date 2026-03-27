@@ -8,7 +8,7 @@ import pytest
 
 from mycode.core.agent import Agent
 from mycode.core.providers.base import ProviderStreamEvent
-from mycode.core.tools import ToolExecutor, ToolSpec
+from mycode.core.tools import ToolExecutionResult, ToolExecutor, ToolSpec
 
 
 class _CaptureAdapter:
@@ -42,8 +42,8 @@ class _CustomToolExecutor(ToolExecutor):
             ),
         )
 
-    def ping(self, *, text: str) -> str:
-        return text
+    def ping(self, *, text: str) -> ToolExecutionResult:
+        return ToolExecutionResult(model_text=text, display_text=text)
 
 
 @pytest.mark.asyncio

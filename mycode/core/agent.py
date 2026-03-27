@@ -28,7 +28,7 @@ from mycode.core.messages import (
 from mycode.core.providers import get_provider_adapter
 from mycode.core.providers.base import ProviderAdapter, ProviderRequest, ProviderStreamEvent
 from mycode.core.skills import load_skills_prompt
-from mycode.core.tools import ToolExecutor
+from mycode.core.tools import ToolExecutionResult, ToolExecutor
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +51,7 @@ async def _run_streaming_tool_to_queue(
     args: dict[str, Any],
     queue: asyncio.Queue[str | None],
     on_output: Callable[[str], None],
-) -> str:
+) -> ToolExecutionResult:
     """Run one streaming tool in a worker thread and signal completion."""
 
     loop = asyncio.get_running_loop()
@@ -200,7 +200,11 @@ class Agent:
                 await task
             except Exception:
                 pass
-            result = "error: cancelled"
+            result = ToolExecutionResult(
+                model_text="error: cancelled",
+                display_text="Cancelled",
+                is_error=True,
+            )
         else:
             result = await task
 
@@ -208,8 +212,9 @@ class Agent:
             "tool_done",
             {
                 "tool_use_id": tool_id,
-                "result": result,
-                "is_error": result.startswith("error:"),
+                "model_text": result.model_text,
+                "display_text": result.display_text,
+                "is_error": result.is_error,
             },
         )
 
@@ -226,7 +231,12 @@ class Agent:
         if self._cancel_event.is_set():
             yield Event(
                 "tool_done",
-                {"tool_use_id": tool_id, "result": "error: cancelled", "is_error": True},
+                {
+                    "tool_use_id": tool_id,
+                    "model_text": "error: cancelled",
+                    "display_text": "Cancelled",
+                    "is_error": True,
+                },
             )
             return
 
@@ -234,7 +244,12 @@ class Agent:
         if tool is None:
             yield Event(
                 "tool_done",
-                {"tool_use_id": tool_id, "result": f"error: unknown tool: {name}", "is_error": True},
+                {
+                    "tool_use_id": tool_id,
+                    "model_text": f"error: unknown tool: {name}",
+                    "display_text": f"Unknown tool: {name}",
+                    "is_error": True,
+                },
             )
             return
 
@@ -245,14 +260,19 @@ class Agent:
                 return
             result = self.tools.run(name, args=args)
         except Exception as exc:  # pragma: no cover - defensive
-            result = f"error: {exc}"
+            result = ToolExecutionResult(
+                model_text=f"error: {exc}",
+                display_text=str(exc),
+                is_error=True,
+            )
 
         yield Event(
             "tool_done",
             {
                 "tool_use_id": tool_id,
-                "result": result,
-                "is_error": result.startswith("error:"),
+                "model_text": result.model_text,
+                "display_text": result.display_text,
+                "is_error": result.is_error,
             },
         )
 
@@ -386,11 +406,19 @@ class Agent:
                         continue
 
                     tool_id = str(event.data.get("tool_use_id") or "")
-                    result = str(event.data.get("result") or "")
+                    model_text = str(event.data.get("model_text") or "")
+                    display_text = str(event.data.get("display_text") or "")
                     is_error = bool(event.data.get("is_error"))
-                    tool_results.append(tool_result_block(tool_use_id=tool_id, content=result, is_error=is_error))
+                    tool_results.append(
+                        tool_result_block(
+                            tool_use_id=tool_id,
+                            model_text=model_text,
+                            display_text=display_text,
+                            is_error=is_error,
+                        )
+                    )
 
-                    if result == "error: cancelled" and self._cancel_event.is_set():
+                    if model_text == "error: cancelled" and self._cancel_event.is_set():
                         user_tool_result = build_message("user", tool_results)
                         self.messages.append(user_tool_result)
                         if on_persist:

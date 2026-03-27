@@ -121,7 +121,7 @@ class OpenAIResponsesAdapter(ProviderAdapter):
                 {
                     "type": "function_call_output",
                     "call_id": block.get("tool_use_id") or "",
-                    "output": str(block.get("content") or ""),
+                    "output": str(block.get("model_text") or ""),
                 }
             )
 
