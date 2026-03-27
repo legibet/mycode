@@ -183,7 +183,7 @@ Current built-in adapter ids:
 - implemented with the official `openai` Python SDK against Z.AI's international OpenAI-compatible chat endpoint
 - default base URL: `https://api.z.ai/api/paas/v4/`
 - default API key env: `ZAI_API_KEY`
-- default models: `glm-5`, `glm-4.7`
+- default models: `glm-5.1`, `glm-5-turbo`
 - does not apply the shared `reasoning_effort` setting; requests keep Z.AI's default thinking behavior
 - the standard API now enables preserved thinking for coding/agent use by sending `thinking: {type: "enabled", clear_thinking: false}` and replaying stored reasoning content on later requests
 
@@ -391,7 +391,7 @@ These have been validated during this redesign:
 - MiniMax `MiniMax-M2.5` emits thinking signatures on the Anthropic-compatible endpoint
 - third-party OpenAI-compatible chat endpoints may surface reasoning through non-standard extra fields rather than a uniform schema
 - DeepSeek `deepseek-reasoner` thinks by default without any explicit parameter; `deepseek-chat` does not think unless `thinking: {"type": "enabled"}` is sent
-- Z.AI GLM models (glm-5, glm-4.7) think by default; explicit parameter is only needed to disable thinking
+- Z.AI GLM models (glm-5.1, glm-5-turbo) think by default; explicit parameter is only needed to disable thinking
 - third-party thinking control parameters are not standardized: DeepSeek/Z.AI use `thinking: {type}`, Qwen uses `enable_thinking: bool`, others vary
 
 ## 14. Guardrails

@@ -289,7 +289,7 @@ class ZAIAdapter(OpenAIChatAdapter):
     label = "Z.AI"
     default_base_url = "https://api.z.ai/api/paas/v4/"
     env_api_key_names = ("ZAI_API_KEY",)
-    default_models = ("glm-5", "glm-4.7")
+    default_models = ("glm-5.1", "glm-5-turbo")
     auto_discoverable = True
 
     def _build_provider_payload_overrides(self, request: ProviderRequest) -> dict[str, Any]:
