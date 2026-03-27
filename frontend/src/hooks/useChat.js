@@ -156,6 +156,7 @@ export function useChat(config) {
   const streamAbortRef = useRef(null)
   const streamTokenRef = useRef(0)
   const activeRunRef = useRef(null)
+  const loadSessionRef = useRef(null)
 
   const messages = useMemo(
     () => buildRenderMessages(chatState.rawMessages, chatState.toolRuntimeById),
@@ -240,6 +241,28 @@ export function useChat(config) {
       setLoading(true)
       setConnectionState('ready')
 
+      const recoverSession = async () => {
+        if (
+          streamTokenRef.current !== token ||
+          activeSessionIdRef.current !== sessionId
+        ) {
+          return true
+        }
+
+        const reload = loadSessionRef.current
+        if (!reload) {
+          return false
+        }
+
+        try {
+          await reload(sessionId)
+          return true
+        } catch (error) {
+          console.error('Failed to recover disconnected stream:', error)
+          return false
+        }
+      }
+
       try {
         const res = await fetch(
           `/api/runs/${encodeURIComponent(runId)}/stream?after=${after}`,
@@ -250,6 +273,7 @@ export function useChat(config) {
         const reader = res.body.getReader()
         const decoder = new TextDecoder()
         let buffer = ''
+        let sawDone = false
 
         while (true) {
           const { done, value } = await reader.read()
@@ -262,7 +286,10 @@ export function useChat(config) {
           for (const line of lines) {
             if (!line.startsWith('data: ')) continue
             const data = line.slice(6)
-            if (data === '[DONE]') continue
+            if (data === '[DONE]') {
+              sawDone = true
+              continue
+            }
 
             try {
               const event = JSON.parse(data)
@@ -278,9 +305,18 @@ export function useChat(config) {
             }
           }
         }
+
+        if (!sawDone) {
+          const recovered = await recoverSession()
+          if (recovered) {
+            return
+          }
+        }
       } catch (e) {
         if (e.name !== 'AbortError') {
+          const recovered = await recoverSession()
           if (
+            !recovered &&
             streamTokenRef.current === token &&
             activeSessionIdRef.current === sessionId
           ) {
@@ -351,6 +387,10 @@ export function useChat(config) {
     },
     [streamRun],
   )
+
+  useEffect(() => {
+    loadSessionRef.current = loadSession
+  }, [loadSession])
 
   const send = useCallback(
     async (input) => {
