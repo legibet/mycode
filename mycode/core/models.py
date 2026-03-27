@@ -64,13 +64,11 @@ def load_models_dev(*, force_refresh: bool = False) -> dict[str, Any] | None:
 def lookup_model_metadata(
     *,
     provider_type: str | None,
-    provider_name: str | None,
     model: str | None,
-    api_base: str | None = None,
+    provider_name: str | None = None,  # reserved for future per-alias lookup
+    api_base: str | None = None,  # reserved for future custom-endpoint lookup
 ) -> ModelMetadata | None:
     """Resolve metadata for one internal provider type and model."""
-
-    del provider_name, api_base
 
     raw_model_id = (model or "").strip()
     if not raw_model_id:

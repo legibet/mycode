@@ -4,14 +4,10 @@ import json
 import tempfile
 from pathlib import Path
 
-import pytest
-
 from mycode.core.tools import (
     READ_MAX_LINE_CHARS,
     ToolExecutionResult,
     ToolExecutor,
-    Truncation,
-    _format_size,
     parse_tool_arguments,
     truncate_text,
 )
@@ -98,24 +94,6 @@ class TestTruncateText:
         assert "line 19" in content
         assert "line 15" in content
         assert "line 14" not in content
-
-
-class TestFormatSize:
-    """Tests for human-readable size formatting."""
-
-    def test_bytes(self):
-        assert _format_size(0) == "0B"
-        assert _format_size(500) == "500B"
-        assert _format_size(1023) == "1023B"
-
-    def test_kilobytes(self):
-        assert _format_size(1024) == "1.0KB"
-        assert _format_size(1536) == "1.5KB"
-        assert _format_size(1024 * 1024 - 1) == "1024.0KB"
-
-    def test_megabytes(self):
-        assert _format_size(1024 * 1024) == "1.0MB"
-        assert _format_size(1024 * 1024 * 5) == "5.0MB"
 
 
 class TestParseToolArguments:

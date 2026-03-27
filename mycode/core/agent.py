@@ -7,7 +7,7 @@ import logging
 from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
 from mycode.core.compact import (
     COMPACT_SUMMARY_PROMPT,
@@ -41,30 +41,6 @@ class Event:
 
     type: str
     data: dict[str, Any] = field(default_factory=dict)
-
-
-async def _run_streaming_tool_to_queue(
-    tools: ToolExecutor,
-    *,
-    name: str,
-    tool_call_id: str,
-    args: dict[str, Any],
-    queue: asyncio.Queue[str | None],
-    on_output: Callable[[str], None],
-) -> ToolExecutionResult:
-    """Run one streaming tool in a worker thread and signal completion."""
-
-    loop = asyncio.get_running_loop()
-    try:
-        return await asyncio.to_thread(
-            tools.run_streaming,
-            name,
-            tool_call_id=tool_call_id,
-            args=args,
-            on_output=on_output,
-        )
-    finally:
-        loop.call_soon_threadsafe(queue.put_nowait, None)
 
 
 def _load_system_prompt() -> str:
@@ -165,16 +141,19 @@ class Agent:
         ) -> None:
             _loop.call_soon_threadsafe(_queue.put_nowait, line)
 
-        task = asyncio.create_task(
-            _run_streaming_tool_to_queue(
-                self.tools,
-                name=name,
-                tool_call_id=tool_id,
-                args=args,
-                queue=queue,
-                on_output=on_output,
-            )
-        )
+        async def run_in_thread() -> ToolExecutionResult:
+            try:
+                return await asyncio.to_thread(
+                    self.tools.run_streaming,
+                    name,
+                    tool_call_id=tool_id,
+                    args=args,
+                    on_output=on_output,
+                )
+            finally:
+                loop.call_soon_threadsafe(queue.put_nowait, None)
+
+        task = asyncio.create_task(run_in_thread())
 
         cancelled = False
         while True:
@@ -289,8 +268,7 @@ class Agent:
                 if self._cancel_event.is_set():
                     raise asyncio.CancelledError
 
-                next_event = cast(Awaitable[ProviderStreamEvent], anext(provider_stream))
-                self._provider_event_task = asyncio.ensure_future(next_event)
+                self._provider_event_task = asyncio.ensure_future(anext(provider_stream))
                 try:
                     yield await self._provider_event_task
                 except StopAsyncIteration:
@@ -301,7 +279,7 @@ class Agent:
             close = getattr(provider_stream, "aclose", None)
             if callable(close):
                 try:
-                    await cast(Callable[[], Awaitable[Any]], close)()
+                    await close()
                 except Exception:
                     pass
 

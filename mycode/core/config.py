@@ -116,6 +116,12 @@ def _parse_config_api_key(value: Any) -> tuple[str | None, str | None]:
     return cleaned, None
 
 
+def _get_str(d: dict, key: str) -> str | None:
+    """Return d[key] if it is a non-empty string, otherwise None."""
+    val = d.get(key)
+    return val if isinstance(val, str) else None
+
+
 def _parse_layer(path: Path, data: dict[str, Any]) -> _ConfigLayer:
     providers: dict[str, dict[str, Any]] = {}
     for name, raw in (data.get("providers") or {}).items():
@@ -138,15 +144,13 @@ def _parse_layer(path: Path, data: dict[str, Any]) -> _ConfigLayer:
         providers[name] = provider
 
     default_raw = data.get("default")
-    default = default_raw if isinstance(default_raw, dict) else {}
+    default: dict[str, Any] = default_raw if isinstance(default_raw, dict) else {}
     return _ConfigLayer(
         providers=providers,
-        default_provider=default.get("provider") if default and isinstance(default.get("provider"), str) else None,
-        default_model=default.get("model") if default and isinstance(default.get("model"), str) else None,
-        default_reasoning_effort=(
-            default.get("reasoning_effort") if default and isinstance(default.get("reasoning_effort"), str) else None
-        ),
-        default_compact_threshold=_parse_compact_threshold(default.get("compact_threshold")) if default else None,
+        default_provider=_get_str(default, "provider"),
+        default_model=_get_str(default, "model"),
+        default_reasoning_effort=_get_str(default, "reasoning_effort"),
+        default_compact_threshold=_parse_compact_threshold(default.get("compact_threshold")),
         config_paths=[str(path.resolve(strict=False))],
     )
 
@@ -317,20 +321,10 @@ def resolve_provider(
     Used by both CLI and server to avoid duplicating resolution logic.
     """
 
-    if provider_name:
-        selected_provider_name, provider_config = _resolve_provider_reference(settings, provider_name)
-        return _resolve_selected_provider(
-            settings,
-            selected_provider_name=selected_provider_name,
-            provider_config=provider_config,
-            model=model,
-            api_key=api_key,
-            api_base=api_base,
-        )
-
-    default_provider = (settings.default_provider or "").strip()
-    if default_provider:
-        selected_provider_name, provider_config = _resolve_provider_reference(settings, default_provider)
+    # Explicit arg takes precedence, then config default, then env-discovered.
+    target = provider_name or (settings.default_provider or "").strip() or None
+    if target:
+        selected_provider_name, provider_config = _resolve_provider_reference(settings, target)
         return _resolve_selected_provider(
             settings,
             selected_provider_name=selected_provider_name,

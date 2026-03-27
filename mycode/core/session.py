@@ -200,17 +200,20 @@ class SessionStore:
 
             msgs: list[dict] = []
             lp = self.messages_path(session_id)
-            if lp.exists():
-                for line in lp.read_text(encoding="utf-8").splitlines():
-                    line = line.strip()
-                    if not line:
-                        continue
-                    try:
-                        msg = json.loads(line)
-                        if isinstance(msg, dict):
-                            msgs.append(msg)
-                    except Exception:
-                        continue
+            try:
+                with lp.open("r", encoding="utf-8") as f:
+                    for line in f:
+                        line = line.strip()
+                        if not line:
+                            continue
+                        try:
+                            msg = json.loads(line)
+                            if isinstance(msg, dict):
+                                msgs.append(msg)
+                        except Exception:
+                            continue
+            except FileNotFoundError:
+                pass
 
             self._repair_interrupted_tool_loop(session_id, meta, msgs)
             msgs = apply_compact(msgs)

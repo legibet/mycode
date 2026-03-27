@@ -135,14 +135,6 @@ DEFAULT_TOOL_SPECS: tuple[ToolSpec, ...] = (
 # ---------------------------------------------------------------------------
 
 
-def _format_size(num_bytes: int) -> str:
-    if num_bytes < 1024:
-        return f"{num_bytes}B"
-    if num_bytes < 1024 * 1024:
-        return f"{num_bytes / 1024:.1f}KB"
-    return f"{num_bytes / (1024 * 1024):.1f}MB"
-
-
 @dataclass(frozen=True)
 class Truncation:
     truncated: bool
@@ -407,7 +399,6 @@ class ToolExecutor:
         file_path, error = self._resolve_existing_file(path)
         if error:
             return error
-        assert file_path is not None
 
         start_line = offset if offset and offset > 0 else 1
         line_limit = limit if limit and limit > 0 else DEFAULT_MAX_LINES
@@ -508,7 +499,6 @@ class ToolExecutor:
         file_path, error = self._resolve_existing_file(path)
         if error:
             return error
-        assert file_path is not None
 
         try:
             text = file_path.read_text(encoding="utf-8")
@@ -586,8 +576,6 @@ class ToolExecutor:
         match_pos: int | None = None,
     ) -> str:
         """Build a JSON result with line context for the frontend diff view."""
-        import json
-
         _CTX = 3
         if match_pos is None:
             match_pos = original.index(old_text)
