@@ -1,13 +1,4 @@
-"""models.dev integration used by provider resolution.
-
-This module stays intentionally small:
-
-- fetch and cache the raw `api.json` payload
-- resolve one `(provider, model)` lookup at a time
-
-It does not manage provider config or model selection policy. Those decisions
-stay in `config.py`.
-"""
+"""Fetch and query models.dev metadata."""
 
 from __future__ import annotations
 
@@ -17,7 +8,6 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
 _DEFAULT_MYCODE_HOME = "~/.mycode"
@@ -31,6 +21,8 @@ _models_dev_cache_loaded = False
 
 @dataclass(frozen=True)
 class ModelMetadata:
+    """Normalized metadata used by provider resolution."""
+
     provider: str
     model: str
     name: str | None
@@ -43,7 +35,7 @@ class ModelMetadata:
 
 
 def load_models_dev(*, force_refresh: bool = False) -> dict[str, Any] | None:
-    """Load the models.dev catalog from memory, disk cache, or network."""
+    """Load the raw models.dev catalog from memory, cache, or network."""
 
     global _models_dev_cache, _models_dev_cache_loaded
 
@@ -76,74 +68,53 @@ def lookup_model_metadata(
     model: str | None,
     api_base: str | None = None,
 ) -> ModelMetadata | None:
-    """Resolve one model entry from the models.dev catalog."""
+    """Resolve metadata for one internal provider type and model."""
 
-    model_id = (model or "").strip()
-    if not model_id:
+    del provider_name, api_base
+
+    raw_model_id = (model or "").strip()
+    if not raw_model_id:
         return None
 
-    models_dev = load_models_dev()
-    if not models_dev:
-        return None
+    normalized_model_id = _strip_prefix(raw_model_id)
+    fallback_provider_type = _default_provider(normalized_model_id)
 
-    for candidate_provider in _candidate_provider_ids(
-        models_dev,
-        provider_type=provider_type,
-        provider_name=provider_name,
-        model_id=model_id,
-        api_base=api_base,
-    ):
-        metadata = _lookup_provider_model(models_dev, candidate_provider, model_id)
+    for force_refresh in (False, True):
+        catalog = load_models_dev(force_refresh=force_refresh)
+        if not catalog:
+            continue
+
+        # The current provider must match the exact model id it uses at runtime.
+        metadata = _lookup_entry(catalog, provider_type, raw_model_id)
         if metadata is not None:
             return metadata
+
+        # The fallback provider owns the canonical model family, so use the
+        # normalized model id without any provider prefix.
+        if fallback_provider_type and fallback_provider_type != provider_type:
+            metadata = _lookup_entry(catalog, fallback_provider_type, normalized_model_id)
+            if metadata is not None:
+                return metadata
+
+        # aihubmix keeps a broad catalog of canonical model ids.
+        metadata = _lookup_entry(catalog, "aihubmix", normalized_model_id)
+        if metadata is not None:
+            return metadata
+
     return None
 
 
-def _candidate_provider_ids(
-    models_dev: dict[str, Any],
-    *,
+def _lookup_entry(
+    catalog: dict[str, Any],
     provider_type: str | None,
-    provider_name: str | None,
     model_id: str,
-    api_base: str | None,
-) -> list[str]:
-    """Return provider ids to try in lookup order."""
+) -> ModelMetadata | None:
+    """Read one exact provider/model entry from the catalog."""
 
-    candidates: list[str] = []
+    if not provider_type:
+        return None
 
-    def add_candidate(provider_id: str | None) -> None:
-        if not provider_id or provider_id in candidates or provider_id not in models_dev:
-            return
-        candidates.append(provider_id)
-
-    # Prefer the runtime provider id first. After renaming our built-in
-    # provider to `moonshotai`, the ids line up with models.dev directly.
-    add_candidate(provider_type)
-    add_candidate(provider_name)
-
-    api_host = _host(api_base)
-    if api_host:
-        for provider_id, provider in models_dev.items():
-            if isinstance(provider, dict) and _host(provider.get("api")) == api_host:
-                add_candidate(provider_id)
-
-    if "/" in model_id:
-        add_candidate(model_id.split("/", 1)[0])
-
-    exact_matches = _providers_with_model(models_dev, model_id)
-    if len(exact_matches) == 1:
-        add_candidate(exact_matches[0])
-
-    for alias in _model_aliases(model_id)[1:]:
-        alias_matches = _providers_with_model(models_dev, alias)
-        if len(alias_matches) == 1:
-            add_candidate(alias_matches[0])
-
-    return candidates
-
-
-def _lookup_provider_model(models_dev: dict[str, Any], provider_id: str, model_id: str) -> ModelMetadata | None:
-    provider = models_dev.get(provider_id)
+    provider = catalog.get(provider_type)
     if not isinstance(provider, dict):
         return None
 
@@ -151,55 +122,62 @@ def _lookup_provider_model(models_dev: dict[str, Any], provider_id: str, model_i
     if not isinstance(models, dict):
         return None
 
-    for alias in _model_aliases(model_id):
-        raw_model = models.get(alias)
-        if not isinstance(raw_model, dict):
-            continue
+    raw_model = models.get(model_id)
+    if not isinstance(raw_model, dict):
+        return None
 
-        limits = raw_model.get("limit")
-        limit_data = limits if isinstance(limits, dict) else {}
-        raw_name = raw_model.get("name")
-        name = raw_name.strip() if isinstance(raw_name, str) and raw_name.strip() else None
-        reasoning = raw_model.get("reasoning") if isinstance(raw_model.get("reasoning"), bool) else None
-        tool_call = raw_model.get("tool_call") if isinstance(raw_model.get("tool_call"), bool) else None
-        return ModelMetadata(
-            provider=provider_id,
-            model=str(raw_model.get("id") or alias),
-            name=name,
-            context_window=_int_value(limit_data.get("context")),
-            max_input_tokens=_int_value(limit_data.get("input")),
-            max_output_tokens=_int_value(limit_data.get("output")),
-            supports_reasoning=reasoning,
-            supports_tools=tool_call,
-            raw=raw_model,
-        )
+    limits = raw_model.get("limit")
+    limit_data = limits if isinstance(limits, dict) else {}
+    raw_name = raw_model.get("name")
+
+    return ModelMetadata(
+        provider=provider_type,
+        model=str(raw_model.get("id") or model_id),
+        name=raw_name.strip() if isinstance(raw_name, str) and raw_name.strip() else None,
+        context_window=_as_int(limit_data.get("context")),
+        max_input_tokens=_as_int(limit_data.get("input")),
+        max_output_tokens=_as_int(limit_data.get("output")),
+        supports_reasoning=raw_model.get("reasoning") if isinstance(raw_model.get("reasoning"), bool) else None,
+        supports_tools=raw_model.get("tool_call") if isinstance(raw_model.get("tool_call"), bool) else None,
+        raw=raw_model,
+    )
+
+
+def _default_provider(model_id: str) -> str | None:
+    """Return the canonical internal provider type for a normalized model id."""
+
+    normalized = model_id.lower()
+    if normalized.startswith("claude-"):
+        return "anthropic"
+    if normalized.startswith("deepseek-"):
+        return "deepseek"
+    if normalized.startswith("gemini-"):
+        return "google"
+    if normalized.startswith("glm-"):
+        return "zai"
+    if normalized.startswith("gpt-") or normalized.startswith(("o1", "o3", "o4")):
+        return "openai"
+    if normalized.startswith("kimi-"):
+        return "moonshotai"
+    if normalized.startswith("minimax-"):
+        return "minimax"
     return None
 
 
-def _int_value(value: Any) -> int | None:
+def _strip_prefix(model_id: str) -> str:
+    """Convert `provider/model` ids into the bare model id."""
+
+    if "/" not in model_id:
+        return model_id
+    return model_id.split("/", 1)[1].strip()
+
+
+def _as_int(value: Any) -> int | None:
+    """Return an int value while rejecting bools and non-ints."""
+
     if isinstance(value, bool) or not isinstance(value, int):
         return None
     return value
-
-
-def _providers_with_model(models_dev: dict[str, Any], model_id: str) -> list[str]:
-    matches: list[str] = []
-    for provider_id, provider in models_dev.items():
-        if not isinstance(provider, dict):
-            continue
-        models = provider.get("models")
-        if isinstance(models, dict) and model_id in models:
-            matches.append(provider_id)
-    return matches
-
-
-def _model_aliases(model_id: str) -> list[str]:
-    aliases = [model_id]
-    if "/" in model_id:
-        suffix = model_id.split("/", 1)[1].strip()
-        if suffix and suffix not in aliases:
-            aliases.append(suffix)
-    return aliases
 
 
 def _models_dev_cache_path() -> Path:
@@ -237,12 +215,3 @@ def _fetch_models_dev() -> dict[str, Any] | None:
     except Exception:
         return None
     return data if isinstance(data, dict) else None
-
-
-def _host(value: Any) -> str | None:
-    """Return a normalized host for API base URL comparisons."""
-
-    if not isinstance(value, str) or not value.strip():
-        return None
-    parsed = urlparse(value.strip())
-    return (parsed.netloc or parsed.path or "").rstrip("/").lower() or None
