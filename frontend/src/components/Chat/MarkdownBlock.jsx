@@ -19,6 +19,7 @@ const MATH_DELIMITERS = [
 ]
 
 const MARKDOWN_COMPONENTS = {
+  pre: ({ children }) => children,
   code: CodeBlock,
 }
 
