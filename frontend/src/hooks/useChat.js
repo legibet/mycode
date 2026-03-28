@@ -19,6 +19,11 @@ import {
   createAssistantMessage,
   createUserTextMessage,
 } from '../utils/messages'
+import { loadActiveSession, saveActiveSession } from '../utils/storage'
+import {
+  isCurrentSendRequest,
+  resolveInitialSessionId,
+} from './sessionSelection'
 
 const DEFAULT_SESSION_TITLE = 'New chat'
 
@@ -364,6 +369,7 @@ export function useChat(config) {
       activeSessionRef.current = data.session
       activeSessionIdRef.current = data.session.id
       setActiveSession(data.session)
+      saveActiveSession(config.cwd, data.session.id)
       dispatch({ type: 'set_messages', messages: data.messages || [] })
 
       const pendingEvents = Array.isArray(data.pending_events)
@@ -385,7 +391,7 @@ export function useChat(config) {
 
       return data
     },
-    [streamRun],
+    [config.cwd, streamRun],
   )
 
   useEffect(() => {
@@ -398,6 +404,7 @@ export function useChat(config) {
       if (!content || loading) return
 
       const sessionId = activeSession.id
+      const requestCwd = config.cwd
       const previousMessages = chatState.rawMessages
       const requestToken = requestTokenRef.current + 1
 
@@ -426,9 +433,14 @@ export function useChat(config) {
         })
 
         const data = await res.json()
-        const isCurrentRequest =
-          pendingRequestTokenRef.current === requestToken &&
-          activeSessionIdRef.current === sessionId
+        const isCurrentRequest = isCurrentSendRequest({
+          pendingRequestToken: pendingRequestTokenRef.current,
+          requestToken,
+          activeSessionId: activeSessionIdRef.current,
+          sessionId,
+          activeCwd: cwdRef.current,
+          requestCwd,
+        })
 
         if (!res.ok) {
           const existingRun = data?.detail?.run
@@ -446,7 +458,6 @@ export function useChat(config) {
         pendingRequestTokenRef.current = 0
 
         if (!isCurrentRequest) {
-          await cancelRun(data.run?.id)
           return
         }
 
@@ -456,6 +467,7 @@ export function useChat(config) {
           activeSessionRef.current = session
           activeSessionIdRef.current = session.id
           setActiveSession(session)
+          saveActiveSession(requestCwd, session.id)
         }
 
         // Refresh sidebar immediately so title + is_running are visible
@@ -479,7 +491,6 @@ export function useChat(config) {
     },
     [
       activeSession.id,
-      cancelRun,
       chatState.rawMessages,
       config,
       fetchSessions,
@@ -581,16 +592,21 @@ export function useChat(config) {
     initRef.current = true
     try {
       // Fetch raw server list first without setting state
+      const preferredSessionId = loadActiveSession(config.cwd)
       const res = await fetch(
         `/api/sessions?cwd=${encodeURIComponent(config.cwd)}`,
       )
       if (!res.ok) throw new Error('Failed to load sessions')
       const data = await res.json()
       const savedSessions = data.sessions || []
+      const initialSessionId = resolveInitialSessionId(
+        savedSessions,
+        preferredSessionId,
+      )
 
-      if (savedSessions.length > 0) {
+      if (initialSessionId) {
         // Load the most recent session, then set the list
-        await loadSession(savedSessions[0].id)
+        await loadSession(initialSessionId)
         await fetchSessions()
       } else {
         createSession()

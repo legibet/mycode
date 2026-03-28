@@ -4,6 +4,7 @@
 
 const STORAGE_KEY = 'mycode_config'
 const HISTORY_KEY = 'mycode_cwd_history'
+const ACTIVE_SESSIONS_KEY = 'mycode_active_sessions'
 const SCHEMA_VERSION = 1
 
 const DEFAULT_CONFIG = {
@@ -69,4 +70,57 @@ export function addHistory(history, value) {
   if (!cleaned) return history
   const next = [cleaned, ...history.filter((item) => item !== cleaned)]
   return next.slice(0, 6)
+}
+
+function normalizeCwdKey(cwd) {
+  if (typeof cwd !== 'string') return '.'
+  const value = cwd.trim()
+  return value || '.'
+}
+
+function loadActiveSessionMap() {
+  try {
+    const saved = localStorage.getItem(ACTIVE_SESSIONS_KEY)
+    if (!saved) return {}
+    const parsed = JSON.parse(saved)
+    return parsed && typeof parsed === 'object' ? parsed : {}
+  } catch (e) {
+    console.error('Failed to load active sessions:', e)
+    return {}
+  }
+}
+
+function saveActiveSessionMap(activeSessions) {
+  try {
+    const entries = Object.entries(activeSessions).filter(
+      ([cwd, sessionId]) =>
+        typeof cwd === 'string' &&
+        cwd &&
+        typeof sessionId === 'string' &&
+        sessionId,
+    )
+    if (entries.length === 0) {
+      localStorage.removeItem(ACTIVE_SESSIONS_KEY)
+      return
+    }
+    localStorage.setItem(
+      ACTIVE_SESSIONS_KEY,
+      JSON.stringify(Object.fromEntries(entries)),
+    )
+  } catch (e) {
+    console.error('Failed to save active sessions:', e)
+  }
+}
+
+export function loadActiveSession(cwd) {
+  const activeSessions = loadActiveSessionMap()
+  const sessionId = activeSessions[normalizeCwdKey(cwd)]
+  return typeof sessionId === 'string' ? sessionId : ''
+}
+
+export function saveActiveSession(cwd, sessionId) {
+  if (typeof sessionId !== 'string' || !sessionId) return
+  const activeSessions = loadActiveSessionMap()
+  activeSessions[normalizeCwdKey(cwd)] = sessionId
+  saveActiveSessionMap(activeSessions)
 }
