@@ -1,12 +1,12 @@
 /**
  * Message display.
  * No role labels — layout conveys who is speaking.
- * User: right-aligned compact bubble.
+ * User: right-aligned compact bubble with hover edit button.
  * Assistant: left-aligned, full-width, content-first.
  */
 
-import { Check, Copy } from 'lucide-react'
-import { memo, useCallback, useMemo, useState } from 'react'
+import { Check, Copy, Pencil } from 'lucide-react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { copyText } from '../../utils/clipboard'
 import { cn } from '../../utils/cn'
 import { MarkdownBlock } from './MarkdownBlock'
@@ -16,11 +16,18 @@ import { ToolCard } from './ToolCard'
 export const MessageBubble = memo(function MessageBubble({
   role,
   blocks,
+  sourceIndex,
+  synthetic,
   isStreaming,
+  isLoading,
   index,
+  onRewindAndSend,
 }) {
   const isUser = role === 'user'
   const [copied, setCopied] = useState(false)
+  const [editing, setEditing] = useState(false)
+  const [editText, setEditText] = useState('')
+  const editRef = useRef(null)
 
   const textContent = useMemo(
     () =>
@@ -42,12 +49,111 @@ export const MessageBubble = memo(function MessageBubble({
     }
   }, [textContent])
 
+  const canEdit =
+    isUser &&
+    typeof sourceIndex === 'number' &&
+    !synthetic &&
+    !isLoading &&
+    onRewindAndSend
+
+  const startEdit = useCallback(() => {
+    setEditText(textContent)
+    setEditing(true)
+  }, [textContent])
+
+  useEffect(() => {
+    if (editing && editRef.current) {
+      const el = editRef.current
+      el.focus()
+      el.style.height = 'auto'
+      el.style.height = `${el.scrollHeight}px`
+    }
+  }, [editing])
+
+  const submitEdit = useCallback(() => {
+    const trimmed = editText.trim()
+    if (!trimmed || !onRewindAndSend || typeof sourceIndex !== 'number') return
+    setEditing(false)
+    onRewindAndSend(sourceIndex, trimmed)
+  }, [editText, onRewindAndSend, sourceIndex])
+
+  const cancelEdit = useCallback(() => {
+    setEditing(false)
+  }, [])
+
+  const handleEditKeyDown = useCallback(
+    (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault()
+        submitEdit()
+      } else if (e.key === 'Escape') {
+        cancelEdit()
+      }
+    },
+    [submitEdit, cancelEdit],
+  )
+
   if (isUser) {
+    if (editing) {
+      return (
+        <div
+          className="flex justify-end px-5 max-md:px-4 animate-fade-in-up"
+          style={{ animationDelay: `${Math.min(index * 30, 150)}ms` }}
+        >
+          <div className="max-w-[85%] w-full flex flex-col gap-2">
+            <textarea
+              ref={editRef}
+              value={editText}
+              onChange={(e) => {
+                setEditText(e.target.value)
+                e.target.style.height = 'auto'
+                e.target.style.height = `${Math.min(e.target.scrollHeight, 300)}px`
+              }}
+              onKeyDown={handleEditKeyDown}
+              className="w-full resize-none rounded-2xl bg-card px-4 py-2.5 text-sm leading-relaxed text-foreground/90 border border-border/50 focus:outline-none focus:border-accent/50 max-h-[300px]"
+            />
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={cancelEdit}
+                className="px-3 py-1 text-xs rounded-lg text-muted-foreground hover:text-foreground transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={submitEdit}
+                disabled={!editText.trim()}
+                className={cn(
+                  'px-3 py-1 text-xs rounded-lg transition-colors',
+                  editText.trim()
+                    ? 'bg-foreground text-background hover:opacity-90'
+                    : 'text-muted-foreground/40',
+                )}
+              >
+                Send
+              </button>
+            </div>
+          </div>
+        </div>
+      )
+    }
+
     return (
       <div
-        className="flex justify-end px-5 max-md:px-4 animate-fade-in-up"
+        className="group/user flex justify-end px-5 max-md:px-4 animate-fade-in-up"
         style={{ animationDelay: `${Math.min(index * 30, 150)}ms` }}
       >
+        {canEdit && (
+          <button
+            type="button"
+            onClick={startEdit}
+            className="self-center mr-2 opacity-0 group-hover/user:opacity-100 max-md:opacity-60 transition-opacity duration-150 h-6 w-6 flex items-center justify-center rounded text-muted-foreground/40 hover:text-muted-foreground/70"
+            title="Edit & resend"
+          >
+            <Pencil className="h-3 w-3" />
+          </button>
+        )}
         <div className="max-w-[85%] rounded-2xl bg-card px-4 py-2.5 text-sm leading-relaxed text-foreground/90 whitespace-pre-wrap">
           {textContent}
         </div>

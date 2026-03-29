@@ -78,6 +78,7 @@ class TestSessionCompact:
             {
                 "role": "user",
                 "content": [{"type": "text", "text": "[Conversation Summary]\n\nnew summary"}],
+                "meta": {"synthetic": True},
             },
             {
                 "role": "assistant",
@@ -87,6 +88,7 @@ class TestSessionCompact:
                         "text": "Understood. I have the context from the conversation summary and will continue the work.",
                     }
                 ],
+                "meta": {"synthetic": True},
             },
             {"role": "assistant", "content": [{"type": "text", "text": "latest reply"}]},
         ]
@@ -107,6 +109,21 @@ class TestSessionCompact:
 
         assert len(raw_lines) == 3
         assert json.loads(raw_lines[2])["role"] == "compact"
+
+
+def test_apply_compact_marks_synthetic_messages():
+    """Compact-synthesized summary and ack should carry meta.synthetic = True."""
+    from mycode.core.compact import apply_compact
+
+    messages = [
+        {"role": "user", "content": [{"type": "text", "text": "hello"}]},
+        {"role": "assistant", "content": [{"type": "text", "text": "hi"}]},
+        build_compact_event("summary", provider="p", model="m", compacted_count=2),
+    ]
+    result = apply_compact(messages)
+
+    assert result[0]["meta"]["synthetic"] is True
+    assert result[1]["meta"]["synthetic"] is True
 
 
 def test_agent_uses_default_compact_threshold():

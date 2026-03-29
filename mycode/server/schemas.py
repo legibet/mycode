@@ -14,6 +14,7 @@ class ChatRequest(BaseModel):
     api_key: str | None = None
     api_base: str | None = None
     reasoning_effort: str | None = None
+    rewind_to: int | None = None  # truncate session to this message index before sending
 
 
 class SessionCreateRequest(BaseModel):

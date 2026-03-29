@@ -34,7 +34,7 @@ from .theme import MUTED, PROMPT_CHAR, TERMINAL_THEME, TOOL_MARKER
 _PROMPT = ANSI(f"\033[1m\033[34m{PROMPT_CHAR}\033[0m ")
 
 # All primary slash commands for prefix resolution.
-_SLASH_COMMANDS = ("/clear", "/new", "/resume", "/provider", "/model", "/effort", "/q")
+_SLASH_COMMANDS = ("/clear", "/new", "/resume", "/rewind", "/provider", "/model", "/effort", "/q")
 
 
 def _resolve_slash(command: str) -> str:
@@ -101,6 +101,7 @@ class _SlashCompleter(Completer):
         "/clear": "Clear conversation",
         "/new": "New session",
         "/resume": "Switch session",
+        "/rewind": "Rewind to a previous message",
         "/provider": "Switch provider",
         "/model": "Switch model",
         "/effort": "Set reasoning effort",
@@ -165,16 +166,20 @@ class TerminalChat:
     async def run(self) -> None:
         """Run the interactive chat loop until the user exits the terminal UI."""
 
+        prefill = ""
         while True:
             self.view.console.print()
 
             try:
-                user_input = await self.prompt_session.prompt_async(_PROMPT)
+                user_input = await self.prompt_session.prompt_async(_PROMPT, default=prefill)
             except KeyboardInterrupt:
+                prefill = ""
                 continue
             except EOFError:
                 self.view.console.print("\n[dim]bye[/dim]")
                 return
+            finally:
+                prefill = ""
 
             user_input = user_input.strip()
             if not user_input:
@@ -183,6 +188,10 @@ class TerminalChat:
             result = await self._handle_command(user_input)
             if result == "exit":
                 return
+            if isinstance(result, str):
+                # Command wants to prefill the next prompt (e.g. /rewind).
+                prefill = result
+                continue
             if result:
                 continue
 
@@ -256,6 +265,10 @@ class TerminalChat:
                 self.view.console.print(f"[green]{TOOL_MARKER}[/green] [dim]cleared[/dim]")
             case "/new":
                 await self._start_new_session()
+            case "/rewind":
+                prefill = await self._rewind(argument)
+                if prefill:
+                    return prefill
             case "/resume":
                 await self._resume_session()
             case "/provider":
@@ -283,6 +296,7 @@ class TerminalChat:
             ("/c, /clear", "Clear conversation"),
             ("/new", "New session"),
             ("/resume", "Switch session"),
+            ("/rewind", "Rewind to a previous message"),
             ("/provider [name]", "Switch provider"),
             ("/model [name]", "Switch model"),
             ("/effort [level]", "Set reasoning effort"),
@@ -316,6 +330,70 @@ class TerminalChat:
             message_count=0,
             reasoning_effort=self.agent.reasoning_effort,
         )
+
+    async def _rewind(self, argument: str) -> str | None:
+        """Rewind the conversation to a chosen user message.
+
+        Shows an interactive selector of all real user text messages.
+        Selecting one truncates the conversation to just before that message.
+        Returns the original message text to prefill the next prompt.
+        """
+        messages = self.agent.messages
+        if not messages:
+            self.view.console.print("[dim]nothing to rewind[/dim]")
+            return None
+
+        # Collect real user text messages (skip synthetic compact summaries
+        # and tool-result-only user messages).
+        user_turns: list[tuple[int, str]] = []  # (message_index, full_text)
+        for i, msg in enumerate(messages):
+            if msg.get("role") != "user":
+                continue
+            if (msg.get("meta") or {}).get("synthetic"):
+                continue
+            blocks = msg.get("content") or []
+            text = ""
+            for b in blocks:
+                if isinstance(b, dict) and b.get("type") == "text" and b.get("text"):
+                    text = str(b["text"]).strip()
+                    break
+            if text:
+                user_turns.append((i, text))
+
+        if not user_turns:
+            self.view.console.print("[dim]no user messages to rewind to[/dim]")
+            return None
+
+        # Build selector options — most recent first.
+        options: list[tuple[int, str]] = []
+        for msg_index, text in reversed(user_turns):
+            preview = text.replace("\n", " ")[:60]
+            if len(text) > 60:
+                preview += "..."
+            options.append((msg_index, preview))
+
+        selected = await choose(options)
+        if selected is None:
+            return None
+
+        # Look up the full text of the selected message for prefill.
+        original_text = ""
+        for msg_index, text in user_turns:
+            if msg_index == selected:
+                original_text = text
+                break
+
+        # Persist the rewind event and truncate in-memory messages.
+        await self.store.append_rewind(self.session_id, selected)
+        self.agent.messages = messages[:selected]
+
+        self.view.console.print(f"[green]{TOOL_MARKER}[/green] [dim]rewound[/dim]")
+        if self.agent.messages:
+            self.view.print_history_preview(self.agent.messages)
+        else:
+            self.view.console.print("[dim]conversation is now empty[/dim]")
+
+        return original_text
 
     async def _resume_session(self) -> None:
         """Switch to another saved session in the current workspace."""

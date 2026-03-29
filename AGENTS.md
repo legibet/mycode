@@ -234,8 +234,9 @@ Adapters convert this to the upstream provider format:
 Current facts:
 
 - append-only JSONL
-- current `MESSAGE_FORMAT_VERSION = 4`
+- current `MESSAGE_FORMAT_VERSION = 5`
 - session meta stores `provider`, `model`, `cwd`, `api_base`, and `message_format_version`
+- sessions may also append `rewind` events; loaders first apply compact, then rewind, then interrupted-tool repair
 - the first user message auto-updates the title from text content
 - `get_or_create()` preserves existing session meta; request-time provider/model overrides are runtime-only
 

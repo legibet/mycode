@@ -239,7 +239,10 @@ export function buildRenderMessages(messages, toolRuntimeById = {}) {
         )
 
       if (textBlocks.length > 0) {
-        result.push(createMessage('user', textBlocks, `user:${sourceIndex}`))
+        const userMsg = createMessage('user', textBlocks, `user:${sourceIndex}`)
+        if (isObject(message?.meta)) userMsg.meta = { ...message.meta }
+        userMsg.sourceIndex = sourceIndex
+        result.push(userMsg)
         currentAssistant = null
       }
 

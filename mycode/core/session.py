@@ -26,6 +26,7 @@ from uuid import uuid4
 from mycode.core.compact import apply_compact
 from mycode.core.config import resolve_sessions_dir
 from mycode.core.messages import build_message, flatten_message_text, tool_result_block
+from mycode.core.rewind import apply_rewind, build_rewind_event
 
 MESSAGE_FORMAT_VERSION = 5
 DEFAULT_SESSION_PROVIDER = "anthropic"
@@ -215,8 +216,12 @@ class SessionStore:
             except FileNotFoundError:
                 pass
 
-            self._repair_interrupted_tool_loop(session_id, meta, msgs)
+            # Order matters: compact first (so rewind indices match the
+            # post-compact list clients actually see), then rewind, then
+            # repair any interrupted tool loops in the final logical set.
             msgs = apply_compact(msgs)
+            msgs = apply_rewind(msgs)
+            self._repair_interrupted_tool_loop(session_id, meta, msgs)
 
             return {"session": meta, "messages": msgs}
 
@@ -336,6 +341,23 @@ class SessionStore:
     # ---------------------------------------------------------------------
     # Append-only updates
     # ---------------------------------------------------------------------
+
+    async def append_rewind(self, session_id: str, rewind_to: int) -> None:
+        """Append a rewind marker to the session JSONL."""
+
+        def append() -> None:
+            meta = self._read_meta(session_id)
+            if meta is None:
+                return
+            event = build_rewind_event(rewind_to)
+            lp = self.messages_path(session_id)
+            with lp.open("a", encoding="utf-8") as f:
+                f.write(json.dumps(event, ensure_ascii=False))
+                f.write("\n")
+            meta["updated_at"] = _now()
+            self._write_meta(session_id, meta)
+
+        await asyncio.to_thread(append)
 
     async def append_message(
         self,

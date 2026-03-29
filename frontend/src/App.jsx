@@ -61,6 +61,7 @@ function AppContent() {
     sessions,
     activeSession,
     send,
+    rewindAndSend,
     cancel,
     createSession,
     selectSession,
@@ -169,7 +170,11 @@ function AppContent() {
             </div>
           ) : (
             <>
-              <MessageList messages={messages} loading={loading} />
+              <MessageList
+                messages={messages}
+                loading={loading}
+                onRewindAndSend={rewindAndSend}
+              />
 
               {/* Gradient fade above input */}
               <div className="pointer-events-none absolute bottom-0 left-0 right-0 h-24 bg-gradient-to-t from-background via-background/80 to-transparent" />

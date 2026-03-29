@@ -53,6 +53,17 @@ function chatReducer(state, action) {
       }
     }
 
+    case 'rewind_and_start_turn': {
+      return {
+        rawMessages: [
+          ...state.rawMessages.slice(0, action.rewindTo),
+          createUserTextMessage(action.content),
+          createAssistantMessage([]),
+        ],
+        toolRuntimeById: {},
+      }
+    }
+
     case 'apply_event': {
       const event = action.event || {}
       let rawMessages = [...state.rawMessages]
@@ -499,6 +510,120 @@ export function useChat(config) {
     ],
   )
 
+  const rewindAndSend = useCallback(
+    async (rewindTo, input) => {
+      const content = input.trim()
+      if (!content || loading) return
+
+      const sessionId = activeSession.id
+      const requestCwd = config.cwd
+      const previousMessages = chatState.rawMessages
+      const requestToken = requestTokenRef.current + 1
+
+      requestTokenRef.current = requestToken
+      pendingRequestTokenRef.current = requestToken
+
+      dispatch({ type: 'rewind_and_start_turn', rewindTo, content })
+      setLoading(true)
+      setConnectionState('ready')
+
+      try {
+        const res = await fetch('/api/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            session_id: sessionId,
+            message: content,
+            rewind_to: rewindTo,
+            provider: config.provider || undefined,
+            model: config.model || undefined,
+            cwd: config.cwd,
+            reasoning_effort:
+              config.reasoningEffort && config.reasoningEffort !== 'auto'
+                ? config.reasoningEffort
+                : undefined,
+          }),
+        })
+
+        const data = await res.json()
+        const isCurrentRequest = isCurrentSendRequest({
+          pendingRequestToken: pendingRequestTokenRef.current,
+          requestToken,
+          activeSessionId: activeSessionIdRef.current,
+          sessionId,
+          activeCwd: cwdRef.current,
+          requestCwd,
+        })
+
+        if (!res.ok) {
+          // Restore original messages on failure (rewind was optimistic).
+          if (isCurrentRequest) {
+            pendingRequestTokenRef.current = 0
+            dispatch({ type: 'set_messages', messages: previousMessages })
+
+            // If 409 (active run), attach to the existing run.
+            const existingRun = data?.detail?.run
+            if (res.status === 409 && existingRun?.id) {
+              streamRun(existingRun, sessionId, existingRun.last_seq || 0)
+              return
+            }
+
+            setLoading(false)
+            setConnectionState('error')
+            dispatch({
+              type: 'apply_event',
+              event: {
+                type: 'error',
+                message:
+                  data?.detail?.message ||
+                  data?.detail ||
+                  'Failed to start task',
+              },
+            })
+          }
+          return
+        }
+
+        pendingRequestTokenRef.current = 0
+
+        if (!isCurrentRequest) return
+
+        if (data.session) {
+          const session = data.session
+          activeSessionRef.current = session
+          activeSessionIdRef.current = session.id
+          setActiveSession(session)
+          saveActiveSession(requestCwd, session.id)
+        }
+
+        fetchSessions()
+        streamRun(data.run, sessionId, 0)
+      } catch (e) {
+        if (
+          pendingRequestTokenRef.current === requestToken &&
+          activeSessionIdRef.current === sessionId
+        ) {
+          pendingRequestTokenRef.current = 0
+          dispatch({ type: 'set_messages', messages: previousMessages })
+          setLoading(false)
+          setConnectionState('error')
+          dispatch({
+            type: 'apply_event',
+            event: { type: 'error', message: e.message },
+          })
+        }
+      }
+    },
+    [
+      activeSession.id,
+      chatState.rawMessages,
+      config,
+      fetchSessions,
+      loading,
+      streamRun,
+    ],
+  )
+
   const clear = useCallback(async () => {
     try {
       const res = await fetch(
@@ -654,6 +779,7 @@ export function useChat(config) {
     activeSession,
     sessionLoading,
     send,
+    rewindAndSend,
     clear,
     cancel,
     createSession,

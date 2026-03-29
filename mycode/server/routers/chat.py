@@ -101,6 +101,12 @@ async def chat(chat: ChatRequest, store: StoreDep, runs: RunManagerDep):
     data = await store.load_session(session_id)
     session = (data or {}).get("session")
     messages = (data or {}).get("messages") or []
+    rewind_to = chat.rewind_to
+
+    # Rewind only applies to an existing visible conversation. Reject it
+    # before creating anything on disk so invalid input stays side-effect free.
+    if not session and rewind_to is not None:
+        raise HTTPException(status_code=400, detail="rewind_to requires an existing session")
 
     if not session:
         title = chat.message.replace("\n", " ").strip()[:48] or "New chat"
@@ -113,6 +119,29 @@ async def chat(chat: ChatRequest, store: StoreDep, runs: RunManagerDep):
             api_base=resolved.api_base,
         )
         session = data["session"]
+
+    # Rewind: validate against the visible conversation, but defer writing the
+    # rewind marker until the run actually starts so a 409 does not mutate disk.
+    if rewind_to is not None:
+        if not (0 <= rewind_to < len(messages)):
+            raise HTTPException(
+                status_code=400,
+                detail=f"rewind_to must reference a visible message index between 0 and {len(messages) - 1}",
+            )
+        target = messages[rewind_to]
+        blocks = target.get("content")
+        has_text = isinstance(blocks, list) and any(
+            isinstance(block, dict) and block.get("type") == "text" and block.get("text") for block in blocks
+        )
+        # Rewind only makes sense for real user prompts. Synthetic compact
+        # summaries, assistant messages, and tool-result-only user messages are
+        # not valid targets.
+        if target.get("role") != "user" or (target.get("meta") or {}).get("synthetic") or not has_text:
+            raise HTTPException(
+                status_code=400,
+                detail="rewind_to must reference a real user text message",
+            )
+        messages = messages[:rewind_to]
 
     agent = Agent(
         model=resolved.model,
@@ -130,7 +159,13 @@ async def chat(chat: ChatRequest, store: StoreDep, runs: RunManagerDep):
         compact_threshold=settings.compact_threshold,
     )
 
+    rewind_persisted = False
+
     async def on_persist(message: dict) -> None:
+        nonlocal rewind_persisted
+        if rewind_to is not None and not rewind_persisted:
+            await store.append_rewind(session_id, rewind_to)
+            rewind_persisted = True
         await store.append_message(
             session_id,
             message,

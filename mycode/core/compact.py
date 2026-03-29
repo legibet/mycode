@@ -104,8 +104,9 @@ def apply_compact(messages: list[ConversationMessage]) -> list[ConversationMessa
     summary_user = build_message(
         "user",
         [text_block(f"[Conversation Summary]\n\n{summary_text}")],
+        meta={"synthetic": True},
     )
-    summary_ack = build_message("assistant", [text_block(_COMPACT_ACK)])
+    summary_ack = build_message("assistant", [text_block(_COMPACT_ACK)], meta={"synthetic": True})
 
     return [summary_user, summary_ack] + messages[last_compact_idx + 1 :]
 

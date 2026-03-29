@@ -9,7 +9,11 @@ import { MessageBubble } from './MessageBubble'
 
 const SCROLL_THRESHOLD = 120
 
-export const MessageList = memo(function MessageList({ messages, loading }) {
+export const MessageList = memo(function MessageList({
+  messages,
+  loading,
+  onRewindAndSend,
+}) {
   const containerRef = useRef(null)
   const endRef = useRef(null)
   const stickToBottom = useRef(true)
@@ -59,12 +63,16 @@ export const MessageList = memo(function MessageList({ messages, loading }) {
             key={message.renderKey || `msg-${index}`}
             role={message.role}
             blocks={message.content}
+            sourceIndex={message.sourceIndex}
+            synthetic={message.meta?.synthetic}
             isStreaming={
               loading &&
               index === messages.length - 1 &&
               message.role === 'assistant'
             }
+            isLoading={loading}
             index={index}
+            onRewindAndSend={onRewindAndSend}
           />
         ))}
         <div ref={endRef} className="h-4" />
