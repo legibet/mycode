@@ -49,9 +49,9 @@ CLI (`mycode/cli/`):
 Server (`mycode/server/`):
 
 - `app.py` — FastAPI factory, static mount
-- `routers/chat.py` — POST /api/chat (SSE), GET /api/config
+- `routers/chat.py` — POST /api/chat, GET /api/runs/{id}/stream, POST /api/runs/{id}/cancel, GET /api/config
 - `routers/sessions.py` — session CRUD
-- `routers/workspaces.py` — directory browser (GET /workspaces/roots, /browse, /cwd)
+- `routers/workspaces.py` — directory browser (GET /api/workspaces/roots, /api/workspaces/browse, /api/workspaces/cwd)
 - `run_manager.py` — concurrent run management
 
 Frontend (`frontend/src/`):
@@ -151,7 +151,7 @@ Loaded from `~/.mycode/config.json` then `<workspace>/.mycode/config.json`.
 - `type` is the internal adapter id (not a vendor label)
 - `api_key` accepts `${ENV_NAME}` references; provider default env vars apply as fallback
 - `reasoning_effort`: `auto` (default) · `none` · `low` · `medium` · `high` · `xhigh`
-- Fallback provider/model: `anthropic` + `claude-sonnet-4-6`
+- When no provider is selected, resolution falls back to the first configured or env-discovered available provider
 
 See `docs/config.md` for full reference.
 
@@ -166,6 +166,7 @@ See `docs/config.md` for full reference.
 | `tool_start`  | `tool_call: {id, name, input}`                          |
 | `tool_output` | `tool_use_id`, `output`                                 |
 | `tool_done`   | `tool_use_id`, `model_text`, `display_text`, `is_error` |
+| `compact`     | `message`, `compacted_count`                            |
 | `error`       | `message`                                               |
 
 ## Interfaces

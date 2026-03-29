@@ -102,6 +102,7 @@ Roots are read from `MYCODE_WORKSPACE_ROOTS` or `WORKSPACE_ROOTS` env vars (comm
 | `tool_start`  | `tool_call: {id, name, input}`                                               |
 | `tool_output` | `tool_use_id: str`, `output: str`                                            |
 | `tool_done`   | `tool_use_id: str`, `model_text: str`, `display_text: str`, `is_error: bool` |
+| `compact`     | `message: str`, `compacted_count: int`                                       |
 | `error`       | `message: str`                                                               |
 
 Each event is a JSON-encoded `StreamEvent` object emitted as an SSE `data:` line. The stream ends with `data: [DONE]`.

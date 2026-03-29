@@ -68,7 +68,7 @@ When a session is loaded:
 
 ## tool-output/ Spill
 
-Bash output exceeding the inline size limit is written to `tool-output/<tool_use_id>.txt`. The tool result stored in JSONL contains a reference path instead of the full output.
+Bash output exceeding the inline size limit is written to `tool-output/bash-<tool_call_id>.log`. The tool result stored in JSONL keeps the usual text fields; when output is spilled or truncated, that text includes the saved log path.
 
 ## Current Format Version
 
