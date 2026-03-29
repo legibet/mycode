@@ -180,6 +180,9 @@ class GoogleGeminiAdapter(ProviderAdapter):
                 response: dict[str, Any] = {"result": str(block.get("model_text") or "")}
                 if block.get("is_error"):
                     response["is_error"] = True
+                # Gemini requires the function_response to carry the exact id and
+                # name from the matching function_call in the preceding model turn.
+                # The model turn must appear immediately before this user turn.
                 parts.append(
                     {
                         "function_response": {

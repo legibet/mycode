@@ -1,44 +1,67 @@
-# AGENTS.md - mycode
+# mycode — Project Context
 
-This file is the authoritative project context for future agent runs. Keep it in sync with the actual code.
+Authoritative context for agent runs. Keep in sync with the code. See `docs/` for detailed specs.
 
-## 1. Product
+## Product
 
 `mycode` is a personal minimal coding agent with a web UI and CLI.
 
-Current priorities:
+Priorities: small readable core · one message model · one agent loop · append-only sessions · provider adapters at the boundary.
 
-- small, readable core
-- one internal conversation model
-- one agent loop
-- append-only sessions
-- provider adapters at the boundary only
+Not a general agent framework.
 
-The project is intentionally not a general agent framework.
+## Core Rules
 
-## 2. Core Rules
-
-- Only 4 built-in tools exist: `read`, `write`, `edit`, `bash`
-- Do not add `grep`, `glob`, or extra search tools to core
+- 4 built-in tools only: `read`, `write`, `edit`, `bash` — do not add more to core
+- Provider-specific behavior stays inside adapters, never in the agent loop
+- Prefer simple Python; add helpers only for real reuse or non-obvious logic
 - Keep the runtime deterministic and easy to inspect
-- Prefer simple Python over abstractions that hide control flow
-- Keep provider-specific behavior inside adapters, not inside the agent loop
 
-## 3. Runtime Shape
+## Source Map
 
-The current runtime no longer uses `any-llm`.
+Core runtime (`mycode/core/`):
 
-It is built from:
+- `agent.py` — the only orchestration loop
+- `messages.py` — internal message/block format
+- `tools.py` — 4 built-in tools, executor, truncation, path resolution
+- `session.py` — append-only JSONL session storage
+- `config.py` — layered config loading and provider resolution
+- `models.py` — models.dev metadata cache (context_window, supports_reasoning)
+- `compact.py` — context compaction via LLM summarization
+- `rewind.py` — session rewind/undo
+- `instructions.py` — AGENTS.md discovery and injection into system prompt
+- `skills.py` — SKILL.md discovery and injection into system prompt
+- `system_prompt.md` — system prompt template
+- `providers/base.py` — ProviderAdapter abstract interface
+- `providers/lookup.py` — adapter registry
+- `providers/anthropic_like.py` — adapters: `anthropic`, `moonshotai`, `minimax`
+- `providers/gemini.py` — adapter: `google`
+- `providers/openai_responses.py` — adapter: `openai`
+- `providers/openai_chat.py` — adapters: `openai_chat`, `deepseek`, `zai`, `openrouter`
 
-- one internal message/block format in `mycode/core/messages.py`
-- one agent loop in `mycode/core/agent.py`
-- provider adapters in `mycode/core/providers/`
+CLI (`mycode/cli/`):
 
-Both CLI and server import the same core runtime.
+- `main.py` — Typer entrypoint (commands: default, run, web, session)
+- `chat.py` — TerminalChat interactive loop
+- `render.py` — TerminalView rich rendering
+- `runtime.py` — build_agent(), resolve_session()
 
-## 4. Internal Message Model
+Server (`mycode/server/`):
 
-The persisted/runtime message format is block-based JSON:
+- `app.py` — FastAPI factory, static mount
+- `routers/chat.py` — POST /api/chat (SSE), GET /api/config
+- `routers/sessions.py` — session CRUD
+- `routers/workspaces.py` — directory browser (GET /workspaces/roots, /browse, /cwd)
+- `run_manager.py` — concurrent run management
+
+Frontend (`frontend/src/`):
+
+- `hooks/useChat.js` — chat state, SSE streaming, tool runtime
+- `utils/messages.js` — buildRenderMessages() — canonical blocks → UI messages
+
+## Internal Message Model
+
+Block-based JSON — single format used at runtime and persisted to sessions:
 
 ```json
 {
@@ -49,360 +72,138 @@ The persisted/runtime message format is block-based JSON:
     {"type": "tool_use", "id": "call_1", "name": "read", "input": {"path": "x.py"}}
   ],
   "meta": {
-    "provider": "moonshotai",
-    "model": "kimi-k2.5"
+    "provider": "anthropic",
+    "model": "claude-sonnet-4-6",
+    "stop_reason": "tool_use",
+    "usage": {},
+    "native": {}
   }
 }
 ```
 
-Current block types in active use:
+Block types: `text` · `thinking` · `tool_use` · `tool_result`
 
-- `text`
-- `thinking`
-- `tool_use`
-- `tool_result`
+- `thinking` blocks are first-class session data — persisted and shown in UI
+- Provider-specific extras: `meta.native` on messages, `block.meta.native` on blocks
+- Tool results stored as a `user` message with `tool_result` blocks
+- System prompt is runtime-only, not persisted
 
-Important notes:
+## Agent Loop
 
-- thinking is first-class session data and is persisted
-- assistant message metadata is normalized as `provider` / `model` / `provider_message_id` / `stop_reason` / `usage`
-- provider-native assistant-message extras live under `meta.native`
-- provider-native block replay hints live under `block.meta.native`
-- user tool results are stored as a `user` message containing `tool_result` blocks
-- the system prompt is runtime-only and is not persisted into sessions
+`mycode/core/agent.py` — per user turn:
 
-## 5. Agent Loop
+1. Append user message to session
+2. Call provider adapter → stream events to CLI/server
+3. Persist assistant message to JSONL
+4. Execute tool calls locally
+5. Append `user` tool-result message
+6. Repeat until no tool calls; `max_turns` defaults to unlimited
+7. Optionally compact context when usage ≥ `compact_threshold` (default 0.8)
 
-`mycode/core/agent.py` is the only orchestration loop.
+Key behaviors:
 
-Per turn it does this:
+- Interrupted prior tool calls repaired on load with synthetic error blocks
+- `cancel_all_tools()` kills in-flight bash subprocesses
+- Only `bash` streams output live; other tools complete atomically
 
-1. append the user message
-2. ask the selected provider adapter for one assistant turn
-3. stream normalized events to CLI/server
-4. persist the final assistant message
-5. execute any requested tools locally
-6. append one `user` tool-result message
-7. continue until the assistant stops using tools; `max_turns` is optional and defaults to no loop cap
+## Provider Adapters
 
-Other current behaviors:
+See `docs/providers.md` for per-adapter details, env vars, and quirks.
 
-- interrupted prior tool calls are repaired with synthetic `tool_result` error blocks when sessions are loaded
-- cancelling stops the in-flight provider stream and actively kills running `bash` subprocesses via `cancel_all_tools()`
-- tool output is streamed only for `bash`
+| id            | protocol                      | file                  |
+| ------------- | ----------------------------- | --------------------- |
+| `anthropic`   | Anthropic Messages API        | `anthropic_like.py`   |
+| `moonshotai`  | Anthropic-compatible endpoint | `anthropic_like.py`   |
+| `minimax`     | Anthropic-compatible endpoint | `anthropic_like.py`   |
+| `google`      | Google genai SDK              | `gemini.py`           |
+| `openai`      | OpenAI Responses API          | `openai_responses.py` |
+| `openai_chat` | OpenAI Chat Completions       | `openai_chat.py`      |
+| `deepseek`    | OpenAI-compatible chat        | `openai_chat.py`      |
+| `zai`         | OpenAI-compatible chat        | `openai_chat.py`      |
+| `openrouter`  | OpenAI-compatible chat        | `openai_chat.py`      |
 
-## 6. Provider Adapters
+All adapters implement `ProviderAdapter.stream_turn()`. Message projection to provider wire format lives in `prepare_messages()`.
 
-Provider lookup lives in `mycode/core/providers/lookup.py`.
+## Sessions
 
-Current built-in adapter ids:
+Storage: `~/.mycode/sessions/<id>/meta.json` + `messages.jsonl` + `tool-output/`
 
-- `anthropic`
-- `deepseek`
-- `google`
-- `moonshotai`
-- `minimax`
-- `openai`
-- `openai_chat`
-- `openrouter`
-- `zai`
+- Append-only JSONL; `MESSAGE_FORMAT_VERSION = 5`
+- Load order: apply compact events → apply rewind events → repair interrupted tools
+- Meta fields: `provider`, `model`, `cwd`, `api_base`, `message_format_version`, `title`
+- Large bash outputs spill to `tool-output/`
 
-### `anthropic`
+See `docs/sessions.md` for event format details.
 
-- implemented with the official `anthropic` Python SDK
-- uses the Messages API
-- default base URL: `https://api.anthropic.com`
-- `claude-sonnet-4-6` and `claude-opus-4-6` use Anthropic's adaptive thinking flow when `reasoning_effort` is set
-- other Claude reasoning models use manual extended thinking with `thinking = {"type": "enabled", "budget_tokens": ...}`
-- `reasoning_effort = xhigh` maps to `high` for `claude-sonnet-4-6` and to `max` for `claude-opus-4-6`; older Claude reasoning models keep the manual extended-thinking budget mapping
-- Anthropic-style message adapters now add ephemeral `cache_control` to the system prompt block and the last user content block
+## Config
 
-### `moonshotai`
+Loaded from `~/.mycode/config.json` then `<workspace>/.mycode/config.json`.
 
-- implemented with the official `anthropic` Python SDK against Moonshot's Anthropic-compatible endpoint
-- default base URL: `https://api.moonshot.ai/anthropic`
-- default API key env: `MOONSHOT_API_KEY`
-- when `reasoning_effort` is set, the adapter maps it to Anthropic-style manual `budget_tokens`
-- prior reasoning must be replayed on later tool-loop turns when thinking is enabled
-- shares the Anthropic-like ephemeral prompt cache markers used by the direct Anthropic adapter
-
-### `google`
-
-- implemented with the official `google-genai` Python SDK
-- targets the Gemini Developer API
-- default base URL: `https://generativelanguage.googleapis.com`
-- default API key envs: `GEMINI_API_KEY`, `GOOGLE_API_KEY`
-- default models: `gemini-3.1-pro-preview`, `gemini-3-flash-preview`
-- uses `models.generate_content_stream()` with manual function-calling replay so it fits the shared agent loop
-- replays Gemini `Part` metadata through `block.meta.native.part`, preserving function-call ids and thought signatures across tool-loop turns
-- `reasoning_effort` is mapped only for Gemini 3 models through `thinking_level`
-- Gemini 2.5 models can still be requested explicitly, but this adapter does not add extra 2.5-specific compatibility branches
-- when replaying a current-turn tool loop that came from a non-Gemini provider, the adapter adds Gemini's documented dummy thought signature to the first fallback `function_call` part so cross-provider tool loops do not 400
-- streaming responses may emit a thought signature in an empty-text part; that part must still be persisted for correct replay
-
-### `minimax`
-
-- implemented with the official `anthropic` Python SDK against MiniMax's Anthropic-compatible endpoint
-- default base URL: `https://api.minimax.io/anthropic`
-- default API key env: `MINIMAX_API_KEY`
-- preserves provider-native thinking signatures in block metadata
-- when `reasoning_effort` is set, the adapter maps it to Anthropic-style manual `budget_tokens`
-- shares the Anthropic-like ephemeral prompt cache markers used by the direct Anthropic adapter
-
-### `openai`
-
-- implemented with the official `openai` Python SDK
-- uses the Responses API
-- default base URL: `https://api.openai.com/v1`
-- GPT-5 family reasoning uses OpenAI's official `reasoning = {"effort": ...}` parameter with supported values `none/low/medium/high/xhigh`
-- requests run stateless with `store=false` and `include=["reasoning.encrypted_content"]`
-- OpenAI-native `response.output` items are persisted under `assistant.meta.native.output_items` and replayed directly on later turns
-- user tool results replay as `function_call_output`; foreign provider thinking is never converted into OpenAI reasoning items
-- requests also pass `prompt_cache_key` using the current session id
-
-### `openai_chat`
-
-- implemented with the official `openai` Python SDK
-- uses Chat Completions
-- intended for third-party OpenAI-compatible providers when Responses API is unavailable
-- does not apply the shared `reasoning_effort` setting; unsupported third-party chat providers keep their upstream default behavior
-- preserves common third-party reasoning extensions such as `reasoning_content` and `reasoning_details` when exposed through SDK extras
-- current real-provider validation used Moonshot and MiniMax OpenAI-compatible chat endpoints
-
-### `deepseek`
-
-- implemented with the official `openai` Python SDK against DeepSeek's OpenAI-compatible chat endpoint
-- default base URL: `https://api.deepseek.com`
-- default API key env: `DEEPSEEK_API_KEY`
-- default models: `deepseek-chat`, `deepseek-reasoner`
-- does not apply the shared `reasoning_effort` setting; requests keep DeepSeek's default thinking behavior
-- assistant reasoning is preserved in canonical history; chat-based providers replay stored reasoning content on later requests when their protocol supports it
-
-### `zai`
-
-- implemented with the official `openai` Python SDK against Z.AI's international OpenAI-compatible chat endpoint
-- default base URL: `https://api.z.ai/api/paas/v4/`
-- default API key env: `ZAI_API_KEY`
-- default models: `glm-5.1`, `glm-5-turbo`
-- does not apply the shared `reasoning_effort` setting; requests keep Z.AI's default thinking behavior
-- the standard API now enables preserved thinking for coding/agent use by sending `thinking: {type: "enabled", clear_thinking: false}` and replaying stored reasoning content on later requests
-
-### `openrouter`
-
-- implemented with the official `openai` Python SDK against OpenRouter's OpenAI-compatible chat endpoint
-- default base URL: `https://openrouter.ai/api/v1`
-- default API key env: `OPENROUTER_API_KEY`
-- default models: `openai/gpt-5.2`, `anthropic/claude-sonnet-4.6`
-- `reasoning_effort` is forwarded through `extra_body.reasoning.effort`, letting OpenRouter normalize it for the upstream model
-- although OpenRouter ships its own Python SDK, the runtime intentionally uses the OpenAI-compatible chat API to keep the agent loop thin and provider behavior explicit
-
-## 7. Tool Schema
-
-`mycode/core/tools.py` is still the source of truth for built-in tool definitions.
-
-Current internal schema shape is:
-
-- `name`
-- `description`
-- `input_schema`
-
-Adapters convert this to the upstream provider format:
-
-- Anthropic-style `input_schema`
-- OpenAI Chat `function.parameters`
-- OpenAI Responses `function.parameters`
-
-`tools.py` also owns:
-
-- output truncation rules
-- path resolution
-- exact-match edit behavior with conservative fuzzy fallback
-- large bash output spilling into `tool-output/`
-- `parse_tool_arguments()` used by OpenAI-family adapters
-
-## 8. Sessions
-
-`mycode/core/session.py` stores sessions under:
-
-```text
-~/.mycode/sessions/<session_id>/
-  meta.json
-  messages.jsonl
-  tool-output/
+```json
+{
+  "default": {"provider": "anthropic", "model": "claude-sonnet-4-6", "reasoning_effort": "auto"},
+  "providers": {
+    "name": {"type": "<adapter-id>", "api_key": "${ENV_VAR}", "models": ["..."], "base_url": "..."}
+  }
+}
 ```
 
-Current facts:
+- `type` is the internal adapter id (not a vendor label)
+- `api_key` accepts `${ENV_NAME}` references; provider default env vars apply as fallback
+- `reasoning_effort`: `auto` (default) · `none` · `low` · `medium` · `high` · `xhigh`
+- Fallback provider/model: `anthropic` + `claude-sonnet-4-6`
 
-- append-only JSONL
-- current `MESSAGE_FORMAT_VERSION = 5`
-- session meta stores `provider`, `model`, `cwd`, `api_base`, and `message_format_version`
-- sessions may also append `rewind` events; loaders first apply compact, then rewind, then interrupted-tool repair
-- the first user message auto-updates the title from text content
-- `get_or_create()` preserves existing session meta; request-time provider/model overrides are runtime-only
+See `docs/config.md` for full reference.
 
-The runtime expects the current internal block-based message format.
+## SSE Contract
 
-## 9. Config
+**Do not change event names or payload shapes without updating server, CLI, and frontend.**
 
-`mycode/core/config.py` loads config from:
+| event         | payload                             |
+| ------------- | ----------------------------------- |
+| `reasoning`   | `delta`                             |
+| `text`        | `delta`                             |
+| `tool_start`  | `tool_call: {id, name, input}`      |
+| `tool_output` | `tool_use_id`, `output`             |
+| `tool_done`   | `tool_use_id`, `result`, `is_error` |
+| `error`       | `message`                           |
 
-- `~/.mycode/config.json`
-- `<workspace>/.mycode/config.json`
+## Interfaces
 
-Important behavior:
+**CLI** — `mycode/cli/main.py`:
 
-- explicit request args override config
-- API keys may come from provider-specific env vars
-- `providers.<name>.api_key` may also reference an exact env var with `${ENV_NAME}`
-- when config uses `${ENV_NAME}`, that referenced env var takes priority over the provider's built-in default API key env var
-- provider/model/base URL are not loaded from env vars automatically
-- raw provider ids are allowed if they exist in the registry
-- fallback provider/model are currently `anthropic` + `claude-sonnet-4-6`
+- `mycode` — interactive session (default)
+- `mycode run "..."` — non-interactive single run
+- `mycode web [--dev]` — web server; `--dev` serves API only (for Vite dev)
+- `mycode session list` — list sessions
+- Slash commands: `/clear` `/new` `/resume` `/provider` `/model` `/effort` `/q`
 
-`ProviderConfig.type` is the internal adapter id, not a generic vendor label.
+**Server** — `mycode/server/routers/`:
 
-### Reasoning effort
+- `POST /api/chat` — streaming SSE; optional `reasoning_effort` override
+- `GET /api/config` — provider + reasoning metadata for frontend
+- Session CRUD at `/api/sessions`
+- Workspace browser at `/api/workspaces`
 
-`reasoning_effort` controls how much thinking a model does. The unified options are:
+## Dev Workflow
 
-- `auto` — do not pass any effort parameter; let the provider decide (default when unconfigured)
-- `none` — explicitly disable thinking
-- `low` / `medium` / `high` / `xhigh` — explicit effort levels
+```bash
+uv sync --dev                                          # Python setup
+uv run mycode                                          # run CLI
+uv run mycode web --dev                                # API only (backend for Vite dev)
+pnpm --dir frontend dev                                # Vite frontend dev server
+uv run --no-project python scripts/build_frontend.py  # rebuild packaged frontend
+uv build                                               # build wheel + sdist
+```
 
-Config-file resolution order: `providers.<name>.reasoning_effort` > `default.reasoning_effort`. The resolved value is only applied when both `adapter.supports_reasoning_effort` and `model_metadata.supports_reasoning` (from models.dev) are true.
+## Guardrails
 
-CLI and web frontend can override reasoning effort at runtime without changing config files. These overrides are per-request and are not persisted into session metadata.
-
-### Model metadata
-
-`mycode/core/models.py` fetches and caches the models.dev catalog (`api.json`) to look up per-model capabilities such as `supports_reasoning`, `context_window`, and `max_output_tokens`. The cache lives at `~/.mycode/cache/models.dev-api.json` with a 24-hour TTL. Requests to models.dev require a `User-Agent` header to avoid 403 responses.
-
-## 10. Interfaces
-
-### Server
-
-`mycode/server/routers/chat.py`
-
-- streams SSE from the shared `Agent`
-- persists each message through `SessionStore`
-- keeps SSE event names stable
-- `POST /chat` accepts optional `reasoning_effort`; when provided it overrides the config-resolved value
-- `GET /config` returns per-provider reasoning metadata: `supports_reasoning_effort`, `reasoning_models` (subset from models.dev), `reasoning_effort` (config value), plus top-level `default_reasoning_effort` and `reasoning_effort_options`
-
-`mycode/server/routers/sessions.py`
-
-- creates/list/loads/deletes sessions using the shared store
-
-### CLI
-
-`mycode/cli/main.py`
-
-- defaults to interactive mode with `mycode`
-- supports non-interactive single-message runs with `mycode run "..."`; sessions can later be resumed via `--continue`, `--session`, or `/resume`
-- supports web serving with `mycode web`
-- `mycode web --dev` starts the backend in API-only mode for Vite frontend development
-- contains the terminal entry flow, rendering, and interactive chat loop
-- default startup creates a fresh session
-- resume is explicit via `--continue`, `--session`, or `/resume`
-- shows thinking during live runs
-- history preview also includes persisted thinking summaries when assistant text is absent
-- interactive slash commands: `/clear`, `/new`, `/resume`, `/provider`, `/model`, `/effort`, `/q`
-- `/effort` allows runtime reasoning effort selection; shows "current model does not support reasoning effort" when the provider+model combination does not support it
-- the session header displays the active reasoning effort when set
-
-Development and release workflow:
-
-- `uv sync --dev` is the default Python development setup
-- `pnpm --dir frontend dev` runs the Vite frontend during web UI development
-- `uv run mycode web --dev` is the backend companion for Vite dev mode
-- `uv run --no-project python scripts/build_frontend.py` refreshes packaged frontend assets in-repo
-- `uv build` builds the frontend and packages `mycode/server/static/` into wheel/sdist artifacts
-
-### Frontend
-
-Current frontend message reconstruction is in `frontend/src/utils/messages.js`.
-
-Frontend source lives in the top-level `frontend/` app. Built assets are copied into `mycode/server/static/` for packaged web serving.
-
-Serving modes:
-
-- `mycode web` serves the packaged frontend from `mycode/server/static/`
-- `mycode web --dev` does not mount packaged frontend assets and only serves the API backend
-
-Current behavior:
-
-- `useChat` stores raw block-based conversation messages plus ephemeral tool runtime state
-- `buildRenderMessages()` derives UI messages from canonical blocks instead of maintaining a second source of truth
-- assistant `thinking` blocks render as reasoning blocks
-- assistant `tool_use` blocks render directly, with persisted `tool_result` blocks and live tool runtime folded in at render time
-- reasoning blocks default to expanded UI state in `frontend/src/components/Chat/ReasoningBlock.jsx`
-- sidebar settings panel includes provider, model, and conditional reasoning effort selector
-- the effort selector only renders when the current provider+model supports reasoning effort (determined by `supports_reasoning_effort` and `reasoning_models` from the config endpoint)
-- frontend config (provider, model, cwd, reasoningEffort) is persisted to localStorage; `auto` and empty both mean "do not send effort to server"
-
-## 11. SSE Contract
-
-The outer event contract used by server, CLI, and frontend remains:
-
-- `reasoning`
-- `text`
-- `tool_start`
-- `tool_output`
-- `tool_done`
-- `error`
-
-Current payload fields:
-
-- `reasoning`: `delta`
-- `text`: `delta`
-- `tool_start`: `tool_call` with `id` / `name` / `input`
-- `tool_output`: `tool_use_id` + `output`
-- `tool_done`: `tool_use_id` + `result` + `is_error`
-- `error`: `message`
-
-Do not change these casually.
-
-## 12. Dependencies
-
-Runtime Python deps currently include:
-
-- `anthropic`
-- `google-genai`
-- `openai`
-- `fastapi`
-- `uvicorn`
-- `rich`
-- `prompt-toolkit`
-
-Package management and execution conventions:
-
-- use `uv` for Python
-- use `pnpm` for frontend
-
-## 13. Verified Provider Facts
-
-These have been validated during this redesign:
-
-- Gemini function calling requires returning the model turn before the matching function response turn, and function responses should include the exact function-call `id`
-- Gemini thinking models require preserving thought signatures across tool-loop turns when conversation history is reconstructed manually
-- Gemini 3 cross-provider tool-loop fallback can use the documented dummy signatures `context_engineering_is_the_way_to_go` or `skip_thought_signature_validator` when no real signature exists
-- Moonshot recommends Anthropic-compatible Messages for coding-agent style development
-- MiniMax officially documents Anthropic SDK / Messages compatibility and explicitly says full assistant content must be appended on multi-turn function-call flows
-- Moonshot `kimi-k2.5` tool loops work through the Anthropic-compatible endpoint, and prior reasoning must be preserved when thinking is enabled
-- MiniMax `MiniMax-M2.5` emits thinking signatures on the Anthropic-compatible endpoint
-- third-party OpenAI-compatible chat endpoints may surface reasoning through non-standard extra fields rather than a uniform schema
-- DeepSeek `deepseek-reasoner` thinks by default without any explicit parameter; `deepseek-chat` does not think unless `thinking: {"type": "enabled"}` is sent
-- Z.AI GLM models (glm-5.1, glm-5-turbo) think by default; explicit parameter is only needed to disable thinking
-- third-party thinking control parameters are not standardized: DeepSeek/Z.AI use `thinking: {type}`, Qwen uses `enable_thinking: bool`, others vary
-
-## 14. Guardrails
-
-When changing architecture, preserve these unless explicitly asked otherwise:
+Preserve unless explicitly asked to change:
 
 - 4-tool core stays unchanged
-- append-only sessions stay human-inspectable
+- Append-only sessions stay human-inspectable
 - CLI and server remain thin wrappers over `mycode.core`
-- provider-specific quirks stay in adapters
-- no new framework-style abstraction layers unless they remove real complexity
+- Provider-specific quirks stay in adapters
+- No new abstraction layers unless they remove real complexity
 
 When in doubt, prefer the simpler and more explicit design.

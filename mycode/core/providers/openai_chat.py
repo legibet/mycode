@@ -247,6 +247,9 @@ class OpenAIChatAdapter(ProviderAdapter):
         return {"reasoning_content": thinking_text} if thinking_text else {}
 
     def _extract_reasoning_delta(self, delta: Any) -> tuple[str, dict[str, Any]]:
+        # Third-party providers surface reasoning through non-standard extras.
+        # We check both the delta root and model_extra to cover both patterns.
+        # Known fields: reasoning_content (Moonshot/MiniMax chat), reasoning_details (some others).
         for source in (delta, getattr(delta, "model_extra", None) or {}):
             if isinstance(source, dict):
                 reasoning_content = source.get("reasoning_content")
@@ -272,7 +275,12 @@ class OpenAIChatAdapter(ProviderAdapter):
 
 
 class DeepSeekAdapter(OpenAIChatAdapter):
-    """DeepSeek's OpenAI-compatible chat endpoint."""
+    """DeepSeek's OpenAI-compatible chat endpoint.
+
+    deepseek-reasoner always thinks — no parameter needed to enable it.
+    deepseek-chat does not think by default; send thinking: {"type": "enabled"}
+    to activate it. We rely on the model's default behavior, so no overrides here.
+    """
 
     provider_id = "deepseek"
     label = "DeepSeek"
@@ -283,7 +291,12 @@ class DeepSeekAdapter(OpenAIChatAdapter):
 
 
 class ZAIAdapter(OpenAIChatAdapter):
-    """Z.AI's OpenAI-compatible chat endpoint."""
+    """Z.AI's OpenAI-compatible chat endpoint.
+
+    GLM models think by default. We still send the explicit thinking parameter
+    so that clear_thinking=False preserves reasoning across multi-turn tool loops
+    instead of resetting it on each turn.
+    """
 
     provider_id = "zai"
     label = "Z.AI"

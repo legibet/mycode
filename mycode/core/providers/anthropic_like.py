@@ -44,6 +44,9 @@ class AnthropicLikeAdapter(ProviderAdapter):
     - API key env var names
     - optional thinking defaults
     - provider-native metadata carried in content blocks
+
+    MiniMax requires the full assistant content (all blocks) to be sent on
+    multi-turn tool-loop requests — not just the text portion.
     """
 
     def thinking_config(self, request: ProviderRequest) -> dict[str, Any] | None:
@@ -311,6 +314,13 @@ class AnthropicAdapter(AnthropicLikeAdapter):
 
 
 class MoonshotAIAdapter(AnthropicLikeAdapter):
+    """Moonshot's Anthropic-compatible Messages endpoint.
+
+    kimi-k2.5 tool loops work through this endpoint. When thinking is enabled,
+    prior reasoning blocks must be replayed in the conversation history —
+    Moonshot does not strip them on the server side.
+    """
+
     provider_id = "moonshotai"
     label = "Moonshot"
     default_base_url = "https://api.moonshot.ai/anthropic"
@@ -323,6 +333,13 @@ class MoonshotAIAdapter(AnthropicLikeAdapter):
 
 
 class MiniMaxAdapter(AnthropicLikeAdapter):
+    """MiniMax's Anthropic-compatible Messages endpoint.
+
+    MiniMax reasoning models emit thinking signatures on this endpoint;
+    signatures are preserved in block.meta.native and replayed via
+    _serialize_block so multi-turn tool loops stay valid.
+    """
+
     provider_id = "minimax"
     label = "MiniMax"
     default_base_url = "https://api.minimax.io/anthropic"
