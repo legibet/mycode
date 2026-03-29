@@ -18,7 +18,7 @@ frontend/src/
       MessageBubble.jsx    # single message, role-based styling
       InputArea.jsx        # user input + submit
       ToolCard.jsx         # tool execution block (start/output/done)
-      ReasoningBlock.jsx   # collapsible thinking block (default: expanded)
+      ReasoningBlock.jsx   # thinking block — expanded while streaming, collapses after
       MarkdownBlock.jsx    # markdown rendering
       CodeBlock.jsx        # syntax-highlighted code
       EditDiff.jsx         # diff view for edit tool results
@@ -36,7 +36,7 @@ frontend/src/
     messages.js            # buildRenderMessages()
     highlighter.js         # code syntax highlighting
     storage.js             # localStorage helpers
-    config.js              # client-side config (API base URL)
+    config.js              # reasoning effort defaults + provider normalization with remote config
     clipboard.js
     cn.js                  # CSS class merging
   index.css                # Tailwind CSS
@@ -50,7 +50,7 @@ frontend/src/
 
 Rendering rules:
 
-- `thinking` blocks → `ReasoningBlock` (collapsible)
+- `thinking` blocks → `ReasoningBlock` (expanded while streaming, auto-collapses after)
 - `tool_use` blocks → `ToolCard` (with matching `tool_result` and live runtime folded in)
 - `text` blocks → `MarkdownBlock`
 

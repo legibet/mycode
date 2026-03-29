@@ -159,14 +159,14 @@ See `docs/config.md` for full reference.
 
 **Do not change event names or payload shapes without updating server, CLI, and frontend.**
 
-| event         | payload                             |
-| ------------- | ----------------------------------- |
-| `reasoning`   | `delta`                             |
-| `text`        | `delta`                             |
-| `tool_start`  | `tool_call: {id, name, input}`      |
-| `tool_output` | `tool_use_id`, `output`             |
-| `tool_done`   | `tool_use_id`, `result`, `is_error` |
-| `error`       | `message`                           |
+| event         | payload                                                 |
+| ------------- | ------------------------------------------------------- |
+| `reasoning`   | `delta`                                                 |
+| `text`        | `delta`                                                 |
+| `tool_start`  | `tool_call: {id, name, input}`                          |
+| `tool_output` | `tool_use_id`, `output`                                 |
+| `tool_done`   | `tool_use_id`, `model_text`, `display_text`, `is_error` |
+| `error`       | `message`                                               |
 
 ## Interfaces
 
@@ -180,7 +180,9 @@ See `docs/config.md` for full reference.
 
 **Server** — `mycode/server/routers/`:
 
-- `POST /api/chat` — streaming SSE; optional `reasoning_effort` override
+- `POST /api/chat` — start a run; returns `{run, session}` JSON immediately
+- `GET /api/runs/{run_id}/stream` — SSE stream for a run
+- `POST /api/runs/{run_id}/cancel` — cancel a run
 - `GET /api/config` — provider + reasoning metadata for frontend
 - Session CRUD at `/api/sessions`
 - Workspace browser at `/api/workspaces`

@@ -15,7 +15,7 @@ class ProviderAdapter(ABC):
 
     def stream_turn(request: ProviderRequest) -> AsyncIterator[ProviderStreamEvent]: ...
     def prepare_messages(request: ProviderRequest) -> list[ConversationMessage]: ...
-    def project_tool_call_id(id: str) -> str: ...  # override if provider restricts id format
+    def project_tool_call_id(tool_call_id: str, used_tool_call_ids: set[str]) -> str: ...  # override if provider restricts id format
 ```
 
 `prepare_messages()` converts canonical session history to provider-safe wire format. This is where provider-specific replay logic lives (thinking replay, native output items, etc.).
@@ -27,7 +27,7 @@ class ProviderAdapter(ABC):
 - SDK: `anthropic` (official)
 - API: Anthropic Messages API
 - Base URL: `https://api.anthropic.com`
-- API key env: `ANTHROPIC_API_KEY`
+- API key env: `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`
 - `supports_reasoning_effort`: true
 - Adaptive thinking for `claude-sonnet-4-6` / `claude-opus-4-6`; manual `budget_tokens` for older reasoning models
 - `reasoning_effort=xhigh` maps to `high` for sonnet-4-6, `max` for opus-4-6
