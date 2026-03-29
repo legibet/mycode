@@ -201,7 +201,15 @@ def _load_layered_config(cwd: str) -> _ConfigLayer:
 def _build_providers(raw_providers: dict[str, dict[str, Any]]) -> dict[str, ProviderConfig]:
     providers: dict[str, ProviderConfig] = {}
     for name, raw in raw_providers.items():
-        provider_type = str(raw.get("type") or "anthropic")
+        raw_type = raw.get("type")
+        if raw_type:
+            provider_type = str(raw_type)
+        elif is_supported_provider(name):
+            # Built-in providers can be overridden by name without repeating type.
+            provider_type = name
+        else:
+            raise ValueError(f"provider {name!r} must set 'type'")
+
         models = _normalize_models(raw.get("models")) or list(provider_default_models(provider_type))
         providers[name] = ProviderConfig(
             name=name,

@@ -33,7 +33,9 @@ Explicit request args (CLI flags, API params) override both.
 
 - `default.provider` references a key in `providers`, or a raw adapter id
 - `providers.<name>.type` is the internal adapter id (see AGENTS.md provider table)
-- `providers.<name>.models` — list shown in UI; falls back to adapter's built-in defaults when omitted
+- Built-in providers can be overridden by using their id as `providers.<name>` and omitting `type`
+- Custom provider aliases must set `type`
+- `providers.<name>.models` — list shown in UI; falls back to the resolved provider type's built-in defaults when omitted
 - `api_key` — literal value or `${ENV_NAME}` reference; when `${ENV_NAME}` is used, that env var takes priority over the provider's built-in default env var
 - Provider aliases and custom `base_url` values are **not** auto-discovered from env; built-in providers themselves can still be selected from available API key env vars
 - If no provider is configured and no API key env var is found, startup raises an error listing which env vars to set

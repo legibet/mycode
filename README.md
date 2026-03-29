@@ -1,8 +1,8 @@
 # mycode
 
-*There are many coding agents, but this one is mine.*
+>There are many coding agents, but this one is mine.
 
-A minimal coding agent with a web UI and TUI. Inspired by [pi](https://github.com/nicholasgasior/pi).
+A minimal coding agent with a web UI and CLI. Inspired by [pi](https://github.com/nicholasgasior/pi).
 
 - 4 tools only: `read`, `write`, `edit`, `bash`.
 - Expand capabilities via skills.
@@ -61,8 +61,8 @@ Providers with an env var are auto-discoverable — set the key and pass `--prov
 No config file is required. It is only used for three things:
 
 1. Setting default provider, model, and other options
-2. Overriding built-in provider settings (e.g. changing the default model list)
-3. Adding custom providers backed by `openai_chat`
+2. Overriding built-in provider settings (e.g. changing the available model list)
+3. Adding custom providers with any built-in provider type.
 
 Config is loaded from `~/.mycode/config.json` (global) and `<workspace>/.mycode/config.json` (project-specific, takes precedence).
 
@@ -74,19 +74,25 @@ Config is loaded from `~/.mycode/config.json` (global) and `<workspace>/.mycode/
     "reasoning_effort": "medium"
   },
   "providers": {
-    "anthropic": {
-      "type": "anthropic",
-      "models": ["claude-sonnet-4-6", "claude-opus-4-6", "claude-haiku-4-5"]
+    "openrouter": {
+      "models": ["deepseek/deepseek-v3.2", "xiaomi/mimo-v2-pro"]
     },
-    "my-openrouter": {
+    "zhipu-coding-plan": {
+      "type": "zai",
+      "base_url": "https://open.bigmodel.cn/api/coding/paas/v4",
+      "api_key": "${ZHIPU_API_KEY}"
+    },
+    "custom-provider": {
       "type": "openai_chat",
-      "base_url": "https://openrouter.ai/api/v1",
-      "api_key": "${OPENROUTER_API_KEY}",
-      "models": ["openai/gpt-4.1", "google/gemini-2.5-pro"]
+      "base_url": "https://custom-endpoint.com/v1",
+      "api_key": "${CUSTOM_API_KEY}",
+      "models": ["gpt-5.4-custom"]
     }
   }
 }
 ```
+
+For built-in providers, use the provider id as the config key and omit `type` when you are only overriding settings. Custom aliases must set `type`.
 
 `reasoning_effort` controls extended thinking for supported models: `auto` (default) · `none` · `low` · `medium` · `high` · `xhigh`.
 
@@ -96,7 +102,7 @@ API keys in config accept `${ENV_VAR}` references. Provider, model, and base URL
 mycode --provider anthropic --model claude-opus-4-6
 ```
 
-> Built-in Moonshot and MiniMax defaults use international endpoints. Override `base_url` in config for China endpoints.
+> Built-in Moonshot, MiniMax, and Z.AI defaults use international endpoints. Override `base_url` in config for China endpoints.
 
 ## CLI Reference
 

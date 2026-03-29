@@ -478,6 +478,64 @@ class TestGetSettings:
 
         assert settings.providers["moonshotai"].models == ["kimi-k2.5"]
 
+    def test_builtin_provider_override_uses_name_as_type_when_type_is_omitted(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        home = tmp_path / "home"
+        workspace = tmp_path / "workspace"
+        workspace.mkdir()
+
+        monkeypatch.setenv("MYCODE_HOME", str(home / ".mycode"))
+        monkeypatch.setenv("OPENROUTER_API_KEY", "router-env-key")
+
+        _write(
+            home / ".mycode" / "config.json",
+            """
+            {
+              "providers": {
+                "openrouter": {
+                  "models": ["deepseek/deepseek-v3.2"]
+                }
+              },
+              "default": {
+                "provider": "openrouter"
+              }
+            }
+            """,
+        )
+
+        settings = get_settings(str(workspace))
+        resolved = resolve_provider(settings)
+
+        assert settings.providers["openrouter"].type == "openrouter"
+        assert settings.providers["openrouter"].models == ["deepseek/deepseek-v3.2"]
+        assert resolved.provider_type == "openrouter"
+        assert resolved.model == "deepseek/deepseek-v3.2"
+        assert resolved.api_key == "router-env-key"
+
+    def test_custom_provider_alias_requires_type(self, tmp_path: Path, monkeypatch) -> None:
+        home = tmp_path / "home"
+        workspace = tmp_path / "workspace"
+        workspace.mkdir()
+
+        monkeypatch.setenv("MYCODE_HOME", str(home / ".mycode"))
+
+        _write(
+            home / ".mycode" / "config.json",
+            """
+            {
+              "providers": {
+                "custom-provider": {
+                  "base_url": "https://custom-endpoint.example/v1"
+                }
+              }
+            }
+            """,
+        )
+
+        with pytest.raises(ValueError, match="provider 'custom-provider' must set 'type'"):
+            get_settings(str(workspace))
+
     def test_resolve_provider_errors_when_no_providers_are_available(self, tmp_path: Path, monkeypatch) -> None:
         home = tmp_path / "home"
         workspace = tmp_path / "workspace"
