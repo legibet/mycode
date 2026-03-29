@@ -9,15 +9,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from mycode.core.compact import (
-    COMPACT_SUMMARY_PROMPT,
-    DEFAULT_COMPACT_THRESHOLD,
-    apply_compact,
-    build_compact_event,
-    should_compact,
-)
 from mycode.core.config import Settings, get_settings
-from mycode.core.instructions import load_instructions_prompt
 from mycode.core.messages import (
     ConversationMessage,
     build_message,
@@ -27,7 +19,14 @@ from mycode.core.messages import (
 )
 from mycode.core.providers import get_provider_adapter
 from mycode.core.providers.base import ProviderAdapter, ProviderRequest, ProviderStreamEvent
-from mycode.core.skills import load_skills_prompt
+from mycode.core.session import (
+    COMPACT_SUMMARY_PROMPT,
+    DEFAULT_COMPACT_THRESHOLD,
+    apply_compact,
+    build_compact_event,
+    should_compact,
+)
+from mycode.core.system_prompt import build_system_prompt
 from mycode.core.tools import ToolExecutionResult, ToolExecutor
 
 logger = logging.getLogger(__name__)
@@ -41,39 +40,6 @@ class Event:
 
     type: str
     data: dict[str, Any] = field(default_factory=dict)
-
-
-def _load_system_prompt() -> str:
-    path = Path(__file__).resolve().parent / "system_prompt.md"
-    try:
-        return path.read_text(encoding="utf-8").strip()
-    except Exception:
-        return "You are mycode, an expert coding assistant."
-
-
-def build_system_prompt(cwd: str, settings: Settings | None = None) -> str:
-    """Build the default runtime system prompt for a workspace."""
-
-    resolved_cwd = str(Path(cwd).resolve(strict=False))
-    resolved_settings = settings or get_settings(resolved_cwd)
-    prompt_parts = [_load_system_prompt()]
-
-    instructions_prompt = load_instructions_prompt(resolved_cwd, resolved_settings)
-    skills_prompt = load_skills_prompt(resolved_cwd)
-    if instructions_prompt:
-        prompt_parts.append(instructions_prompt)
-    if skills_prompt:
-        prompt_parts.append(skills_prompt)
-    prompt_parts.append(f"Current working directory: {resolved_cwd}")
-    return "\n\n".join(prompt_parts)
-
-
-def _extract_last_usage(messages: list[ConversationMessage]) -> dict[str, Any] | None:
-    """Return the usage dict from the last assistant message, if available."""
-    for msg in reversed(messages):
-        if msg.get("role") == "assistant":
-            return (msg.get("meta") or {}).get("usage")
-    return None
 
 
 class Agent:
@@ -128,18 +94,28 @@ class Agent:
     def clear(self) -> None:
         self.messages = []
 
+    @staticmethod
+    def _tool_done_event(tool_id: str, result: ToolExecutionResult) -> Event:
+        """Build the standard tool_done event payload."""
+
+        return Event(
+            "tool_done",
+            {
+                "tool_use_id": tool_id,
+                "model_text": result.model_text,
+                "display_text": result.display_text,
+                "is_error": result.is_error,
+            },
+        )
+
     async def _run_streaming_tool(self, *, tool_id: str, name: str, args: dict[str, Any]) -> AsyncIterator[Event]:
-        """Stream tool output while a streaming tool is still running."""
+        """Run one streaming tool and forward live output until it finishes."""
 
         loop = asyncio.get_running_loop()
-        queue: asyncio.Queue[str | None] = asyncio.Queue()
+        output_queue: asyncio.Queue[str | None] = asyncio.Queue()
 
-        def on_output(
-            line: str,
-            _loop: asyncio.AbstractEventLoop = loop,
-            _queue: asyncio.Queue[str | None] = queue,
-        ) -> None:
-            _loop.call_soon_threadsafe(_queue.put_nowait, line)
+        def on_output(line: str) -> None:
+            loop.call_soon_threadsafe(output_queue.put_nowait, line)
 
         async def run_in_thread() -> ToolExecutionResult:
             try:
@@ -151,30 +127,31 @@ class Agent:
                     on_output=on_output,
                 )
             finally:
-                loop.call_soon_threadsafe(queue.put_nowait, None)
+                loop.call_soon_threadsafe(output_queue.put_nowait, None)
 
         task = asyncio.create_task(run_in_thread())
+        was_cancelled = False
 
-        cancelled = False
+        # Streaming tools produce intermediate output, but they still end as one
+        # normal tool_done event so the outer loop can handle all tools the same way.
         while True:
-            if self._cancel_event.is_set() and not cancelled:
-                cancelled = True
+            if self._cancel_event.is_set() and not was_cancelled:
+                was_cancelled = True
                 self.tools.cancel_active()
 
             try:
-                item = await asyncio.wait_for(queue.get(), timeout=0.1)
+                output = await asyncio.wait_for(output_queue.get(), timeout=0.1)
             except TimeoutError:
                 if task.done():
                     break
                 continue
 
-            if item is None:
+            if output is None:
                 break
+            if not was_cancelled:
+                yield Event("tool_output", {"tool_use_id": tool_id, "output": output})
 
-            if not cancelled:
-                yield Event("tool_output", {"tool_use_id": tool_id, "output": item})
-
-        if cancelled:
+        if was_cancelled:
             try:
                 await task
             except Exception:
@@ -185,17 +162,16 @@ class Agent:
                 is_error=True,
             )
         else:
-            result = await task
+            try:
+                result = await task
+            except Exception as exc:  # pragma: no cover - defensive
+                result = ToolExecutionResult(
+                    model_text=f"error: {exc}",
+                    display_text=str(exc),
+                    is_error=True,
+                )
 
-        yield Event(
-            "tool_done",
-            {
-                "tool_use_id": tool_id,
-                "model_text": result.model_text,
-                "display_text": result.display_text,
-                "is_error": result.is_error,
-            },
-        )
+        yield self._tool_done_event(tool_id, result)
 
     async def _run_tool_call(self, tool_use: dict[str, Any]) -> AsyncIterator[Event]:
         """Run one tool call and emit the standard tool events."""
@@ -208,35 +184,34 @@ class Agent:
         yield Event("tool_start", {"tool_call": {"id": tool_id, "name": name, "input": args}})
 
         if self._cancel_event.is_set():
-            yield Event(
-                "tool_done",
-                {
-                    "tool_use_id": tool_id,
-                    "model_text": "error: cancelled",
-                    "display_text": "Cancelled",
-                    "is_error": True,
-                },
+            yield self._tool_done_event(
+                tool_id,
+                ToolExecutionResult(
+                    model_text="error: cancelled",
+                    display_text="Cancelled",
+                    is_error=True,
+                ),
             )
             return
 
         tool = self.tools.get_tool(name)
         if tool is None:
-            yield Event(
-                "tool_done",
-                {
-                    "tool_use_id": tool_id,
-                    "model_text": f"error: unknown tool: {name}",
-                    "display_text": f"Unknown tool: {name}",
-                    "is_error": True,
-                },
+            yield self._tool_done_event(
+                tool_id,
+                ToolExecutionResult(
+                    model_text=f"error: unknown tool: {name}",
+                    display_text=f"Unknown tool: {name}",
+                    is_error=True,
+                ),
             )
             return
 
+        if tool.streams_output:
+            async for event in self._run_streaming_tool(tool_id=tool_id, name=name, args=args):
+                yield event
+            return
+
         try:
-            if tool.streams_output:
-                async for event in self._run_streaming_tool(tool_id=tool_id, name=name, args=args):
-                    yield event
-                return
             result = self.tools.run(name, args=args)
         except Exception as exc:  # pragma: no cover - defensive
             result = ToolExecutionResult(
@@ -245,15 +220,7 @@ class Agent:
                 is_error=True,
             )
 
-        yield Event(
-            "tool_done",
-            {
-                "tool_use_id": tool_id,
-                "model_text": result.model_text,
-                "display_text": result.display_text,
-                "is_error": result.is_error,
-            },
-        )
+        yield self._tool_done_event(tool_id, result)
 
     async def _stream_provider_turn(
         self,
@@ -300,9 +267,9 @@ class Agent:
 
         adapter = get_provider_adapter(self.provider)
 
-        turn_count = 0
-        while self.max_turns is None or turn_count < self.max_turns:
-            turn_count += 1
+        turn_number = 0
+        while self.max_turns is None or turn_number < self.max_turns:
+            turn_number += 1
             if self._cancel_event.is_set():
                 yield Event("error", {"message": "cancelled"})
                 return
@@ -329,25 +296,26 @@ class Agent:
                         return
 
                     if provider_event.type == "thinking_delta":
-                        text = str(provider_event.data.get("text") or "")
-                        if text:
-                            yield Event("reasoning", {"delta": text})
+                        delta_text = str(provider_event.data.get("text") or "")
+                        if delta_text:
+                            yield Event("reasoning", {"delta": delta_text})
                         continue
 
                     if provider_event.type == "text_delta":
-                        text = str(provider_event.data.get("text") or "")
-                        if text:
-                            yield Event("text", {"delta": text})
-                        continue
-
-                    if provider_event.type == "message_done":
-                        message = provider_event.data.get("message")
-                        if isinstance(message, dict):
-                            assistant_message = message
+                        delta_text = str(provider_event.data.get("text") or "")
+                        if delta_text:
+                            yield Event("text", {"delta": delta_text})
                         continue
 
                     if provider_event.type == "provider_error":
                         raise ValueError(str(provider_event.data.get("message") or "provider error"))
+
+                    if provider_event.type != "message_done":
+                        continue
+
+                    message = provider_event.data.get("message")
+                    if isinstance(message, dict):
+                        assistant_message = message
 
             except asyncio.CancelledError:
                 yield Event("error", {"message": "cancelled"})
@@ -367,46 +335,48 @@ class Agent:
 
             # Phase 2: if the assistant requested tools, execute them locally and
             # append one user-side tool_result message before continuing.
-            tool_uses = [
+            tool_calls = [
                 block
                 for block in assistant_message.get("content") or []
                 if isinstance(block, dict) and block.get("type") == "tool_use"
             ]
-            if not tool_uses:
+            if not tool_calls:
                 break
 
             tool_results: list[dict[str, Any]] = []
-            for tool_use in tool_uses:
-                async for event in self._run_tool_call(tool_use):
+            for tool_call in tool_calls:
+                async for event in self._run_tool_call(tool_call):
                     yield event
 
                     if event.type != "tool_done":
                         continue
 
-                    tool_id = str(event.data.get("tool_use_id") or "")
-                    model_text = str(event.data.get("model_text") or "")
-                    display_text = str(event.data.get("display_text") or "")
-                    is_error = bool(event.data.get("is_error"))
+                    result_data = event.data
+                    result_tool_id = str(result_data.get("tool_use_id") or "")
+                    result_model_text = str(result_data.get("model_text") or "")
+                    result_display_text = str(result_data.get("display_text") or "")
+                    result_is_error = bool(result_data.get("is_error"))
                     tool_results.append(
                         tool_result_block(
-                            tool_use_id=tool_id,
-                            model_text=model_text,
-                            display_text=display_text,
-                            is_error=is_error,
+                            tool_use_id=result_tool_id,
+                            model_text=result_model_text,
+                            display_text=result_display_text,
+                            is_error=result_is_error,
                         )
                     )
 
-                    if model_text == "error: cancelled" and self._cancel_event.is_set():
-                        user_tool_result = build_message("user", tool_results)
-                        self.messages.append(user_tool_result)
+                    tool_was_cancelled = result_model_text == "error: cancelled"
+                    if tool_was_cancelled and self._cancel_event.is_set():
+                        tool_result_message = build_message("user", tool_results)
+                        self.messages.append(tool_result_message)
                         if on_persist:
-                            await on_persist(user_tool_result)
+                            await on_persist(tool_result_message)
                         return
 
-            user_tool_result = build_message("user", tool_results)
-            self.messages.append(user_tool_result)
+            tool_result_message = build_message("user", tool_results)
+            self.messages.append(tool_result_message)
             if on_persist:
-                await on_persist(user_tool_result)
+                await on_persist(tool_result_message)
 
         else:
             # while loop exhausted max_turns without breaking
@@ -416,20 +386,26 @@ class Agent:
         # Turn completed normally (assistant stopped calling tools).
         # Check whether context compaction is needed.
         if not self._cancel_event.is_set():
-            async for event in self._maybe_compact(adapter, on_persist):
+            async for event in self._compact_if_needed(adapter, on_persist):
                 yield event
 
     # -----------------------------------------------------------------
     # Context compaction
     # -----------------------------------------------------------------
 
-    async def _maybe_compact(
+    async def _compact_if_needed(
         self,
         adapter: ProviderAdapter,
         on_persist: PersistCallback | None,
     ) -> AsyncIterator[Event]:
         """Check token usage and run compaction if above threshold."""
-        usage = _extract_last_usage(self.messages)
+
+        usage: dict[str, Any] | None = None
+        for message in reversed(self.messages):
+            if message.get("role") == "assistant":
+                usage = (message.get("meta") or {}).get("usage")
+                break
+
         if not should_compact(usage, self.context_window, self.compact_threshold):
             return
 

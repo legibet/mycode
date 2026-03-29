@@ -24,16 +24,13 @@ Core runtime (`mycode/core/`):
 - `agent.py` — the only orchestration loop
 - `messages.py` — internal message/block format
 - `tools.py` — 4 built-in tools, executor, truncation, path resolution
-- `session.py` — append-only JSONL session storage
+- `session.py` — append-only JSONL session storage, compact/rewind events, interrupted tool repair
 - `config.py` — layered config loading and provider resolution
 - `models.py` — models.dev metadata cache (context_window, supports_reasoning)
-- `compact.py` — context compaction via LLM summarization
-- `rewind.py` — session rewind/undo
-- `instructions.py` — AGENTS.md discovery and injection into system prompt
-- `skills.py` — SKILL.md discovery and injection into system prompt
+- `system_prompt.py` — runtime system prompt assembly, AGENTS.md discovery, skills discovery
 - `system_prompt.md` — system prompt template
 - `providers/base.py` — ProviderAdapter abstract interface
-- `providers/lookup.py` — adapter registry
+- `providers/__init__.py` — adapter registry and provider lookup helpers
 - `providers/anthropic_like.py` — adapters: `anthropic`, `moonshotai`, `minimax`
 - `providers/gemini.py` — adapter: `google`
 - `providers/openai_responses.py` — adapter: `openai`

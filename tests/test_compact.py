@@ -8,9 +8,14 @@ from pathlib import Path
 
 import pytest
 
-from mycode.core.compact import DEFAULT_COMPACT_THRESHOLD, _get_input_tokens, build_compact_event, should_compact
 from mycode.core.config import get_settings
-from mycode.core.session import SessionStore
+from mycode.core.session import (
+    DEFAULT_COMPACT_THRESHOLD,
+    SessionStore,
+    apply_compact,
+    build_compact_event,
+    should_compact,
+)
 
 
 def _write(path: Path, content: str) -> None:
@@ -33,16 +38,9 @@ def test_workspace_config_overrides_global_compact_threshold(tmp_path: Path, mon
     assert settings.compact_threshold == 0.9
 
 
-@pytest.mark.parametrize(
-    ("usage", "expected_tokens"),
-    [
-        ({"input_tokens": 5000}, 5000),
-        ({"prompt_tokens": 7000}, 7000),
-        ({"prompt_token_count": 3000}, 3000),
-    ],
-)
-def test_get_input_tokens_supports_provider_specific_usage_shapes(usage: dict[str, int], expected_tokens: int) -> None:
-    assert _get_input_tokens(usage) == expected_tokens
+@pytest.mark.parametrize("usage", [{"input_tokens": 5000}, {"prompt_tokens": 7000}, {"prompt_token_count": 3000}])
+def test_should_compact_accepts_provider_specific_usage_shapes(usage: dict[str, int]) -> None:
+    assert should_compact(usage, 10000, 0.3) is True
 
 
 def test_should_compact_respects_threshold_boundaries() -> None:
@@ -113,8 +111,6 @@ class TestSessionCompact:
 
 def test_apply_compact_marks_synthetic_messages():
     """Compact-synthesized summary and ack should carry meta.synthetic = True."""
-    from mycode.core.compact import apply_compact
-
     messages = [
         {"role": "user", "content": [{"type": "text", "text": "hello"}]},
         {"role": "assistant", "content": [{"type": "text", "text": "hi"}]},

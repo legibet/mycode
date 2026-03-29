@@ -1,11 +1,11 @@
-"""Tests for mycode.core.skills — skill discovery, parsing, and formatting."""
+"""Tests for system_prompt skill discovery and formatting."""
 
 from __future__ import annotations
 
 from pathlib import Path
 from unittest.mock import patch
 
-from mycode.core.skills import (
+from mycode.core.system_prompt import (
     _parse_skill_md,
     _scan_skill_root,
     discover_skills,
@@ -147,7 +147,7 @@ class TestDiscoverSkills:
             "---\nname: shared\ndescription: Native version.\n---\n",
         )
 
-        with patch("mycode.core.skills.Path.home", return_value=home):
+        with patch("mycode.core.system_prompt.Path.home", return_value=home):
             skills = discover_skills(str(tmp_path / "workspace"))
 
         assert len(skills) == 1
@@ -162,7 +162,7 @@ class TestDiscoverSkills:
         _write(global_dir / "shared" / "SKILL.md", "---\nname: shared\ndescription: Global version.\n---\n")
         _write(project_dir / "shared" / "SKILL.md", "---\nname: shared\ndescription: Project version.\n---\n")
 
-        with patch("mycode.core.skills.Path.home", return_value=tmp_path / "home"):
+        with patch("mycode.core.system_prompt.Path.home", return_value=tmp_path / "home"):
             skills = discover_skills(str(tmp_path / "project"))
 
         assert len(skills) == 1
@@ -179,7 +179,7 @@ class TestDiscoverSkills:
             "---\nname: shared\ndescription: Current cwd version.\n---\n",
         )
 
-        with patch("mycode.core.skills.Path.home", return_value=tmp_path / "home"):
+        with patch("mycode.core.system_prompt.Path.home", return_value=tmp_path / "home"):
             skills = discover_skills(str(nested_dir))
 
         assert len(skills) == 1
@@ -196,7 +196,7 @@ class TestDiscoverSkills:
             "---\nname: shared\ndescription: Current cwd compat version.\n---\n",
         )
 
-        with patch("mycode.core.skills.Path.home", return_value=tmp_path / "home"):
+        with patch("mycode.core.system_prompt.Path.home", return_value=tmp_path / "home"):
             skills = discover_skills(str(nested_dir))
 
         assert len(skills) == 1
@@ -214,14 +214,14 @@ class TestDiscoverSkills:
             "---\nname: shared\ndescription: Parent version.\n---\n",
         )
 
-        with patch("mycode.core.skills.Path.home", return_value=tmp_path / "home"):
+        with patch("mycode.core.system_prompt.Path.home", return_value=tmp_path / "home"):
             skills = discover_skills(str(nested_dir))
 
         assert skills == []
 
     def test_no_skills(self, tmp_path: Path, monkeypatch) -> None:
         monkeypatch.setenv("MYCODE_HOME", str(tmp_path / "home" / ".mycode"))
-        with patch("mycode.core.skills.Path.home", return_value=tmp_path / "home"):
+        with patch("mycode.core.system_prompt.Path.home", return_value=tmp_path / "home"):
             skills = discover_skills(str(tmp_path))
         assert skills == []
 
@@ -232,7 +232,7 @@ class TestLoadSkillsPrompt:
         monkeypatch.setenv("MYCODE_HOME", str(tmp_path / "home" / ".mycode"))
         _write(root / "greet" / "SKILL.md", "---\nname: greet\ndescription: Greeting skill.\n---\nHello!")
 
-        with patch("mycode.core.skills.Path.home", return_value=tmp_path / "home"):
+        with patch("mycode.core.system_prompt.Path.home", return_value=tmp_path / "home"):
             result = load_skills_prompt(str(tmp_path))
 
         assert "<available_skills>" in result
@@ -240,6 +240,6 @@ class TestLoadSkillsPrompt:
 
     def test_no_skills_returns_empty(self, tmp_path: Path, monkeypatch) -> None:
         monkeypatch.setenv("MYCODE_HOME", str(tmp_path / "home" / ".mycode"))
-        with patch("mycode.core.skills.Path.home", return_value=tmp_path / "home"):
+        with patch("mycode.core.system_prompt.Path.home", return_value=tmp_path / "home"):
             result = load_skills_prompt(str(tmp_path))
         assert result == ""

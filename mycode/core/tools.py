@@ -1,11 +1,7 @@
 """Core tool definitions and execution.
 
-This module intentionally ships with only four built-in tools: `read`,
-`write`, `edit`, and `bash`.
-
-`ToolSpec` is the internal source of truth for built-in tool metadata.
-`ToolExecutor` owns both execution and the provider-facing tool definitions used
-by the agent loop.
+The runtime intentionally exposes only four built-in tools: ``read``,
+``write``, ``edit``, and ``bash``.
 """
 
 from __future__ import annotations
@@ -360,22 +356,6 @@ class ToolExecutor:
         with _ACTIVE_PROCS_LOCK:
             _ACTIVE_PROCS.discard(proc)
 
-    def _resolve_existing_file(self, path: str) -> tuple[Path | None, ToolExecutionResult | None]:
-        file_path = Path(resolve_path(path, cwd=self.cwd))
-        if not file_path.exists():
-            return None, ToolExecutionResult(
-                model_text=f"error: file not found: {path}",
-                display_text=f"File not found: {path}",
-                is_error=True,
-            )
-        if not file_path.is_file():
-            return None, ToolExecutionResult(
-                model_text=f"error: not a file: {path}",
-                display_text=f"Not a file: {path}",
-                is_error=True,
-            )
-        return file_path, None
-
     def cancel_active(self) -> None:
         """Terminate only bash subprocesses started by this executor."""
 
@@ -396,9 +376,19 @@ class ToolExecutor:
         offset is 1-indexed. limit is number of lines.
         """
 
-        file_path, error = self._resolve_existing_file(path)
-        if error:
-            return error
+        file_path = Path(resolve_path(path, cwd=self.cwd))
+        if not file_path.exists():
+            return ToolExecutionResult(
+                model_text=f"error: file not found: {path}",
+                display_text=f"File not found: {path}",
+                is_error=True,
+            )
+        if not file_path.is_file():
+            return ToolExecutionResult(
+                model_text=f"error: not a file: {path}",
+                display_text=f"Not a file: {path}",
+                is_error=True,
+            )
 
         start_line = offset if offset and offset > 0 else 1
         line_limit = limit if limit and limit > 0 else DEFAULT_MAX_LINES
@@ -474,11 +464,10 @@ class ToolExecutor:
     # ---- write ----------------------------------------------------------------
 
     def write(self, *, path: str, content: str) -> ToolExecutionResult:
-        abs_path = resolve_path(path, cwd=self.cwd)
-        p = Path(abs_path)
+        file_path = Path(resolve_path(path, cwd=self.cwd))
         try:
-            p.parent.mkdir(parents=True, exist_ok=True)
-            _atomic_write_text(p, content)
+            file_path.parent.mkdir(parents=True, exist_ok=True)
+            _atomic_write_text(file_path, content)
         except Exception as exc:
             return ToolExecutionResult(
                 model_text=f"error: failed to write file: {exc}",
@@ -496,9 +485,19 @@ class ToolExecutor:
         It still requires a unique match so the edit stays deterministic.
         """
 
-        file_path, error = self._resolve_existing_file(path)
-        if error:
-            return error
+        file_path = Path(resolve_path(path, cwd=self.cwd))
+        if not file_path.exists():
+            return ToolExecutionResult(
+                model_text=f"error: file not found: {path}",
+                display_text=f"File not found: {path}",
+                is_error=True,
+            )
+        if not file_path.is_file():
+            return ToolExecutionResult(
+                model_text=f"error: not a file: {path}",
+                display_text=f"Not a file: {path}",
+                is_error=True,
+            )
 
         try:
             text = file_path.read_text(encoding="utf-8")
@@ -561,43 +560,32 @@ class ToolExecutor:
                 is_error=True,
             )
 
-        return ToolExecutionResult(
-            model_text=self._edit_result(text, updated, oldText, newText, match_pos=match_pos),
-            display_text=f"Updated {path}",
-        )
-
-    @staticmethod
-    def _edit_result(
-        original: str,
-        updated: str,
-        old_text: str,
-        new_text: str,
-        *,
-        match_pos: int | None = None,
-    ) -> str:
-        """Build a JSON result with line context for the frontend diff view."""
-        _CTX = 3
+        # Return a compact JSON payload so the frontend can render a focused diff
+        # around the edited range without re-reading the whole file.
         if match_pos is None:
-            match_pos = original.index(old_text)
-        start_line = original[:match_pos].count("\n") + 1  # 1-indexed
+            match_pos = text.index(oldText)
 
-        old_lc = len(old_text.splitlines()) or 1
-        new_lc = len(new_text.splitlines()) or 1
-
+        start_line = text[:match_pos].count("\n") + 1
+        old_line_count = len(oldText.splitlines()) or 1
+        new_line_count = len(newText.splitlines()) or 1
+        context_lines = 3
         lines = updated.splitlines()
-        edit_start = start_line - 1  # 0-indexed
-        before = lines[max(0, edit_start - _CTX) : edit_start]
-        after = lines[edit_start + new_lc : edit_start + new_lc + _CTX]
+        edit_start = start_line - 1
+        before = lines[max(0, edit_start - context_lines) : edit_start]
+        after = lines[edit_start + new_line_count : edit_start + new_line_count + context_lines]
 
-        return json.dumps(
-            {
-                "status": "ok",
-                "start_line": start_line,
-                "old_line_count": old_lc,
-                "new_line_count": new_lc,
-                "context_before": before,
-                "context_after": after,
-            }
+        return ToolExecutionResult(
+            model_text=json.dumps(
+                {
+                    "status": "ok",
+                    "start_line": start_line,
+                    "old_line_count": old_line_count,
+                    "new_line_count": new_line_count,
+                    "context_before": before,
+                    "context_after": after,
+                }
+            ),
+            display_text=f"Updated {path}",
         )
 
     # ---- bash -----------------------------------------------------------------
@@ -617,18 +605,17 @@ class ToolExecutor:
         is written under the session's ``tool-output/`` directory.
         """
 
-        timeout = int(timeout or BASH_TIMEOUT_SECONDS)
-        if timeout <= 0:
-            timeout = BASH_TIMEOUT_SECONDS
+        timeout_seconds = int(timeout or BASH_TIMEOUT_SECONDS)
+        if timeout_seconds <= 0:
+            timeout_seconds = BASH_TIMEOUT_SECONDS
 
         proc: subprocess.Popen[str] | None = None
         log_path = self.tool_output_dir / f"bash-{tool_call_id}.log"
-        out_lines: list[str] = []
-        out_bytes = 0
+        kept_lines: list[str] = []
+        kept_bytes = 0
         tail_lines: deque[str] = deque(maxlen=DEFAULT_MAX_LINES)
-        full_path: Path | None = None
-        full_file: TextIO | None = None
-        spilled_to_file = False
+        log_file: TextIO | None = None
+        saved_output_path: Path | None = None
 
         try:
             proc = subprocess.Popen(
@@ -645,11 +632,10 @@ class ToolExecutor:
             self._track_proc(proc)
 
             stdout = cast(TextIO, proc.stdout)
-
             output_queue: queue.Queue[str | None] = queue.Queue()
             reader_errors: list[Exception] = []
 
-            def _read_stdout() -> None:
+            def read_stdout() -> None:
                 try:
                     for line in stdout:
                         output_queue.put(line)
@@ -658,17 +644,17 @@ class ToolExecutor:
                 finally:
                     output_queue.put(None)
 
-            reader = threading.Thread(target=_read_stdout, daemon=True)
+            reader = threading.Thread(target=read_stdout, daemon=True)
             reader.start()
-            deadline = time.monotonic() + timeout
+            deadline = time.monotonic() + timeout_seconds
 
             while True:
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
                     _kill_proc_tree(proc)
                     return ToolExecutionResult(
-                        model_text=f"error: timeout after {timeout}s",
-                        display_text=f"Command timed out after {timeout}s",
+                        model_text=f"error: timeout after {timeout_seconds}s",
+                        display_text=f"Command timed out after {timeout_seconds}s",
                         is_error=True,
                     )
 
@@ -681,25 +667,22 @@ class ToolExecutor:
                     break
 
                 line = line.rstrip("\n")
-                line_bytes = len((line + "\n").encode("utf-8"))
-                out_bytes += line_bytes
+                kept_bytes += len((line + "\n").encode("utf-8"))
 
-                if spilled_to_file:
-                    tail_lines.append(line)
-                    assert full_file is not None
-                    full_file.write(line)
-                    full_file.write("\n")
+                if log_file is None:
+                    kept_lines.append(line)
+                    if kept_bytes > _BASH_MAX_IN_MEMORY_BYTES:
+                        log_file = log_path.open("w", encoding="utf-8")
+                        saved_output_path = log_path
+                        if kept_lines:
+                            log_file.write("\n".join(kept_lines))
+                            log_file.write("\n")
+                            tail_lines.extend(kept_lines)
+                        kept_lines = []
                 else:
-                    out_lines.append(line)
-                    if out_bytes > _BASH_MAX_IN_MEMORY_BYTES:
-                        full_path = log_path
-                        full_file = full_path.open("w", encoding="utf-8")
-                        if out_lines:
-                            full_file.write("\n".join(out_lines))
-                            full_file.write("\n")
-                            tail_lines.extend(out_lines)
-                        out_lines = []
-                        spilled_to_file = True
+                    tail_lines.append(line)
+                    log_file.write(line)
+                    log_file.write("\n")
 
                 if on_output:
                     on_output(line)
@@ -718,30 +701,33 @@ class ToolExecutor:
             except subprocess.TimeoutExpired:
                 _kill_proc_tree(proc)
                 return ToolExecutionResult(
-                    model_text=f"error: timeout after {timeout}s",
-                    display_text=f"Command timed out after {timeout}s",
+                    model_text=f"error: timeout after {timeout_seconds}s",
+                    display_text=f"Command timed out after {timeout_seconds}s",
                     is_error=True,
                 )
 
-            output_lines = list(tail_lines) if spilled_to_file else out_lines
-            raw_output = "\n".join(output_lines)
+            raw_output = "\n".join(list(tail_lines) if log_file is not None else kept_lines)
             output = raw_output.strip() or "(empty)"
             content, trunc = truncate_text(output, tail=True)
 
-            if not spilled_to_file and trunc.truncated:
-                full_path = log_path
+            if log_file is None and trunc.truncated:
                 try:
-                    full_path.write_text(raw_output, encoding="utf-8")
+                    log_path.write_text(raw_output, encoding="utf-8")
+                    saved_output_path = log_path
                 except Exception:
-                    full_path = None
+                    saved_output_path = None
 
-            if spilled_to_file or trunc.truncated:
+            if log_file is not None or trunc.truncated:
                 result = content
-                result += "\n\n[Output truncated in memory.]" if spilled_to_file else "\n\n[Output truncated.]"
-                if full_path is not None:
-                    result += f" Full output saved to: {full_path}. Use read with offset/limit."
+                if log_file is not None:
+                    result += "\n\n[Output truncated in memory.]"
+                else:
+                    result += "\n\n[Output truncated.]"
+
+                if saved_output_path is not None:
+                    result += f" Full output saved to: {saved_output_path}. Use read with offset/limit."
                     if not content:
-                        quoted = shlex.quote(str(full_path))
+                        quoted = shlex.quote(str(saved_output_path))
                         result += (
                             "\nUse bash to inspect bytes:\n"
                             f"head -c 2000 {quoted}\n"
@@ -759,9 +745,9 @@ class ToolExecutor:
                 is_error=True,
             )
         finally:
-            if full_file is not None:
+            if log_file is not None:
                 try:
-                    full_file.close()
+                    log_file.close()
                 except Exception:
                     pass
             if proc:

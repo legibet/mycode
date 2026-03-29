@@ -69,7 +69,7 @@ Cache location: `~/.mycode/cache/models.dev-api.json`, TTL 24 hours.
 
 ## Skills Discovery
 
-`mycode/core/skills.py` scans for `SKILL.md` files and injects an `<available_skills>` block into the system prompt. Scan roots (lowest to highest priority):
+`mycode/core/system_prompt.py` scans for `SKILL.md` files and injects an `<available_skills>` block into the system prompt. Scan roots (lowest to highest priority):
 
 1. `~/.agents/skills/`
 2. `~/.mycode/skills/`
@@ -80,7 +80,7 @@ Each `SKILL.md` requires YAML frontmatter with `name` and `description`. The mod
 
 ## Instructions Discovery
 
-`mycode/core/instructions.py` reads `AGENTS.md` files and injects them as `<workspace_instructions>` into the system prompt. Files checked (in order):
+`mycode/core/system_prompt.py` reads `AGENTS.md` files and injects them as `<workspace_instructions>` into the system prompt. Files checked (in order):
 
 1. `~/.mycode/AGENTS.md` (or `~/.agents/AGENTS.md` as fallback)
 2. `{cwd}/AGENTS.md`
