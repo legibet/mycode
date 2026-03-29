@@ -20,7 +20,7 @@ def frontend_static_path() -> Path:
 
 
 def create_app(*, serve_frontend: bool = True) -> FastAPI:
-    """Create FastAPI application."""
+    """Create the FastAPI app."""
     setup_logging()
     application = FastAPI(title="mycode")
 

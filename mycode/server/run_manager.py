@@ -38,6 +38,8 @@ class RunAgent(Protocol):
 
 @dataclass
 class RunState:
+    """State for one in-process web run."""
+
     id: str
     session_id: str
     user_input: str
@@ -52,6 +54,8 @@ class RunState:
     condition: asyncio.Condition = field(default_factory=asyncio.Condition)
 
     def info(self) -> dict[str, Any]:
+        """Return the public run payload."""
+
         payload = {
             "id": self.id,
             "session_id": self.session_id,
@@ -105,6 +109,8 @@ class RunManager:
             return self._runs_by_id.get(run_id)
 
     async def snapshot_session(self, session_id: str) -> dict[str, Any] | None:
+        """Return a reconnect snapshot for the active session."""
+
         async with self._lock:
             state = self._active_by_session.get(session_id)
 
@@ -132,13 +138,12 @@ class RunManager:
             return session_id in self._active_by_session
 
     async def _run(self, state: RunState, on_persist: Callable[[dict[str, Any]], Awaitable[None]]) -> None:
+        """Run the agent and store streamed events."""
+
         last_error: str | None = None
 
-        async def persist(message: dict[str, Any]) -> None:
-            await on_persist(message)
-
         try:
-            stream = cast(AsyncIterator[Event], state.agent.achat(state.user_input, on_persist=persist))
+            stream = cast(AsyncIterator[Event], state.agent.achat(state.user_input, on_persist=on_persist))
             async for event in stream:
                 if event.type == "error":
                     last_error = str(event.data.get("message") or "unknown error")
@@ -177,6 +182,8 @@ class RunManager:
                 self._active_by_session.pop(state.session_id, None)
 
     async def _prune_finished_runs(self) -> None:
+        """Drop finished runs after the reconnect window."""
+
         now = time.monotonic()
         async with self._lock:
             stale_run_ids = [

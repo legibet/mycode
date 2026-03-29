@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime
 from typing import Any
 
 from prompt_toolkit import PromptSession
@@ -20,9 +19,12 @@ from mycode.core.agent import Agent
 from mycode.core.config import resolve_mycode_home
 from mycode.core.session import SessionStore
 
-from .render import ReplyRenderer, TerminalView
+from .render import ReplyRenderer, TerminalView, format_local_timestamp
 from .runtime import (
     REASONING_EFFORT_OPTIONS,
+    append_session_message,
+    clone_agent,
+    get_provider_option,
     list_model_options,
     list_provider_options,
     supports_reasoning_effort,
@@ -33,15 +35,17 @@ from .theme import MUTED, PROMPT_CHAR, TERMINAL_THEME, TOOL_MARKER
 
 _PROMPT = ANSI(f"\033[1m\033[34m{PROMPT_CHAR}\033[0m ")
 
-# All primary slash commands for prefix resolution.
-_SLASH_COMMANDS = ("/clear", "/new", "/resume", "/rewind", "/provider", "/model", "/effort", "/q")
-
-
-def _resolve_slash(command: str) -> str:
-    """Resolve a partial /command to its full form via unique prefix match."""
-
-    matches = [c for c in _SLASH_COMMANDS if c.startswith(command)]
-    return matches[0] if len(matches) == 1 else command
+_COMMAND_HELP = (
+    ("/clear", "Clear conversation"),
+    ("/new", "New session"),
+    ("/resume", "Switch session"),
+    ("/rewind", "Rewind to a previous message"),
+    ("/provider", "Switch provider"),
+    ("/model", "Switch model"),
+    ("/effort", "Set reasoning effort"),
+    ("/q", "Quit"),
+)
+_SLASH_COMMANDS = tuple(command for command, _ in _COMMAND_HELP)
 
 
 # Style for the focused row in the inline selector.
@@ -97,16 +101,7 @@ async def choose[T](options: list[tuple[T, str]], *, default: T | None = None) -
 class _SlashCompleter(Completer):
     """Auto-complete slash commands."""
 
-    _COMMANDS = {
-        "/clear": "Clear conversation",
-        "/new": "New session",
-        "/resume": "Switch session",
-        "/rewind": "Rewind to a previous message",
-        "/provider": "Switch provider",
-        "/model": "Switch model",
-        "/effort": "Set reasoning effort",
-        "/q": "Quit",
-    }
+    _COMMANDS = dict(_COMMAND_HELP)
 
     def get_completions(self, document, complete_event):
         text = document.text_before_cursor.lstrip()
@@ -213,32 +208,7 @@ class TerminalChat:
     async def _persist_message(self, message: dict[str, Any]) -> None:
         """Persist one streamed message into the active session."""
 
-        await self.store.append_message(
-            self.session_id,
-            message,
-            provider=self.agent.provider,
-            model=self.agent.model,
-            cwd=self.agent.cwd,
-            api_base=self.agent.api_base,
-        )
-
-    def _clone_agent_for_session(self, *, session_id: str, messages: list[dict[str, Any]]) -> Agent:
-        """Clone the current agent configuration for a different session state."""
-
-        return Agent(
-            model=self.agent.model,
-            provider=self.agent.provider,
-            cwd=self.agent.cwd,
-            session_dir=self.store.session_dir(session_id),
-            session_id=session_id,
-            api_key=self.agent.api_key,
-            api_base=self.agent.api_base,
-            messages=messages,
-            max_turns=self.agent.max_turns,
-            max_tokens=self.agent.max_tokens,
-            reasoning_effort=self.agent.reasoning_effort,
-            settings=self.agent.settings,
-        )
+        await append_session_message(self.store, self.session_id, message, agent=self.agent)
 
     async def _handle_command(self, text: str) -> str | bool:
         """Handle a slash command. Returns "exit" to quit, True if consumed, False otherwise."""
@@ -253,7 +223,9 @@ class TerminalChat:
 
         command, _, argument = text.partition(" ")
         argument = argument.strip()
-        command = _resolve_slash(command)
+        matches = [candidate for candidate in _SLASH_COMMANDS if candidate.startswith(command)]
+        if len(matches) == 1:
+            command = matches[0]
 
         match command:
             case "/q":
@@ -266,7 +238,7 @@ class TerminalChat:
             case "/new":
                 await self._start_new_session()
             case "/rewind":
-                prefill = await self._rewind(argument)
+                prefill = await self._rewind()
                 if prefill:
                     return prefill
             case "/resume":
@@ -309,6 +281,22 @@ class TerminalChat:
             line.append(desc, style=MUTED)
             self.view.console.print(line)
 
+    def _print_runtime_status(self, action: str, value: str, *, changed: bool) -> None:
+        """Print the result of a runtime-only change."""
+
+        if changed:
+            self.view.console.print(f"[green]{TOOL_MARKER}[/green] [dim]{action} →[/dim] {value}")
+            return
+        self.view.console.print(f"[green]{TOOL_MARKER}[/green] [dim]already using[/dim] {value}")
+
+    def _supports_effort_or_warn(self) -> bool:
+        """Return whether the current model supports reasoning effort."""
+
+        if supports_reasoning_effort(self.agent):
+            return True
+        self.view.console.print("[dim]current model does not support reasoning effort[/dim]")
+        return False
+
     async def _start_new_session(self) -> None:
         """Start a fresh session while keeping the current runtime settings."""
 
@@ -321,7 +309,7 @@ class TerminalChat:
         )
         session = data.get("session") or {}
         self.session_id = str(session.get("id") or "")
-        self.agent = self._clone_agent_for_session(session_id=self.session_id, messages=[])
+        self.agent = clone_agent(self.agent, store=self.store, session_id=self.session_id, messages=[])
         self.view.print_header(
             provider=self.agent.provider,
             model=self.agent.model,
@@ -331,11 +319,12 @@ class TerminalChat:
             reasoning_effort=self.agent.reasoning_effort,
         )
 
-    async def _rewind(self, argument: str) -> str | None:
+    async def _rewind(self) -> str | None:
         """Rewind the conversation to a chosen user message.
 
         Shows an interactive selector of all real user text messages.
-        Selecting one truncates the conversation to just before that message.
+        Selecting one truncates the in-memory conversation to the slice before
+        that user message index and appends a rewind marker to the session log.
         Returns the original message text to prefill the next prompt.
         """
         messages = self.agent.messages
@@ -407,7 +396,7 @@ class TerminalChat:
         options: list[tuple[dict[str, Any], str]] = []
         for s in sessions:
             title = str(s.get("title") or "New chat")[:40]
-            ts = self._format_session_time(str(s.get("updated_at") or ""))
+            ts = format_local_timestamp(str(s.get("updated_at") or ""), "%m-%d %H:%M")
             label = f"{title}  {ts}" if ts else title
             options.append((s, label))
 
@@ -422,7 +411,7 @@ class TerminalChat:
             return
         messages = data.get("messages") or []
         loaded_session = data.get("session") or session
-        self.agent = self._clone_agent_for_session(session_id=self.session_id, messages=messages)
+        self.agent = clone_agent(self.agent, store=self.store, session_id=self.session_id, messages=messages)
         self.view.print_header(
             provider=self.agent.provider,
             model=self.agent.model,
@@ -437,10 +426,7 @@ class TerminalChat:
         """Prompt for a configured provider and apply it to the active agent."""
 
         options = list_provider_options(self.agent.settings)
-        current = next(
-            (o for o in options if o.provider == self.agent.provider and o.api_base == self.agent.api_base),
-            None,
-        )
+        current = get_provider_option(self.agent.settings, provider=self.agent.provider, api_base=self.agent.api_base)
 
         choices: list[tuple[str, str]] = []
         for option in options:
@@ -487,19 +473,12 @@ class TerminalChat:
         label = f"{self.agent.provider} / {self.agent.model}"
         if self.agent.reasoning_effort:
             label += f" [effort: {self.agent.reasoning_effort}]"
-        if changed:
-            self.view.console.print(f"[green]{TOOL_MARKER}[/green] [dim]provider/model →[/dim] {label}")
-        else:
-            self.view.console.print(f"[green]{TOOL_MARKER}[/green] [dim]already using[/dim] {label}")
+        self._print_runtime_status("provider/model", label, changed=changed)
 
     async def _apply_model_change(self, model_name: str) -> None:
         """Switch the active model for the current provider runtime."""
 
-        options = list_provider_options(self.agent.settings)
-        current = next(
-            (o for o in options if o.provider == self.agent.provider and o.api_base == self.agent.api_base),
-            None,
-        )
+        current = get_provider_option(self.agent.settings, provider=self.agent.provider, api_base=self.agent.api_base)
         provider_name = current.name if current else self.agent.provider
 
         try:
@@ -512,16 +491,12 @@ class TerminalChat:
             self.view.console.print(f"[red]{exc}[/red]")
             return
 
-        if changed:
-            self.view.console.print(f"[green]{TOOL_MARKER}[/green] [dim]model →[/dim] {self.agent.model}")
-        else:
-            self.view.console.print(f"[green]{TOOL_MARKER}[/green] [dim]already using[/dim] {self.agent.model}")
+        self._print_runtime_status("model", self.agent.model, changed=changed)
 
     async def _switch_effort(self) -> None:
         """Prompt for a reasoning effort level."""
 
-        if not supports_reasoning_effort(self.agent):
-            self.view.console.print("[dim]current model does not support reasoning effort[/dim]")
+        if not self._supports_effort_or_warn():
             return
 
         current = self.agent.reasoning_effort or "auto"
@@ -533,8 +508,7 @@ class TerminalChat:
     def _apply_effort_change(self, effort: str) -> None:
         """Apply a reasoning effort change to the active agent."""
 
-        if not supports_reasoning_effort(self.agent):
-            self.view.console.print("[dim]current model does not support reasoning effort[/dim]")
+        if not self._supports_effort_or_warn():
             return
 
         cleaned = effort.strip().lower()
@@ -548,17 +522,4 @@ class TerminalChat:
 
         changed = update_reasoning_effort(self.agent, resolved)
         display = resolved or "default"
-        if changed:
-            self.view.console.print(f"[green]{TOOL_MARKER}[/green] [dim]effort →[/dim] {display}")
-        else:
-            self.view.console.print(f"[green]{TOOL_MARKER}[/green] [dim]already using[/dim] {display}")
-
-    @staticmethod
-    def _format_session_time(value: str) -> str:
-        if not value:
-            return ""
-        try:
-            ts = datetime.fromisoformat(value.replace("Z", "+00:00"))
-            return ts.astimezone().strftime("%m-%d %H:%M")
-        except ValueError:
-            return value[:16].replace("T", " ")
+        self._print_runtime_status("effort", display, changed=changed)

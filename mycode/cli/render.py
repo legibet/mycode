@@ -104,6 +104,18 @@ _TOOL_PREVIEW_KEY: dict[str, str] = {
 }
 
 
+def format_local_timestamp(value: str, display_format: str) -> str:
+    """Format an ISO timestamp with a simple local fallback."""
+
+    if not value:
+        return ""
+    try:
+        timestamp = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        return timestamp.astimezone().strftime(display_format)
+    except ValueError:
+        return value[:16].replace("T", " ")
+
+
 def _format_usage(usage: dict[str, Any]) -> str:
     """Format token usage into a compact string."""
     input_t = usage.get("input_tokens") or usage.get("prompt_tokens") or 0
@@ -252,7 +264,14 @@ class TerminalView:
         content = message.get("content")
 
         if role == "user":
-            text = self._message_text(content)
+            if isinstance(content, list):
+                text = " ".join(
+                    str(block.get("text") or "").strip()
+                    for block in content
+                    if isinstance(block, dict) and block.get("type") == "text"
+                )
+            else:
+                text = str(content or "")
             if text:
                 return ("You", self._shorten(text))
             return None
@@ -265,18 +284,26 @@ class TerminalView:
     def _assistant_history_entry(self, content: Any) -> tuple[str, str] | None:
         """Summarize one assistant message for the session preview."""
 
-        text = ""
-        thinking = ""
-        tool_names: list[str] = []
-
         if isinstance(content, list):
-            text = " ".join(str(block.get("text") or "").strip() for block in content if block.get("type") == "text")
-            thinking = " ".join(
-                str(block.get("text") or "").strip() for block in content if block.get("type") == "thinking"
+            text = " ".join(
+                str(block.get("text") or "").strip()
+                for block in content
+                if isinstance(block, dict) and block.get("type") == "text"
             )
-            tool_names = [str(block.get("name") or "tool") for block in content if block.get("type") == "tool_use"]
+            thinking = " ".join(
+                str(block.get("text") or "").strip()
+                for block in content
+                if isinstance(block, dict) and block.get("type") == "thinking"
+            )
+            tool_names = [
+                str(block.get("name") or "tool")
+                for block in content
+                if isinstance(block, dict) and block.get("type") == "tool_use"
+            ]
         else:
             text = str(content or "")
+            thinking = ""
+            tool_names = []
 
         text = self._shorten(text)
         thinking = self._shorten(thinking)
@@ -297,12 +324,6 @@ class TerminalView:
         return ("Assistant", f"[Used tools: {preview}]")
 
     @staticmethod
-    def _message_text(content: Any) -> str:
-        if isinstance(content, list):
-            return " ".join(str(block.get("text") or "").strip() for block in content if block.get("type") == "text")
-        return str(content or "")
-
-    @staticmethod
     def _shorten(value: str, *, limit: int = 96) -> str:
         text = " ".join((value or "").split())
         if len(text) <= limit:
@@ -311,13 +332,7 @@ class TerminalView:
 
     @staticmethod
     def _format_timestamp(value: str) -> str:
-        if not value:
-            return "-"
-        try:
-            timestamp = datetime.fromisoformat(value.replace("Z", "+00:00"))
-            return timestamp.astimezone().strftime("%Y-%m-%d %H:%M")
-        except ValueError:
-            return value[:16].replace("T", " ")
+        return format_local_timestamp(value, "%Y-%m-%d %H:%M") or "-"
 
 
 class ReplyRenderer:

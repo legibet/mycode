@@ -15,7 +15,7 @@ from mycode.core.session import SessionStore
 
 from .chat import TerminalChat
 from .render import TerminalView
-from .runtime import resolve_session
+from .runtime import append_session_message, build_agent, resolve_session
 
 app = typer.Typer(add_completion=False, pretty_exceptions_enable=False)
 session_app = typer.Typer(help="Session management")
@@ -40,14 +40,7 @@ async def run_noninteractive(
         nonlocal latest_assistant
         if payload.get("role") == "assistant":
             latest_assistant = payload
-        await store.append_message(
-            session_id,
-            payload,
-            provider=agent.provider,
-            model=agent.model,
-            cwd=agent.cwd,
-            api_base=agent.api_base,
-        )
+        await append_session_message(store, session_id, payload, agent=agent)
 
     error_message = ""
     async for event in agent.achat(message, on_persist=persist):
@@ -73,69 +66,11 @@ async def run_noninteractive(
     return 0
 
 
-def _build_agent(
-    *,
-    store: SessionStore,
-    cwd: str,
-    settings,
-    resolved_provider,
-    resolved_session,
-    max_turns: int | None,
-) -> Agent:
-    """Build the CLI agent from the resolved provider and session state."""
+def _validate_session_options(session: str | None, continue_last: bool) -> None:
+    """Reject conflicting session options."""
 
-    return Agent(
-        model=resolved_provider.model,
-        provider=resolved_provider.provider,
-        cwd=cwd,
-        session_dir=store.session_dir(resolved_session.session_id),
-        session_id=resolved_session.session_id,
-        api_key=resolved_provider.api_key,
-        api_base=resolved_provider.api_base,
-        messages=resolved_session.messages,
-        settings=settings,
-        reasoning_effort=resolved_provider.reasoning_effort,
-        max_tokens=resolved_provider.max_tokens,
-        context_window=resolved_provider.context_window,
-        compact_threshold=settings.compact_threshold,
-        max_turns=max_turns,
-    )
-
-
-def _resolve_and_build(
-    *,
-    cwd: str,
-    store: SessionStore,
-    provider: str | None,
-    model: str | None,
-    max_turns: int | None,
-    session: str | None,
-    continue_last: bool,
-) -> tuple:
-    """Resolve provider + session, build agent. Returns (agent, resolved_provider, resolved_session)."""
-
-    settings = get_settings(cwd)
-    resolved_provider = resolve_provider(settings, provider_name=provider, model=model)
-    resolved_session = asyncio.run(
-        resolve_session(
-            store=store,
-            provider=resolved_provider.provider,
-            cwd=cwd,
-            model=resolved_provider.model,
-            api_base=resolved_provider.api_base,
-            requested_session_id=session,
-            continue_last=continue_last,
-        )
-    )
-    agent = _build_agent(
-        store=store,
-        cwd=cwd,
-        settings=settings,
-        resolved_provider=resolved_provider,
-        resolved_session=resolved_session,
-        max_turns=max_turns,
-    )
-    return agent, resolved_provider, resolved_session
+    if session and continue_last:
+        raise typer.BadParameter("--session and --continue are mutually exclusive")
 
 
 # -- Commands ----------------------------------------------------------------
@@ -155,26 +90,38 @@ def chat(
     if ctx.invoked_subcommand is not None:
         return
 
-    if session and continue_last:
-        raise typer.BadParameter("--session and --continue are mutually exclusive")
+    _validate_session_options(session, continue_last)
 
     cwd = os.path.abspath(os.getcwd())
     store = SessionStore()
     view = TerminalView()
+    settings = get_settings(cwd)
 
     try:
-        agent, resolved_provider, resolved_session = _resolve_and_build(
-            cwd=cwd,
-            store=store,
-            provider=provider,
-            model=model,
-            max_turns=max_turns,
-            session=session,
-            continue_last=continue_last,
+        resolved_provider = resolve_provider(settings, provider_name=provider, model=model)
+        resolved_session = asyncio.run(
+            resolve_session(
+                store=store,
+                provider=resolved_provider.provider,
+                cwd=cwd,
+                model=resolved_provider.model,
+                api_base=resolved_provider.api_base,
+                requested_session_id=session,
+                continue_last=continue_last,
+            )
         )
     except ValueError as exc:
         view.console.print(f"[red]{exc}[/red]")
         raise SystemExit(1) from exc
+
+    agent = build_agent(
+        store=store,
+        cwd=cwd,
+        settings=settings,
+        resolved_provider=resolved_provider,
+        resolved_session=resolved_session,
+        max_turns=max_turns,
+    )
 
     view.print_header(
         provider=resolved_provider.provider,
@@ -211,26 +158,38 @@ def run(
 ) -> None:
     """Send one message and exit."""
 
-    if session and continue_last:
-        raise typer.BadParameter("--session and --continue are mutually exclusive")
+    _validate_session_options(session, continue_last)
 
     cwd = os.path.abspath(os.getcwd())
     store = SessionStore()
     view = TerminalView()
+    settings = get_settings(cwd)
 
     try:
-        agent, _, resolved_session = _resolve_and_build(
-            cwd=cwd,
-            store=store,
-            provider=provider,
-            model=model,
-            max_turns=max_turns,
-            session=session,
-            continue_last=continue_last,
+        resolved_provider = resolve_provider(settings, provider_name=provider, model=model)
+        resolved_session = asyncio.run(
+            resolve_session(
+                store=store,
+                provider=resolved_provider.provider,
+                cwd=cwd,
+                model=resolved_provider.model,
+                api_base=resolved_provider.api_base,
+                requested_session_id=session,
+                continue_last=continue_last,
+            )
         )
     except ValueError as exc:
         view.console.print(f"[red]{exc}[/red]")
         raise SystemExit(1) from exc
+
+    agent = build_agent(
+        store=store,
+        cwd=cwd,
+        settings=settings,
+        resolved_provider=resolved_provider,
+        resolved_session=resolved_session,
+        max_turns=max_turns,
+    )
 
     code = asyncio.run(
         run_noninteractive(

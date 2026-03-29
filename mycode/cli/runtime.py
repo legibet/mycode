@@ -1,4 +1,4 @@
-"""Session and runtime helpers for the CLI."""
+"""CLI session selection and runtime updates."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from mycode.core.agent import Agent
-from mycode.core.config import Settings, get_settings, provider_has_api_key, resolve_provider
+from mycode.core.config import ResolvedProvider, Settings, get_settings, provider_has_api_key, resolve_provider
 from mycode.core.models import lookup_model_metadata
 from mycode.core.providers import (
     get_provider_adapter,
@@ -40,6 +40,73 @@ class ProviderOption:
     provider: str
     models: tuple[str, ...]
     api_base: str | None
+
+
+def build_agent(
+    *,
+    store: SessionStore,
+    cwd: str,
+    settings: Settings,
+    resolved_provider: ResolvedProvider,
+    resolved_session: ResolvedSession,
+    max_turns: int | None,
+) -> Agent:
+    """Build the CLI agent from the resolved provider and session."""
+
+    return Agent(
+        model=resolved_provider.model,
+        provider=resolved_provider.provider,
+        cwd=cwd,
+        session_dir=store.session_dir(resolved_session.session_id),
+        session_id=resolved_session.session_id,
+        api_key=resolved_provider.api_key,
+        api_base=resolved_provider.api_base,
+        messages=resolved_session.messages,
+        settings=settings,
+        reasoning_effort=resolved_provider.reasoning_effort,
+        max_tokens=resolved_provider.max_tokens,
+        context_window=resolved_provider.context_window,
+        compact_threshold=settings.compact_threshold,
+        max_turns=max_turns,
+    )
+
+
+def clone_agent(agent: Agent, *, store: SessionStore, session_id: str, messages: list[dict[str, Any]]) -> Agent:
+    """Keep the current runtime config while swapping session state."""
+
+    return Agent(
+        model=agent.model,
+        provider=agent.provider,
+        cwd=agent.cwd,
+        session_dir=store.session_dir(session_id),
+        session_id=session_id,
+        api_key=agent.api_key,
+        api_base=agent.api_base,
+        messages=messages,
+        max_turns=agent.max_turns,
+        max_tokens=agent.max_tokens,
+        reasoning_effort=agent.reasoning_effort,
+        settings=agent.settings,
+    )
+
+
+async def append_session_message(
+    store: SessionStore,
+    session_id: str,
+    message: dict[str, Any],
+    *,
+    agent: Agent,
+) -> None:
+    """Persist one message with the current agent runtime metadata."""
+
+    await store.append_message(
+        session_id,
+        message,
+        provider=agent.provider,
+        model=agent.model,
+        cwd=agent.cwd,
+        api_base=agent.api_base,
+    )
 
 
 def list_provider_options(settings: Settings) -> list[ProviderOption]:
@@ -77,13 +144,24 @@ def list_provider_options(settings: Settings) -> list[ProviderOption]:
     return options
 
 
-def list_model_options(settings: Settings, *, provider: str, api_base: str | None, current_model: str) -> list[str]:
-    """Return the model choices for the current provider runtime."""
+def get_provider_option(settings: Settings, *, provider: str, api_base: str | None) -> ProviderOption | None:
+    """Return the current selectable provider option."""
 
     for option in list_provider_options(settings):
         if option.provider == provider and option.api_base == api_base:
-            return list(dict.fromkeys([current_model, *option.models]))
-    return list(dict.fromkeys([current_model, *provider_default_models(provider)]))
+            return option
+    return None
+
+
+def list_model_options(settings: Settings, *, provider: str, api_base: str | None, current_model: str) -> list[str]:
+    """Return the selectable model list for the current provider runtime."""
+
+    models = [current_model, *provider_default_models(provider)]
+    for option in list_provider_options(settings):
+        if option.provider == provider and option.api_base == api_base:
+            models = [current_model, *option.models]
+            break
+    return list(dict.fromkeys(models))
 
 
 def supports_reasoning_effort(agent: Agent) -> bool:
@@ -101,7 +179,7 @@ def supports_reasoning_effort(agent: Agent) -> bool:
 
 
 def update_reasoning_effort(agent: Agent, effort: str | None) -> bool:
-    """Update reasoning effort on the agent. Returns whether a change occurred."""
+    """Update reasoning effort on the in-memory agent."""
 
     if effort == agent.reasoning_effort:
         return False
@@ -159,7 +237,8 @@ async def update_agent_runtime(
 ) -> bool:
     """Update provider-related request settings on the active agent.
 
-    This changes the in-memory agent runtime only.
+    This refreshes settings from disk and changes the in-memory agent runtime
+    only. Stored session metadata remains unchanged.
     """
 
     settings = get_settings(agent.cwd)

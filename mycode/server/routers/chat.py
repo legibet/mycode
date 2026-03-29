@@ -29,40 +29,8 @@ router = APIRouter()
 REASONING_EFFORT_OPTIONS = ("auto", "none", "low", "medium", "high", "xhigh")
 
 
-def _reasoning_models(provider_type: str, provider_name: str, models: list[str], api_base: str) -> list[str]:
-    """Return the subset of models that support reasoning according to models.dev."""
-
-    result = []
-    for model in models:
-        meta = lookup_model_metadata(
-            provider_type=provider_type,
-            provider_name=provider_name,
-            model=model,
-            api_base=api_base or None,
-        )
-        if meta and meta.supports_reasoning is True:
-            result.append(model)
-    return result
-
-
 def _format_sse(event: StreamEvent) -> str:
     return f"data: {json.dumps(event.model_dump(exclude_none=True), ensure_ascii=False)}\n\n"
-
-
-def _build_agent(chat: ChatRequest):
-    cwd = os.path.abspath(chat.cwd or os.getcwd())
-    settings = get_settings(cwd)
-    resolved = resolve_provider(
-        settings,
-        provider_name=chat.provider,
-        model=chat.model,
-        api_key=chat.api_key,
-        api_base=chat.api_base,
-    )
-    request_effort = normalize_reasoning_effort(chat.reasoning_effort)
-    reasoning_effort = request_effort if request_effort is not None else resolved.reasoning_effort
-    session_id = chat.session_id or "default"
-    return cwd, settings, resolved, reasoning_effort, session_id
 
 
 async def _stream_run(req: Request, state: RunState, after: int) -> AsyncIterator[str]:
@@ -97,20 +65,29 @@ async def _stream_run(req: Request, state: RunState, after: int) -> AsyncIterato
 
 @router.post("/chat")
 async def chat(chat: ChatRequest, store: StoreDep, runs: RunManagerDep):
-    cwd, settings, resolved, reasoning_effort, session_id = _build_agent(chat)
+    cwd = os.path.abspath(chat.cwd or os.getcwd())
+    settings = get_settings(cwd)
+    resolved = resolve_provider(
+        settings,
+        provider_name=chat.provider,
+        model=chat.model,
+        api_key=chat.api_key,
+        api_base=chat.api_base,
+    )
+    request_effort = normalize_reasoning_effort(chat.reasoning_effort)
+    reasoning_effort = request_effort if request_effort is not None else resolved.reasoning_effort
+    session_id = chat.session_id or "default"
+
     data = await store.load_session(session_id)
     session = (data or {}).get("session")
     messages = (data or {}).get("messages") or []
-    rewind_to = chat.rewind_to
 
-    # Rewind only applies to an existing visible conversation. Reject it
-    # before creating anything on disk so invalid input stays side-effect free.
-    if not session and rewind_to is not None:
+    if not session and chat.rewind_to is not None:
         raise HTTPException(status_code=400, detail="rewind_to requires an existing session")
 
     if not session:
         title = chat.message.replace("\n", " ").strip()[:48] or "New chat"
-        data = await store.create_session(
+        created = await store.create_session(
             title,
             session_id=session_id,
             provider=resolved.provider,
@@ -118,30 +95,31 @@ async def chat(chat: ChatRequest, store: StoreDep, runs: RunManagerDep):
             cwd=cwd,
             api_base=resolved.api_base,
         )
-        session = data["session"]
+        session = created["session"]
 
-    # Rewind: validate against the visible conversation, but defer writing the
-    # rewind marker until the run actually starts so a 409 does not mutate disk.
-    if rewind_to is not None:
-        if not (0 <= rewind_to < len(messages)):
+    if chat.rewind_to is not None:
+        if not (0 <= chat.rewind_to < len(messages)):
             raise HTTPException(
                 status_code=400,
                 detail=f"rewind_to must reference a visible message index between 0 and {len(messages) - 1}",
             )
-        target = messages[rewind_to]
+
+        target = messages[chat.rewind_to]
         blocks = target.get("content")
-        has_text = isinstance(blocks, list) and any(
+        has_user_text = isinstance(blocks, list) and any(
             isinstance(block, dict) and block.get("type") == "text" and block.get("text") for block in blocks
         )
+
         # Rewind only makes sense for real user prompts. Synthetic compact
         # summaries, assistant messages, and tool-result-only user messages are
         # not valid targets.
-        if target.get("role") != "user" or (target.get("meta") or {}).get("synthetic") or not has_text:
+        if target.get("role") != "user" or (target.get("meta") or {}).get("synthetic") or not has_user_text:
             raise HTTPException(
                 status_code=400,
                 detail="rewind_to must reference a real user text message",
             )
-        messages = messages[:rewind_to]
+
+        messages = messages[: chat.rewind_to]
 
     agent = Agent(
         model=resolved.model,
@@ -163,8 +141,8 @@ async def chat(chat: ChatRequest, store: StoreDep, runs: RunManagerDep):
 
     async def on_persist(message: dict) -> None:
         nonlocal rewind_persisted
-        if rewind_to is not None and not rewind_persisted:
-            await store.append_rewind(session_id, rewind_to)
+        if chat.rewind_to is not None and not rewind_persisted:
+            await store.append_rewind(session_id, chat.rewind_to)
             rewind_persisted = True
         await store.append_message(
             session_id,
@@ -225,11 +203,12 @@ async def get_config(cwd: str | None = None):
 
     providers_info: dict[str, Any] = {}
     for provider in resolve_provider_choices(settings):
-        adapter = get_provider_adapter(provider.provider)
-        models = list(provider_default_models(provider.provider))
         provider_config = settings.providers.get(provider.provider_name or "")
-        if provider_config:
-            models = provider_config.models
+        models = (
+            provider_config.models
+            if provider_config and provider_config.models
+            else list(provider_default_models(provider.provider))
+        )
         if not models:
             models = [provider.model]
 
@@ -241,15 +220,24 @@ async def get_config(cwd: str | None = None):
             "base_url": provider.api_base or "",
             "has_api_key": True,
         }
+
+        adapter = get_provider_adapter(provider.provider)
         if adapter.supports_reasoning_effort:
+            reasoning_models: list[str] = []
+            for model in models:
+                meta = lookup_model_metadata(
+                    provider_type=provider.provider,
+                    provider_name=provider.provider_name or provider.provider,
+                    model=model,
+                    api_base=provider.api_base or None,
+                )
+                if meta and meta.supports_reasoning is True:
+                    reasoning_models.append(model)
+
             info["supports_reasoning_effort"] = True
-            info["reasoning_models"] = _reasoning_models(
-                provider.provider,
-                provider.provider_name or provider.provider,
-                models,
-                provider.api_base or "",
-            )
+            info["reasoning_models"] = reasoning_models
             info["reasoning_effort"] = provider.reasoning_effort
+
         providers_info[provider.provider_name or provider.provider] = info
 
     return {

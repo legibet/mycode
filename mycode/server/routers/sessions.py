@@ -37,10 +37,12 @@ async def list_sessions(store: StoreDep, runs: RunManagerDep, cwd: str | None = 
 
 @router.get("/{session_id}")
 async def load_session(session_id: str, store: StoreDep, runs: RunManagerDep):
+    """Load a session, overlaying any active in-memory run state."""
+
+    data = await store.load_session(session_id)
+    session = data.get("session") if data else None
     active = await runs.snapshot_session(session_id)
     if active:
-        data = await store.load_session(session_id)
-        session = data.get("session") if data else None
         return {
             "session": session,
             "messages": active["messages"],
@@ -48,10 +50,15 @@ async def load_session(session_id: str, store: StoreDep, runs: RunManagerDep):
             "pending_events": active["pending_events"],
         }
 
-    data = await store.load_session(session_id)
     if not data:
         return {"session": None, "messages": [], "active_run": None, "pending_events": []}
-    return {**data, "active_run": None, "pending_events": []}
+
+    return {
+        "session": session,
+        "messages": data.get("messages") or [],
+        "active_run": None,
+        "pending_events": [],
+    }
 
 
 @router.delete("/{session_id}")

@@ -9,7 +9,7 @@ router = APIRouter(prefix="/workspaces", tags=["workspaces"])
 
 
 def _parse_workspace_roots() -> list[Path]:
-    """Parse workspace roots from environment."""
+    """Parse allowed workspace roots from environment variables."""
     raw = os.environ.get("MYCODE_WORKSPACE_ROOTS") or os.environ.get("WORKSPACE_ROOTS")
     if raw:
         candidates = [item.strip() for item in raw.split(",") if item.strip()]
@@ -30,24 +30,6 @@ def _parse_workspace_roots() -> list[Path]:
     return roots or [Path(os.getcwd()).resolve(strict=False)]
 
 
-def _match_root(root_value: str) -> Path | None:
-    """Match requested root against allowed workspace roots."""
-    requested = Path(root_value).expanduser().resolve(strict=False)
-    for root in _parse_workspace_roots():
-        if requested == root:
-            return root
-    return None
-
-
-def _is_within(child: Path, parent: Path) -> bool:
-    """Check if child path is within parent."""
-    try:
-        child.relative_to(parent)
-        return True
-    except ValueError:
-        return False
-
-
 @router.get("/roots")
 async def list_workspace_roots():
     """List workspace roots for browsing."""
@@ -57,14 +39,22 @@ async def list_workspace_roots():
 @router.get("/browse")
 async def browse_workspaces(root: str, path: str | None = None):
     """Browse directories within a workspace root."""
-    root_path = _match_root(root)
+    root_path = None
+    requested_root = Path(root).expanduser().resolve(strict=False)
+    for allowed_root in _parse_workspace_roots():
+        if requested_root == allowed_root:
+            root_path = allowed_root
+            break
+
     if not root_path:
         return {"root": root, "path": "", "current": "", "entries": [], "error": "Invalid root"}
 
     rel_path = Path(path) if path else Path()
     target = (root_path / rel_path).resolve(strict=False)
 
-    if not _is_within(target, root_path):
+    try:
+        target.relative_to(root_path)
+    except ValueError:
         return {
             "root": str(root_path),
             "path": "",
@@ -74,18 +64,23 @@ async def browse_workspaces(root: str, path: str | None = None):
         }
 
     try:
-        entries = []
+        entries: list[dict[str, str]] = []
         for entry in sorted(target.iterdir(), key=lambda item: item.name.lower()):
             try:
                 if entry.name.startswith("."):
                     continue
                 if entry.is_dir():
-                    relative = entry.relative_to(root_path).as_posix()
-                    entries.append({"name": entry.name, "path": relative})
+                    entries.append({"name": entry.name, "path": entry.relative_to(root_path).as_posix()})
             except OSError:
                 continue
     except OSError as exc:
-        return {"root": str(root_path), "path": "", "current": str(root_path), "entries": [], "error": str(exc)}
+        return {
+            "root": str(root_path),
+            "path": "",
+            "current": str(root_path),
+            "entries": [],
+            "error": str(exc),
+        }
 
     current_path = "" if target == root_path else target.relative_to(root_path).as_posix()
     return {"root": str(root_path), "path": current_path, "current": str(target), "entries": entries, "error": ""}
