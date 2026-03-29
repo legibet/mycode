@@ -11,23 +11,22 @@ A minimal coding agent with a web UI and CLI. Inspired by [pi](https://github.co
 
 ## Quick Start
 
-Requires Python 3.13+. Install:
+Requires Python 3.13+. Install via [uv](https://docs.astral.sh/uv/):
 
 ```bash
 uv tool install mycode
 ```
 
-Interactive session:
+Interactive terminal session:
 
 ```bash
-export ANTHROPIC_API_KEY=sk-...
 mycode
 ```
 
-Web UI at `http://localhost:8000`:
+Web UI (default at `http://localhost:8000`):
 
 ```bash
-mycode web
+mycode web (--port <port> --hostname <hostname>)
 ```
 
 Single message, non-interactive:
@@ -36,7 +35,7 @@ Single message, non-interactive:
 mycode run "explain how the session store works"
 ```
 
-API keys are discovered automatically from environment variables. No config file needed.
+API keys are discovered automatically from environment variables (see Providers & Models).
 
 ## Providers & Models
 
@@ -51,10 +50,6 @@ API keys are discovered automatically from environment variables. No config file
 | Z.AI              | `zai`         | `ZAI_API_KEY`        | `glm-5.1`, `glm-5-turbo`                           |
 | OpenRouter        | `openrouter`  | `OPENROUTER_API_KEY` | `openai/gpt-5.2`, `anthropic/claude-sonnet-4.6`    |
 | OpenAI-compatible | `openai_chat` | —                    | (configured per provider)                          |
-
-Providers with an env var are auto-discoverable — set the key and pass `--provider <id>` to use them without any config file.
-
-`openai_chat` is a generic adapter for any OpenAI-compatible Chat Completions endpoint. Configure it with a custom `base_url` (see Configuration).
 
 ## Configuration
 
@@ -96,11 +91,7 @@ For built-in providers, use the provider id as the config key and omit `type` wh
 
 `reasoning_effort` controls extended thinking for supported models: `auto` (default) · `none` · `low` · `medium` · `high` · `xhigh`.
 
-API keys in config accept `${ENV_VAR}` references. Provider, model, and base URL are not loaded from environment variables automatically — pass them as flags or set them in config:
-
-```bash
-mycode --provider anthropic --model claude-opus-4-6
-```
+API keys in config accept `${ENV_VAR}` references.
 
 > Built-in Moonshot, MiniMax, and Z.AI defaults use international endpoints. Override `base_url` in config for China endpoints.
 
