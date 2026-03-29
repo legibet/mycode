@@ -1,175 +1,144 @@
 # mycode
 
-A personal minimal coding agent (Python) with a web UI.
+*There are many coding agents, but this one is mine.*
 
-Design principles (inspired by pi):
+A minimal coding agent with a web UI and TUI. Inspired by [pi](https://github.com/nicholasgasior/pi).
 
-- **Minimal core**: only 4 tools: `read`, `write`, `edit`, `bash`
-- **Clean agent loop**: streaming + tool loop, no extra framework features
-- **Low token overhead**: truncation everywhere, explicit "use rg" guidance
-- **Sessions are append-only**: JSONL message log per session
+- 4 tools only: `read`, `write`, `edit`, `bash`.
+- Expand capabilities via skills.
+- One message format, one agent loop — across all providers.
+- Inspectable runtime, append-only sessions.
 
-## CLI
+## Quick Start
 
-```bash
-mycode
-```
-
-Send one message and exit:
-
-```bash
-mycode run "Explain how the session store works"
-```
-
-## Web
-
-Installed packages include the bundled web UI. Start the server with:
-
-```bash
-mycode web
-```
-
-## Development
-
-Install the project in editable mode with uv:
-
-```bash
-uv sync --dev
-```
-
-For TUI and CLI development, the editable install is enough:
-
-```bash
-uv run mycode
-```
-
-For web development, run the backend in API-only mode and start the Vite dev server separately:
-
-```bash
-uv run mycode web --dev
-pnpm --dir frontend install
-pnpm --dir frontend dev
-```
-
-In this mode, the backend does not depend on `mycode/server/static`, and the Vite dev server proxies API requests to `http://127.0.0.1:8000`.
-
-When you need to refresh the packaged frontend assets from the repository, build and sync them with:
-
-```bash
-uv run --no-project python scripts/build_frontend.py
-```
-
-`uv build` also runs the frontend build automatically and packages the static assets into the wheel/sdist.
-
-## Release
-
-Build distributable artifacts with:
-
-```bash
-uv build
-```
-
-Users can install a published release with:
+Requires Python 3.13+. Install:
 
 ```bash
 uv tool install mycode
 ```
 
-For a locally built artifact, install the wheel with:
+Interactive session:
 
 ```bash
-uv tool install dist/mycode-0.1.0-py3-none-any.whl
+export ANTHROPIC_API_KEY=sk-...
+mycode
 ```
 
-Installed users do not need Node.js or pnpm. `mycode web` serves the bundled frontend directly from the Python package.
+Web UI at `http://localhost:8000`:
 
-## Common Workflows
+```bash
+mycode web
+```
 
-- Installed user: `uv tool install mycode`, then run `mycode` or `mycode web`
-- Python/CLI development: `uv sync --dev`, then run `uv run mycode`
-- Web development: run `uv run mycode web --dev` and `pnpm --dir frontend dev` in separate terminals
-- Refresh packaged frontend assets in the repository: `uv run --no-project python scripts/build_frontend.py`
-- Release a distributable build: `uv build`
+Single message, non-interactive:
 
-## Runtime Data
+```bash
+mycode run "explain how the session store works"
+```
 
-Persistent runtime data lives under `~/.mycode/`:
+API keys are discovered automatically from environment variables. No config file needed.
 
-- `config.json`
-- `cli_history`
-- `sessions/`
+## Providers & Models
 
-## Config
+| Provider          | id            | Env var              | Default models                                     |
+| ----------------- | ------------- | -------------------- | -------------------------------------------------- |
+| Anthropic         | `anthropic`   | `ANTHROPIC_API_KEY`  | `claude-sonnet-4-6`, `claude-opus-4-6`             |
+| OpenAI            | `openai`      | `OPENAI_API_KEY`     | `gpt-5.4`, `gpt-5.4-mini`                          |
+| Google Gemini     | `google`      | `GEMINI_API_KEY`     | `gemini-3.1-pro-preview`, `gemini-3-flash-preview` |
+| Moonshot          | `moonshotai`  | `MOONSHOT_API_KEY`   | `kimi-k2.5`                                        |
+| MiniMax           | `minimax`     | `MINIMAX_API_KEY`    | `MiniMax-M2.7`, `MiniMax-M2.7-highspeed`           |
+| DeepSeek          | `deepseek`    | `DEEPSEEK_API_KEY`   | `deepseek-chat`, `deepseek-reasoner`               |
+| Z.AI              | `zai`         | `ZAI_API_KEY`        | `glm-5.1`, `glm-5-turbo`                           |
+| OpenRouter        | `openrouter`  | `OPENROUTER_API_KEY` | `openai/gpt-5.2`, `anthropic/claude-sonnet-4.6`    |
+| OpenAI-compatible | `openai_chat` | —                    | (configured per provider)                          |
 
-Config files are loaded from:
+Providers with an env var are auto-discoverable — set the key and pass `--provider <id>` to use them without any config file.
 
-- `~/.mycode/config.json`
-- `<workspace>/.mycode/config.json`
+`openai_chat` is a generic adapter for any OpenAI-compatible Chat Completions endpoint. Configure it with a custom `base_url` (see Configuration).
 
-`provider` can be either:
+## Configuration
 
-- a configured alias from `providers`
-- a raw built-in provider id such as `anthropic`, `moonshotai`, `minimax`, `openai`, or `openai_chat`
+No config file is required. It is only used for three things:
 
-Example:
+1. Setting default provider, model, and other options
+2. Overriding built-in provider settings (e.g. changing the default model list)
+3. Adding custom providers backed by `openai_chat`
+
+Config is loaded from `~/.mycode/config.json` (global) and `<workspace>/.mycode/config.json` (project-specific, takes precedence).
 
 ```json
 {
   "default": {
-    "provider": "moonshotai",
-    "model": "kimi-k2.5"
+    "provider": "anthropic",
+    "model": "claude-sonnet-4-6",
+    "reasoning_effort": "medium"
   },
   "providers": {
-    "moonshotai": {
-      "type": "moonshotai",
-      "base_url": "https://api.moonshot.ai/anthropic",
-      "models": ["kimi-k2.5"]
-    },
-    "minimax": {
-      "type": "minimax",
-      "base_url": "https://api.minimax.io/anthropic",
-      "models": ["MiniMax-M2.5", "MiniMax-M2.5-highspeed"]
-    },
-    "claude": {
+    "anthropic": {
       "type": "anthropic",
-      "base_url": "https://api.anthropic.com",
-      "models": ["claude-sonnet-4-6"]
+      "models": ["claude-sonnet-4-6", "claude-opus-4-6", "claude-haiku-4-5"]
     },
-    "openrouter": {
+    "my-openrouter": {
       "type": "openai_chat",
       "base_url": "https://openrouter.ai/api/v1",
-      "models": ["openai/gpt-4.1-mini"]
+      "api_key": "${OPENROUTER_API_KEY}",
+      "models": ["openai/gpt-4.1", "google/gemini-2.5-pro"]
     }
   }
 }
 ```
 
-`type` is the internal adapter id used at runtime:
+`reasoning_effort` controls extended thinking for supported models: `auto` (default) · `none` · `low` · `medium` · `high` · `xhigh`.
 
-- `anthropic` / `moonshotai` / `minimax` use the official Anthropic SDK and the Messages API
-- `openai` uses the official OpenAI SDK and the Responses API
-- `openai_chat` uses the official OpenAI SDK and the Chat Completions API for third-party OpenAI-compatible providers
-
-If you do not need aliases, you can skip config and pass the raw provider directly:
+API keys in config accept `${ENV_VAR}` references. Provider, model, and base URL are not loaded from environment variables automatically — pass them as flags or set them in config:
 
 ```bash
-mycode --provider moonshotai --model kimi-k2.5
+mycode --provider anthropic --model claude-opus-4-6
 ```
 
-Region-specific note:
+> Built-in Moonshot and MiniMax defaults use international endpoints. Override `base_url` in config for China endpoints.
 
-- built-in Moonshot defaults use the international endpoint `https://api.moonshot.ai/anthropic`
-- built-in MiniMax defaults use the international endpoint `https://api.minimax.io/anthropic`
-- if you use the China endpoints instead, override `base_url` in config or pass `api_base`
+## CLI Reference
 
-## Environment Variables
+```
+mycode                            start interactive session (new)
+mycode --continue                 resume the most recent session
+mycode --session <id>             resume a specific session
+mycode run "..."                  send one message, non-interactive
+mycode web                        start web server (default port 8000)
+mycode web --dev                  API only, no static files
+mycode session list               list saved sessions
+```
 
-Provider/model/base URL are not loaded from environment variables.
+Interactive slash commands: `/new` `/resume` `/provider` `/model` `/effort` `/clear` `/q`
 
-API keys:
+## Development
 
-- `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `MOONSHOT_API_KEY` / `MINIMAX_API_KEY`
-- `providers.<name>.api_key` also supports exact env references like `${OPENROUTER_API_KEY}`
-- when config uses `${ENV_NAME}`, that referenced env var is used before the provider's built-in default API key env var
-- if `${ENV_NAME}` is configured but missing at runtime, startup fails with a clear error
-- Or pass `api_key` from the web UI (per request)
+```bash
+git clone <repo> && cd mycode
+uv sync --dev
+uv run mycode
+```
+
+Web development (backend + Vite dev server):
+
+```bash
+uv run mycode web --dev
+pnpm --dir frontend install && pnpm --dir frontend dev
+```
+
+Rebuild packaged frontend assets:
+
+```bash
+uv run --no-project python scripts/build_frontend.py
+```
+
+Build distributable artifacts:
+
+```bash
+uv build
+```
+
+## License
+
+MIT
