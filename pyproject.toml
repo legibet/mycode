@@ -56,7 +56,7 @@ select = [
     "UP",     # pyupgrade
 ]
 ignore = [
-    "B008", "E501", "E731", "F401"
+    "E501", "E731"
 ]
 
 [tool.ruff.lint.isort]

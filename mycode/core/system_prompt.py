@@ -26,7 +26,6 @@ _MAX_DIRS_PER_ROOT = 200
 _SKIP_DIRS = frozenset({"node_modules", "__pycache__", ".git"})
 _NAME_RE = re.compile(r"^[a-zA-Z0-9_-]+$")
 _NAME_MAX_LEN = 64
-_DESC_MAX_LEN = 200
 
 
 # ---------------------------------------------------------------------
@@ -189,7 +188,7 @@ def _parse_skill_md(path: Path, source: str, fallback_name: str | None = None) -
 
     return Skill(
         name=name,
-        description=raw_description.strip()[:_DESC_MAX_LEN],
+        description=raw_description.strip(),
         path=str(path.resolve()),
         source=source,
     )
