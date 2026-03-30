@@ -37,7 +37,7 @@ export const InputArea = memo(function InputArea({
       <div
         className={cn(
           'relative rounded-xl bg-card border border-border/30 shadow-sm transition-all duration-200',
-          'focus-within:shadow-md focus-within:border-border/50',
+          'focus-within:shadow-md focus-within:border-border/60',
         )}
       >
         <textarea
@@ -54,7 +54,7 @@ export const InputArea = memo(function InputArea({
           className="block w-full resize-none bg-transparent px-4 py-3 max-md:py-2.5 pr-14 text-sm leading-relaxed text-foreground placeholder:text-muted-foreground/40 focus:outline-none max-h-[200px]"
         />
 
-        <div className="absolute bottom-2.5 max-md:bottom-2 right-2.5 max-md:right-2">
+        <div className="absolute bottom-[7px] max-md:bottom-[5px] right-2.5 max-md:right-2">
           {loading ? (
             <button
               type="button"

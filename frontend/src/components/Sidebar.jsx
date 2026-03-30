@@ -22,7 +22,7 @@ import { WorkspacePicker } from './WorkspacePicker'
 
 /** Shared select styling */
 const SELECT_CLASS =
-  'w-full border-0 border-b border-border/40 bg-transparent px-1 py-2 text-sm font-mono text-foreground outline-none focus:border-accent/50 disabled:opacity-50 transition-colors'
+  'w-full bg-secondary/20 px-2.5 py-2 text-sm font-mono text-foreground outline-none rounded-md border-0 focus:bg-secondary/40 disabled:opacity-50 transition-colors cursor-pointer'
 
 export const Sidebar = memo(function Sidebar({
   className,
@@ -70,7 +70,7 @@ export const Sidebar = memo(function Sidebar({
   return (
     <div
       className={cn(
-        'flex w-60 flex-col border-r border-border/60 bg-sidebar-bg',
+        'flex w-64 flex-col border-r border-border/60 bg-sidebar-bg',
         className,
       )}
     >
@@ -127,53 +127,59 @@ export const Sidebar = memo(function Sidebar({
         {/* Chat Sessions List */}
         {tab === 'chat' && (
           <div className="flex h-full flex-col">
-            <div className="px-3 py-3 shrink-0">
+            <div className="px-3 pt-2 pb-1 shrink-0">
               <button
                 type="button"
                 onClick={onCreateSession}
-                className="w-full flex items-center justify-center gap-1.5 py-2 text-xs font-medium text-muted-foreground hover:text-accent border border-dashed border-border/40 hover:border-accent/30 rounded-lg transition-colors"
+                className="w-full flex items-center justify-center gap-1.5 py-2.5 text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-secondary/30 rounded-md transition-colors"
               >
                 <Plus className="h-3 w-3" />
                 New Chat
               </button>
             </div>
             <div className="flex-1 overflow-y-auto pb-4">
-              {sessions.map((session) => (
-                <button
-                  type="button"
-                  key={session.id}
-                  className={cn(
-                    'group relative flex w-full items-center justify-between gap-2 px-4 py-2 text-xs cursor-pointer transition-colors text-left',
-                    activeSession?.id === session.id
-                      ? 'bg-secondary/60 text-foreground'
-                      : 'text-muted-foreground hover:text-foreground hover:bg-secondary/30',
-                  )}
-                  onClick={() => onSelectSession(session.id)}
-                >
-                  {activeSession?.id === session.id && (
-                    <div className="absolute left-0 top-0 bottom-0 w-[2px] bg-accent" />
-                  )}
-                  {session.is_running && (
-                    <span className="h-2 w-2 shrink-0 rounded-full bg-accent animate-breathing" />
-                  )}
-                  <span className="truncate flex-1">
-                    {session.title || 'New Chat'}
-                  </span>
-                  {activeSession?.id !== session.id && (
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-5 w-5 opacity-0 group-hover:opacity-100 transition-opacity"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        onDeleteSession(session.id)
-                      }}
-                    >
-                      <Trash2 className="h-3 w-3 text-muted-foreground hover:text-destructive" />
-                    </Button>
-                  )}
-                </button>
-              ))}
+              {sessions.map((session) => {
+                const isActive = activeSession?.id === session.id
+                const isRunning = session.is_running
+                return (
+                  <button
+                    type="button"
+                    key={session.id}
+                    className={cn(
+                      'group relative flex w-full items-center gap-2 px-4 py-2 text-xs cursor-pointer transition-colors text-left',
+                      isActive
+                        ? 'bg-secondary/40 text-foreground'
+                        : 'text-muted-foreground hover:text-foreground hover:bg-secondary/20',
+                    )}
+                    onClick={() => onSelectSession(session.id)}
+                  >
+                    {(isActive || isRunning) && (
+                      <div
+                        className={cn(
+                          'absolute left-0 top-0 bottom-0 w-[2px] bg-accent',
+                          isRunning && 'animate-breathing',
+                        )}
+                      />
+                    )}
+                    <span className="truncate flex-1">
+                      {session.title || 'New Chat'}
+                    </span>
+                    {!isActive && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-5 w-5 opacity-0 group-hover:opacity-100 transition-opacity"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          onDeleteSession(session.id)
+                        }}
+                      >
+                        <Trash2 className="h-3 w-3 text-muted-foreground hover:text-destructive" />
+                      </Button>
+                    )}
+                  </button>
+                )
+              })}
               {sessions.length === 0 && (
                 <div className="py-12 text-center text-xs text-muted-foreground/60 flex flex-col items-center gap-2">
                   <History className="h-4 w-4 opacity-30" />
@@ -186,13 +192,13 @@ export const Sidebar = memo(function Sidebar({
 
         {/* Settings Panel */}
         {tab === 'settings' && (
-          <div className="h-full overflow-y-auto px-4 pb-6">
+          <div className="h-full overflow-y-auto px-4 py-5 space-y-6">
             {/* Theme */}
-            <div className="py-4 border-b border-border/30">
-              <div className="flex items-center gap-2 text-2xs font-mono font-medium text-muted-foreground uppercase tracking-widest mb-3">
+            <div>
+              <div className="text-2xs font-mono text-muted-foreground/60 mb-2.5">
                 Appearance
               </div>
-              <div className="grid grid-cols-3 gap-1">
+              <div className="flex items-center gap-1">
                 {[
                   { key: 'light', icon: Sun, label: 'Light' },
                   { key: 'dark', icon: Moon, label: 'Dark' },
@@ -205,10 +211,10 @@ export const Sidebar = memo(function Sidebar({
                     aria-label={label}
                     title={label}
                     className={cn(
-                      'flex items-center justify-center py-1.5 transition-colors text-xs',
+                      'flex items-center justify-center h-9 w-9 rounded-md transition-colors',
                       theme === key
-                        ? 'text-accent'
-                        : 'text-muted-foreground hover:text-foreground',
+                        ? 'text-accent bg-secondary/40'
+                        : 'text-muted-foreground hover:text-foreground hover:bg-secondary/20',
                     )}
                   >
                     <Icon className="h-3.5 w-3.5" />
@@ -218,15 +224,15 @@ export const Sidebar = memo(function Sidebar({
             </div>
 
             {/* Workspace */}
-            <div className="py-4 border-b border-border/30">
-              <div className="flex items-center justify-between mb-3">
-                <span className="text-2xs font-mono font-medium text-muted-foreground uppercase tracking-widest">
+            <div>
+              <div className="flex items-center justify-between mb-2.5">
+                <span className="text-2xs font-mono text-muted-foreground/60">
                   Workspace
                 </span>
                 <button
                   type="button"
                   onClick={() => setPickerOpen(true)}
-                  className="text-muted-foreground hover:text-accent transition-colors"
+                  className="text-muted-foreground/50 hover:text-accent transition-colors"
                 >
                   <FolderOpen className="h-3 w-3" />
                 </button>
@@ -242,105 +248,100 @@ export const Sidebar = memo(function Sidebar({
             </div>
 
             {/* Provider */}
-            <div className="py-4">
-              <div className="text-2xs font-mono font-medium text-muted-foreground uppercase tracking-widest mb-3">
-                Provider
-              </div>
-              <div className="space-y-3">
-                {remoteConfig?.providers &&
-                  Object.keys(remoteConfig.providers).length > 0 && (
-                    <div className="space-y-1.5">
-                      <label
-                        htmlFor="provider-select"
-                        className="text-2xs font-mono text-muted-foreground/70"
-                      >
-                        provider
-                      </label>
-                      <select
-                        id="provider-select"
-                        value={config.provider}
-                        onChange={(e) => handleProviderChange(e.target.value)}
-                        className={SELECT_CLASS}
-                      >
-                        {providerEntries.map(([providerName, p]) => (
-                          <option key={providerName} value={providerName}>
-                            {p.name} ({p.type})
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  )}
-
-                {providerModels.length > 0 ? (
-                  <div className="space-y-1.5">
+            <div className="space-y-4">
+              {remoteConfig?.providers &&
+                Object.keys(remoteConfig.providers).length > 0 && (
+                  <div>
                     <label
-                      htmlFor="model-input"
-                      className="text-2xs font-mono text-muted-foreground/70"
+                      htmlFor="provider-select"
+                      className="text-2xs font-mono text-muted-foreground/60"
                     >
-                      model
+                      Provider
                     </label>
                     <select
-                      id="model-input"
-                      value={config.model}
-                      onChange={(e) => {
-                        const nextModel = e.target.value
-                        return onUpdateConfig({
-                          ...config,
-                          model: nextModel,
-                          reasoningEffort: '',
-                        })
-                      }}
-                      className={SELECT_CLASS}
+                      id="provider-select"
+                      value={config.provider}
+                      onChange={(e) => handleProviderChange(e.target.value)}
+                      className={cn(SELECT_CLASS, 'mt-1.5')}
                     >
-                      {providerModels.map((m) => (
-                        <option key={m} value={m}>
-                          {m}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                ) : (
-                  <div className="text-center text-2xs text-muted-foreground/50 py-2">
-                    No models available
-                  </div>
-                )}
-
-                {supportsEffort && (
-                  <div className="space-y-1.5">
-                    <label
-                      htmlFor="effort-select"
-                      className="text-2xs font-mono text-muted-foreground/70"
-                    >
-                      reasoning effort
-                    </label>
-                    <select
-                      id="effort-select"
-                      value={
-                        config.reasoningEffort ||
-                        getDefaultReasoningEffort(
-                          remoteConfig,
-                          config.provider,
-                          config.model,
-                        ) ||
-                        'auto'
-                      }
-                      onChange={(e) =>
-                        onUpdateConfig({
-                          ...config,
-                          reasoningEffort: e.target.value,
-                        })
-                      }
-                      className={SELECT_CLASS}
-                    >
-                      {effortOptions.map((opt) => (
-                        <option key={opt} value={opt}>
-                          {opt}
+                      {providerEntries.map(([providerName, p]) => (
+                        <option key={providerName} value={providerName}>
+                          {p.name} ({p.type})
                         </option>
                       ))}
                     </select>
                   </div>
                 )}
-              </div>
+
+              {providerModels.length > 0 ? (
+                <div>
+                  <label
+                    htmlFor="model-input"
+                    className="text-2xs font-mono text-muted-foreground/60"
+                  >
+                    Model
+                  </label>
+                  <select
+                    id="model-input"
+                    value={config.model}
+                    onChange={(e) => {
+                      const nextModel = e.target.value
+                      return onUpdateConfig({
+                        ...config,
+                        model: nextModel,
+                        reasoningEffort: '',
+                      })
+                    }}
+                    className={cn(SELECT_CLASS, 'mt-1.5')}
+                  >
+                    {providerModels.map((m) => (
+                      <option key={m} value={m}>
+                        {m}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ) : (
+                <div className="text-center text-2xs text-muted-foreground/50 py-2">
+                  No models available
+                </div>
+              )}
+
+              {supportsEffort && (
+                <div>
+                  <label
+                    htmlFor="effort-select"
+                    className="text-2xs font-mono text-muted-foreground/60"
+                  >
+                    Reasoning effort
+                  </label>
+                  <select
+                    id="effort-select"
+                    value={
+                      config.reasoningEffort ||
+                      getDefaultReasoningEffort(
+                        remoteConfig,
+                        config.provider,
+                        config.model,
+                      ) ||
+                      'auto'
+                    }
+                    onChange={(e) =>
+                      onUpdateConfig({
+                        ...config,
+                        reasoningEffort: e.target.value,
+                      })
+                    }
+                    className={cn(SELECT_CLASS, 'mt-1.5')}
+                  >
+                    {effortOptions.map((opt) => (
+                      <option key={opt} value={opt}>
+                        {opt}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
             </div>
           </div>
         )}

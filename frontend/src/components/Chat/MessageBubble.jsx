@@ -148,7 +148,7 @@ export const MessageBubble = memo(function MessageBubble({
           <button
             type="button"
             onClick={startEdit}
-            className="self-center mr-2 opacity-0 group-hover/user:opacity-100 max-md:opacity-60 transition-opacity duration-150 h-6 w-6 flex items-center justify-center rounded text-muted-foreground/40 hover:text-muted-foreground/70"
+            className="self-end mr-2 mb-0.5 opacity-0 group-hover/user:opacity-100 max-md:opacity-60 transition-opacity duration-150 h-6 w-6 flex items-center justify-center rounded text-muted-foreground/40 hover:text-muted-foreground/70"
             title="Edit & resend"
           >
             <Pencil className="h-3 w-3" />
