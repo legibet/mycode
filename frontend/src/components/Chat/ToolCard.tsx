@@ -35,8 +35,28 @@ interface EditDiffFallbackProps {
   newText?: string | undefined
 }
 
+function getStringArg(
+  args: Record<string, unknown>,
+  key: string,
+): string | undefined {
+  return typeof args[key] === 'string' ? args[key] : undefined
+}
+
+function hasOptionalStringArg(
+  args: Record<string, unknown>,
+  key: string,
+): boolean {
+  const value = args[key]
+  return value === undefined || typeof value === 'string'
+}
+
 function isEditArgs(args: Record<string, unknown>): args is EditArgs {
-  return 'oldText' in args || 'newText' in args || 'path' in args
+  return (
+    (!('oldText' in args) || hasOptionalStringArg(args, 'oldText')) &&
+    (!('newText' in args) || hasOptionalStringArg(args, 'newText')) &&
+    (!('path' in args) || hasOptionalStringArg(args, 'path')) &&
+    ('oldText' in args || 'newText' in args || 'path' in args)
+  )
 }
 
 function EditDiffFallback({ oldText, newText }: EditDiffFallbackProps) {
@@ -70,11 +90,11 @@ function getPreview(name: string, args?: Record<string, unknown>): string {
   if (!args) return ''
   switch (name) {
     case 'bash':
-      return typeof args.command === 'string' ? args.command : ''
+      return getStringArg(args, 'command') ?? ''
     case 'read':
     case 'write':
     case 'edit':
-      return typeof args.path === 'string' ? args.path : ''
+      return getStringArg(args, 'path') ?? ''
     default:
       return Object.entries(args)
         .filter(([k]) => k !== 'content' && k !== 'prompt')

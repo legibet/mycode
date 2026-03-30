@@ -1,8 +1,6 @@
 import type { LocalConfig, ReasoningEffort, RemoteConfig } from '../types'
 
-function isReasoningEffort(
-  value: string | null | undefined,
-): value is ReasoningEffort {
+export function isReasoningEffort(value: unknown): value is ReasoningEffort {
   return (
     value === '' ||
     value === 'auto' ||

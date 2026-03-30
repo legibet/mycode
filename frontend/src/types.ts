@@ -30,7 +30,7 @@ export interface ProviderInfo {
   has_api_key: boolean
   supports_reasoning_effort?: boolean
   reasoning_models?: string[]
-  reasoning_effort?: string | null
+  reasoning_effort?: ReasoningEffort | null
 }
 
 export interface RemoteConfig {
@@ -39,8 +39,8 @@ export interface RemoteConfig {
     provider: string
     model: string
   }
-  default_reasoning_effort?: string | null
-  reasoning_effort_options?: string[]
+  default_reasoning_effort?: ReasoningEffort | null
+  reasoning_effort_options?: ReasoningEffort[]
   cwd?: string
   workspace_root?: string
   config_paths?: string[]

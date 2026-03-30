@@ -3,6 +3,7 @@
  */
 
 import type { LocalConfig } from '../types'
+import { isReasoningEffort } from './config'
 
 const STORAGE_KEY = 'mycode_config'
 const HISTORY_KEY = 'mycode_cwd_history'
@@ -22,17 +23,44 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
 }
 
+function getString(
+  record: Record<string, unknown>,
+  key: string,
+  fallback: string,
+): string {
+  return typeof record[key] === 'string' ? record[key] : fallback
+}
+
+function getValue(record: Record<string, unknown>, key: string): unknown {
+  return record[key]
+}
+
+function normalizeStoredConfig(record: Record<string, unknown>): LocalConfig {
+  const reasoningEffort = getValue(record, 'reasoningEffort')
+
+  return {
+    provider: getString(record, 'provider', DEFAULT_CONFIG.provider),
+    model: getString(record, 'model', DEFAULT_CONFIG.model),
+    cwd: getString(record, 'cwd', DEFAULT_CONFIG.cwd),
+    apiKey: DEFAULT_CONFIG.apiKey,
+    apiBase: DEFAULT_CONFIG.apiBase,
+    reasoningEffort: isReasoningEffort(reasoningEffort)
+      ? reasoningEffort
+      : DEFAULT_CONFIG.reasoningEffort,
+  }
+}
+
 export function loadConfig(): LocalConfig {
   try {
     const saved = localStorage.getItem(STORAGE_KEY)
     if (saved) {
       const parsed = JSON.parse(saved) as unknown
-      if (!isRecord(parsed) || parsed._v !== SCHEMA_VERSION)
+      if (!isRecord(parsed) || getValue(parsed, '_v') !== SCHEMA_VERSION) {
         return DEFAULT_CONFIG
+      }
       // The web UI no longer exposes per-request auth/base overrides.
       // Drop any stale browser-side values so they cannot shadow backend config.
-      const { apiKey: _apiKey, apiBase: _apiBase, ...rest } = parsed
-      return { ...DEFAULT_CONFIG, ...rest } as LocalConfig
+      return normalizeStoredConfig(parsed)
     }
   } catch (e) {
     console.error('Failed to load config:', e)

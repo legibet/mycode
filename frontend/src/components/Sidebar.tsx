@@ -17,19 +17,42 @@ import {
 import { memo, useState } from 'react'
 import type {
   LocalConfig,
-  ReasoningEffort,
+  ProviderInfo,
   RemoteConfig,
   SessionSummary,
   Theme,
 } from '../types'
 import { cn } from '../utils/cn'
-import { getDefaultReasoningEffort } from '../utils/config'
+import { getDefaultReasoningEffort, isReasoningEffort } from '../utils/config'
 import { Button } from './UI/Button'
 import { WorkspacePicker } from './WorkspacePicker'
 
 /** Shared select styling */
 const SELECT_CLASS =
   'w-full bg-secondary/20 px-2.5 py-2 text-sm font-mono text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring rounded-md border-0 focus:bg-secondary/40 disabled:opacity-50 transition-colors cursor-pointer'
+
+const THEME_OPTIONS: Array<{
+  key: Theme
+  icon: typeof Sun
+  label: string
+}> = [
+  { key: 'light', icon: Sun, label: 'Light' },
+  { key: 'dark', icon: Moon, label: 'Dark' },
+  { key: 'system', icon: Laptop, label: 'Auto' },
+]
+
+function getProviderEntries(
+  providers: RemoteConfig['providers'],
+): Array<[string, ProviderInfo]> {
+  if (!providers) return []
+
+  return Object.keys(providers)
+    .map((providerName) => {
+      const provider = providers[providerName]
+      return provider ? ([providerName, provider] as const) : null
+    })
+    .filter((entry): entry is [string, ProviderInfo] => entry !== null)
+}
 
 interface SidebarProps {
   className?: string
@@ -80,9 +103,7 @@ export const Sidebar = memo(function Sidebar({
     })
   }
 
-  const providerEntries = Object.entries(
-    remoteConfig?.providers || {},
-  ) as Array<[string, NonNullable<RemoteConfig['providers']>[string]]>
+  const providerEntries = getProviderEntries(remoteConfig?.providers)
   const activeProviderInfo = remoteConfig?.providers?.[config.provider]
   const providerModels = activeProviderInfo?.models || []
   const reasoningModels = activeProviderInfo?.reasoning_models || []
@@ -232,15 +253,11 @@ export const Sidebar = memo(function Sidebar({
                 Appearance
               </div>
               <div className="flex items-center gap-1">
-                {[
-                  { key: 'light', icon: Sun, label: 'Light' },
-                  { key: 'dark', icon: Moon, label: 'Dark' },
-                  { key: 'system', icon: Laptop, label: 'Auto' },
-                ].map(({ key, icon: Icon, label }) => (
+                {THEME_OPTIONS.map(({ key, icon: Icon, label }) => (
                   <button
                     key={key}
                     type="button"
-                    onClick={() => setTheme(key as Theme)}
+                    onClick={() => setTheme(key)}
                     aria-label={label}
                     title={label}
                     className={cn(
@@ -360,12 +377,14 @@ export const Sidebar = memo(function Sidebar({
                       ) ||
                       'auto'
                     }
-                    onChange={(e) =>
+                    onChange={(e) => {
+                      const value = e.target.value
+                      if (!isReasoningEffort(value)) return
                       onUpdateConfig({
                         ...config,
-                        reasoningEffort: e.target.value as ReasoningEffort,
+                        reasoningEffort: value,
                       })
-                    }
+                    }}
                     className={cn(SELECT_CLASS, 'mt-1.5')}
                   >
                     {effortOptions.map((opt) => (
