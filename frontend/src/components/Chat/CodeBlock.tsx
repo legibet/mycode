@@ -5,7 +5,7 @@
 
 import { Check, Copy } from 'lucide-react'
 import type { ComponentPropsWithoutRef } from 'react'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { ExtraProps } from 'react-markdown'
 import { copyText } from '../../utils/clipboard'
 import { cn } from '../../utils/cn'
@@ -16,6 +16,7 @@ type CodeBlockProps = ComponentPropsWithoutRef<'code'> & ExtraProps
 
 export function CodeBlock({ className, children, ...props }: CodeBlockProps) {
   const [copied, setCopied] = useState(false)
+  const resetCopiedTimeoutRef = useRef<number | null>(null)
 
   const match = LANGUAGE_RE.exec(className || '')
   const language = match?.[1] ?? ''
@@ -26,11 +27,25 @@ export function CodeBlock({ className, children, ...props }: CodeBlockProps) {
 
   const isInline = !match && !rawContent.endsWith('\n')
 
+  useEffect(() => {
+    return () => {
+      if (resetCopiedTimeoutRef.current !== null) {
+        window.clearTimeout(resetCopiedTimeoutRef.current)
+      }
+    }
+  }, [])
+
   const handleCopy = async () => {
     try {
       await copyText(codeContent)
       setCopied(true)
-      setTimeout(() => setCopied(false), 2000)
+      if (resetCopiedTimeoutRef.current !== null) {
+        window.clearTimeout(resetCopiedTimeoutRef.current)
+      }
+      resetCopiedTimeoutRef.current = window.setTimeout(() => {
+        setCopied(false)
+        resetCopiedTimeoutRef.current = null
+      }, 2000)
     } catch {
       /* ignore */
     }

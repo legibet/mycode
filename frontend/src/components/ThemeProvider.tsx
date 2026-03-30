@@ -4,7 +4,6 @@
 
 import {
   createContext,
-  type HTMLAttributes,
   type ReactNode,
   useCallback,
   useContext,
@@ -14,17 +13,13 @@ import {
 } from 'react'
 import type { Theme, ThemeContextValue } from '../types'
 
-interface ThemeProviderProps extends HTMLAttributes<HTMLDivElement> {
+interface ThemeProviderProps {
   children: ReactNode
   defaultTheme?: Theme
   storageKey?: string
 }
 
-const ThemeProviderContext = createContext<ThemeContextValue>({
-  theme: 'system',
-  resolvedTheme: 'dark',
-  setTheme: () => undefined,
-})
+const ThemeProviderContext = createContext<ThemeContextValue | null>(null)
 
 function resolveTheme(theme: Theme): ThemeContextValue['resolvedTheme'] {
   if (theme !== 'system') return theme
@@ -55,7 +50,6 @@ export function ThemeProvider({
   children,
   defaultTheme = 'system',
   storageKey = 'vite-ui-theme',
-  ...props
 }: ThemeProviderProps) {
   const [theme, setThemeState] = useState<Theme>(() => {
     const savedTheme = localStorage.getItem(storageKey)
@@ -99,7 +93,7 @@ export function ThemeProvider({
   )
 
   return (
-    <ThemeProviderContext.Provider {...props} value={value}>
+    <ThemeProviderContext.Provider value={value}>
       {children}
     </ThemeProviderContext.Provider>
   )
@@ -108,8 +102,7 @@ export function ThemeProvider({
 export const useTheme = () => {
   const context = useContext(ThemeProviderContext)
 
-  if (context === undefined)
-    throw new Error('useTheme must be used within a ThemeProvider')
+  if (!context) throw new Error('useTheme must be used within a ThemeProvider')
 
   return context
 }

@@ -7,8 +7,10 @@
 
 import { Check, Copy, Pencil } from 'lucide-react'
 import {
+  Component,
   type KeyboardEvent,
   memo,
+  type ReactNode,
   useCallback,
   useEffect,
   useMemo,
@@ -35,6 +37,38 @@ interface MessageBubbleProps {
     | undefined
 }
 
+interface RenderErrorBoundaryProps {
+  children: ReactNode
+  fallback: ReactNode
+}
+
+interface RenderErrorBoundaryState {
+  hasError: boolean
+}
+
+class RenderErrorBoundary extends Component<
+  RenderErrorBoundaryProps,
+  RenderErrorBoundaryState
+> {
+  state: RenderErrorBoundaryState = { hasError: false }
+
+  static getDerivedStateFromError(): RenderErrorBoundaryState {
+    return { hasError: true }
+  }
+
+  componentDidCatch(error: Error) {
+    console.error('Chat block render failed:', error)
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return this.props.fallback
+    }
+
+    return this.props.children
+  }
+}
+
 export const MessageBubble = memo(function MessageBubble({
   role,
   blocks,
@@ -50,6 +84,7 @@ export const MessageBubble = memo(function MessageBubble({
   const [editing, setEditing] = useState(false)
   const [editText, setEditText] = useState('')
   const editRef = useRef<HTMLTextAreaElement | null>(null)
+  const resetCopiedTimeoutRef = useRef<number | null>(null)
 
   const textContent = useMemo(
     () =>
@@ -60,12 +95,26 @@ export const MessageBubble = memo(function MessageBubble({
     [blocks],
   )
 
+  useEffect(() => {
+    return () => {
+      if (resetCopiedTimeoutRef.current !== null) {
+        window.clearTimeout(resetCopiedTimeoutRef.current)
+      }
+    }
+  }, [])
+
   const handleCopy = useCallback(async () => {
     if (!textContent) return
     try {
       await copyText(textContent)
       setCopied(true)
-      setTimeout(() => setCopied(false), 2000)
+      if (resetCopiedTimeoutRef.current !== null) {
+        window.clearTimeout(resetCopiedTimeoutRef.current)
+      }
+      resetCopiedTimeoutRef.current = window.setTimeout(() => {
+        setCopied(false)
+        resetCopiedTimeoutRef.current = null
+      }, 2000)
     } catch {
       /* ignore */
     }
@@ -113,6 +162,12 @@ export const MessageBubble = memo(function MessageBubble({
       }
     },
     [submitEdit, cancelEdit],
+  )
+
+  const renderErrorFallback = (
+    <div className="rounded-lg bg-destructive/10 px-3 py-2 text-xs text-destructive/80">
+      Failed to render this block.
+    </div>
   )
 
   if (isUser) {
@@ -195,36 +250,45 @@ export const MessageBubble = memo(function MessageBubble({
         {blocks.map((block) => {
           if (block.type === 'thinking') {
             return (
-              <ReasoningBlock
+              <RenderErrorBoundary
                 key={block.renderKey || `thinking:${block.text || 'block'}`}
-                content={block.text}
-                isStreaming={isStreaming}
-              />
+                fallback={renderErrorFallback}
+              >
+                <ReasoningBlock
+                  content={block.text}
+                  isStreaming={isStreaming}
+                />
+              </RenderErrorBoundary>
             )
           }
           if (block.type === 'text') {
             return (
-              <MarkdownBlock
+              <RenderErrorBoundary
                 key={block.renderKey || `text:${block.text || 'block'}`}
-                content={block.text}
-                isStreaming={isStreaming}
-              />
+                fallback={renderErrorFallback}
+              >
+                <MarkdownBlock content={block.text} isStreaming={isStreaming} />
+              </RenderErrorBoundary>
             )
           }
           if (block.type === 'tool_use') {
             return (
-              <ToolCard
+              <RenderErrorBoundary
                 key={
                   block.renderKey || block.id || `tool:${block.name || 'tool'}`
                 }
-                name={block.name}
-                args={block.input}
-                output={block.runtime?.output}
-                modelText={block.runtime?.modelText}
-                displayText={block.runtime?.displayText}
-                pending={block.runtime?.pending}
-                isError={block.runtime?.isError}
-              />
+                fallback={renderErrorFallback}
+              >
+                <ToolCard
+                  name={block.name}
+                  args={block.input}
+                  output={block.runtime?.output}
+                  modelText={block.runtime?.modelText}
+                  displayText={block.runtime?.displayText}
+                  pending={block.runtime?.pending}
+                  isError={block.runtime?.isError}
+                />
+              </RenderErrorBoundary>
             )
           }
           return null
