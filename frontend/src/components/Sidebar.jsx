@@ -22,7 +22,7 @@ import { WorkspacePicker } from './WorkspacePicker'
 
 /** Shared select styling */
 const SELECT_CLASS =
-  'w-full bg-secondary/20 px-2.5 py-2 text-sm font-mono text-foreground outline-none rounded-md border-0 focus:bg-secondary/40 disabled:opacity-50 transition-colors cursor-pointer'
+  'w-full bg-secondary/20 px-2.5 py-2 text-sm font-mono text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring rounded-md border-0 focus:bg-secondary/40 disabled:opacity-50 transition-colors cursor-pointer'
 
 export const Sidebar = memo(function Sidebar({
   className,
@@ -114,7 +114,7 @@ export const Sidebar = memo(function Sidebar({
         </button>
         {/* Sliding indicator */}
         <div
-          className="absolute bottom-0 h-[2px] bg-accent transition-all duration-200 ease-out"
+          className="absolute bottom-0 h-[2px] bg-accent transition-[left,transform] duration-200 ease-out"
           style={{
             left: tab === 'chat' ? '12px' : '50%',
             width: 'calc(50% - 24px)',
@@ -169,6 +169,7 @@ export const Sidebar = memo(function Sidebar({
                         variant="ghost"
                         size="icon"
                         className="h-5 w-5 opacity-0 group-hover:opacity-100 transition-opacity"
+                        aria-label="Delete session"
                         onClick={(e) => {
                           e.stopPropagation()
                           onDeleteSession(session.id)
@@ -231,6 +232,7 @@ export const Sidebar = memo(function Sidebar({
                 </span>
                 <button
                   type="button"
+                  aria-label="Open workspace"
                   onClick={() => setPickerOpen(true)}
                   className="text-muted-foreground/50 hover:text-accent transition-colors"
                 >

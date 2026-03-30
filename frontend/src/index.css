@@ -5,6 +5,7 @@
 @layer base {
   /* ── Dark theme (default) ── Deep Ocean ── */
   :root {
+    color-scheme: dark;
     --background: 216 60% 10%; /* #0A1628 — deep navy */
     --foreground: 210 25% 87%; /* #D4DEE8 — cool silver */
     --card: 216 55% 11%; /* #0D1A2C */
@@ -41,6 +42,7 @@
 
   /* ── Light theme ── Pale frost ── */
   .light {
+    color-scheme: light;
     --background: 216 40% 97%; /* #F3F6FA */
     --foreground: 216 55% 13%; /* #0F1E33 */
     --card: 216 35% 95%; /* #EDF1F6 */
@@ -335,6 +337,17 @@
 }
 .animate-breathing {
   animation: breathing 2s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
 
 /* ── Gradient mask for chat scroll fade ── */

@@ -123,6 +123,7 @@ function AppContent() {
         {sidebarOpen && (
           <button
             type="button"
+            aria-label="Close sidebar"
             tabIndex={-1}
             className="fixed inset-0 z-40 bg-background/60 backdrop-blur-sm md:hidden cursor-default"
             onClick={() => setSidebarOpen(false)}

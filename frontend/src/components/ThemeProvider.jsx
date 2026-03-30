@@ -33,7 +33,11 @@ function applyTheme(theme) {
 
   if (resolvedTheme === 'light') {
     root.classList.add('light')
+  } else {
+    root.classList.add('dark')
   }
+
+  root.style.colorScheme = resolvedTheme
 
   return resolvedTheme
 }

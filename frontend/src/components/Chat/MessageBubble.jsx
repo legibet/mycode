@@ -103,6 +103,8 @@ export const MessageBubble = memo(function MessageBubble({
           <div className="max-w-[85%] w-full flex flex-col gap-2">
             <textarea
               ref={editRef}
+              name="edit-message"
+              aria-label="Edit message"
               value={editText}
               onChange={(e) => {
                 setEditText(e.target.value)
@@ -147,6 +149,7 @@ export const MessageBubble = memo(function MessageBubble({
         {canEdit && (
           <button
             type="button"
+            aria-label="Edit message"
             onClick={startEdit}
             className="self-end mr-2 mb-0.5 opacity-0 group-hover/user:opacity-100 max-md:opacity-60 transition-opacity duration-150 h-6 w-6 flex items-center justify-center rounded text-muted-foreground/40 hover:text-muted-foreground/70"
             title="Edit & resend"
@@ -216,9 +219,10 @@ export const MessageBubble = memo(function MessageBubble({
         <div className="mt-2 max-md:opacity-60 opacity-0 group-hover/msg:opacity-100 transition-opacity duration-150">
           <button
             type="button"
+            aria-label="Copy to clipboard"
             onClick={handleCopy}
             className={cn(
-              'flex items-center justify-center h-6 w-6 rounded transition-all duration-150',
+              'flex items-center justify-center h-6 w-6 rounded transition-colors duration-150',
               copied
                 ? 'text-emerald-400'
                 : 'text-muted-foreground/40 hover:text-muted-foreground/70',

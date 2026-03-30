@@ -340,6 +340,7 @@ export function WorkspacePicker({
         <div className="px-4 py-2.5 border-b border-border/20 bg-muted/[0.08] shrink-0">
           <input
             ref={inputRef}
+            name="workspace-path"
             value={pathInput}
             onChange={(e) => setPathInput(e.target.value)}
             onKeyDown={handleInputKeyDown}
@@ -348,7 +349,7 @@ export function WorkspacePicker({
             autoComplete="off"
             autoCorrect="off"
             autoCapitalize="off"
-            className="w-full bg-transparent text-xs font-mono outline-none text-muted-foreground placeholder:text-muted-foreground/30 caret-accent"
+            className="w-full bg-transparent text-xs font-mono focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring text-muted-foreground placeholder:text-muted-foreground/30 caret-accent"
             aria-label="Filter directories or enter a path"
           />
         </div>
@@ -452,7 +453,7 @@ export function WorkspacePicker({
             disabled={!state.current}
             className={cn(
               'shrink-0 px-3.5 h-7 rounded-md text-xs font-semibold cursor-pointer',
-              'transition-all duration-150',
+              'transition-colors duration-150',
               'bg-accent/15 text-accent border border-accent/20',
               'hover:bg-accent/25 hover:border-accent/40 active:bg-accent/30',
               'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
