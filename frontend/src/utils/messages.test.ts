@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { buildRenderMessages } from './messages.js'
+import { buildRenderMessages } from './messages'
 
 test('buildRenderMessages keeps sourceIndex and synthetic meta for user messages', () => {
   const renderMessages = buildRenderMessages([

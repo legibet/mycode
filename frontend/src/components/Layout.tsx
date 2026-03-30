@@ -3,9 +3,14 @@
  * Provides the base surface with subtle noise texture.
  */
 
+import type { ReactNode } from 'react'
 import { cn } from '../utils/cn'
 
-export function Layout({ children }) {
+interface LayoutProps {
+  children: ReactNode
+}
+
+export function Layout({ children }: LayoutProps) {
   return (
     <div
       className={cn(

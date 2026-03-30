@@ -13,6 +13,7 @@ import { MobileHeader } from './components/MobileHeader'
 import { Sidebar } from './components/Sidebar'
 import { ThemeProvider, useTheme } from './components/ThemeProvider'
 import { useChat } from './hooks/useChat'
+import type { LocalConfig, RemoteConfig } from './types'
 import { normalizeConfigWithRemoteDefaults } from './utils/config'
 import {
   addHistory,
@@ -22,7 +23,7 @@ import {
   saveHistory,
 } from './utils/storage'
 
-async function fetchJson(url) {
+async function fetchJson<T>(url: string): Promise<T> {
   const response = await fetch(url)
   if (!response.ok) {
     let message = `Request failed with status ${response.status}`
@@ -34,26 +35,25 @@ async function fetchJson(url) {
     } catch {}
     throw new Error(message)
   }
-  return response.json()
+  return response.json() as Promise<T>
 }
 
 function AppContent() {
-  const [config, setConfig] = useState(loadConfig)
+  const [config, setConfig] = useState<LocalConfig>(loadConfig)
   const [input, setInput] = useState('')
-  const [cwdHistory, setCwdHistory] = useState(loadHistory)
+  const [cwdHistory, setCwdHistory] = useState<string[]>(loadHistory)
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const { theme, setTheme } = useTheme()
   const configUrl = `/api/config?cwd=${encodeURIComponent(config.cwd)}`
-  const { data: remoteConfig = null, error: remoteConfigError } = useSWR(
-    configUrl,
-    fetchJson,
-    {
-      keepPreviousData: true,
-      onError: (error) => {
-        console.error('Failed to load config:', error)
-      },
+  const { data: remoteConfig = null, error: remoteConfigError } = useSWR<
+    RemoteConfig,
+    Error
+  >(configUrl, fetchJson<RemoteConfig>, {
+    keepPreviousData: true,
+    onError: (error) => {
+      console.error('Failed to load config:', error)
     },
-  )
+  })
 
   const {
     messages,
@@ -85,7 +85,7 @@ function AppContent() {
     })
   }, [remoteConfig])
 
-  const handleConfigUpdate = (newConfig) => {
+  const handleConfigUpdate = (newConfig: LocalConfig) => {
     if (newConfig.cwd !== config.cwd) {
       const nextHistory = addHistory(cwdHistory, newConfig.cwd)
       setCwdHistory(nextHistory)
@@ -104,7 +104,7 @@ function AppContent() {
   }, [send])
 
   const handleSelectSession = useCallback(
-    (id) => {
+    (id: string) => {
       selectSession(id)
       setSidebarOpen(false)
     },

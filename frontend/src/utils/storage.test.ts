@@ -1,12 +1,18 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { loadActiveSession, saveActiveSession } from './storage.js'
+import { loadActiveSession, saveActiveSession } from './storage'
 
 function createLocalStorage() {
   const store = new Map()
 
   return {
+    get length() {
+      return store.size
+    },
+    key(index) {
+      return Array.from(store.keys())[index] ?? null
+    },
     getItem(key) {
       return store.has(key) ? store.get(key) : null
     },

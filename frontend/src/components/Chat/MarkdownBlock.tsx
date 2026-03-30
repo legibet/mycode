@@ -30,7 +30,11 @@ function ensureKatexCss() {
   import('katex/dist/katex.min.css')
 }
 
-function PlainMarkdown({ content }) {
+interface MarkdownContentProps {
+  content: string
+}
+
+function PlainMarkdown({ content }: MarkdownContentProps) {
   return (
     <ReactMarkdown
       remarkPlugins={REMARK_PLUGINS}
@@ -41,8 +45,8 @@ function PlainMarkdown({ content }) {
   )
 }
 
-function RenderedMarkdown({ content }) {
-  const contentRef = useRef(null)
+function RenderedMarkdown({ content }: MarkdownContentProps) {
+  const contentRef = useRef<HTMLDivElement | null>(null)
   const hasMath = MATH_PATTERN.test(content)
 
   useLayoutEffect(() => {
@@ -70,6 +74,9 @@ function RenderedMarkdown({ content }) {
 export const MarkdownBlock = memo(function MarkdownBlock({
   content,
   isStreaming = false,
+}: {
+  content: string
+  isStreaming?: boolean
 }) {
   return (
     <div className="prose prose-sm max-w-none dark:prose-invert">

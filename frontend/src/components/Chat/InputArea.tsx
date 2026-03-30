@@ -6,7 +6,16 @@
 
 import { ArrowUp, Square } from 'lucide-react'
 import { memo, useEffect, useRef } from 'react'
+import type { SetString } from '../../types'
 import { cn } from '../../utils/cn'
+
+interface InputAreaProps {
+  input: string
+  setInput: SetString
+  loading: boolean
+  onSend: () => void
+  onCancel: () => void
+}
 
 export const InputArea = memo(function InputArea({
   input,
@@ -14,8 +23,8 @@ export const InputArea = memo(function InputArea({
   loading,
   onSend,
   onCancel,
-}) {
-  const textareaRef = useRef(null)
+}: InputAreaProps) {
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null)
 
   useEffect(() => {
     if (!input && textareaRef.current) {

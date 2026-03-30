@@ -11,42 +11,44 @@ React + Vite app in `frontend/`. Built assets are copied to `mycode/server/stati
 
 ```
 frontend/src/
-  App.jsx
+  App.tsx
+  main.tsx
+  types.ts
   components/
     Chat/
-      MessageList.jsx      # scrollable message history
-      MessageBubble.jsx    # single message, role-based styling
-      InputArea.jsx        # user input + submit
-      ToolCard.jsx         # tool execution block (start/output/done)
-      ReasoningBlock.jsx   # thinking block — expanded while streaming, collapses after
-      MarkdownBlock.jsx    # markdown rendering
-      CodeBlock.jsx        # syntax-highlighted code
-      EditDiff.jsx         # diff view for edit tool results
-    Layout.jsx
-    Sidebar.jsx            # session list + settings panel
-    WorkspacePicker.jsx    # workspace browser using /api/workspaces
-    MobileHeader.jsx
-    ThemeProvider.jsx
-    UI/Button.jsx
-    UI/Input.jsx
+      MessageList.tsx      # scrollable message history
+      MessageBubble.tsx    # single message, role-based styling
+      InputArea.tsx        # user input + submit
+      ToolCard.tsx         # tool execution block (start/output/done)
+      ReasoningBlock.tsx   # thinking block — expanded while streaming, collapses after
+      MarkdownBlock.tsx    # markdown rendering
+      CodeBlock.tsx        # syntax-highlighted code
+      EditDiff.tsx         # diff view for edit tool results
+    Layout.tsx
+    Sidebar.tsx            # session list + settings panel
+    WorkspacePicker.tsx    # workspace browser using /api/workspaces
+    MobileHeader.tsx
+    ThemeProvider.tsx
+    UI/Button.tsx
+    UI/Input.tsx
   hooks/
-    useChat.js             # main chat state + SSE streaming
-    sessionSelection.js    # session picker state
+    useChat.ts             # main chat state + SSE streaming
+    sessionSelection.ts    # session picker state
   utils/
-    messages.js            # buildRenderMessages()
-    highlighter.js         # code syntax highlighting
-    storage.js             # localStorage helpers
-    config.js              # reasoning effort defaults + provider normalization with remote config
-    clipboard.js
-    cn.js                  # CSS class merging
+    messages.ts            # buildRenderMessages()
+    highlighter.ts         # code syntax highlighting
+    storage.ts             # localStorage helpers
+    config.ts              # reasoning effort defaults + provider normalization with remote config
+    clipboard.ts
+    cn.ts                  # CSS class merging
   index.css                # Tailwind CSS
 ```
 
 ## Message State Model
 
-`useChat.js` stores raw canonical blocks plus ephemeral tool runtime state. It does **not** maintain a separate rendered message list.
+`useChat.ts` stores raw canonical blocks plus ephemeral tool runtime state. It does **not** maintain a separate rendered message list.
 
-`buildRenderMessages()` in `utils/messages.js` derives UI messages from canonical blocks on each render. This is the single source of truth for what appears in the UI.
+`buildRenderMessages()` in `utils/messages.ts` derives UI messages from canonical blocks on each render. This is the single source of truth for what appears in the UI.
 
 Rendering rules:
 

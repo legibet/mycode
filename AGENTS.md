@@ -53,8 +53,8 @@ Server (`mycode/server/`):
 
 Frontend (`frontend/src/`):
 
-- `hooks/useChat.js` — chat state, SSE streaming, tool runtime
-- `utils/messages.js` — buildRenderMessages() — canonical blocks → UI messages
+- `hooks/useChat.ts` — chat state, SSE streaming, tool runtime
+- `utils/messages.ts` — buildRenderMessages() — canonical blocks → UI messages
 
 ## Internal Message Model
 

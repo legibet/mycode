@@ -4,7 +4,7 @@ import test from 'node:test'
 import {
   isCurrentSendRequest,
   resolveInitialSessionId,
-} from './sessionSelection.js'
+} from './sessionSelection'
 
 test('resolveInitialSessionId prefers the previously active session', () => {
   const sessions = [{ id: 'latest' }, { id: 'previous' }]

@@ -15,6 +15,13 @@ import {
   Trash2,
 } from 'lucide-react'
 import { memo, useState } from 'react'
+import type {
+  LocalConfig,
+  ReasoningEffort,
+  RemoteConfig,
+  SessionSummary,
+  Theme,
+} from '../types'
 import { cn } from '../utils/cn'
 import { getDefaultReasoningEffort } from '../utils/config'
 import { Button } from './UI/Button'
@@ -23,6 +30,21 @@ import { WorkspacePicker } from './WorkspacePicker'
 /** Shared select styling */
 const SELECT_CLASS =
   'w-full bg-secondary/20 px-2.5 py-2 text-sm font-mono text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring rounded-md border-0 focus:bg-secondary/40 disabled:opacity-50 transition-colors cursor-pointer'
+
+interface SidebarProps {
+  className?: string
+  sessions: SessionSummary[]
+  activeSession: SessionSummary | null
+  onSelectSession: (id: string) => void
+  onCreateSession: () => void
+  onDeleteSession: (id: string) => Promise<void>
+  config: LocalConfig
+  onUpdateConfig: (config: LocalConfig) => void
+  cwdHistory: string[]
+  remoteConfig: RemoteConfig | null
+  theme: Theme
+  setTheme: (theme: Theme) => void
+}
 
 export const Sidebar = memo(function Sidebar({
   className,
@@ -37,7 +59,7 @@ export const Sidebar = memo(function Sidebar({
   remoteConfig,
   theme,
   setTheme,
-}) {
+}: SidebarProps) {
   const [tab, setTab] = useState('chat')
   const [pickerOpen, setPickerOpen] = useState(false)
 
@@ -58,7 +80,9 @@ export const Sidebar = memo(function Sidebar({
     })
   }
 
-  const providerEntries = Object.entries(remoteConfig?.providers || {})
+  const providerEntries = Object.entries(
+    remoteConfig?.providers || {},
+  ) as Array<[string, NonNullable<RemoteConfig['providers']>[string]]>
   const activeProviderInfo = remoteConfig?.providers?.[config.provider]
   const providerModels = activeProviderInfo?.models || []
   const reasoningModels = activeProviderInfo?.reasoning_models || []
@@ -216,7 +240,7 @@ export const Sidebar = memo(function Sidebar({
                   <button
                     key={key}
                     type="button"
-                    onClick={() => setTheme(key)}
+                    onClick={() => setTheme(key as Theme)}
                     aria-label={label}
                     title={label}
                     className={cn(
@@ -339,7 +363,7 @@ export const Sidebar = memo(function Sidebar({
                     onChange={(e) =>
                       onUpdateConfig({
                         ...config,
-                        reasoningEffort: e.target.value,
+                        reasoningEffort: e.target.value as ReasoningEffort,
                       })
                     }
                     className={cn(SELECT_CLASS, 'mt-1.5')}

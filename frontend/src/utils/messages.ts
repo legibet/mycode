@@ -3,37 +3,64 @@
  * Frontend state stays close to the backend block-based conversation model.
  */
 
-function isObject(value) {
+import type {
+  ChatMessage,
+  MessageBlock,
+  MessageMeta,
+  TextBlock,
+  ThinkingBlock,
+  ToolInput,
+  ToolResultBlock,
+  ToolRuntime,
+  ToolUseBlock,
+} from '../types'
+
+interface ToolCall {
+  id?: string
+  name?: string
+  input?: ToolInput
+}
+
+interface ToolIndexEntry {
+  messageIndex: number
+  blockIndex: number
+}
+
+function isObject(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
 }
 
-function getBlocks(message) {
+function getBlocks(message?: ChatMessage | null): MessageBlock[] {
   return Array.isArray(message?.content) ? message.content : []
 }
 
-function cloneBlock(block, renderKey = null) {
+function cloneBlock(block: MessageBlock, renderKey: string | null = null) {
   const next = { ...block }
   if (isObject(block?.meta)) next.meta = { ...block.meta }
-  if (isObject(block?.input)) next.input = { ...block.input }
+  if ('input' in next && isObject(next.input)) next.input = { ...next.input }
   if (renderKey) next.renderKey = renderKey
   return next
 }
 
-function createMessage(role, content = [], renderKey = null) {
-  const message = { role, content }
+function createMessage(
+  role: ChatMessage['role'],
+  content: MessageBlock[] = [],
+  renderKey: string | null = null,
+): ChatMessage {
+  const message: ChatMessage = { role, content }
   if (renderKey) message.renderKey = renderKey
   return message
 }
 
-function createTextBlock(text) {
+function createTextBlock(text: string): TextBlock {
   return { type: 'text', text }
 }
 
-function createThinkingBlock(text) {
+function createThinkingBlock(text: string): ThinkingBlock {
   return { type: 'thinking', text }
 }
 
-function createToolUseBlock(toolCall) {
+function createToolUseBlock(toolCall: ToolCall): ToolUseBlock {
   return {
     type: 'tool_use',
     id: toolCall?.id || '',
@@ -43,11 +70,11 @@ function createToolUseBlock(toolCall) {
 }
 
 function createToolResultBlock(
-  toolUseId,
-  modelText,
-  displayText,
+  toolUseId: string,
+  modelText: string | null,
+  displayText: string | null,
   isError = false,
-) {
+): ToolResultBlock {
   return {
     type: 'tool_result',
     tool_use_id: toolUseId,
@@ -57,11 +84,13 @@ function createToolResultBlock(
   }
 }
 
-export function createUserTextMessage(text) {
+export function createUserTextMessage(text: string): ChatMessage {
   return createMessage('user', text ? [createTextBlock(text)] : [])
 }
 
-export function createAssistantMessage(content = []) {
+export function createAssistantMessage(
+  content: MessageBlock[] = [],
+): ChatMessage {
   return createMessage('assistant', content)
 }
 
@@ -83,7 +112,11 @@ function findLatestAssistantIndex(messages) {
   return -1
 }
 
-export function appendAssistantDelta(messages, blockType, delta) {
+export function appendAssistantDelta(
+  messages: ChatMessage[],
+  blockType: 'thinking' | 'text',
+  delta: string,
+): ChatMessage[] {
   if (!delta) return messages
 
   const { messages: next, index } = ensureTailAssistant(messages)
@@ -108,7 +141,10 @@ export function appendAssistantDelta(messages, blockType, delta) {
   return next
 }
 
-export function appendToolUse(messages, toolCall) {
+export function appendToolUse(
+  messages: ChatMessage[],
+  toolCall: ToolCall,
+): ChatMessage[] {
   const next = [...messages]
   let index = findLatestAssistantIndex(next)
 
@@ -125,7 +161,7 @@ export function appendToolUse(messages, toolCall) {
   return next
 }
 
-function isToolResultOnlyUserMessage(message) {
+function isToolResultOnlyUserMessage(message?: ChatMessage) {
   const blocks = getBlocks(message)
   return (
     message?.role === 'user' &&
@@ -135,12 +171,12 @@ function isToolResultOnlyUserMessage(message) {
 }
 
 export function appendToolResult(
-  messages,
-  toolUseId,
-  modelText,
-  displayText,
+  messages: ChatMessage[],
+  toolUseId: string,
+  modelText: string | null,
+  displayText: string | null,
   isError = false,
-) {
+): ChatMessage[] {
   const block = createToolResultBlock(
     toolUseId,
     modelText,
@@ -163,7 +199,10 @@ export function appendToolResult(
   return next
 }
 
-function buildToolRuntime(runtime, toolResultBlock) {
+function buildToolRuntime(
+  runtime: ToolRuntime | undefined,
+  toolResultBlock: ToolResultBlock | null,
+): ToolRuntime {
   const output = typeof runtime?.output === 'string' ? runtime.output : ''
   const hasRuntimeModelText = typeof runtime?.modelText === 'string'
   const persistedModelText =
@@ -194,10 +233,18 @@ function buildToolRuntime(runtime, toolResultBlock) {
   }
 }
 
-function updateRenderToolMessage(result, entry, runtime, toolResultBlock) {
+function updateRenderToolMessage(
+  result: ChatMessage[],
+  entry: ToolIndexEntry,
+  runtime: ToolRuntime | undefined,
+  toolResultBlock: ToolResultBlock | null,
+) {
   const targetMessage = result[entry.messageIndex]
   const content = [...getBlocks(targetMessage)]
   const targetBlock = content[entry.blockIndex]
+  if (targetBlock?.type !== 'tool_use') {
+    return targetMessage
+  }
 
   content[entry.blockIndex] = {
     ...targetBlock,
@@ -213,14 +260,17 @@ function updateRenderToolMessage(result, entry, runtime, toolResultBlock) {
  * Derive renderable chat messages from canonical persisted messages plus
  * ephemeral tool runtime state.
  */
-export function buildRenderMessages(messages, toolRuntimeById = {}) {
+export function buildRenderMessages(
+  messages: ChatMessage[],
+  toolRuntimeById: Record<string, ToolRuntime> = {},
+): ChatMessage[] {
   if (!Array.isArray(messages)) return []
 
-  const result = []
-  const toolIndex = {}
-  let currentAssistant = null
+  const result: ChatMessage[] = []
+  const toolIndex: Record<string, ToolIndexEntry> = {}
+  let currentAssistant: ChatMessage | null = null
 
-  const ensureAssistantRenderMessage = (renderKey) => {
+  const ensureAssistantRenderMessage = (renderKey: string) => {
     if (currentAssistant) return currentAssistant
     currentAssistant = createMessage('assistant', [], renderKey)
     result.push(currentAssistant)
@@ -240,7 +290,8 @@ export function buildRenderMessages(messages, toolRuntimeById = {}) {
 
       if (textBlocks.length > 0) {
         const userMsg = createMessage('user', textBlocks, `user:${sourceIndex}`)
-        if (isObject(message?.meta)) userMsg.meta = { ...message.meta }
+        if (isObject(message?.meta))
+          userMsg.meta = { ...(message.meta as MessageMeta) }
         userMsg.sourceIndex = sourceIndex
         result.push(userMsg)
         currentAssistant = null
@@ -277,7 +328,7 @@ export function buildRenderMessages(messages, toolRuntimeById = {}) {
 
         // Keep tool results visually attached to the assistant tool block even
         // though they are persisted as a separate user message.
-        const nextBlock = {
+        const nextBlock: ToolUseBlock = {
           type: 'tool_use',
           id: toolUseId || '',
           name: 'tool',

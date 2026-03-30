@@ -5,17 +5,24 @@
  */
 
 import { memo, useCallback, useLayoutEffect, useRef } from 'react'
+import type { ChatMessage } from '../../types'
 import { MessageBubble } from './MessageBubble'
 
 const SCROLL_THRESHOLD = 120
+
+interface MessageListProps {
+  messages: ChatMessage[]
+  loading: boolean
+  onRewindAndSend: (rewindTo: number, input: string) => Promise<void>
+}
 
 export const MessageList = memo(function MessageList({
   messages,
   loading,
   onRewindAndSend,
-}) {
-  const containerRef = useRef(null)
-  const endRef = useRef(null)
+}: MessageListProps) {
+  const containerRef = useRef<HTMLDivElement | null>(null)
+  const endRef = useRef<HTMLDivElement | null>(null)
   const stickToBottom = useRef(true)
   const previousMessageCount = useRef(0)
 

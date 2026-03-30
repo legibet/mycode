@@ -16,7 +16,8 @@ import {
 import { lazy, memo, Suspense, useState } from 'react'
 import { cn } from '../../utils/cn'
 
-let editDiffPromise
+let editDiffPromise: Promise<typeof import('./EditDiff')> | undefined
+
 function loadEditDiff() {
   if (!editDiffPromise) editDiffPromise = import('./EditDiff')
   return editDiffPromise
@@ -37,6 +38,16 @@ const TOOL_META = {
   write: { icon: PenLine, label: 'write' },
   edit: { icon: SquarePen, label: 'edit' },
   bash: { icon: Terminal, label: 'bash' },
+}
+
+interface ToolCardProps {
+  name: string
+  args?: Record<string, unknown>
+  output?: string | null
+  modelText?: string | null
+  displayText?: string | null
+  pending?: boolean
+  isError?: boolean
 }
 
 /** Extract a concise, human-readable preview for the trigger line. */
@@ -65,7 +76,7 @@ export const ToolCard = memo(function ToolCard({
   displayText,
   pending,
   isError,
-}) {
+}: ToolCardProps) {
   const display =
     typeof displayText === 'string'
       ? displayText

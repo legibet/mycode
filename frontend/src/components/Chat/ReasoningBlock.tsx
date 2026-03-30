@@ -8,10 +8,15 @@ import { ChevronDown } from 'lucide-react'
 import { memo, useState } from 'react'
 import { cn } from '../../utils/cn'
 
+interface ReasoningBlockProps {
+  content: string
+  isStreaming?: boolean
+}
+
 export const ReasoningBlock = memo(function ReasoningBlock({
   content,
   isStreaming,
-}) {
+}: ReasoningBlockProps) {
   const [expandedOverride, setExpandedOverride] = useState(null)
   const expanded = expandedOverride ?? isStreaming
 

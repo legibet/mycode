@@ -4,7 +4,17 @@
 
 import { Menu, Plus } from 'lucide-react'
 
-export function MobileHeader({ title, onMenuToggle, onCreateSession }) {
+interface MobileHeaderProps {
+  title?: string
+  onMenuToggle: () => void
+  onCreateSession: () => void
+}
+
+export function MobileHeader({
+  title,
+  onMenuToggle,
+  onCreateSession,
+}: MobileHeaderProps) {
   return (
     <header className="flex md:hidden h-12 shrink-0 items-center justify-between px-4 border-b border-border/40 bg-background">
       <button

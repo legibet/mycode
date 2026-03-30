@@ -3,7 +3,7 @@
  */
 
 import { Loader2 } from 'lucide-react'
-import React from 'react'
+import { forwardRef } from 'react'
 import { cn } from '../../utils/cn'
 
 const VARIANTS = {
@@ -22,7 +22,16 @@ const SIZES = {
   icon: 'h-9 w-9 p-0',
 }
 
-export const Button = React.forwardRef(
+type ButtonVariant = keyof typeof VARIANTS
+type ButtonSize = keyof typeof SIZES
+
+interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
+  variant?: ButtonVariant
+  size?: ButtonSize
+  isLoading?: boolean
+}
+
+export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
   (
     {
       className,

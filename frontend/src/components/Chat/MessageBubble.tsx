@@ -7,11 +7,23 @@
 
 import { Check, Copy, Pencil } from 'lucide-react'
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import type { ChatMessage, MessageBlock } from '../../types'
 import { copyText } from '../../utils/clipboard'
 import { cn } from '../../utils/cn'
 import { MarkdownBlock } from './MarkdownBlock'
 import { ReasoningBlock } from './ReasoningBlock'
 import { ToolCard } from './ToolCard'
+
+interface MessageBubbleProps {
+  role: ChatMessage['role']
+  blocks: MessageBlock[]
+  sourceIndex?: number
+  synthetic?: boolean
+  isStreaming?: boolean
+  isLoading: boolean
+  index: number
+  onRewindAndSend?: (rewindTo: number, input: string) => Promise<void>
+}
 
 export const MessageBubble = memo(function MessageBubble({
   role,
@@ -22,12 +34,12 @@ export const MessageBubble = memo(function MessageBubble({
   isLoading,
   index,
   onRewindAndSend,
-}) {
+}: MessageBubbleProps) {
   const isUser = role === 'user'
   const [copied, setCopied] = useState(false)
   const [editing, setEditing] = useState(false)
   const [editText, setEditText] = useState('')
-  const editRef = useRef(null)
+  const editRef = useRef<HTMLTextAreaElement | null>(null)
 
   const textContent = useMemo(
     () =>
@@ -183,9 +195,7 @@ export const MessageBubble = memo(function MessageBubble({
           if (block.type === 'text') {
             return (
               <MarkdownBlock
-                key={
-                  block.renderKey || block.id || `text:${block.text || 'block'}`
-                }
+                key={block.renderKey || `text:${block.text || 'block'}`}
                 content={block.text}
                 isStreaming={isStreaming}
               />
