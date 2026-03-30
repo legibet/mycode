@@ -53,7 +53,7 @@ export const InputArea = memo(function InputArea({
           }}
           onKeyDown={handleKeyDown}
           placeholder="Message…"
-          className="block w-full resize-none bg-transparent px-4 py-3 max-md:py-2.5 pr-14 text-sm leading-relaxed text-foreground placeholder:text-muted-foreground/40 focus:outline-none max-h-[200px]"
+          className="block w-full resize-none bg-transparent px-4 py-3 max-md:py-2.5 pr-14 text-sm leading-relaxed text-foreground placeholder:text-muted-foreground/40 focus-visible:outline-none max-h-[200px]"
         />
 
         <div className="absolute bottom-[7px] max-md:bottom-[5px] right-2.5 max-md:right-2">

@@ -96,6 +96,7 @@ export const ToolCard = memo(function ToolCard({
       <button
         type="button"
         className="flex w-full items-center gap-1.5 select-none cursor-pointer text-left"
+        aria-expanded={expanded}
         onClick={() => setExpandedOverride(!expanded)}
       >
         <Icon
@@ -103,6 +104,7 @@ export const ToolCard = memo(function ToolCard({
             'h-3.5 w-3.5 shrink-0',
             status === 'error' ? 'text-red-400' : 'text-foreground/70',
           )}
+          aria-hidden="true"
         />
 
         <span
@@ -123,10 +125,16 @@ export const ToolCard = memo(function ToolCard({
         <span className="flex-1" />
 
         {status === 'pending' && (
-          <Loader2 className="h-3.5 w-3.5 text-muted-foreground/40 animate-spin shrink-0" />
+          <Loader2
+            className="h-3.5 w-3.5 text-muted-foreground/40 animate-spin shrink-0"
+            aria-hidden="true"
+          />
         )}
         {status === 'success' && (
-          <Check className="h-3 w-3 text-emerald-500/50 shrink-0" />
+          <Check
+            className="h-3 w-3 text-emerald-500/50 shrink-0"
+            aria-hidden="true"
+          />
         )}
 
         <ChevronDown
@@ -134,6 +142,7 @@ export const ToolCard = memo(function ToolCard({
             'h-3 w-3 text-muted-foreground/30 transition-transform duration-200 shrink-0',
             !expanded && '-rotate-90',
           )}
+          aria-hidden="true"
         />
       </button>
 

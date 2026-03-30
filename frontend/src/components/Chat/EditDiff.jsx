@@ -267,7 +267,7 @@ export default function EditDiff({ path, oldText, newText, result }) {
                 }
               >
                 {hasLineNumbers && (
-                  <td className="diff-ln select-none w-8 min-w-8 text-right align-top pr-2 text-muted-foreground/20">
+                  <td className="diff-ln select-none w-8 min-w-8 text-right align-top pr-2 text-muted-foreground/20 tabular-nums">
                     {row.ln ?? ''}
                   </td>
                 )}

@@ -85,9 +85,14 @@ export const Sidebar = memo(function Sidebar({
       </div>
 
       {/* Tab navigation — sliding underline */}
-      <div className="relative flex shrink-0 border-b border-border/40">
+      <div
+        className="relative flex shrink-0 border-b border-border/40"
+        role="tablist"
+      >
         <button
           type="button"
+          role="tab"
+          aria-selected={tab === 'chat'}
           onClick={() => setTab('chat')}
           className={cn(
             'flex-1 flex items-center justify-center gap-1.5 py-2.5 text-xs font-medium transition-colors',
@@ -101,6 +106,8 @@ export const Sidebar = memo(function Sidebar({
         </button>
         <button
           type="button"
+          role="tab"
+          aria-selected={tab === 'settings'}
           onClick={() => setTab('settings')}
           className={cn(
             'flex-1 flex items-center justify-center gap-1.5 py-2.5 text-xs font-medium transition-colors',
@@ -145,6 +152,7 @@ export const Sidebar = memo(function Sidebar({
                   <button
                     type="button"
                     key={session.id}
+                    aria-current={isActive ? 'true' : undefined}
                     className={cn(
                       'group relative flex w-full items-center gap-2 px-4 py-2 text-xs cursor-pointer transition-colors text-left',
                       isActive

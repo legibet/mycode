@@ -22,6 +22,7 @@ export const ReasoningBlock = memo(function ReasoningBlock({
       <button
         type="button"
         className="flex w-full items-center gap-1.5 select-none cursor-pointer text-left"
+        aria-expanded={expanded}
         onClick={() => setExpandedOverride(!expanded)}
       >
         <span
@@ -39,6 +40,7 @@ export const ReasoningBlock = memo(function ReasoningBlock({
             'h-3 w-3 text-muted-foreground/30 transition-transform duration-200',
             !expanded && '-rotate-90',
           )}
+          aria-hidden="true"
         />
       </button>
 

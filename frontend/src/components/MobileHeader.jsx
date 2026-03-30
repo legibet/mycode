@@ -6,7 +6,7 @@ import { Menu, Plus } from 'lucide-react'
 
 export function MobileHeader({ title, onMenuToggle, onCreateSession }) {
   return (
-    <div className="flex md:hidden h-12 shrink-0 items-center justify-between px-4 border-b border-border/40 bg-background">
+    <header className="flex md:hidden h-12 shrink-0 items-center justify-between px-4 border-b border-border/40 bg-background">
       <button
         type="button"
         aria-label="Toggle menu"
@@ -28,6 +28,6 @@ export function MobileHeader({ title, onMenuToggle, onCreateSession }) {
       >
         <Plus className="h-5 w-5" />
       </button>
-    </div>
+    </header>
   )
 }

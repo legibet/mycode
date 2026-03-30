@@ -4,13 +4,16 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#0A1628" />
   <script>
     try {
       const theme = localStorage.getItem('vite-ui-theme') || 'system'
       const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches
+      const isLight = theme === 'light' || (theme === 'system' && !prefersDark)
 
-      if (theme === 'light' || (theme === 'system' && !prefersDark)) {
+      if (isLight) {
         document.documentElement.classList.add('light')
+        document.querySelector('meta[name="theme-color"]').content = '#F3F6FA'
       }
     } catch { }
   </script>

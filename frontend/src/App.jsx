@@ -135,6 +135,7 @@ function AppContent() {
           className={`
             max-md:fixed max-md:inset-y-0 max-md:left-0 max-md:z-50
             max-md:transition-transform max-md:duration-300 max-md:ease-out
+            max-md:overscroll-y-contain
             ${sidebarOpen ? 'max-md:translate-x-0' : 'max-md:-translate-x-full'}
           `}
         >

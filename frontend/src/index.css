@@ -264,14 +264,6 @@
     transform: translateY(0);
   }
 }
-@keyframes sheet-slide-down {
-  from {
-    transform: translateY(0);
-  }
-  to {
-    transform: translateY(100%);
-  }
-}
 @keyframes dialog-enter {
   from {
     opacity: 0;
@@ -343,9 +335,10 @@
   *,
   ::before,
   ::after {
-    animation-duration: 0.01ms !important;
+    animation-duration: 0ms !important;
     animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
+    animation-delay: 0ms !important;
+    transition-duration: 0ms !important;
     scroll-behavior: auto !important;
   }
 }
