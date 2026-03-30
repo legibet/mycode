@@ -40,19 +40,38 @@ interface MessageBubbleProps {
 interface RenderErrorBoundaryProps {
   children: ReactNode
   fallback: ReactNode
+  resetKey: string
 }
 
 interface RenderErrorBoundaryState {
   hasError: boolean
+  resetKey: string
 }
 
 class RenderErrorBoundary extends Component<
   RenderErrorBoundaryProps,
   RenderErrorBoundaryState
 > {
-  state: RenderErrorBoundaryState = { hasError: false }
+  state: RenderErrorBoundaryState = {
+    hasError: false,
+    resetKey: this.props.resetKey,
+  }
 
-  static getDerivedStateFromError(): RenderErrorBoundaryState {
+  static getDerivedStateFromProps(
+    props: RenderErrorBoundaryProps,
+    state: RenderErrorBoundaryState,
+  ): RenderErrorBoundaryState | null {
+    if (props.resetKey === state.resetKey) {
+      return null
+    }
+
+    return {
+      hasError: false,
+      resetKey: props.resetKey,
+    }
+  }
+
+  static getDerivedStateFromError(): Partial<RenderErrorBoundaryState> {
     return { hasError: true }
   }
 
@@ -249,10 +268,13 @@ export const MessageBubble = memo(function MessageBubble({
       <div className="flex flex-col gap-3 text-foreground/90 leading-relaxed text-sm">
         {blocks.map((block) => {
           if (block.type === 'thinking') {
+            const renderKey =
+              block.renderKey || `thinking:${block.text || 'block'}`
             return (
               <RenderErrorBoundary
-                key={block.renderKey || `thinking:${block.text || 'block'}`}
+                key={renderKey}
                 fallback={renderErrorFallback}
+                resetKey={`${renderKey}:${block.text}`}
               >
                 <ReasoningBlock
                   content={block.text}
@@ -262,22 +284,26 @@ export const MessageBubble = memo(function MessageBubble({
             )
           }
           if (block.type === 'text') {
+            const renderKey = block.renderKey || `text:${block.text || 'block'}`
             return (
               <RenderErrorBoundary
-                key={block.renderKey || `text:${block.text || 'block'}`}
+                key={renderKey}
                 fallback={renderErrorFallback}
+                resetKey={`${renderKey}:${block.text}`}
               >
                 <MarkdownBlock content={block.text} isStreaming={isStreaming} />
               </RenderErrorBoundary>
             )
           }
           if (block.type === 'tool_use') {
+            const renderKey =
+              block.renderKey || block.id || `tool:${block.name || 'tool'}`
+            const resetKey = `${renderKey}:${JSON.stringify(block.input)}:${block.runtime?.pending ? '1' : '0'}:${block.runtime?.isError ? '1' : '0'}:${block.runtime?.output ?? ''}:${block.runtime?.modelText ?? ''}:${block.runtime?.displayText ?? ''}`
             return (
               <RenderErrorBoundary
-                key={
-                  block.renderKey || block.id || `tool:${block.name || 'tool'}`
-                }
+                key={renderKey}
                 fallback={renderErrorFallback}
+                resetKey={resetKey}
               >
                 <ToolCard
                   name={block.name}
