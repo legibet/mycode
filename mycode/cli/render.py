@@ -27,6 +27,7 @@ from .theme import (
     ERROR,
     ERROR_MARKER,
     MUTED,
+    PROMPT_CHAR,
     PROVIDER,
     STATS,
     SUCCESS,
@@ -175,19 +176,42 @@ class TerminalView:
             self.console.print(meta)
 
     def print_history_preview(self, messages: list[dict[str, Any]]) -> None:
-        """Print a short summary of recent messages for resumed sessions."""
+        """Print recent conversation turns for resumed sessions."""
 
-        entries = self.history_preview_entries(messages)
-        if not entries:
+        turns = self.history_preview_entries(messages)
+        if not turns:
             return
 
-        self.console.print(Text(f"recent ({len(entries)})", style=MUTED))
-        for role, content in entries:
-            label = "you" if role == "You" else "assistant"
-            line = Text()
-            line.append(f"{label} ", style=MUTED)
-            line.append(content)
-            self.console.print(line)
+        self.console.print(Text("recent", style=MUTED))
+        for turn in turns:
+            self.console.print()
+            for kind, content in turn:
+                if kind == "user":
+                    lines = str(content).splitlines() or [""]
+                    first = Text()
+                    first.append(f"{PROMPT_CHAR} ", style=ACCENT)
+                    first.append(lines[0])
+                    self.console.print(first)
+                    for line in lines[1:]:
+                        self.console.print(Text(f"  {line}"))
+                elif kind == "text":
+                    self.console.print(_LeftMarkdown(str(content), code_theme=CODE_THEME))
+                else:
+                    name, args = content
+                    preview = ""
+                    if isinstance(args, dict) and args:
+                        key = _TOOL_PREVIEW_KEY.get(name.lower())
+                        raw = args.get(key) if key else next(iter(args.values()), "")
+                        preview = str(raw or "")
+                        if len(preview) > 60:
+                            preview = preview[:60] + "…"
+
+                    line = Text()
+                    line.append(f"{TOOL_MARKER} ", style=SUCCESS)
+                    line.append(name.capitalize(), style=TOOL_NAME)
+                    if preview:
+                        line.append(f"  {preview}", style=MUTED)
+                    self.console.print(line)
 
     def print_session_list(
         self,
@@ -245,83 +269,63 @@ class TerminalView:
 
         self.console.print(table)
 
-    def history_preview_entries(self, messages: list[dict[str, Any]], *, limit: int = 6) -> list[tuple[str, str]]:
-        """Return the compact history preview used for resumed sessions."""
+    def history_preview_entries(
+        self,
+        messages: list[dict[str, Any]],
+        *,
+        limit: int = 3,
+    ) -> list[list[tuple[str, Any]]]:
+        """Return the last few readable conversation turns for resumed sessions."""
 
-        entries: list[tuple[str, str]] = []
+        turns: list[list[tuple[str, Any]]] = []
 
         for message in messages:
-            entry = self._history_preview_entry(message)
-            if entry is not None:
-                entries.append(entry)
+            role = message.get("role")
+            content = message.get("content")
 
-        return entries if limit <= 0 else entries[-limit:]
+            if role == "user":
+                if (message.get("meta") or {}).get("synthetic"):
+                    continue
+                if isinstance(content, list):
+                    text = " ".join(
+                        str(block.get("text") or "").strip()
+                        for block in content
+                        if isinstance(block, dict)
+                        and block.get("type") == "text"
+                        and str(block.get("text") or "").strip()
+                    )
+                else:
+                    text = str(content or "").strip()
+                if text:
+                    turns.append([("user", text)])
+                continue
 
-    def _history_preview_entry(self, message: dict[str, Any]) -> tuple[str, str] | None:
-        """Build one compact preview entry for a stored conversation message."""
+            if role != "assistant":
+                continue
 
-        role = message.get("role")
-        content = message.get("content")
-
-        if role == "user":
+            parts: list[tuple[str, Any]] = []
             if isinstance(content, list):
-                text = " ".join(
-                    str(block.get("text") or "").strip()
-                    for block in content
-                    if isinstance(block, dict) and block.get("type") == "text"
-                )
+                for block in content:
+                    if not isinstance(block, dict):
+                        continue
+                    if block.get("type") == "text":
+                        text = str(block.get("text") or "").strip()
+                        if text:
+                            parts.append(("text", text))
+                    elif block.get("type") == "tool_use":
+                        parts.append(("tool", (str(block.get("name") or "tool"), block.get("input"))))
             else:
-                text = str(content or "")
-            if text:
-                return ("You", self._shorten(text))
-            return None
+                text = str(content or "").strip()
+                if text:
+                    parts.append(("text", text))
 
-        if role != "assistant":
-            return None
+            if not parts:
+                continue
+            if not turns:
+                turns.append([])
+            turns[-1].extend(parts)
 
-        return self._assistant_history_entry(content)
-
-    def _assistant_history_entry(self, content: Any) -> tuple[str, str] | None:
-        """Summarize one assistant message for the session preview."""
-
-        if isinstance(content, list):
-            text = " ".join(
-                str(block.get("text") or "").strip()
-                for block in content
-                if isinstance(block, dict) and block.get("type") == "text"
-            )
-            thinking = " ".join(
-                str(block.get("text") or "").strip()
-                for block in content
-                if isinstance(block, dict) and block.get("type") == "thinking"
-            )
-            tool_names = [
-                str(block.get("name") or "tool")
-                for block in content
-                if isinstance(block, dict) and block.get("type") == "tool_use"
-            ]
-        else:
-            text = str(content or "")
-            thinking = ""
-            tool_names = []
-
-        text = self._shorten(text)
-        thinking = self._shorten(thinking)
-        tools_suffix = f"  [{len(tool_names)} tool{'s' if len(tool_names) != 1 else ''}]" if tool_names else ""
-
-        if text:
-            return ("Assistant", f"{text}{tools_suffix}")
-
-        if thinking:
-            return ("Assistant", f"Thinking: {thinking}{tools_suffix}")
-
-        if not tool_names:
-            return None
-
-        preview = ", ".join(tool_names[:3])
-        if len(tool_names) > 3:
-            preview += f" +{len(tool_names) - 3}"
-        return ("Assistant", f"[Used tools: {preview}]")
+        return turns if limit <= 0 else turns[-limit:]
 
     @staticmethod
     def _shorten(value: str, *, limit: int = 96) -> str:

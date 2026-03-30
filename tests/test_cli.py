@@ -1,6 +1,7 @@
 """Tests for CLI runtime and terminal behavior."""
 
 import asyncio
+from io import StringIO
 from typing import Any, cast
 
 import pytest
@@ -8,9 +9,11 @@ from prompt_toolkit import PromptSession
 from prompt_toolkit.history import InMemoryHistory
 from prompt_toolkit.input.defaults import create_pipe_input
 from prompt_toolkit.output import DummyOutput
+from rich.console import Console
 
 from mycode.cli.chat import _build_chat_key_bindings, _SlashCompleter
 from mycode.cli.main import app, run_noninteractive
+from mycode.cli.render import TerminalView
 from mycode.cli.runtime import list_model_options, resolve_session
 from mycode.cli.runtime import update_agent_runtime as _update_agent_runtime
 from mycode.core.agent import Event
@@ -141,6 +144,102 @@ async def test_resolve_session_explicit_missing_id_errors(tmp_path):
             requested_session_id="missing",
             continue_last=False,
         )
+
+
+def test_history_preview_shows_last_three_turns_with_assistant_text_and_tools():
+    view = TerminalView(Console(file=StringIO(), force_terminal=False, color_system=None, width=120))
+
+    messages = [
+        {"role": "user", "content": [{"type": "text", "text": "turn one"}]},
+        {"role": "assistant", "content": [{"type": "text", "text": "answer one"}]},
+        {"role": "user", "content": [{"type": "text", "text": "turn two"}]},
+        {
+            "role": "assistant",
+            "content": [
+                {"type": "thinking", "text": "hidden"},
+                {"type": "text", "text": "answer two"},
+                {"type": "tool_use", "name": "read", "input": {"path": "src/two.py"}},
+            ],
+        },
+        {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "call_1", "content": "ignored"}]},
+        {"role": "assistant", "content": [{"type": "text", "text": "done two"}]},
+        {"role": "user", "content": [{"type": "text", "text": "turn three"}]},
+        {
+            "role": "assistant",
+            "content": [
+                {"type": "tool_use", "name": "bash", "input": {"command": "pytest tests/test_cli.py -q"}},
+                {"type": "text", "text": "done three"},
+            ],
+        },
+        {"role": "user", "content": [{"type": "text", "text": "turn four"}]},
+        {
+            "role": "assistant",
+            "content": [
+                {"type": "text", "text": "checking four\nmore detail"},
+                {"type": "tool_use", "name": "edit", "input": {"path": "src/four.py"}},
+                {"type": "text", "text": "done four"},
+            ],
+        },
+    ]
+
+    assert view.history_preview_entries(messages) == [
+        [
+            ("user", "turn two"),
+            ("text", "answer two"),
+            ("tool", ("read", {"path": "src/two.py"})),
+            ("text", "done two"),
+        ],
+        [
+            ("user", "turn three"),
+            ("tool", ("bash", {"command": "pytest tests/test_cli.py -q"})),
+            ("text", "done three"),
+        ],
+        [
+            ("user", "turn four"),
+            ("text", "checking four\nmore detail"),
+            ("tool", ("edit", {"path": "src/four.py"})),
+            ("text", "done four"),
+        ],
+    ]
+
+
+def test_history_preview_keeps_latest_user_turn_without_assistant_reply():
+    view = TerminalView(Console(file=StringIO(), force_terminal=False, color_system=None, width=120))
+
+    messages = [
+        {"role": "user", "content": [{"type": "text", "text": "first"}]},
+        {"role": "assistant", "content": [{"type": "text", "text": "reply"}]},
+        {"role": "user", "content": [{"type": "text", "text": "latest question"}]},
+    ]
+
+    assert view.history_preview_entries(messages) == [
+        [("user", "first"), ("text", "reply")],
+        [("user", "latest question")],
+    ]
+
+
+def test_print_history_preview_renders_transcript_style():
+    output = StringIO()
+    view = TerminalView(Console(file=output, force_terminal=False, color_system=None, width=120))
+
+    view.print_history_preview(
+        [
+            {"role": "user", "content": [{"type": "text", "text": "question\n\n- item"}]},
+            {
+                "role": "assistant",
+                "content": [
+                    {"type": "text", "text": "checking `foo`"},
+                    {"type": "tool_use", "name": "read", "input": {"path": "foo.py"}},
+                    {"type": "text", "text": "```py\nprint(1)\n```"},
+                ],
+            },
+        ]
+    )
+
+    rendered = output.getvalue()
+    assert rendered.startswith("recent\n\n❯ question\n  \n  - item\nchecking foo")
+    assert "\n⏺ Read  foo.py\n" in rendered
+    assert rendered.endswith("print(1)\n")
 
 
 def test_cli_rejects_non_positive_max_turns():
