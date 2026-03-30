@@ -114,8 +114,10 @@ export function createRenderUserMessage(
   return message
 }
 
-export function createRenderAssistantMessage(renderKey: string): ChatMessage {
-  return createMessage('assistant', [], renderKey)
+export function createRenderAssistantMessage(sourceIndex: number): ChatMessage {
+  const message = createMessage('assistant', [], `assistant:${sourceIndex}`)
+  message.sourceIndex = sourceIndex
+  return message
 }
 
 function ensureTailAssistant(messages: ChatMessage[]): {
@@ -132,7 +134,7 @@ function ensureTailAssistant(messages: ChatMessage[]): {
   return { messages: next, index: next.length - 1 }
 }
 
-function findLatestAssistantIndex(messages: ChatMessage[]): number {
+export function findLatestAssistantIndex(messages: ChatMessage[]): number {
   for (let index = messages.length - 1; index >= 0; index--) {
     if (messages[index]?.role === 'assistant') return index
   }
@@ -290,17 +292,26 @@ function updateRenderToolMessage(
   return updatedMessage
 }
 
-function ensureTailRenderAssistant(messages: ChatMessage[]): {
+function ensureTailRenderAssistant(
+  messages: ChatMessage[],
+  sourceIndex: number,
+): {
   messages: ChatMessage[]
   index: number
 } {
   const next = [...messages]
   const lastIndex = next.length - 1
-  if (lastIndex >= 0 && next[lastIndex]?.role === 'assistant') {
+  const assistantRenderKey = `assistant:${sourceIndex}`
+
+  if (
+    lastIndex >= 0 &&
+    next[lastIndex]?.role === 'assistant' &&
+    next[lastIndex]?.renderKey === assistantRenderKey
+  ) {
     return { messages: next, index: lastIndex }
   }
 
-  next.push(createRenderAssistantMessage(`assistant:${next.length}`))
+  next.push(createRenderAssistantMessage(sourceIndex))
   return { messages: next, index: next.length - 1 }
 }
 
@@ -334,12 +345,15 @@ export function appendRenderAssistantDelta(
   messages: ChatMessage[],
   blockType: 'thinking' | 'text',
   delta: string,
+  sourceIndex: number,
 ): ChatMessage[] {
-  if (!delta) return messages
+  if (!delta || sourceIndex < 0) return messages
 
-  const { messages: next, index } = ensureTailRenderAssistant(messages)
-  const assistant =
-    next[index] ?? createRenderAssistantMessage(`assistant:${index}`)
+  const { messages: next, index } = ensureTailRenderAssistant(
+    messages,
+    sourceIndex,
+  )
+  const assistant = next[index] ?? createRenderAssistantMessage(sourceIndex)
   const content = [...getBlocks(assistant)]
   const lastBlock = content[content.length - 1]
 
@@ -349,7 +363,7 @@ export function appendRenderAssistantDelta(
       text: `${lastBlock.text || ''}${delta}`,
     }
   } else {
-    const renderKey = `assistant:${index}:${content.length}`
+    const renderKey = `assistant:${sourceIndex}:${content.length}`
     const block =
       blockType === 'thinking'
         ? createThinkingBlock(delta)
@@ -365,15 +379,20 @@ export function appendRenderAssistantDelta(
 export function appendRenderToolUse(
   messages: ChatMessage[],
   toolCall: ToolCall,
+  sourceIndex: number,
   runtime?: ToolRuntime,
 ): ChatMessage[] {
-  const { messages: next, index } = ensureTailRenderAssistant(messages)
-  const assistant =
-    next[index] ?? createRenderAssistantMessage(`assistant:${index}`)
+  if (sourceIndex < 0) return messages
+
+  const { messages: next, index } = ensureTailRenderAssistant(
+    messages,
+    sourceIndex,
+  )
+  const assistant = next[index] ?? createRenderAssistantMessage(sourceIndex)
   const content = [...getBlocks(assistant)]
   const renderBlock = createToolUseBlock(toolCall)
   renderBlock.renderKey =
-    renderBlock.id || `assistant:${index}:${content.length}`
+    renderBlock.id || `assistant:${sourceIndex}:${content.length}`
   renderBlock.runtime = buildToolRuntime(runtime, null)
 
   next[index] = {
@@ -387,15 +406,18 @@ export function updateRenderToolRuntime(
   messages: ChatMessage[],
   toolUseId: string,
   runtime: ToolRuntime | undefined,
+  sourceIndex: number,
   toolResultBlock: ToolResultBlock | null = null,
 ): ChatMessage[] {
-  if (!toolUseId) return messages
+  if (!toolUseId || sourceIndex < 0) return messages
 
   const entry = findRenderToolEntry(messages, toolUseId)
   if (!entry) {
-    const { messages: next, index } = ensureTailRenderAssistant(messages)
-    const assistant =
-      next[index] ?? createRenderAssistantMessage(`assistant:${index}`)
+    const { messages: next, index } = ensureTailRenderAssistant(
+      messages,
+      sourceIndex,
+    )
+    const assistant = next[index] ?? createRenderAssistantMessage(sourceIndex)
     const content = [...getBlocks(assistant)]
     const renderBlock: ToolUseBlock = {
       type: 'tool_use',
@@ -428,9 +450,9 @@ export function buildRenderMessages(
   const toolIndex: Record<string, ToolIndexEntry> = {}
   let currentAssistant: ChatMessage | null = null
 
-  const ensureAssistantRenderMessage = (renderKey: string) => {
+  const ensureAssistantRenderMessage = (sourceIndex: number) => {
     if (currentAssistant) return currentAssistant
-    currentAssistant = createMessage('assistant', [], renderKey)
+    currentAssistant = createRenderAssistantMessage(sourceIndex)
     result.push(currentAssistant)
     return currentAssistant
   }
@@ -460,9 +482,7 @@ export function buildRenderMessages(
       )
       if (toolResults.length === 0) continue
 
-      const assistantMessage = ensureAssistantRenderMessage(
-        `assistant:${sourceIndex}`,
-      )
+      const assistantMessage = ensureAssistantRenderMessage(sourceIndex)
       let assistantContent = [...getBlocks(assistantMessage)]
 
       for (const block of toolResults) {
@@ -509,9 +529,7 @@ export function buildRenderMessages(
 
     if (role !== 'assistant') continue
 
-    const assistantMessage = ensureAssistantRenderMessage(
-      `assistant:${sourceIndex}`,
-    )
+    const assistantMessage = ensureAssistantRenderMessage(sourceIndex)
     const assistantContent = [...getBlocks(assistantMessage)]
     const messageIndex = result.length - 1
 

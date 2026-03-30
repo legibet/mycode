@@ -5,6 +5,7 @@ import {
   appendRenderAssistantDelta,
   appendRenderToolUse,
   buildRenderMessages,
+  createRenderAssistantMessage,
   updateRenderToolRuntime,
 } from './messages'
 
@@ -47,7 +48,7 @@ test('appendRenderAssistantDelta preserves earlier render message references', (
   ])
 
   const firstUser = initial[0]
-  const updated = appendRenderAssistantDelta(initial, 'text', '!')
+  const updated = appendRenderAssistantDelta(initial, 'text', '!', 1)
 
   assert.equal(updated[0], firstUser)
   assert.notEqual(updated[1], initial[1])
@@ -77,6 +78,7 @@ test('updateRenderToolRuntime updates only the matching tool block', () => {
       name: 'bash',
       input: { command: 'ls' },
     },
+    1,
     {
       pending: true,
       output: '',
@@ -87,13 +89,18 @@ test('updateRenderToolRuntime updates only the matching tool block', () => {
   )
 
   const firstUser = initial[0]
-  const updated = updateRenderToolRuntime(initial, 'tool-1', {
-    pending: false,
-    output: 'file.txt',
-    modelText: 'file.txt',
-    displayText: 'file.txt',
-    isError: false,
-  })
+  const updated = updateRenderToolRuntime(
+    initial,
+    'tool-1',
+    {
+      pending: false,
+      output: 'file.txt',
+      modelText: 'file.txt',
+      displayText: 'file.txt',
+      isError: false,
+    },
+    1,
+  )
 
   assert.equal(updated[0], firstUser)
   assert.notEqual(updated[1], initial[1])
@@ -110,4 +117,91 @@ test('updateRenderToolRuntime updates only the matching tool block', () => {
     displayText: 'file.txt',
     isError: false,
   })
+})
+
+test('incremental assistant keys stay aligned with canonical source indices', () => {
+  const previousMessages = buildRenderMessages([
+    {
+      role: 'user',
+      content: [{ type: 'text', text: 'run ls' }],
+    },
+    {
+      role: 'assistant',
+      content: [
+        { type: 'text', text: 'Running now.' },
+        {
+          type: 'tool_use',
+          id: 'tool-1',
+          name: 'bash',
+          input: { command: 'ls' },
+        },
+      ],
+    },
+    {
+      role: 'user',
+      content: [
+        {
+          type: 'tool_result',
+          tool_use_id: 'tool-1',
+          model_text: 'file.txt',
+          display_text: 'file.txt',
+          is_error: false,
+        },
+      ],
+    },
+    {
+      role: 'user',
+      content: [{ type: 'text', text: 'what changed?' }],
+    },
+  ])
+
+  const incremental = appendRenderAssistantDelta(
+    [...previousMessages, createRenderAssistantMessage(4)],
+    'text',
+    'Nothing else changed.',
+    4,
+  )
+
+  const canonical = buildRenderMessages([
+    {
+      role: 'user',
+      content: [{ type: 'text', text: 'run ls' }],
+    },
+    {
+      role: 'assistant',
+      content: [
+        { type: 'text', text: 'Running now.' },
+        {
+          type: 'tool_use',
+          id: 'tool-1',
+          name: 'bash',
+          input: { command: 'ls' },
+        },
+      ],
+    },
+    {
+      role: 'user',
+      content: [
+        {
+          type: 'tool_result',
+          tool_use_id: 'tool-1',
+          model_text: 'file.txt',
+          display_text: 'file.txt',
+          is_error: false,
+        },
+      ],
+    },
+    {
+      role: 'user',
+      content: [{ type: 'text', text: 'what changed?' }],
+    },
+    {
+      role: 'assistant',
+      content: [{ type: 'text', text: 'Nothing else changed.' }],
+    },
+  ])
+
+  assert.equal(incremental[3]?.renderKey, canonical[3]?.renderKey)
+  assert.equal(incremental[3]?.sourceIndex, canonical[3]?.sourceIndex)
+  assert.deepEqual(incremental[3]?.content, canonical[3]?.content)
 })

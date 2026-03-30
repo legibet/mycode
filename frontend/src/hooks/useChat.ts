@@ -28,6 +28,7 @@ import {
   createRenderAssistantMessage,
   createRenderUserMessage,
   createUserTextMessage,
+  findLatestAssistantIndex,
   updateRenderToolRuntime,
 } from '../utils/messages'
 import { loadActiveSession, saveActiveSession } from '../utils/storage'
@@ -110,7 +111,7 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
         messages: [
           ...state.messages,
           createRenderUserMessage(sourceIndex, action.content),
-          createRenderAssistantMessage(`assistant:${sourceIndex + 1}`),
+          createRenderAssistantMessage(sourceIndex + 1),
         ],
       }
     }
@@ -140,10 +141,12 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
           'thinking',
           event.delta || '',
         )
+        const sourceIndex = findLatestAssistantIndex(rawMessages)
         messages = appendRenderAssistantDelta(
           messages,
           'thinking',
           event.delta || '',
+          sourceIndex,
         )
       } else if (event.type === 'text') {
         rawMessages = appendAssistantDelta(
@@ -151,14 +154,17 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
           'text',
           event.delta || '',
         )
+        const sourceIndex = findLatestAssistantIndex(rawMessages)
         messages = appendRenderAssistantDelta(
           messages,
           'text',
           event.delta || '',
+          sourceIndex,
         )
       } else if (event.type === 'tool_start') {
         const toolCall = event.tool_call || {}
         rawMessages = appendToolUse(rawMessages, toolCall)
+        const sourceIndex = findLatestAssistantIndex(rawMessages)
         if (toolCall.id) {
           const runtime = {
             pending: true,
@@ -168,13 +174,19 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
             isError: false,
           }
           toolRuntimeById[toolCall.id] = runtime
-          messages = appendRenderToolUse(messages, toolCall, runtime)
+          messages = appendRenderToolUse(
+            messages,
+            toolCall,
+            sourceIndex,
+            runtime,
+          )
         } else {
-          messages = appendRenderToolUse(messages, toolCall)
+          messages = appendRenderToolUse(messages, toolCall, sourceIndex)
         }
       } else if (event.type === 'tool_output') {
         const toolUseId = event.tool_use_id || ''
         if (toolUseId) {
+          const sourceIndex = findLatestAssistantIndex(rawMessages)
           const current = toolRuntimeById[toolUseId] || {
             pending: true,
             output: '',
@@ -194,6 +206,7 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
             messages,
             toolUseId,
             toolRuntimeById[toolUseId],
+            sourceIndex,
           )
         }
       } else if (event.type === 'tool_done') {
@@ -220,10 +233,19 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
             displayText,
             isError,
           }
+          rawMessages = appendToolResult(
+            rawMessages,
+            toolUseId,
+            modelText,
+            displayText,
+            isError,
+          )
+          const sourceIndex = findLatestAssistantIndex(rawMessages)
           messages = updateRenderToolRuntime(
             messages,
             toolUseId,
             toolRuntimeById[toolUseId],
+            sourceIndex,
             {
               type: 'tool_result',
               tool_use_id: toolUseId,
@@ -232,13 +254,6 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
               is_error: isError,
             },
           )
-          rawMessages = appendToolResult(
-            rawMessages,
-            toolUseId,
-            modelText,
-            displayText,
-            isError,
-          )
         }
       } else if (event.type === 'error') {
         rawMessages = appendAssistantDelta(
@@ -246,10 +261,12 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
           'text',
           `\n\n**Error:** ${event.message || 'Unknown'}`,
         )
+        const sourceIndex = findLatestAssistantIndex(rawMessages)
         messages = appendRenderAssistantDelta(
           messages,
           'text',
           `\n\n**Error:** ${event.message || 'Unknown'}`,
+          sourceIndex,
         )
       }
 
