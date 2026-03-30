@@ -3,14 +3,7 @@
  * Stores canonical raw messages and derives render messages from them.
  */
 
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useReducer,
-  useRef,
-  useState,
-} from 'react'
+import { useCallback, useEffect, useReducer, useRef, useState } from 'react'
 import type {
   ChatErrorResponse,
   ChatMessage,
@@ -26,11 +19,16 @@ import type {
 } from '../types'
 import {
   appendAssistantDelta,
+  appendRenderAssistantDelta,
+  appendRenderToolUse,
   appendToolResult,
   appendToolUse,
   buildRenderMessages,
   createAssistantMessage,
+  createRenderAssistantMessage,
+  createRenderUserMessage,
   createUserTextMessage,
+  updateRenderToolRuntime,
 } from '../utils/messages'
 import { loadActiveSession, saveActiveSession } from '../utils/storage'
 import {
@@ -42,6 +40,7 @@ const DEFAULT_SESSION_TITLE = 'New chat'
 
 interface ChatState {
   rawMessages: ChatMessage[]
+  messages: ChatMessage[]
   toolRuntimeById: Record<string, ToolRuntime>
 }
 
@@ -92,10 +91,15 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
   switch (action.type) {
     case 'set_messages': {
       const rawMessages = Array.isArray(action.messages) ? action.messages : []
-      return { rawMessages, toolRuntimeById: {} }
+      return {
+        rawMessages,
+        messages: buildRenderMessages(rawMessages),
+        toolRuntimeById: {},
+      }
     }
 
     case 'start_turn': {
+      const sourceIndex = state.rawMessages.length
       return {
         ...state,
         rawMessages: [
@@ -103,16 +107,23 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
           createUserTextMessage(action.content),
           createAssistantMessage([]),
         ],
+        messages: [
+          ...state.messages,
+          createRenderUserMessage(sourceIndex, action.content),
+          createRenderAssistantMessage(`assistant:${sourceIndex + 1}`),
+        ],
       }
     }
 
     case 'rewind_and_start_turn': {
+      const rawMessages = [
+        ...state.rawMessages.slice(0, action.rewindTo),
+        createUserTextMessage(action.content),
+        createAssistantMessage([]),
+      ]
       return {
-        rawMessages: [
-          ...state.rawMessages.slice(0, action.rewindTo),
-          createUserTextMessage(action.content),
-          createAssistantMessage([]),
-        ],
+        rawMessages,
+        messages: buildRenderMessages(rawMessages),
         toolRuntimeById: {},
       }
     }
@@ -120,11 +131,17 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
     case 'apply_event': {
       const event = action.event || {}
       let rawMessages = [...state.rawMessages]
+      let messages = state.messages
       const toolRuntimeById = { ...state.toolRuntimeById }
 
       if (event.type === 'reasoning') {
         rawMessages = appendAssistantDelta(
           rawMessages,
+          'thinking',
+          event.delta || '',
+        )
+        messages = appendRenderAssistantDelta(
+          messages,
           'thinking',
           event.delta || '',
         )
@@ -134,17 +151,26 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
           'text',
           event.delta || '',
         )
+        messages = appendRenderAssistantDelta(
+          messages,
+          'text',
+          event.delta || '',
+        )
       } else if (event.type === 'tool_start') {
         const toolCall = event.tool_call || {}
         rawMessages = appendToolUse(rawMessages, toolCall)
         if (toolCall.id) {
-          toolRuntimeById[toolCall.id] = {
+          const runtime = {
             pending: true,
             output: '',
             modelText: null,
             displayText: null,
             isError: false,
           }
+          toolRuntimeById[toolCall.id] = runtime
+          messages = appendRenderToolUse(messages, toolCall, runtime)
+        } else {
+          messages = appendRenderToolUse(messages, toolCall)
         }
       } else if (event.type === 'tool_output') {
         const toolUseId = event.tool_use_id || ''
@@ -164,6 +190,11 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
               ? `${current.output}\n${nextOutput}`
               : nextOutput,
           }
+          messages = updateRenderToolRuntime(
+            messages,
+            toolUseId,
+            toolRuntimeById[toolUseId],
+          )
         }
       } else if (event.type === 'tool_done') {
         const toolUseId = event.tool_use_id || ''
@@ -189,6 +220,18 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
             displayText,
             isError,
           }
+          messages = updateRenderToolRuntime(
+            messages,
+            toolUseId,
+            toolRuntimeById[toolUseId],
+            {
+              type: 'tool_result',
+              tool_use_id: toolUseId,
+              model_text: modelText,
+              display_text: displayText,
+              is_error: isError,
+            },
+          )
           rawMessages = appendToolResult(
             rawMessages,
             toolUseId,
@@ -203,9 +246,14 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
           'text',
           `\n\n**Error:** ${event.message || 'Unknown'}`,
         )
+        messages = appendRenderAssistantDelta(
+          messages,
+          'text',
+          `\n\n**Error:** ${event.message || 'Unknown'}`,
+        )
       }
 
-      return { rawMessages, toolRuntimeById }
+      return { rawMessages, messages, toolRuntimeById }
     }
     default:
       return state
@@ -215,6 +263,7 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
 export function useChat(config: LocalConfig) {
   const [chatState, dispatch] = useReducer(chatReducer, {
     rawMessages: [],
+    messages: [],
     toolRuntimeById: {},
   })
   const [sessions, setSessions] = useState<SessionSummary[]>([])
@@ -237,10 +286,7 @@ export function useChat(config: LocalConfig) {
     ((sessionId: string) => Promise<SessionResponse | null>) | null
   >(null)
 
-  const messages = useMemo(
-    () => buildRenderMessages(chatState.rawMessages, chatState.toolRuntimeById),
-    [chatState.rawMessages, chatState.toolRuntimeById],
-  )
+  const messages = chatState.messages
 
   const status: ChatStatus = loading
     ? 'generating'
@@ -373,6 +419,9 @@ export function useChat(config: LocalConfig) {
 
             try {
               const event = JSON.parse(data) as StreamEvent
+              if (event.type === 'compact') {
+                continue
+              }
               if (
                 streamTokenRef.current !== token ||
                 activeSessionIdRef.current !== sessionId
@@ -445,6 +494,7 @@ export function useChat(config: LocalConfig) {
         ? data.pending_events
         : []
       for (const event of pendingEvents) {
+        if (event?.type === 'compact') continue
         dispatch({ type: 'apply_event', event })
       }
 

@@ -97,6 +97,27 @@ export function createAssistantMessage(
   return createMessage('assistant', content)
 }
 
+export function createRenderUserMessage(
+  sourceIndex: number,
+  text: string,
+  meta?: MessageMeta,
+): ChatMessage {
+  const message = createMessage(
+    'user',
+    text ? [createTextBlock(text)] : [],
+    `user:${sourceIndex}`,
+  )
+  message.sourceIndex = sourceIndex
+  if (meta) {
+    message.meta = { ...meta }
+  }
+  return message
+}
+
+export function createRenderAssistantMessage(renderKey: string): ChatMessage {
+  return createMessage('assistant', [], renderKey)
+}
+
 function ensureTailAssistant(messages: ChatMessage[]): {
   messages: ChatMessage[]
   index: number
@@ -267,6 +288,130 @@ function updateRenderToolMessage(
   const updatedMessage = { ...targetMessage, content }
   result[entry.messageIndex] = updatedMessage
   return updatedMessage
+}
+
+function ensureTailRenderAssistant(messages: ChatMessage[]): {
+  messages: ChatMessage[]
+  index: number
+} {
+  const next = [...messages]
+  const lastIndex = next.length - 1
+  if (lastIndex >= 0 && next[lastIndex]?.role === 'assistant') {
+    return { messages: next, index: lastIndex }
+  }
+
+  next.push(createRenderAssistantMessage(`assistant:${next.length}`))
+  return { messages: next, index: next.length - 1 }
+}
+
+function findRenderToolEntry(
+  messages: ChatMessage[],
+  toolUseId: string,
+): ToolIndexEntry | null {
+  if (!toolUseId) return null
+
+  for (
+    let messageIndex = messages.length - 1;
+    messageIndex >= 0;
+    messageIndex--
+  ) {
+    const message = messages[messageIndex]
+    if (message?.role !== 'assistant') continue
+
+    const content = getBlocks(message)
+    for (let blockIndex = content.length - 1; blockIndex >= 0; blockIndex--) {
+      const block = content[blockIndex]
+      if (block?.type === 'tool_use' && block.id === toolUseId) {
+        return { messageIndex, blockIndex }
+      }
+    }
+  }
+
+  return null
+}
+
+export function appendRenderAssistantDelta(
+  messages: ChatMessage[],
+  blockType: 'thinking' | 'text',
+  delta: string,
+): ChatMessage[] {
+  if (!delta) return messages
+
+  const { messages: next, index } = ensureTailRenderAssistant(messages)
+  const assistant =
+    next[index] ?? createRenderAssistantMessage(`assistant:${index}`)
+  const content = [...getBlocks(assistant)]
+  const lastBlock = content[content.length - 1]
+
+  if (lastBlock?.type === blockType) {
+    content[content.length - 1] = {
+      ...lastBlock,
+      text: `${lastBlock.text || ''}${delta}`,
+    }
+  } else {
+    const renderKey = `assistant:${index}:${content.length}`
+    const block =
+      blockType === 'thinking'
+        ? createThinkingBlock(delta)
+        : createTextBlock(delta)
+    block.renderKey = renderKey
+    content.push(block)
+  }
+
+  next[index] = { ...assistant, content }
+  return next
+}
+
+export function appendRenderToolUse(
+  messages: ChatMessage[],
+  toolCall: ToolCall,
+  runtime?: ToolRuntime,
+): ChatMessage[] {
+  const { messages: next, index } = ensureTailRenderAssistant(messages)
+  const assistant =
+    next[index] ?? createRenderAssistantMessage(`assistant:${index}`)
+  const content = [...getBlocks(assistant)]
+  const renderBlock = createToolUseBlock(toolCall)
+  renderBlock.renderKey =
+    renderBlock.id || `assistant:${index}:${content.length}`
+  renderBlock.runtime = buildToolRuntime(runtime, null)
+
+  next[index] = {
+    ...assistant,
+    content: [...content, renderBlock],
+  }
+  return next
+}
+
+export function updateRenderToolRuntime(
+  messages: ChatMessage[],
+  toolUseId: string,
+  runtime: ToolRuntime | undefined,
+  toolResultBlock: ToolResultBlock | null = null,
+): ChatMessage[] {
+  if (!toolUseId) return messages
+
+  const entry = findRenderToolEntry(messages, toolUseId)
+  if (!entry) {
+    const { messages: next, index } = ensureTailRenderAssistant(messages)
+    const assistant =
+      next[index] ?? createRenderAssistantMessage(`assistant:${index}`)
+    const content = [...getBlocks(assistant)]
+    const renderBlock: ToolUseBlock = {
+      type: 'tool_use',
+      id: toolUseId,
+      name: 'tool',
+      input: {},
+      runtime: buildToolRuntime(runtime, toolResultBlock),
+      renderKey: toolUseId,
+    }
+    next[index] = { ...assistant, content: [...content, renderBlock] }
+    return next
+  }
+
+  const next = [...messages]
+  updateRenderToolMessage(next, entry, runtime, toolResultBlock)
+  return next
 }
 
 /**

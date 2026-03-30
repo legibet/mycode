@@ -194,18 +194,7 @@ export const Sidebar = memo(function Sidebar({
                 const isActive = activeSession?.id === session.id
                 const isRunning = session.is_running
                 return (
-                  <button
-                    type="button"
-                    key={session.id}
-                    aria-current={isActive ? 'true' : undefined}
-                    className={cn(
-                      'group relative flex w-full items-center gap-2 px-4 py-2 text-xs cursor-pointer transition-colors text-left',
-                      isActive
-                        ? 'bg-secondary/40 text-foreground'
-                        : 'text-muted-foreground hover:text-foreground hover:bg-secondary/20',
-                    )}
-                    onClick={() => onSelectSession(session.id)}
-                  >
+                  <div key={session.id} className="group relative">
                     {(isActive || isRunning) && (
                       <div
                         className={cn(
@@ -214,14 +203,26 @@ export const Sidebar = memo(function Sidebar({
                         )}
                       />
                     )}
-                    <span className="truncate flex-1">
-                      {session.title || 'New Chat'}
-                    </span>
+                    <button
+                      type="button"
+                      aria-current={isActive ? 'true' : undefined}
+                      className={cn(
+                        'flex w-full items-center gap-2 px-4 py-2 pr-10 text-xs cursor-pointer transition-colors text-left',
+                        isActive
+                          ? 'bg-secondary/40 text-foreground'
+                          : 'text-muted-foreground hover:text-foreground hover:bg-secondary/20',
+                      )}
+                      onClick={() => onSelectSession(session.id)}
+                    >
+                      <span className="truncate flex-1">
+                        {session.title || 'New Chat'}
+                      </span>
+                    </button>
                     {!isActive && (
                       <Button
                         variant="ghost"
                         size="icon"
-                        className="h-5 w-5 opacity-0 group-hover:opacity-100 transition-opacity"
+                        className="absolute right-2 top-1/2 h-5 w-5 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity"
                         aria-label="Delete session"
                         onClick={(e) => {
                           e.stopPropagation()
@@ -231,7 +232,7 @@ export const Sidebar = memo(function Sidebar({
                         <Trash2 className="h-3 w-3 text-muted-foreground hover:text-destructive" />
                       </Button>
                     )}
-                  </button>
+                  </div>
                 )
               })}
               {sessions.length === 0 && (
