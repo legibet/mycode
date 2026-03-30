@@ -10,15 +10,15 @@ import { cn } from '../../utils/cn'
 
 interface ReasoningBlockProps {
   content: string
-  isStreaming?: boolean
+  isStreaming?: boolean | undefined
 }
 
 export const ReasoningBlock = memo(function ReasoningBlock({
   content,
   isStreaming,
 }: ReasoningBlockProps) {
-  const [expandedOverride, setExpandedOverride] = useState(null)
-  const expanded = expandedOverride ?? isStreaming
+  const [expandedOverride, setExpandedOverride] = useState<boolean | null>(null)
+  const expanded = expandedOverride ?? Boolean(isStreaming)
 
   if (!content) return null
 

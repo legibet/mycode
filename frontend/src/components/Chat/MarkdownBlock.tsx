@@ -3,8 +3,13 @@
  * KaTeX is lazy-loaded only when math content is detected.
  */
 
-import { memo, useLayoutEffect, useRef } from 'react'
-import ReactMarkdown from 'react-markdown'
+import {
+  type ComponentPropsWithoutRef,
+  memo,
+  useLayoutEffect,
+  useRef,
+} from 'react'
+import ReactMarkdown, { type Components, type ExtraProps } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { CodeBlock } from './CodeBlock'
 
@@ -18,8 +23,10 @@ const MATH_DELIMITERS = [
   { left: '\\[', right: '\\]', display: true },
 ]
 
-const MARKDOWN_COMPONENTS = {
-  pre: ({ children }) => children,
+type MarkdownPreProps = ComponentPropsWithoutRef<'pre'> & ExtraProps
+
+const MARKDOWN_COMPONENTS: Components = {
+  pre: ({ children }: MarkdownPreProps) => children,
   code: CodeBlock,
 }
 
@@ -76,7 +83,7 @@ export const MarkdownBlock = memo(function MarkdownBlock({
   isStreaming = false,
 }: {
   content: string
-  isStreaming?: boolean
+  isStreaming?: boolean | undefined
 }) {
   return (
     <div className="prose prose-sm max-w-none dark:prose-invert">

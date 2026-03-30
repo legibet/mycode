@@ -34,7 +34,10 @@ function getBlocks(message?: ChatMessage | null): MessageBlock[] {
   return Array.isArray(message?.content) ? message.content : []
 }
 
-function cloneBlock(block: MessageBlock, renderKey: string | null = null) {
+function cloneBlock(
+  block: MessageBlock,
+  renderKey: string | null = null,
+): MessageBlock {
   const next = { ...block }
   if (isObject(block?.meta)) next.meta = { ...block.meta }
   if ('input' in next && isObject(next.input)) next.input = { ...next.input }
@@ -94,7 +97,10 @@ export function createAssistantMessage(
   return createMessage('assistant', content)
 }
 
-function ensureTailAssistant(messages) {
+function ensureTailAssistant(messages: ChatMessage[]): {
+  messages: ChatMessage[]
+  index: number
+} {
   const next = [...messages]
   const lastIndex = next.length - 1
   if (lastIndex >= 0 && next[lastIndex]?.role === 'assistant') {
@@ -105,7 +111,7 @@ function ensureTailAssistant(messages) {
   return { messages: next, index: next.length - 1 }
 }
 
-function findLatestAssistantIndex(messages) {
+function findLatestAssistantIndex(messages: ChatMessage[]): number {
   for (let index = messages.length - 1; index >= 0; index--) {
     if (messages[index]?.role === 'assistant') return index
   }
@@ -120,7 +126,7 @@ export function appendAssistantDelta(
   if (!delta) return messages
 
   const { messages: next, index } = ensureTailAssistant(messages)
-  const assistant = next[index]
+  const assistant = next[index] ?? createAssistantMessage([])
   const content = [...getBlocks(assistant)]
   const lastBlock = content[content.length - 1]
 
@@ -154,6 +160,9 @@ export function appendToolUse(
   }
 
   const assistant = next[index]
+  if (!assistant) {
+    return next
+  }
   next[index] = {
     ...assistant,
     content: [...getBlocks(assistant), createToolUseBlock(toolCall)],
@@ -161,7 +170,7 @@ export function appendToolUse(
   return next
 }
 
-function isToolResultOnlyUserMessage(message?: ChatMessage) {
+function isToolResultOnlyUserMessage(message?: ChatMessage): boolean {
   const blocks = getBlocks(message)
   return (
     message?.role === 'user' &&
@@ -188,6 +197,7 @@ export function appendToolResult(
 
   if (lastIndex >= 0 && isToolResultOnlyUserMessage(next[lastIndex])) {
     const lastMessage = next[lastIndex]
+    if (!lastMessage) return next
     next[lastIndex] = {
       ...lastMessage,
       content: [...getBlocks(lastMessage), block],
@@ -238,8 +248,11 @@ function updateRenderToolMessage(
   entry: ToolIndexEntry,
   runtime: ToolRuntime | undefined,
   toolResultBlock: ToolResultBlock | null,
-) {
+): ChatMessage | null {
   const targetMessage = result[entry.messageIndex]
+  if (!targetMessage) {
+    return null
+  }
   const content = [...getBlocks(targetMessage)]
   const targetBlock = content[entry.blockIndex]
   if (targetBlock?.type !== 'tool_use') {
@@ -319,7 +332,7 @@ export function buildRenderMessages(
             runtime,
             block,
           )
-          if (entry.messageIndex === result.length - 1) {
+          if (updatedMessage && entry.messageIndex === result.length - 1) {
             currentAssistant = updatedMessage
             assistantContent = [...getBlocks(updatedMessage)]
           }
@@ -374,16 +387,20 @@ export function buildRenderMessages(
 
       if (block?.type !== 'tool_use') continue
 
-      const renderBlock = {
-        ...cloneBlock(
-          block,
-          block.id || `assistant:${sourceIndex}:${sourceBlockIndex}`,
-        ),
+      const renderBlock: ToolUseBlock = {
+        type: 'tool_use',
+        id: block.id,
+        name: block.name,
         input: isObject(block.input) ? { ...block.input } : {},
         runtime: buildToolRuntime(
           block.id ? toolRuntimeById[block.id] : undefined,
           null,
         ),
+      }
+      renderBlock.renderKey =
+        block.id || `assistant:${sourceIndex}:${sourceBlockIndex}`
+      if (isObject(block.meta)) {
+        renderBlock.meta = { ...block.meta }
       }
       const blockIndex = assistantContent.length
       assistantContent.push(renderBlock)

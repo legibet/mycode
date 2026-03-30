@@ -6,7 +6,15 @@
  */
 
 import { Check, Copy, Pencil } from 'lucide-react'
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  type KeyboardEvent,
+  memo,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
 import type { ChatMessage, MessageBlock } from '../../types'
 import { copyText } from '../../utils/clipboard'
 import { cn } from '../../utils/cn'
@@ -17,12 +25,14 @@ import { ToolCard } from './ToolCard'
 interface MessageBubbleProps {
   role: ChatMessage['role']
   blocks: MessageBlock[]
-  sourceIndex?: number
-  synthetic?: boolean
-  isStreaming?: boolean
+  sourceIndex?: number | undefined
+  synthetic?: boolean | undefined
+  isStreaming?: boolean | undefined
   isLoading: boolean
   index: number
-  onRewindAndSend?: (rewindTo: number, input: string) => Promise<void>
+  onRewindAndSend?:
+    | ((rewindTo: number, input: string) => Promise<void>)
+    | undefined
 }
 
 export const MessageBubble = memo(function MessageBubble({
@@ -94,7 +104,7 @@ export const MessageBubble = memo(function MessageBubble({
   }, [])
 
   const handleEditKeyDown = useCallback(
-    (e) => {
+    (e: KeyboardEvent<HTMLTextAreaElement>) => {
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault()
         submitEdit()

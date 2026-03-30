@@ -1,5 +1,7 @@
 import { startTransition, useEffect, useState } from 'react'
+import type { InlineStyle } from '../../types'
 import {
+  type AppHighlighter,
   codeToHtmlSafely,
   getHighlighter,
   loadLang,
@@ -18,16 +20,25 @@ const MONO_STYLE = {
   fontSize: '13px',
   lineHeight: '1.5',
   fontWeight: 400,
+} satisfies InlineStyle
+
+interface HighlightedCodeProps {
+  code: string
+  language: string
 }
 
-export default function HighlightedCode({ code, language }) {
+export default function HighlightedCode({
+  code,
+  language,
+}: HighlightedCodeProps) {
   const highlighter = getHighlighter()
   const targetLanguage = resolveLanguage(language)
   const loadedLanguages = highlighter?.getLoadedLanguages()
   const immediateLanguage = loadedLanguages?.includes(targetLanguage)
     ? targetLanguage
     : 'text'
-  const [resolvedLanguage, setResolvedLanguage] = useState(immediateLanguage)
+  const [resolvedLanguage, setResolvedLanguage] =
+    useState<string>(immediateLanguage)
 
   useEffect(() => {
     if (!highlighter) return
@@ -48,17 +59,19 @@ export default function HighlightedCode({ code, language }) {
 
     let cancelled = false
 
-    void loadLang(highlighter, targetLanguage).then((loadedLanguage) => {
-      if (cancelled || loadedLanguage === 'text') {
-        return
-      }
+    void loadLang(highlighter as AppHighlighter, targetLanguage).then(
+      (loadedLanguage) => {
+        if (cancelled || loadedLanguage === 'text') {
+          return
+        }
 
-      startTransition(() => {
-        setResolvedLanguage((current) =>
-          current === loadedLanguage ? current : loadedLanguage,
-        )
-      })
-    })
+        startTransition(() => {
+          setResolvedLanguage((current) =>
+            current === loadedLanguage ? current : loadedLanguage,
+          )
+        })
+      },
+    )
 
     return () => {
       cancelled = true

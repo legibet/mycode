@@ -11,6 +11,19 @@ import {
   useRef,
   useState,
 } from 'react'
+import type {
+  ChatErrorResponse,
+  ChatMessage,
+  ChatResponse,
+  ChatStatus,
+  LocalConfig,
+  RunInfo,
+  SessionResponse,
+  SessionSummary,
+  SessionsResponse,
+  StreamEvent,
+  ToolRuntime,
+} from '../types'
 import {
   appendAssistantDelta,
   appendToolResult,
@@ -27,7 +40,47 @@ import {
 
 const DEFAULT_SESSION_TITLE = 'New chat'
 
-function createDraftSession() {
+interface ChatState {
+  rawMessages: ChatMessage[]
+  toolRuntimeById: Record<string, ToolRuntime>
+}
+
+type ChatAction =
+  | { type: 'set_messages'; messages: ChatMessage[] }
+  | { type: 'start_turn'; content: string }
+  | { type: 'rewind_and_start_turn'; rewindTo: number; content: string }
+  | { type: 'apply_event'; event: StreamEvent }
+
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : 'Unknown error'
+}
+
+function getErrorName(error: unknown): string {
+  return error instanceof Error ? error.name : ''
+}
+
+function getErrorDetail(
+  data: ChatResponse | ChatErrorResponse,
+): ChatErrorResponse['detail'] {
+  return 'detail' in data ? data.detail : undefined
+}
+
+function getRunFromDetail(detail: ChatErrorResponse['detail']): RunInfo | null {
+  return typeof detail === 'object' && detail?.run ? detail.run : null
+}
+
+function getMessageFromDetail(
+  detail: ChatErrorResponse['detail'],
+  fallback: string,
+): string {
+  if (typeof detail === 'string' && detail) return detail
+  if (detail && typeof detail === 'object' && detail.message) {
+    return detail.message
+  }
+  return fallback
+}
+
+function createDraftSession(): SessionSummary {
   const id =
     globalThis.crypto?.randomUUID?.() ||
     `draft-${Date.now()}-${Math.random().toString(16).slice(2)}`
@@ -35,7 +88,7 @@ function createDraftSession() {
   return { id, title: DEFAULT_SESSION_TITLE, isDraft: true }
 }
 
-function chatReducer(state, action) {
+function chatReducer(state: ChatState, action: ChatAction): ChatState {
   switch (action.type) {
     case 'set_messages': {
       const rawMessages = Array.isArray(action.messages) ? action.messages : []
@@ -159,33 +212,37 @@ function chatReducer(state, action) {
   }
 }
 
-export function useChat(config) {
+export function useChat(config: LocalConfig) {
   const [chatState, dispatch] = useReducer(chatReducer, {
     rawMessages: [],
     toolRuntimeById: {},
   })
-  const [sessions, setSessions] = useState([])
+  const [sessions, setSessions] = useState<SessionSummary[]>([])
   const [activeSession, setActiveSession] = useState(createDraftSession)
   const [loading, setLoading] = useState(false)
   const [sessionLoading, setSessionLoading] = useState(false)
-  const [connectionState, setConnectionState] = useState('idle')
+  const [connectionState, setConnectionState] = useState<
+    'idle' | 'ready' | 'error'
+  >('idle')
   const initRef = useRef(false)
   const cwdRef = useRef(config.cwd)
   const activeSessionRef = useRef(activeSession)
   const activeSessionIdRef = useRef(activeSession.id)
   const requestTokenRef = useRef(0)
   const pendingRequestTokenRef = useRef(0)
-  const streamAbortRef = useRef(null)
+  const streamAbortRef = useRef<AbortController | null>(null)
   const streamTokenRef = useRef(0)
-  const activeRunRef = useRef(null)
-  const loadSessionRef = useRef(null)
+  const activeRunRef = useRef<RunInfo | null>(null)
+  const loadSessionRef = useRef<
+    ((sessionId: string) => Promise<SessionResponse | null>) | null
+  >(null)
 
   const messages = useMemo(
     () => buildRenderMessages(chatState.rawMessages, chatState.toolRuntimeById),
     [chatState.rawMessages, chatState.toolRuntimeById],
   )
 
-  const status = loading
+  const status: ChatStatus = loading
     ? 'generating'
     : connectionState === 'error'
       ? 'offline'
@@ -193,7 +250,7 @@ export function useChat(config) {
         ? 'ready'
         : 'idle'
 
-  const cancelRun = useCallback(async (runId) => {
+  const cancelRun = useCallback(async (runId: string) => {
     if (!runId) return
 
     try {
@@ -205,13 +262,13 @@ export function useChat(config) {
     }
   }, [])
 
-  const fetchSessions = useCallback(async () => {
+  const fetchSessions = useCallback(async (): Promise<SessionSummary[]> => {
     try {
       const res = await fetch(
         `/api/sessions?cwd=${encodeURIComponent(config.cwd)}`,
       )
       if (!res.ok) throw new Error('Failed to load sessions')
-      const data = await res.json()
+      const data = (await res.json()) as SessionsResponse
       const savedSessions = data.sessions || []
       const active = activeSessionRef.current
       const sessionsWithDraft =
@@ -249,7 +306,7 @@ export function useChat(config) {
   }, [])
 
   const streamRun = useCallback(
-    async (run, sessionId, after = 0) => {
+    async (run: RunInfo, sessionId: string, after = 0): Promise<void> => {
       const runId = run?.id
       if (!runId) return
 
@@ -291,6 +348,7 @@ export function useChat(config) {
           { signal: controller.signal },
         )
         if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`)
+        if (!res.body) throw new Error('Response body is empty')
 
         const reader = res.body.getReader()
         const decoder = new TextDecoder()
@@ -314,7 +372,7 @@ export function useChat(config) {
             }
 
             try {
-              const event = JSON.parse(data)
+              const event = JSON.parse(data) as StreamEvent
               if (
                 streamTokenRef.current !== token ||
                 activeSessionIdRef.current !== sessionId
@@ -335,7 +393,7 @@ export function useChat(config) {
           }
         }
       } catch (e) {
-        if (e.name !== 'AbortError') {
+        if (getErrorName(e) !== 'AbortError') {
           const recovered = await recoverSession()
           if (
             !recovered &&
@@ -369,11 +427,11 @@ export function useChat(config) {
   )
 
   const loadSession = useCallback(
-    async (sessionId) => {
+    async (sessionId: string): Promise<SessionResponse | null> => {
       const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}`)
       if (!res.ok) throw new Error('Failed to load session')
 
-      const data = await res.json()
+      const data = (await res.json()) as SessionResponse
       if (!data.session) return null
 
       setConnectionState('ready')
@@ -410,7 +468,7 @@ export function useChat(config) {
   }, [loadSession])
 
   const send = useCallback(
-    async (input) => {
+    async (input: string) => {
       const content = input.trim()
       if (!content || loading) return
 
@@ -443,7 +501,7 @@ export function useChat(config) {
           }),
         })
 
-        const data = await res.json()
+        const data = (await res.json()) as ChatResponse | ChatErrorResponse
         const isCurrentRequest = isCurrentSendRequest({
           pendingRequestToken: pendingRequestTokenRef.current,
           requestToken,
@@ -454,7 +512,8 @@ export function useChat(config) {
         })
 
         if (!res.ok) {
-          const existingRun = data?.detail?.run
+          const detail = getErrorDetail(data)
+          const existingRun = getRunFromDetail(detail)
           if (res.status === 409 && existingRun?.id) {
             if (isCurrentRequest) {
               pendingRequestTokenRef.current = 0
@@ -463,7 +522,7 @@ export function useChat(config) {
             }
             return
           }
-          throw new Error(data?.detail?.message || 'Failed to start task')
+          throw new Error(getMessageFromDetail(detail, 'Failed to start task'))
         }
 
         pendingRequestTokenRef.current = 0
@@ -472,9 +531,11 @@ export function useChat(config) {
           return
         }
 
+        const chatData = data as ChatResponse
+
         // Update active session from backend response (has real title, id, etc.)
-        if (data.session) {
-          const session = data.session
+        if (chatData.session) {
+          const session = chatData.session
           activeSessionRef.current = session
           activeSessionIdRef.current = session.id
           setActiveSession(session)
@@ -484,7 +545,7 @@ export function useChat(config) {
         // Refresh sidebar immediately so title + is_running are visible
         fetchSessions()
 
-        streamRun(data.run, sessionId, 0)
+        streamRun(chatData.run, sessionId, 0)
       } catch (e) {
         if (
           pendingRequestTokenRef.current === requestToken &&
@@ -495,7 +556,7 @@ export function useChat(config) {
           setConnectionState('error')
           dispatch({
             type: 'apply_event',
-            event: { type: 'error', message: e.message },
+            event: { type: 'error', message: getErrorMessage(e) },
           })
         }
       }
@@ -511,7 +572,7 @@ export function useChat(config) {
   )
 
   const rewindAndSend = useCallback(
-    async (rewindTo, input) => {
+    async (rewindTo: number, input: string) => {
       const content = input.trim()
       if (!content || loading) return
 
@@ -545,7 +606,7 @@ export function useChat(config) {
           }),
         })
 
-        const data = await res.json()
+        const data = (await res.json()) as ChatResponse | ChatErrorResponse
         const isCurrentRequest = isCurrentSendRequest({
           pendingRequestToken: pendingRequestTokenRef.current,
           requestToken,
@@ -562,7 +623,8 @@ export function useChat(config) {
             dispatch({ type: 'set_messages', messages: previousMessages })
 
             // If 409 (active run), attach to the existing run.
-            const existingRun = data?.detail?.run
+            const detail = getErrorDetail(data)
+            const existingRun = getRunFromDetail(detail)
             if (res.status === 409 && existingRun?.id) {
               streamRun(existingRun, sessionId, existingRun.last_seq || 0)
               return
@@ -574,10 +636,7 @@ export function useChat(config) {
               type: 'apply_event',
               event: {
                 type: 'error',
-                message:
-                  data?.detail?.message ||
-                  data?.detail ||
-                  'Failed to start task',
+                message: getMessageFromDetail(detail, 'Failed to start task'),
               },
             })
           }
@@ -588,8 +647,10 @@ export function useChat(config) {
 
         if (!isCurrentRequest) return
 
-        if (data.session) {
-          const session = data.session
+        const chatData = data as ChatResponse
+
+        if (chatData.session) {
+          const session = chatData.session
           activeSessionRef.current = session
           activeSessionIdRef.current = session.id
           setActiveSession(session)
@@ -597,7 +658,7 @@ export function useChat(config) {
         }
 
         fetchSessions()
-        streamRun(data.run, sessionId, 0)
+        streamRun(chatData.run, sessionId, 0)
       } catch (e) {
         if (
           pendingRequestTokenRef.current === requestToken &&
@@ -609,7 +670,7 @@ export function useChat(config) {
           setConnectionState('error')
           dispatch({
             type: 'apply_event',
-            event: { type: 'error', message: e.message },
+            event: { type: 'error', message: getErrorMessage(e) },
           })
         }
       }
@@ -661,7 +722,7 @@ export function useChat(config) {
   }, [fetchSessions, sessionLoading, stopStreaming])
 
   const selectSession = useCallback(
-    async (sessionId) => {
+    async (sessionId: string) => {
       if (!sessionId || sessionId === activeSession.id) return
 
       stopStreaming()
@@ -681,7 +742,7 @@ export function useChat(config) {
   )
 
   const deleteSession = useCallback(
-    async (sessionId) => {
+    async (sessionId: string) => {
       if (
         !sessionId ||
         sessions.length === 1 ||
@@ -722,7 +783,7 @@ export function useChat(config) {
         `/api/sessions?cwd=${encodeURIComponent(config.cwd)}`,
       )
       if (!res.ok) throw new Error('Failed to load sessions')
-      const data = await res.json()
+      const data = (await res.json()) as SessionsResponse
       const savedSessions = data.sessions || []
       const initialSessionId = resolveInitialSessionId(
         savedSessions,

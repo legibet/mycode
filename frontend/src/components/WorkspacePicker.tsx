@@ -10,16 +10,29 @@
  */
 
 import { ChevronLeft, Clock, Folder, X } from 'lucide-react'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  type KeyboardEvent,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
 import { createPortal } from 'react-dom'
+import type {
+  WorkspaceBrowseResponse,
+  WorkspaceEntry,
+  WorkspaceRootsResponse,
+  WorkspaceState,
+} from '../types'
 import { cn } from '../utils/cn'
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
-const normalizeSlashes = (v) => v.replace(/\\/g, '/')
-const isAbsolutePath = (v) => /^([a-zA-Z]:[\\/]|\/)/.test(v)
+const normalizeSlashes = (v: string): string => v.replace(/\\/g, '/')
+const isAbsolutePath = (v: string): boolean => /^([a-zA-Z]:[\\/]|\/)/.test(v)
 
-const matchRoot = (roots, value) => {
+const matchRoot = (roots: string[], value: string): string | undefined => {
   const normalized = normalizeSlashes(value)
   const sorted = [...roots].sort((a, b) => b.length - a.length)
   return (
@@ -30,7 +43,7 @@ const matchRoot = (roots, value) => {
   )
 }
 
-const toRelativePath = (root, absolutePath) => {
+const toRelativePath = (root: string, absolutePath: string): string => {
   const normRoot = normalizeSlashes(root).replace(/\/+$/, '')
   const normPath = normalizeSlashes(absolutePath)
   if (normPath === normRoot) return ''
@@ -40,7 +53,7 @@ const toRelativePath = (root, absolutePath) => {
   return rel.replace(/^\/+/, '')
 }
 
-const rootLabel = (value) => {
+const rootLabel = (value: string): string => {
   if (!value || value === '/' || value === '\\') return '/'
   const normalized = value.replace(/[\\/]+$/, '')
   if (/\/Users\/[^/]+$/.test(normalized) || /\/home\/[^/]+$/.test(normalized))
@@ -51,14 +64,26 @@ const rootLabel = (value) => {
 
 // ─── component ──────────────────────────────────────────────────────────────
 
+interface WorkspacePickerProps {
+  open: boolean
+  onClose: () => void
+  currentCwd?: string
+  cwdHistory?: string[]
+  onSelect: (cwd: string) => void
+}
+
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : 'Unknown error'
+}
+
 export function WorkspacePicker({
   open,
   onClose,
   currentCwd,
   cwdHistory = [],
   onSelect,
-}) {
-  const [state, setState] = useState({
+}: WorkspacePickerProps) {
+  const [state, setState] = useState<WorkspaceState>({
     roots: [],
     root: '',
     path: '',
@@ -69,7 +94,7 @@ export function WorkspacePicker({
   })
   const [pathInput, setPathInput] = useState('')
   const browseTokenRef = useRef(0)
-  const inputRef = useRef(null)
+  const inputRef = useRef<HTMLInputElement | null>(null)
 
   // Focus input on desktop only (avoid keyboard pop-up on mobile)
   useEffect(() => {
@@ -80,14 +105,14 @@ export function WorkspacePicker({
 
   // ── data ────────────────────────────────────────────────────────────────
 
-  const loadRoots = useCallback(async () => {
+  const loadRoots = useCallback(async (): Promise<string[]> => {
     const res = await fetch('/api/workspaces/roots')
     if (!res.ok) throw new Error('Failed to load roots')
-    const data = await res.json()
+    const data = (await res.json()) as WorkspaceRootsResponse
     return data.roots || []
   }, [])
 
-  const browsePath = useCallback(async (root, path = '') => {
+  const browsePath = useCallback(async (root: string, path = '') => {
     const token = ++browseTokenRef.current
     setState((prev) => ({ ...prev, loading: true, error: '' }))
     try {
@@ -95,7 +120,7 @@ export function WorkspacePicker({
       if (path) params.set('path', path)
       const res = await fetch(`/api/workspaces/browse?${params.toString()}`)
       if (!res.ok) throw new Error('Failed to browse directory')
-      const data = await res.json()
+      const data = (await res.json()) as WorkspaceBrowseResponse
       if (data.error) throw new Error(data.error)
       if (browseTokenRef.current !== token) return
       setState((prev) => ({
@@ -110,7 +135,11 @@ export function WorkspacePicker({
       setPathInput(data.current || '')
     } catch (e) {
       if (browseTokenRef.current !== token) return
-      setState((prev) => ({ ...prev, loading: false, error: e.message }))
+      setState((prev) => ({
+        ...prev,
+        loading: false,
+        error: getErrorMessage(e),
+      }))
     }
   }, [])
 
@@ -134,13 +163,23 @@ export function WorkspacePicker({
         setPathInput('')
         if (currentCwd) {
           const root = matchRoot(roots, currentCwd)
-          await browsePath(root, toRelativePath(root, currentCwd))
+          if (root) {
+            await browsePath(root, toRelativePath(root, currentCwd))
+          }
         } else {
-          await browsePath(roots[0], '')
+          const firstRoot = roots[0]
+          if (firstRoot) {
+            await browsePath(firstRoot, '')
+          }
         }
       } catch (e) {
-        if (active)
-          setState((prev) => ({ ...prev, loading: false, error: e.message }))
+        if (active) {
+          setState((prev) => ({
+            ...prev,
+            loading: false,
+            error: getErrorMessage(e),
+          }))
+        }
       }
     }
     init()
@@ -163,12 +202,12 @@ export function WorkspacePicker({
   }, [pathInput, state.current])
 
   const filteredEntries = partialFilter
-    ? state.entries.filter((e) =>
+    ? state.entries.filter((e: WorkspaceEntry) =>
         e.name.toLowerCase().startsWith(partialFilter.toLowerCase()),
       )
     : state.entries
 
-  const goToPath = async (value) => {
+  const goToPath = async (value: string) => {
     const trimmed = value.trim()
     if (!trimmed || !state.roots.length) return
     if (isAbsolutePath(trimmed)) {
@@ -200,12 +239,12 @@ export function WorkspacePicker({
     }
   }
 
-  const handleInputKeyDown = (e) => {
+  const handleInputKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter') goToPath(pathInput)
     else if (e.key === 'Tab') {
       e.preventDefault()
-      if (filteredEntries.length > 0)
-        browsePath(state.root, filteredEntries[0].path)
+      const firstEntry = filteredEntries[0]
+      if (firstEntry) browsePath(state.root, firstEntry.path)
     } else if (e.key === 'Escape') {
       setPathInput(state.current || '')
       onClose()

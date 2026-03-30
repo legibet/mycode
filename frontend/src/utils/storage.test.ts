@@ -10,16 +10,16 @@ function createLocalStorage() {
     get length() {
       return store.size
     },
-    key(index) {
+    key(index: number) {
       return Array.from(store.keys())[index] ?? null
     },
-    getItem(key) {
+    getItem(key: string) {
       return store.has(key) ? store.get(key) : null
     },
-    setItem(key, value) {
+    setItem(key: string, value: string) {
       store.set(key, String(value))
     },
-    removeItem(key) {
+    removeItem(key: string) {
       store.delete(key)
     },
     clear() {

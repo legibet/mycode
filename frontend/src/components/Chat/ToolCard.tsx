@@ -24,7 +24,22 @@ function loadEditDiff() {
 }
 const EditDiff = lazy(loadEditDiff)
 
-function EditDiffFallback({ oldText, newText }) {
+interface EditArgs extends Record<string, unknown> {
+  path?: string
+  oldText?: string
+  newText?: string
+}
+
+interface EditDiffFallbackProps {
+  oldText?: string | undefined
+  newText?: string | undefined
+}
+
+function isEditArgs(args: Record<string, unknown>): args is EditArgs {
+  return 'oldText' in args || 'newText' in args || 'path' in args
+}
+
+function EditDiffFallback({ oldText, newText }: EditDiffFallbackProps) {
   return (
     <div className="rounded-md bg-code px-3 py-2 font-mono text-[13px] leading-[1.5] overflow-x-auto whitespace-pre-wrap">
       {oldText && <div className="diff-line-removed px-1">{oldText}</div>}
@@ -43,23 +58,23 @@ const TOOL_META = {
 interface ToolCardProps {
   name: string
   args?: Record<string, unknown>
-  output?: string | null
-  modelText?: string | null
-  displayText?: string | null
-  pending?: boolean
-  isError?: boolean
+  output?: string | null | undefined
+  modelText?: string | null | undefined
+  displayText?: string | null | undefined
+  pending?: boolean | undefined
+  isError?: boolean | undefined
 }
 
 /** Extract a concise, human-readable preview for the trigger line. */
-function getPreview(name, args) {
+function getPreview(name: string, args?: Record<string, unknown>): string {
   if (!args) return ''
   switch (name) {
     case 'bash':
-      return args.command || ''
+      return typeof args.command === 'string' ? args.command : ''
     case 'read':
     case 'write':
     case 'edit':
-      return args.path || ''
+      return typeof args.path === 'string' ? args.path : ''
     default:
       return Object.entries(args)
         .filter(([k]) => k !== 'content' && k !== 'prompt')
@@ -86,13 +101,15 @@ export const ToolCard = memo(function ToolCard({
   const resolvedIsError =
     Boolean(isError) ||
     (typeof modelText === 'string' && modelText.startsWith('error:'))
-  const [expandedOverride, setExpandedOverride] = useState(null)
+  const [expandedOverride, setExpandedOverride] = useState<boolean | null>(null)
   const expanded = expandedOverride ?? resolvedIsError
 
   const hasResult = display !== null && display !== undefined && display !== ''
   const status = pending ? 'pending' : resolvedIsError ? 'error' : 'success'
 
-  const meta = TOOL_META[name] || { icon: Terminal, label: name }
+  const meta = Object.hasOwn(TOOL_META, name)
+    ? TOOL_META[name as keyof typeof TOOL_META]
+    : { icon: Terminal, label: name }
   const Icon = meta.icon
   const preview = getPreview(name, args)
 
@@ -170,7 +187,9 @@ export const ToolCard = memo(function ToolCard({
           <div className="pt-2 space-y-2">
             {args &&
               Object.keys(args).length > 0 &&
-              (name === 'edit' && args.oldText !== undefined ? (
+              (name === 'edit' &&
+              isEditArgs(args) &&
+              args.oldText !== undefined ? (
                 <Suspense
                   fallback={
                     <EditDiffFallback
@@ -183,7 +202,7 @@ export const ToolCard = memo(function ToolCard({
                     path={args.path}
                     oldText={args.oldText}
                     newText={args.newText}
-                    result={modelText}
+                    result={modelText ?? null}
                   />
                 </Suspense>
               ) : (

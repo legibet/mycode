@@ -1,4 +1,18 @@
-export function resolveInitialSessionId(sessions, preferredSessionId) {
+import type { SessionSummary } from '../types'
+
+interface CurrentSendRequest {
+  pendingRequestToken: number
+  requestToken: number
+  activeSessionId: string
+  sessionId: string
+  activeCwd: string
+  requestCwd: string
+}
+
+export function resolveInitialSessionId(
+  sessions: SessionSummary[],
+  preferredSessionId: string,
+): string | null {
   if (!Array.isArray(sessions) || sessions.length === 0) return null
   if (preferredSessionId) {
     const matchingSession = sessions.find(
@@ -16,7 +30,7 @@ export function isCurrentSendRequest({
   sessionId,
   activeCwd,
   requestCwd,
-}) {
+}: CurrentSendRequest): boolean {
   return (
     pendingRequestToken === requestToken &&
     activeSessionId === sessionId &&

@@ -5,7 +5,7 @@
 import { Menu, Plus } from 'lucide-react'
 
 interface MobileHeaderProps {
-  title?: string
+  title?: string | undefined
   onMenuToggle: () => void
   onCreateSession: () => void
 }

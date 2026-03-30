@@ -1,7 +1,7 @@
 /**
  * Copy text to clipboard with fallback for older browsers.
  */
-export function copyText(text) {
+export function copyText(text: string): Promise<void> {
   if (navigator.clipboard?.writeText) {
     return navigator.clipboard.writeText(text)
   }

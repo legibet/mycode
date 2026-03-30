@@ -20,6 +20,8 @@ test('buildRenderMessages keeps sourceIndex and synthetic meta for user messages
     },
   ])
 
+  assert.ok(renderMessages[0])
+  assert.ok(renderMessages[2])
   assert.equal(renderMessages[0].role, 'user')
   assert.equal(renderMessages[0].sourceIndex, 0)
   assert.equal(renderMessages[0].meta?.synthetic, true)

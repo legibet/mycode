@@ -4,24 +4,27 @@
  */
 
 import { Check, Copy } from 'lucide-react'
+import type { ComponentPropsWithoutRef } from 'react'
 import { useState } from 'react'
+import type { ExtraProps } from 'react-markdown'
 import { copyText } from '../../utils/clipboard'
 import { cn } from '../../utils/cn'
 import HighlightedCode from './HighlightedCode'
 
 const LANGUAGE_RE = /language-([a-z0-9+#-]+)/i
+type CodeBlockProps = ComponentPropsWithoutRef<'code'> & ExtraProps
 
-export function CodeBlock({ node, inline, className, children, ...props }) {
+export function CodeBlock({ className, children, ...props }: CodeBlockProps) {
   const [copied, setCopied] = useState(false)
 
   const match = LANGUAGE_RE.exec(className || '')
-  const language = match ? match[1] : ''
+  const language = match?.[1] ?? ''
   const rawContent = Array.isArray(children)
     ? children.join('')
     : String(children || '')
   const codeContent = rawContent.replace(/\n$/, '')
 
-  const isInline = inline || (!match && !rawContent.endsWith('\n'))
+  const isInline = !match && !rawContent.endsWith('\n')
 
   const handleCopy = async () => {
     try {

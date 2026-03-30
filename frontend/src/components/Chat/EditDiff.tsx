@@ -1,14 +1,17 @@
 import { diffLines } from 'diff'
 import { use } from 'react'
+import type { DiffRow, EditMeta } from '../../types'
 import {
+  type AppHighlighter,
   codeToHtmlSafely,
   highlighterPromise,
   loadLang,
+  type ResolvedLanguage,
   resolveLanguage,
   SHIKI_OPTIONS,
 } from '../../utils/highlighter'
 
-const EXT_LANG = {
+const EXT_LANG: Record<string, string> = {
   js: 'javascript',
   mjs: 'javascript',
   cjs: 'javascript',
@@ -51,16 +54,16 @@ const EXT_LANG = {
   svelte: 'svelte',
 }
 
-function getLangFromPath(path) {
+function getLangFromPath(path?: string): string {
   const ext = path?.split('.').pop()?.toLowerCase()
-  return EXT_LANG[ext] || 'text'
+  return ext ? (EXT_LANG[ext] ?? 'text') : 'text'
 }
 
-function escapeHtml(str) {
+function escapeHtml(str: string): string {
   return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 }
 
-function splitHtmlLines(html) {
+function splitHtmlLines(html: string): string[] {
   const codeStart = html.indexOf('<code>')
   const codeEnd = html.lastIndexOf('</code>')
   if (codeStart === -1 || codeEnd === -1) return []
@@ -73,26 +76,57 @@ function splitHtmlLines(html) {
   })
 }
 
-function parseEditResult(result) {
+function parseEditResult(result?: string | null): EditMeta | null {
   if (!result || typeof result !== 'string') return null
   try {
-    const data = JSON.parse(result)
-    if (data.status === 'ok' && typeof data.start_line === 'number') return data
+    const data = JSON.parse(result) as Partial<EditMeta> & { status?: string }
+    if (data.status === 'ok' && typeof data.start_line === 'number') {
+      const contextBefore = Array.isArray(data.context_before)
+        ? data.context_before.filter(
+            (line): line is string => typeof line === 'string',
+          )
+        : undefined
+      const contextAfter = Array.isArray(data.context_after)
+        ? data.context_after.filter(
+            (line): line is string => typeof line === 'string',
+          )
+        : undefined
+
+      return {
+        status: 'ok',
+        start_line: data.start_line,
+        ...(contextBefore ? { context_before: contextBefore } : {}),
+        ...(contextAfter ? { context_after: contextAfter } : {}),
+      }
+    }
   } catch {
     /* not JSON, ignore */
   }
   return null
 }
 
-function highlight(highlighter, code, opts) {
-  const html = codeToHtmlSafely(highlighter, code, opts)
+function highlight(
+  highlighter: AppHighlighter,
+  code: string,
+  lang: ResolvedLanguage,
+): string[] {
+  const html = codeToHtmlSafely(highlighter, code, {
+    lang,
+    ...SHIKI_OPTIONS,
+  })
   if (!html) {
     return code.split('\n').map(escapeHtml)
   }
   return splitHtmlLines(html)
 }
 
-function buildRows(oldText, newText, oldLines, newLines, meta) {
+function buildRows(
+  oldText: string | undefined,
+  newText: string | undefined,
+  oldLines: string[],
+  newLines: string[],
+  meta: EditMeta | null,
+): DiffRow[] {
   const changes = diffLines(oldText || '', newText || '')
   const startLine = meta?.start_line ?? 1
   const ctxBefore = meta?.context_before ?? []
@@ -101,15 +135,17 @@ function buildRows(oldText, newText, oldLines, newLines, meta) {
   let ln = startLine - ctxBefore.length
   let oldIdx = 0
   let newIdx = 0
-  const rows = []
+  const rows: DiffRow[] = []
 
   // Context before (from backend)
   for (let i = 0; i < ctxBefore.length; i++) {
+    const line = ctxBefore[i]
+    if (line === undefined) continue
     rows.push({
       key: `ctx-before-${ln}`,
       type: 'context',
       ln: ln++,
-      html: escapeHtml(ctxBefore[i]),
+      html: escapeHtml(line),
     })
   }
 
@@ -152,11 +188,13 @@ function buildRows(oldText, newText, oldLines, newLines, meta) {
 
   // Context after (from backend)
   for (let i = 0; i < ctxAfter.length; i++) {
+    const line = ctxAfter[i]
+    if (line === undefined) continue
     rows.push({
       key: `ctx-after-${ln}`,
       type: 'context',
       ln: ln++,
-      html: escapeHtml(ctxAfter[i]),
+      html: escapeHtml(line),
     })
   }
 
@@ -166,22 +204,30 @@ function buildRows(oldText, newText, oldLines, newLines, meta) {
 // All HTML rendered via dangerouslySetInnerHTML comes from shiki's tokenized
 // AST output (only <span> elements with inline styles), not from user input.
 
-export default function EditDiff({ path, oldText, newText, result }) {
+interface EditDiffProps {
+  path?: string | undefined
+  oldText?: string | undefined
+  newText?: string | undefined
+  result?: string | null | undefined
+}
+
+export default function EditDiff({
+  path,
+  oldText,
+  newText,
+  result,
+}: EditDiffProps) {
   const highlighter = use(highlighterPromise)
 
   const language = resolveLanguage(getLangFromPath(path))
   const loaded = highlighter.getLoadedLanguages()
-  let lang = loaded.includes(language) ? language : 'text'
+  let lang: ResolvedLanguage = loaded.includes(language) ? language : 'text'
 
   if (lang === 'text' && language !== 'text') {
     const loadResult = loadLang(highlighter, language)
-    if (loadResult instanceof Promise) {
-      const resolved = use(loadResult)
-      if (resolved) lang = resolved
-    }
+    const resolved = use(loadResult)
+    if (resolved) lang = resolved
   }
-
-  const opts = { lang, ...SHIKI_OPTIONS }
   const meta = parseEditResult(result)
 
   // Highlight oldText, newText, and context lines together for proper syntax
@@ -191,12 +237,12 @@ export default function EditDiff({ path, oldText, newText, result }) {
   const fullOldText = [ctxBeforeText, oldText || '', ctxAfterText]
     .filter(Boolean)
     .join('\n')
-  const fullOldLines = highlight(highlighter, fullOldText, opts)
+  const fullOldLines = highlight(highlighter, fullOldText, lang)
 
   const fullNewText = [ctxBeforeText, newText || '', ctxAfterText]
     .filter(Boolean)
     .join('\n')
-  const fullNewLines = highlight(highlighter, fullNewText, opts)
+  const fullNewLines = highlight(highlighter, fullNewText, lang)
 
   // Split highlighted lines back into context/diff sections
   const ctxBeforeCount = meta?.context_before?.length ?? 0
@@ -210,18 +256,20 @@ export default function EditDiff({ path, oldText, newText, result }) {
     ctxBeforeCount,
     fullNewLines.length - ctxAfterCount,
   )
+  const contextBefore = meta?.context_before ?? []
+  const contextAfter = meta?.context_after ?? []
 
   // Overwrite context_before/after with highlighted versions
   const highlightedMeta = meta
     ? {
         ...meta,
-        context_before: meta.context_before?.map(
-          (_, i) => fullOldLines[i] ?? escapeHtml(meta.context_before[i]),
+        context_before: contextBefore.map(
+          (line, i) => fullOldLines[i] ?? escapeHtml(line),
         ),
-        context_after: meta.context_after?.map(
-          (_, i) =>
+        context_after: contextAfter.map(
+          (line, i) =>
             fullOldLines[fullOldLines.length - ctxAfterCount + i] ??
-            escapeHtml(meta.context_after[i]),
+            escapeHtml(line),
         ),
       }
     : null

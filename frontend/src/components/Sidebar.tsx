@@ -60,14 +60,14 @@ export const Sidebar = memo(function Sidebar({
   theme,
   setTheme,
 }: SidebarProps) {
-  const [tab, setTab] = useState('chat')
+  const [tab, setTab] = useState<'chat' | 'settings'>('chat')
   const [pickerOpen, setPickerOpen] = useState(false)
 
-  const handleWorkspaceSelect = (cwd) => {
+  const handleWorkspaceSelect = (cwd: string) => {
     onUpdateConfig({ ...config, cwd })
   }
 
-  const handleProviderChange = (providerName) => {
+  const handleProviderChange = (providerName: string) => {
     const providerInfo = remoteConfig?.providers?.[providerName]
     const firstModel = providerInfo?.models?.[0] || ''
     onUpdateConfig({

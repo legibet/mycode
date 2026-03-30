@@ -2,12 +2,14 @@
  * Local storage utilities for config and history persistence.
  */
 
+import type { LocalConfig } from '../types'
+
 const STORAGE_KEY = 'mycode_config'
 const HISTORY_KEY = 'mycode_cwd_history'
 const ACTIVE_SESSIONS_KEY = 'mycode_active_sessions'
 const SCHEMA_VERSION = 1
 
-const DEFAULT_CONFIG = {
+const DEFAULT_CONFIG: LocalConfig = {
   provider: '', // configured alias or raw provider id; empty = use server default
   model: '',
   cwd: '.',
@@ -16,16 +18,21 @@ const DEFAULT_CONFIG = {
   reasoningEffort: '', // empty = use server/config default
 }
 
-export function loadConfig() {
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+}
+
+export function loadConfig(): LocalConfig {
   try {
     const saved = localStorage.getItem(STORAGE_KEY)
     if (saved) {
-      const parsed = JSON.parse(saved)
-      if (parsed._v !== SCHEMA_VERSION) return DEFAULT_CONFIG
+      const parsed = JSON.parse(saved) as unknown
+      if (!isRecord(parsed) || parsed._v !== SCHEMA_VERSION)
+        return DEFAULT_CONFIG
       // The web UI no longer exposes per-request auth/base overrides.
       // Drop any stale browser-side values so they cannot shadow backend config.
       const { apiKey: _apiKey, apiBase: _apiBase, ...rest } = parsed
-      return { ...DEFAULT_CONFIG, ...rest }
+      return { ...DEFAULT_CONFIG, ...rest } as LocalConfig
     }
   } catch (e) {
     console.error('Failed to load config:', e)
@@ -33,7 +40,7 @@ export function loadConfig() {
   return DEFAULT_CONFIG
 }
 
-export function saveConfig(config) {
+export function saveConfig(config: LocalConfig): void {
   try {
     // Keep browser config aligned with the visible settings only.
     const { apiKey, apiBase, ...rest } = config
@@ -46,17 +53,22 @@ export function saveConfig(config) {
   }
 }
 
-export function loadHistory() {
+export function loadHistory(): string[] {
   try {
     const saved = localStorage.getItem(HISTORY_KEY)
-    if (saved) return JSON.parse(saved)
+    if (saved) {
+      const parsed = JSON.parse(saved) as unknown
+      return Array.isArray(parsed)
+        ? parsed.filter((item): item is string => typeof item === 'string')
+        : []
+    }
   } catch (e) {
     console.error('Failed to load history:', e)
   }
   return []
 }
 
-export function saveHistory(history) {
+export function saveHistory(history: string[]): void {
   try {
     localStorage.setItem(HISTORY_KEY, JSON.stringify(history.slice(0, 6)))
   } catch (e) {
@@ -64,7 +76,7 @@ export function saveHistory(history) {
   }
 }
 
-export function addHistory(history, value) {
+export function addHistory(history: string[], value: string): string[] {
   if (!value) return history
   const cleaned = value.trim()
   if (!cleaned) return history
@@ -72,25 +84,31 @@ export function addHistory(history, value) {
   return next.slice(0, 6)
 }
 
-function normalizeCwdKey(cwd) {
+function normalizeCwdKey(cwd: string): string {
   if (typeof cwd !== 'string') return '.'
   const value = cwd.trim()
   return value || '.'
 }
 
-function loadActiveSessionMap() {
+function loadActiveSessionMap(): Record<string, string> {
   try {
     const saved = localStorage.getItem(ACTIVE_SESSIONS_KEY)
     if (!saved) return {}
-    const parsed = JSON.parse(saved)
-    return parsed && typeof parsed === 'object' ? parsed : {}
+    const parsed = JSON.parse(saved) as unknown
+    if (!isRecord(parsed)) return {}
+    return Object.fromEntries(
+      Object.entries(parsed).filter(
+        (entry): entry is [string, string] =>
+          typeof entry[0] === 'string' && typeof entry[1] === 'string',
+      ),
+    )
   } catch (e) {
     console.error('Failed to load active sessions:', e)
     return {}
   }
 }
 
-function saveActiveSessionMap(activeSessions) {
+function saveActiveSessionMap(activeSessions: Record<string, string>): void {
   try {
     const entries = Object.entries(activeSessions).filter(
       ([cwd, sessionId]) =>
@@ -112,13 +130,13 @@ function saveActiveSessionMap(activeSessions) {
   }
 }
 
-export function loadActiveSession(cwd) {
+export function loadActiveSession(cwd: string): string {
   const activeSessions = loadActiveSessionMap()
   const sessionId = activeSessions[normalizeCwdKey(cwd)]
   return typeof sessionId === 'string' ? sessionId : ''
 }
 
-export function saveActiveSession(cwd, sessionId) {
+export function saveActiveSession(cwd: string, sessionId: string): void {
   if (typeof sessionId !== 'string' || !sessionId) return
   const activeSessions = loadActiveSessionMap()
   activeSessions[normalizeCwdKey(cwd)] = sessionId

@@ -5,7 +5,7 @@
  */
 
 import { ArrowUp, Square } from 'lucide-react'
-import { memo, useEffect, useRef } from 'react'
+import { type KeyboardEvent, memo, useEffect, useRef } from 'react'
 import type { SetString } from '../../types'
 import { cn } from '../../utils/cn'
 
@@ -32,7 +32,7 @@ export const InputArea = memo(function InputArea({
     }
   }, [input])
 
-  const handleKeyDown = (e) => {
+  const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
       if (!loading) onSend()

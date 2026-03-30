@@ -335,10 +335,15 @@
   *,
   ::before,
   ::after {
+    /* biome-ignore lint/complexity/noImportantStyles: reduced-motion overrides must win the cascade */
     animation-duration: 0ms !important;
+    /* biome-ignore lint/complexity/noImportantStyles: reduced-motion overrides must win the cascade */
     animation-iteration-count: 1 !important;
+    /* biome-ignore lint/complexity/noImportantStyles: reduced-motion overrides must win the cascade */
     animation-delay: 0ms !important;
+    /* biome-ignore lint/complexity/noImportantStyles: reduced-motion overrides must win the cascade */
     transition-duration: 0ms !important;
+    /* biome-ignore lint/complexity/noImportantStyles: reduced-motion overrides must win the cascade */
     scroll-behavior: auto !important;
   }
 }
