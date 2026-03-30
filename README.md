@@ -48,7 +48,7 @@ API keys are discovered automatically from environment variables (see Providers 
 | MiniMax           | `minimax`     | `MINIMAX_API_KEY`    | `MiniMax-M2.7`, `MiniMax-M2.7-highspeed`           |
 | DeepSeek          | `deepseek`    | `DEEPSEEK_API_KEY`   | `deepseek-chat`, `deepseek-reasoner`               |
 | Z.AI              | `zai`         | `ZAI_API_KEY`        | `glm-5.1`, `glm-5-turbo`                           |
-| OpenRouter        | `openrouter`  | `OPENROUTER_API_KEY` | `openai/gpt-5.2`, `anthropic/claude-sonnet-4.6`    |
+| OpenRouter        | `openrouter`  | `OPENROUTER_API_KEY` | `openrouter/auto`                                  |
 | OpenAI-compatible | `openai_chat` | —                    | (configured per provider)                          |
 
 ## Configuration

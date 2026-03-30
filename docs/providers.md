@@ -105,7 +105,7 @@ class ProviderAdapter(ABC):
 - SDK: `openai` against OpenRouter's OpenAI-compatible endpoint
 - Base URL: `https://openrouter.ai/api/v1`
 - API key env: `OPENROUTER_API_KEY`
-- Default models: `openai/gpt-5.2`, `anthropic/claude-sonnet-4.6`
+- Default models: `openrouter/auto`
 - `supports_reasoning_effort`: true (forwarded through `extra_body.reasoning.effort`)
 
 ## Reasoning Effort Mapping
