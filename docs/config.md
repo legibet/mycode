@@ -52,9 +52,10 @@ Config resolution: `get_settings(cwd)` → returns `Settings` dataclass.
 For a resolved provider (`_resolve_provider_runtime` in `config.py`):
 
 1. Explicit `api_key` param (CLI flag or API request)
-2. Config `api_key` with `${ENV_NAME}` — dereferenced from env at resolution time
+2. Config `api_key`
+   - `${ENV_NAME}` — dereferenced from env at resolution time
+   - plain string — used as-is
 3. Provider adapter's built-in default env vars (e.g., `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`)
-4. Config `api_key` literal value (plain string, not `${...}`)
 
 If no API key is found at any step, provider resolution raises an error listing which env vars were checked.
 

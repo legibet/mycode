@@ -113,7 +113,7 @@ class TestGetSettings:
         assert settings.default_provider is None
         assert settings.default_model is None
 
-    def test_resolve_provider_prefers_env_api_key_over_config(self, tmp_path: Path, monkeypatch) -> None:
+    def test_resolve_provider_prefers_configured_api_key_over_default_env(self, tmp_path: Path, monkeypatch) -> None:
         home = tmp_path / "home"
         workspace = tmp_path / "workspace"
         workspace.mkdir()
@@ -147,7 +147,7 @@ class TestGetSettings:
 
         assert resolved.provider_type == "anthropic"
         assert resolved.model == "claude-sonnet-4-6"
-        assert resolved.api_key == "env-key"
+        assert resolved.api_key == "config-key"
         assert resolved.api_base == "https://config.example/v1"
 
     def test_resolve_provider_accepts_raw_supported_provider(self, tmp_path: Path, monkeypatch) -> None:

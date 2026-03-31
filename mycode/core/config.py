@@ -445,12 +445,13 @@ def _resolve_provider_runtime(
         reasoning_effort = configured_effort
 
     resolved_api_key = api_key
-    if not resolved_api_key and provider_config and provider_config.api_key_env_var:
-        resolved_api_key = _config_api_key_from_env_var(provider_config, require=True)
+    if not resolved_api_key and provider_config:
+        if provider_config.api_key_env_var:
+            resolved_api_key = _config_api_key_from_env_var(provider_config, require=True)
+        elif provider_config.api_key:
+            resolved_api_key = provider_config.api_key
     if not resolved_api_key:
         resolved_api_key = provider_api_key_from_env(provider_type)
-    if not resolved_api_key and provider_config:
-        resolved_api_key = provider_config.api_key
 
     if not resolved_api_key:
         checked = ", ".join(provider_env_api_key_names(provider_type)) or "<api key env>"
