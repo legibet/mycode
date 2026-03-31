@@ -39,16 +39,6 @@ def test_create_app_skips_frontend_mount_in_dev_mode(tmp_path, monkeypatch) -> N
     assert _mount_paths(app) == []
 
 
-def test_create_app_initializes_models_catalog_on_startup(monkeypatch) -> None:
-    calls = {"count": 0}
-
-    def fake_initialize_models_dev():
-        calls["count"] += 1
-        return None
-
-    monkeypatch.setattr("mycode.server.app.initialize_models_dev", fake_initialize_models_dev)
-
+def test_create_app_starts_without_models_catalog_side_effects() -> None:
     with TestClient(create_app(serve_frontend=False)):
         pass
-
-    assert calls["count"] == 1

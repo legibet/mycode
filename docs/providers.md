@@ -146,7 +146,7 @@ class ProviderAdapter(ABC):
 | `high`   | high `budget_tokens`                   | `HIGH` level          | `high`              |
 | `xhigh`  | `high` (sonnet) / `max` (opus) effort  | `HIGH` level          | `xhigh`             |
 
-Config-resolved `reasoning_effort` is only applied when both `adapter.supports_reasoning_effort` and `model_metadata.supports_reasoning` (from models.dev) are true.
+Config-resolved `reasoning_effort` is only applied when both `adapter.supports_reasoning_effort` and `model_metadata.supports_reasoning` (from the bundled catalog) are true.
 
 ## Message Replay
 

@@ -11,7 +11,6 @@ import typer
 
 from mycode.core.agent import Agent
 from mycode.core.config import get_settings, resolve_provider
-from mycode.core.models import initialize_models_dev
 from mycode.core.session import SessionStore
 
 from .chat import TerminalChat
@@ -94,7 +93,6 @@ def chat(
     _validate_session_options(session, continue_last)
 
     cwd = os.path.abspath(os.getcwd())
-    initialize_models_dev()
     store = SessionStore()
     view = TerminalView()
     settings = get_settings(cwd)
@@ -163,7 +161,6 @@ def run(
     _validate_session_options(session, continue_last)
 
     cwd = os.path.abspath(os.getcwd())
-    initialize_models_dev()
     store = SessionStore()
     view = TerminalView()
     settings = get_settings(cwd)

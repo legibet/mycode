@@ -49,7 +49,7 @@ Config resolution: `get_settings(cwd)` → returns `Settings` dataclass.
 - `default.reasoning_effort` — global default; `null`/`"auto"`/`"default"` all resolve to "no override"
 - `default.compact_threshold` — fraction of context window that triggers compaction; `false` or `0` disables; range `[0, 1]`; default `0.8`
 - `providers.<name>.type` — internal adapter id (see AGENTS.md provider table). Required for custom aliases. Built-in providers can omit `type` when the key matches their adapter id.
-- `providers.<name>.models` — model map. Keys are model ids shown in UI. Values can override models.dev metadata for that exact model.
+- `providers.<name>.models` — model map. Keys are model ids shown in UI. Values can override the bundled model metadata for that exact model.
 - `providers.<name>.models.<model>.context_window` — override the model context window
 - `providers.<name>.models.<model>.max_output_tokens` — override the provider output limit
 - `providers.<name>.models.<model>.supports_reasoning` — override whether reasoning effort is available
@@ -92,25 +92,29 @@ Options: `auto` (default) · `none` · `low` · `medium` · `high` · `xhigh`
 
 - `auto` — do not send any effort parameter; let the provider decide
 - `none` — explicitly disable thinking
-- Config-derived effort is applied only when `adapter.supports_reasoning_effort` AND `model_metadata.supports_reasoning` (from models.dev) are both true
+- Config-derived effort is applied only when `adapter.supports_reasoning_effort` AND `model_metadata.supports_reasoning` (from the bundled catalog) are both true
 - CLI `/effort` command and web sidebar allow per-request overrides without changing config
 - See `docs/providers.md` for per-adapter mapping details
 
 ## Model Metadata
 
-`mycode/core/models.py` fetches and caches `https://models.dev/api.json` to look up:
+`mycode/core/models.py` reads the bundled `mycode/core/models_catalog.json` catalog to look up:
 
 - `supports_reasoning` — whether the model supports extended thinking
 - `context_window` — used for compact threshold calculation
 - `max_output_tokens` — passed to the provider as the output limit; defaults to `8192` when not available
-
-Cache: `~/.mycode/cache/models.dev-api.json`, TTL 24 hours. In-memory cache within the process.
 
 Model lookup strategy (`lookup_model_metadata`):
 
 1. Exact match on the given `provider_type` + raw model id
 2. Fallback provider mapping (e.g., `claude-*` → `anthropic`, `deepseek-*` → `deepseek`)
 3. Generic `aihubmix` catalog as last resort
+
+The bundled catalog is updated by running:
+
+```bash
+uv run python scripts/update_models_catalog.py
+```
 
 ## Skills Discovery
 

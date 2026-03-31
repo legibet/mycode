@@ -26,7 +26,7 @@ Core runtime (`mycode/core/`):
 - `tools.py` — 4 built-in tools, executor, truncation, path resolution
 - `session.py` — append-only JSONL session storage, compact/rewind events, interrupted tool repair
 - `config.py` — layered config loading and provider resolution
-- `models.py` — models.dev metadata cache (context_window, supports_reasoning)
+- `models.py` — bundled model metadata lookup (context_window, supports_reasoning)
 - `system_prompt.py` — runtime system prompt assembly, AGENTS.md discovery, skills discovery
 - `system_prompt.md` — system prompt template
 - `providers/base.py` — ProviderAdapter abstract interface

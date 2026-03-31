@@ -88,7 +88,7 @@ Response:
 }
 ```
 
-`reasoning_models` is populated only when `supports_reasoning_effort` is true. Models in that list are confirmed to support reasoning via models.dev metadata.
+`reasoning_models` is populated only when `supports_reasoning_effort` is true. Models in that list are confirmed to support reasoning via the bundled model metadata catalog.
 
 ## Sessions
 

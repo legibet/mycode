@@ -24,12 +24,12 @@ mycode = "mycode.cli.main:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["mycode"]
-artifacts = ["mycode/server/static/**"]
+artifacts = ["mycode/server/static/**", "mycode/core/models_catalog.json"]
 
 [tool.hatch.build.targets.wheel.hooks.custom]
 
 [tool.hatch.build.targets.sdist]
-artifacts = ["mycode/server/static/**"]
+artifacts = ["mycode/server/static/**", "mycode/core/models_catalog.json"]
 
 [tool.hatch.build.targets.sdist.hooks.custom]
 

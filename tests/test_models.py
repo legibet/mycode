@@ -1,26 +1,15 @@
-"""Tests for models.dev metadata lookup behavior."""
+"""Tests for bundled model metadata lookup behavior."""
 
 import mycode.core.models as models
-from mycode.core.models import initialize_models_dev, lookup_model_metadata
+from mycode.core.models import load_models_catalog, lookup_model_metadata
 
 
 def test_lookup_model_metadata_prefers_current_provider_family(monkeypatch) -> None:
     fake_catalog = {
-        "openai": {
-            "models": {"gpt-5": {"id": "gpt-5", "reasoning": True, "tool_call": True, "limit": {"output": 128_000}}}
-        },
-        "openrouter": {
-            "models": {
-                "openai/gpt-5": {
-                    "id": "openai/gpt-5",
-                    "reasoning": True,
-                    "tool_call": True,
-                    "limit": {"output": 64_000},
-                }
-            }
-        },
+        "openai": {"gpt-5": {"max_output_tokens": 128_000, "supports_reasoning": True}},
+        "openrouter": {"openai/gpt-5": {"max_output_tokens": 64_000, "supports_reasoning": True}},
     }
-    monkeypatch.setattr("mycode.core.models.load_models_dev", lambda: fake_catalog)
+    monkeypatch.setattr("mycode.core.models.load_models_catalog", lambda: fake_catalog)
 
     metadata = lookup_model_metadata(
         provider_type="openrouter",
@@ -36,12 +25,10 @@ def test_lookup_model_metadata_prefers_current_provider_family(monkeypatch) -> N
 
 def test_lookup_model_metadata_falls_back_to_canonical_provider(monkeypatch) -> None:
     fake_catalog = {
-        "openai": {
-            "models": {"gpt-5": {"id": "gpt-5", "reasoning": True, "tool_call": True, "limit": {"output": 128_000}}}
-        },
-        "other": {"models": {}},
+        "openai": {"gpt-5": {"max_output_tokens": 128_000, "supports_reasoning": True}},
+        "other": {},
     }
-    monkeypatch.setattr("mycode.core.models.load_models_dev", lambda: fake_catalog)
+    monkeypatch.setattr("mycode.core.models.load_models_catalog", lambda: fake_catalog)
 
     metadata = lookup_model_metadata(
         provider_type="openai_chat",
@@ -56,8 +43,8 @@ def test_lookup_model_metadata_falls_back_to_canonical_provider(monkeypatch) -> 
 
 
 def test_lookup_model_metadata_falls_back_to_aihubmix(monkeypatch) -> None:
-    fake_catalog = {"aihubmix": {"models": {"glm-5.1": {"id": "glm-5.1", "limit": {"output": 131_072}}}}}
-    monkeypatch.setattr("mycode.core.models.load_models_dev", lambda: fake_catalog)
+    fake_catalog = {"aihubmix": {"glm-5.1": {"max_output_tokens": 131_072}}}
+    monkeypatch.setattr("mycode.core.models.load_models_catalog", lambda: fake_catalog)
 
     metadata = lookup_model_metadata(
         provider_type="zai",
@@ -74,11 +61,11 @@ def test_lookup_model_metadata_falls_back_to_aihubmix(monkeypatch) -> None:
 def test_lookup_model_metadata_does_not_retry_on_miss(monkeypatch) -> None:
     calls = {"count": 0}
 
-    def fake_load_models_dev():
+    def fake_load_models_catalog():
         calls["count"] += 1
-        return {"zai": {"models": {}}}
+        return {"zai": {}}
 
-    monkeypatch.setattr("mycode.core.models.load_models_dev", fake_load_models_dev)
+    monkeypatch.setattr("mycode.core.models.load_models_catalog", fake_load_models_catalog)
 
     metadata = lookup_model_metadata(
         provider_type="zai",
@@ -91,24 +78,14 @@ def test_lookup_model_metadata_does_not_retry_on_miss(monkeypatch) -> None:
     assert calls["count"] == 1
 
 
-def test_initialize_models_dev_fetches_once_at_startup(monkeypatch) -> None:
-    cached_catalog = {"cached": {"models": {}}}
-    fresh_catalog = {"fresh": {"models": {}}}
-    writes: list[dict] = []
-    fetch_calls = {"count": 0}
+def test_load_models_catalog_reads_file_once(monkeypatch, tmp_path) -> None:
+    catalog_path = tmp_path / "models_catalog.json"
+    catalog_path.write_text('{"openai":{"gpt-5":{}}}', encoding="utf-8")
 
-    monkeypatch.setattr(models, "_models_dev_cache", None)
-    monkeypatch.setattr(models, "_models_dev_cache_loaded", False)
-    monkeypatch.setattr("mycode.core.models._read_cached_models_dev", lambda _path: cached_catalog)
-    monkeypatch.setattr("mycode.core.models._write_cached_models_dev", lambda _path, data: writes.append(data))
+    monkeypatch.setattr(models, "_MODELS_CATALOG_PATH", catalog_path)
+    monkeypatch.setattr(models, "_models_catalog_cache", None)
+    monkeypatch.setattr(models, "_models_catalog_loaded", False)
 
-    def fake_fetch_models_dev():
-        fetch_calls["count"] += 1
-        return fresh_catalog
-
-    monkeypatch.setattr("mycode.core.models._fetch_models_dev", fake_fetch_models_dev)
-
-    assert initialize_models_dev() == fresh_catalog
-    assert initialize_models_dev() == fresh_catalog
-    assert fetch_calls["count"] == 1
-    assert writes == [fresh_catalog]
+    assert load_models_catalog() == {"openai": {"gpt-5": {}}}
+    catalog_path.write_text('{"changed":true}', encoding="utf-8")
+    assert load_models_catalog() == {"openai": {"gpt-5": {}}}
