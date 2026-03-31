@@ -7,13 +7,16 @@ React + Vite app in `frontend/`. Built assets are copied to `mycode/server/stati
 - `mycode web` — serves packaged frontend from `mycode/server/static/`
 - `mycode web --dev` — API only; no static files (pair with `pnpm --dir frontend dev`)
 
+CORS is enabled for all origins in the FastAPI app.
+
 ## Component Structure
 
 ```
 frontend/src/
-  App.tsx
-  main.tsx
-  types.ts
+  App.tsx                # root layout, config loading, session init
+  main.tsx               # React entry
+  types.ts               # shared TypeScript types
+  index.css              # Tailwind CSS
   components/
     Chat/
       MessageList.tsx      # scrollable message history
@@ -23,38 +26,64 @@ frontend/src/
       ReasoningBlock.tsx   # thinking block — expanded while streaming, collapses after
       MarkdownBlock.tsx    # markdown rendering
       CodeBlock.tsx        # syntax-highlighted code
+      HighlightedCode.tsx  # shared highlighting wrapper
       EditDiff.tsx         # diff view for edit tool results
-    Layout.tsx
+    Layout.tsx             # main layout shell
     Sidebar.tsx            # session list + settings panel
     WorkspacePicker.tsx    # workspace browser using /api/workspaces
-    MobileHeader.tsx
-    ThemeProvider.tsx
-    UI/Button.tsx
-    UI/Input.tsx
+    MobileHeader.tsx       # mobile nav header
+    ThemeProvider.tsx       # light/dark theme toggle
+    UI/                    # shared UI primitives
   hooks/
     useChat.ts             # main chat state + SSE streaming
     sessionSelection.ts    # session picker state
   utils/
-    messages.ts            # buildRenderMessages()
-    highlighter.ts         # code syntax highlighting
+    messages.ts            # buildRenderMessages() + streaming message builders
+    highlighter.ts         # code syntax highlighting (shiki)
     storage.ts             # localStorage helpers
     config.ts              # reasoning effort defaults + provider normalization with remote config
-    clipboard.ts
-    cn.ts                  # CSS class merging
-  index.css                # Tailwind CSS
+    clipboard.ts           # clipboard copy helper
+    cn.ts                  # CSS class merging (clsx + tailwind-merge)
 ```
 
 ## Message State Model
 
-`useChat.ts` stores raw canonical blocks plus ephemeral tool runtime state. It does **not** maintain a separate rendered message list.
+`useChat.ts` stores three related pieces of state:
+- `rawMessages` — canonical block messages
+- `messages` — render-ready messages
+- `toolRuntimeById` — ephemeral tool runtime state
 
-`buildRenderMessages()` in `utils/messages.ts` derives UI messages from canonical blocks on each render. This is the single source of truth for what appears in the UI.
+State is managed via `useReducer` with actions:
+- `set_messages` — load session history from server
+- `start_turn` — optimistic user message + empty assistant
+- `rewind_and_start_turn` — rewind + optimistic new turn
+- `apply_event` — apply one SSE event to state
+
+`buildRenderMessages()` in `utils/messages.ts` is used when loading or rebuilding from canonical messages. During streaming, the reducer updates both `rawMessages` and `messages` incrementally.
+
+Key design decisions:
+- Tool results persisted as `user` messages with `tool_result` blocks are visually folded into the preceding assistant message during rendering
+- Each render message and block gets a stable `renderKey` for React reconciliation
+- `sourceIndex` tracks the original message position for scroll targeting
 
 Rendering rules:
-
 - `thinking` blocks → `ReasoningBlock` (expanded while streaming, auto-collapses after)
 - `tool_use` blocks → `ToolCard` (with matching `tool_result` and live runtime folded in)
 - `text` blocks → `MarkdownBlock`
+
+## Streaming
+
+1. `POST /api/chat` → get `{run, session}`
+2. `GET /api/runs/{run_id}/stream` → SSE reader
+3. Each `data:` line parsed as `StreamEvent`, dispatched to reducer
+4. `data: [DONE]` ends the stream
+5. On disconnect: attempt session reload recovery via `GET /api/sessions/{id}`
+6. 409 conflict: attach to the existing run's stream
+
+Streaming state tracking:
+- `streamTokenRef` — incremented to invalidate stale streams
+- `pendingRequestTokenRef` — deduplicates concurrent send requests
+- `activeRunRef` — tracks the current run for cancel
 
 ## Config Persistence
 
@@ -73,3 +102,5 @@ uv build                                               # packages static/ into w
 ```
 
 Built `frontend/dist/` is **not** the serving path. `scripts/build_frontend.py` copies the built output into `mycode/server/static/` which is what gets packaged and served.
+
+If `mycode/server/static/` is missing at startup, the server falls back to API-only mode with a warning log.

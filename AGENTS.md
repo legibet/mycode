@@ -48,8 +48,9 @@ Server (`mycode/server/`):
 - `app.py` — FastAPI factory, static mount
 - `routers/chat.py` — POST /api/chat, GET /api/runs/{id}/stream, POST /api/runs/{id}/cancel, GET /api/config
 - `routers/sessions.py` — session CRUD
-- `routers/workspaces.py` — directory browser (GET /api/workspaces/roots, /api/workspaces/browse, /api/workspaces/cwd)
+- `routers/workspaces.py` — directory browser
 - `run_manager.py` — concurrent run management
+- `schemas.py` — Pydantic request/response models
 
 Frontend (`frontend/src/`):
 
@@ -82,7 +83,11 @@ Block types: `text` · `thinking` · `tool_use` · `tool_result`
 
 - `thinking` blocks are first-class session data — persisted and shown in UI
 - Provider-specific extras: `meta.native` on messages, `block.meta.native` on blocks
-- Tool results stored as a `user` message with `tool_result` blocks
+- Tool results stored as a `user` message with `tool_result` blocks:
+  ```json
+  {"type": "tool_result", "tool_use_id": "call_1", "model_text": "ok", "display_text": "Wrote x.py", "is_error": false}
+  ```
+  `model_text` is replayed to providers on later turns; `display_text` is shown to users.
 - System prompt is runtime-only, not persisted
 
 ## Agent Loop
@@ -96,12 +101,6 @@ Block types: `text` · `thinking` · `tool_use` · `tool_result`
 5. Append `user` tool-result message
 6. Repeat until no tool calls; `max_turns` defaults to unlimited
 7. Optionally compact context when usage ≥ `compact_threshold` (default 0.8)
-
-Key behaviors:
-
-- Interrupted prior tool calls repaired on load with synthetic error blocks
-- `cancel_all_tools()` kills in-flight bash subprocesses
-- Only `bash` streams output live; other tools complete atomically
 
 ## Provider Adapters
 
@@ -121,37 +120,6 @@ See `docs/providers.md` for per-adapter details, env vars, and quirks.
 
 All adapters implement `ProviderAdapter.stream_turn()`. Message projection to provider wire format lives in `prepare_messages()`.
 
-## Sessions
-
-Storage: `~/.mycode/sessions/<id>/meta.json` + `messages.jsonl` + `tool-output/`
-
-- Append-only JSONL; `MESSAGE_FORMAT_VERSION = 5`
-- Load order: apply compact events → apply rewind events → repair interrupted tools
-- Meta fields: `provider`, `model`, `cwd`, `api_base`, `message_format_version`, `title`
-- Large bash outputs spill to `tool-output/`
-
-See `docs/sessions.md` for event format details.
-
-## Config
-
-Loaded from `~/.mycode/config.json` then `<workspace>/.mycode/config.json`.
-
-```json
-{
-  "default": {"provider": "anthropic", "model": "claude-sonnet-4-6", "reasoning_effort": "auto"},
-  "providers": {
-    "name": {"type": "<adapter-id>", "api_key": "${ENV_VAR}", "models": ["..."], "base_url": "..."}
-  }
-}
-```
-
-- `type` is the internal adapter id (not a vendor label)
-- `api_key` accepts `${ENV_NAME}` references; provider default env vars apply as fallback
-- `reasoning_effort`: `auto` (default) · `none` · `low` · `medium` · `high` · `xhigh`
-- When no provider is selected, resolution falls back to the first configured or env-discovered available provider
-
-See `docs/config.md` for full reference.
-
 ## SSE Contract
 
 **Do not change event names or payload shapes without updating server, CLI, and frontend.**
@@ -163,8 +131,16 @@ See `docs/config.md` for full reference.
 | `tool_start`  | `tool_call: {id, name, input}`                          |
 | `tool_output` | `tool_use_id`, `output`                                 |
 | `tool_done`   | `tool_use_id`, `model_text`, `display_text`, `is_error` |
-| `compact`     | `message`, `compacted_count`                            |
+| `compact`     | `message`                                               |
 | `error`       | `message`                                               |
+
+## Detailed Docs
+
+- `docs/api.md` — Server API endpoints, request/response schemas, SSE contract details
+- `docs/config.md` — Config files, schema, API key resolution, reasoning effort, skills/instructions discovery
+- `docs/providers.md` — Per-adapter details: SDK, base URL, env vars, reasoning effort mapping, quirks
+- `docs/sessions.md` — Storage layout, JSONL record types, compact/rewind/repair, format version
+- `docs/frontend.md` — Component structure, message state model, build process
 
 ## Interfaces
 
@@ -174,7 +150,7 @@ See `docs/config.md` for full reference.
 - `mycode run "..."` — non-interactive single run
 - `mycode web [--dev]` — web server; `--dev` serves API only (for Vite dev)
 - `mycode session list` — list sessions
-- Slash commands: `/clear` `/new` `/resume` `/provider` `/model` `/effort` `/q`
+- Slash commands: `/clear` `/new` `/resume` `/rewind` `/provider` `/model` `/effort` `/q`
 
 **Server** — `mycode/server/routers/`:
 
