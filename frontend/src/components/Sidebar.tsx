@@ -54,7 +54,6 @@ interface SidebarProps {
   className?: string
   sessions: SessionSummary[]
   activeSession: SessionSummary | null
-  sessionLoading: boolean
   onSelectSession: (id: string) => void
   onCreateSession: () => void
   onDeleteSession: (id: string) => Promise<void>
@@ -70,7 +69,6 @@ export const Sidebar = memo(function Sidebar({
   className,
   sessions,
   activeSession,
-  sessionLoading,
   onSelectSession,
   onCreateSession,
   onDeleteSession,
@@ -188,14 +186,6 @@ export const Sidebar = memo(function Sidebar({
               </button>
             </div>
             <div className="flex-1 overflow-y-auto pb-4">
-              {sessionLoading && sessions.length === 0 && (
-                <div className="px-4 py-6 space-y-2">
-                  <div className="h-3 w-20 animate-pulse rounded bg-secondary/40" />
-                  <div className="h-8 animate-pulse rounded-md bg-secondary/25" />
-                  <div className="h-8 animate-pulse rounded-md bg-secondary/25" />
-                  <div className="h-8 animate-pulse rounded-md bg-secondary/25" />
-                </div>
-              )}
               {sessions.map((session) => {
                 const isActive = activeSession?.id === session.id
                 const isRunning = session.is_running
@@ -241,7 +231,7 @@ export const Sidebar = memo(function Sidebar({
                   </div>
                 )
               })}
-              {!sessionLoading && sessions.length === 0 && (
+              {sessions.length === 0 && (
                 <div className="py-12 text-center text-xs text-muted-foreground/60 flex flex-col items-center gap-2">
                   <History className="h-4 w-4 opacity-30" />
                   No history

@@ -13,14 +13,12 @@ const SCROLL_THRESHOLD = 120
 interface MessageListProps {
   messages: ChatMessage[]
   loading: boolean
-  sessionLoading: boolean
   onRewindAndSend: (rewindTo: number, input: string) => Promise<void>
 }
 
 export const MessageList = memo(function MessageList({
   messages,
   loading,
-  sessionLoading,
   onRewindAndSend,
 }: MessageListProps) {
   const containerRef = useRef<HTMLDivElement | null>(null)
@@ -48,21 +46,6 @@ export const MessageList = memo(function MessageList({
   }, [loading, messages])
 
   if (messages.length === 0) {
-    if (sessionLoading) {
-      return (
-        <div className="flex flex-1 flex-col items-center justify-center p-8">
-          <div className="w-full max-w-xl space-y-3">
-            <div className="h-3 w-28 animate-pulse rounded bg-secondary/40" />
-            <div className="h-4 w-full animate-pulse rounded bg-secondary/25" />
-            <div className="h-4 w-5/6 animate-pulse rounded bg-secondary/25" />
-            <div className="pt-2 font-mono text-xs text-muted-foreground/70">
-              Loading conversation...
-            </div>
-          </div>
-        </div>
-      )
-    }
-
     return (
       <div className="flex flex-1 flex-col items-center justify-center p-8">
         <div className="text-center">
