@@ -1,5 +1,4 @@
-import assert from 'node:assert/strict'
-import test from 'node:test'
+import { beforeEach, describe, expect, it } from 'vitest'
 
 import { loadActiveSession, saveActiveSession } from './storage'
 
@@ -28,20 +27,22 @@ function createLocalStorage() {
   }
 }
 
-test.beforeEach(() => {
-  globalThis.localStorage = createLocalStorage()
-})
+describe('storage', () => {
+  beforeEach(() => {
+    globalThis.localStorage = createLocalStorage()
+  })
 
-test('active sessions are stored per workspace', () => {
-  saveActiveSession('/workspace/a', 'session-a')
-  saveActiveSession('/workspace/b', 'session-b')
+  it('stores active sessions per workspace', () => {
+    saveActiveSession('/workspace/a', 'session-a')
+    saveActiveSession('/workspace/b', 'session-b')
 
-  assert.equal(loadActiveSession('/workspace/a'), 'session-a')
-  assert.equal(loadActiveSession('/workspace/b'), 'session-b')
-})
+    expect(loadActiveSession('/workspace/a')).toBe('session-a')
+    expect(loadActiveSession('/workspace/b')).toBe('session-b')
+  })
 
-test('loadActiveSession returns empty for workspaces without a saved session', () => {
-  saveActiveSession('/workspace/a', 'session-a')
+  it('returns empty for workspaces without a saved session', () => {
+    saveActiveSession('/workspace/a', 'session-a')
 
-  assert.equal(loadActiveSession('/workspace/b'), '')
+    expect(loadActiveSession('/workspace/b')).toBe('')
+  })
 })

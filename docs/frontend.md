@@ -37,6 +37,9 @@ frontend/src/
   hooks/
     useChat.ts             # main chat state + SSE streaming
     sessionSelection.ts    # session picker state
+    *.test.ts(x)           # focused unit and hook tests
+  test/
+    setup.ts               # Vitest + Testing Library setup
   utils/
     messages.ts            # buildRenderMessages() + streaming message builders
     highlighter.ts         # code syntax highlighting (shiki)
@@ -96,6 +99,7 @@ Frontend config is persisted to `localStorage`:
 ## Build
 
 ```bash
+pnpm --dir frontend test:run                           # run frontend tests once
 pnpm --dir frontend dev                                # dev server (Vite HMR)
 uv run --no-project python scripts/build_frontend.py  # production build → mycode/server/static/
 uv build                                               # packages static/ into wheel/sdist

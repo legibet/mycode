@@ -167,6 +167,7 @@ All adapters implement `ProviderAdapter.stream_turn()`. Message projection to pr
 uv sync --dev                                          # Python setup
 uv run mycode                                          # run CLI
 uv run mycode web --dev                                # API only (backend for Vite dev)
+pnpm --dir frontend test:run                           # run frontend tests once
 pnpm --dir frontend dev                                # Vite frontend dev server
 uv run --no-project python scripts/build_frontend.py  # rebuild packaged frontend
 uv build                                               # build wheel + sdist
