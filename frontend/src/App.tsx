@@ -60,6 +60,7 @@ function AppContent() {
     loading,
     sessions,
     activeSession,
+    sessionLoading,
     send,
     rewindAndSend,
     cancel,
@@ -145,6 +146,7 @@ function AppContent() {
           <Sidebar
             sessions={sessions}
             activeSession={activeSession}
+            sessionLoading={sessionLoading}
             onSelectSession={handleSelectSession}
             onCreateSession={handleCreateSession}
             onDeleteSession={deleteSession}
@@ -178,6 +180,7 @@ function AppContent() {
               <MessageList
                 messages={messages}
                 loading={loading}
+                sessionLoading={sessionLoading}
                 onRewindAndSend={rewindAndSend}
               />
 

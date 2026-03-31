@@ -13,6 +13,13 @@ interface CurrentSendRequest {
   requestCwd: string
 }
 
+interface CurrentWorkspaceRequest {
+  pendingRequestToken: number
+  requestToken: number
+  activeCwd: string
+  requestCwd: string
+}
+
 export function resolveInitialSessionId(
   sessions: SessionSummary[],
   preferredSessionId: string,
@@ -27,6 +34,15 @@ export function resolveInitialSessionId(
   return sessions[0]?.id || null
 }
 
+export function isCurrentWorkspaceRequest({
+  pendingRequestToken,
+  requestToken,
+  activeCwd,
+  requestCwd,
+}: CurrentWorkspaceRequest): boolean {
+  return pendingRequestToken === requestToken && activeCwd === requestCwd
+}
+
 export function isCurrentSendRequest({
   pendingRequestToken,
   requestToken,
@@ -36,8 +52,11 @@ export function isCurrentSendRequest({
   requestCwd,
 }: CurrentSendRequest): boolean {
   return (
-    pendingRequestToken === requestToken &&
-    activeSessionId === sessionId &&
-    activeCwd === requestCwd
+    isCurrentWorkspaceRequest({
+      pendingRequestToken,
+      requestToken,
+      activeCwd,
+      requestCwd,
+    }) && activeSessionId === sessionId
   )
 }

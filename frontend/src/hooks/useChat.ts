@@ -34,6 +34,7 @@ import {
 import { loadActiveSession, saveActiveSession } from '../utils/storage'
 import {
   isCurrentSendRequest,
+  isCurrentWorkspaceRequest,
   resolveInitialSessionId,
 } from './sessionSelection'
 
@@ -291,6 +292,7 @@ export function useChat(config: LocalConfig) {
   const activeSessionRef = useRef(activeSession)
   const requestTokenRef = useRef(0)
   const pendingRequestTokenRef = useRef(0)
+  const sessionRequestTokenRef = useRef(0)
   const streamAbortRef = useRef<AbortController | null>(null)
   const streamTokenRef = useRef(0)
   const activeRunRef = useRef<RunInfo | null>(null)
@@ -321,12 +323,16 @@ export function useChat(config: LocalConfig) {
   }, [])
 
   const fetchSessions = useCallback(async (): Promise<SessionSummary[]> => {
+    const requestCwd = config.cwd
     try {
       const res = await fetch(
-        `/api/sessions?cwd=${encodeURIComponent(config.cwd)}`,
+        `/api/sessions?cwd=${encodeURIComponent(requestCwd)}`,
       )
       if (!res.ok) throw new Error('Failed to load sessions')
       const data = (await res.json()) as SessionsResponse
+      if (requestCwd !== cwdRef.current) {
+        return []
+      }
       const savedSessions = data.sessions || []
       const active = activeSessionRef.current
       const sessionsWithDraft =
@@ -487,17 +493,33 @@ export function useChat(config: LocalConfig) {
   )
 
   const loadSession = useCallback(
-    async (sessionId: string): Promise<SessionResponse | null> => {
+    async (
+      sessionId: string,
+      options?: { requestCwd?: string; requestToken?: number },
+    ): Promise<SessionResponse | null> => {
+      const requestCwd = options?.requestCwd ?? config.cwd
+      const requestToken =
+        options?.requestToken ?? sessionRequestTokenRef.current
       const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}`)
       if (!res.ok) throw new Error('Failed to load session')
 
       const data = (await res.json()) as SessionResponse
+      if (
+        !isCurrentWorkspaceRequest({
+          pendingRequestToken: sessionRequestTokenRef.current,
+          requestToken,
+          activeCwd: cwdRef.current,
+          requestCwd,
+        })
+      ) {
+        return null
+      }
       if (!data.session) return null
 
       setConnectionState('ready')
       activeSessionRef.current = data.session
       setActiveSession(data.session)
-      saveActiveSession(config.cwd, data.session.id)
+      saveActiveSession(requestCwd, data.session.id)
       dispatch({ type: 'set_messages', messages: data.messages || [] })
 
       const pendingEvents = Array.isArray(data.pending_events)
@@ -769,6 +791,7 @@ export function useChat(config: LocalConfig) {
 
     stopStreaming()
     initRef.current = true
+    sessionRequestTokenRef.current += 1
     const session = createDraftSession()
 
     activeSessionRef.current = session
@@ -784,18 +807,32 @@ export function useChat(config: LocalConfig) {
 
       stopStreaming()
       initRef.current = true
+      const requestToken = sessionRequestTokenRef.current + 1
+      sessionRequestTokenRef.current = requestToken
       setSessionLoading(true)
 
       try {
-        await loadSession(sessionId)
+        await loadSession(sessionId, {
+          requestCwd: config.cwd,
+          requestToken,
+        })
         fetchSessions()
       } catch (e) {
         console.error('Failed to load session:', e)
       } finally {
-        setSessionLoading(false)
+        if (
+          isCurrentWorkspaceRequest({
+            pendingRequestToken: sessionRequestTokenRef.current,
+            requestToken,
+            activeCwd: cwdRef.current,
+            requestCwd: config.cwd,
+          })
+        ) {
+          setSessionLoading(false)
+        }
       }
     },
-    [activeSession.id, fetchSessions, loadSession, stopStreaming],
+    [activeSession.id, config.cwd, fetchSessions, loadSession, stopStreaming],
   )
 
   const deleteSession = useCallback(
@@ -833,31 +870,70 @@ export function useChat(config: LocalConfig) {
     if (initRef.current) return
 
     initRef.current = true
+    const requestCwd = config.cwd
+    const requestToken = sessionRequestTokenRef.current + 1
+    sessionRequestTokenRef.current = requestToken
+    setSessionLoading(true)
+
     try {
-      // Fetch raw server list first without setting state
-      const preferredSessionId = loadActiveSession(config.cwd)
+      const preferredSessionId = loadActiveSession(requestCwd)
       const res = await fetch(
-        `/api/sessions?cwd=${encodeURIComponent(config.cwd)}`,
+        `/api/sessions?cwd=${encodeURIComponent(requestCwd)}`,
       )
       if (!res.ok) throw new Error('Failed to load sessions')
       const data = (await res.json()) as SessionsResponse
+      if (
+        !isCurrentWorkspaceRequest({
+          pendingRequestToken: sessionRequestTokenRef.current,
+          requestToken,
+          activeCwd: cwdRef.current,
+          requestCwd,
+        })
+      ) {
+        return
+      }
       const savedSessions = data.sessions || []
+      setSessions(savedSessions)
       const initialSessionId = resolveInitialSessionId(
         savedSessions,
         preferredSessionId,
       )
 
       if (initialSessionId) {
-        // Load the most recent session, then set the list
-        await loadSession(initialSessionId)
-        await fetchSessions()
+        const summary = savedSessions.find(
+          (session) => session.id === initialSessionId,
+        )
+        if (summary) {
+          activeSessionRef.current = summary
+          setActiveSession(summary)
+        }
+        await loadSession(initialSessionId, {
+          requestCwd,
+          requestToken,
+        })
       } else {
-        createSession()
+        const draft = createDraftSession()
+        activeSessionRef.current = draft
+        setActiveSession(draft)
+        setSessions([draft])
+        dispatch({ type: 'set_messages', messages: [] })
+        setLoading(false)
       }
     } catch (e) {
       console.error('Failed to initialize sessions:', e)
+    } finally {
+      if (
+        isCurrentWorkspaceRequest({
+          pendingRequestToken: sessionRequestTokenRef.current,
+          requestToken,
+          activeCwd: cwdRef.current,
+          requestCwd,
+        })
+      ) {
+        setSessionLoading(false)
+      }
     }
-  }, [config.cwd, createSession, fetchSessions, loadSession])
+  }, [config.cwd, loadSession])
 
   useEffect(() => {
     activeSessionRef.current = activeSession
@@ -871,6 +947,7 @@ export function useChat(config: LocalConfig) {
     if (cwdRef.current === config.cwd) return
 
     stopStreaming()
+    sessionRequestTokenRef.current += 1
     cwdRef.current = config.cwd
     initRef.current = false
     dispatch({ type: 'set_messages', messages: [] })

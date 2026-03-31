@@ -3,6 +3,7 @@ import test from 'node:test'
 
 import {
   isCurrentSendRequest,
+  isCurrentWorkspaceRequest,
   resolveInitialSessionId,
 } from './sessionSelection'
 
@@ -44,5 +45,17 @@ test('isCurrentSendRequest accepts matching request state', () => {
       requestCwd: '/workspace/a',
     }),
     true,
+  )
+})
+
+test('isCurrentWorkspaceRequest rejects stale workspace loads', () => {
+  assert.equal(
+    isCurrentWorkspaceRequest({
+      pendingRequestToken: 4,
+      requestToken: 3,
+      activeCwd: '/workspace/b',
+      requestCwd: '/workspace/a',
+    }),
+    false,
   )
 })
