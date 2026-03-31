@@ -29,7 +29,7 @@ import { WorkspacePicker } from './WorkspacePicker'
 
 /** Shared select styling */
 const SELECT_CLASS =
-  'w-full bg-secondary/20 px-2.5 py-2 text-sm font-mono text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring rounded-md border-0 focus:bg-secondary/40 disabled:opacity-50 transition-colors cursor-pointer'
+  'w-full bg-secondary/20 px-2.5 py-2 text-base md:text-sm font-mono text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring rounded-md border-0 focus:bg-secondary/40 disabled:opacity-50 transition-colors cursor-pointer'
 
 const THEME_OPTIONS: Array<{
   key: Theme

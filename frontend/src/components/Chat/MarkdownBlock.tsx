@@ -24,10 +24,16 @@ const MATH_DELIMITERS = [
 ]
 
 type MarkdownPreProps = ComponentPropsWithoutRef<'pre'> & ExtraProps
+type MarkdownTableProps = ComponentPropsWithoutRef<'table'> & ExtraProps
 
 const MARKDOWN_COMPONENTS: Components = {
   pre: ({ children }: MarkdownPreProps) => children,
   code: CodeBlock,
+  table: ({ children, ...props }: MarkdownTableProps) => (
+    <div className="my-4 overflow-x-auto scrollbar-subtle">
+      <table {...props}>{children}</table>
+    </div>
+  ),
 }
 
 let katexCssLoaded = false

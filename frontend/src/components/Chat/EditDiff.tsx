@@ -293,7 +293,7 @@ export default function EditDiff({
           </span>
         </div>
       )}
-      <div className="overflow-x-auto">
+      <div className="overflow-x-auto scrollbar-subtle">
         <table
           className="w-full border-collapse"
           style={{

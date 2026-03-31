@@ -208,7 +208,7 @@ export const MessageBubble = memo(function MessageBubble({
                 e.target.style.height = `${Math.min(e.target.scrollHeight, 300)}px`
               }}
               onKeyDown={handleEditKeyDown}
-              className="w-full resize-none rounded-2xl bg-card px-4 py-2.5 text-sm leading-relaxed text-foreground/90 border border-border/50 focus:outline-none focus:border-accent/50 max-h-[300px]"
+              className="w-full resize-none rounded-2xl bg-card px-4 py-2.5 text-base md:text-sm leading-relaxed text-foreground/90 border border-border/50 focus:outline-none focus:border-accent/50 max-h-[300px]"
             />
             <div className="flex justify-end gap-2">
               <button
@@ -253,7 +253,7 @@ export const MessageBubble = memo(function MessageBubble({
             <Pencil className="h-3 w-3" />
           </button>
         )}
-        <div className="max-w-[85%] rounded-2xl bg-card px-4 py-2.5 text-sm leading-relaxed text-foreground/90 whitespace-pre-wrap">
+        <div className="max-w-[85%] rounded-2xl bg-card px-4 py-2.5 text-sm leading-relaxed text-foreground/90 whitespace-pre-wrap [overflow-wrap:anywhere]">
           {textContent}
         </div>
       </div>

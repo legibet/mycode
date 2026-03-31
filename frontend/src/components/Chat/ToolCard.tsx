@@ -49,7 +49,7 @@ function EditDiffFallback({
   newText?: string | undefined
 }) {
   return (
-    <div className="rounded-md bg-code px-3 py-2 font-mono text-[13px] leading-[1.5] overflow-x-auto whitespace-pre-wrap">
+    <div className="rounded-md bg-code px-3 py-2 font-mono text-[13px] leading-[1.5] overflow-x-auto scrollbar-subtle whitespace-pre-wrap">
       {oldText && <div className="diff-line-removed px-1">{oldText}</div>}
       {newText && <div className="diff-line-added px-1">{newText}</div>}
     </div>
@@ -214,7 +214,7 @@ export const ToolCard = memo(function ToolCard({
                   />
                 </Suspense>
               ) : (
-                <div className="rounded-md bg-code px-3 py-2 font-mono text-[13px] leading-[1.5] overflow-x-auto">
+                <div className="rounded-md bg-code px-3 py-2 font-mono text-[13px] leading-[1.5] overflow-x-auto scrollbar-subtle">
                   {Object.entries(args).map(([key, value]) => (
                     <div key={key}>
                       <span className="text-accent/60">{key}: </span>
@@ -231,7 +231,7 @@ export const ToolCard = memo(function ToolCard({
             {hasResult && !(name === 'edit' && !resolvedIsError) && (
               <div
                 className={cn(
-                  'rounded-md px-3 py-2 font-mono text-[13px] leading-[1.5] overflow-x-auto whitespace-pre-wrap max-h-[240px] overflow-y-auto',
+                  'rounded-md px-3 py-2 font-mono text-[13px] leading-[1.5] overflow-x-auto overflow-y-auto scrollbar-subtle whitespace-pre-wrap max-h-[240px]',
                   status === 'error'
                     ? 'bg-red-500/[0.06] text-red-400/80'
                     : 'bg-code text-muted-foreground',

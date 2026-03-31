@@ -121,7 +121,7 @@ function AppContent() {
 
   return (
     <Layout>
-      <div className="flex h-full relative">
+      <div className="relative flex h-full min-h-0 overflow-hidden">
         {/* Mobile overlay backdrop */}
         {sidebarOpen && (
           <button
@@ -159,7 +159,7 @@ function AppContent() {
         </div>
 
         {/* Main content */}
-        <main className="flex min-w-0 flex-1 flex-col bg-background relative">
+        <main className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background">
           {/* Mobile header */}
           <MobileHeader
             title={activeSession?.title}

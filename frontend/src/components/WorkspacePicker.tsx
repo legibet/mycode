@@ -388,7 +388,7 @@ export function WorkspacePicker({
             autoComplete="off"
             autoCorrect="off"
             autoCapitalize="off"
-            className="w-full bg-transparent text-xs font-mono focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring text-muted-foreground placeholder:text-muted-foreground/30 caret-accent"
+            className="w-full bg-transparent text-base md:text-xs font-mono focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring text-muted-foreground placeholder:text-muted-foreground/30 caret-accent"
             aria-label="Filter directories or enter a path"
           />
         </div>

@@ -26,6 +26,9 @@
     --input: 216 40% 18%;
     --ring: 204 50% 58%;
     --radius: 0.5rem;
+    --scrollbar-thumb: hsl(var(--border) / 0.9);
+    --scrollbar-thumb-hover: hsl(var(--muted-foreground) / 0.45);
+    --scrollbar-track: transparent;
 
     /* Code block */
     --code-background: 216 65% 7%; /* #06101E */
@@ -79,6 +82,14 @@
 }
 
 @layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+    width: 100%;
+    overflow: hidden;
+  }
+
   * {
     @apply border-border;
   }
@@ -87,6 +98,7 @@
     font-feature-settings: "ss01", "ss02", "cv01";
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    overscroll-behavior: none;
   }
   .light body {
     -webkit-font-smoothing: auto;
@@ -112,6 +124,31 @@
   background: transparent;
 }
 
+@media (pointer: coarse) {
+  .scrollbar-subtle {
+    scrollbar-width: thin;
+    scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+  }
+
+  .scrollbar-subtle::-webkit-scrollbar {
+    width: 3px;
+    height: 3px;
+  }
+
+  .scrollbar-subtle::-webkit-scrollbar-track {
+    background: var(--scrollbar-track);
+  }
+
+  .scrollbar-subtle::-webkit-scrollbar-thumb {
+    background-color: var(--scrollbar-thumb);
+    border-radius: 9999px;
+  }
+
+  .scrollbar-subtle::-webkit-scrollbar-thumb:hover {
+    background-color: var(--scrollbar-thumb-hover);
+  }
+}
+
 /* ── Prose / Markdown ── */
 .prose {
   @apply text-foreground max-w-none;
@@ -133,9 +170,11 @@
 }
 .prose p {
   @apply leading-relaxed [&:not(:first-child)]:mt-3;
+  overflow-wrap: anywhere;
 }
 .prose blockquote {
   @apply mt-4 border-l-2 border-accent/40 pl-4 italic text-muted-foreground;
+  overflow-wrap: anywhere;
 }
 .prose ul {
   @apply my-3 ml-4 list-disc [&>li]:mt-1;
@@ -145,6 +184,7 @@
 }
 .prose li {
   @apply leading-relaxed;
+  overflow-wrap: anywhere;
 }
 .prose pre {
   @apply my-4 overflow-x-auto rounded-lg bg-code;
@@ -161,6 +201,7 @@
 
 .prose a {
   @apply text-accent underline underline-offset-2 decoration-accent/40 hover:decoration-accent transition-colors;
+  overflow-wrap: anywhere;
 }
 .prose strong {
   @apply font-semibold text-foreground;
@@ -171,16 +212,18 @@
 
 /* Tables */
 .prose table {
-  @apply my-4 w-full text-sm border-collapse;
+  @apply w-full min-w-max text-sm border-collapse;
 }
 .prose thead {
   @apply border-b border-border;
 }
 .prose th {
   @apply px-3 py-2 text-left font-semibold text-foreground text-xs uppercase tracking-wider;
+  overflow-wrap: anywhere;
 }
 .prose td {
   @apply px-3 py-2 border-b border-border/30 text-foreground/80;
+  overflow-wrap: anywhere;
 }
 .prose tbody tr:hover {
   @apply bg-muted/20;
