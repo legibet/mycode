@@ -318,7 +318,7 @@ class _RuntimeAgent:
         self.api_key = None
         self.api_base = None
         self.reasoning_effort = None
-        self.max_tokens = 8192
+        self.max_tokens = 16_384
         self.settings = settings
 
 

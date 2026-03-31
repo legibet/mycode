@@ -84,9 +84,11 @@ Block types: `text` · `thinking` · `tool_use` · `tool_result`
 - `thinking` blocks are first-class session data — persisted and shown in UI
 - Provider-specific extras: `meta.native` on messages, `block.meta.native` on blocks
 - Tool results stored as a `user` message with `tool_result` blocks:
+
   ```json
   {"type": "tool_result", "tool_use_id": "call_1", "model_text": "ok", "display_text": "Wrote x.py", "is_error": false}
   ```
+
   `model_text` is replayed to providers on later turns; `display_text` is shown to users.
 - System prompt is runtime-only, not persisted
 

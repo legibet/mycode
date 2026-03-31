@@ -102,7 +102,8 @@ Options: `auto` (default) · `none` · `low` · `medium` · `high` · `xhigh`
 
 - `supports_reasoning` — whether the model supports extended thinking
 - `context_window` — used for compact threshold calculation
-- `max_output_tokens` — passed to the provider as the output limit; defaults to `8192` when not available
+- `max_output_tokens` — passed to the provider as the output limit; defaults to `16384` when not available
+- `context_window` — defaults to `128000` when the bundled catalog does not provide one
 
 Model lookup strategy (`lookup_model_metadata`):
 

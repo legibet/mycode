@@ -562,7 +562,8 @@ class TestGetSettings:
         assert resolved.provider_type == "openai"
         assert resolved.model == "gpt-5.4"
         assert resolved.api_key == "env-key"
-        assert resolved.max_tokens == 8192
+        assert resolved.max_tokens == 16_384
+        assert resolved.context_window == 128_000
 
     def test_resolve_provider_applies_catalog_metadata(self, tmp_path: Path, monkeypatch) -> None:
         home = tmp_path / "home"

@@ -73,8 +73,8 @@ class ResolvedProvider:
     api_key: str | None
     api_base: str | None
     reasoning_effort: str | None
-    max_tokens: int = 8192
-    context_window: int | None = None
+    max_tokens: int = 16_384
+    context_window: int | None = 128_000
     model_metadata: ModelMetadata | None = None
     provider_name: str | None = None
 
@@ -526,8 +526,8 @@ def _resolve_provider_runtime(
         api_key=resolved_api_key,
         api_base=resolved_api_base,
         reasoning_effort=reasoning_effort,
-        max_tokens=model_metadata.max_output_tokens if model_metadata and model_metadata.max_output_tokens else 8192,
-        context_window=model_metadata.context_window if model_metadata else None,
+        max_tokens=model_metadata.max_output_tokens if model_metadata and model_metadata.max_output_tokens else 16_384,
+        context_window=model_metadata.context_window if model_metadata and model_metadata.context_window else 128_000,
         model_metadata=model_metadata,
     )
 
