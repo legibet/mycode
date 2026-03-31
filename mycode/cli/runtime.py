@@ -116,8 +116,7 @@ def list_provider_options(settings: Settings) -> list[ProviderOption]:
     configured_types: set[str] = set()
 
     for name, config in settings.providers.items():
-        raw_models = config.models or list(provider_default_models(config.type))
-        models = tuple(dict.fromkeys(model.strip() for model in raw_models if model.strip()))
+        models = tuple(config.models)
         options.append(
             ProviderOption(
                 name=name,
@@ -170,11 +169,16 @@ def supports_reasoning_effort(agent: Agent) -> bool:
     adapter = get_provider_adapter(agent.provider)
     if not adapter.supports_reasoning_effort:
         return False
-    meta = lookup_model_metadata(
-        provider_type=agent.provider,
-        provider_name=agent.provider,
-        model=agent.model,
-    )
+    option = get_provider_option(agent.settings, provider=agent.provider, api_base=agent.api_base)
+    if option:
+        resolved = resolve_provider(
+            agent.settings,
+            provider_name=option.name,
+            model=agent.model,
+            api_base=agent.api_base,
+        )
+        return resolved.model_metadata is not None and resolved.model_metadata.supports_reasoning is True
+    meta = lookup_model_metadata(provider_type=agent.provider, provider_name=agent.provider, model=agent.model)
     return meta is not None and meta.supports_reasoning is True
 
 

@@ -26,7 +26,14 @@ Config resolution: `get_settings(cwd)` → returns `Settings` dataclass.
   "providers": {
     "<name>": {
       "type": "<adapter-id>",
-      "models": ["model-a", "model-b"],
+      "models": {
+        "model-a": {
+          "context_window": 400000,
+          "max_output_tokens": 128000,
+          "supports_reasoning": true
+        },
+        "model-b": {}
+      },
       "base_url": "https://...",
       "api_key": "sk-..." or "${ENV_VAR_NAME}",
       "reasoning_effort": "none"
@@ -42,7 +49,10 @@ Config resolution: `get_settings(cwd)` → returns `Settings` dataclass.
 - `default.reasoning_effort` — global default; `null`/`"auto"`/`"default"` all resolve to "no override"
 - `default.compact_threshold` — fraction of context window that triggers compaction; `false` or `0` disables; range `[0, 1]`; default `0.8`
 - `providers.<name>.type` — internal adapter id (see AGENTS.md provider table). Required for custom aliases. Built-in providers can omit `type` when the key matches their adapter id.
-- `providers.<name>.models` — list shown in UI; falls back to adapter `default_models` when omitted. Accepts a single string.
+- `providers.<name>.models` — model map. Keys are model ids shown in UI. Values can override models.dev metadata for that exact model.
+- `providers.<name>.models.<model>.context_window` — override the model context window
+- `providers.<name>.models.<model>.max_output_tokens` — override the provider output limit
+- `providers.<name>.models.<model>.supports_reasoning` — override whether reasoning effort is available
 - `providers.<name>.api_key` — literal value or `${ENV_NAME}` reference
 - `providers.<name>.base_url` — override the adapter's default base URL
 - `providers.<name>.reasoning_effort` — per-provider override of the global default

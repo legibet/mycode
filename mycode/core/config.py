@@ -34,10 +34,17 @@ _VALID_REASONING_EFFORTS = ("none", "low", "medium", "high", "xhigh")
 
 
 @dataclass(frozen=True)
+class ModelConfig:
+    context_window: int | None = None
+    max_output_tokens: int | None = None
+    supports_reasoning: bool | None = None
+
+
+@dataclass(frozen=True)
 class ProviderConfig:
     name: str
     type: str  # internal provider adapter id: anthropic | moonshotai | minimax | …
-    models: list[str]
+    models: dict[str, ModelConfig]
     api_key: str | None = None
     api_key_env_var: str | None = None
     base_url: str | None = None
@@ -109,12 +116,34 @@ def _load_json(path: Path) -> dict[str, Any] | None:
     return data if isinstance(data, dict) else None
 
 
-def _normalize_models(value: Any) -> list[str]:
-    if isinstance(value, str):
-        return [value]
-    if not isinstance(value, list):
-        return []
-    return [item.strip() for item in value if isinstance(item, str) and item.strip()]
+def _normalize_models(value: Any) -> dict[str, ModelConfig]:
+    if not isinstance(value, dict):
+        return {}
+
+    models: dict[str, ModelConfig] = {}
+    for model, raw in value.items():
+        if not isinstance(model, str):
+            continue
+        model_id = model.strip()
+        if not model_id:
+            continue
+        if isinstance(raw, ModelConfig):
+            models[model_id] = raw
+            continue
+        raw_config = raw if isinstance(raw, dict) else {}
+        context_window = raw_config.get("context_window")
+        max_output_tokens = raw_config.get("max_output_tokens")
+        supports_reasoning = raw_config.get("supports_reasoning")
+        models[model_id] = ModelConfig(
+            context_window=(
+                context_window if isinstance(context_window, int) and not isinstance(context_window, bool) else None
+            ),
+            max_output_tokens=max_output_tokens
+            if isinstance(max_output_tokens, int) and not isinstance(max_output_tokens, bool)
+            else None,
+            supports_reasoning=supports_reasoning if isinstance(supports_reasoning, bool) else None,
+        )
+    return models
 
 
 def _parse_config_api_key(value: Any) -> tuple[str | None, str | None]:
@@ -208,7 +237,9 @@ def _build_providers(raw_providers: dict[str, dict[str, Any]]) -> dict[str, Prov
         else:
             raise ValueError(f"provider {name!r} must set 'type'")
 
-        models = _normalize_models(raw.get("models")) or list(provider_default_models(provider_type))
+        models = _normalize_models(raw.get("models"))
+        if not models:
+            models = {model: ModelConfig() for model in provider_default_models(provider_type)}
         providers[name] = ProviderConfig(
             name=name,
             type=provider_type,
@@ -408,7 +439,7 @@ def _resolve_provider_runtime(
     if requested_model:
         resolved_model = requested_model
     elif provider_config and provider_config.models:
-        resolved_model = provider_config.models[0]
+        resolved_model = next(iter(provider_config.models))
     elif selected_name == settings.default_provider and (settings.default_model or "").strip():
         resolved_model = str(settings.default_model).strip()
     else:
@@ -424,6 +455,45 @@ def _resolve_provider_runtime(
         model=resolved_model,
         api_base=resolved_api_base,
     )
+    if provider_config:
+        model_config = provider_config.models.get(resolved_model)
+        if model_config:
+            if model_metadata is None:
+                model_metadata = ModelMetadata(
+                    provider=provider_type,
+                    model=resolved_model,
+                    name=None,
+                    context_window=model_config.context_window,
+                    max_input_tokens=None,
+                    max_output_tokens=model_config.max_output_tokens,
+                    supports_reasoning=model_config.supports_reasoning,
+                    supports_tools=None,
+                    raw={},
+                )
+            else:
+                model_metadata = ModelMetadata(
+                    provider=model_metadata.provider,
+                    model=model_metadata.model,
+                    name=model_metadata.name,
+                    context_window=(
+                        model_config.context_window
+                        if model_config.context_window is not None
+                        else model_metadata.context_window
+                    ),
+                    max_input_tokens=model_metadata.max_input_tokens,
+                    max_output_tokens=(
+                        model_config.max_output_tokens
+                        if model_config.max_output_tokens is not None
+                        else model_metadata.max_output_tokens
+                    ),
+                    supports_reasoning=(
+                        model_config.supports_reasoning
+                        if model_config.supports_reasoning is not None
+                        else model_metadata.supports_reasoning
+                    ),
+                    supports_tools=model_metadata.supports_tools,
+                    raw=model_metadata.raw,
+                )
 
     configured_effort = settings.default_reasoning_effort
     if provider_config and provider_config.reasoning_effort is not None:

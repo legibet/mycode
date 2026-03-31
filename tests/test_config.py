@@ -55,7 +55,7 @@ class TestGetSettings:
                 "shared": {
                   "type": "openai",
                   "api_key": "global-key",
-                  "models": ["gpt-5-mini"]
+                  "models": {"gpt-5-mini": {}}
                 }
               },
               "default": {
@@ -76,7 +76,7 @@ class TestGetSettings:
               "providers": {
                 "shared": {
                   "base_url": "https://root.example/v1",
-                  "models": ["gpt-5.4"]
+                  "models": {"gpt-5.4": {}}
                 }
               }
             }
@@ -91,7 +91,7 @@ class TestGetSettings:
         assert settings.default_model == "gpt-5.4"
         assert settings.providers["shared"].api_key == "global-key"
         assert settings.providers["shared"].base_url == "https://root.example/v1"
-        assert settings.providers["shared"].models == ["gpt-5.4"]
+        assert list(settings.providers["shared"].models) == ["gpt-5.4"]
         assert settings.config_paths == [
             str((home / ".mycode" / "config.json").resolve()),
             str((project / ".mycode" / "config.json").resolve()),
@@ -131,7 +131,7 @@ class TestGetSettings:
                     "type": "anthropic",
                     "api_key": "config-key",
                     "base_url": "https://config.example/v1",
-                    "models": ["claude-sonnet-4-6"]
+                    "models": {"claude-sonnet-4-6": {}}
                   }
                 },
                 "default": {
@@ -215,7 +215,7 @@ class TestGetSettings:
                 "shared": {
                   "type": "openai",
                   "api_key": "config-openai-key",
-                  "models": ["gpt-5.4-mini"]
+                  "models": {"gpt-5.4-mini": {}}
                 }
               }
             }
@@ -265,7 +265,7 @@ class TestGetSettings:
                 "claude": {
                   "type": "anthropic",
                   "api_key": "config-key",
-                  "models": ["claude-sonnet-4-6"]
+                  "models": {"claude-sonnet-4-6": {}}
                 }
               },
               "default": {
@@ -301,7 +301,7 @@ class TestGetSettings:
                   "type": "openai_chat",
                   "api_key": "${OPENROUTER_API_KEY}",
                   "base_url": "https://openrouter.ai/api/v1",
-                  "models": ["openai/gpt-5"]
+                  "models": {"openai/gpt-5": {}}
                 }
               },
               "default": {
@@ -337,7 +337,7 @@ class TestGetSettings:
                   "type": "openai_chat",
                   "api_key": "${OPENROUTER_API_KEY}",
                   "base_url": "https://openrouter.ai/api/v1",
-                  "models": ["openai/gpt-5"]
+                  "models": {"openai/gpt-5": {}}
                 }
               },
               "default": {
@@ -370,7 +370,7 @@ class TestGetSettings:
                   "type": "openai_chat",
                   "api_key": "${OPENROUTER_API_KEY}",
                   "base_url": "https://openrouter.ai/api/v1",
-                  "models": ["openai/gpt-5"],
+                  "models": {"openai/gpt-5": {}},
                   "reasoning_effort": "high"
                 }
               },
@@ -402,7 +402,7 @@ class TestGetSettings:
               "providers": {
                 "claude": {
                   "type": "anthropic",
-                  "models": ["claude-sonnet-4-6"]
+                  "models": {"claude-sonnet-4-6": {}}
                 }
               },
               "default": {
@@ -438,7 +438,7 @@ class TestGetSettings:
               "providers": {
                 "compat": {
                   "type": "openai",
-                  "models": ["gpt-5.4"]
+                  "models": {"gpt-5.4": {}}
                 }
               }
             }
@@ -476,7 +476,7 @@ class TestGetSettings:
 
         settings = get_settings(str(workspace))
 
-        assert settings.providers["moonshotai"].models == ["kimi-k2.5"]
+        assert list(settings.providers["moonshotai"].models) == ["kimi-k2.5"]
 
     def test_builtin_provider_override_uses_name_as_type_when_type_is_omitted(
         self, tmp_path: Path, monkeypatch
@@ -494,7 +494,7 @@ class TestGetSettings:
             {
               "providers": {
                 "openrouter": {
-                  "models": ["deepseek/deepseek-v3.2"]
+                  "models": {"deepseek/deepseek-v3.2": {}}
                 }
               },
               "default": {
@@ -508,7 +508,7 @@ class TestGetSettings:
         resolved = resolve_provider(settings)
 
         assert settings.providers["openrouter"].type == "openrouter"
-        assert settings.providers["openrouter"].models == ["deepseek/deepseek-v3.2"]
+        assert list(settings.providers["openrouter"].models) == ["deepseek/deepseek-v3.2"]
         assert resolved.provider_type == "openrouter"
         assert resolved.model == "deepseek/deepseek-v3.2"
         assert resolved.api_key == "router-env-key"
@@ -594,7 +594,7 @@ class TestGetSettings:
                 "shared": {
                   "type": "openai",
                   "reasoning_effort": "high",
-                  "models": ["gpt-4.1-mini"]
+                  "models": {"gpt-4.1-mini": {}}
                 }
               },
               "default": {
@@ -696,7 +696,7 @@ class TestGetSettings:
                   "type": "openai_chat",
                   "api_key": "${OPENROUTER_API_KEY}",
                   "base_url": "https://openrouter.ai/api/v1",
-                  "models": ["openai/gpt-5"]
+                  "models": {"openai/gpt-5": {}}
                 }
               },
               "default": {
@@ -712,3 +712,55 @@ class TestGetSettings:
 
         assert resolved.provider_type == "openai_chat"
         assert resolved.reasoning_effort is None
+
+    def test_resolve_provider_applies_config_model_metadata_override(self, tmp_path: Path, monkeypatch) -> None:
+        home = tmp_path / "home"
+        workspace = tmp_path / "workspace"
+        workspace.mkdir()
+
+        monkeypatch.setenv("MYCODE_HOME", str(home / ".mycode"))
+        monkeypatch.setenv("OPENAI_API_KEY", "env-key")
+        monkeypatch.setattr(
+            "mycode.core.config.lookup_model_metadata",
+            lambda **_: ModelMetadata(
+                provider="openai",
+                model="gpt-5.4",
+                name="GPT-5.4",
+                context_window=400_000,
+                max_input_tokens=272_000,
+                max_output_tokens=128_000,
+                supports_reasoning=True,
+                supports_tools=True,
+                raw={},
+            ),
+        )
+
+        _write(
+            home / ".mycode" / "config.json",
+            """
+            {
+              "providers": {
+                "openai": {
+                  "models": {
+                    "gpt-5.4": {
+                      "context_window": 500000,
+                      "max_output_tokens": 64000,
+                      "supports_reasoning": false
+                    }
+                  }
+                }
+              },
+              "default": {
+                "provider": "openai"
+              }
+            }
+            """,
+        )
+
+        settings = get_settings(str(workspace))
+        resolved = resolve_provider(settings)
+
+        assert resolved.context_window == 500_000
+        assert resolved.max_tokens == 64_000
+        assert resolved.model_metadata is not None
+        assert resolved.model_metadata.supports_reasoning is False

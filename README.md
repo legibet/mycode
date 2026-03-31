@@ -2,7 +2,7 @@
 
 >There are many coding agents, but this one is mine.
 
-A minimal coding agent with a web UI and CLI. Inspired by [pi](https://github.com/nicholasgasior/pi).
+A minimal coding agent with a web UI and CLI. Inspired by [pi](https://github.com/badlogic/pi-mono).
 
 - 4 tools only: `read`, `write`, `edit`, `bash`.
 - Expand capabilities via skills.
@@ -70,7 +70,10 @@ Config is loaded from `~/.mycode/config.json` (global) and `<workspace>/.mycode/
   },
   "providers": {
     "openrouter": {
-      "models": ["deepseek/deepseek-v3.2", "xiaomi/mimo-v2-pro"]
+      "models": {
+        "deepseek/deepseek-v3.2": {},
+        "xiaomi/mimo-v2-pro": {}
+      }
     },
     "zhipu-coding-plan": {
       "type": "zai",
@@ -81,7 +84,9 @@ Config is loaded from `~/.mycode/config.json` (global) and `<workspace>/.mycode/
       "type": "openai_chat",
       "base_url": "https://custom-endpoint.com/v1",
       "api_key": "${CUSTOM_API_KEY}",
-      "models": ["gpt-5.4-custom"]
+      "models": {
+        "gpt-5.4-custom": {}
+      }
     }
   }
 }

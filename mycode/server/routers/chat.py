@@ -205,7 +205,7 @@ async def get_config(cwd: str | None = None):
     for provider in resolve_provider_choices(settings):
         provider_config = settings.providers.get(provider.provider_name or "")
         models = (
-            provider_config.models
+            list(provider_config.models)
             if provider_config and provider_config.models
             else list(provider_default_models(provider.provider))
         )

@@ -17,7 +17,7 @@ from mycode.cli.render import TerminalView
 from mycode.cli.runtime import list_model_options, resolve_session
 from mycode.cli.runtime import update_agent_runtime as _update_agent_runtime
 from mycode.core.agent import Event
-from mycode.core.config import ProviderConfig, ResolvedProvider, Settings
+from mycode.core.config import ModelConfig, ProviderConfig, ResolvedProvider, Settings
 from mycode.core.session import SessionStore
 
 
@@ -287,7 +287,10 @@ def test_model_options_use_configured_provider_models():
             "claude": ProviderConfig(
                 name="claude",
                 type="anthropic",
-                models=["claude-sonnet-4-6", "claude-haiku-4-5"],
+                models={
+                    "claude-sonnet-4-6": ModelConfig(),
+                    "claude-haiku-4-5": ModelConfig(),
+                },
                 base_url="https://api.anthropic.com",
             )
         },
