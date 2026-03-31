@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import os
-import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -12,7 +11,6 @@ from urllib.request import Request, urlopen
 
 _DEFAULT_MYCODE_HOME = "~/.mycode"
 _MODELS_DEV_URL = "https://models.dev/api.json"
-_CACHE_TTL_SECONDS = 60 * 60 * 24
 _FETCH_TIMEOUT_SECONDS = 5.0
 
 _models_dev_cache: dict[str, Any] | None = None
@@ -34,28 +32,40 @@ class ModelMetadata:
     raw: dict[str, Any]
 
 
-def load_models_dev(*, force_refresh: bool = False) -> dict[str, Any] | None:
-    """Load the raw models.dev catalog from memory, cache, or network."""
+def initialize_models_dev() -> dict[str, Any] | None:
+    """Refresh the catalog once when the process starts, then keep it in memory."""
 
     global _models_dev_cache, _models_dev_cache_loaded
 
-    if not force_refresh and _models_dev_cache_loaded:
+    if _models_dev_cache_loaded:
         return _models_dev_cache
 
     cache_path = _models_dev_cache_path()
-    data: dict[str, Any] | None = None
-
-    if not force_refresh:
-        data = _read_cached_models_dev(cache_path, require_fresh=True)
-
+    data = _read_cached_models_dev(cache_path)
     if data is None:
+        data = _fetch_models_dev()
+        if data is not None:
+            _write_cached_models_dev(cache_path, data)
+    else:
         fetched = _fetch_models_dev()
         if fetched is not None:
             _write_cached_models_dev(cache_path, fetched)
             data = fetched
-        elif not force_refresh:
-            data = _read_cached_models_dev(cache_path, require_fresh=False)
 
+    _models_dev_cache = data
+    _models_dev_cache_loaded = True
+    return data
+
+
+def load_models_dev() -> dict[str, Any] | None:
+    """Load the raw models.dev catalog from memory or local cache only."""
+
+    global _models_dev_cache, _models_dev_cache_loaded
+
+    if _models_dev_cache_loaded:
+        return _models_dev_cache
+
+    data = _read_cached_models_dev(_models_dev_cache_path())
     _models_dev_cache = data
     _models_dev_cache_loaded = True
     return data
@@ -74,30 +84,29 @@ def lookup_model_metadata(
     if not raw_model_id:
         return None
 
+    catalog = load_models_dev()
+    if not catalog:
+        return None
+
     normalized_model_id = _strip_prefix(raw_model_id)
     fallback_provider_type = _default_provider(normalized_model_id)
 
-    for force_refresh in (False, True):
-        catalog = load_models_dev(force_refresh=force_refresh)
-        if not catalog:
-            continue
+    # The current provider must match the exact model id it uses at runtime.
+    metadata = _lookup_entry(catalog, provider_type, raw_model_id)
+    if metadata is not None:
+        return metadata
 
-        # The current provider must match the exact model id it uses at runtime.
-        metadata = _lookup_entry(catalog, provider_type, raw_model_id)
+    # The fallback provider owns the canonical model family, so use the
+    # normalized model id without any provider prefix.
+    if fallback_provider_type and fallback_provider_type != provider_type:
+        metadata = _lookup_entry(catalog, fallback_provider_type, normalized_model_id)
         if metadata is not None:
             return metadata
 
-        # The fallback provider owns the canonical model family, so use the
-        # normalized model id without any provider prefix.
-        if fallback_provider_type and fallback_provider_type != provider_type:
-            metadata = _lookup_entry(catalog, fallback_provider_type, normalized_model_id)
-            if metadata is not None:
-                return metadata
-
-        # aihubmix keeps a broad catalog of canonical model ids.
-        metadata = _lookup_entry(catalog, "aihubmix", normalized_model_id)
-        if metadata is not None:
-            return metadata
+    # aihubmix keeps a broad catalog of canonical model ids.
+    metadata = _lookup_entry(catalog, "aihubmix", normalized_model_id)
+    if metadata is not None:
+        return metadata
 
     return None
 
@@ -183,14 +192,10 @@ def _models_dev_cache_path() -> Path:
     return Path(home).expanduser().resolve(strict=False) / "cache" / "models.dev-api.json"
 
 
-def _read_cached_models_dev(path: Path, *, require_fresh: bool) -> dict[str, Any] | None:
+def _read_cached_models_dev(path: Path) -> dict[str, Any] | None:
     try:
         if not path.is_file():
             return None
-        if require_fresh:
-            age_seconds = max(0.0, time.time() - path.stat().st_mtime)
-            if age_seconds > _CACHE_TTL_SECONDS:
-                return None
         data = json.loads(path.read_text(encoding="utf-8"))
     except Exception:
         return None
