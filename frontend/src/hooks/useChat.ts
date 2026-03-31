@@ -55,10 +55,6 @@ function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'Unknown error'
 }
 
-function getErrorName(error: unknown): string {
-  return error instanceof Error ? error.name : ''
-}
-
 function getErrorDetail(
   data: ChatResponse | ChatErrorResponse,
 ): ChatErrorResponse['detail'] {
@@ -293,7 +289,6 @@ export function useChat(config: LocalConfig) {
   const initRef = useRef(false)
   const cwdRef = useRef(config.cwd)
   const activeSessionRef = useRef(activeSession)
-  const activeSessionIdRef = useRef(activeSession.id)
   const requestTokenRef = useRef(0)
   const pendingRequestTokenRef = useRef(0)
   const streamAbortRef = useRef<AbortController | null>(null)
@@ -347,7 +342,6 @@ export function useChat(config: LocalConfig) {
       )
       if (syncedActive && syncedActive !== active) {
         activeSessionRef.current = syncedActive
-        activeSessionIdRef.current = syncedActive.id
         setActiveSession(syncedActive)
       }
 
@@ -386,7 +380,7 @@ export function useChat(config: LocalConfig) {
       const recoverSession = async () => {
         if (
           streamTokenRef.current !== token ||
-          activeSessionIdRef.current !== sessionId
+          activeSessionRef.current.id !== sessionId
         ) {
           return true
         }
@@ -441,7 +435,7 @@ export function useChat(config: LocalConfig) {
               }
               if (
                 streamTokenRef.current !== token ||
-                activeSessionIdRef.current !== sessionId
+                activeSessionRef.current.id !== sessionId
               ) {
                 continue
               }
@@ -459,12 +453,12 @@ export function useChat(config: LocalConfig) {
           }
         }
       } catch (e) {
-        if (getErrorName(e) !== 'AbortError') {
+        if (!(e instanceof Error) || e.name !== 'AbortError') {
           const recovered = await recoverSession()
           if (
             !recovered &&
             streamTokenRef.current === token &&
-            activeSessionIdRef.current === sessionId
+            activeSessionRef.current.id === sessionId
           ) {
             setConnectionState('error')
             dispatch({
@@ -481,7 +475,7 @@ export function useChat(config: LocalConfig) {
           streamAbortRef.current = null
           activeRunRef.current = null
 
-          if (activeSessionIdRef.current === sessionId) {
+          if (activeSessionRef.current.id === sessionId) {
             setLoading(false)
           }
 
@@ -502,7 +496,6 @@ export function useChat(config: LocalConfig) {
 
       setConnectionState('ready')
       activeSessionRef.current = data.session
-      activeSessionIdRef.current = data.session.id
       setActiveSession(data.session)
       saveActiveSession(config.cwd, data.session.id)
       dispatch({ type: 'set_messages', messages: data.messages || [] })
@@ -572,7 +565,7 @@ export function useChat(config: LocalConfig) {
         const isCurrentRequest = isCurrentSendRequest({
           pendingRequestToken: pendingRequestTokenRef.current,
           requestToken,
-          activeSessionId: activeSessionIdRef.current,
+          activeSessionId: activeSessionRef.current.id,
           sessionId,
           activeCwd: cwdRef.current,
           requestCwd,
@@ -604,7 +597,6 @@ export function useChat(config: LocalConfig) {
         if (chatData.session) {
           const session = chatData.session
           activeSessionRef.current = session
-          activeSessionIdRef.current = session.id
           setActiveSession(session)
           saveActiveSession(requestCwd, session.id)
         }
@@ -616,7 +608,7 @@ export function useChat(config: LocalConfig) {
       } catch (e) {
         if (
           pendingRequestTokenRef.current === requestToken &&
-          activeSessionIdRef.current === sessionId
+          activeSessionRef.current.id === sessionId
         ) {
           pendingRequestTokenRef.current = 0
           setLoading(false)
@@ -677,7 +669,7 @@ export function useChat(config: LocalConfig) {
         const isCurrentRequest = isCurrentSendRequest({
           pendingRequestToken: pendingRequestTokenRef.current,
           requestToken,
-          activeSessionId: activeSessionIdRef.current,
+          activeSessionId: activeSessionRef.current.id,
           sessionId,
           activeCwd: cwdRef.current,
           requestCwd,
@@ -719,7 +711,6 @@ export function useChat(config: LocalConfig) {
         if (chatData.session) {
           const session = chatData.session
           activeSessionRef.current = session
-          activeSessionIdRef.current = session.id
           setActiveSession(session)
           saveActiveSession(requestCwd, session.id)
         }
@@ -729,7 +720,7 @@ export function useChat(config: LocalConfig) {
       } catch (e) {
         if (
           pendingRequestTokenRef.current === requestToken &&
-          activeSessionIdRef.current === sessionId
+          activeSessionRef.current.id === sessionId
         ) {
           pendingRequestTokenRef.current = 0
           dispatch({ type: 'set_messages', messages: previousMessages })
@@ -781,7 +772,6 @@ export function useChat(config: LocalConfig) {
     const session = createDraftSession()
 
     activeSessionRef.current = session
-    activeSessionIdRef.current = session.id
     setActiveSession(session)
     dispatch({ type: 'set_messages', messages: [] })
     // Refresh from server to get accurate is_running, then prepend the new draft
@@ -871,7 +861,6 @@ export function useChat(config: LocalConfig) {
 
   useEffect(() => {
     activeSessionRef.current = activeSession
-    activeSessionIdRef.current = activeSession.id
   }, [activeSession])
 
   useEffect(() => {
@@ -889,7 +878,6 @@ export function useChat(config: LocalConfig) {
     const session = createDraftSession()
     setActiveSession(session)
     activeSessionRef.current = session
-    activeSessionIdRef.current = session.id
     initializeSessions()
   }, [config.cwd, initializeSessions, stopStreaming])
 

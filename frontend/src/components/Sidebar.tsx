@@ -45,13 +45,9 @@ function getProviderEntries(
   providers: RemoteConfig['providers'],
 ): Array<[string, ProviderInfo]> {
   if (!providers) return []
-
-  return Object.keys(providers)
-    .map((providerName) => {
-      const provider = providers[providerName]
-      return provider ? ([providerName, provider] as const) : null
-    })
-    .filter((entry): entry is [string, ProviderInfo] => entry !== null)
+  return Object.entries(providers).filter(
+    (entry): entry is [string, ProviderInfo] => entry[1] !== undefined,
+  )
 }
 
 interface SidebarProps {

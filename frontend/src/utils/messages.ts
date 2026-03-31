@@ -39,8 +39,7 @@ function cloneBlock(
   renderKey: string | null = null,
 ): MessageBlock {
   const next = { ...block }
-  if (isObject(block?.meta)) next.meta = { ...block.meta }
-  if ('input' in next && isObject(next.input)) next.input = { ...next.input }
+  if (next.meta) next.meta = { ...next.meta }
   if (renderKey) next.renderKey = renderKey
   return next
 }

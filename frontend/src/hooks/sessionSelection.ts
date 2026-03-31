@@ -1,3 +1,7 @@
+/**
+ * Session selection helpers for initialization and concurrency control.
+ */
+
 import type { SessionSummary } from '../types'
 
 interface CurrentSendRequest {

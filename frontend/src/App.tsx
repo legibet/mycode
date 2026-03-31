@@ -85,15 +85,18 @@ function AppContent() {
     })
   }, [remoteConfig])
 
-  const handleConfigUpdate = (newConfig: LocalConfig) => {
-    if (newConfig.cwd !== config.cwd) {
-      const nextHistory = addHistory(cwdHistory, newConfig.cwd)
-      setCwdHistory(nextHistory)
-      saveHistory(nextHistory)
-    }
-    setConfig(newConfig)
-    saveConfig(newConfig)
-  }
+  const handleConfigUpdate = useCallback(
+    (newConfig: LocalConfig) => {
+      if (newConfig.cwd !== config.cwd) {
+        const nextHistory = addHistory(cwdHistory, newConfig.cwd)
+        setCwdHistory(nextHistory)
+        saveHistory(nextHistory)
+      }
+      setConfig(newConfig)
+      saveConfig(newConfig)
+    },
+    [config.cwd, cwdHistory],
+  )
 
   const inputRef = useRef(input)
   inputRef.current = input

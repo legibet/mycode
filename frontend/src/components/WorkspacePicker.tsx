@@ -229,7 +229,7 @@ export function WorkspacePicker({
   const handleGoParent = () => {
     if (!state.root || !state.path) return
     const segments = state.path.split('/')
-    browsePath(state.root, segments.slice(0, -1).join('/'))
+    void browsePath(state.root, segments.slice(0, -1).join('/'))
   }
 
   const handleSelect = () => {
@@ -240,11 +240,11 @@ export function WorkspacePicker({
   }
 
   const handleInputKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter') goToPath(pathInput)
+    if (e.key === 'Enter') void goToPath(pathInput)
     else if (e.key === 'Tab') {
       e.preventDefault()
       const firstEntry = filteredEntries[0]
-      if (firstEntry) browsePath(state.root, firstEntry.path)
+      if (firstEntry) void browsePath(state.root, firstEntry.path)
     } else if (e.key === 'Escape') {
       setPathInput(state.current || '')
       onClose()
@@ -320,7 +320,7 @@ export function WorkspacePicker({
           <div className="flex-1 flex items-center overflow-x-auto scrollbar-none min-w-0 px-1 gap-0.5">
             <button
               type="button"
-              onClick={() => state.root && browsePath(state.root, '')}
+              onClick={() => state.root && void browsePath(state.root, '')}
               className={cn(
                 'shrink-0 px-1.5 py-0.5 rounded text-sm font-mono cursor-pointer',
                 'transition-colors duration-150 hover:bg-muted/60 hover:text-foreground',
@@ -343,7 +343,7 @@ export function WorkspacePicker({
                   </span>
                   <button
                     type="button"
-                    onClick={() => browsePath(state.root, crumbPath)}
+                    onClick={() => void browsePath(state.root, crumbPath)}
                     className={cn(
                       'px-1.5 py-0.5 rounded text-sm font-mono cursor-pointer whitespace-nowrap',
                       'transition-colors duration-150 hover:bg-muted/60 hover:text-foreground',
@@ -464,7 +464,7 @@ export function WorkspacePicker({
                   <button
                     type="button"
                     key={entry.path}
-                    onClick={() => browsePath(state.root, entry.path)}
+                    onClick={() => void browsePath(state.root, entry.path)}
                     className="group flex items-center gap-3 w-full min-h-[44px] px-4 py-2 text-left cursor-pointer transition-colors duration-100 hover:bg-muted/50 active:bg-muted/70 focus-visible:outline-none focus-visible:bg-muted/50"
                   >
                     <Folder className="h-3.5 w-3.5 shrink-0 text-accent/40 group-hover:text-accent/70 transition-colors duration-100" />

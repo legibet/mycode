@@ -24,42 +24,30 @@ function loadEditDiff() {
 }
 const EditDiff = lazy(loadEditDiff)
 
-interface EditArgs extends Record<string, unknown> {
+interface EditArgs {
   path?: string
   oldText?: string
   newText?: string
+  [key: string]: unknown
 }
 
-interface EditDiffFallbackProps {
-  oldText?: string | undefined
-  newText?: string | undefined
-}
-
-function getStringArg(
-  args: Record<string, unknown>,
-  key: string,
-): string | undefined {
-  return typeof args[key] === 'string' ? args[key] : undefined
-}
-
-function hasOptionalStringArg(
-  args: Record<string, unknown>,
-  key: string,
-): boolean {
-  const value = args[key]
-  return value === undefined || typeof value === 'string'
-}
-
+/** Validates that edit-tool args have the expected string-or-undefined fields. */
 function isEditArgs(args: Record<string, unknown>): args is EditArgs {
+  const { oldText, newText, path } = args
   return (
-    (!('oldText' in args) || hasOptionalStringArg(args, 'oldText')) &&
-    (!('newText' in args) || hasOptionalStringArg(args, 'newText')) &&
-    (!('path' in args) || hasOptionalStringArg(args, 'path')) &&
-    ('oldText' in args || 'newText' in args || 'path' in args)
+    (oldText === undefined || typeof oldText === 'string') &&
+    (newText === undefined || typeof newText === 'string') &&
+    (path === undefined || typeof path === 'string')
   )
 }
 
-function EditDiffFallback({ oldText, newText }: EditDiffFallbackProps) {
+function EditDiffFallback({
+  oldText,
+  newText,
+}: {
+  oldText?: string | undefined
+  newText?: string | undefined
+}) {
   return (
     <div className="rounded-md bg-code px-3 py-2 font-mono text-[13px] leading-[1.5] overflow-x-auto whitespace-pre-wrap">
       {oldText && <div className="diff-line-removed px-1">{oldText}</div>}
@@ -90,11 +78,11 @@ function getPreview(name: string, args?: Record<string, unknown>): string {
   if (!args) return ''
   switch (name) {
     case 'bash':
-      return getStringArg(args, 'command') ?? ''
+      return typeof args['command'] === 'string' ? args['command'] : ''
     case 'read':
     case 'write':
     case 'edit':
-      return getStringArg(args, 'path') ?? ''
+      return typeof args['path'] === 'string' ? args['path'] : ''
     default:
       return Object.entries(args)
         .filter(([k]) => k !== 'content' && k !== 'prompt')

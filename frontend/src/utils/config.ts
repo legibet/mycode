@@ -1,3 +1,8 @@
+/**
+ * Config normalization utilities: reasoning effort validation and
+ * reconciling local state with server-provided defaults.
+ */
+
 import type { LocalConfig, ReasoningEffort, RemoteConfig } from '../types'
 
 export function isReasoningEffort(value: unknown): value is ReasoningEffort {

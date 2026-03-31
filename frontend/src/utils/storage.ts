@@ -31,12 +31,8 @@ function getString(
   return typeof record[key] === 'string' ? record[key] : fallback
 }
 
-function getValue(record: Record<string, unknown>, key: string): unknown {
-  return record[key]
-}
-
 function normalizeStoredConfig(record: Record<string, unknown>): LocalConfig {
-  const reasoningEffort = getValue(record, 'reasoningEffort')
+  const reasoningEffort = record['reasoningEffort']
 
   return {
     provider: getString(record, 'provider', DEFAULT_CONFIG.provider),
@@ -55,7 +51,7 @@ export function loadConfig(): LocalConfig {
     const saved = localStorage.getItem(STORAGE_KEY)
     if (saved) {
       const parsed = JSON.parse(saved) as unknown
-      if (!isRecord(parsed) || getValue(parsed, '_v') !== SCHEMA_VERSION) {
+      if (!isRecord(parsed) || parsed['_v'] !== SCHEMA_VERSION) {
         return DEFAULT_CONFIG
       }
       // The web UI no longer exposes per-request auth/base overrides.
