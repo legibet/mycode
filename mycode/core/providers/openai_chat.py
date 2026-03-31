@@ -316,7 +316,7 @@ class OpenRouterAdapter(OpenAIChatAdapter):
     label = "OpenRouter"
     default_base_url = "https://openrouter.ai/api/v1"
     env_api_key_names = ("OPENROUTER_API_KEY",)
-    default_models = "openrouter/auto"
+    default_models = ("openrouter/auto",)
     auto_discoverable = True
     supports_reasoning_effort = True
 
