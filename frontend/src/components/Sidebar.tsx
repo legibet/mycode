@@ -203,10 +203,10 @@ export const Sidebar = memo(function Sidebar({
                       type="button"
                       aria-current={isActive ? 'true' : undefined}
                       className={cn(
-                        'flex w-full items-center gap-2 px-4 py-2 pr-10 text-xs cursor-pointer transition-colors text-left',
+                        'session-row flex w-full items-center gap-2 px-4 py-2 pr-10 text-xs cursor-pointer text-left transition-colors active:bg-secondary/30',
                         isActive
                           ? 'bg-secondary/40 text-foreground'
-                          : 'text-muted-foreground hover:text-foreground hover:bg-secondary/20',
+                          : 'session-row-inactive text-muted-foreground',
                       )}
                       onClick={() => onSelectSession(session.id)}
                     >
@@ -218,14 +218,14 @@ export const Sidebar = memo(function Sidebar({
                       <Button
                         variant="ghost"
                         size="icon"
-                        className="absolute right-2 top-1/2 h-5 w-5 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity"
+                        className="session-delete-button absolute right-2 top-1/2 h-5 w-5 -translate-y-1/2 transition-opacity"
                         aria-label="Delete session"
                         onClick={(e) => {
                           e.stopPropagation()
                           onDeleteSession(session.id)
                         }}
                       >
-                        <Trash2 className="h-3 w-3 text-muted-foreground hover:text-destructive" />
+                        <Trash2 className="session-delete-icon h-3 w-3 text-muted-foreground" />
                       </Button>
                     )}
                   </div>

@@ -149,6 +149,24 @@
   }
 }
 
+@media (hover: hover) and (pointer: fine) {
+  .session-row-inactive:hover {
+    @apply bg-secondary/20 text-foreground;
+  }
+
+  .group .session-delete-button {
+    opacity: 0;
+  }
+
+  .group:hover .session-delete-button {
+    opacity: 1;
+  }
+
+  .session-delete-icon:hover {
+    @apply text-destructive;
+  }
+}
+
 /* ── Prose / Markdown ── */
 .prose {
   @apply text-foreground max-w-none;
