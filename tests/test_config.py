@@ -576,13 +576,9 @@ class TestGetSettings:
             lambda **_: ModelMetadata(
                 provider="openai",
                 model="gpt-4.1-mini",
-                name="GPT-4.1 mini",
                 context_window=1_000_000,
-                max_input_tokens=500_000,
                 max_output_tokens=32_768,
                 supports_reasoning=False,
-                supports_tools=True,
-                raw={},
             ),
         )
 
@@ -624,13 +620,9 @@ class TestGetSettings:
             lambda **_: ModelMetadata(
                 provider="openai",
                 model="gpt-5.4",
-                name="GPT-5.4",
                 context_window=400_000,
-                max_input_tokens=272_000,
                 max_output_tokens=128_000,
                 supports_reasoning=True,
-                supports_tools=True,
-                raw={},
             ),
         )
 
@@ -725,13 +717,9 @@ class TestGetSettings:
             lambda **_: ModelMetadata(
                 provider="openai",
                 model="gpt-5.4",
-                name="GPT-5.4",
                 context_window=400_000,
-                max_input_tokens=272_000,
                 max_output_tokens=128_000,
                 supports_reasoning=True,
-                supports_tools=True,
-                raw={},
             ),
         )
 

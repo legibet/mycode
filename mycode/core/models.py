@@ -23,13 +23,9 @@ class ModelMetadata:
 
     provider: str
     model: str
-    name: str | None
     context_window: int | None
-    max_input_tokens: int | None
     max_output_tokens: int | None
     supports_reasoning: bool | None
-    supports_tools: bool | None
-    raw: dict[str, Any]
 
 
 def initialize_models_dev() -> dict[str, Any] | None:
@@ -135,18 +131,12 @@ def _lookup_entry(
 
     limits = raw_model.get("limit")
     limit_data = limits if isinstance(limits, dict) else {}
-    raw_name = raw_model.get("name")
-
     return ModelMetadata(
         provider=provider_type,
         model=str(raw_model.get("id") or model_id),
-        name=raw_name.strip() if isinstance(raw_name, str) and raw_name.strip() else None,
         context_window=_as_int(limit_data.get("context")),
-        max_input_tokens=_as_int(limit_data.get("input")),
         max_output_tokens=_as_int(limit_data.get("output")),
         supports_reasoning=raw_model.get("reasoning") if isinstance(raw_model.get("reasoning"), bool) else None,
-        supports_tools=raw_model.get("tool_call") if isinstance(raw_model.get("tool_call"), bool) else None,
-        raw=raw_model,
     )
 
 

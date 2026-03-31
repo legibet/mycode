@@ -462,25 +462,19 @@ def _resolve_provider_runtime(
                 model_metadata = ModelMetadata(
                     provider=provider_type,
                     model=resolved_model,
-                    name=None,
                     context_window=model_config.context_window,
-                    max_input_tokens=None,
                     max_output_tokens=model_config.max_output_tokens,
                     supports_reasoning=model_config.supports_reasoning,
-                    supports_tools=None,
-                    raw={},
                 )
             else:
                 model_metadata = ModelMetadata(
                     provider=model_metadata.provider,
                     model=model_metadata.model,
-                    name=model_metadata.name,
                     context_window=(
                         model_config.context_window
                         if model_config.context_window is not None
                         else model_metadata.context_window
                     ),
-                    max_input_tokens=model_metadata.max_input_tokens,
                     max_output_tokens=(
                         model_config.max_output_tokens
                         if model_config.max_output_tokens is not None
@@ -491,8 +485,6 @@ def _resolve_provider_runtime(
                         if model_config.supports_reasoning is not None
                         else model_metadata.supports_reasoning
                     ),
-                    supports_tools=model_metadata.supports_tools,
-                    raw=model_metadata.raw,
                 )
 
     configured_effort = settings.default_reasoning_effort
