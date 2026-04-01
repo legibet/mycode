@@ -93,8 +93,15 @@ async def chat(chat: ChatRequest, store: StoreDep, runs: RunManagerDep):
                     blocks.append(text_block(text))
                 continue
 
+            if block.data:
+                # Inline base64 from web upload
+                if not block.mime_type:
+                    raise HTTPException(status_code=400, detail="image data requires mime_type")
+                blocks.append(image_block(block.data, mime_type=block.mime_type, name=block.name or "image"))
+                continue
+
             if not block.path:
-                raise HTTPException(status_code=400, detail="image input requires path")
+                raise HTTPException(status_code=400, detail="image input requires path or data")
             resolved_path = resolve_path(block.path, cwd=cwd)
             image_path = Path(resolved_path)
             if not image_path.exists() or not image_path.is_file():

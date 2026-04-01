@@ -31,6 +31,8 @@ export interface ProviderInfo {
   supports_reasoning_effort?: boolean
   reasoning_models?: string[]
   reasoning_effort?: ReasoningEffort | null
+  supports_image_input?: boolean
+  image_input_models?: string[]
 }
 
 export interface RemoteConfig {
@@ -105,11 +107,29 @@ export interface ToolResultBlock {
   meta?: Record<string, unknown>
 }
 
+export interface ImageBlock {
+  type: 'image'
+  data: string
+  mime_type: string
+  name?: string
+  renderKey?: string
+  meta?: Record<string, unknown>
+}
+
 export type MessageBlock =
   | TextBlock
   | ThinkingBlock
   | ToolUseBlock
   | ToolResultBlock
+  | ImageBlock
+
+/** Image attached in the input area, pending send. */
+export interface AttachedImage {
+  data: string
+  mime_type: string
+  name: string
+  preview: string // object URL for thumbnail display
+}
 
 export interface MessageMeta {
   synthetic?: boolean

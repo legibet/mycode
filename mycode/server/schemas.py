@@ -13,6 +13,7 @@ class ChatInputBlock(BaseModel):
     type: Literal["text", "image"]
     text: str | None = None
     path: str | None = None
+    data: str | None = None  # inline base64 (web upload)
     mime_type: str | None = None
     name: str | None = None
 

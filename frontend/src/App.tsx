@@ -4,7 +4,7 @@
  * Mobile: sidebar as overlay, top header bar.
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import useSWR from 'swr'
 import { InputArea } from './components/Chat/InputArea'
 import { MessageList } from './components/Chat/MessageList'
@@ -13,7 +13,7 @@ import { MobileHeader } from './components/MobileHeader'
 import { Sidebar } from './components/Sidebar'
 import { ThemeProvider, useTheme } from './components/ThemeProvider'
 import { useChat } from './hooks/useChat'
-import type { LocalConfig, RemoteConfig } from './types'
+import type { AttachedImage, LocalConfig, RemoteConfig } from './types'
 import { normalizeConfigWithRemoteDefaults } from './utils/config'
 import {
   addHistory,
@@ -41,6 +41,7 @@ async function fetchJson<T>(url: string): Promise<T> {
 function AppContent() {
   const [config, setConfig] = useState<LocalConfig>(loadConfig)
   const [input, setInput] = useState('')
+  const [images, setImages] = useState<AttachedImage[]>([])
   const [cwdHistory, setCwdHistory] = useState<string[]>(loadHistory)
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const { theme, setTheme } = useTheme()
@@ -100,24 +101,68 @@ function AppContent() {
 
   const inputRef = useRef(input)
   inputRef.current = input
+  const imagesRef = useRef(images)
+  imagesRef.current = images
+
+  const clearImages = useCallback(() => {
+    setImages((prev) => {
+      for (const img of prev) URL.revokeObjectURL(img.preview)
+      return []
+    })
+  }, [])
 
   const handleSend = useCallback(() => {
-    send(inputRef.current)
+    const currentImages = imagesRef.current
+    send(inputRef.current, currentImages.length ? currentImages : undefined)
     setInput('')
-  }, [send])
+    clearImages()
+  }, [send, clearImages])
+
+  const handleAttachImages = useCallback((newImages: AttachedImage[]) => {
+    setImages((prev) => [...prev, ...newImages])
+  }, [])
+
+  const handleRemoveImage = useCallback((index: number) => {
+    setImages((prev) => {
+      const next = [...prev]
+      const removed = next.splice(index, 1)
+      if (removed[0]) URL.revokeObjectURL(removed[0].preview)
+      return next
+    })
+  }, [])
+
+  const activeProviderKey =
+    config.provider || remoteConfig?.default?.provider || ''
+  const activeProviderInfo = remoteConfig?.providers?.[activeProviderKey]
+  const activeModel = config.model || remoteConfig?.default?.model || ''
+  const supportsImageInput = useMemo(
+    () =>
+      Boolean(
+        activeProviderInfo?.supports_image_input &&
+          activeProviderInfo.image_input_models?.includes(activeModel),
+      ),
+    [activeProviderInfo, activeModel],
+  )
+
+  // Clear pending images when switching to a model that doesn't support them
+  useEffect(() => {
+    if (!supportsImageInput) clearImages()
+  }, [supportsImageInput, clearImages])
 
   const handleSelectSession = useCallback(
     (id: string) => {
       selectSession(id)
       setSidebarOpen(false)
+      clearImages()
     },
-    [selectSession],
+    [selectSession, clearImages],
   )
 
   const handleCreateSession = useCallback(() => {
     createSession()
     setSidebarOpen(false)
-  }, [createSession])
+    clearImages()
+  }, [createSession, clearImages])
 
   return (
     <Layout>
@@ -191,6 +236,10 @@ function AppContent() {
                   loading={loading}
                   onSend={handleSend}
                   onCancel={cancel}
+                  supportsImages={supportsImageInput}
+                  images={images}
+                  onAttachImages={handleAttachImages}
+                  onRemoveImage={handleRemoveImage}
                 />
               </div>
             </>

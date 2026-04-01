@@ -17,7 +17,7 @@ import {
   useRef,
   useState,
 } from 'react'
-import type { ChatMessage, MessageBlock } from '../../types'
+import type { ChatMessage, ImageBlock, MessageBlock } from '../../types'
 import { copyText } from '../../utils/clipboard'
 import { cn } from '../../utils/cn'
 import { MarkdownBlock } from './MarkdownBlock'
@@ -114,6 +114,12 @@ export const MessageBubble = memo(function MessageBubble({
     [blocks],
   )
 
+  const imageBlocks = useMemo(
+    () =>
+      blocks.filter((block): block is ImageBlock => block?.type === 'image'),
+    [blocks],
+  )
+
   useEffect(() => {
     return () => {
       if (resetCopiedTimeoutRef.current !== null) {
@@ -141,6 +147,7 @@ export const MessageBubble = memo(function MessageBubble({
 
   const canEdit =
     isUser &&
+    !!textContent &&
     typeof sourceIndex === 'number' &&
     !synthetic &&
     !isLoading &&
@@ -253,8 +260,24 @@ export const MessageBubble = memo(function MessageBubble({
             <Pencil className="h-3 w-3" />
           </button>
         )}
-        <div className="max-w-[85%] rounded-2xl bg-card px-4 py-2.5 text-sm leading-relaxed text-foreground/90 whitespace-pre-wrap [overflow-wrap:anywhere]">
-          {textContent}
+        <div className="max-w-[85%] flex flex-col gap-1.5 items-end">
+          {imageBlocks.length > 0 && (
+            <div className="flex flex-wrap gap-2 justify-end">
+              {imageBlocks.map((block, i) => (
+                <img
+                  key={block.renderKey ?? i}
+                  src={`data:${block.mime_type};base64,${block.data}`}
+                  alt={block.name ?? 'Image'}
+                  className="max-h-64 max-w-full rounded-xl"
+                />
+              ))}
+            </div>
+          )}
+          {textContent && (
+            <div className="rounded-2xl bg-card px-4 py-2.5 text-sm leading-relaxed text-foreground/90 whitespace-pre-wrap [overflow-wrap:anywhere]">
+              {textContent}
+            </div>
+          )}
         </div>
       </div>
     )

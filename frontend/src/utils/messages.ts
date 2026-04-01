@@ -90,6 +90,30 @@ export function createUserTextMessage(text: string): ChatMessage {
   return createMessage('user', text ? [createTextBlock(text)] : [])
 }
 
+function createImageBlock(
+  data: string,
+  mimeType: string,
+  name?: string,
+  renderKey?: string,
+): MessageBlock {
+  const block: MessageBlock = { type: 'image', data, mime_type: mimeType }
+  if (name) block.name = name
+  if (renderKey) block.renderKey = renderKey
+  return block
+}
+
+export function createUserMessage(
+  text: string,
+  images: { data: string; mime_type: string; name?: string }[],
+): ChatMessage {
+  const blocks: MessageBlock[] = []
+  if (text) blocks.push(createTextBlock(text))
+  for (const img of images) {
+    blocks.push(createImageBlock(img.data, img.mime_type, img.name))
+  }
+  return createMessage('user', blocks)
+}
+
 export function createAssistantMessage(
   content: MessageBlock[] = [],
 ): ChatMessage {
@@ -100,16 +124,25 @@ export function createRenderUserMessage(
   sourceIndex: number,
   text: string,
   meta?: MessageMeta,
+  images?: { data: string; mime_type: string; name?: string }[],
 ): ChatMessage {
-  const message = createMessage(
-    'user',
-    text ? [createTextBlock(text)] : [],
-    `user:${sourceIndex}`,
-  )
-  message.sourceIndex = sourceIndex
-  if (meta) {
-    message.meta = { ...meta }
+  const blocks: MessageBlock[] = []
+  if (text) blocks.push(createTextBlock(text))
+  if (images?.length) {
+    for (const [i, img] of images.entries()) {
+      blocks.push(
+        createImageBlock(
+          img.data,
+          img.mime_type,
+          img.name,
+          `user:${sourceIndex}:img:${i}`,
+        ),
+      )
+    }
   }
+  const message = createMessage('user', blocks, `user:${sourceIndex}`)
+  message.sourceIndex = sourceIndex
+  if (meta) message.meta = { ...meta }
   return message
 }
 
@@ -461,14 +494,17 @@ export function buildRenderMessages(
     const blocks = getBlocks(message)
 
     if (role === 'user') {
-      const textBlocks = blocks
-        .filter((block) => block?.type === 'text' && block.text)
+      const userBlocks = blocks
+        .filter(
+          (block) =>
+            (block?.type === 'text' && block.text) || block?.type === 'image',
+        )
         .map((block, blockIndex) =>
           cloneBlock(block, `user:${sourceIndex}:${blockIndex}`),
         )
 
-      if (textBlocks.length > 0) {
-        const userMsg = createMessage('user', textBlocks, `user:${sourceIndex}`)
+      if (userBlocks.length > 0) {
+        const userMsg = createMessage('user', userBlocks, `user:${sourceIndex}`)
         if (isObject(message?.meta))
           userMsg.meta = { ...(message.meta as MessageMeta) }
         userMsg.sourceIndex = sourceIndex

@@ -5,6 +5,7 @@
 
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react'
 import type {
+  AttachedImage,
   ChatErrorResponse,
   ChatMessage,
   ChatResponse,
@@ -27,6 +28,7 @@ import {
   createAssistantMessage,
   createRenderAssistantMessage,
   createRenderUserMessage,
+  createUserMessage,
   createUserTextMessage,
   findLatestAssistantIndex,
   updateRenderToolRuntime,
@@ -48,7 +50,7 @@ interface ChatState {
 
 type ChatAction =
   | { type: 'set_messages'; messages: ChatMessage[] }
-  | { type: 'start_turn'; content: string }
+  | { type: 'start_turn'; content: string; images?: AttachedImage[] }
   | { type: 'rewind_and_start_turn'; rewindTo: number; content: string }
   | { type: 'apply_event'; event: StreamEvent }
 
@@ -98,16 +100,19 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
 
     case 'start_turn': {
       const sourceIndex = state.rawMessages.length
+      const { content, images } = action
       return {
         ...state,
         rawMessages: [
           ...state.rawMessages,
-          createUserTextMessage(action.content),
+          images?.length
+            ? createUserMessage(content, images)
+            : createUserTextMessage(content),
           createAssistantMessage([]),
         ],
         messages: [
           ...state.messages,
-          createRenderUserMessage(sourceIndex, action.content),
+          createRenderUserMessage(sourceIndex, content, undefined, images),
           createRenderAssistantMessage(sourceIndex + 1),
         ],
       }
@@ -550,9 +555,9 @@ export function useChat(config: LocalConfig) {
   }, [loadSession])
 
   const send = useCallback(
-    async (input: string) => {
+    async (input: string, images?: AttachedImage[]) => {
       const content = input.trim()
-      if (!content || loading) return
+      if ((!content && !images?.length) || loading) return
 
       const sessionId = activeSession.id
       const requestCwd = config.cwd
@@ -562,25 +567,46 @@ export function useChat(config: LocalConfig) {
       requestTokenRef.current = requestToken
       pendingRequestTokenRef.current = requestToken
 
-      dispatch({ type: 'start_turn', content })
+      dispatch({
+        type: 'start_turn',
+        content,
+        ...(images?.length ? { images } : {}),
+      })
       setLoading(true)
       setConnectionState('ready')
+
+      const commonFields = {
+        session_id: sessionId,
+        provider: config.provider || undefined,
+        model: config.model || undefined,
+        cwd: config.cwd,
+        reasoning_effort:
+          config.reasoningEffort && config.reasoningEffort !== 'auto'
+            ? config.reasoningEffort
+            : undefined,
+      }
+
+      // Use structured `input` blocks when images are present
+      const body = images?.length
+        ? {
+            ...commonFields,
+            input: [
+              ...(content ? [{ type: 'text', text: content }] : []),
+              ...images.map((img) => ({
+                type: 'image',
+                data: img.data,
+                mime_type: img.mime_type,
+                name: img.name,
+              })),
+            ],
+          }
+        : { ...commonFields, message: content }
 
       try {
         const res = await fetch('/api/chat', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            session_id: sessionId,
-            message: content,
-            provider: config.provider || undefined,
-            model: config.model || undefined,
-            cwd: config.cwd,
-            reasoning_effort:
-              config.reasoningEffort && config.reasoningEffort !== 'auto'
-                ? config.reasoningEffort
-                : undefined,
-          }),
+          body: JSON.stringify(body),
         })
 
         const data = (await res.json()) as ChatResponse | ChatErrorResponse
