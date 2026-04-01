@@ -512,6 +512,35 @@ def test_google_gemini_builds_initial_contents() -> None:
     assert adapter._build_contents(request) == [{"role": "user", "parts": [{"text": "hello"}]}]
 
 
+def test_google_gemini_serializes_user_image_input() -> None:
+    adapter = GoogleGeminiAdapter()
+    request = cast(
+        Any,
+        _Obj(
+            model="gemini-3-flash-preview",
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": "describe"},
+                        {"type": "image", "data": "YWJj", "mime_type": "image/png"},
+                    ],
+                }
+            ],
+        ),
+    )
+
+    assert adapter._build_contents(request) == [
+        {
+            "role": "user",
+            "parts": [
+                {"text": "describe"},
+                {"inline_data": {"mime_type": "image/png", "data": "YWJj"}},
+            ],
+        }
+    ]
+
+
 def test_google_gemini_falls_back_to_full_replay_for_cross_provider_history() -> None:
     adapter = GoogleGeminiAdapter()
     request = cast(
@@ -1033,6 +1062,33 @@ def test_openai_chat_replays_reasoning_by_default() -> None:
     )
 
     assert payload_messages[0]["reasoning_content"] == "think"
+
+
+def test_openai_chat_serializes_user_image_input() -> None:
+    adapter = OpenAIChatAdapter()
+
+    payload_messages = adapter._build_messages(
+        [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "describe"},
+                    {"type": "image", "data": "YWJj", "mime_type": "image/png"},
+                ],
+            }
+        ],
+        system="",
+    )
+
+    assert payload_messages == [
+        {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": "describe"},
+                {"type": "image_url", "image_url": {"url": "data:image/png;base64,YWJj"}},
+            ],
+        }
+    ]
 
 
 def test_deepseek_replays_reasoning_across_turns() -> None:

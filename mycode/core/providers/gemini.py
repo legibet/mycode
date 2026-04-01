@@ -17,6 +17,7 @@ from mycode.core.providers.base import (
     ProviderRequest,
     ProviderStreamEvent,
     get_native_meta,
+    load_image_block_payload,
 )
 
 _DUMMY_THOUGHT_SIGNATURE = "skip_thought_signature_validator"
@@ -172,6 +173,10 @@ class GoogleGeminiAdapter(ProviderAdapter):
                 block_type = block.get("type")
                 if block_type == "text":
                     parts.append({"text": str(block.get("text") or "")})
+                    continue
+                if block_type == "image":
+                    mime_type, data = load_image_block_payload(block)
+                    parts.append({"inline_data": {"mime_type": mime_type, "data": data}})
                     continue
                 if block_type != "tool_result":
                     continue

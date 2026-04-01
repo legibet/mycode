@@ -17,6 +17,7 @@ from mycode.core.providers.base import (
     ProviderStreamEvent,
     dump_model,
     get_native_meta,
+    load_image_block_payload,
 )
 from mycode.core.tools import parse_tool_arguments
 
@@ -181,10 +182,39 @@ class OpenAIChatAdapter(ProviderAdapter):
         blocks = [block for block in message.get("content") or [] if isinstance(block, dict)]
 
         if role == "user":
-            text_parts = [str(block.get("text") or "") for block in blocks if block.get("type") == "text"]
             payload_messages = []
-            if text_parts:
-                payload_messages.append({"role": "user", "content": "\n".join(part for part in text_parts if part)})
+            has_images = any(block.get("type") == "image" for block in blocks)
+            if has_images:
+                user_content: str | list[dict[str, Any]] | None = []
+                for block in blocks:
+                    block_type = block.get("type")
+                    if block_type == "text":
+                        text = str(block.get("text") or "")
+                        if text:
+                            user_content.append({"type": "text", "text": text})
+                        continue
+                    if block_type != "image":
+                        continue
+
+                    mime_type, data = load_image_block_payload(block)
+                    user_content.append(
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": f"data:{mime_type};base64,{data}"},
+                        }
+                    )
+                if not user_content:
+                    user_content = None
+            else:
+                text_parts = [
+                    str(block.get("text") or "")
+                    for block in blocks
+                    if block.get("type") == "text" and block.get("text")
+                ]
+                text = "\n".join(text_parts)
+                user_content = text or None
+            if user_content:
+                payload_messages.append({"role": "user", "content": user_content})
 
             for block in blocks:
                 if block.get("type") != "tool_result":
