@@ -26,7 +26,7 @@ Core runtime (`mycode/core/`):
 - `tools.py` — 4 built-in tools, executor, truncation, path resolution
 - `session.py` — append-only JSONL session storage, compact/rewind events, interrupted tool repair
 - `config.py` — layered config loading and provider resolution
-- `models.py` — bundled model metadata lookup (context_window, supports_reasoning)
+- `models.py` — bundled model metadata lookup (`context_window`, `supports_reasoning`, `supports_image_input`)
 - `system_prompt.py` — runtime system prompt assembly, AGENTS.md discovery, skills discovery
 - `system_prompt.md` — system prompt template
 - `providers/base.py` — ProviderAdapter abstract interface
@@ -79,7 +79,7 @@ Block-based JSON — single format used at runtime and persisted to sessions:
 }
 ```
 
-Block types: `text` · `thinking` · `tool_use` · `tool_result`
+Block types: `text` · `image` · `thinking` · `tool_use` · `tool_result`
 
 - `thinking` blocks are first-class session data — persisted and shown in UI
 - Provider-specific extras: `meta.native` on messages, `block.meta.native` on blocks
@@ -90,6 +90,7 @@ Block types: `text` · `thinking` · `tool_use` · `tool_result`
   ```
 
   `model_text` is replayed to providers on later turns; `display_text` is shown to users.
+  `tool_result.content` may store structured `text` and `image` blocks.
 - System prompt is runtime-only, not persisted
 
 ## Agent Loop
@@ -152,14 +153,15 @@ All adapters implement `ProviderAdapter.stream_turn()`. Message projection to pr
 - `mycode run "..."` — non-interactive single run
 - `mycode web [--dev]` — web server; `--dev` serves API only (for Vite dev)
 - `mycode session list` — list sessions
+- Interactive CLI: `@path` attaches files; images become `image` blocks, text files become extra `text` blocks
 - Slash commands: `/clear` `/new` `/resume` `/rewind` `/provider` `/model` `/effort` `/q`
 
 **Server** — `mycode/server/routers/`:
 
-- `POST /api/chat` — start a run; returns `{run, session}` JSON immediately
+- `POST /api/chat` — start a run from `message` or `input`; returns `{run, session}` JSON immediately
 - `GET /api/runs/{run_id}/stream` — SSE stream for a run
 - `POST /api/runs/{run_id}/cancel` — cancel a run
-- `GET /api/config` — provider + reasoning metadata for frontend
+- `GET /api/config` — provider, reasoning, and image-input metadata for frontend
 - Session CRUD at `/api/sessions`
 - Workspace browser at `/api/workspaces`
 

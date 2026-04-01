@@ -43,8 +43,11 @@ Standard `user` or `assistant` message in the internal block format (see AGENTS.
 
 ```json
 {"role": "user", "content": [{"type": "text", "text": "..."}], "meta": {...}}
+{"role": "user", "content": [{"type": "text", "text": "..."}, {"type": "image", "data": "...", "mime_type": "image/png"}], "meta": {...}}
 {"role": "assistant", "content": [{"type": "thinking", "text": "..."}, {"type": "text", "text": "..."}, {"type": "tool_use", "id": "...", "name": "...", "input": {...}}], "meta": {"provider": "...", "model": "...", "stop_reason": "...", "usage": {...}}}
 ```
+
+`tool_result.content` may store `text` and `image` blocks.
 
 ### Compact event
 
@@ -88,7 +91,7 @@ Triggered in `Agent._compact_if_needed()` after a successful turn completes:
 
 Triggered by `POST /api/chat` with `rewind_to` parameter:
 
-1. Server validates the target message is a real user text message
+1. Server validates the target message is a real user message
 2. Optimistically truncates messages in memory
 3. On first persist, appends a rewind event to JSONL
 4. On load, `apply_rewind()` processes rewind markers inline

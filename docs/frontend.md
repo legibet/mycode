@@ -21,7 +21,7 @@ frontend/src/
     Chat/
       MessageList.tsx      # scrollable message history
       MessageBubble.tsx    # single message, role-based styling
-      InputArea.tsx        # user input + submit
+      InputArea.tsx        # user input, image attachment, submit
       ToolCard.tsx         # tool execution block (start/output/done)
       ReasoningBlock.tsx   # thinking block — expanded while streaming, collapses after
       MarkdownBlock.tsx    # markdown rendering
@@ -73,6 +73,7 @@ Rendering rules:
 - `thinking` blocks → `ReasoningBlock` (expanded while streaming, auto-collapses after)
 - `tool_use` blocks → `ToolCard` (with matching `tool_result` and live runtime folded in)
 - `text` blocks → `MarkdownBlock`
+- `image` blocks → inline image preview in `MessageBubble`
 
 ## Streaming
 
@@ -87,6 +88,11 @@ Streaming state tracking:
 - `streamTokenRef` — incremented to invalidate stale streams
 - `pendingRequestTokenRef` — deduplicates concurrent send requests
 - `activeRunRef` — tracks the current run for cancel
+
+Image input:
+- `InputArea` supports file picker and drag-and-drop
+- Images are sent as structured `input` blocks
+- The attachment button uses `image_input_models`; pending images are cleared on unsupported model switch
 
 ## Config Persistence
 

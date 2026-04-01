@@ -13,6 +13,7 @@ Request body (`ChatRequest`, `mycode/server/schemas.py`):
 ```json
 {
   "message": "...",
+  "input": null,
   "session_id": "default",
   "provider": "anthropic",
   "model": "claude-sonnet-4-6",
@@ -24,11 +25,27 @@ Request body (`ChatRequest`, `mycode/server/schemas.py`):
 }
 ```
 
-All fields except `message` are optional.
+Exactly one of `message` or `input` is required.
 
 - `provider` — provider id or configured alias name
 - `reasoning_effort` — overrides config for this request only; `null`/`"auto"` means use config default
-- `rewind_to` — visible message index to rewind to before sending the new message; target must be a real user text message (not synthetic or tool-result-only)
+- `rewind_to` — visible message index to rewind to before sending the new message; target must be a real user message
+
+Structured `input` uses `ChatInputBlock`:
+
+```json
+[
+  {"type": "text", "text": "describe this"},
+  {"type": "image", "path": "cat.png"},
+  {"type": "image", "data": "<base64>", "mime_type": "image/png", "name": "cat.png"}
+]
+```
+
+- `type: "text"` — uses `text`
+- `type: "image"` — uses `path` or inline base64 `data`
+- `mime_type` is required when `data` is provided
+- `path` accepts `image/png`, `image/jpeg`, `image/gif`, `image/webp`
+- The resolved model must have `supports_image_input=true`
 
 Response:
 
@@ -76,7 +93,9 @@ Response:
       "has_api_key": true,
       "supports_reasoning_effort": true,
       "reasoning_models": ["claude-sonnet-4-6"],
-      "reasoning_effort": "auto"
+      "reasoning_effort": "auto",
+      "supports_image_input": true,
+      "image_input_models": ["claude-sonnet-4-6"]
     }
   },
   "default": { "provider": "<provider_name>", "model": "claude-sonnet-4-6" },
@@ -88,7 +107,7 @@ Response:
 }
 ```
 
-`reasoning_models` is populated only when `supports_reasoning_effort` is true. Models in that list are confirmed to support reasoning via the bundled model metadata catalog.
+`reasoning_models` is returned only when `supports_reasoning_effort` is true. `image_input_models` lists models with `supports_image_input=true`.
 
 ## Sessions
 
