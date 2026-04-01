@@ -6,7 +6,7 @@ from mycode.core.models import load_models_catalog, lookup_model_metadata
 
 def test_lookup_model_metadata_prefers_current_provider_family(monkeypatch) -> None:
     fake_catalog = {
-        "openai": {"gpt-5": {"max_output_tokens": 128_000, "supports_reasoning": True}},
+        "openai": {"gpt-5": {"max_output_tokens": 128_000, "supports_reasoning": True, "supports_image_input": True}},
         "openrouter": {"openai/gpt-5": {"max_output_tokens": 64_000, "supports_reasoning": True}},
     }
     monkeypatch.setattr("mycode.core.models.load_models_catalog", lambda: fake_catalog)
@@ -25,7 +25,7 @@ def test_lookup_model_metadata_prefers_current_provider_family(monkeypatch) -> N
 
 def test_lookup_model_metadata_falls_back_to_canonical_provider(monkeypatch) -> None:
     fake_catalog = {
-        "openai": {"gpt-5": {"max_output_tokens": 128_000, "supports_reasoning": True}},
+        "openai": {"gpt-5": {"max_output_tokens": 128_000, "supports_reasoning": True, "supports_image_input": True}},
         "other": {},
     }
     monkeypatch.setattr("mycode.core.models.load_models_catalog", lambda: fake_catalog)
@@ -40,6 +40,7 @@ def test_lookup_model_metadata_falls_back_to_canonical_provider(monkeypatch) -> 
     assert metadata is not None
     assert metadata.provider == "openai"
     assert metadata.model == "gpt-5"
+    assert metadata.supports_image_input is True
 
 
 def test_lookup_model_metadata_falls_back_to_aihubmix(monkeypatch) -> None:
@@ -89,3 +90,21 @@ def test_load_models_catalog_reads_file_once(monkeypatch, tmp_path) -> None:
     assert load_models_catalog() == {"openai": {"gpt-5": {}}}
     catalog_path.write_text('{"changed":true}', encoding="utf-8")
     assert load_models_catalog() == {"openai": {"gpt-5": {}}}
+
+
+def test_lookup_model_metadata_reads_image_support(monkeypatch) -> None:
+    fake_catalog = {
+        "anthropic": {
+            "claude-sonnet-4-6": {
+                "max_output_tokens": 64000,
+                "supports_reasoning": True,
+                "supports_image_input": True,
+            }
+        }
+    }
+    monkeypatch.setattr("mycode.core.models.load_models_catalog", lambda: fake_catalog)
+
+    metadata = lookup_model_metadata(provider_type="anthropic", provider_name="anthropic", model="claude-sonnet-4-6")
+
+    assert metadata is not None
+    assert metadata.supports_image_input is True

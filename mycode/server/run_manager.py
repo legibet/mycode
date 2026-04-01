@@ -11,7 +11,7 @@ from typing import Any, Literal, Protocol, cast
 from uuid import uuid4
 
 from mycode.core.agent import Event
-from mycode.core.messages import ConversationMessage, user_text_message
+from mycode.core.messages import ConversationMessage
 
 RunStatus = Literal["running", "completed", "failed", "cancelled"]
 FINISHED_RUN_TTL_SECONDS = 300
@@ -30,7 +30,7 @@ class RunAgent(Protocol):
 
     def achat(
         self,
-        user_input: str,
+        user_input: str | ConversationMessage,
         *,
         on_persist: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
     ) -> AsyncIterator[Event]: ...
@@ -42,7 +42,7 @@ class RunState:
 
     id: str
     session_id: str
-    user_input: str
+    user_message: ConversationMessage
     base_messages: list[ConversationMessage]
     agent: RunAgent
     status: RunStatus = "running"
@@ -79,7 +79,7 @@ class RunManager:
         self,
         *,
         session_id: str,
-        user_input: str,
+        user_message: ConversationMessage,
         base_messages: list[ConversationMessage],
         agent: RunAgent,
         on_persist: Callable[[dict[str, Any]], Awaitable[None]],
@@ -94,7 +94,7 @@ class RunManager:
             state = RunState(
                 id=uuid4().hex,
                 session_id=session_id,
-                user_input=user_input,
+                user_message=copy.deepcopy(user_message),
                 base_messages=copy.deepcopy(base_messages),
                 agent=agent,
             )
@@ -119,7 +119,7 @@ class RunManager:
 
         async with state.condition:
             messages = copy.deepcopy(state.base_messages)
-            messages.append(user_text_message(state.user_input))
+            messages.append(copy.deepcopy(state.user_message))
             return {
                 "run": state.info(),
                 "messages": messages,
@@ -143,7 +143,7 @@ class RunManager:
         last_error: str | None = None
 
         try:
-            stream = cast(AsyncIterator[Event], state.agent.achat(state.user_input, on_persist=on_persist))
+            stream = cast(AsyncIterator[Event], state.agent.achat(state.user_message, on_persist=on_persist))
             async for event in stream:
                 if event.type == "error":
                     last_error = str(event.data.get("message") or "unknown error")

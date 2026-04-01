@@ -49,6 +49,9 @@ def main() -> None:
             context_window = limit_data.get("context")
             max_output_tokens = limit_data.get("output")
             supports_reasoning = raw_model.get("reasoning")
+            modalities = raw_model.get("modalities")
+            input_modalities = modalities.get("input") if isinstance(modalities, dict) else None
+            supports_image_input = isinstance(input_modalities, list) and "image" in input_modalities
 
             models[model_id] = {
                 "context_window": context_window
@@ -58,6 +61,7 @@ def main() -> None:
                 if isinstance(max_output_tokens, int) and not isinstance(max_output_tokens, bool)
                 else None,
                 "supports_reasoning": supports_reasoning if isinstance(supports_reasoning, bool) else None,
+                "supports_image_input": supports_image_input,
             }
 
         if models:

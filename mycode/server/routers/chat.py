@@ -5,7 +5,9 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+from base64 import b64encode
 from collections.abc import AsyncIterator
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
@@ -18,8 +20,9 @@ from mycode.core.config import (
     resolve_provider,
     resolve_provider_choices,
 )
-from mycode.core.models import lookup_model_metadata
+from mycode.core.messages import build_message, flatten_message_text, image_block, text_block
 from mycode.core.providers import get_provider_adapter, provider_default_models
+from mycode.core.tools import detect_image_mime_type, resolve_path
 from mycode.server.deps import RunManagerDep, StoreDep
 from mycode.server.run_manager import ActiveRunError, RunState
 from mycode.server.schemas import ChatRequest, StreamEvent
@@ -78,6 +81,44 @@ async def chat(chat: ChatRequest, store: StoreDep, runs: RunManagerDep):
     reasoning_effort = request_effort if request_effort is not None else resolved.reasoning_effort
     session_id = chat.session_id or "default"
 
+    if chat.message and chat.input:
+        raise HTTPException(status_code=400, detail="message and input are mutually exclusive")
+
+    if chat.input:
+        blocks: list[dict[str, Any]] = []
+        for block in chat.input:
+            if block.type == "text":
+                text = str(block.text or "")
+                if text:
+                    blocks.append(text_block(text))
+                continue
+
+            if not block.path:
+                raise HTTPException(status_code=400, detail="image input requires path")
+            resolved_path = resolve_path(block.path, cwd=cwd)
+            image_path = Path(resolved_path)
+            if not image_path.exists() or not image_path.is_file():
+                raise HTTPException(status_code=400, detail=f"image file not found: {block.path}")
+            mime_type = block.mime_type or detect_image_mime_type(image_path)
+            if not mime_type:
+                raise HTTPException(status_code=400, detail=f"unsupported image file: {block.path}")
+            image_data = b64encode(image_path.read_bytes()).decode("utf-8")
+            blocks.append(image_block(image_data, mime_type=mime_type, name=block.name or image_path.name))
+
+        if not blocks:
+            raise HTTPException(status_code=400, detail="input must include at least one non-empty block")
+        user_message = build_message("user", blocks)
+    else:
+        message_text = str(chat.message or "").strip()
+        if not message_text:
+            raise HTTPException(status_code=400, detail="message or input is required")
+        user_message = build_message("user", [text_block(message_text)])
+
+    if any(isinstance(block, dict) and block.get("type") == "image" for block in user_message.get("content") or []):
+        adapter = get_provider_adapter(resolved.provider)
+        if not adapter.supports_image_input or resolved.supports_image_input is not True:
+            raise HTTPException(status_code=400, detail="current model does not support image input")
+
     data = await store.load_session(session_id)
     session = (data or {}).get("session")
     messages = (data or {}).get("messages") or []
@@ -86,7 +127,7 @@ async def chat(chat: ChatRequest, store: StoreDep, runs: RunManagerDep):
         raise HTTPException(status_code=400, detail="rewind_to requires an existing session")
 
     if not session:
-        title = chat.message.replace("\n", " ").strip()[:48] or "New chat"
+        title = flatten_message_text(user_message).replace("\n", " ").strip()[:48] or "New chat"
         created = await store.create_session(
             title,
             session_id=session_id,
@@ -106,17 +147,19 @@ async def chat(chat: ChatRequest, store: StoreDep, runs: RunManagerDep):
 
         target = messages[chat.rewind_to]
         blocks = target.get("content")
-        has_user_text = isinstance(blocks, list) and any(
-            isinstance(block, dict) and block.get("type") == "text" and block.get("text") for block in blocks
+        has_user_content = isinstance(blocks, list) and any(
+            isinstance(block, dict)
+            and ((block.get("type") == "text" and block.get("text")) or block.get("type") == "image")
+            for block in blocks
         )
 
         # Rewind only makes sense for real user prompts. Synthetic compact
         # summaries, assistant messages, and tool-result-only user messages are
         # not valid targets.
-        if target.get("role") != "user" or (target.get("meta") or {}).get("synthetic") or not has_user_text:
+        if target.get("role") != "user" or (target.get("meta") or {}).get("synthetic") or not has_user_content:
             raise HTTPException(
                 status_code=400,
-                detail="rewind_to must reference a real user text message",
+                detail="rewind_to must reference a real user message",
             )
 
         messages = messages[: chat.rewind_to]
@@ -132,6 +175,7 @@ async def chat(chat: ChatRequest, store: StoreDep, runs: RunManagerDep):
         messages=messages,
         settings=settings,
         reasoning_effort=reasoning_effort,
+        supports_image_input=resolved.supports_image_input,
         max_tokens=resolved.max_tokens,
         context_window=resolved.context_window,
         compact_threshold=settings.compact_threshold,
@@ -156,7 +200,7 @@ async def chat(chat: ChatRequest, store: StoreDep, runs: RunManagerDep):
     try:
         run = await runs.start_run(
             session_id=session_id,
-            user_input=chat.message,
+            user_message=user_message,
             base_messages=messages,
             agent=agent,
             on_persist=on_persist,
@@ -222,21 +266,37 @@ async def get_config(cwd: str | None = None):
         }
 
         adapter = get_provider_adapter(provider.provider)
+        image_models: list[str] = []
         if adapter.supports_reasoning_effort:
             reasoning_models: list[str] = []
             for model in models:
-                meta = lookup_model_metadata(
-                    provider_type=provider.provider,
+                resolved_model = resolve_provider(
+                    settings,
                     provider_name=provider.provider_name or provider.provider,
                     model=model,
                     api_base=provider.api_base or None,
                 )
-                if meta and meta.supports_reasoning is True:
+                if resolved_model.supports_reasoning is True:
                     reasoning_models.append(model)
+                if adapter.supports_image_input and resolved_model.supports_image_input is True:
+                    image_models.append(model)
 
             info["supports_reasoning_effort"] = True
             info["reasoning_models"] = reasoning_models
             info["reasoning_effort"] = provider.reasoning_effort
+        else:
+            for model in models:
+                resolved_model = resolve_provider(
+                    settings,
+                    provider_name=provider.provider_name or provider.provider,
+                    model=model,
+                    api_base=provider.api_base or None,
+                )
+                if adapter.supports_image_input and resolved_model.supports_image_input is True:
+                    image_models.append(model)
+
+        info["supports_image_input"] = bool(image_models)
+        info["image_input_models"] = image_models
 
         providers_info[provider.provider_name or provider.provider] = info
 

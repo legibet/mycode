@@ -14,12 +14,16 @@ import signal
 import subprocess
 import threading
 import time
+from base64 import b64encode
 from collections import deque
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from difflib import SequenceMatcher
+from mimetypes import guess_type
 from pathlib import Path
 from typing import Any, TextIO, cast
+
+from mycode.core.messages import image_block, text_block
 
 # ---------------------------------------------------------------------------
 # Limits (keep token usage low)
@@ -55,13 +59,14 @@ class ToolExecutionResult:
     model_text: str
     display_text: str
     is_error: bool = False
+    content: list[dict[str, Any]] | None = None
 
 
 DEFAULT_TOOL_SPECS: tuple[ToolSpec, ...] = (
     ToolSpec(
         name="read",
         description=(
-            "Read a UTF-8 text file. Returns up to 2000 lines. "
+            "Read a UTF-8 text file or supported image file. Returns up to 2000 lines for text files. "
             "Use offset/limit for large files. Very long lines are shortened."
         ),
         input_schema={
@@ -229,6 +234,27 @@ def _atomic_write_text(path: Path, content: str) -> None:
     tmp.replace(path)
 
 
+def detect_image_mime_type(path: Path) -> str | None:
+    try:
+        with path.open("rb") as file:
+            header = file.read(16)
+    except OSError:
+        return None
+
+    if header.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png"
+    if header.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+    if header.startswith((b"GIF87a", b"GIF89a")):
+        return "image/gif"
+    if header.startswith(b"RIFF") and header[8:12] == b"WEBP":
+        return "image/webp"
+    guessed, _ = guess_type(path.name)
+    if guessed in {"image/png", "image/jpeg", "image/gif", "image/webp"}:
+        return guessed
+    return None
+
+
 # ---------------------------------------------------------------------------
 # Execution
 # ---------------------------------------------------------------------------
@@ -269,9 +295,17 @@ ToolOutputCallback = Callable[[str], None]
 class ToolExecutor:
     """Execute tool calls for a single session."""
 
-    def __init__(self, *, cwd: str, session_dir: Path, tools: Sequence[ToolSpec] | None = None):
+    def __init__(
+        self,
+        *,
+        cwd: str,
+        session_dir: Path,
+        tools: Sequence[ToolSpec] | None = None,
+        supports_image_input: bool = False,
+    ):
         self.cwd = str(Path(cwd).resolve(strict=False))
         self.session_dir = session_dir
+        self.supports_image_input = supports_image_input
         self.session_dir.mkdir(parents=True, exist_ok=True)
         self.tool_output_dir = self.session_dir / "tool-output"
         self.tool_output_dir.mkdir(parents=True, exist_ok=True)
@@ -371,7 +405,7 @@ class ToolExecutor:
     # ---- read -----------------------------------------------------------------
 
     def read(self, *, path: str, offset: int | None = None, limit: int | None = None) -> ToolExecutionResult:
-        """Read a text file.
+        """Read a text file or supported image file.
 
         offset is 1-indexed. limit is number of lines.
         """
@@ -388,6 +422,25 @@ class ToolExecutor:
                 model_text=f"error: not a file: {path}",
                 display_text=f"Not a file: {path}",
                 is_error=True,
+            )
+
+        image_mime_type = detect_image_mime_type(file_path)
+        if image_mime_type:
+            if not self.supports_image_input:
+                return ToolExecutionResult(
+                    model_text="error: image input is not supported by the current model",
+                    display_text="Current model does not support image input",
+                    is_error=True,
+                )
+            summary = f"Read image file [{image_mime_type}]"
+            image_data = b64encode(file_path.read_bytes()).decode("utf-8")
+            return ToolExecutionResult(
+                model_text=summary,
+                display_text=summary,
+                content=[
+                    text_block(summary),
+                    image_block(image_data, mime_type=image_mime_type, name=file_path.name),
+                ],
             )
 
         start_line = offset if offset and offset > 0 else 1

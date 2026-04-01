@@ -61,6 +61,7 @@ class Agent:
         context_window: int | None = 128_000,
         compact_threshold: float | None = None,
         reasoning_effort: str | None = None,
+        supports_image_input: bool | None = None,
         settings: Settings | None = None,
         system: str | None = None,
         tool_executor: ToolExecutor | None = None,
@@ -77,6 +78,7 @@ class Agent:
         self.context_window = context_window
         self.compact_threshold = compact_threshold if compact_threshold is not None else DEFAULT_COMPACT_THRESHOLD
         self.reasoning_effort = reasoning_effort
+        self.supports_image_input: bool = bool(supports_image_input)
         self.settings = settings or get_settings(self.cwd)
         self.system = system or build_system_prompt(self.cwd, self.settings)
         self._cancel_event = asyncio.Event()
@@ -84,6 +86,7 @@ class Agent:
 
         self.messages: list[ConversationMessage] = list(messages or [])
         self.tools = tool_executor or ToolExecutor(cwd=self.cwd, session_dir=self.session_dir)
+        self.tools.supports_image_input = self.supports_image_input
 
     def cancel(self) -> None:
         self._cancel_event.set()
@@ -98,14 +101,17 @@ class Agent:
     def _tool_done_event(tool_id: str, result: ToolExecutionResult) -> Event:
         """Build the standard tool_done event payload."""
 
+        data = {
+            "tool_use_id": tool_id,
+            "model_text": result.model_text,
+            "display_text": result.display_text,
+            "is_error": result.is_error,
+        }
+        if result.content:
+            data["content"] = result.content
         return Event(
             "tool_done",
-            {
-                "tool_use_id": tool_id,
-                "model_text": result.model_text,
-                "display_text": result.display_text,
-                "is_error": result.is_error,
-            },
+            data,
         )
 
     async def _run_streaming_tool(self, *, tool_id: str, name: str, args: dict[str, Any]) -> AsyncIterator[Event]:
@@ -250,7 +256,12 @@ class Agent:
                 except Exception:
                     pass
 
-    async def achat(self, user_input: str, *, on_persist: PersistCallback | None = None) -> AsyncIterator[Event]:
+    async def achat(
+        self,
+        user_input: str | ConversationMessage,
+        *,
+        on_persist: PersistCallback | None = None,
+    ) -> AsyncIterator[Event]:
         """Run the full agent loop for one user message.
 
         Each turn asks the provider for one assistant message. If the assistant
@@ -259,8 +270,29 @@ class Agent:
         """
 
         self._cancel_event.clear()
+        supports_image_input = self.supports_image_input
+        self.tools.supports_image_input = supports_image_input
 
-        user_message = user_text_message(user_input)
+        if isinstance(user_input, str):
+            user_message = user_text_message(user_input)
+        else:
+            user_message = {
+                "role": str(user_input.get("role") or "user"),
+                "content": [dict(b) for b in user_input.get("content") or [] if isinstance(b, dict)],
+            }
+            if isinstance(user_input.get("meta"), dict):
+                user_message["meta"] = dict(user_input["meta"])
+
+        if user_message.get("role") != "user":
+            yield Event("error", {"message": "user input must be a user message"})
+            return
+
+        if not supports_image_input and any(
+            isinstance(block, dict) and block.get("type") == "image" for block in user_message.get("content") or []
+        ):
+            yield Event("error", {"message": "current model does not support image input"})
+            return
+
         self.messages.append(user_message)
         if on_persist:
             await on_persist(user_message)
@@ -286,6 +318,7 @@ class Agent:
                 api_key=self.api_key,
                 api_base=self.api_base,
                 reasoning_effort=self.reasoning_effort,
+                supports_image_input=supports_image_input,
             )
 
             try:
@@ -356,12 +389,14 @@ class Agent:
                     result_model_text = str(result_data.get("model_text") or "")
                     result_display_text = str(result_data.get("display_text") or "")
                     result_is_error = bool(result_data.get("is_error"))
+                    result_content = result_data.get("content")
                     tool_results.append(
                         tool_result_block(
                             tool_use_id=result_tool_id,
                             model_text=result_model_text,
                             display_text=result_display_text,
                             is_error=result_is_error,
+                            content=result_content if isinstance(result_content, list) else None,
                         )
                     )
 
@@ -435,6 +470,7 @@ class Agent:
             max_tokens=min(self.max_tokens, 8192),
             api_key=self.api_key,
             api_base=self.api_base,
+            supports_image_input=self.supports_image_input,
         )
 
         summary_message: ConversationMessage | None = None

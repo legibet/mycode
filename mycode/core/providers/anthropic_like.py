@@ -22,6 +22,8 @@ from mycode.core.providers.base import (
     ProviderStreamEvent,
     dump_model,
     get_native_meta,
+    load_image_block_payload,
+    tool_result_content_blocks,
 )
 
 _MANUAL_THINKING_BUDGETS = {
@@ -48,6 +50,8 @@ class AnthropicLikeAdapter(ProviderAdapter):
     MiniMax requires the full assistant content (all blocks) to be sent on
     multi-turn tool-loop requests — not just the text portion.
     """
+
+    supports_image_input = True
 
     def thinking_config(self, request: ProviderRequest) -> dict[str, Any] | None:
         return None
@@ -266,11 +270,28 @@ class AnthropicLikeAdapter(ProviderAdapter):
                 payload["caller"] = native_meta["caller"]
             return payload
 
+        if block_type == "image":
+            mime_type, data = load_image_block_payload(block)
+            return {
+                "type": "image",
+                "source": {"type": "base64", "media_type": mime_type, "data": data},
+            }
+
         if block_type == "tool_result":
+            content_blocks = []
+            for item in tool_result_content_blocks(block):
+                if item.get("type") == "text":
+                    content_blocks.append({"type": "text", "text": str(item.get("text") or "")})
+                    continue
+                if item.get("type") == "image":
+                    mime_type, data = load_image_block_payload(item)
+                    content_blocks.append(
+                        {"type": "image", "source": {"type": "base64", "media_type": mime_type, "data": data}}
+                    )
             return {
                 "type": "tool_result",
                 "tool_use_id": block.get("tool_use_id"),
-                "content": str(block.get("model_text") or ""),
+                "content": content_blocks or str(block.get("model_text") or ""),
                 "is_error": bool(block.get("is_error")),
             }
 

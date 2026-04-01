@@ -22,6 +22,7 @@ class ModelMetadata:
     context_window: int | None
     max_output_tokens: int | None
     supports_reasoning: bool | None
+    supports_image_input: bool | None
 
 
 def load_models_catalog() -> dict[str, Any] | None:
@@ -99,6 +100,9 @@ def _lookup_entry(
         max_output_tokens=_as_int(raw_model.get("max_output_tokens")),
         supports_reasoning=raw_model.get("supports_reasoning")
         if isinstance(raw_model.get("supports_reasoning"), bool)
+        else None,
+        supports_image_input=raw_model.get("supports_image_input")
+        if isinstance(raw_model.get("supports_image_input"), bool)
         else None,
     )
 

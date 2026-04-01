@@ -7,7 +7,6 @@ from typing import Any
 
 from mycode.core.agent import Agent
 from mycode.core.config import ResolvedProvider, Settings, get_settings, provider_has_api_key, resolve_provider
-from mycode.core.models import lookup_model_metadata
 from mycode.core.providers import (
     get_provider_adapter,
     list_env_discoverable_providers,
@@ -64,6 +63,7 @@ def build_agent(
         messages=resolved_session.messages,
         settings=settings,
         reasoning_effort=resolved_provider.reasoning_effort,
+        supports_image_input=resolved_provider.supports_image_input,
         max_tokens=resolved_provider.max_tokens,
         context_window=resolved_provider.context_window,
         compact_threshold=settings.compact_threshold,
@@ -86,6 +86,7 @@ def clone_agent(agent: Agent, *, store: SessionStore, session_id: str, messages:
         max_turns=agent.max_turns,
         max_tokens=agent.max_tokens,
         reasoning_effort=agent.reasoning_effort,
+        supports_image_input=agent.supports_image_input,
         settings=agent.settings,
     )
 
@@ -170,16 +171,13 @@ def supports_reasoning_effort(agent: Agent) -> bool:
     if not adapter.supports_reasoning_effort:
         return False
     option = get_provider_option(agent.settings, provider=agent.provider, api_base=agent.api_base)
-    if option:
-        resolved = resolve_provider(
-            agent.settings,
-            provider_name=option.name,
-            model=agent.model,
-            api_base=agent.api_base,
-        )
-        return resolved.model_metadata is not None and resolved.model_metadata.supports_reasoning is True
-    meta = lookup_model_metadata(provider_type=agent.provider, provider_name=agent.provider, model=agent.model)
-    return meta is not None and meta.supports_reasoning is True
+    resolved = resolve_provider(
+        agent.settings,
+        provider_name=option.name if option else agent.provider,
+        model=agent.model,
+        api_base=agent.api_base,
+    )
+    return resolved.supports_reasoning is True
 
 
 def update_reasoning_effort(agent: Agent, effort: str | None) -> bool:
@@ -255,6 +253,8 @@ async def update_agent_runtime(
         or agent.api_key != resolved.api_key
         or agent.reasoning_effort != resolved.reasoning_effort
         or agent.max_tokens != resolved.max_tokens
+        or agent.context_window != resolved.context_window
+        or agent.supports_image_input != resolved.supports_image_input
     )
 
     agent.provider = resolved.provider
@@ -263,5 +263,9 @@ async def update_agent_runtime(
     agent.api_base = resolved.api_base
     agent.reasoning_effort = resolved.reasoning_effort
     agent.max_tokens = resolved.max_tokens
+    agent.context_window = resolved.context_window
+    agent.supports_image_input = bool(resolved.supports_image_input)
     agent.settings = settings
+    if hasattr(agent, "tools") and hasattr(agent.tools, "supports_image_input"):
+        agent.tools.supports_image_input = bool(agent.supports_image_input)
     return runtime_changed

@@ -38,6 +38,7 @@ class ModelConfig:
     context_window: int | None = None
     max_output_tokens: int | None = None
     supports_reasoning: bool | None = None
+    supports_image_input: bool | None = None
 
 
 @dataclass(frozen=True)
@@ -75,7 +76,8 @@ class ResolvedProvider:
     reasoning_effort: str | None
     max_tokens: int = 16_384
     context_window: int | None = 128_000
-    model_metadata: ModelMetadata | None = None
+    supports_reasoning: bool | None = None
+    supports_image_input: bool | None = None
     provider_name: str | None = None
 
     @property
@@ -134,6 +136,7 @@ def _normalize_models(value: Any) -> dict[str, ModelConfig]:
         context_window = raw_config.get("context_window")
         max_output_tokens = raw_config.get("max_output_tokens")
         supports_reasoning = raw_config.get("supports_reasoning")
+        supports_image_input = raw_config.get("supports_image_input")
         models[model_id] = ModelConfig(
             context_window=(
                 context_window if isinstance(context_window, int) and not isinstance(context_window, bool) else None
@@ -142,6 +145,7 @@ def _normalize_models(value: Any) -> dict[str, ModelConfig]:
             if isinstance(max_output_tokens, int) and not isinstance(max_output_tokens, bool)
             else None,
             supports_reasoning=supports_reasoning if isinstance(supports_reasoning, bool) else None,
+            supports_image_input=supports_image_input if isinstance(supports_image_input, bool) else None,
         )
     return models
 
@@ -465,6 +469,7 @@ def _resolve_provider_runtime(
                     context_window=model_config.context_window,
                     max_output_tokens=model_config.max_output_tokens,
                     supports_reasoning=model_config.supports_reasoning,
+                    supports_image_input=model_config.supports_image_input,
                 )
             else:
                 model_metadata = ModelMetadata(
@@ -485,6 +490,11 @@ def _resolve_provider_runtime(
                         if model_config.supports_reasoning is not None
                         else model_metadata.supports_reasoning
                     ),
+                    supports_image_input=(
+                        model_config.supports_image_input
+                        if model_config.supports_image_input is not None
+                        else model_metadata.supports_image_input
+                    ),
                 )
 
     configured_effort = settings.default_reasoning_effort
@@ -496,10 +506,14 @@ def _resolve_provider_runtime(
         raise ValueError(f"unsupported reasoning_effort {configured_effort!r}; supported: {supported}")
 
     adapter = get_provider_adapter(provider_type)
+    supports_reasoning = model_metadata.supports_reasoning if model_metadata else None
+    supports_image_input = (
+        adapter.supports_image_input and model_metadata is not None and model_metadata.supports_image_input is True
+    )
     if (
         configured_effort is None
         or model_metadata is None
-        or model_metadata.supports_reasoning is not True
+        or supports_reasoning is not True
         or not adapter.supports_reasoning_effort
     ):
         reasoning_effort = None
@@ -528,7 +542,8 @@ def _resolve_provider_runtime(
         reasoning_effort=reasoning_effort,
         max_tokens=model_metadata.max_output_tokens if model_metadata and model_metadata.max_output_tokens else 16_384,
         context_window=model_metadata.context_window if model_metadata and model_metadata.context_window else 128_000,
-        model_metadata=model_metadata,
+        supports_reasoning=supports_reasoning,
+        supports_image_input=supports_image_input,
     )
 
 

@@ -2,16 +2,27 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
+
+
+class ChatInputBlock(BaseModel):
+    """One user input block for /chat."""
+
+    type: Literal["text", "image"]
+    text: str | None = None
+    path: str | None = None
+    mime_type: str | None = None
+    name: str | None = None
 
 
 class ChatRequest(BaseModel):
     """Request body for /chat."""
 
     session_id: str = "default"
-    message: str
+    message: str | None = None
+    input: list[ChatInputBlock] | None = None
     provider: str | None = None  # provider id, or a configured provider alias
     model: str | None = None
     cwd: str | None = None

@@ -19,24 +19,26 @@ class BlockingAgent:
         self.cancelled = True
         self.release.set()
 
-    async def achat(self, user_input: str, *, on_persist=None):
-        yield Event("text", {"delta": f"reply:{user_input}"})
+    async def achat(self, user_input, *, on_persist=None):
+        text = user_input["content"][0]["text"] if isinstance(user_input, dict) else user_input
+        yield Event("text", {"delta": f"reply:{text}"})
         await self.release.wait()
         if self.cancelled:
             yield Event("error", {"message": "cancelled"})
             return
         if on_persist:
-            await on_persist({"role": "assistant", "content": [{"type": "text", "text": f"reply:{user_input}"}]})
+            await on_persist({"role": "assistant", "content": [{"type": "text", "text": f"reply:{text}"}]})
 
 
 class SimpleAgent:
     def cancel(self) -> None:
         return None
 
-    async def achat(self, user_input: str, *, on_persist=None):
-        yield Event("text", {"delta": f"reply:{user_input}"})
+    async def achat(self, user_input, *, on_persist=None):
+        text = user_input["content"][0]["text"] if isinstance(user_input, dict) else user_input
+        yield Event("text", {"delta": f"reply:{text}"})
         if on_persist:
-            await on_persist({"role": "assistant", "content": [{"type": "text", "text": f"reply:{user_input}"}]})
+            await on_persist({"role": "assistant", "content": [{"type": "text", "text": f"reply:{text}"}]})
 
 
 @pytest.mark.asyncio
@@ -46,7 +48,7 @@ async def test_snapshot_includes_user_message_and_pending_events():
 
     run = await manager.start_run(
         session_id="session-1",
-        user_input="build feature",
+        user_message={"role": "user", "content": [{"type": "text", "text": "build feature"}]},
         base_messages=[{"role": "assistant", "content": [{"type": "text", "text": "Earlier"}]}],
         agent=agent,
         on_persist=lambda message: asyncio.sleep(0),
@@ -80,7 +82,7 @@ async def test_same_session_cannot_start_second_run():
 
     run = await manager.start_run(
         session_id="session-1",
-        user_input="first",
+        user_message={"role": "user", "content": [{"type": "text", "text": "first"}]},
         base_messages=[],
         agent=first_agent,
         on_persist=lambda message: asyncio.sleep(0),
@@ -89,7 +91,7 @@ async def test_same_session_cannot_start_second_run():
     with pytest.raises(ActiveRunError):
         await manager.start_run(
             session_id="session-1",
-            user_input="second",
+            user_message={"role": "user", "content": [{"type": "text", "text": "second"}]},
             base_messages=[],
             agent=BlockingAgent(),
             on_persist=lambda message: asyncio.sleep(0),
@@ -109,14 +111,14 @@ async def test_cancel_only_marks_target_run_cancelled():
 
     first = await manager.start_run(
         session_id="session-1",
-        user_input="first",
+        user_message={"role": "user", "content": [{"type": "text", "text": "first"}]},
         base_messages=[],
         agent=first_agent,
         on_persist=lambda message: asyncio.sleep(0),
     )
     second = await manager.start_run(
         session_id="session-2",
-        user_input="second",
+        user_message={"role": "user", "content": [{"type": "text", "text": "second"}]},
         base_messages=[],
         agent=second_agent,
         on_persist=lambda message: asyncio.sleep(0),
@@ -146,7 +148,7 @@ async def test_finished_run_stays_available_for_reconnect_window():
 
     run = await manager.start_run(
         session_id="session-1",
-        user_input="done",
+        user_message={"role": "user", "content": [{"type": "text", "text": "done"}]},
         base_messages=[],
         agent=SimpleAgent(),
         on_persist=lambda message: asyncio.sleep(0),

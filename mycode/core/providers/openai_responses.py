@@ -16,6 +16,8 @@ from mycode.core.providers.base import (
     ProviderRequest,
     ProviderStreamEvent,
     dump_model,
+    load_image_block_payload,
+    tool_result_content_blocks,
 )
 from mycode.core.tools import parse_tool_arguments
 
@@ -29,6 +31,7 @@ class OpenAIResponsesAdapter(ProviderAdapter):
     env_api_key_names = ("OPENAI_API_KEY",)
     default_models = ("gpt-5.4", "gpt-5.4-mini")
     supports_reasoning_effort = True
+    supports_image_input = True
 
     async def stream_turn(self, request: ProviderRequest) -> AsyncIterator[ProviderStreamEvent]:
         api_key = self.require_api_key(request.api_key)
@@ -104,28 +107,48 @@ class OpenAIResponsesAdapter(ProviderAdapter):
     def _serialize_user_message(self, message: ConversationMessage) -> list[dict[str, Any]]:
         items: list[dict[str, Any]] = []
         blocks = [block for block in message.get("content") or [] if isinstance(block, dict)]
-        text_blocks = [block for block in blocks if block.get("type") == "text"]
-        if text_blocks:
+        message_content = self._serialize_input_content(
+            [block for block in blocks if block.get("type") in {"text", "image"}]
+        )
+        if message_content:
             items.append(
                 {
                     "type": "message",
                     "role": "user",
-                    "content": [{"type": "input_text", "text": str(block.get("text") or "")} for block in text_blocks],
+                    "content": message_content,
                 }
             )
 
         for block in blocks:
             if block.get("type") != "tool_result":
                 continue
+            result_blocks = tool_result_content_blocks(block)
+            has_images = any(item.get("type") == "image" for item in result_blocks)
+            if has_images:
+                output: str | list[dict[str, Any]] = self._serialize_input_content(result_blocks)
+            else:
+                output = str(block.get("model_text") or "")
             items.append(
                 {
                     "type": "function_call_output",
                     "call_id": block.get("tool_use_id") or "",
-                    "output": str(block.get("model_text") or ""),
+                    "output": output,
                 }
             )
 
         return items
+
+    def _serialize_input_content(self, blocks: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        content: list[dict[str, Any]] = []
+        for block in blocks:
+            block_type = block.get("type")
+            if block_type == "text":
+                content.append({"type": "input_text", "text": str(block.get("text") or "")})
+                continue
+            if block_type == "image":
+                mime_type, data = load_image_block_payload(block)
+                content.append({"type": "input_image", "image_url": f"data:{mime_type};base64,{data}"})
+        return content
 
     def _native_output_items(self, message: ConversationMessage) -> list[dict[str, Any]] | None:
         raw_meta = message.get("meta")

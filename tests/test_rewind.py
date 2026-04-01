@@ -312,7 +312,7 @@ def test_chat_rejects_rewind_to_compact_summary(tmp_path: Path, monkeypatch) -> 
         )
 
     assert response.status_code == 400
-    assert response.json()["detail"] == "rewind_to must reference a real user text message"
+    assert response.json()["detail"] == "rewind_to must reference a real user message"
 
 
 def test_chat_rejects_rewind_for_new_session_without_creating_files(tmp_path: Path, monkeypatch) -> None:

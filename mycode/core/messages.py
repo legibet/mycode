@@ -2,7 +2,7 @@
 
 The runtime persists a single message shape everywhere:
 
-- user message: text blocks and tool_result blocks
+- user message: text blocks, image blocks, and tool_result blocks
 - assistant message: thinking blocks, text blocks, and tool_use blocks
 
 Provider adapters translate between this internal shape and provider-specific wire
@@ -39,6 +39,21 @@ def thinking_block(text: str, *, meta: dict[str, Any] | None = None) -> ContentB
     return block
 
 
+def image_block(
+    data: str,
+    *,
+    mime_type: str,
+    name: str | None = None,
+    meta: dict[str, Any] | None = None,
+) -> ContentBlock:
+    block: ContentBlock = {"type": "image", "data": data, "mime_type": mime_type}
+    if name:
+        block["name"] = name
+    if meta:
+        block["meta"] = dict(meta)
+    return block
+
+
 def tool_use_block(
     *,
     tool_id: str,
@@ -63,6 +78,7 @@ def tool_result_block(
     model_text: str,
     display_text: str,
     is_error: bool = False,
+    content: list[ContentBlock] | None = None,
     meta: dict[str, Any] | None = None,
 ) -> ContentBlock:
     """Build a tool-result block.
@@ -78,6 +94,8 @@ def tool_result_block(
         "display_text": display_text,
         "is_error": is_error,
     }
+    if content:
+        block["content"] = [dict(item) for item in content]
     if meta:
         block["meta"] = dict(meta)
     return block
@@ -130,9 +148,16 @@ def assistant_message(
 
 
 def flatten_message_text(message: ConversationMessage, *, include_thinking: bool = True) -> str:
+    """Flatten readable text while skipping synthetic attachment payload blocks."""
+
     parts: list[str] = []
     for block in message.get("content") or []:
         if not isinstance(block, dict):
+            continue
+        raw_meta = block.get("meta")
+        meta = raw_meta if isinstance(raw_meta, dict) else {}
+        # Attached file snapshots should not become session titles or history labels.
+        if meta.get("attachment"):
             continue
         if block.get("type") == "text":
             parts.append(str(block.get("text") or ""))

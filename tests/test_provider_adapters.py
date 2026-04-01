@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 from typing import Any, cast
 
 import pytest
@@ -17,6 +18,10 @@ from mycode.core.providers import (
 )
 from mycode.core.providers.base import ProviderStreamEvent
 from mycode.core.tools import DEFAULT_TOOL_SPECS
+
+_PNG_1X1 = base64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j1X8AAAAASUVORK5CYII="
+)
 
 
 class _Obj:
@@ -65,6 +70,43 @@ def test_openai_responses_builds_initial_input_items() -> None:
             "content": [{"type": "input_text", "text": "hello"}],
         }
     ]
+
+
+def test_openai_responses_serializes_user_image_input(tmp_path) -> None:
+    image_path = tmp_path / "tiny.png"
+    image_path.write_bytes(_PNG_1X1)
+    adapter = OpenAIResponsesAdapter()
+    request = cast(
+        Any,
+        _Obj(
+            model="gpt-5.4",
+            session_id=None,
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": "describe"},
+                        {
+                            "type": "image",
+                            "data": base64.b64encode(image_path.read_bytes()).decode("utf-8"),
+                            "mime_type": "image/png",
+                        },
+                    ],
+                }
+            ],
+            system="",
+            tools=[],
+            max_tokens=4096,
+            reasoning_effort=None,
+        ),
+    )
+
+    input_items = adapter._build_request_payload(request)["input"]
+
+    assert input_items[0]["role"] == "user"
+    assert input_items[0]["content"][0] == {"type": "input_text", "text": "describe"}
+    assert input_items[0]["content"][1]["type"] == "input_image"
+    assert input_items[0]["content"][1]["image_url"].startswith("data:image/png;base64,")
 
 
 def test_openai_responses_replays_native_output_items_for_tool_results() -> None:
@@ -149,6 +191,52 @@ def test_openai_responses_replays_native_output_items_for_tool_results() -> None
     ]
 
 
+def test_openai_responses_serializes_tool_result_images(tmp_path) -> None:
+    image_path = tmp_path / "tiny.png"
+    image_path.write_bytes(_PNG_1X1)
+    adapter = OpenAIResponsesAdapter()
+    request = cast(
+        Any,
+        _Obj(
+            model="gpt-5.4",
+            session_id=None,
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "tool_result",
+                            "tool_use_id": "call_1",
+                            "model_text": "Read image file [image/png]",
+                            "display_text": "Read image file [image/png]",
+                            "content": [
+                                {"type": "text", "text": "Read image file [image/png]"},
+                                {
+                                    "type": "image",
+                                    "data": base64.b64encode(image_path.read_bytes()).decode("utf-8"),
+                                    "mime_type": "image/png",
+                                },
+                            ],
+                        }
+                    ],
+                }
+            ],
+            system="",
+            tools=[],
+            max_tokens=4096,
+            reasoning_effort=None,
+        ),
+    )
+
+    input_items = adapter._build_request_payload(request)["input"]
+
+    assert input_items[0]["type"] == "function_call_output"
+    assert input_items[0]["call_id"] == "call_1"
+    assert input_items[0]["output"][0] == {"type": "input_text", "text": "Read image file [image/png]"}
+    assert input_items[0]["output"][1]["type"] == "input_image"
+    assert input_items[0]["output"][1]["image_url"].startswith("data:image/png;base64,")
+
+
 def test_openai_responses_falls_back_to_full_replay_for_cross_provider_history() -> None:
     adapter = OpenAIResponsesAdapter()
     request = cast(
@@ -205,6 +293,54 @@ def test_openai_responses_falls_back_to_full_replay_for_cross_provider_history()
             "output": "42",
         },
     ]
+
+
+def test_anthropic_serializes_image_tool_result_content(tmp_path) -> None:
+    image_path = tmp_path / "tiny.png"
+    image_path.write_bytes(_PNG_1X1)
+    adapter = AnthropicAdapter()
+
+    payload = adapter.build_request_payload(
+        cast(
+            Any,
+            _Obj(
+                model="claude-sonnet-4-6",
+                messages=[
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "tool_result",
+                                "tool_use_id": "call_1",
+                                "model_text": "Read image file [image/png]",
+                                "display_text": "Read image file [image/png]",
+                                "content": [
+                                    {"type": "text", "text": "Read image file [image/png]"},
+                                    {
+                                        "type": "image",
+                                        "data": base64.b64encode(image_path.read_bytes()).decode("utf-8"),
+                                        "mime_type": "image/png",
+                                    },
+                                ],
+                            }
+                        ],
+                    }
+                ],
+                system="",
+                tools=[],
+                max_tokens=4096,
+                reasoning_effort=None,
+                api_key=None,
+                api_base=None,
+                session_id=None,
+            ),
+        )
+    )
+
+    content = payload["messages"][0]["content"][0]["content"]
+    assert content[0] == {"type": "text", "text": "Read image file [image/png]"}
+    assert content[1]["type"] == "image"
+    assert content[1]["source"]["media_type"] == "image/png"
 
 
 def test_openai_responses_fallback_replay_skips_reasoning_blocks() -> None:
@@ -758,6 +894,52 @@ def test_provider_prepare_messages_preserves_foreign_thinking_blocks() -> None:
                 }
             ],
         },
+    ]
+
+
+def test_provider_prepare_messages_filters_history_images_when_disabled() -> None:
+    adapter = OpenAIChatAdapter()
+    request = cast(
+        Any,
+        _Obj(
+            model="test-model",
+            supports_image_input=False,
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": "describe this"},
+                        {"type": "image", "data": "abc", "mime_type": "image/png"},
+                        {
+                            "type": "tool_result",
+                            "tool_use_id": "call_1",
+                            "model_text": "Read image file [image/png]",
+                            "display_text": "Read image file [image/png]",
+                            "content": [
+                                {"type": "text", "text": "Read image file [image/png]"},
+                                {"type": "image", "data": "abc", "mime_type": "image/png"},
+                            ],
+                        },
+                    ],
+                }
+            ],
+        ),
+    )
+
+    assert adapter.prepare_messages(request) == [
+        {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": "describe this"},
+                {
+                    "type": "tool_result",
+                    "tool_use_id": "call_1",
+                    "model_text": "Read image file [image/png]",
+                    "display_text": "Read image file [image/png]",
+                    "content": [{"type": "text", "text": "Read image file [image/png]"}],
+                },
+            ],
+        }
     ]
 
 

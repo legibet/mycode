@@ -18,7 +18,7 @@ from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from typing import Any
 
-from mycode.core.messages import ConversationMessage, build_message, tool_result_block
+from mycode.core.messages import ConversationMessage, build_message, text_block, tool_result_block
 
 DEFAULT_REQUEST_TIMEOUT = 300.0
 
@@ -35,6 +35,7 @@ class ProviderRequest:
     api_key: str | None
     api_base: str | None
     reasoning_effort: str | None = None
+    supports_image_input: bool = True
 
 
 @dataclass
@@ -85,6 +86,7 @@ class ProviderAdapter(ABC):
     # Whether this adapter accepts the shared `reasoning_effort` knob. Providers
     # that do not support it keep their upstream default behavior unchanged.
     supports_reasoning_effort: bool = False
+    supports_image_input: bool = False
 
     @abstractmethod
     def stream_turn(self, request: ProviderRequest) -> AsyncIterator[ProviderStreamEvent]:
@@ -93,7 +95,11 @@ class ProviderAdapter(ABC):
     def prepare_messages(self, request: ProviderRequest) -> list[ConversationMessage]:
         """Project canonical session history into a provider-safe replay transcript."""
 
-        return _project_messages_for_replay(self, request.messages)
+        return _project_messages_for_replay(
+            self,
+            request.messages,
+            supports_image_input=bool(getattr(request, "supports_image_input", True)),
+        )
 
     def project_tool_call_id(self, tool_call_id: str, used_tool_call_ids: set[str]) -> str:
         """Project one canonical tool call ID into a provider-safe ID.
@@ -130,6 +136,8 @@ class ProviderAdapter(ABC):
 def _project_messages_for_replay(
     adapter: ProviderAdapter,
     source_messages: list[ConversationMessage],
+    *,
+    supports_image_input: bool,
 ) -> list[ConversationMessage]:
     """Project canonical transcript messages into one replay-safe transcript."""
 
@@ -146,6 +154,9 @@ def _project_messages_for_replay(
         raw_input = block.get("input")
         if isinstance(raw_input, dict):
             copied["input"] = dict(raw_input)
+        raw_content = block.get("content")
+        if isinstance(raw_content, list):
+            copied["content"] = [copy_block(item) for item in raw_content if isinstance(item, dict)]
         return copied
 
     def flush_interrupted_tool_calls() -> None:
@@ -222,7 +233,7 @@ def _project_messages_for_replay(
 
         projected_blocks: list[dict[str, Any]] = []
         seen_tool_result_ids: set[str] = set()
-        has_text = False
+        has_direct_user_input = False
 
         for raw_block in message.get("content") or []:
             if not isinstance(raw_block, dict):
@@ -233,7 +244,13 @@ def _project_messages_for_replay(
                 text = str(raw_block.get("text") or "")
                 if text:
                     projected_blocks.append(copy_block(raw_block))
-                    has_text = True
+                    has_direct_user_input = True
+                continue
+
+            if block_type == "image":
+                if supports_image_input:
+                    projected_blocks.append(copy_block(raw_block))
+                    has_direct_user_input = True
                 continue
 
             if block_type != "tool_result":
@@ -242,6 +259,16 @@ def _project_messages_for_replay(
             projected_block = copy_block(raw_block)
             original_id = str(projected_block.get("tool_use_id") or "")
             projected_block["tool_use_id"] = tool_id_map.get(original_id, original_id)
+            if not supports_image_input:
+                raw_content = projected_block.get("content")
+                if isinstance(raw_content, list):
+                    filtered_content = [
+                        item for item in raw_content if isinstance(item, dict) and item.get("type") != "image"
+                    ]
+                    if filtered_content:
+                        projected_block["content"] = filtered_content
+                    else:
+                        projected_block.pop("content", None)
             projected_blocks.append(projected_block)
 
             tool_use_id = str(projected_block.get("tool_use_id") or "")
@@ -251,7 +278,7 @@ def _project_messages_for_replay(
         if not projected_blocks:
             continue
 
-        if pending_tool_call_ids and has_text:
+        if pending_tool_call_ids and has_direct_user_input:
             flush_interrupted_tool_calls()
 
         projected_message = dict(message)
@@ -268,3 +295,28 @@ def _project_messages_for_replay(
 
     flush_interrupted_tool_calls()
     return replay_messages
+
+
+def load_image_block_payload(block: dict[str, Any]) -> tuple[str, str]:
+    """Return (mime_type, base64_data) for one canonical image block."""
+
+    mime_type = block.get("mime_type")
+    if not isinstance(mime_type, str) or not mime_type:
+        raise ValueError("image block is missing mime_type")
+
+    data = block.get("data")
+    if not isinstance(data, str) or not data:
+        raise ValueError("image block is missing data")
+
+    return mime_type, data
+
+
+def tool_result_content_blocks(block: dict[str, Any]) -> list[dict[str, Any]]:
+    """Return structured tool-result content, falling back to one text block."""
+
+    raw_content = block.get("content")
+    if isinstance(raw_content, list):
+        structured = [dict(item) for item in raw_content if isinstance(item, dict)]
+        if structured:
+            return structured
+    return [text_block(str(block.get("model_text") or ""))]

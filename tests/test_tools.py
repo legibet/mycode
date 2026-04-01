@@ -1,5 +1,6 @@
 """Basic tests for tool execution and truncation."""
 
+import base64
 import json
 import tempfile
 from pathlib import Path
@@ -8,8 +9,13 @@ from mycode.core.tools import (
     READ_MAX_LINE_CHARS,
     ToolExecutionResult,
     ToolExecutor,
+    detect_image_mime_type,
     parse_tool_arguments,
     truncate_text,
+)
+
+_PNG_1X1 = base64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j1X8AAAAASUVORK5CYII="
 )
 
 
@@ -223,6 +229,44 @@ class TestToolExecutorRead:
             assert f"shortened to {READ_MAX_LINE_CHARS} chars" in result.model_text
             assert "sed -n '2p'" in result.model_text
             assert "head -c 2000" in result.model_text
+
+    def test_read_image_returns_structured_content_when_model_supports_images(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            executor = ToolExecutor(cwd=tmpdir, session_dir=Path(tmpdir), supports_image_input=True)
+            image_path = Path(tmpdir) / "tiny.png"
+            image_path.write_bytes(_PNG_1X1)
+
+            result = executor.read(path="tiny.png")
+
+            assert result.is_error is False
+            assert result.model_text == "Read image file [image/png]"
+            assert result.content == [
+                {"type": "text", "text": "Read image file [image/png]"},
+                {
+                    "type": "image",
+                    "data": base64.b64encode(image_path.read_bytes()).decode("utf-8"),
+                    "mime_type": "image/png",
+                    "name": "tiny.png",
+                },
+            ]
+
+    def test_read_image_errors_when_model_does_not_support_images(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            executor = ToolExecutor(cwd=tmpdir, session_dir=Path(tmpdir), supports_image_input=False)
+            image_path = Path(tmpdir) / "tiny.png"
+            image_path.write_bytes(_PNG_1X1)
+
+            result = executor.read(path="tiny.png")
+
+            assert result.is_error is True
+            assert "not supported by the current model" in result.model_text
+
+
+def test_detect_image_mime_type_from_header(tmp_path):
+    image_path = tmp_path / "tiny.bin"
+    image_path.write_bytes(_PNG_1X1)
+
+    assert detect_image_mime_type(image_path) == "image/png"
 
 
 class TestToolExecutorWrite:

@@ -580,6 +580,7 @@ class TestGetSettings:
                 context_window=1_000_000,
                 max_output_tokens=32_768,
                 supports_reasoning=False,
+                supports_image_input=None,
             ),
         )
 
@@ -624,6 +625,7 @@ class TestGetSettings:
                 context_window=400_000,
                 max_output_tokens=128_000,
                 supports_reasoning=True,
+                supports_image_input=None,
             ),
         )
 
@@ -721,6 +723,7 @@ class TestGetSettings:
                 context_window=400_000,
                 max_output_tokens=128_000,
                 supports_reasoning=True,
+                supports_image_input=None,
             ),
         )
 
@@ -734,7 +737,8 @@ class TestGetSettings:
                     "gpt-5.4": {
                       "context_window": 500000,
                       "max_output_tokens": 64000,
-                      "supports_reasoning": false
+                      "supports_reasoning": false,
+                      "supports_image_input": true
                     }
                   }
                 }
@@ -751,5 +755,5 @@ class TestGetSettings:
 
         assert resolved.context_window == 500_000
         assert resolved.max_tokens == 64_000
-        assert resolved.model_metadata is not None
-        assert resolved.model_metadata.supports_reasoning is False
+        assert resolved.supports_reasoning is False
+        assert resolved.supports_image_input is True
