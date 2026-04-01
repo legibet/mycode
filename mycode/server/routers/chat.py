@@ -122,8 +122,7 @@ async def chat(chat: ChatRequest, store: StoreDep, runs: RunManagerDep):
         user_message = build_message("user", [text_block(message_text)])
 
     if any(isinstance(block, dict) and block.get("type") == "image" for block in user_message.get("content") or []):
-        adapter = get_provider_adapter(resolved.provider)
-        if not adapter.supports_image_input or resolved.supports_image_input is not True:
+        if resolved.supports_image_input is not True:
             raise HTTPException(status_code=400, detail="current model does not support image input")
 
     data = await store.load_session(session_id)
@@ -272,8 +271,8 @@ async def get_config(cwd: str | None = None):
             "has_api_key": True,
         }
 
-        adapter = get_provider_adapter(provider.provider)
         image_models: list[str] = []
+        adapter = get_provider_adapter(provider.provider)
         if adapter.supports_reasoning_effort:
             reasoning_models: list[str] = []
             for model in models:
@@ -285,7 +284,7 @@ async def get_config(cwd: str | None = None):
                 )
                 if resolved_model.supports_reasoning is True:
                     reasoning_models.append(model)
-                if adapter.supports_image_input and resolved_model.supports_image_input is True:
+                if resolved_model.supports_image_input is True:
                     image_models.append(model)
 
             info["supports_reasoning_effort"] = True
@@ -299,7 +298,7 @@ async def get_config(cwd: str | None = None):
                     model=model,
                     api_base=provider.api_base or None,
                 )
-                if adapter.supports_image_input and resolved_model.supports_image_input is True:
+                if resolved_model.supports_image_input is True:
                     image_models.append(model)
 
         info["supports_image_input"] = bool(image_models)

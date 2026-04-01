@@ -610,6 +610,49 @@ class TestGetSettings:
         assert resolved.context_window == 1_000_000
         assert resolved.reasoning_effort is None
 
+    def test_resolve_provider_uses_model_metadata_for_image_input_support(self, tmp_path: Path, monkeypatch) -> None:
+        home = tmp_path / "home"
+        workspace = tmp_path / "workspace"
+        workspace.mkdir()
+
+        monkeypatch.setenv("MYCODE_HOME", str(home / ".mycode"))
+        monkeypatch.setenv("OPENAI_API_KEY", "env-key")
+        monkeypatch.setattr(
+            "mycode.core.config.lookup_model_metadata",
+            lambda **_: ModelMetadata(
+                provider="openai_chat",
+                model="gpt-4.1-mini",
+                context_window=1_000_000,
+                max_output_tokens=32_768,
+                supports_reasoning=False,
+                supports_image_input=True,
+            ),
+        )
+
+        _write(
+            home / ".mycode" / "config.json",
+            """
+            {
+              "providers": {
+                "compatible": {
+                  "type": "openai_chat",
+                  "api_key": "${OPENAI_API_KEY}",
+                  "models": {"gpt-4.1-mini": {}}
+                }
+              },
+              "default": {
+                "provider": "compatible"
+              }
+            }
+            """,
+        )
+
+        settings = get_settings(str(workspace))
+        resolved = resolve_provider(settings)
+
+        assert resolved.provider_type == "openai_chat"
+        assert resolved.supports_image_input is True
+
     def test_resolve_provider_uses_global_default_reasoning_effort(self, tmp_path: Path, monkeypatch) -> None:
         home = tmp_path / "home"
         workspace = tmp_path / "workspace"

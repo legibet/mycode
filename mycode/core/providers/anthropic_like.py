@@ -51,8 +51,6 @@ class AnthropicLikeAdapter(ProviderAdapter):
     multi-turn tool-loop requests — not just the text portion.
     """
 
-    supports_image_input = True
-
     def thinking_config(self, request: ProviderRequest) -> dict[str, Any] | None:
         return None
 

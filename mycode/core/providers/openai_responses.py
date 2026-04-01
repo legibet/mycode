@@ -31,7 +31,6 @@ class OpenAIResponsesAdapter(ProviderAdapter):
     env_api_key_names = ("OPENAI_API_KEY",)
     default_models = ("gpt-5.4", "gpt-5.4-mini")
     supports_reasoning_effort = True
-    supports_image_input = True
 
     async def stream_turn(self, request: ProviderRequest) -> AsyncIterator[ProviderStreamEvent]:
         api_key = self.require_api_key(request.api_key)

@@ -505,11 +505,9 @@ def _resolve_provider_runtime(
         supported = ", ".join(_VALID_REASONING_EFFORTS)
         raise ValueError(f"unsupported reasoning_effort {configured_effort!r}; supported: {supported}")
 
-    adapter = get_provider_adapter(provider_type)
     supports_reasoning = model_metadata.supports_reasoning if model_metadata else None
-    supports_image_input = (
-        adapter.supports_image_input and model_metadata is not None and model_metadata.supports_image_input is True
-    )
+    supports_image_input = model_metadata.supports_image_input if model_metadata else None
+    adapter = get_provider_adapter(provider_type)
     if (
         configured_effort is None
         or model_metadata is None
