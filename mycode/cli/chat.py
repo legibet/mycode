@@ -3,6 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import html
+import re
+import shlex
+from base64 import b64encode
+from pathlib import Path
 from typing import Any
 
 from prompt_toolkit import PromptSession
@@ -11,13 +16,16 @@ from prompt_toolkit.completion import Completer, Completion
 from prompt_toolkit.formatted_text import ANSI
 from prompt_toolkit.history import FileHistory
 from prompt_toolkit.key_binding import KeyBindings
+from prompt_toolkit.keys import Keys
 from prompt_toolkit.layout import Layout
 from prompt_toolkit.widgets import RadioList
 from rich.text import Text
 
 from mycode.core.agent import Agent
 from mycode.core.config import resolve_mycode_home
+from mycode.core.messages import build_message, image_block, text_block
 from mycode.core.session import SessionStore
+from mycode.core.tools import detect_image_mime_type, resolve_path
 
 from .render import ReplyRenderer, TerminalView, format_local_timestamp
 from .runtime import (
@@ -46,6 +54,8 @@ _COMMAND_HELP = (
     ("/q", "Quit"),
 )
 _SLASH_COMMANDS = tuple(command for command, _ in _COMMAND_HELP)
+# Only treat `@path` as a reference when it starts a standalone token.
+_AT_PATH_RE = re.compile(r"(?<!\S)@(?:(?P<quote>['\"])(?P<quoted>[^'\"]*)|(?P<plain>[^\s'\"]*))$")
 
 
 # Style for the focused row in the inline selector.
@@ -98,18 +108,78 @@ async def choose[T](options: list[tuple[T, str]], *, default: T | None = None) -
     return await app.run_async()
 
 
-class _SlashCompleter(Completer):
-    """Auto-complete slash commands."""
+class _PromptCompleter(Completer):
+    """Complete slash commands and explicit `@path` references for the prompt."""
 
     _COMMANDS = dict(_COMMAND_HELP)
 
+    def __init__(self, *, cwd: str | None = None) -> None:
+        self._cwd = cwd
+
     def get_completions(self, document, complete_event):
-        text = document.text_before_cursor.lstrip()
+        text_before_cursor = document.text_before_cursor
+        text = text_before_cursor.lstrip()
+        if self._cwd:
+            match = _AT_PATH_RE.search(text_before_cursor)
+            if match:
+                quote = str(match.group("quote") or "")
+                query = str(match.group("quoted") or match.group("plain") or "")
+                # Complete only real paths under the current working directory.
+                if query == "~":
+                    base_prefix = "~/"
+                    partial = ""
+                    base_dir = Path("~").expanduser()
+                elif query.endswith("/"):
+                    base_prefix = query
+                    partial = ""
+                    base_dir = Path(resolve_path(query or ".", cwd=self._cwd))
+                else:
+                    head, sep, tail = query.rpartition("/")
+                    base_prefix = f"{head}{sep}" if sep else ""
+                    partial = tail if sep else query
+                    base_dir = Path(resolve_path(base_prefix or ".", cwd=self._cwd))
+
+                if base_dir.is_dir():
+                    for entry in sorted(base_dir.iterdir(), key=lambda item: (not item.is_dir(), item.name.lower())):
+                        if partial and not entry.name.startswith(partial):
+                            continue
+                        candidate = f"{base_prefix}{entry.name}{'/' if entry.is_dir() else ''}"
+                        replacement = "@" + shlex.quote(candidate)
+                        if quote:
+                            replacement = f"@{quote}{candidate}"
+                            if not entry.is_dir():
+                                replacement += quote
+                        yield Completion(
+                            replacement,
+                            start_position=-len(match.group(0)),
+                            display="@" + candidate,
+                            display_meta="dir" if entry.is_dir() else "file",
+                        )
+                return
+
         if not text.startswith("/"):
             return
         for cmd, desc in self._COMMANDS.items():
             if cmd.startswith(text) and cmd != text:
                 yield Completion(cmd, start_position=-len(text), display_meta=desc)
+
+
+def _rewrite_pasted_file_paths(text: str) -> str | None:
+    """Rewrite pasted file paths into explicit `@path` references."""
+
+    normalized = text.replace("\r\n", "\n").replace("\r", "\n").strip()
+    if not normalized:
+        return None
+    try:
+        tokens = shlex.split(normalized, posix=True)
+    except ValueError:
+        return None
+    if not tokens:
+        return None
+    paths = [Path(token).expanduser() for token in tokens]
+    if not all(path.is_file() for path in paths):
+        return None
+    return " ".join(f"@{shlex.quote(str(path))}" for path in paths)
 
 
 def _build_chat_key_bindings() -> KeyBindings:
@@ -123,6 +193,11 @@ def _build_chat_key_bindings() -> KeyBindings:
 
     # Esc+Enter (Meta+Enter) inserts a newline for multiline input.
     kb.add("escape", "enter")(lambda event: event.current_buffer.insert_text("\n"))
+
+    @kb.add(Keys.BracketedPaste, eager=True)
+    def _handle_bracketed_paste(event) -> None:
+        pasted = event.data.replace("\r\n", "\n").replace("\r", "\n")
+        event.current_buffer.insert_text(_rewrite_pasted_file_paths(pasted) or pasted)
 
     return kb
 
@@ -152,7 +227,7 @@ class TerminalChat:
         self.view = view or TerminalView()
         self.prompt_session = PromptSession(
             history=FileHistory(history_file_path()),
-            completer=_SlashCompleter(),
+            completer=_PromptCompleter(cwd=self.agent.cwd),
             key_bindings=_build_chat_key_bindings(),
             multiline=True,
             prompt_continuation="  ",
@@ -192,8 +267,9 @@ class TerminalChat:
 
             self.view.console.print()
             renderer = ReplyRenderer(self.view.console)
+            user_message = self._build_user_message(user_input)
             try:
-                await renderer.render(self.agent, user_input, on_persist=self._persist_message)
+                await renderer.render(self.agent, user_message, on_persist=self._persist_message)
             except (KeyboardInterrupt, asyncio.CancelledError):
                 self.agent.cancel()
                 renderer.cancel()
@@ -204,6 +280,55 @@ class TerminalChat:
                         task.uncancel()
                     except AttributeError:
                         pass  # Python < 3.11
+
+    def _build_user_message(self, text: str) -> dict[str, Any]:
+        """Build one user message with the raw prompt first, then resolved attachments.
+
+        Text files are appended as extra text blocks in their final provider-facing
+        form. Images are appended as image blocks. Only explicit `@path` tokens
+        that resolve to real files are attached.
+        """
+
+        blocks = [text_block(text)]
+        try:
+            tokens = shlex.split(text.replace("\r\n", "\n").replace("\r", "\n"), posix=True)
+        except ValueError:
+            return build_message("user", blocks)
+
+        seen: set[str] = set()
+        for token in tokens:
+            if not token.startswith("@") or token == "@":
+                continue
+
+            path = Path(resolve_path(token[1:], cwd=self.agent.cwd))
+            if not path.is_file():
+                continue
+
+            path_text = str(path)
+            if path_text in seen:
+                continue
+            seen.add(path_text)
+
+            image_mime_type = detect_image_mime_type(path)
+            if image_mime_type:
+                image_data = b64encode(path.read_bytes()).decode("utf-8")
+                blocks.append(image_block(image_data, mime_type=image_mime_type, name=path.name))
+                continue
+
+            # Reuse the existing read tool so attached text files follow the same
+            # UTF-8, truncation, and long-line rules as agent-initiated reads.
+            result = self.agent.tools.read(path=path_text)
+            if result.is_error:
+                continue
+
+            blocks.append(
+                text_block(
+                    f'<file name="{html.escape(path_text, quote=True)}">\n{result.model_text}\n</file>',
+                    meta={"attachment": True, "path": path_text},
+                )
+            )
+
+        return build_message("user", blocks)
 
     async def _persist_message(self, message: dict[str, Any]) -> None:
         """Persist one streamed message into the active session."""

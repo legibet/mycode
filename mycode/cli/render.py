@@ -20,6 +20,7 @@ from rich.text import Text
 from rich.theme import Theme
 
 from mycode.core.agent import Agent
+from mycode.core.messages import flatten_message_text
 
 from .theme import (
     ACCENT,
@@ -286,16 +287,11 @@ class TerminalView:
             if role == "user":
                 if (message.get("meta") or {}).get("synthetic"):
                     continue
-                if isinstance(content, list):
-                    text = " ".join(
-                        str(block.get("text") or "").strip()
-                        for block in content
-                        if isinstance(block, dict)
-                        and block.get("type") == "text"
-                        and str(block.get("text") or "").strip()
-                    )
-                else:
-                    text = str(content or "").strip()
+                # Use the shared flattener so attached file payload blocks stay out
+                # of the readable history preview.
+                text = flatten_message_text(message, include_thinking=False)
+                if not isinstance(content, list):
+                    text = text or str(content or "").strip()
                 if text:
                     turns.append([("user", text)])
                 continue
@@ -365,7 +361,7 @@ class ReplyRenderer:
     async def render(
         self,
         agent: Agent,
-        message: str,
+        message: str | dict[str, Any],
         *,
         on_persist: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
     ) -> int:
