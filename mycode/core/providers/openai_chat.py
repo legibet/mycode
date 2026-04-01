@@ -144,10 +144,15 @@ class OpenAIChatAdapter(ProviderAdapter):
         yield ProviderStreamEvent("message_done", {"message": final_message})
 
     def _build_request_payload(self, request: ProviderRequest) -> dict[str, Any]:
-        prepared_messages = self.prepare_messages(request)
+        messages = []
+        if request.system:
+            messages.append({"role": "system", "content": request.system})
+        for message in self.prepare_messages(request):
+            messages.extend(self._serialize_message(message))
+
         payload: dict[str, Any] = {
             "model": request.model,
-            "messages": self._build_messages(prepared_messages, system=request.system),
+            "messages": messages,
             "tools": [self._serialize_tool(tool) for tool in request.tools] or None,
             "tool_choice": "auto" if request.tools else None,
             "max_tokens": request.max_tokens,
@@ -158,14 +163,6 @@ class OpenAIChatAdapter(ProviderAdapter):
 
     def _build_provider_payload_overrides(self, request: ProviderRequest) -> dict[str, Any]:
         return {}
-
-    def _build_messages(self, messages: list[dict[str, Any]], *, system: str) -> list[dict[str, Any]]:
-        payload_messages = []
-        if system:
-            payload_messages.append({"role": "system", "content": system})
-        for message in messages:
-            payload_messages.extend(self._serialize_message(message))
-        return payload_messages
 
     def _serialize_tool(self, tool: dict[str, Any]) -> dict[str, Any]:
         return {
@@ -178,11 +175,13 @@ class OpenAIChatAdapter(ProviderAdapter):
         }
 
     def _serialize_message(self, message: dict[str, Any]) -> list[dict[str, Any]]:
+        """Convert one canonical message into Chat Completions wire messages."""
+
         role = str(message.get("role") or "user")
         blocks = [block for block in message.get("content") or [] if isinstance(block, dict)]
 
         if role == "user":
-            payload_messages = []
+            payload_messages: list[dict[str, Any]] = []
             has_images = any(block.get("type") == "image" for block in blocks)
             if has_images:
                 user_content: str | list[dict[str, Any]] | None = []
@@ -213,6 +212,7 @@ class OpenAIChatAdapter(ProviderAdapter):
                 ]
                 text = "\n".join(text_parts)
                 user_content = text or None
+
             if user_content:
                 payload_messages.append({"role": "user", "content": user_content})
 

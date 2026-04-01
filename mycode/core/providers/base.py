@@ -94,11 +94,8 @@ class ProviderAdapter(ABC):
     def prepare_messages(self, request: ProviderRequest) -> list[ConversationMessage]:
         """Project canonical session history into a provider-safe replay transcript."""
 
-        return _project_messages_for_replay(
-            self,
-            request.messages,
-            supports_image_input=bool(getattr(request, "supports_image_input", True)),
-        )
+        supports_image_input = bool(getattr(request, "supports_image_input", True))
+        return _project_messages_for_replay(self, request.messages, supports_image_input=supports_image_input)
 
     def project_tool_call_id(self, tool_call_id: str, used_tool_call_ids: set[str]) -> str:
         """Project one canonical tool call ID into a provider-safe ID.

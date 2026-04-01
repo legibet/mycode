@@ -26,15 +26,6 @@ from mycode.core.providers.base import (
     tool_result_content_blocks,
 )
 
-_MANUAL_THINKING_BUDGETS = {
-    "low": 2048,
-    "medium": 8192,
-    "high": 24576,
-    "xhigh": 32768,
-}
-
-CACHE_CONTROL_EPHEMERAL = {"type": "ephemeral"}
-
 
 class AnthropicLikeAdapter(ProviderAdapter):
     """Shared Messages adapter for Anthropic-compatible providers.
@@ -62,11 +53,17 @@ class AnthropicLikeAdapter(ProviderAdapter):
             return None
         if effort == "none":
             return {"type": "disabled"}
+        if effort == "low":
+            return {"type": "enabled", "budget_tokens": 2048}
+        if effort == "medium":
+            return {"type": "enabled", "budget_tokens": 8192}
+        if effort == "high":
+            return {"type": "enabled", "budget_tokens": 24576}
+        if effort == "xhigh":
+            return {"type": "enabled", "budget_tokens": 32768}
+        return None
 
-        budget = _MANUAL_THINKING_BUDGETS.get(effort)
-        return {"type": "enabled", "budget_tokens": budget} if budget is not None else None
-
-    def build_request_payload(self, request: ProviderRequest) -> dict[str, Any]:
+    def _build_request_payload(self, request: ProviderRequest) -> dict[str, Any]:
         messages = [self._serialize_message(message) for message in self.prepare_messages(request)]
         self._apply_cache_control(messages)
 
@@ -80,7 +77,7 @@ class AnthropicLikeAdapter(ProviderAdapter):
                 {
                     "type": "text",
                     "text": request.system,
-                    "cache_control": dict(CACHE_CONTROL_EPHEMERAL),
+                    "cache_control": {"type": "ephemeral"},
                 }
             ]
         if request.tools:
@@ -121,6 +118,8 @@ class AnthropicLikeAdapter(ProviderAdapter):
             counter += 1
 
     def _apply_cache_control(self, messages: list[dict[str, Any]]) -> None:
+        """Mark the last replayed user content block as ephemeral."""
+
         for message in reversed(messages):
             if message.get("role") != "user":
                 continue
@@ -135,7 +134,7 @@ class AnthropicLikeAdapter(ProviderAdapter):
                 if block.get("type") not in {"text", "image", "tool_result"}:
                     continue
 
-                block["cache_control"] = dict(CACHE_CONTROL_EPHEMERAL)
+                block["cache_control"] = {"type": "ephemeral"}
                 return
 
             return
@@ -149,7 +148,7 @@ class AnthropicLikeAdapter(ProviderAdapter):
         )
 
         try:
-            async with client.messages.stream(**self.build_request_payload(request)) as stream:
+            async with client.messages.stream(**self._build_request_payload(request)) as stream:
                 async for event in stream:
                     if event.type == "thinking" and event.thinking:
                         yield ProviderStreamEvent("thinking_delta", {"text": event.thinking})

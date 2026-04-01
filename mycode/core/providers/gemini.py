@@ -114,6 +114,8 @@ class GoogleGeminiAdapter(ProviderAdapter):
         return types.HttpOptions(base_url=base_url, api_version=api_version, timeout=int(DEFAULT_REQUEST_TIMEOUT))
 
     def _build_contents(self, request: ProviderRequest) -> list[dict[str, Any]]:
+        """Convert canonical replay messages into Gemini contents."""
+
         contents: list[dict[str, Any]] = []
         tool_names: dict[str, str] = {}
 
@@ -124,6 +126,7 @@ class GoogleGeminiAdapter(ProviderAdapter):
             if role == "assistant":
                 parts: list[dict[str, Any]] = []
                 needs_dummy_signature = True
+
                 for block in blocks:
                     if block.get("type") == "tool_use":
                         tool_id = str(block.get("id") or "")
@@ -141,25 +144,29 @@ class GoogleGeminiAdapter(ProviderAdapter):
                     block_type = block.get("type")
                     if block_type == "thinking":
                         parts.append({"text": str(block.get("text") or ""), "thought": True})
-                    elif block_type == "text":
+                        continue
+
+                    if block_type == "text":
                         parts.append({"text": str(block.get("text") or "")})
-                    elif block_type == "tool_use":
-                        part: dict[str, Any] = {
-                            "function_call": {
-                                "id": block.get("id") or "",
-                                "name": block.get("name") or "",
-                                "args": block.get("input") if isinstance(block.get("input"), dict) else {},
-                            }
+                        continue
+
+                    if block_type != "tool_use":
+                        continue
+
+                    part: dict[str, Any] = {
+                        "function_call": {
+                            "id": block.get("id") or "",
+                            "name": block.get("name") or "",
+                            "args": block.get("input") if isinstance(block.get("input"), dict) else {},
                         }
-                        # Gemini 3 validates the first function call in each step of
-                        # the current turn. When history came from another provider,
-                        # there is no real thought signature to replay, so we use the
-                        # official dummy signature to keep cross-provider tool loops
-                        # working.
-                        if needs_dummy_signature:
-                            part["thought_signature"] = _DUMMY_THOUGHT_SIGNATURE
-                            needs_dummy_signature = False
-                        parts.append(part)
+                    }
+                    # Gemini 3 validates the first function call in each step of
+                    # the current turn. Cross-provider replay has no real thought
+                    # signature, so we attach the documented dummy signature once.
+                    if needs_dummy_signature:
+                        part["thought_signature"] = _DUMMY_THOUGHT_SIGNATURE
+                        needs_dummy_signature = False
+                    parts.append(part)
 
                 if parts:
                     contents.append({"role": "model", "parts": parts})
@@ -174,10 +181,12 @@ class GoogleGeminiAdapter(ProviderAdapter):
                 if block_type == "text":
                     parts.append({"text": str(block.get("text") or "")})
                     continue
+
                 if block_type == "image":
                     mime_type, data = load_image_block_payload(block)
                     parts.append({"inline_data": {"mime_type": mime_type, "data": data}})
                     continue
+
                 if block_type != "tool_result":
                     continue
 
@@ -185,9 +194,9 @@ class GoogleGeminiAdapter(ProviderAdapter):
                 response: dict[str, Any] = {"result": str(block.get("model_text") or "")}
                 if block.get("is_error"):
                     response["is_error"] = True
-                # Gemini requires the function_response to carry the exact id and
-                # name from the matching function_call in the preceding model turn.
-                # The model turn must appear immediately before this user turn.
+
+                # Gemini requires the exact id and name from the matching
+                # function_call in the previous model turn.
                 parts.append(
                     {
                         "function_response": {

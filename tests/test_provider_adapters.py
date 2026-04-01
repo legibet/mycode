@@ -300,7 +300,7 @@ def test_anthropic_serializes_image_tool_result_content(tmp_path) -> None:
     image_path.write_bytes(_PNG_1X1)
     adapter = AnthropicAdapter()
 
-    payload = adapter.build_request_payload(
+    payload = adapter._build_request_payload(
         cast(
             Any,
             _Obj(
@@ -1048,18 +1048,26 @@ def test_anthropic_prepare_messages_normalizes_tool_ids() -> None:
 def test_openai_chat_replays_reasoning_by_default() -> None:
     adapter = OpenAIChatAdapter()
 
-    payload_messages = adapter._build_messages(
-        [
-            {
-                "role": "assistant",
-                "content": [
-                    {"type": "thinking", "text": "think"},
-                    {"type": "text", "text": "answer"},
+    payload_messages = adapter._build_request_payload(
+        cast(
+            Any,
+            _Obj(
+                model="test-model",
+                max_tokens=2048,
+                system="",
+                tools=[],
+                messages=[
+                    {
+                        "role": "assistant",
+                        "content": [
+                            {"type": "thinking", "text": "think"},
+                            {"type": "text", "text": "answer"},
+                        ],
+                    }
                 ],
-            }
-        ],
-        system="",
-    )
+            ),
+        )
+    )["messages"]
 
     assert payload_messages[0]["reasoning_content"] == "think"
 
@@ -1067,18 +1075,26 @@ def test_openai_chat_replays_reasoning_by_default() -> None:
 def test_openai_chat_serializes_user_image_input() -> None:
     adapter = OpenAIChatAdapter()
 
-    payload_messages = adapter._build_messages(
-        [
-            {
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": "describe"},
-                    {"type": "image", "data": "YWJj", "mime_type": "image/png"},
+    payload_messages = adapter._build_request_payload(
+        cast(
+            Any,
+            _Obj(
+                model="test-model",
+                max_tokens=2048,
+                system="",
+                tools=[],
+                messages=[
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": "describe"},
+                            {"type": "image", "data": "YWJj", "mime_type": "image/png"},
+                        ],
+                    }
                 ],
-            }
-        ],
-        system="",
-    )
+            ),
+        )
+    )["messages"]
 
     assert payload_messages == [
         {
@@ -1094,43 +1110,67 @@ def test_openai_chat_serializes_user_image_input() -> None:
 def test_deepseek_replays_reasoning_across_turns() -> None:
     adapter = DeepSeekAdapter()
 
-    payload_messages = adapter._build_messages(
-        [
-            {
-                "role": "assistant",
-                "content": [
-                    {"type": "thinking", "text": "think", "meta": {"native": {"reasoning_field": "reasoning_content"}}},
-                    {"type": "tool_use", "id": "call_1", "name": "read", "input": {"path": "x.py"}},
-                ],
-            },
-            {
-                "role": "user",
-                "content": [
+    payload_messages = adapter._build_request_payload(
+        cast(
+            Any,
+            _Obj(
+                model="test-model",
+                max_tokens=2048,
+                system="",
+                tools=[],
+                messages=[
                     {
-                        "type": "tool_result",
-                        "tool_use_id": "call_1",
-                        "model_text": "done",
-                        "display_text": "done",
-                    }
+                        "role": "assistant",
+                        "content": [
+                            {
+                                "type": "thinking",
+                                "text": "think",
+                                "meta": {"native": {"reasoning_field": "reasoning_content"}},
+                            },
+                            {"type": "tool_use", "id": "call_1", "name": "read", "input": {"path": "x.py"}},
+                        ],
+                    },
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "tool_result",
+                                "tool_use_id": "call_1",
+                                "model_text": "done",
+                                "display_text": "done",
+                            }
+                        ],
+                    },
                 ],
-            },
-        ],
-        system="",
-    )
+            ),
+        )
+    )["messages"]
     assert payload_messages[0]["reasoning_content"] == "think"
-    payload_messages = adapter._build_messages(
-        [
-            {
-                "role": "assistant",
-                "content": [
-                    {"type": "thinking", "text": "think", "meta": {"native": {"reasoning_field": "reasoning_content"}}},
-                    {"type": "text", "text": "done"},
+    payload_messages = adapter._build_request_payload(
+        cast(
+            Any,
+            _Obj(
+                model="test-model",
+                max_tokens=2048,
+                system="",
+                tools=[],
+                messages=[
+                    {
+                        "role": "assistant",
+                        "content": [
+                            {
+                                "type": "thinking",
+                                "text": "think",
+                                "meta": {"native": {"reasoning_field": "reasoning_content"}},
+                            },
+                            {"type": "text", "text": "done"},
+                        ],
+                    },
+                    {"role": "user", "content": [{"type": "text", "text": "next question"}]},
                 ],
-            },
-            {"role": "user", "content": [{"type": "text", "text": "next question"}]},
-        ],
-        system="",
-    )
+            ),
+        )
+    )["messages"]
     assert payload_messages[0]["reasoning_content"] == "think"
 
 
@@ -1245,7 +1285,7 @@ def test_anthropic_build_request_payload_includes_reasoning_config() -> None:
         ),
     )
 
-    payload = adapter.build_request_payload(request)
+    payload = adapter._build_request_payload(request)
 
     assert payload["thinking"] == {"type": "adaptive"}
     assert payload["output_config"] == {"effort": "high"}
@@ -1266,7 +1306,7 @@ def test_anthropic_build_request_payload_maps_xhigh_and_4_5_correctly() -> None:
         ),
     )
 
-    payload = adapter.build_request_payload(request)
+    payload = adapter._build_request_payload(request)
 
     assert payload["thinking"] == {"type": "enabled", "budget_tokens": 32768}
     assert "output_config" not in payload
@@ -1287,7 +1327,7 @@ def test_anthropic_build_request_payload_maps_xhigh_for_opus_4_6() -> None:
         ),
     )
 
-    payload = adapter.build_request_payload(request)
+    payload = adapter._build_request_payload(request)
 
     assert payload["thinking"] == {"type": "adaptive"}
     assert payload["output_config"] == {"effort": "max"}
@@ -1331,7 +1371,7 @@ def test_anthropic_like_build_request_payload_adds_cache_control() -> None:
             ),
         )
 
-        payload = adapter.build_request_payload(request)
+        payload = adapter._build_request_payload(request)
 
         assert payload["system"] == [
             {

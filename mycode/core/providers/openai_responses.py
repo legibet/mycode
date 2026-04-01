@@ -150,6 +150,8 @@ class OpenAIResponsesAdapter(ProviderAdapter):
         return content
 
     def _native_output_items(self, message: ConversationMessage) -> list[dict[str, Any]] | None:
+        """Replay stored OpenAI output items when history already came from Responses."""
+
         raw_meta = message.get("meta")
         if not isinstance(raw_meta, dict) or raw_meta.get("provider") != self.provider_id:
             return None
@@ -242,7 +244,7 @@ class OpenAIResponsesAdapter(ProviderAdapter):
 
     def _convert_final_response(self, response: Any) -> dict[str, Any]:
         output_items = dump_model(getattr(response, "output", None))
-        blocks = []
+        blocks: list[dict[str, Any]] = []
         for item in getattr(response, "output", []) or []:
             item_type = getattr(item, "type", None)
 
