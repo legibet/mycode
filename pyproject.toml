@@ -59,6 +59,7 @@ artifacts = ["mycode/server/static/**", "mycode/core/models_catalog.json"]
 
 [dependency-groups]
 dev = [
+    "ruff>=0.13.0",
     "pytest>=8.0.0",
     "pytest-asyncio>=0.25.0",
 ]
