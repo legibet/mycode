@@ -26,6 +26,9 @@ from mycode.core.providers.base import (
     tool_result_content_blocks,
 )
 
+# Maps reasoning_effort values to extended thinking budget_tokens.
+_THINKING_BUDGETS: dict[str, int] = {"low": 2048, "medium": 8192, "high": 24576, "xhigh": 32768}
+
 
 class AnthropicLikeAdapter(ProviderAdapter):
     """Shared Messages adapter for Anthropic-compatible providers.
@@ -53,15 +56,8 @@ class AnthropicLikeAdapter(ProviderAdapter):
             return None
         if effort == "none":
             return {"type": "disabled"}
-        if effort == "low":
-            return {"type": "enabled", "budget_tokens": 2048}
-        if effort == "medium":
-            return {"type": "enabled", "budget_tokens": 8192}
-        if effort == "high":
-            return {"type": "enabled", "budget_tokens": 24576}
-        if effort == "xhigh":
-            return {"type": "enabled", "budget_tokens": 32768}
-        return None
+        budget = _THINKING_BUDGETS.get(effort)
+        return {"type": "enabled", "budget_tokens": budget} if budget else None
 
     def _build_request_payload(self, request: ProviderRequest) -> dict[str, Any]:
         messages = [self._serialize_message(message) for message in self.prepare_messages(request)]
@@ -210,10 +206,11 @@ class AnthropicLikeAdapter(ProviderAdapter):
                 )
                 continue
 
-        native_meta = {
-            "stop_sequence": getattr(message, "stop_sequence", None),
-            "service_tier": getattr(message, "service_tier", None),
-        }
+        native_meta: dict[str, Any] = {}
+        if stop_sequence := getattr(message, "stop_sequence", None):
+            native_meta["stop_sequence"] = stop_sequence
+        if service_tier := getattr(message, "service_tier", None):
+            native_meta["service_tier"] = service_tier
         return assistant_message(
             blocks,
             provider=self.provider_id,
@@ -305,13 +302,13 @@ class AnthropicAdapter(AnthropicLikeAdapter):
 
     def thinking_config(self, request: ProviderRequest) -> dict[str, Any] | None:
         effort = request.reasoning_effort
-        if not effort or effort == "none":
-            return self.manual_thinking_config(effort)
-
+        if not effort:
+            return None
+        if effort == "none":
+            return {"type": "disabled"}
         normalized = request.model.lower()
         if normalized.startswith("claude-sonnet-4-6") or normalized.startswith("claude-opus-4-6"):
             return {"type": "adaptive"}
-
         return self.manual_thinking_config(effort)
 
     def output_config(self, request: ProviderRequest) -> dict[str, Any] | None:

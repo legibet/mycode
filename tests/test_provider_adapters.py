@@ -16,7 +16,7 @@ from mycode.core.providers import (
     OpenRouterAdapter,
     ZAIAdapter,
 )
-from mycode.core.providers.base import ProviderStreamEvent
+from mycode.core.providers.base import ProviderStreamEvent, repair_messages_for_replay
 from mycode.core.tools import DEFAULT_TOOL_SPECS
 
 _PNG_1X1 = base64.b64decode(
@@ -202,6 +202,10 @@ def test_openai_responses_serializes_tool_result_images(tmp_path) -> None:
             session_id=None,
             messages=[
                 {
+                    "role": "assistant",
+                    "content": [{"type": "tool_use", "id": "call_1", "name": "read", "input": {"path": "x.png"}}],
+                },
+                {
                     "role": "user",
                     "content": [
                         {
@@ -219,7 +223,7 @@ def test_openai_responses_serializes_tool_result_images(tmp_path) -> None:
                             ],
                         }
                     ],
-                }
+                },
             ],
             system="",
             tools=[],
@@ -230,11 +234,17 @@ def test_openai_responses_serializes_tool_result_images(tmp_path) -> None:
 
     input_items = adapter._build_request_payload(request)["input"]
 
-    assert input_items[0]["type"] == "function_call_output"
-    assert input_items[0]["call_id"] == "call_1"
-    assert input_items[0]["output"][0] == {"type": "input_text", "text": "Read image file [image/png]"}
-    assert input_items[0]["output"][1]["type"] == "input_image"
-    assert input_items[0]["output"][1]["image_url"].startswith("data:image/png;base64,")
+    assert input_items[0] == {
+        "type": "function_call",
+        "call_id": "call_1",
+        "name": "read",
+        "arguments": '{"path": "x.png"}',
+    }
+    assert input_items[1]["type"] == "function_call_output"
+    assert input_items[1]["call_id"] == "call_1"
+    assert input_items[1]["output"][0] == {"type": "input_text", "text": "Read image file [image/png]"}
+    assert input_items[1]["output"][1]["type"] == "input_image"
+    assert input_items[1]["output"][1]["image_url"].startswith("data:image/png;base64,")
 
 
 def test_openai_responses_falls_back_to_full_replay_for_cross_provider_history() -> None:
@@ -307,6 +317,10 @@ def test_anthropic_serializes_image_tool_result_content(tmp_path) -> None:
                 model="claude-sonnet-4-6",
                 messages=[
                     {
+                        "role": "assistant",
+                        "content": [{"type": "tool_use", "id": "call_1", "name": "read", "input": {"path": "x.png"}}],
+                    },
+                    {
                         "role": "user",
                         "content": [
                             {
@@ -324,7 +338,7 @@ def test_anthropic_serializes_image_tool_result_content(tmp_path) -> None:
                                 ],
                             }
                         ],
-                    }
+                    },
                 ],
                 system="",
                 tools=[],
@@ -337,7 +351,7 @@ def test_anthropic_serializes_image_tool_result_content(tmp_path) -> None:
         )
     )
 
-    content = payload["messages"][0]["content"][0]["content"]
+    content = payload["messages"][1]["content"][0]["content"]
     assert content[0] == {"type": "text", "text": "Read image file [image/png]"}
     assert content[1]["type"] == "image"
     assert content[1]["source"]["media_type"] == "image/png"
@@ -385,7 +399,7 @@ def test_openai_responses_fallback_replay_skips_reasoning_blocks() -> None:
         {
             "type": "function_call_output",
             "call_id": "call_1",
-            "output": "error: tool call was interrupted (no result recorded)",
+            "output": "error: tool call was interrupted",
         },
     ]
 
@@ -826,70 +840,11 @@ def test_openai_chat_extracts_reasoning_from_known_extra_fields(delta, expected_
     assert meta == expected_meta
 
 
-def test_provider_prepare_messages_closes_interrupted_tool_loop() -> None:
-    adapter = OpenAIChatAdapter()
-    original_messages = [
-        {
-            "role": "assistant",
-            "content": [{"type": "tool_use", "id": "call_1", "name": "read", "input": {"path": "x.py"}}],
-            "meta": {"provider": "openai_chat", "model": "test-model"},
-        },
-        {"role": "user", "content": [{"type": "text", "text": "next question"}]},
-    ]
-    request = cast(Any, _Obj(model="test-model", messages=original_messages))
-
-    prepared_messages = adapter.prepare_messages(request)
-
-    assert original_messages == request.messages
-    assert prepared_messages == [
-        {
-            "role": "assistant",
-            "content": [{"type": "tool_use", "id": "call_1", "name": "read", "input": {"path": "x.py"}}],
-            "meta": {"provider": "openai_chat", "model": "test-model"},
-        },
-        {
-            "role": "user",
-            "content": [
-                {
-                    "type": "tool_result",
-                    "tool_use_id": "call_1",
-                    "model_text": "error: tool call was interrupted (no result recorded)",
-                    "display_text": "Tool call was interrupted before it returned a result",
-                    "is_error": True,
-                }
-            ],
-        },
-        {"role": "user", "content": [{"type": "text", "text": "next question"}]},
-    ]
-
-
-def test_provider_prepare_messages_drops_aborted_assistant_turn() -> None:
-    adapter = OpenAIChatAdapter()
-    request = cast(
-        Any,
-        _Obj(
-            model="test-model",
-            messages=[
-                {
-                    "role": "assistant",
-                    "content": [{"type": "thinking", "text": "partial"}],
-                    "meta": {"provider": "openai_chat", "model": "test-model", "stop_reason": "aborted"},
-                },
-                {"role": "user", "content": [{"type": "text", "text": "hello"}]},
-            ],
-        ),
-    )
-
-    assert adapter.prepare_messages(request) == [{"role": "user", "content": [{"type": "text", "text": "hello"}]}]
-
-
-def test_provider_prepare_messages_preserves_foreign_thinking_blocks() -> None:
-    adapter = OpenAIChatAdapter()
-    request = cast(
-        Any,
-        _Obj(
-            model="target-model",
-            messages=[
+@pytest.mark.parametrize(
+    ("messages", "expected"),
+    [
+        pytest.param(
+            [
                 {
                     "role": "assistant",
                     "content": [
@@ -899,31 +854,126 @@ def test_provider_prepare_messages_preserves_foreign_thinking_blocks() -> None:
                     "meta": {"provider": "anthropic", "model": "claude-sonnet-4-6"},
                 }
             ],
-        ),
-    )
-
-    assert adapter.prepare_messages(request) == [
-        {
-            "role": "assistant",
-            "content": [
-                {"type": "thinking", "text": "Need to inspect the file first."},
-                {"type": "tool_use", "id": "call_1", "name": "read", "input": {"path": "x.py"}},
-            ],
-            "meta": {"provider": "anthropic", "model": "claude-sonnet-4-6"},
-        },
-        {
-            "role": "user",
-            "content": [
+            [
                 {
-                    "type": "tool_result",
-                    "tool_use_id": "call_1",
-                    "model_text": "error: tool call was interrupted (no result recorded)",
-                    "display_text": "Tool call was interrupted before it returned a result",
-                    "is_error": True,
-                }
+                    "role": "assistant",
+                    "content": [
+                        {"type": "thinking", "text": "Need to inspect the file first."},
+                        {"type": "tool_use", "id": "call_1", "name": "read", "input": {"path": "x.py"}},
+                    ],
+                    "meta": {"provider": "anthropic", "model": "claude-sonnet-4-6"},
+                },
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "tool_result",
+                            "tool_use_id": "call_1",
+                            "model_text": "error: tool call was interrupted",
+                            "display_text": "Tool call was interrupted",
+                            "is_error": True,
+                        }
+                    ],
+                },
             ],
-        },
-    ]
+            id="closes-interrupted-tool-loop",
+        ),
+        pytest.param(
+            [
+                {
+                    "role": "assistant",
+                    "content": [{"type": "thinking", "text": "partial"}],
+                    "meta": {"provider": "openai_chat", "model": "test-model", "stop_reason": "aborted"},
+                },
+                {"role": "user", "content": [{"type": "text", "text": "hello"}]},
+            ],
+            [{"role": "user", "content": [{"type": "text", "text": "hello"}]}],
+            id="drops-aborted-assistant-turn",
+        ),
+        pytest.param(
+            [
+                {
+                    "role": "assistant",
+                    "content": [{"type": "tool_use", "id": "call_1", "name": "read", "input": {"path": "x.py"}}],
+                },
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "tool_result",
+                            "tool_use_id": "call_1",
+                            "model_text": "first",
+                            "display_text": "first",
+                        },
+                        {
+                            "type": "tool_result",
+                            "tool_use_id": "call_1",
+                            "model_text": "duplicate",
+                            "display_text": "duplicate",
+                        },
+                        {
+                            "type": "tool_result",
+                            "tool_use_id": "call_2",
+                            "model_text": "orphan",
+                            "display_text": "orphan",
+                        },
+                    ],
+                },
+                {
+                    "role": "assistant",
+                    "content": [{"type": "tool_use", "id": "call_1", "name": "read", "input": {"path": "x.py"}}],
+                },
+            ],
+            [
+                {
+                    "role": "assistant",
+                    "content": [{"type": "tool_use", "id": "call_1", "name": "read", "input": {"path": "x.py"}}],
+                },
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "tool_result",
+                            "tool_use_id": "call_1",
+                            "model_text": "first",
+                            "display_text": "first",
+                        }
+                    ],
+                },
+            ],
+            id="drops-duplicate-and-orphan-tool-records",
+        ),
+        pytest.param(
+            [
+                {"role": "assistant", "content": [{"type": "text", "text": "first"}]},
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "tool_result",
+                            "tool_use_id": "missing",
+                            "model_text": "orphan",
+                            "display_text": "orphan",
+                        }
+                    ],
+                },
+                {"role": "assistant", "content": [{"type": "text", "text": "second"}]},
+            ],
+            [
+                {"role": "assistant", "content": [{"type": "text", "text": "first"}]},
+                {
+                    "role": "user",
+                    "content": [{"type": "text", "text": "[User turn omitted during replay]"}],
+                    "meta": {"synthetic": True},
+                },
+                {"role": "assistant", "content": [{"type": "text", "text": "second"}]},
+            ],
+            id="keeps-placeholder-user-turn",
+        ),
+    ],
+)
+def test_repair_messages_for_replay(messages, expected) -> None:
+    assert repair_messages_for_replay(messages, supports_image_input=True) == expected
 
 
 def test_provider_prepare_messages_filters_history_images_when_disabled() -> None:
@@ -934,6 +984,10 @@ def test_provider_prepare_messages_filters_history_images_when_disabled() -> Non
             model="test-model",
             supports_image_input=False,
             messages=[
+                {
+                    "role": "assistant",
+                    "content": [{"type": "tool_use", "id": "call_1", "name": "read", "input": {"path": "x.png"}}],
+                },
                 {
                     "role": "user",
                     "content": [
@@ -950,12 +1004,16 @@ def test_provider_prepare_messages_filters_history_images_when_disabled() -> Non
                             ],
                         },
                     ],
-                }
+                },
             ],
         ),
     )
 
     assert adapter.prepare_messages(request) == [
+        {
+            "role": "assistant",
+            "content": [{"type": "tool_use", "id": "call_1", "name": "read", "input": {"path": "x.png"}}],
+        },
         {
             "role": "user",
             "content": [
@@ -968,7 +1026,7 @@ def test_provider_prepare_messages_filters_history_images_when_disabled() -> Non
                     "content": [{"type": "text", "text": "Read image file [image/png]"}],
                 },
             ],
-        }
+        },
     ]
 
 
@@ -1355,6 +1413,10 @@ def test_anthropic_like_build_request_payload_adds_cache_control() -> None:
                         "content": [{"type": "text", "text": "assistant reply"}],
                     },
                     {
+                        "role": "assistant",
+                        "content": [{"type": "tool_use", "id": "call_1", "name": "read", "input": {"path": "x.py"}}],
+                    },
+                    {
                         "role": "user",
                         "content": [
                             {"type": "text", "text": "latest user message"},
@@ -1381,4 +1443,4 @@ def test_anthropic_like_build_request_payload_adds_cache_control() -> None:
             }
         ]
         assert "cache_control" not in payload["messages"][0]["content"][0]
-        assert payload["messages"][2]["content"][1]["cache_control"] == {"type": "ephemeral"}
+        assert payload["messages"][3]["content"][1]["cache_control"] == {"type": "ephemeral"}

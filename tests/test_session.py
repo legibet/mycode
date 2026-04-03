@@ -177,8 +177,8 @@ class TestSessionStore:
                     {
                         "type": "tool_result",
                         "tool_use_id": "call_1",
-                        "model_text": "error: tool call was interrupted (no result recorded)",
-                        "display_text": "Tool call was interrupted before it returned a result",
+                        "model_text": "error: tool call was interrupted",
+                        "display_text": "Tool call was interrupted",
                         "is_error": True,
                     }
                 ],

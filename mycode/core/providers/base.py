@@ -13,6 +13,7 @@ request is sent upstream.
 
 from __future__ import annotations
 
+import os
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
@@ -92,10 +93,40 @@ class ProviderAdapter(ABC):
         """Stream exactly one assistant turn."""
 
     def prepare_messages(self, request: ProviderRequest) -> list[ConversationMessage]:
-        """Project canonical session history into a provider-safe replay transcript."""
+        """Repair canonical history, then project tool IDs for provider replay."""
 
-        supports_image_input = bool(getattr(request, "supports_image_input", True))
-        return _project_messages_for_replay(self, request.messages, supports_image_input=supports_image_input)
+        supports_image_input = getattr(request, "supports_image_input", True)
+        repaired_messages = repair_messages_for_replay(request.messages, supports_image_input=supports_image_input)
+        prepared_messages: list[ConversationMessage] = []
+        tool_id_map: dict[str, str] = {}
+        used_tool_call_ids: set[str] = set()
+
+        for message in repaired_messages:
+            projected_blocks: list[dict[str, Any]] = []
+            for raw_block in message.get("content") or []:
+                if not isinstance(raw_block, dict):
+                    continue
+
+                block = dict(raw_block)
+                if block.get("type") == "tool_use":
+                    tool_use_id = str(block.get("id") or "")
+                    if tool_use_id and tool_use_id not in tool_id_map:
+                        tool_id_map[tool_use_id] = self.project_tool_call_id(tool_use_id, used_tool_call_ids)
+                        used_tool_call_ids.add(tool_id_map[tool_use_id])
+                    if tool_use_id:
+                        block["id"] = tool_id_map[tool_use_id]
+                elif block.get("type") == "tool_result":
+                    tool_use_id = str(block.get("tool_use_id") or "")
+                    if tool_use_id in tool_id_map:
+                        block["tool_use_id"] = tool_id_map[tool_use_id]
+
+                projected_blocks.append(block)
+
+            projected_message = dict(message)
+            projected_message["content"] = projected_blocks
+            prepared_messages.append(projected_message)
+
+        return prepared_messages
 
     def project_tool_call_id(self, tool_call_id: str, used_tool_call_ids: set[str]) -> str:
         """Project one canonical tool call ID into a provider-safe ID.
@@ -108,8 +139,6 @@ class ProviderAdapter(ABC):
         return tool_call_id
 
     def api_key_from_env(self) -> str | None:
-        import os
-
         for env_name in self.env_api_key_names:
             value = os.environ.get(env_name)
             if value:
@@ -129,107 +158,77 @@ class ProviderAdapter(ABC):
         return base.rstrip("/") or None
 
 
-def _project_messages_for_replay(
-    adapter: ProviderAdapter,
+def repair_messages_for_replay(
     source_messages: list[ConversationMessage],
     *,
     supports_image_input: bool,
 ) -> list[ConversationMessage]:
-    """Project canonical transcript messages into one replay-safe transcript."""
+    """Return a minimal replay-safe transcript from canonical session history.
+
+    This keeps only replayable blocks, removes duplicate or orphaned tool
+    records, and inserts synthetic error tool results when a tool call was left
+    open by an interrupted turn.
+    """
 
     replay_messages: list[ConversationMessage] = []
-    tool_id_map: dict[str, str] = {}
-    used_tool_call_ids: set[str] = set()
-    pending_tool_call_ids: list[str] = []
-
-    def copy_block(block: dict[str, Any]) -> dict[str, Any]:
-        copied = dict(block)
-        raw_meta = block.get("meta")
-        if isinstance(raw_meta, dict):
-            copied["meta"] = dict(raw_meta)
-        raw_input = block.get("input")
-        if isinstance(raw_input, dict):
-            copied["input"] = dict(raw_input)
-        raw_content = block.get("content")
-        if isinstance(raw_content, list):
-            copied["content"] = [copy_block(item) for item in raw_content if isinstance(item, dict)]
-        return copied
-
-    def flush_interrupted_tool_calls() -> None:
-        if not pending_tool_call_ids:
-            return
-
-        replay_messages.append(
-            build_message(
-                "user",
-                [
-                    tool_result_block(
-                        tool_use_id=tool_use_id,
-                        model_text="error: tool call was interrupted (no result recorded)",
-                        display_text="Tool call was interrupted before it returned a result",
-                        is_error=True,
-                    )
-                    for tool_use_id in pending_tool_call_ids
-                ],
-            )
-        )
-        pending_tool_call_ids.clear()
+    emitted_tool_use_ids: set[str] = set()
+    emitted_tool_result_ids: set[str] = set()
+    open_tool_use_ids: list[str] = []
 
     for message in source_messages:
         role = str(message.get("role") or "")
 
         if role == "assistant":
-            flush_interrupted_tool_calls()
+            if open_tool_use_ids:
+                replay_messages.append(_interrupted_tool_result_message(open_tool_use_ids))
+                emitted_tool_result_ids.update(open_tool_use_ids)
+                open_tool_use_ids = []
 
             raw_meta = message.get("meta")
-            meta = dict(raw_meta) if isinstance(raw_meta, dict) else None
-            if str((meta or {}).get("stop_reason") or "") in {"error", "aborted", "cancelled"}:
+            stop_reason = str((raw_meta or {}).get("stop_reason") or "") if isinstance(raw_meta, dict) else ""
+            if stop_reason in {"error", "aborted", "cancelled"}:
                 continue
 
-            projected_blocks: list[dict[str, Any]] = []
+            content: list[dict[str, Any]] = []
+            current_tool_use_ids: list[str] = []
             for raw_block in message.get("content") or []:
                 if not isinstance(raw_block, dict):
                     continue
-
                 block_type = raw_block.get("type")
-                if block_type not in {"text", "thinking", "tool_use"}:
+                if block_type in {"text", "thinking"}:
+                    text = str(raw_block.get("text") or "")
+                    if text:
+                        content.append(dict(raw_block))
                     continue
 
-                projected_block = copy_block(raw_block)
-                if block_type == "tool_use":
-                    original_id = str(projected_block.get("id") or "")
-                    projected_id = tool_id_map.get(original_id, "")
-                    if original_id and not projected_id:
-                        projected_id = adapter.project_tool_call_id(original_id, used_tool_call_ids)
-                        tool_id_map[original_id] = projected_id
-                    if projected_id:
-                        used_tool_call_ids.add(projected_id)
-                        projected_block["id"] = projected_id
+                if block_type != "tool_use":
+                    continue
 
-                projected_blocks.append(projected_block)
+                tool_use_id = str(raw_block.get("id") or "")
+                if not tool_use_id or tool_use_id in emitted_tool_use_ids:
+                    continue
 
-            if not projected_blocks:
+                emitted_tool_use_ids.add(tool_use_id)
+                current_tool_use_ids.append(tool_use_id)
+                content.append(dict(raw_block))
+
+            if not content:
                 continue
 
-            projected_message = dict(message)
-            if meta is not None:
-                projected_message["meta"] = meta
-            projected_message["content"] = projected_blocks
-            replay_messages.append(projected_message)
-
-            pending_tool_call_ids[:] = [
-                str(block.get("id") or "")
-                for block in projected_blocks
-                if block.get("type") == "tool_use" and block.get("id")
-            ]
+            replay_message = dict(message)
+            replay_message["content"] = content
+            if isinstance(raw_meta, dict):
+                replay_message["meta"] = dict(raw_meta)
+            replay_messages.append(replay_message)
+            open_tool_use_ids = current_tool_use_ids
             continue
 
         if role != "user":
             continue
 
-        projected_blocks: list[dict[str, Any]] = []
-        seen_tool_result_ids: set[str] = set()
-        has_direct_user_input = False
+        content = []
+        resolved_tool_use_ids: set[str] = set()
+        has_user_input = False
 
         for raw_block in message.get("content") or []:
             if not isinstance(raw_block, dict):
@@ -239,58 +238,92 @@ def _project_messages_for_replay(
             if block_type == "text":
                 text = str(raw_block.get("text") or "")
                 if text:
-                    projected_blocks.append(copy_block(raw_block))
-                    has_direct_user_input = True
+                    has_user_input = True
+                    content.append(dict(raw_block))
                 continue
 
             if block_type == "image":
                 if supports_image_input:
-                    projected_blocks.append(copy_block(raw_block))
-                    has_direct_user_input = True
+                    has_user_input = True
+                    content.append(dict(raw_block))
                 continue
 
             if block_type != "tool_result":
                 continue
 
-            projected_block = copy_block(raw_block)
-            original_id = str(projected_block.get("tool_use_id") or "")
-            projected_block["tool_use_id"] = tool_id_map.get(original_id, original_id)
-            if not supports_image_input:
-                raw_content = projected_block.get("content")
-                if isinstance(raw_content, list):
-                    filtered_content = [
-                        item for item in raw_content if isinstance(item, dict) and item.get("type") != "image"
-                    ]
-                    if filtered_content:
-                        projected_block["content"] = filtered_content
-                    else:
-                        projected_block.pop("content", None)
-            projected_blocks.append(projected_block)
+            tool_use_id = str(raw_block.get("tool_use_id") or "")
+            if not tool_use_id or tool_use_id not in emitted_tool_use_ids or tool_use_id in emitted_tool_result_ids:
+                continue
 
-            tool_use_id = str(projected_block.get("tool_use_id") or "")
-            if tool_use_id:
-                seen_tool_result_ids.add(tool_use_id)
+            block = dict(raw_block)
+            raw_content = block.get("content")
+            if not supports_image_input and isinstance(raw_content, list):
+                filtered_content = [
+                    dict(item) for item in raw_content if isinstance(item, dict) and item.get("type") != "image"
+                ]
+                if filtered_content:
+                    block["content"] = filtered_content
+                else:
+                    block.pop("content", None)
 
-        if not projected_blocks:
-            continue
+            content.append(block)
+            resolved_tool_use_ids.add(tool_use_id)
+            emitted_tool_result_ids.add(tool_use_id)
 
-        if pending_tool_call_ids and has_direct_user_input:
-            flush_interrupted_tool_calls()
+        if has_user_input and open_tool_use_ids:
+            missing_tool_use_ids = [
+                tool_use_id for tool_use_id in open_tool_use_ids if tool_use_id not in resolved_tool_use_ids
+            ]
+            if missing_tool_use_ids:
+                replay_messages.append(_interrupted_tool_result_message(missing_tool_use_ids))
+                emitted_tool_result_ids.update(missing_tool_use_ids)
+            open_tool_use_ids = []
 
-        projected_message = dict(message)
-        raw_meta = message.get("meta")
-        if isinstance(raw_meta, dict):
-            projected_message["meta"] = dict(raw_meta)
-        projected_message["content"] = projected_blocks
-        replay_messages.append(projected_message)
-
-        if seen_tool_result_ids:
-            pending_tool_call_ids[:] = [
-                tool_id for tool_id in pending_tool_call_ids if tool_id not in seen_tool_result_ids
+        elif open_tool_use_ids:
+            open_tool_use_ids = [
+                tool_use_id for tool_use_id in open_tool_use_ids if tool_use_id not in resolved_tool_use_ids
             ]
 
-    flush_interrupted_tool_calls()
+        if not content:
+            if replay_messages and replay_messages[-1].get("role") == "assistant":
+                # Keep a valid replay transcript when a corrupted user turn is
+                # reduced to nothing after cleanup.
+                replay_messages.append(
+                    build_message(
+                        "user",
+                        [text_block("[User turn omitted during replay]")],
+                        meta={"synthetic": True},
+                    )
+                )
+            continue
+
+        replay_message = dict(message)
+        replay_message["content"] = content
+        if isinstance(message.get("meta"), dict):
+            replay_message["meta"] = dict(message["meta"])
+        replay_messages.append(replay_message)
+
+    if open_tool_use_ids:
+        replay_messages.append(_interrupted_tool_result_message(open_tool_use_ids))
+
     return replay_messages
+
+
+def _interrupted_tool_result_message(tool_use_ids: list[str]) -> ConversationMessage:
+    """Return one synthetic user message that closes interrupted tool calls."""
+
+    return build_message(
+        "user",
+        [
+            tool_result_block(
+                tool_use_id=tool_use_id,
+                model_text="error: tool call was interrupted",
+                display_text="Tool call was interrupted",
+                is_error=True,
+            )
+            for tool_use_id in tool_use_ids
+        ],
+    )
 
 
 def load_image_block_payload(block: dict[str, Any]) -> tuple[str, str]:
