@@ -2,12 +2,14 @@
 
 >There are many coding agents, but this one is mine.
 
-A minimal coding agent with a web UI and CLI. Inspired by [pi](https://github.com/badlogic/pi-mono).
+A minimal coding agent. Inspired by [pi](https://github.com/badlogic/pi-mono).
 
-- 4 tools only: `read`, `write`, `edit`, `bash`.
-- Expand capabilities via skills.
-- One message format, one agent loop — across all providers.
-- Inspectable runtime, append-only sessions.
+- Minimal core (under 5k lines of code).
+- Unified message format and robust cross-provider replay.
+- 4 built-in tools: `read`, `write`, `edit`, `bash`, expanded via skills.
+- Inspectable runtime, append-only JSONL sessions.
+- Native image input.
+- Mobile-friendly web UI.
 
 ## Quick Start
 
@@ -53,11 +55,12 @@ API keys are discovered automatically from environment variables (see Providers 
 
 ## Configuration
 
-No config file is required. It is only used for three things:
+No config file is required. It is only used for:
 
 1. Setting default provider, model, and other options
 2. Overriding built-in provider settings (e.g. changing the available model list)
 3. Adding custom providers with any built-in provider type.
+4. Customize model metadata for built-in and custom models.
 
 Config is loaded from `~/.mycode/config.json` (global) and `<workspace>/.mycode/config.json` (project-specific, takes precedence).
 
@@ -85,18 +88,22 @@ Config is loaded from `~/.mycode/config.json` (global) and `<workspace>/.mycode/
       "base_url": "https://custom-endpoint.com/v1",
       "api_key": "${CUSTOM_API_KEY}",
       "models": {
-        "gpt-5.4-custom": {}
+        "custom-model": {
+          "context_window": 128000,
+          "max_output_tokens": 16384,
+          "supports_reasoning": true,
+          "supports_image_input": false
+        }
       }
     }
   }
 }
 ```
 
-For built-in providers, use the provider id as the config key and omit `type` when you are only overriding settings. Custom aliases must set `type`.
-
-`reasoning_effort` controls extended thinking for supported models: `auto` (default) · `none` · `low` · `medium` · `high` · `xhigh`.
-
-API keys in config accept `${ENV_VAR}` references.
+- Built-in provider ids can be overridden by key without specifying `type`. Custom providers must set `type`.
+- `reasoning_effort` controls extended thinking for supported models: `auto` (default) · `none` · `low` · `medium` · `high` · `xhigh`.
+- API keys in config accept `${ENV_VAR}` references.
+- Model metadata is sourced from models.dev and bundled — no manual config needed for built-in models.
 
 > Built-in Moonshot, MiniMax, and Z.AI defaults use international endpoints. Override `base_url` in config for China endpoints.
 
