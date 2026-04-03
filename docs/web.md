@@ -1,18 +1,18 @@
-# Frontend
+# Web UI
 
-React + Vite app in `frontend/`. Built assets are copied to `mycode/server/static/` for packaged serving.
+React + Vite app in `web/`. Built assets are copied to `mycode/server/static/` for packaged serving.
 
 ## Serving Modes
 
-- `mycode web` — serves packaged frontend from `mycode/server/static/`
-- `mycode web --dev` — API only; no static files (pair with `pnpm --dir frontend dev`)
+- `mycode web` — serves packaged web assets from `mycode/server/static/`
+- `mycode web --dev` — API only; no static files (pair with `pnpm --dir web dev`)
 
 CORS is enabled for all origins in the FastAPI app.
 
 ## Component Structure
 
 ```
-frontend/src/
+web/src/
   App.tsx                # root layout, config loading, session init
   main.tsx               # React entry
   types.ts               # shared TypeScript types
@@ -96,7 +96,7 @@ Image input:
 
 ## Config Persistence
 
-Frontend config is persisted to `localStorage`:
+Web UI config is persisted to `localStorage`:
 
 - `provider`, `model`, `cwd`, `reasoningEffort`
 - `auto` and empty string both mean "do not send reasoning_effort to server"
@@ -105,12 +105,12 @@ Frontend config is persisted to `localStorage`:
 ## Build
 
 ```bash
-pnpm --dir frontend test:run                           # run frontend tests once
-pnpm --dir frontend dev                                # dev server (Vite HMR)
-uv run --no-project python scripts/build_frontend.py  # production build → mycode/server/static/
+pnpm --dir web test:run                                # run web UI tests once
+pnpm --dir web dev                                     # dev server (Vite HMR)
+uv run --no-project python scripts/build_web.py       # production build → mycode/server/static/
 uv build                                               # packages static/ into wheel/sdist
 ```
 
-Built `frontend/dist/` is **not** the serving path. `scripts/build_frontend.py` copies the built output into `mycode/server/static/` which is what gets packaged and served.
+Built `web/dist/` is **not** the serving path. `scripts/build_web.py` copies the built output into `mycode/server/static/` which is what gets packaged and served.
 
 If `mycode/server/static/` is missing at startup, the server falls back to API-only mode with a warning log.

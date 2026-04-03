@@ -77,7 +77,7 @@ Cancel a running agent run. Returns `{status: "ok", run: {...}}`.
 
 ### `GET /api/config?cwd=...`
 
-Returns current provider configuration for the frontend.
+Returns current provider configuration for the web UI.
 
 Response:
 
@@ -148,7 +148,7 @@ Load session with full message history. If the session has an active run, overla
 }
 ```
 
-`pending_events` contains the active run's buffered SSE events. The frontend reapplies them, then reconnects with `after=<last seq>`.
+`pending_events` contains the active run's buffered SSE events. The web UI reapplies them, then reconnects with `after=<last seq>`.
 
 ### `DELETE /api/sessions/{id}`
 
@@ -194,7 +194,7 @@ Response: `{cwd: "...", exists: true}`
 
 `GET /api/runs/{run_id}/stream` produces the following event types. The `StreamEvent` schema is in `mycode/server/schemas.py`.
 
-**Do not change event names or payload shapes without updating server, CLI, and frontend.**
+**Do not change event names or payload shapes without updating server, CLI, and web UI.**
 
 | event         | payload fields                                                               |
 | ------------- | ---------------------------------------------------------------------------- |
@@ -206,7 +206,7 @@ Response: `{cwd: "...", exists: true}`
 | `compact`     | `message: str`                                                               |
 | `error`       | `message: str`                                                               |
 
-Every event also carries `seq: int` for reconnect support. The frontend uses `after` parameter to resume from a specific seq number.
+Every event also carries `seq: int` for reconnect support. The web UI uses `after` parameter to resume from a specific seq number.
 
 ## Run Manager
 

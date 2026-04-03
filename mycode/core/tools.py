@@ -613,7 +613,7 @@ class ToolExecutor:
                 is_error=True,
             )
 
-        # Return a compact JSON payload so the frontend can render a focused diff
+        # Return a compact JSON payload so the web UI can render a focused diff
         # around the edited range without re-reading the whole file.
         if match_pos is None:
             match_pos = text.index(oldText)

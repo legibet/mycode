@@ -1,6 +1,6 @@
 /**
  * Canonical message helpers shared by history hydration and live streaming.
- * Frontend state stays close to the backend block-based conversation model.
+ * Web UI state stays close to the backend block-based conversation model.
  */
 
 import type {

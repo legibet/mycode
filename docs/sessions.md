@@ -83,7 +83,7 @@ Triggered in `Agent._compact_if_needed()` after a successful turn completes:
 3. Build a compact event with the summary text and `compacted_count`
 4. Persist the compact event (append-only — original messages stay in JSONL)
 5. Apply `apply_compact()` in memory to rebuild the message list
-6. Emit SSE `compact` event to frontend
+6. Emit SSE `compact` event to the web UI
 
 `should_compact()` checks multiple usage field names: `input_tokens`, `prompt_tokens`, `prompt_token_count`.
 

@@ -294,7 +294,7 @@ def test_chat_rejects_rewind_to_compact_summary(tmp_path: Path, monkeypatch) -> 
             )
         )
 
-    app = create_app(serve_frontend=False)
+    app = create_app(serve_web=False)
     app.dependency_overrides[get_store] = lambda: store
     app.dependency_overrides[get_run_manager] = lambda: RunManager()
 
@@ -319,7 +319,7 @@ def test_chat_rejects_rewind_for_new_session_without_creating_files(tmp_path: Pa
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
 
     store = SessionStore(data_dir=tmp_path / "sessions")
-    app = create_app(serve_frontend=False)
+    app = create_app(serve_web=False)
     app.dependency_overrides[get_store] = lambda: store
     app.dependency_overrides[get_run_manager] = lambda: RunManager()
 

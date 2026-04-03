@@ -13,13 +13,13 @@ from mycode.server.routers import chat_router, sessions_router, workspaces_route
 logger = logging.getLogger(__name__)
 
 
-def frontend_static_path() -> Path:
-    """Return the packaged frontend static directory."""
+def web_static_path() -> Path:
+    """Return the packaged web static directory."""
 
     return Path(__file__).resolve().parent / "static"
 
 
-def create_app(*, serve_frontend: bool = True) -> FastAPI:
+def create_app(*, serve_web: bool = True) -> FastAPI:
     """Create the FastAPI app."""
     setup_logging()
     application = FastAPI(title="mycode")
@@ -36,15 +36,15 @@ def create_app(*, serve_frontend: bool = True) -> FastAPI:
     application.include_router(sessions_router, prefix="/api")
     application.include_router(workspaces_router, prefix="/api")
 
-    if not serve_frontend:
-        logger.info("frontend disabled; starting in API-only mode")
+    if not serve_web:
+        logger.info("web UI disabled; starting in API-only mode")
         return application
 
-    frontend_static = frontend_static_path()
-    if frontend_static.is_dir():
-        application.mount("/", StaticFiles(directory=str(frontend_static), html=True), name="frontend")
+    web_static = web_static_path()
+    if web_static.is_dir():
+        application.mount("/", StaticFiles(directory=str(web_static), html=True), name="web")
     else:
-        logger.warning("frontend assets not found at %s; starting in API-only mode", frontend_static)
+        logger.warning("web assets not found at %s; starting in API-only mode", web_static)
 
     return application
 

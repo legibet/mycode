@@ -133,13 +133,13 @@ Web development (backend + Vite dev server):
 
 ```bash
 uv run mycode web --dev
-pnpm --dir frontend install && pnpm --dir frontend dev
+pnpm --dir web install && pnpm --dir web dev
 ```
 
-Rebuild packaged frontend assets:
+Rebuild packaged web assets:
 
 ```bash
-uv run --no-project python scripts/build_frontend.py
+uv run --no-project python scripts/build_web.py
 ```
 
 Build distributable artifacts:

@@ -52,7 +52,7 @@ Server (`mycode/server/`):
 - `run_manager.py` — concurrent run management
 - `schemas.py` — Pydantic request/response models
 
-Frontend (`frontend/src/`):
+Web UI (`web/src/`):
 
 - `hooks/useChat.ts` — chat state, SSE streaming, tool runtime
 - `utils/messages.ts` — buildRenderMessages() — canonical blocks → UI messages
@@ -125,7 +125,7 @@ All adapters implement `ProviderAdapter.stream_turn()`. Message projection to pr
 
 ## SSE Contract
 
-**Do not change event names or payload shapes without updating server, CLI, and frontend.**
+**Do not change event names or payload shapes without updating server, CLI, and web UI.**
 
 | event         | payload                                                 |
 | ------------- | ------------------------------------------------------- |
@@ -143,7 +143,7 @@ All adapters implement `ProviderAdapter.stream_turn()`. Message projection to pr
 - `docs/config.md` — Config files, schema, API key resolution, reasoning effort, skills/instructions discovery
 - `docs/providers.md` — Per-adapter details: SDK, base URL, env vars, reasoning effort mapping, quirks
 - `docs/sessions.md` — Storage layout, JSONL record types, compact/rewind/repair, format version
-- `docs/frontend.md` — Component structure, message state model, build process
+- `docs/web.md` — Component structure, message state model, build process
 
 ## Interfaces
 
@@ -161,7 +161,7 @@ All adapters implement `ProviderAdapter.stream_turn()`. Message projection to pr
 - `POST /api/chat` — start a run from `message` or `input`; returns `{run, session}` JSON immediately
 - `GET /api/runs/{run_id}/stream` — SSE stream for a run
 - `POST /api/runs/{run_id}/cancel` — cancel a run
-- `GET /api/config` — provider, reasoning, and image-input metadata for frontend
+- `GET /api/config` — provider, reasoning, and image-input metadata for the web UI
 - Session CRUD at `/api/sessions`
 - Workspace browser at `/api/workspaces`
 
@@ -171,9 +171,9 @@ All adapters implement `ProviderAdapter.stream_turn()`. Message projection to pr
 uv sync --dev                                          # Python setup
 uv run mycode                                          # run CLI
 uv run mycode web --dev                                # API only (backend for Vite dev)
-pnpm --dir frontend test:run                           # run frontend tests once
-pnpm --dir frontend dev                                # Vite frontend dev server
-uv run --no-project python scripts/build_frontend.py  # rebuild packaged frontend
+pnpm --dir web test:run                                # run web UI tests once
+pnpm --dir web dev                                     # Vite web UI dev server
+uv run --no-project python scripts/build_web.py       # rebuild packaged web UI
 uv build                                               # build wheel + sdist
 ```
 
