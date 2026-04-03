@@ -18,7 +18,7 @@ class ProviderAdapter(ABC):
     def project_tool_call_id(tool_call_id: str, used_tool_call_ids: set[str]) -> str: ...
 ```
 
-`prepare_messages()` converts canonical session history to provider-safe wire format. The base implementation (`_project_messages_for_replay` in `base.py`) handles:
+`prepare_messages()` converts canonical session history to provider-safe wire format. The base implementation in `base.py` handles:
 - Stripping error/aborted/cancelled assistant turns
 - Projecting tool call IDs (some providers restrict charset/length)
 - Dropping replay images when `request.supports_image_input` is false
