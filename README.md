@@ -13,10 +13,10 @@ A minimal coding agent. Inspired by [pi](https://github.com/badlogic/pi-mono).
 
 ## Quick Start
 
-Requires Python 3.13+. Install via [uv](https://docs.astral.sh/uv/):
+Requires Python 3.12+. Install via [uv](https://docs.astral.sh/uv/):
 
 ```bash
-uv tool install mycode
+uv tool install mycode-cli
 ```
 
 Interactive terminal session:
