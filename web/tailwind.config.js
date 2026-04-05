@@ -60,8 +60,9 @@ export default {
       },
       animation: {
         'cursor-blink': 'cursor-blink 1s step-end infinite',
-        'fade-in-up': 'fade-in-up 0.3s ease-out both',
+        'fade-in-up': 'fade-in-up 0.2s ease-out both',
         breathing: 'breathing 2s ease-in-out infinite',
+        thinking: 'thinking 2.5s ease-in-out infinite',
         'progress-line': 'progress-line 1.5s ease-in-out infinite',
         'sheet-in': 'sheet-slide-up 0.35s cubic-bezier(0.32,0.72,0,1) both',
         'sheet-out': 'sheet-slide-down 0.28s cubic-bezier(0.32,0.72,0,1) both',

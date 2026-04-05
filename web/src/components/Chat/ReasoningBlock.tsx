@@ -23,7 +23,7 @@ export const ReasoningBlock = memo(function ReasoningBlock({
   if (!content) return null
 
   return (
-    <div className="rounded-lg bg-secondary/30 px-3 py-2">
+    <div className="rounded-lg bg-secondary/20 px-3 py-2">
       <button
         type="button"
         className="flex w-full items-center gap-1.5 select-none cursor-pointer text-left"
@@ -32,17 +32,17 @@ export const ReasoningBlock = memo(function ReasoningBlock({
       >
         <span
           className={cn(
-            'text-xs transition-colors',
+            'text-xs transition-colors duration-200',
             isStreaming
-              ? 'text-accent/70 animate-breathing font-medium'
-              : 'text-muted-foreground/60',
+              ? 'text-accent/60 animate-thinking font-medium'
+              : 'text-muted-foreground/50',
           )}
         >
           Thinking
         </span>
         <ChevronDown
           className={cn(
-            'h-3 w-3 text-muted-foreground/30 transition-transform duration-200',
+            'h-3 w-3 text-muted-foreground/25 transition-transform duration-200',
             !expanded && '-rotate-90',
           )}
           aria-hidden="true"
@@ -51,14 +51,14 @@ export const ReasoningBlock = memo(function ReasoningBlock({
 
       <div
         className={cn(
-          'grid transition-[grid-template-rows,opacity] duration-200 ease-out',
+          'grid transition-[grid-template-rows,opacity] duration-250 ease-out',
           expanded
             ? 'grid-rows-[1fr] opacity-100'
             : 'grid-rows-[0fr] opacity-0',
         )}
       >
         <div className="overflow-hidden">
-          <div className="pt-2 text-[13px] text-muted-foreground whitespace-pre-wrap italic leading-[1.5]">
+          <div className="pt-2 text-[13px] text-muted-foreground/70 whitespace-pre-wrap italic leading-relaxed">
             {content}
           </div>
         </div>

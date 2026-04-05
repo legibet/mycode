@@ -116,18 +116,27 @@ export const Sidebar = memo(function Sidebar({
       )}
     >
       {/* Header */}
-      <div className="flex h-14 shrink-0 items-center px-4 border-b border-border/40">
+      <div className="flex h-14 shrink-0 items-center justify-between px-4 border-b border-border/30">
         <div className="flex items-center gap-2.5">
           <Terminal className="h-4 w-4 text-accent" />
-          <span className="font-display text-sm tracking-tight text-foreground">
+          <span className="font-display text-sm tracking-tight text-foreground font-medium">
             mycode
           </span>
         </div>
+        <button
+          type="button"
+          onClick={onCreateSession}
+          aria-label="New chat"
+          className="h-7 w-7 flex items-center justify-center rounded-lg text-muted-foreground/50 hover:text-foreground hover:bg-secondary/40 active:scale-95 transition-colors"
+          title="New chat"
+        >
+          <Plus className="h-3.5 w-3.5" />
+        </button>
       </div>
 
       {/* Tab navigation — sliding underline */}
       <div
-        className="relative flex shrink-0 border-b border-border/40"
+        className="relative flex shrink-0 border-b border-border/30"
         role="tablist"
       >
         <button
@@ -136,9 +145,9 @@ export const Sidebar = memo(function Sidebar({
           aria-selected={tab === 'chat'}
           onClick={() => setTab('chat')}
           className={cn(
-            'flex-1 flex items-center justify-center gap-1.5 py-2.5 text-xs font-medium transition-colors',
+            'flex-1 flex items-center justify-center gap-1.5 py-2.5 text-xs transition-colors duration-200',
             tab === 'chat'
-              ? 'text-foreground'
+              ? 'text-foreground font-medium'
               : 'text-muted-foreground hover:text-foreground',
           )}
         >
@@ -151,9 +160,9 @@ export const Sidebar = memo(function Sidebar({
           aria-selected={tab === 'settings'}
           onClick={() => setTab('settings')}
           className={cn(
-            'flex-1 flex items-center justify-center gap-1.5 py-2.5 text-xs font-medium transition-colors',
+            'flex-1 flex items-center justify-center gap-1.5 py-2.5 text-xs transition-colors duration-200',
             tab === 'settings'
-              ? 'text-foreground'
+              ? 'text-foreground font-medium'
               : 'text-muted-foreground hover:text-foreground',
           )}
         >
@@ -162,7 +171,7 @@ export const Sidebar = memo(function Sidebar({
         </button>
         {/* Sliding indicator */}
         <div
-          className="absolute bottom-0 h-[2px] bg-accent transition-[left,transform] duration-200 ease-out"
+          className="absolute bottom-0 h-[1.5px] bg-accent/70 rounded-full transition-all duration-300 ease-[cubic-bezier(0.4,0,0.2,1)]"
           style={{
             left: tab === 'chat' ? '12px' : '50%',
             width: 'calc(50% - 24px)',
@@ -175,29 +184,14 @@ export const Sidebar = memo(function Sidebar({
         {/* Chat Sessions List */}
         {tab === 'chat' && (
           <div className="flex h-full flex-col">
-            <div className="px-3 pt-2 pb-1 shrink-0">
-              <button
-                type="button"
-                onClick={onCreateSession}
-                className="w-full flex items-center justify-center gap-1.5 py-2.5 text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-secondary/30 rounded-md transition-colors"
-              >
-                <Plus className="h-3 w-3" />
-                New Chat
-              </button>
-            </div>
             <div className="flex-1 overflow-y-auto pb-4">
-              {sessions.map((session) => {
+              {sessions.filter((s) => !s.isDraft).map((session) => {
                 const isActive = activeSession?.id === session.id
                 const isRunning = session.is_running
                 return (
                   <div key={session.id} className="group relative">
-                    {(isActive || isRunning) && (
-                      <div
-                        className={cn(
-                          'absolute left-0 top-0 bottom-0 w-[2px] bg-accent',
-                          isRunning && 'animate-breathing',
-                        )}
-                      />
+                    {isActive && (
+                      <div className="absolute left-0 top-0 bottom-0 w-[2px] bg-accent" />
                     )}
                     <button
                       type="button"
@@ -213,6 +207,9 @@ export const Sidebar = memo(function Sidebar({
                       <span className="truncate flex-1">
                         {session.title || 'New Chat'}
                       </span>
+                      {isRunning && (
+                        <span className="shrink-0 h-1.5 w-1.5 rounded-full bg-accent animate-breathing" />
+                      )}
                     </button>
                     {!isActive && (
                       <Button
@@ -246,7 +243,7 @@ export const Sidebar = memo(function Sidebar({
           <div className="h-full overflow-y-auto px-4 py-5 space-y-6">
             {/* Theme */}
             <div>
-              <div className="text-2xs font-mono text-muted-foreground/60 mb-2.5">
+              <div className="text-2xs font-mono text-muted-foreground/60 mb-2.5 uppercase tracking-wider">
                 Appearance
               </div>
               <div className="flex items-center gap-1">
@@ -273,7 +270,7 @@ export const Sidebar = memo(function Sidebar({
             {/* Workspace */}
             <div>
               <div className="flex items-center justify-between mb-2.5">
-                <span className="text-2xs font-mono text-muted-foreground/60">
+                <span className="text-2xs font-mono text-muted-foreground/60 uppercase tracking-wider">
                   Workspace
                 </span>
                 <button
@@ -302,7 +299,7 @@ export const Sidebar = memo(function Sidebar({
                   <div>
                     <label
                       htmlFor="provider-select"
-                      className="text-2xs font-mono text-muted-foreground/60"
+                      className="text-2xs font-mono text-muted-foreground/60 uppercase tracking-wider"
                     >
                       Provider
                     </label>
@@ -325,7 +322,7 @@ export const Sidebar = memo(function Sidebar({
                 <div>
                   <label
                     htmlFor="model-input"
-                    className="text-2xs font-mono text-muted-foreground/60"
+                    className="text-2xs font-mono text-muted-foreground/60 uppercase tracking-wider"
                   >
                     Model
                   </label>
@@ -350,7 +347,7 @@ export const Sidebar = memo(function Sidebar({
                   </select>
                 </div>
               ) : (
-                <div className="text-center text-2xs text-muted-foreground/50 py-2">
+                <div className="text-center text-2xs text-muted-foreground/40 py-2">
                   No models available
                 </div>
               )}
@@ -359,7 +356,7 @@ export const Sidebar = memo(function Sidebar({
                 <div>
                   <label
                     htmlFor="effort-select"
-                    className="text-2xs font-mono text-muted-foreground/60"
+                    className="text-2xs font-mono text-muted-foreground/60 uppercase tracking-wider"
                   >
                     Reasoning effort
                   </label>

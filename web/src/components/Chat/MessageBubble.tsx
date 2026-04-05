@@ -344,7 +344,7 @@ export const MessageBubble = memo(function MessageBubble({
         })}
 
         {isStreaming && (
-          <span className="inline-block w-[2px] h-4 bg-accent animate-cursor-blink ml-0.5 align-middle" />
+          <span className="inline-block w-[1.5px] h-4 bg-accent/50 animate-cursor-blink ml-0.5 align-middle" />
         )}
       </div>
 

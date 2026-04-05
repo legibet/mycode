@@ -132,10 +132,10 @@ export const InputArea = memo(function InputArea({
         role="presentation"
         className={cn(
           'relative rounded-xl bg-card border shadow-sm transition duration-200',
-          'focus-within:shadow-md focus-within:border-border/60',
+          'focus-within:shadow-md focus-within:border-border/50',
           dragging && supportsImages
-            ? 'border-accent/60 bg-accent/5'
-            : 'border-border/30',
+            ? 'border-accent/50 bg-accent/5'
+            : 'border-border/25',
         )}
         onDragEnter={handleDragEnter}
         onDragLeave={handleDragLeave}
@@ -201,7 +201,7 @@ export const InputArea = memo(function InputArea({
               className="hidden"
               onChange={handleFileChange}
             />
-            <div className="absolute bottom-[7px] max-md:bottom-[5px] left-2.5 max-md:left-2">
+            <div className="absolute bottom-0 left-2.5 max-md:left-2 h-[calc(100%-1px)] flex items-center">
               <button
                 type="button"
                 aria-label="Attach image"
@@ -221,7 +221,7 @@ export const InputArea = memo(function InputArea({
           </>
         )}
 
-        <div className="absolute bottom-[7px] max-md:bottom-[5px] right-2.5 max-md:right-2">
+        <div className="absolute bottom-0 right-2.5 max-md:right-2 h-[calc(100%-1px)] flex items-center">
           {loading ? (
             <button
               type="button"

@@ -367,7 +367,16 @@
     opacity: 1;
   }
   50% {
-    opacity: 0.5;
+    opacity: 0.4;
+  }
+}
+@keyframes thinking {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.55;
   }
 }
 @keyframes progress-line {
@@ -383,13 +392,16 @@
   animation: cursor-blink 1s step-end infinite;
 }
 .animate-fade-in-up {
-  animation: fade-in-up 0.3s ease-out both;
+  animation: fade-in-up 0.2s ease-out both;
 }
 .animate-progress-line {
   animation: progress-line 1.5s ease-in-out infinite;
 }
 .animate-breathing {
   animation: breathing 2s ease-in-out infinite;
+}
+.animate-thinking {
+  animation: thinking 2.5s ease-in-out infinite;
 }
 
 @media (prefers-reduced-motion: reduce) {

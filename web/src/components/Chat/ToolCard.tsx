@@ -8,7 +8,6 @@ import {
   Check,
   ChevronDown,
   FileText,
-  Loader2,
   PenLine,
   SquarePen,
   Terminal,
@@ -124,10 +123,17 @@ export const ToolCard = memo(function ToolCard({
   return (
     <div
       className={cn(
-        'rounded-lg px-3 py-2 transition-colors',
-        status === 'error' ? 'bg-red-500/[0.06]' : 'bg-secondary/30',
+        'relative rounded-lg px-3 py-2',
+        status === 'error' ? 'bg-red-500/[0.05]' : 'bg-secondary/20',
       )}
     >
+      {/* Pending progress line */}
+      {status === 'pending' && (
+        <div className="absolute top-0 left-0 right-0 h-[1px] overflow-hidden rounded-t-lg">
+          <div className="h-full w-1/3 bg-accent/30 animate-progress-line" />
+        </div>
+      )}
+
       {/* Trigger */}
       <button
         type="button"
@@ -137,45 +143,47 @@ export const ToolCard = memo(function ToolCard({
       >
         <Icon
           className={cn(
-            'h-3.5 w-3.5 shrink-0',
-            status === 'error' ? 'text-red-400' : 'text-foreground/70',
+            'h-3.5 w-3.5 shrink-0 transition-colors duration-200',
+            status === 'error'
+              ? 'text-red-400/80'
+              : status === 'pending'
+                ? 'text-accent/50'
+                : 'text-foreground/60',
           )}
           aria-hidden="true"
         />
 
         <span
           className={cn(
-            'text-[13px] font-medium shrink-0',
-            status === 'error' ? 'text-red-400' : 'text-foreground/70',
+            'text-[13px] font-medium shrink-0 transition-colors duration-200',
+            status === 'error'
+              ? 'text-red-400/80'
+              : status === 'pending'
+                ? 'text-foreground/70'
+                : 'text-foreground/60',
           )}
         >
           {name}
         </span>
 
         {!expanded && preview && (
-          <span className="pl-1 text-[13px] text-muted-foreground/50 font-mono truncate">
+          <span className="pl-1 text-[13px] text-muted-foreground/40 font-mono truncate">
             {preview}
           </span>
         )}
 
         <span className="flex-1" />
 
-        {status === 'pending' && (
-          <Loader2
-            className="h-3.5 w-3.5 text-muted-foreground/40 animate-spin shrink-0"
-            aria-hidden="true"
-          />
-        )}
         {status === 'success' && (
           <Check
-            className="h-3 w-3 text-emerald-500/50 shrink-0"
+            className="h-3 w-3 text-emerald-500/40 shrink-0"
             aria-hidden="true"
           />
         )}
 
         <ChevronDown
           className={cn(
-            'h-3 w-3 text-muted-foreground/30 transition-transform duration-200 shrink-0',
+            'h-3 w-3 text-muted-foreground/25 transition-transform duration-200 shrink-0',
             !expanded && '-rotate-90',
           )}
           aria-hidden="true"
@@ -185,7 +193,7 @@ export const ToolCard = memo(function ToolCard({
       {/* Body */}
       <div
         className={cn(
-          'grid transition-[grid-template-rows,opacity] duration-200 ease-out',
+          'grid transition-[grid-template-rows,opacity] duration-250 ease-out',
           expanded
             ? 'grid-rows-[1fr] opacity-100'
             : 'grid-rows-[0fr] opacity-0',
@@ -214,11 +222,11 @@ export const ToolCard = memo(function ToolCard({
                   />
                 </Suspense>
               ) : (
-                <div className="rounded-md bg-code px-3 py-2 font-mono text-[13px] leading-[1.5] overflow-x-auto scrollbar-subtle">
+                <div className="rounded-md bg-code px-3 py-2 font-mono text-[13px] leading-relaxed overflow-x-auto scrollbar-subtle">
                   {Object.entries(args).map(([key, value]) => (
                     <div key={key}>
-                      <span className="text-accent/60">{key}: </span>
-                      <span className="text-foreground/70 break-all whitespace-pre-wrap">
+                      <span className="text-accent/50">{key}: </span>
+                      <span className="text-foreground/65 break-all whitespace-pre-wrap">
                         {typeof value === 'object'
                           ? JSON.stringify(value, null, 2)
                           : String(value)}
@@ -231,10 +239,10 @@ export const ToolCard = memo(function ToolCard({
             {hasResult && !(name === 'edit' && !resolvedIsError) && (
               <div
                 className={cn(
-                  'rounded-md px-3 py-2 font-mono text-[13px] leading-[1.5] overflow-x-auto overflow-y-auto scrollbar-subtle whitespace-pre-wrap max-h-[240px]',
+                  'rounded-md px-3 py-2 font-mono text-[13px] leading-relaxed overflow-x-auto overflow-y-auto scrollbar-subtle whitespace-pre-wrap max-h-[240px]',
                   status === 'error'
-                    ? 'bg-red-500/[0.06] text-red-400/80'
-                    : 'bg-code text-muted-foreground',
+                    ? 'bg-red-500/[0.05] text-red-400/70'
+                    : 'bg-code text-muted-foreground/80',
                 )}
               >
                 {display}
