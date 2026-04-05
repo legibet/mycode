@@ -4,12 +4,12 @@
  * Mobile  : bottom sheet with slide-up entrance.
  * Desktop : compact centered dialog with scale+fade entrance.
  *
- * Animation strategy: CSS @keyframes with fill-mode:both.
- * The `from` keyframe state is applied before the first paint,
- * so no rAF tricks or dual-state mounts are needed.
+ * Path input acts as a filter when typing partial names,
+ * or navigates directly when an absolute path is entered.
+ * Tab auto-completes and enters the first matching folder.
  */
 
-import { ChevronLeft, Clock, Folder, X } from 'lucide-react'
+import { Clock, Folder, FolderOpen, Search, X } from 'lucide-react'
 import {
   type KeyboardEvent,
   useCallback,
@@ -92,16 +92,23 @@ export function WorkspacePicker({
     loading: false,
     error: '',
   })
-  const [pathInput, setPathInput] = useState('')
+  const [filter, setFilter] = useState('')
   const browseTokenRef = useRef(0)
   const inputRef = useRef<HTMLInputElement | null>(null)
 
   // Focus input on desktop only (avoid keyboard pop-up on mobile)
   useEffect(() => {
     if (open && window.matchMedia('(min-width: 640px)').matches) {
-      inputRef.current?.focus()
+      // Small delay so dialog animation can start first
+      const timer = setTimeout(() => inputRef.current?.focus(), 50)
+      return () => clearTimeout(timer)
     }
   }, [open])
+
+  // Reset filter when directory changes
+  useEffect(() => {
+    setFilter('')
+  }, [state.current])
 
   // ── data ────────────────────────────────────────────────────────────────
 
@@ -132,7 +139,6 @@ export function WorkspacePicker({
         loading: false,
         error: '',
       }))
-      setPathInput(data.current || '')
     } catch (e) {
       if (browseTokenRef.current !== token) return
       setState((prev) => ({
@@ -160,7 +166,7 @@ export function WorkspacePicker({
           return
         }
         setState((prev) => ({ ...prev, roots }))
-        setPathInput('')
+        setFilter('')
         if (currentCwd) {
           const root = matchRoot(roots, currentCwd)
           if (root) {
@@ -188,74 +194,93 @@ export function WorkspacePicker({
     }
   }, [open, browsePath, currentCwd, loadRoots])
 
-  // ── path input ──────────────────────────────────────────────────────────
+  // ── filtering & navigation ─────────────────────────────────────────────
 
-  const partialFilter = useMemo(() => {
-    const trimmed = pathInput.trim()
-    if (!trimmed || !state.current) return ''
-    const base = `${state.current.replace(/\/$/, '')}/`
-    if (trimmed.startsWith(base)) {
-      const rest = trimmed.slice(base.length)
-      return rest.includes('/') ? '' : rest
-    }
-    return ''
-  }, [pathInput, state.current])
+  const filteredEntries = useMemo(() => {
+    const trimmed = filter.trim().toLowerCase()
+    if (!trimmed) return state.entries
+    return state.entries.filter((e: WorkspaceEntry) =>
+      e.name.toLowerCase().includes(trimmed),
+    )
+  }, [filter, state.entries])
 
-  const filteredEntries = partialFilter
-    ? state.entries.filter((e: WorkspaceEntry) =>
-        e.name.toLowerCase().startsWith(partialFilter.toLowerCase()),
-      )
-    : state.entries
-
-  const goToPath = async (value: string) => {
-    const trimmed = value.trim()
-    if (!trimmed || !state.roots.length) return
-    if (isAbsolutePath(trimmed)) {
-      const root = matchRoot(state.roots, trimmed)
-      if (!root) {
-        setState((prev) => ({
-          ...prev,
-          error: 'Path is outside any configured workspace root.',
-        }))
-        return
+  const navigateToPath = useCallback(
+    async (value: string) => {
+      const trimmed = value.trim()
+      if (!trimmed || !state.roots.length) return
+      if (isAbsolutePath(trimmed)) {
+        const root = matchRoot(state.roots, trimmed)
+        if (!root) {
+          setState((prev) => ({
+            ...prev,
+            error: 'Path is outside any configured workspace root.',
+          }))
+          return
+        }
+        await browsePath(root, toRelativePath(root, trimmed))
+      } else {
+        // Treat as relative path from current directory
+        const base = state.path ? `${state.path}/${trimmed}` : trimmed
+        await browsePath(state.root, base)
       }
-      await browsePath(root, toRelativePath(root, trimmed))
-    } else {
-      const base = state.path ? `${state.path}/${trimmed}` : trimmed
-      await browsePath(state.root, base)
-    }
-  }
+    },
+    [state.roots, state.root, state.path, browsePath],
+  )
 
-  const handleGoParent = () => {
+  const handleGoParent = useCallback(() => {
     if (!state.root || !state.path) return
     const segments = state.path.split('/')
     void browsePath(state.root, segments.slice(0, -1).join('/'))
-  }
+  }, [state.root, state.path, browsePath])
 
-  const handleSelect = () => {
+  const handleSelect = useCallback(() => {
     if (state.current) {
       onSelect(state.current)
       onClose()
     }
-  }
+  }, [state.current, onSelect, onClose])
 
-  const handleInputKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter') void goToPath(pathInput)
-    else if (e.key === 'Tab') {
-      e.preventDefault()
-      const firstEntry = filteredEntries[0]
-      if (firstEntry) void browsePath(state.root, firstEntry.path)
-    } else if (e.key === 'Escape') {
-      setPathInput(state.current || '')
-      onClose()
-    }
-  }
+  const handleInputKeyDown = useCallback(
+    (e: KeyboardEvent<HTMLInputElement>) => {
+      if (e.key === 'Enter') {
+        // If filter matches exactly one entry, enter it; otherwise navigate to typed path
+        const singleMatch = filteredEntries.length === 1 ? filteredEntries[0] : null
+        if (singleMatch) {
+          void browsePath(state.root, singleMatch.path)
+        } else if (filter.trim()) {
+          void navigateToPath(filter)
+        }
+      } else if (e.key === 'Tab') {
+        e.preventDefault()
+        const firstEntry = filteredEntries[0]
+        if (firstEntry) void browsePath(state.root, firstEntry.path)
+      } else if (e.key === 'Escape') {
+        if (filter) {
+          setFilter('')
+        } else {
+          onClose()
+        }
+      } else if (e.key === 'Backspace' && !filter) {
+        // Backspace on empty filter goes up one level
+        handleGoParent()
+      }
+    },
+    [
+      filter,
+      filteredEntries,
+      state.root,
+      browsePath,
+      navigateToPath,
+      onClose,
+      handleGoParent,
+    ],
+  )
 
   // ── derived ─────────────────────────────────────────────────────────────
 
   const pathSegments = state.path ? state.path.split('/') : []
   const recentPaths = cwdHistory.filter((p) => p !== state.current)
-  const showRecent = recentPaths.length > 0 && !partialFilter
+  const showRecent = recentPaths.length > 0 && !filter.trim()
 
   // ── render ───────────────────────────────────────────────────────────────
 
@@ -275,11 +300,6 @@ export function WorkspacePicker({
         aria-hidden="true"
       />
 
-      {/* Sheet / Dialog
-          animate-sheet-in     → mobile: translateY(100% → 0), fill-mode:both
-          sm:animate-dialog-in → desktop: scale+opacity, overrides mobile anim
-          fill-mode:both means the `from` state is painted immediately —
-          no flash, no rAF tricks needed. */}
       <div
         className={cn(
           'relative flex flex-col overflow-hidden',
@@ -298,32 +318,15 @@ export function WorkspacePicker({
           <div className="w-10 h-[3px] rounded-full bg-border/60" />
         </div>
 
-        {/* Nav bar */}
-        <div className="flex items-center h-12 px-1.5 border-b border-border/30 shrink-0 gap-0.5">
-          <button
-            type="button"
-            onClick={handleGoParent}
-            disabled={!state.path}
-            className={cn(
-              'flex items-center justify-center w-9 h-9 rounded-lg shrink-0 cursor-pointer',
-              'text-muted-foreground transition-colors duration-150',
-              'hover:bg-muted/70 hover:text-foreground',
-              'active:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-              'disabled:opacity-25 disabled:cursor-not-allowed',
-            )}
-            aria-label="Go up one level"
-          >
-            <ChevronLeft className="h-4 w-4" />
-          </button>
-
-          {/* Breadcrumb — horizontally scrollable */}
-          <div className="flex-1 flex items-center overflow-x-auto scrollbar-none min-w-0 px-1 gap-0.5">
+        {/* Breadcrumb header */}
+        <div className="flex items-center min-h-[44px] px-4 border-b border-border/30 shrink-0 gap-1">
+          <div className="flex-1 flex items-center overflow-x-auto scrollbar-none min-w-0 gap-0.5">
             <button
               type="button"
               onClick={() => state.root && void browsePath(state.root, '')}
               className={cn(
-                'shrink-0 px-1.5 py-0.5 rounded text-sm font-mono cursor-pointer',
-                'transition-colors duration-150 hover:bg-muted/60 hover:text-foreground',
+                'shrink-0 px-1.5 py-0.5 rounded text-xs font-mono cursor-pointer',
+                'transition-colors hover:bg-muted/60 hover:text-foreground',
                 pathSegments.length === 0
                   ? 'text-foreground font-medium'
                   : 'text-muted-foreground',
@@ -336,7 +339,7 @@ export function WorkspacePicker({
               return (
                 <div key={crumbPath} className="flex items-center shrink-0">
                   <span
-                    className="text-border/50 select-none mx-0.5 text-sm"
+                    className="text-border select-none mx-0.5 text-xs"
                     aria-hidden="true"
                   >
                     /
@@ -345,8 +348,8 @@ export function WorkspacePicker({
                     type="button"
                     onClick={() => void browsePath(state.root, crumbPath)}
                     className={cn(
-                      'px-1.5 py-0.5 rounded text-sm font-mono cursor-pointer whitespace-nowrap',
-                      'transition-colors duration-150 hover:bg-muted/60 hover:text-foreground',
+                      'px-1.5 py-0.5 rounded text-xs font-mono cursor-pointer whitespace-nowrap',
+                      'transition-colors hover:bg-muted/60 hover:text-foreground',
                       index === pathSegments.length - 1
                         ? 'text-foreground font-medium'
                         : 'text-muted-foreground',
@@ -359,13 +362,12 @@ export function WorkspacePicker({
             })}
           </div>
 
-          {/* Close — desktop only */}
           <button
             type="button"
             onClick={onClose}
             className={cn(
-              'hidden sm:flex items-center justify-center w-9 h-9 rounded-lg shrink-0 cursor-pointer',
-              'text-muted-foreground/60 transition-colors duration-150',
+              'flex items-center justify-center w-8 h-8 rounded-lg shrink-0 cursor-pointer',
+              'text-muted-foreground/50 transition-colors',
               'hover:bg-muted/70 hover:text-foreground',
               'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
             )}
@@ -375,22 +377,33 @@ export function WorkspacePicker({
           </button>
         </div>
 
-        {/* Path input */}
-        <div className="px-4 py-2.5 border-b border-border/20 bg-muted/[0.08] shrink-0">
+        {/* Filter input */}
+        <div className="flex items-center gap-2.5 px-4 py-2.5 border-b border-border/20 shrink-0">
+          <Search className="h-3.5 w-3.5 shrink-0 text-muted-foreground/30" />
           <input
             ref={inputRef}
-            name="workspace-path"
-            value={pathInput}
-            onChange={(e) => setPathInput(e.target.value)}
+            name="workspace-filter"
+            value={filter}
+            onChange={(e) => setFilter(e.target.value)}
             onKeyDown={handleInputKeyDown}
             placeholder="Filter or type a path…"
             spellCheck={false}
             autoComplete="off"
             autoCorrect="off"
             autoCapitalize="off"
-            className="w-full bg-transparent text-base md:text-xs font-mono focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring text-muted-foreground placeholder:text-muted-foreground/30 caret-accent"
+            className="w-full bg-transparent text-sm font-mono focus-visible:outline-none text-foreground placeholder:text-muted-foreground/30 caret-accent"
             aria-label="Filter directories or enter a path"
           />
+          {filter && (
+            <button
+              type="button"
+              onClick={() => setFilter('')}
+              className="shrink-0 text-muted-foreground/40 hover:text-muted-foreground transition-colors"
+              aria-label="Clear filter"
+            >
+              <X className="h-3 w-3" />
+            </button>
+          )}
         </div>
 
         {/* Content */}
@@ -438,10 +451,10 @@ export function WorkspacePicker({
                         onSelect(path)
                         onClose()
                       }}
-                      className="group flex items-center gap-3 w-full min-h-[44px] px-4 py-2 text-left cursor-pointer transition-colors duration-100 hover:bg-muted/50 active:bg-muted/70 focus-visible:outline-none focus-visible:bg-muted/50"
+                      className="group flex items-center gap-3 w-full min-h-[44px] px-4 py-2 text-left cursor-pointer transition-colors hover:bg-muted/50 active:bg-muted/70 focus-visible:outline-none focus-visible:bg-muted/50"
                     >
-                      <Clock className="h-3.5 w-3.5 shrink-0 text-muted-foreground/35 group-hover:text-accent/60 transition-colors duration-100" />
-                      <span className="truncate text-xs font-mono text-muted-foreground group-hover:text-foreground/80 transition-colors duration-100">
+                      <Clock className="h-3.5 w-3.5 shrink-0 text-muted-foreground/35 group-hover:text-accent/60 transition-colors" />
+                      <span className="truncate text-xs font-mono text-muted-foreground group-hover:text-foreground/80 transition-colors">
                         {path}
                       </span>
                     </button>
@@ -456,32 +469,33 @@ export function WorkspacePicker({
               {filteredEntries.length === 0 && !showRecent && (
                 <div className="flex flex-col items-center justify-center gap-3 h-36 text-muted-foreground/30">
                   <Folder className="h-10 w-10" strokeWidth={1} />
-                  <p className="text-xs">This folder is empty</p>
+                  <p className="text-xs">
+                    {filter.trim() ? 'No matches' : 'This folder is empty'}
+                  </p>
                 </div>
               )}
-              <div className="sm:grid sm:grid-cols-2">
-                {filteredEntries.map((entry) => (
-                  <button
-                    type="button"
-                    key={entry.path}
-                    onClick={() => void browsePath(state.root, entry.path)}
-                    className="group flex items-center gap-3 w-full min-h-[44px] px-4 py-2 text-left cursor-pointer transition-colors duration-100 hover:bg-muted/50 active:bg-muted/70 focus-visible:outline-none focus-visible:bg-muted/50"
-                  >
-                    <Folder className="h-3.5 w-3.5 shrink-0 text-accent/40 group-hover:text-accent/70 transition-colors duration-100" />
-                    <span className="truncate text-sm font-mono text-foreground/70 group-hover:text-foreground transition-colors duration-100">
-                      {entry.name}
-                    </span>
-                  </button>
-                ))}
-              </div>
+              {filteredEntries.map((entry) => (
+                <button
+                  type="button"
+                  key={entry.path}
+                  onClick={() => void browsePath(state.root, entry.path)}
+                  className="group flex items-center gap-3 w-full min-h-[44px] px-4 py-2 text-left cursor-pointer transition-colors hover:bg-muted/50 active:bg-muted/70 focus-visible:outline-none focus-visible:bg-muted/50"
+                >
+                  <Folder className="h-3.5 w-3.5 shrink-0 text-accent/40 group-hover:text-accent/70 transition-colors" />
+                  <span className="truncate text-sm font-mono text-foreground/70 group-hover:text-foreground transition-colors">
+                    {entry.name}
+                  </span>
+                </button>
+              ))}
             </div>
           )}
         </div>
 
         {/* Footer */}
-        <div className="flex items-center gap-3 h-12 px-4 border-t border-border/20 bg-muted/[0.06] shrink-0">
+        <div className="flex items-center gap-3 h-12 px-4 border-t border-border/20 shrink-0">
+          <FolderOpen className="h-3.5 w-3.5 shrink-0 text-muted-foreground/30" />
           <span
-            className="flex-1 min-w-0 truncate text-xs font-mono text-muted-foreground/50"
+            className="flex-1 min-w-0 truncate text-xs font-mono text-muted-foreground/60"
             title={state.current}
           >
             {state.current || '—'}
@@ -492,7 +506,7 @@ export function WorkspacePicker({
             disabled={!state.current}
             className={cn(
               'shrink-0 px-3.5 h-7 rounded-md text-xs font-semibold cursor-pointer',
-              'transition-colors duration-150',
+              'transition-colors',
               'bg-accent/15 text-accent border border-accent/20',
               'hover:bg-accent/25 hover:border-accent/40 active:bg-accent/30',
               'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
