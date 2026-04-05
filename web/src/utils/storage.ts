@@ -32,6 +32,7 @@ function getString(
 }
 
 function normalizeStoredConfig(record: Record<string, unknown>): LocalConfig {
+  // biome-ignore lint/complexity/useLiteralKeys: index signature requires bracket access
   const reasoningEffort = record['reasoningEffort']
 
   return {
@@ -51,6 +52,7 @@ export function loadConfig(): LocalConfig {
     const saved = localStorage.getItem(STORAGE_KEY)
     if (saved) {
       const parsed = JSON.parse(saved) as unknown
+      // biome-ignore lint/complexity/useLiteralKeys: index signature requires bracket access
       if (!isRecord(parsed) || parsed['_v'] !== SCHEMA_VERSION) {
         return DEFAULT_CONFIG
       }

@@ -77,10 +77,12 @@ function getPreview(name: string, args?: Record<string, unknown>): string {
   if (!args) return ''
   switch (name) {
     case 'bash':
+      // biome-ignore lint/complexity/useLiteralKeys: index signature requires bracket access
       return typeof args['command'] === 'string' ? args['command'] : ''
     case 'read':
     case 'write':
     case 'edit':
+      // biome-ignore lint/complexity/useLiteralKeys: index signature requires bracket access
       return typeof args['path'] === 'string' ? args['path'] : ''
     default:
       return Object.entries(args)

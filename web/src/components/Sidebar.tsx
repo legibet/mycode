@@ -185,49 +185,51 @@ export const Sidebar = memo(function Sidebar({
         {tab === 'chat' && (
           <div className="flex h-full flex-col">
             <div className="flex-1 overflow-y-auto pb-4">
-              {sessions.filter((s) => !s.isDraft).map((session) => {
-                const isActive = activeSession?.id === session.id
-                const isRunning = session.is_running
-                return (
-                  <div key={session.id} className="group relative">
-                    {isActive && (
-                      <div className="absolute left-0 top-0 bottom-0 w-[2px] bg-accent" />
-                    )}
-                    <button
-                      type="button"
-                      aria-current={isActive ? 'true' : undefined}
-                      className={cn(
-                        'session-row flex w-full items-center gap-2 px-4 py-2 pr-10 text-xs cursor-pointer text-left transition-colors active:bg-secondary/30',
-                        isActive
-                          ? 'bg-secondary/40 text-foreground'
-                          : 'session-row-inactive text-muted-foreground',
+              {sessions
+                .filter((s) => !s.isDraft)
+                .map((session) => {
+                  const isActive = activeSession?.id === session.id
+                  const isRunning = session.is_running
+                  return (
+                    <div key={session.id} className="group relative">
+                      {isActive && (
+                        <div className="absolute left-0 top-0 bottom-0 w-[2px] bg-accent" />
                       )}
-                      onClick={() => onSelectSession(session.id)}
-                    >
-                      <span className="truncate flex-1">
-                        {session.title || 'New Chat'}
-                      </span>
-                      {isRunning && (
-                        <span className="shrink-0 h-1.5 w-1.5 rounded-full bg-accent animate-breathing" />
-                      )}
-                    </button>
-                    {!isActive && (
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="session-delete-button absolute right-2 top-1/2 h-5 w-5 -translate-y-1/2 transition-opacity"
-                        aria-label="Delete session"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          onDeleteSession(session.id)
-                        }}
+                      <button
+                        type="button"
+                        aria-current={isActive ? 'true' : undefined}
+                        className={cn(
+                          'session-row flex w-full items-center gap-2 px-4 py-2 pr-10 text-xs cursor-pointer text-left transition-colors active:bg-secondary/30',
+                          isActive
+                            ? 'bg-secondary/40 text-foreground'
+                            : 'session-row-inactive text-muted-foreground',
+                        )}
+                        onClick={() => onSelectSession(session.id)}
                       >
-                        <Trash2 className="session-delete-icon h-3 w-3 text-muted-foreground" />
-                      </Button>
-                    )}
-                  </div>
-                )
-              })}
+                        <span className="truncate flex-1">
+                          {session.title || 'New Chat'}
+                        </span>
+                        {isRunning && (
+                          <span className="shrink-0 h-1.5 w-1.5 rounded-full bg-accent animate-breathing" />
+                        )}
+                      </button>
+                      {!isActive && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="session-delete-button absolute right-2 top-1/2 h-5 w-5 -translate-y-1/2 transition-opacity"
+                          aria-label="Delete session"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            onDeleteSession(session.id)
+                          }}
+                        >
+                          <Trash2 className="session-delete-icon h-3 w-3 text-muted-foreground" />
+                        </Button>
+                      )}
+                    </div>
+                  )
+                })}
               {sessions.length === 0 && (
                 <div className="py-12 text-center text-xs text-muted-foreground/60 flex flex-col items-center gap-2">
                   <History className="h-4 w-4 opacity-30" />

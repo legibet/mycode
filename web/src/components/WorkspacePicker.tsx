@@ -106,9 +106,11 @@ export function WorkspacePicker({
   }, [open])
 
   // Reset filter when directory changes
-  useEffect(() => {
-    setFilter('')
-  }, [state.current])
+  const prevCurrentRef = useRef(state.current)
+  if (prevCurrentRef.current !== state.current) {
+    prevCurrentRef.current = state.current
+    if (filter) setFilter('')
+  }
 
   // ── data ────────────────────────────────────────────────────────────────
 
@@ -244,7 +246,8 @@ export function WorkspacePicker({
     (e: KeyboardEvent<HTMLInputElement>) => {
       if (e.key === 'Enter') {
         // If filter matches exactly one entry, enter it; otherwise navigate to typed path
-        const singleMatch = filteredEntries.length === 1 ? filteredEntries[0] : null
+        const singleMatch =
+          filteredEntries.length === 1 ? filteredEntries[0] : null
         if (singleMatch) {
           void browsePath(state.root, singleMatch.path)
         } else if (filter.trim()) {
