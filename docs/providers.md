@@ -19,12 +19,14 @@ class ProviderAdapter(ABC):
 ```
 
 `prepare_messages()` converts canonical session history to provider-safe wire format. The base implementation in `base.py` handles:
+
 - Stripping error/aborted/cancelled assistant turns
 - Projecting tool call IDs (some providers restrict charset/length)
 - Dropping replay images when `request.supports_image_input` is false
 - Flushing interrupted tool calls with synthetic error results
 
 `stream_turn()` yields `ProviderStreamEvent` objects:
+
 - `thinking_delta` — reasoning text
 - `text_delta` — response text
 - `message_done` — final `ConversationMessage` with all blocks and metadata

@@ -11,7 +11,7 @@ CORS is enabled for all origins in the FastAPI app.
 
 ## Component Structure
 
-```
+```text
 web/src/
   App.tsx                # root layout, config loading, session init
   main.tsx               # React entry
@@ -52,11 +52,13 @@ web/src/
 ## Message State Model
 
 `useChat.ts` stores three related pieces of state:
+
 - `rawMessages` — canonical block messages
 - `messages` — render-ready messages
 - `toolRuntimeById` — ephemeral tool runtime state
 
 State is managed via `useReducer` with actions:
+
 - `set_messages` — load session history from server
 - `start_turn` — optimistic user message + empty assistant
 - `rewind_and_start_turn` — rewind + optimistic new turn
@@ -65,11 +67,13 @@ State is managed via `useReducer` with actions:
 `buildRenderMessages()` in `utils/messages.ts` is used when loading or rebuilding from canonical messages. During streaming, the reducer updates both `rawMessages` and `messages` incrementally.
 
 Key design decisions:
+
 - Tool results persisted as `user` messages with `tool_result` blocks are visually folded into the preceding assistant message during rendering
 - Each render message and block gets a stable `renderKey` for React reconciliation
 - `sourceIndex` tracks the original message position for scroll targeting
 
 Rendering rules:
+
 - `thinking` blocks → `ReasoningBlock` (expanded while streaming, auto-collapses after)
 - `tool_use` blocks → `ToolCard` (with matching `tool_result` and live runtime folded in)
 - `text` blocks → `MarkdownBlock`
@@ -85,11 +89,13 @@ Rendering rules:
 6. 409 conflict: attach to the existing run's stream
 
 Streaming state tracking:
+
 - `streamTokenRef` — incremented to invalidate stale streams
 - `pendingRequestTokenRef` — deduplicates concurrent send requests
 - `activeRunRef` — tracks the current run for cancel
 
 Image input:
+
 - `InputArea` supports file picker and drag-and-drop
 - Images are sent as structured `input` blocks
 - The attachment button uses `image_input_models`; pending images are cleared on unsupported model switch

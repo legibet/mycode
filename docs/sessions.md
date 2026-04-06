@@ -4,7 +4,7 @@ Source: `mycode/core/session.py`
 
 ## Storage Layout
 
-```
+```text
 ~/.mycode/sessions/<session_id>/
   meta.json        # session metadata
   messages.jsonl   # one JSON record per line (append-only)
