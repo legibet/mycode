@@ -320,12 +320,6 @@
       "supports_image_input": true,
       "supports_reasoning": true
     },
-    "claude-3-7-sonnet-latest": {
-      "context_window": 200000,
-      "max_output_tokens": 64000,
-      "supports_image_input": true,
-      "supports_reasoning": true
-    },
     "claude-3-haiku-20240307": {
       "context_window": 200000,
       "max_output_tokens": 4096,
@@ -431,7 +425,7 @@
   },
   "deepseek": {
     "deepseek-chat": {
-      "context_window": 128000,
+      "context_window": 131072,
       "max_output_tokens": 8192,
       "supports_image_input": false,
       "supports_reasoning": false
@@ -653,6 +647,18 @@
       "max_output_tokens": 2000,
       "supports_image_input": false,
       "supports_reasoning": false
+    },
+    "gemma-4-26b-it": {
+      "context_window": 256000,
+      "max_output_tokens": 8192,
+      "supports_image_input": true,
+      "supports_reasoning": true
+    },
+    "gemma-4-31b-it": {
+      "context_window": 256000,
+      "max_output_tokens": 8192,
+      "supports_image_input": true,
+      "supports_reasoning": true
     }
   },
   "minimax": {
@@ -732,6 +738,12 @@
     }
   },
   "openai": {
+    "chatgpt-image-latest": {
+      "context_window": 0,
+      "max_output_tokens": 0,
+      "supports_image_input": true,
+      "supports_reasoning": false
+    },
     "codex-mini-latest": {
       "context_window": 200000,
       "max_output_tokens": 100000,
@@ -936,6 +948,24 @@
       "supports_image_input": true,
       "supports_reasoning": true
     },
+    "gpt-image-1": {
+      "context_window": 0,
+      "max_output_tokens": 0,
+      "supports_image_input": true,
+      "supports_reasoning": false
+    },
+    "gpt-image-1-mini": {
+      "context_window": 0,
+      "max_output_tokens": 0,
+      "supports_image_input": true,
+      "supports_reasoning": false
+    },
+    "gpt-image-1.5": {
+      "context_window": 0,
+      "max_output_tokens": 0,
+      "supports_image_input": true,
+      "supports_reasoning": false
+    },
     "o1": {
       "context_window": 200000,
       "max_output_tokens": 100000,
@@ -1081,6 +1111,12 @@
       "max_output_tokens": 131072,
       "supports_image_input": false,
       "supports_reasoning": false
+    },
+    "arcee-ai/trinity-large-thinking": {
+      "context_window": 262144,
+      "max_output_tokens": 80000,
+      "supports_image_input": false,
+      "supports_reasoning": true
     },
     "arcee-ai/trinity-mini:free": {
       "context_window": 131072,
@@ -1303,6 +1339,18 @@
       "max_output_tokens": 2000,
       "supports_image_input": false,
       "supports_reasoning": false
+    },
+    "google/gemma-4-26b-a4b-it": {
+      "context_window": 262144,
+      "max_output_tokens": 262144,
+      "supports_image_input": true,
+      "supports_reasoning": true
+    },
+    "google/gemma-4-31b-it": {
+      "context_window": 262144,
+      "max_output_tokens": 262144,
+      "supports_image_input": true,
+      "supports_reasoning": true
     },
     "inception/mercury": {
       "context_window": 128000,
@@ -1844,10 +1892,10 @@
       "supports_image_input": true,
       "supports_reasoning": true
     },
-    "qwen/qwen3.6-plus-preview:free": {
+    "qwen/qwen3.6-plus:free": {
       "context_window": 1000000,
       "max_output_tokens": 65536,
-      "supports_image_input": false,
+      "supports_image_input": true,
       "supports_reasoning": true
     },
     "sourceful/riverflow-v2-fast-preview": {
@@ -2084,6 +2132,12 @@
       "context_window": 200000,
       "max_output_tokens": 131072,
       "supports_image_input": false,
+      "supports_reasoning": true
+    },
+    "glm-5v-turbo": {
+      "context_window": 200000,
+      "max_output_tokens": 131072,
+      "supports_image_input": true,
       "supports_reasoning": true
     }
   }

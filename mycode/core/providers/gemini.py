@@ -175,7 +175,7 @@ class GoogleGeminiAdapter(ProviderAdapter):
             if role != "user":
                 continue
 
-            parts: list[dict[str, Any]] = []
+            parts = []
             for block in blocks:
                 block_type = block.get("type")
                 if block_type == "text":

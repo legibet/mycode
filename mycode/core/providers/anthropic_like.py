@@ -45,10 +45,10 @@ class AnthropicLikeAdapter(ProviderAdapter):
     multi-turn tool-loop requests — not just the text portion.
     """
 
-    def thinking_config(self, request: ProviderRequest) -> dict[str, Any] | None:
+    def thinking_config(self, _request: ProviderRequest) -> dict[str, Any] | None:
         return None
 
-    def output_config(self, request: ProviderRequest) -> dict[str, Any] | None:
+    def output_config(self, _request: ProviderRequest) -> dict[str, Any] | None:
         return None
 
     def manual_thinking_config(self, effort: str | None) -> dict[str, Any] | None:

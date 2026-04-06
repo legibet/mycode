@@ -161,7 +161,7 @@ class OpenAIChatAdapter(ProviderAdapter):
         payload.update(self._build_provider_payload_overrides(request))
         return {key: value for key, value in payload.items() if value is not None}
 
-    def _build_provider_payload_overrides(self, request: ProviderRequest) -> dict[str, Any]:
+    def _build_provider_payload_overrides(self, _request: ProviderRequest) -> dict[str, Any]:
         return {}
 
     def _serialize_tool(self, tool: dict[str, Any]) -> dict[str, Any]:

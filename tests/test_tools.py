@@ -59,7 +59,7 @@ class TestTruncateText:
     def test_truncated_by_bytes(self):
         """Text exceeding byte limit should be truncated."""
         text = "x" * 1000
-        content, trunc = truncate_text(text, max_lines=1000, max_bytes=100)
+        _, trunc = truncate_text(text, max_lines=1000, max_bytes=100)
 
         assert trunc.truncated is True
         assert trunc.truncated_by == "bytes"

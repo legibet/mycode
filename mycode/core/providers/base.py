@@ -128,7 +128,7 @@ class ProviderAdapter(ABC):
 
         return prepared_messages
 
-    def project_tool_call_id(self, tool_call_id: str, used_tool_call_ids: set[str]) -> str:
+    def project_tool_call_id(self, tool_call_id: str, _used_tool_call_ids: set[str]) -> str:
         """Project one canonical tool call ID into a provider-safe ID.
 
         Most providers accept canonical tool IDs as-is. Adapters can override
