@@ -121,8 +121,8 @@ function getEditStats(
   args?: Record<string, unknown>,
 ): { added: number; removed: number } | null {
   if (!args) return null
-  const oldText = args.oldText
-  const newText = args.newText
+  const oldText = args['oldText']
+  const newText = args['newText']
   if (typeof oldText !== 'string' || typeof newText !== 'string') return null
 
   const oldLines = oldText.split('\n')
@@ -149,8 +149,8 @@ function getEditStats(
 
 function getReadHint(args?: Record<string, unknown>): string {
   if (!args) return ''
-  const offset = typeof args.offset === 'number' ? args.offset : null
-  const limit = typeof args.limit === 'number' ? args.limit : null
+  const offset = typeof args['offset'] === 'number' ? args['offset'] : null
+  const limit = typeof args['limit'] === 'number' ? args['limit'] : null
   if (offset != null && limit != null) return `:${offset}-${offset + limit}`
   if (offset != null) return `:${offset}`
   if (limit != null) return `:1-${limit}`
@@ -159,7 +159,7 @@ function getReadHint(args?: Record<string, unknown>): string {
 
 function getWriteHint(args?: Record<string, unknown>): string {
   if (!args) return ''
-  const content = args.content
+  const content = args['content']
   if (typeof content !== 'string') return ''
   return `${content.split('\n').length} lines`
 }
@@ -172,7 +172,7 @@ function CollapsedSuffix({
   args,
 }: {
   name: string
-  args?: Record<string, unknown>
+  args: Record<string, unknown> | undefined
 }) {
   if (name === 'edit') {
     const stats = getEditStats(args)
@@ -204,11 +204,11 @@ function BashBody({
   display,
   isError,
 }: {
-  args?: Record<string, unknown>
+  args: Record<string, unknown> | undefined
   display: string
   isError: boolean
 }) {
-  const command = typeof args?.command === 'string' ? args.command : ''
+  const command = typeof args?.['command'] === 'string' ? args['command'] : ''
 
   return (
     <div className="pt-2 space-y-2">
@@ -230,11 +230,11 @@ function ReadBody({
   display,
   isError,
 }: {
-  args?: Record<string, unknown>
+  args: Record<string, unknown> | undefined
   display: string
   isError: boolean
 }) {
-  const path = typeof args?.path === 'string' ? args.path : ''
+  const path = typeof args?.['path'] === 'string' ? args['path'] : ''
   const hint = getReadHint(args)
 
   return (
@@ -255,12 +255,12 @@ function WriteBody({
   display,
   isError,
 }: {
-  args?: Record<string, unknown>
+  args: Record<string, unknown> | undefined
   display: string
   isError: boolean
 }) {
-  const path = typeof args?.path === 'string' ? args.path : ''
-  const content = typeof args?.content === 'string' ? args.content : ''
+  const path = typeof args?.['path'] === 'string' ? args['path'] : ''
+  const content = typeof args?.['content'] === 'string' ? args['content'] : ''
 
   return (
     <div className="pt-2 space-y-2">
@@ -285,8 +285,8 @@ function EditBody({
   display,
   isError,
 }: {
-  args?: Record<string, unknown>
-  modelText?: string | null
+  args: Record<string, unknown> | undefined
+  modelText: string | null | undefined
   display: string
   isError: boolean
 }) {
