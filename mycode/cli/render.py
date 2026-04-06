@@ -106,6 +106,19 @@ _TOOL_PREVIEW_KEY: dict[str, str] = {
 }
 
 
+def _tool_preview(name: str, args: dict[str, Any]) -> str:
+    """Extract a one-line preview string for a tool call."""
+
+    if not args:
+        return ""
+    key = _TOOL_PREVIEW_KEY.get(name.lower())
+    raw = args.get(key) if key else next(iter(args.values()), "")
+    preview = str(raw or "")
+    if len(preview) > 60:
+        preview = preview[:60] + "…"
+    return preview
+
+
 def format_local_timestamp(value: str, display_format: str) -> str:
     """Format an ISO timestamp with a simple local fallback."""
 
@@ -199,14 +212,7 @@ class TerminalView:
                     self.console.print(_LeftMarkdown(str(content), code_theme=CODE_THEME))
                 else:
                     name, args = content
-                    preview = ""
-                    if isinstance(args, dict) and args:
-                        key = _TOOL_PREVIEW_KEY.get(name.lower())
-                        raw = args.get(key) if key else next(iter(args.values()), "")
-                        preview = str(raw or "")
-                        if len(preview) > 60:
-                            preview = preview[:60] + "…"
-
+                    preview = _tool_preview(name, args if isinstance(args, dict) else {})
                     line = Text()
                     line.append(f"{TOOL_MARKER} ", style=SUCCESS)
                     line.append(name.capitalize(), style=TOOL_NAME)
@@ -356,6 +362,7 @@ class ReplyRenderer:
         self._tool_name: str = ""
         self._tool_args: dict[str, Any] = {}
         self._tool_buffered = False
+        self._tool_live: Live | None = None
         self._usage: dict[str, Any] | None = None
 
     async def render(
@@ -446,13 +453,21 @@ class ReplyRenderer:
         self._tool_name = name
         self._tool_args = args
 
-        # Bash streams output — print header immediately.
-        # Other tools are fast — defer to tool_done for single-line display.
         if name.lower() == "bash":
+            # Bash streams output — print header immediately.
             self._print_tool_header(name, args)
             self._tool_buffered = False
         else:
+            # Other tools are fast — show spinner until tool_done.
             self._tool_buffered = True
+            if self._live_mode:
+                self._tool_live = Live(
+                    self._build_tool_spinner(name, args),
+                    console=self._console,
+                    refresh_per_second=12,
+                    transient=True,
+                )
+                self._tool_live.start()
 
     def tool_output(self, line: str) -> None:
         """Render one streamed output line from a running tool."""
@@ -476,14 +491,14 @@ class ReplyRenderer:
         duration = f"{elapsed:.1f}s" if elapsed >= 0.5 else ""
 
         if self._tool_buffered:
-            # Non-streaming tools (read, write, edit): single-line output
+            self._stop_tool_live()
             self._tool_buffered = False
             if is_error:
                 self._print_tool_header(self._tool_name, self._tool_args)
                 first_line = shown_text.split("\n", 1)[0][:100]
                 self._console.print(Text(f"    {first_line}", style=ERROR))
             else:
-                suffix = self._format_edit_suffix(self._tool_name, self._tool_args)
+                suffix = self._format_tool_suffix(self._tool_name, self._tool_args, duration)
                 self._print_tool_header(self._tool_name, self._tool_args, suffix=suffix)
         else:
             # Bash: streaming tool
@@ -511,13 +526,7 @@ class ReplyRenderer:
     ) -> None:
         """Print the ``⏺ Name  preview  [suffix]`` tool header line."""
 
-        preview = ""
-        if args:
-            key = _TOOL_PREVIEW_KEY.get(name.lower())
-            raw = args.get(key) if key else next(iter(args.values()), "")
-            preview = str(raw or "")
-            if len(preview) > 60:
-                preview = preview[:60] + "…"
+        preview = _tool_preview(name, args)
 
         text = Text()
         text.append(f"{TOOL_MARKER} ", style=SUCCESS)
@@ -529,34 +538,66 @@ class ReplyRenderer:
             text.append_text(suffix)
         self._console.print(text)
 
+    def _build_tool_spinner(self, name: str, args: dict[str, Any]) -> Spinner:
+        """Build a transient spinner shown while a buffered tool runs."""
+
+        preview = _tool_preview(name, args)
+        label = Text()
+        label.append(f" {name.capitalize()}", style=TOOL_NAME)
+        if preview:
+            label.append(f"  {preview}", style=MUTED)
+        return Spinner("dots", text=label, style="dim")
+
+    def _stop_tool_live(self) -> None:
+        if self._tool_live is not None:
+            self._tool_live.stop()
+            self._tool_live = None
+
     @staticmethod
-    def _format_edit_suffix(name: str, args: dict[str, Any]) -> Text | None:
-        """Return the real added/removed line counts for one edit call."""
+    def _format_tool_suffix(name: str, args: dict[str, Any], duration: str) -> Text | None:
+        """Build the inline suffix shown after the tool preview on success."""
 
-        if name.lower() != "edit":
-            return None
+        parts = Text()
+        lower = name.lower()
 
-        old_text = args.get("oldText")
-        new_text = args.get("newText")
-        if not isinstance(old_text, str) or not isinstance(new_text, str):
-            return None
+        if lower == "edit":
+            old_text = args.get("oldText")
+            new_text = args.get("newText")
+            if isinstance(old_text, str) and isinstance(new_text, str):
+                added = 0
+                removed = 0
+                for tag, old_start, old_end, new_start, new_end in SequenceMatcher(
+                    None,
+                    old_text.splitlines(),
+                    new_text.splitlines(),
+                ).get_opcodes():
+                    if tag in {"replace", "delete"}:
+                        removed += old_end - old_start
+                    if tag in {"replace", "insert"}:
+                        added += new_end - new_start
+                parts.append(f"+{added}", style="green")
+                parts.append(f" −{removed}", style="red")
+        elif lower == "read":
+            offset = args.get("offset")
+            limit = args.get("limit")
+            if isinstance(offset, int) and isinstance(limit, int):
+                parts.append(f":{offset}-{offset + limit}", style=MUTED)
+            elif isinstance(offset, int):
+                parts.append(f":{offset}", style=MUTED)
+            elif isinstance(limit, int):
+                parts.append(f":1-{limit}", style=MUTED)
+        elif lower == "write":
+            content = args.get("content")
+            if isinstance(content, str):
+                lines = content.count("\n") + 1
+                parts.append(f"({lines} lines)", style=MUTED)
 
-        added = 0
-        removed = 0
-        for tag, old_start, old_end, new_start, new_end in SequenceMatcher(
-            None,
-            old_text.splitlines(),
-            new_text.splitlines(),
-        ).get_opcodes():
-            if tag in {"replace", "delete"}:
-                removed += old_end - old_start
-            if tag in {"replace", "insert"}:
-                added += new_end - new_start
+        if duration:
+            if parts.plain:
+                parts.append(" · ", style=MUTED)
+            parts.append(duration, style=MUTED)
 
-        suffix = Text()
-        suffix.append(f"+{added}", style="green")
-        suffix.append(f" −{removed}", style="red")
-        return suffix
+        return parts if parts.plain else None
 
     def compact(self, message: str) -> None:
         """Render a context compaction notification."""
@@ -663,6 +704,7 @@ class ReplyRenderer:
         if self._live is not None:
             self._live.stop()
             self._live = None
+        self._stop_tool_live()
         self._reasoning.clear()
         self._text.clear()
         self._printed_static_reasoning = False
