@@ -333,13 +333,12 @@ function ensureTailRenderAssistant(
 } {
   const next = [...messages]
   const lastIndex = next.length - 1
-  const assistantRenderKey = `assistant:${sourceIndex}`
 
-  if (
-    lastIndex >= 0 &&
-    next[lastIndex]?.role === 'assistant' &&
-    next[lastIndex]?.renderKey === assistantRenderKey
-  ) {
+  // Reuse the last assistant render message if it exists, regardless of
+  // sourceIndex.  During multi-turn tool loops the raw sourceIndex changes
+  // every round, but visually they belong to the same assistant turn — this
+  // matches the merge behavior of buildRenderMessages on reload.
+  if (lastIndex >= 0 && next[lastIndex]?.role === 'assistant') {
     return { messages: next, index: lastIndex }
   }
 
