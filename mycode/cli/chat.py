@@ -7,15 +7,18 @@ import html
 import re
 import shlex
 from base64 import b64encode
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Any, override
 
 from prompt_toolkit import PromptSession
 from prompt_toolkit.application import Application, get_app
-from prompt_toolkit.completion import Completer, Completion
+from prompt_toolkit.completion import CompleteEvent, Completer, Completion
+from prompt_toolkit.document import Document
 from prompt_toolkit.formatted_text import ANSI, StyleAndTextTuples
 from prompt_toolkit.history import FileHistory
 from prompt_toolkit.key_binding import KeyBindings
+from prompt_toolkit.key_binding.key_processor import KeyPressEvent
 from prompt_toolkit.keys import Keys
 from prompt_toolkit.layout import Layout
 from prompt_toolkit.widgets import RadioList
@@ -99,7 +102,7 @@ async def choose[T](options: list[tuple[T, str]], *, default: T | None = None) -
 
     @kb.add("c-c")
     @kb.add("escape")
-    def _cancel(event) -> None:
+    def _cancel(event: KeyPressEvent) -> None:
         event.app.exit(result=None)
 
     app: Application[T | None] = Application(
@@ -118,7 +121,8 @@ class _PromptCompleter(Completer):
     def __init__(self, *, cwd: str | None = None) -> None:
         self._cwd = cwd
 
-    def get_completions(self, document, complete_event):
+    def get_completions(self, document: Document, complete_event: CompleteEvent) -> Iterable[Completion]:
+        del complete_event
         text_before_cursor = document.text_before_cursor
         text = text_before_cursor.lstrip()
         if self._cwd:
@@ -188,16 +192,25 @@ def _build_chat_key_bindings() -> KeyBindings:
     """Build key bindings for the main chat prompt."""
     kb = KeyBindings()
 
-    kb.add("c-l")(lambda event: event.app.renderer.clear())
+    def _clear(event: KeyPressEvent) -> None:
+        event.app.renderer.clear()
+
+    kb.add("c-l")(_clear)
 
     # In multiline mode the default Enter inserts a newline; override it to submit.
-    kb.add("enter", eager=True)(lambda event: event.current_buffer.validate_and_handle())
+    def _submit(event: KeyPressEvent) -> None:
+        event.current_buffer.validate_and_handle()
+
+    kb.add("enter", eager=True)(_submit)
 
     # Esc+Enter (Meta+Enter) inserts a newline for multiline input.
-    kb.add("escape", "enter")(lambda event: event.current_buffer.insert_text("\n"))
+    def _insert_newline(event: KeyPressEvent) -> None:
+        event.current_buffer.insert_text("\n")
+
+    kb.add("escape", "enter")(_insert_newline)
 
     @kb.add(Keys.BracketedPaste, eager=True)
-    def _handle_bracketed_paste(event) -> None:
+    def _handle_bracketed_paste(event: KeyPressEvent) -> None:
         pasted = event.data.replace("\r\n", "\n").replace("\r", "\n")
         event.current_buffer.insert_text(_rewrite_pasted_file_paths(pasted) or pasted)
 
@@ -227,7 +240,7 @@ class TerminalChat:
         self.store = store
         self.session_id = session_id
         self.view = view or TerminalView()
-        self.prompt_session = PromptSession(
+        self.prompt_session: PromptSession[str] = PromptSession(
             history=FileHistory(history_file_path()),
             completer=_PromptCompleter(cwd=self.agent.cwd),
             key_bindings=_build_chat_key_bindings(),

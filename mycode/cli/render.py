@@ -412,6 +412,8 @@ class ReplyRenderer:
                 case "error":
                     exit_code = 1
                     self.error(event.data.get("message", ""))
+                case _:
+                    pass
 
         self.finish()
         return exit_code

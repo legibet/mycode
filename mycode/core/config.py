@@ -360,7 +360,7 @@ def resolve_provider(
     checked = ", ".join(env_names) or "<api key env>"
     raise ValueError(
         "no available providers found; set one of the supported API key env vars "
-        f"({checked}) or configure a provider in ~/.mycode/config.json or <workspace>/.mycode/config.json"
+        + f"({checked}) or configure a provider in ~/.mycode/config.json or <workspace>/.mycode/config.json"
     )
 
 

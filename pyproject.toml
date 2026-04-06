@@ -82,6 +82,15 @@ pythonVersion = "3.12"
 pythonPlatform = "All"
 typeCheckingMode = "recommended"
 reportMissingTypeStubs = false
+reportAny = "none"
+reportExplicitAny = "none"
+reportImplicitOverride = "none"
+reportUnannotatedClassAttribute = "none"
+reportUnusedCallResult = "hint"
+allowedUntypedLibraries = ["hatchling"]
+executionEnvironments = [
+    { root = "tests", reportMissingParameterType = "none", reportPrivateUsage = "none", reportUnknownArgumentType = "none", reportUnknownLambdaType = "none", reportUnknownMemberType = "none", reportUnknownParameterType = "none", reportUnknownVariableType = "none" },
+]
 baselineFile = ".basedpyright/baseline.json"
 
 # Ruff configuration

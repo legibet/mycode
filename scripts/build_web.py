@@ -22,12 +22,12 @@ def build_web() -> None:
 
     if STATIC_DIR.exists():
         shutil.rmtree(STATIC_DIR)
-    shutil.copytree(WEB_DIST_DIR, STATIC_DIR)
+    _ = shutil.copytree(WEB_DIST_DIR, STATIC_DIR)
 
 
 def _run_pnpm(args: list[str], *, cwd: Path) -> None:
     try:
-        subprocess.run(["pnpm", *args], cwd=cwd, check=True)
+        _ = subprocess.run(["pnpm", *args], cwd=cwd, check=True)
     except FileNotFoundError as exc:
         raise RuntimeError("pnpm is required to build the web assets") from exc
     except subprocess.CalledProcessError as exc:

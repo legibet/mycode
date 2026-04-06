@@ -109,7 +109,7 @@ Config is loaded from `~/.mycode/config.json` (global) and `<workspace>/.mycode/
 
 ## CLI Reference
 
-```
+```bash
 mycode                            start interactive session (new)
 mycode --continue                 resume the most recent session
 mycode --session <id>             resume a specific session

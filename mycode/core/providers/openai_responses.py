@@ -53,8 +53,8 @@ class OpenAIResponsesAdapter(ProviderAdapter):
                     yield ProviderStreamEvent("text_delta", {"text": event.delta})
                     continue
 
-                if event.type == "response.error":
-                    raise ValueError(str(getattr(event, "error", None) or event))
+                if event.type == "error":
+                    raise ValueError(str(event.message))
 
                 if event.type == "response.failed":
                     raise ValueError(str(getattr(event, "response", None) or event))

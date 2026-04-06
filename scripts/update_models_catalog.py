@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 from urllib.request import Request, urlopen
 
 MODELS_DEV_URL = "https://models.dev/api.json"
@@ -25,10 +26,11 @@ PROVIDERS = (
 def main() -> None:
     request = Request(MODELS_DEV_URL, headers={"User-Agent": "mycode/1.0"})
     with urlopen(request, timeout=30) as response:
-        source = json.loads(response.read().decode("utf-8"))
+        raw_source = json.loads(response.read().decode("utf-8"))
 
-    if not isinstance(source, dict):
+    if not isinstance(raw_source, dict):
         raise SystemExit("models.dev returned an invalid catalog")
+    source: dict[str, Any] = raw_source
 
     catalog: dict[str, dict[str, dict[str, int | bool | None]]] = {}
     for provider_name in PROVIDERS:

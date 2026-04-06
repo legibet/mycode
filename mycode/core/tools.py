@@ -487,9 +487,9 @@ class ToolExecutor:
                 )
             parts.append(
                 f"{prefix}\n"
-                "Use bash to inspect it in bytes:\n"
-                f"sed -n '{first_shortened_line}p' {quoted} | head -c 2000\n"
-                f"sed -n '{first_shortened_line}p' {quoted} | tail -c +2001 | head -c 2000]"
+                + "Use bash to inspect it in bytes:\n"
+                + f"sed -n '{first_shortened_line}p' {quoted} | head -c 2000\n"
+                + f"sed -n '{first_shortened_line}p' {quoted} | tail -c +2001 | head -c 2000]"
             )
 
         content = "\n\n".join(parts) if parts else ""

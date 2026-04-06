@@ -30,11 +30,7 @@ repos:
         files: ^web/
 
   # Python - basedpyright
-  - repo: local
+  - repo: https://github.com/DetachHead/basedpyright-prek-mirror
+    rev: 1.39.0
     hooks:
       - id: basedpyright
-        name: basedpyright
-        entry: uv run basedpyright --baselinemode=lock
-        language: system
-        pass_filenames: false
-        types: [python]

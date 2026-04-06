@@ -7,7 +7,7 @@ import copy
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass, field
-from typing import Any, Literal, Protocol, cast
+from typing import Any, Literal, Protocol
 from uuid import uuid4
 
 from mycode.core.agent import Event
@@ -143,8 +143,7 @@ class RunManager:
         last_error: str | None = None
 
         try:
-            stream = cast(AsyncIterator[Event], state.agent.achat(state.user_message, on_persist=on_persist))
-            async for event in stream:
+            async for event in state.agent.achat(state.user_message, on_persist=on_persist):
                 if event.type == "error":
                     last_error = str(event.data.get("message") or "unknown error")
                 await self._append_event(state, event)
