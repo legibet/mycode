@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from typing import Any
 
 from hatchling.builders.hooks.plugin.interface import BuildHookInterface
 
@@ -16,8 +17,8 @@ def build_web_assets() -> None:
     build_web()
 
 
-class CustomBuildHook(BuildHookInterface):
-    def initialize(self, version: str, build_data: dict) -> None:
+class CustomBuildHook(BuildHookInterface[Any]):
+    def initialize(self, version: str, build_data: dict[str, Any]) -> None:
         del version, build_data
         build_web_assets()
 

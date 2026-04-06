@@ -8,6 +8,7 @@ from typing import Any, cast
 
 import pytest
 from prompt_toolkit import PromptSession
+from prompt_toolkit.completion import CompleteEvent
 from prompt_toolkit.document import Document
 from prompt_toolkit.history import InMemoryHistory
 from prompt_toolkit.input.defaults import create_pipe_input
@@ -21,12 +22,13 @@ from mycode.cli.runtime import list_model_options, resolve_session
 from mycode.cli.runtime import update_agent_runtime as _update_agent_runtime
 from mycode.core.agent import Event
 from mycode.core.config import ModelConfig, ProviderConfig, ResolvedProvider, Settings
+from mycode.core.messages import ConversationMessage
 from mycode.core.session import SessionStore
 from mycode.core.tools import ToolExecutor
 
 
 class _FakeStore:
-    async def append_message(self, session_id: str, payload: dict, **_: Any) -> None:
+    async def append_message(self, session_id: str, payload: ConversationMessage, **_: Any) -> None:
         return None
 
 
@@ -115,8 +117,9 @@ async def test_resolve_session_continue_reuses_latest(tmp_path):
     store = SessionStore(data_dir=tmp_path / "sessions")
     first = await store.create_session("First", model="gpt-5.4", cwd=str(tmp_path), api_base=None)
     second = await store.create_session("Second", model="gpt-5.4", cwd=str(tmp_path), api_base=None)
+    second_id = str(second["session"]["id"])
     await store.append_message(
-        second["session"]["id"],
+        second_id,
         {"role": "user", "content": [{"type": "text", "text": "hello"}]},
         provider="anthropic",
         model="gpt-5.4",
@@ -136,7 +139,7 @@ async def test_resolve_session_continue_reuses_latest(tmp_path):
 
     assert resolved.mode == "resumed"
     assert resolved.session_id != first["session"]["id"]
-    assert resolved.session_id == second["session"]["id"]
+    assert resolved.session_id == second_id
     assert resolved.messages[0]["content"] == [{"type": "text", "text": "hello"}]
 
 
@@ -318,7 +321,7 @@ def test_prompt_completer_suggests_paths_for_at_references(tmp_path):
     (tmp_path / "a b.py").write_text("print('y')\n", encoding="utf-8")
 
     completer = _PromptCompleter(cwd=str(tmp_path))
-    completions = list(completer.get_completions(Document("@"), None))
+    completions = list(completer.get_completions(Document("@"), CompleteEvent()))
 
     assert any(item.text == "@app.py" for item in completions)
     assert any(item.text == "@src/" for item in completions)
@@ -329,7 +332,7 @@ def test_prompt_completer_keeps_quotes_for_paths_with_spaces(tmp_path):
     (tmp_path / "a b.py").write_text("print('y')\n", encoding="utf-8")
 
     completer = _PromptCompleter(cwd=str(tmp_path))
-    completions = list(completer.get_completions(Document('@"a'), None))
+    completions = list(completer.get_completions(Document('@"a'), CompleteEvent()))
 
     assert any(item.text == '@"a b.py"' for item in completions)
 
@@ -465,7 +468,7 @@ async def test_update_agent_runtime_updates_agent_without_rewriting_session(tmp_
         cwd=str(tmp_path),
         api_base=None,
     )
-    session_id = created["session"]["id"]
+    session_id = str(created["session"]["id"])
     await store.append_message(
         session_id,
         {"role": "user", "content": [{"type": "text", "text": "hello"}]},
@@ -548,8 +551,10 @@ async def test_list_cli_sessions_filters_current_workspace(tmp_path):
         cwd=other_cwd,
         api_base=None,
     )
+    current_session_id = str(current_session["session"]["id"])
+    other_session_id = str(other_session["session"]["id"])
     await store.append_message(
-        current_session["session"]["id"],
+        current_session_id,
         {"role": "user", "content": [{"type": "text", "text": "hello"}]},
         provider="anthropic",
         model="gpt-5.4",
@@ -557,7 +562,7 @@ async def test_list_cli_sessions_filters_current_workspace(tmp_path):
         api_base=None,
     )
     await store.append_message(
-        other_session["session"]["id"],
+        other_session_id,
         {"role": "user", "content": [{"type": "text", "text": "hello"}]},
         provider="anthropic",
         model="gpt-5.4",

@@ -275,7 +275,7 @@ def test_chat_rejects_rewind_to_compact_summary(tmp_path: Path, monkeypatch) -> 
 
     store = SessionStore(data_dir=tmp_path / "sessions")
     session = asyncio.run(store.create_session(title="Test", model="m", cwd="/tmp", api_base=None))
-    sid = session["session"]["id"]
+    sid = str(session["session"]["id"])
 
     for message in [
         {"role": "user", "content": [{"type": "text", "text": "hello"}]},

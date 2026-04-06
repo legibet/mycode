@@ -8,6 +8,7 @@ from unittest.mock import patch
 import pytest
 
 from mycode.core.agent import Agent
+from mycode.core.messages import ConversationMessage
 from mycode.core.providers.base import ProviderStreamEvent
 from mycode.core.tools import ToolExecutionResult, ToolExecutor, ToolSpec
 
@@ -62,7 +63,7 @@ class TestAgentReasoningPersistence:
     @pytest.mark.asyncio
     async def test_achat_persists_reasoning_blocks(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            persisted: list[dict] = []
+            persisted: list[ConversationMessage] = []
 
             agent = Agent(
                 model="gpt-5.4",
@@ -70,7 +71,7 @@ class TestAgentReasoningPersistence:
                 session_dir=Path(tmpdir),
             )
 
-            async def on_persist(message: dict) -> None:
+            async def on_persist(message: ConversationMessage) -> None:
                 persisted.append(message)
 
             adapter = _FakeProviderAdapter(
@@ -109,7 +110,7 @@ class TestAgentReasoningPersistence:
     @pytest.mark.asyncio
     async def test_achat_persists_tool_calls_from_messages_stream(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            persisted: list[dict] = []
+            persisted: list[ConversationMessage] = []
 
             agent = Agent(
                 model="gpt-5.4",
@@ -117,7 +118,7 @@ class TestAgentReasoningPersistence:
                 session_dir=Path(tmpdir),
             )
 
-            async def on_persist(message: dict) -> None:
+            async def on_persist(message: ConversationMessage) -> None:
                 persisted.append(message)
 
             adapter = _FakeProviderAdapter(

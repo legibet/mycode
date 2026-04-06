@@ -168,11 +168,14 @@ All adapters implement `ProviderAdapter.stream_turn()`. Message projection to pr
 
 ```bash
 uv sync --dev                                          # Python setup
+uv run basedpyright                                    # Python type checking
+uv run pytest                                          # Python tests
 uv run mycode                                          # run CLI
 uv run mycode web --dev                                # API only (backend for Vite dev)
+pnpm --dir web typecheck                               # Web UI type checking
 pnpm --dir web test:run                                # run web UI tests once
 pnpm --dir web dev                                     # Vite web UI dev server
-uv run --no-project python scripts/build_web.py       # rebuild packaged web UI
+uv run --no-project python scripts/build_web.py        # rebuild packaged web UI
 uv build                                               # build wheel + sdist
 ```
 
