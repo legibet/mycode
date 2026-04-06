@@ -15,7 +15,7 @@ import os
 import re
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
 from mycode.core.models import ModelMetadata, lookup_model_metadata
 from mycode.core.providers import (
@@ -293,18 +293,17 @@ def get_settings(cwd: str | None = None) -> Settings:
 
             raw_providers[name] = merged
 
-        raw_default = data.get("default")
-        default = cast(dict[str, object] | None, raw_default if isinstance(raw_default, dict) else None)
-        if default is not None:
+        default = data.get("default")
+        if isinstance(default, dict):
             if "provider" in default:
-                value = default.get("provider")
-                default_provider = value if isinstance(value, str) else None
+                v = default.get("provider")
+                default_provider = v if isinstance(v, str) else None
             if "model" in default:
-                value = default.get("model")
-                default_model = value if isinstance(value, str) else None
+                v = default.get("model")
+                default_model = v if isinstance(v, str) else None
             if "reasoning_effort" in default:
-                value = default.get("reasoning_effort")
-                default_reasoning_effort = value if isinstance(value, str) else None
+                v = default.get("reasoning_effort")
+                default_reasoning_effort = v if isinstance(v, str) else None
             if "compact_threshold" in default:
                 parsed_threshold = _parse_compact_threshold(default.get("compact_threshold"))
                 if parsed_threshold is not None:
@@ -343,20 +342,23 @@ def resolve_provider(
             api_base=api_base,
         )
 
-    for available_name, _ in _available_provider_references(settings):
+    refs = _available_provider_references(settings)
+    if refs:
         return _resolve_provider_runtime(
             settings,
-            selected_name=available_name,
+            selected_name=refs[0][0],
             model=model,
             api_key=api_key,
             api_base=api_base,
         )
 
-    env_names: list[str] = []
-    for provider_id in list_env_discoverable_providers():
-        for env_name in provider_env_api_key_names(provider_id):
-            if env_name not in env_names:
-                env_names.append(env_name)
+    env_names = list(
+        dict.fromkeys(
+            env_name
+            for provider_id in list_env_discoverable_providers()
+            for env_name in provider_env_api_key_names(provider_id)
+        )
+    )
     checked = ", ".join(env_names) or "<api key env>"
     raise ValueError(
         "no available providers found; set one of the supported API key env vars "
@@ -482,9 +484,11 @@ def _resolve_provider_runtime(
                     else model_metadata.supports_image_input,
                 )
 
-    configured_effort = settings.default_reasoning_effort
-    if provider_config and provider_config.reasoning_effort is not None:
-        configured_effort = provider_config.reasoning_effort
+    configured_effort = (
+        provider_config.reasoning_effort
+        if provider_config and provider_config.reasoning_effort is not None
+        else settings.default_reasoning_effort
+    )
 
     if configured_effort is not None and configured_effort not in _VALID_REASONING_EFFORTS:
         supported = ", ".join(_VALID_REASONING_EFFORTS)
@@ -493,15 +497,16 @@ def _resolve_provider_runtime(
     supports_reasoning = model_metadata.supports_reasoning if model_metadata else None
     supports_image_input = model_metadata.supports_image_input if model_metadata else None
     adapter = get_provider_adapter(provider_type)
-    if (
-        configured_effort is None
-        or model_metadata is None
-        or supports_reasoning is not True
-        or not adapter.supports_reasoning_effort
-    ):
-        reasoning_effort = None
-    else:
-        reasoning_effort = configured_effort
+    reasoning_effort = (
+        configured_effort
+        if (
+            configured_effort is not None
+            and model_metadata is not None
+            and supports_reasoning is True
+            and adapter.supports_reasoning_effort
+        )
+        else None
+    )
 
     resolved_api_key = api_key
     if not resolved_api_key and provider_config:
@@ -523,8 +528,8 @@ def _resolve_provider_runtime(
         api_key=resolved_api_key,
         api_base=resolved_api_base,
         reasoning_effort=reasoning_effort,
-        max_tokens=model_metadata.max_output_tokens if model_metadata and model_metadata.max_output_tokens else 16_384,
-        context_window=model_metadata.context_window if model_metadata and model_metadata.context_window else 128_000,
+        max_tokens=(model_metadata.max_output_tokens if model_metadata else None) or 16_384,
+        context_window=(model_metadata.context_window if model_metadata else None) or 128_000,
         supports_reasoning=supports_reasoning,
         supports_image_input=supports_image_input,
     )

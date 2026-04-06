@@ -21,6 +21,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from mycode.core.utils import omit_none
+
 ContentBlock = dict[str, Any]
 ConversationMessage = dict[str, Any]
 
@@ -141,7 +143,7 @@ def assistant_message(
     if usage is not None:
         meta["usage"] = usage
     if native_meta:
-        native = {key: value for key, value in native_meta.items() if value is not None}
+        native = omit_none(native_meta)
         if native:
             meta["native"] = native
     return build_message("assistant", blocks, meta=meta or None)
@@ -159,8 +161,7 @@ def flatten_message_text(message: ConversationMessage, *, include_thinking: bool
         # Attached file snapshots should not become session titles or history labels.
         if meta.get("attachment"):
             continue
-        if block.get("type") == "text":
-            parts.append(str(block.get("text") or ""))
-        elif include_thinking and block.get("type") == "thinking":
+        btype = block.get("type")
+        if btype == "text" or (include_thinking and btype == "thinking"):
             parts.append(str(block.get("text") or ""))
     return " ".join(part.strip() for part in parts if part and part.strip()).strip()

@@ -16,6 +16,11 @@ def as_bool(value: Any) -> bool | None:
     return value if isinstance(value, bool) else None
 
 
+def omit_none(d: dict[str, Any]) -> dict[str, Any]:
+    """Return a shallow copy of d with None values removed."""
+    return {k: v for k, v in d.items() if v is not None}
+
+
 def parse_tool_arguments(raw: str | None) -> dict[str, Any] | str:
     """Parse a JSON tool-arguments string.
 

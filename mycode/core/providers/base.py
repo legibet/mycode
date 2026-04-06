@@ -185,7 +185,7 @@ def repair_messages_for_replay(
                 open_tool_use_ids = []
 
             raw_meta = message.get("meta")
-            stop_reason = str((raw_meta or {}).get("stop_reason") or "") if isinstance(raw_meta, dict) else ""
+            stop_reason = str(raw_meta.get("stop_reason") or "") if isinstance(raw_meta, dict) else ""
             if stop_reason in {"error", "aborted", "cancelled"}:
                 continue
 

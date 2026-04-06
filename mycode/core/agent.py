@@ -99,28 +99,15 @@ class Agent:
 
     @staticmethod
     def _tool_done_event(tool_id: str, result: ToolExecutionResult) -> Event:
-        """Build the standard tool_done event payload."""
-
+        data: dict[str, Any] = {
+            "tool_use_id": tool_id,
+            "model_text": result.model_text,
+            "display_text": result.display_text,
+            "is_error": result.is_error,
+        }
         if result.content:
-            return Event(
-                "tool_done",
-                {
-                    "tool_use_id": tool_id,
-                    "model_text": result.model_text,
-                    "display_text": result.display_text,
-                    "is_error": result.is_error,
-                    "content": result.content,
-                },
-            )
-        return Event(
-            "tool_done",
-            {
-                "tool_use_id": tool_id,
-                "model_text": result.model_text,
-                "display_text": result.display_text,
-                "is_error": result.is_error,
-            },
-        )
+            data["content"] = result.content
+        return Event("tool_done", data)
 
     async def _run_streaming_tool(self, *, tool_id: str, name: str, args: dict[str, Any]) -> AsyncIterator[Event]:
         """Run one streaming tool and forward live output until it finishes."""
@@ -294,11 +281,7 @@ class Agent:
             }
             raw_meta = user_input.get("meta")
             if isinstance(raw_meta, dict):
-                raw_meta = cast(dict[object, object], raw_meta)
-                meta: dict[str, object] = {}
-                for key, value in raw_meta.items():
-                    meta[str(key)] = value
-                user_message["meta"] = meta
+                user_message["meta"] = {str(k): v for k, v in raw_meta.items()}
 
         if user_message.get("role") != "user":
             yield Event("error", {"message": "user input must be a user message"})

@@ -286,11 +286,9 @@ class GoogleGeminiAdapter(ProviderAdapter):
             # Gemini may put the final thought signature into an empty-text part.
             # Keep it as a separate empty block so replay preserves the original
             # part boundary instead of merging the signature into another block.
-            blocks.append(
-                thinking_block("", meta={"native": {"part": native_part}})
-                if bool(getattr(part, "thought", False))
-                else text_block("", meta={"native": {"part": native_part}})
-            )
+            part_meta = {"native": {"part": native_part}}
+            is_thought = getattr(part, "thought", False)
+            blocks.append(thinking_block("", meta=part_meta) if is_thought else text_block("", meta=part_meta))
             return []
 
         is_thought = bool(getattr(part, "thought", False))
@@ -312,10 +310,8 @@ class GoogleGeminiAdapter(ProviderAdapter):
                         last_part["thought_signature"] = current_signature
                     return [event]
 
-        block = (
-            thinking_block(str(text), meta={"native": {"part": native_part}})
-            if is_thought
-            else text_block(str(text), meta={"native": {"part": native_part}})
+        part_meta = {"native": {"part": native_part}}
+        blocks.append(
+            thinking_block(str(text), meta=part_meta) if is_thought else text_block(str(text), meta=part_meta)
         )
-        blocks.append(block)
         return [event]

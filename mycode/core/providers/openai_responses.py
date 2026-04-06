@@ -19,7 +19,7 @@ from mycode.core.providers.base import (
     load_image_block_payload,
     tool_result_content_blocks,
 )
-from mycode.core.utils import parse_tool_arguments
+from mycode.core.utils import omit_none, parse_tool_arguments
 
 
 class OpenAIResponsesAdapter(ProviderAdapter):
@@ -101,7 +101,7 @@ class OpenAIResponsesAdapter(ProviderAdapter):
         }
         if request.reasoning_effort:
             payload["reasoning"] = {"effort": request.reasoning_effort}
-        return {key: value for key, value in payload.items() if value is not None}
+        return omit_none(payload)
 
     def _serialize_user_message(self, message: ConversationMessage) -> list[dict[str, Any]]:
         items: list[dict[str, Any]] = []
@@ -243,9 +243,10 @@ class OpenAIResponsesAdapter(ProviderAdapter):
         }
 
     def _convert_final_response(self, response: Any) -> dict[str, Any]:
-        output_items = dump_model(getattr(response, "output", None))
+        raw_output = getattr(response, "output", None) or []
+        output_items = dump_model(raw_output)
         blocks: list[dict[str, Any]] = []
-        for item in getattr(response, "output", []) or []:
+        for item in raw_output:
             item_type = getattr(item, "type", None)
 
             if item_type == "reasoning":
@@ -261,18 +262,18 @@ class OpenAIResponsesAdapter(ProviderAdapter):
                         if text:
                             text_parts.append(text)
 
-                native_meta = {
-                    "item_id": getattr(item, "id", None),
-                    "status": getattr(item, "status", None),
-                }
                 summary = dump_model(getattr(item, "summary", None))
-                if summary:
-                    native_meta["summary"] = summary
-                filtered_native_meta = {key: value for key, value in native_meta.items() if value is not None}
+                item_meta = omit_none(
+                    {
+                        "item_id": getattr(item, "id", None),
+                        "status": getattr(item, "status", None),
+                        "summary": summary or None,
+                    }
+                )
                 blocks.append(
                     thinking_block(
                         "".join(text_parts),
-                        meta={"native": filtered_native_meta} if filtered_native_meta else None,
+                        meta={"native": item_meta} if item_meta else None,
                     )
                 )
                 continue
@@ -296,22 +297,25 @@ class OpenAIResponsesAdapter(ProviderAdapter):
             if item_type == "function_call":
                 raw_arguments = getattr(item, "arguments", "") or ""
                 parsed_arguments = parse_tool_arguments(raw_arguments)
-                native_meta = {
-                    "item_id": getattr(item, "id", None),
-                    "status": getattr(item, "status", None),
-                }
                 if isinstance(parsed_arguments, str):
                     tool_input = {}
-                    native_meta["raw_arguments"] = raw_arguments
+                    raw_args_entry: dict[str, Any] = {"raw_arguments": raw_arguments}
                 else:
                     tool_input = parsed_arguments
-                filtered_native_meta = {key: value for key, value in native_meta.items() if value is not None}
+                    raw_args_entry = {}
+                item_meta = omit_none(
+                    {
+                        "item_id": getattr(item, "id", None),
+                        "status": getattr(item, "status", None),
+                        **raw_args_entry,
+                    }
+                )
                 blocks.append(
                     tool_use_block(
                         tool_id=getattr(item, "call_id", ""),
                         name=getattr(item, "name", ""),
                         input=tool_input,
-                        meta={"native": filtered_native_meta} if filtered_native_meta else None,
+                        meta={"native": item_meta} if item_meta else None,
                     )
                 )
 

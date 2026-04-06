@@ -524,7 +524,7 @@ class SessionStore:
                 handle.write("\n")
 
             meta["updated_at"] = _now()
-            _ = meta.setdefault("message_format_version", MESSAGE_FORMAT_VERSION)
+            meta.setdefault("message_format_version", MESSAGE_FORMAT_VERSION)
 
             if meta.get("title") == DEFAULT_SESSION_TITLE and message.get("role") == "user":
                 # Keep the default title until we see the first real user text,

@@ -19,7 +19,7 @@ from mycode.core.providers.base import (
     get_native_meta,
     load_image_block_payload,
 )
-from mycode.core.utils import parse_tool_arguments
+from mycode.core.utils import omit_none, parse_tool_arguments
 
 
 @dataclass
@@ -159,7 +159,7 @@ class OpenAIChatAdapter(ProviderAdapter):
             "stream_options": {"include_usage": True},
         }
         payload.update(self._build_provider_payload_overrides(request))
-        return {key: value for key, value in payload.items() if value is not None}
+        return omit_none(payload)
 
     def _build_provider_payload_overrides(self, _request: ProviderRequest) -> dict[str, Any]:
         return {}
