@@ -35,9 +35,3 @@ repos:
         additional_dependencies: ["@biomejs/biome@2.4.7"]
         args: ["--config-path=biome.json"]
         files: ^web/
-
-  # Python - basedpyright
-  - repo: https://github.com/DetachHead/basedpyright-prek-mirror
-    rev: 1.39.0
-    hooks:
-      - id: basedpyright
