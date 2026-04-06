@@ -78,10 +78,7 @@ interface ToolCardProps {
 const RESULT_BASE =
   'rounded-md px-3 py-2 font-mono text-[13px] leading-relaxed overflow-x-auto overflow-y-auto scrollbar-subtle whitespace-pre-wrap max-h-[240px]'
 
-function ResultBlock({
-  text,
-  isError,
-}: { text: string; isError: boolean }) {
+function ResultBlock({ text, isError }: { text: string; isError: boolean }) {
   if (!text) return null
   return (
     <div
@@ -167,7 +164,8 @@ function getWriteHint(args?: Record<string, unknown>): string {
   return `${content.split('\n').length} lines`
 }
 
-const SUFFIX_HINT = 'shrink-0 ml-1.5 text-[12px] font-mono text-muted-foreground/30'
+const SUFFIX_HINT =
+  'shrink-0 ml-1.5 text-[12px] font-mono text-muted-foreground/30'
 
 function CollapsedSuffix({
   name,
@@ -187,7 +185,12 @@ function CollapsedSuffix({
     )
   }
 
-  const hint = name === 'read' ? getReadHint(args) : name === 'write' ? getWriteHint(args) : ''
+  const hint =
+    name === 'read'
+      ? getReadHint(args)
+      : name === 'write'
+        ? getWriteHint(args)
+        : ''
   if (!hint) return null
   return <span className={SUFFIX_HINT}>{hint}</span>
 }
@@ -449,7 +452,11 @@ export const ToolCard = memo(function ToolCard({
           ) : name === 'read' ? (
             <ReadBody args={args} display={display} isError={resolvedIsError} />
           ) : name === 'write' ? (
-            <WriteBody args={args} display={display} isError={resolvedIsError} />
+            <WriteBody
+              args={args}
+              display={display}
+              isError={resolvedIsError}
+            />
           ) : name === 'edit' ? (
             <EditBody
               args={args}
