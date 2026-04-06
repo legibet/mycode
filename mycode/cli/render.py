@@ -713,19 +713,21 @@ class ReplyRenderer:
         self._thinking_collapsed = False
         self._thinking_start_time = None
 
-    def _build_live_renderable(self):
+    def _build_live_renderable(self) -> Spinner | _LeftMarkdown:
         """Build the Rich renderable used while a reply is streaming."""
 
         # No content yet: plain spinner
         if not self._reasoning and not self._text:
             return Spinner("dots", style="dim")
 
-        # Thinking in progress: show rolling preview of reasoning content
+        # Thinking in progress: show rolling preview of reasoning content.
+        # Join only the tail to avoid O(full_length) work on every frame.
         if self._reasoning and not self._text:
-            content = " ".join("".join(self._reasoning).split())
+            tail = "".join(self._reasoning[-30:])
+            content = " ".join(tail.split())
             if content:
                 preview = content[-80:].strip()
-                if len(content) > 80:
+                if len(self._reasoning) > 30 or len(content) > 80:
                     preview = "…" + preview
                 return Spinner("dots", text=Text(f" {preview}", style=THINKING), style="dim")
             return Spinner("dots", text=Text(" thinking…", style=THINKING), style="dim")

@@ -474,20 +474,16 @@ class TerminalChat:
 
         # Collect real user text messages (skip synthetic compact summaries
         # and tool-result-only user messages).
-        user_turns: list[tuple[int, str]] = []  # (message_index, full_text)
+        user_turns: dict[int, str] = {}  # message_index -> text
         for i, msg in enumerate(messages):
             if msg.get("role") != "user":
                 continue
             if (msg.get("meta") or {}).get("synthetic"):
                 continue
-            blocks = msg.get("content") or []
-            text = ""
-            for b in blocks:
+            for b in msg.get("content") or []:
                 if isinstance(b, dict) and b.get("type") == "text" and b.get("text"):
-                    text = str(b["text"]).strip()
+                    user_turns[i] = str(b["text"]).strip()
                     break
-            if text:
-                user_turns.append((i, text))
 
         if not user_turns:
             self.view.console.print("[dim]no user messages to rewind to[/dim]")
@@ -495,7 +491,7 @@ class TerminalChat:
 
         # Build selector options — most recent first.
         options: list[tuple[int, str]] = []
-        for msg_index, text in reversed(user_turns):
+        for msg_index, text in reversed(list(user_turns.items())):
             preview = text.replace("\n", " ")[:60]
             if len(text) > 60:
                 preview += "..."
@@ -505,12 +501,7 @@ class TerminalChat:
         if selected is None:
             return None
 
-        # Look up the full text of the selected message for prefill.
-        original_text = ""
-        for msg_index, text in user_turns:
-            if msg_index == selected:
-                original_text = text
-                break
+        original_text = user_turns.get(selected, "")
 
         # Persist the rewind event and truncate in-memory messages.
         await self.store.append_rewind(self.session_id, selected)

@@ -23,9 +23,6 @@ session_app = typer.Typer(help="Session management")
 app.add_typer(session_app, name="session")
 
 
-# -- Shared helpers ----------------------------------------------------------
-
-
 async def run_noninteractive(
     agent: Agent,
     *,
@@ -33,7 +30,7 @@ async def run_noninteractive(
     session_id: str,
     message: str,
 ) -> int:
-    """Run one CLI message and print only the final assistant reply."""
+    """Run one message non-interactively and print only the final assistant reply."""
 
     latest_assistant: ConversationMessage | None = None
 
@@ -68,7 +65,7 @@ async def run_noninteractive(
 
 
 def _validate_session_options(session: str | None, continue_last: bool) -> None:
-    """Reject conflicting session options."""
+    """Reject conflicting --session and --continue options."""
 
     if session and continue_last:
         raise typer.BadParameter("--session and --continue are mutually exclusive")
