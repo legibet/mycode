@@ -149,13 +149,14 @@ function buildRows(
     })
   }
 
-  // Diff rows
+  // Diff rows — collect raw diff rows first, then collapse long context runs
+  const diffRows: DiffRow[] = []
   for (const change of changes) {
     const lines = change.value.replace(/\n$/, '').split('\n')
     if (change.removed) {
       for (const line of lines) {
         const oldLineIndex = oldIdx
-        rows.push({
+        diffRows.push({
           key: `removed-${oldLineIndex}`,
           type: 'removed',
           ln: null,
@@ -165,7 +166,7 @@ function buildRows(
     } else if (change.added) {
       for (const line of lines) {
         const newLineIndex = newIdx
-        rows.push({
+        diffRows.push({
           key: `added-${newLineIndex}`,
           type: 'added',
           ln: ln++,
@@ -175,7 +176,7 @@ function buildRows(
     } else {
       for (const line of lines) {
         const oldLineIndex = oldIdx
-        rows.push({
+        diffRows.push({
           key: `context-${ln}-${oldLineIndex}`,
           type: 'context',
           ln: ln++,
@@ -184,6 +185,23 @@ function buildRows(
         newIdx++
       }
     }
+  }
+
+  // Collapse long runs of context lines within the diff, keeping up to 3 lines
+  // around actual changes. This handles agents sending broad oldText/newText.
+  const CTX = 3
+  const keep = new Uint8Array(diffRows.length)
+  for (let i = 0; i < diffRows.length; i++) {
+    if (diffRows[i]!.type !== 'context') {
+      const lo = Math.max(0, i - CTX)
+      const hi = Math.min(diffRows.length - 1, i + CTX)
+      for (let j = lo; j <= hi; j++) keep[j] = 1
+    }
+  }
+  // If all rows are context (no actual diff), keep them all
+  const hasChanges = diffRows.some((r) => r.type !== 'context')
+  for (let i = 0; i < diffRows.length; i++) {
+    if (!hasChanges || keep[i]) rows.push(diffRows[i]!)
   }
 
   // Context after (from backend)
