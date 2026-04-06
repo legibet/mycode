@@ -97,7 +97,7 @@ DEFAULT_TOOL_SPECS: tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="edit",
-        description="Edit a file by replacing an exact oldText snippet with newText. oldText must match exactly.",
+        description="Edit a file by replacing one oldText snippet with newText. Prefer an exact match.",
         input_schema={
             "type": "object",
             "properties": {
@@ -228,9 +228,16 @@ def resolve_path(path: str, *, cwd: str) -> str:
     return str(p.resolve(strict=False))
 
 
-def _atomic_write_text(path: Path, content: str) -> None:
+def _atomic_write_text(path: Path, content: str, *, newline: str | None = None) -> None:
     tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(content, encoding="utf-8")
+    if newline is None:
+        tmp.write_text(content, encoding="utf-8")
+    else:
+        normalized = content.replace("\r\n", "\n")
+        if newline == "\r\n":
+            normalized = normalized.replace("\n", "\r\n")
+        with tmp.open("w", encoding="utf-8", newline="") as file:
+            file.write(normalized)
     tmp.replace(path)
 
 
@@ -532,10 +539,10 @@ class ToolExecutor:
     # ---- edit -----------------------------------------------------------------
 
     def edit(self, *, path: str, oldText: str, newText: str) -> ToolExecutionResult:  # noqa: N803 (pi-compatible)
-        """Replace one exact snippet, with a narrow fuzzy fallback.
+        """Replace one unique snippet in a file.
 
-        The fallback only tolerates line-ending and trailing-whitespace changes.
-        It still requires a unique match so the edit stays deterministic.
+        Tries exact match first. If that fails, only line-ending and trailing-
+        whitespace differences are tolerated.
         """
 
         file_path = Path(resolve_path(path, cwd=self.cwd))
@@ -551,15 +558,32 @@ class ToolExecutor:
                 display_text=f"Not a file: {path}",
                 is_error=True,
             )
+        if oldText == "":
+            return ToolExecutionResult(
+                model_text="error: oldText must not be empty",
+                display_text="Edit target must not be empty",
+                is_error=True,
+            )
+        if oldText == newText:
+            return ToolExecutionResult(
+                model_text="error: oldText and newText are identical",
+                display_text="Edit would not change the file",
+                is_error=True,
+            )
 
         try:
-            text = file_path.read_text(encoding="utf-8")
+            # newline="" keeps the original line endings in memory.
+            read_mtime_ns = file_path.stat().st_mtime_ns
+            with file_path.open("r", encoding="utf-8", newline="") as file:
+                text = file.read()
         except Exception as exc:
             return ToolExecutionResult(
                 model_text=f"error: failed to read file: {exc}",
                 display_text=f"Failed to read file: {path}",
                 is_error=True,
             )
+
+        newline = "\r\n" if "\r\n" in text else None
 
         # Exact match first (deterministic and preferred)
         exact_count = text.count(oldText)
@@ -605,7 +629,14 @@ class ToolExecutor:
             updated = text[:start] + newText + text[end:]
 
         try:
-            _atomic_write_text(file_path, updated)
+            # Avoid overwriting a file that changed after we read it.
+            if file_path.stat().st_mtime_ns != read_mtime_ns:
+                return ToolExecutionResult(
+                    model_text="error: file changed while editing; read it again and retry",
+                    display_text="File changed while editing",
+                    is_error=True,
+                )
+            _atomic_write_text(file_path, updated, newline=newline)
         except Exception as exc:
             return ToolExecutionResult(
                 model_text=f"error: failed to write file: {exc}",
@@ -615,9 +646,6 @@ class ToolExecutor:
 
         # Return a compact JSON payload so the web UI can render a focused diff
         # around the edited range without re-reading the whole file.
-        if match_pos is None:
-            match_pos = text.index(oldText)
-
         start_line = text[:match_pos].count("\n") + 1
         old_line_count = len(oldText.splitlines()) or 1
         new_line_count = len(newText.splitlines()) or 1

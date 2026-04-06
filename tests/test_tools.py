@@ -361,6 +361,30 @@ class TestToolExecutorEdit:
             assert "error" in result.model_text.lower()
             assert "not found" in result.model_text.lower()
 
+    def test_edit_rejects_empty_old_text(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            executor = ToolExecutor(cwd=tmpdir, session_dir=Path(tmpdir))
+            test_file = Path(tmpdir) / "test.txt"
+            test_file.write_text("Hello, World!")
+
+            result = executor.edit(path="test.txt", oldText="", newText="Replacement")
+
+            assert result.is_error is True
+            assert "must not be empty" in result.model_text.lower()
+            assert test_file.read_text() == "Hello, World!"
+
+    def test_edit_rejects_no_op(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            executor = ToolExecutor(cwd=tmpdir, session_dir=Path(tmpdir))
+            test_file = Path(tmpdir) / "test.txt"
+            test_file.write_text("Hello, World!")
+
+            result = executor.edit(path="test.txt", oldText="World", newText="World")
+
+            assert result.is_error is True
+            assert "identical" in result.model_text.lower()
+            assert test_file.read_text() == "Hello, World!"
+
     def test_edit_not_found_includes_closest_hint(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             executor = ToolExecutor(cwd=tmpdir, session_dir=Path(tmpdir))
@@ -397,7 +421,7 @@ class TestToolExecutorEdit:
             result = executor.edit(path="test.txt", oldText="line1\nline2\n", newText="line1\nlineX\n")
 
             assert_edit_ok(result, start_line=1, old_line_count=2, new_line_count=2)
-            assert test_file.read_text(encoding="utf-8") == "line1\nlineX\n"
+            assert test_file.read_bytes() == b"line1\r\nlineX\r\n"
 
     def test_edit_fuzzy_requires_unique_match(self):
         with tempfile.TemporaryDirectory() as tmpdir:
