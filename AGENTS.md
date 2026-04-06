@@ -27,8 +27,7 @@ Core runtime (`mycode/core/`):
 - `session.py` — append-only JSONL session storage, compact/rewind events, interrupted tool repair
 - `config.py` — layered config loading and provider resolution
 - `models.py` — bundled model metadata lookup (`context_window`, `supports_reasoning`, `supports_image_input`)
-- `system_prompt.py` — runtime system prompt assembly, AGENTS.md discovery, skills discovery
-- `system_prompt.md` — system prompt template
+- `system_prompt.py` — runtime system prompt assembly, inlined base prompt, AGENTS.md discovery, skills discovery
 - `providers/base.py` — ProviderAdapter abstract interface
 - `providers/__init__.py` — adapter registry and provider lookup helpers
 - `providers/anthropic_like.py` — adapters: `anthropic`, `moonshotai`, `minimax`

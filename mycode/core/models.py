@@ -2,15 +2,15 @@
 
 from __future__ import annotations
 
+import functools
 import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-_MODELS_CATALOG_PATH = Path(__file__).with_name("models_catalog.json")
+from mycode.core.utils import as_bool, as_int
 
-_models_catalog_cache: dict[str, Any] | None = None
-_models_catalog_loaded = False
+_MODELS_CATALOG_PATH = Path(__file__).with_name("models_catalog.json")
 
 
 @dataclass(frozen=True)
@@ -25,30 +25,21 @@ class ModelMetadata:
     supports_image_input: bool | None
 
 
+@functools.cache
 def load_models_catalog() -> dict[str, Any] | None:
     """Load the bundled model catalog from disk once per process."""
-
-    global _models_catalog_cache, _models_catalog_loaded
-
-    if _models_catalog_loaded:
-        return _models_catalog_cache
 
     try:
         data = json.loads(_MODELS_CATALOG_PATH.read_text(encoding="utf-8"))
     except Exception:
         data = None
-
-    _models_catalog_cache = data if isinstance(data, dict) else None
-    _models_catalog_loaded = True
-    return _models_catalog_cache
+    return data if isinstance(data, dict) else None
 
 
 def lookup_model_metadata(
     *,
     provider_type: str | None,
     model: str | None,
-    provider_name: str | None = None,  # reserved for future per-alias lookup
-    api_base: str | None = None,  # reserved for future custom-endpoint lookup
 ) -> ModelMetadata | None:
     """Resolve metadata for one internal provider type and model."""
 
@@ -96,19 +87,15 @@ def _lookup_entry(
     return ModelMetadata(
         provider=provider_type,
         model=model_id,
-        context_window=_as_int(raw_model.get("context_window")),
-        max_output_tokens=_as_int(raw_model.get("max_output_tokens")),
-        supports_reasoning=raw_model.get("supports_reasoning")
-        if isinstance(raw_model.get("supports_reasoning"), bool)
-        else None,
-        supports_image_input=raw_model.get("supports_image_input")
-        if isinstance(raw_model.get("supports_image_input"), bool)
-        else None,
+        context_window=as_int(raw_model.get("context_window")),
+        max_output_tokens=as_int(raw_model.get("max_output_tokens")),
+        supports_reasoning=as_bool(raw_model.get("supports_reasoning")),
+        supports_image_input=as_bool(raw_model.get("supports_image_input")),
     )
 
 
 def _default_provider(model_id: str) -> str | None:
-    """Return the canonical internal provider type for a normalized model id."""
+    """Return the canonical internal provider type for a well-known model id."""
 
     normalized = model_id.lower()
     if normalized.startswith("claude-"):
@@ -134,11 +121,3 @@ def _strip_prefix(model_id: str) -> str:
     if "/" not in model_id:
         return model_id
     return model_id.split("/", 1)[1].strip()
-
-
-def _as_int(value: Any) -> int | None:
-    """Return an int value while rejecting bools and non-ints."""
-
-    if isinstance(value, bool) or not isinstance(value, int):
-        return None
-    return value

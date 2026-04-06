@@ -2,7 +2,7 @@
 
 This module owns the full runtime system prompt:
 
-- base prompt text from ``system_prompt.md``
+- base prompt text (inlined below as _BASE_PROMPT)
 - workspace instructions from AGENTS.md
 - available skills from SKILL.md files
 """
@@ -27,6 +27,19 @@ _SKIP_DIRS = frozenset({"node_modules", "__pycache__", ".git"})
 _NAME_RE = re.compile(r"^[a-zA-Z0-9_-]+$")
 _NAME_MAX_LEN = 64
 
+_BASE_PROMPT = """\
+You are mycode, an expert coding assistant.
+
+You have four tools: read, write, edit, bash.
+
+- Use bash for file operations and exploration like `ls`, `find`, `rg`, etc.
+- Always set offset/limit when reading large files.
+- Always read files before editing them.
+- Use write only for new files or complete rewrites
+- Your response should be concise and relevant.
+- When available skills match the current task, prefer them over manual alternatives. To use a skill: read its `SKILL.md`, then follow the instructions inside.\
+"""
+
 
 # ---------------------------------------------------------------------
 # Full system prompt assembly
@@ -39,12 +52,7 @@ def build_system_prompt(cwd: str, settings: Settings | None = None) -> str:
     resolved_cwd = str(Path(cwd).resolve(strict=False))
     resolved_settings = settings or get_settings(resolved_cwd)
 
-    try:
-        base_prompt = (Path(__file__).resolve().parent / "system_prompt.md").read_text(encoding="utf-8").strip()
-    except Exception:
-        base_prompt = "You are mycode, an expert coding assistant."
-
-    parts = [base_prompt]
+    parts = [_BASE_PROMPT]
 
     instructions_prompt = load_instructions_prompt(resolved_cwd, resolved_settings)
     if instructions_prompt:

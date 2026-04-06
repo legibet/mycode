@@ -19,7 +19,7 @@ from mycode.core.providers.base import (
     get_native_meta,
     load_image_block_payload,
 )
-from mycode.core.tools import parse_tool_arguments
+from mycode.core.utils import parse_tool_arguments
 
 
 @dataclass

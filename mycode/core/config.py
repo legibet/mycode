@@ -13,7 +13,7 @@ import json
 import logging
 import os
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
@@ -27,6 +27,7 @@ from mycode.core.providers import (
     provider_default_models,
     provider_env_api_key_names,
 )
+from mycode.core.utils import as_bool, as_int
 
 _DEFAULT_MYCODE_HOME = "~/.mycode"
 _API_KEY_ENV_REF_RE = re.compile(r"^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$")
@@ -133,19 +134,11 @@ def _normalize_models(value: Any) -> dict[str, ModelConfig]:
             models[model_id] = raw
             continue
         raw_config = raw if isinstance(raw, dict) else {}
-        context_window = raw_config.get("context_window")
-        max_output_tokens = raw_config.get("max_output_tokens")
-        supports_reasoning = raw_config.get("supports_reasoning")
-        supports_image_input = raw_config.get("supports_image_input")
         models[model_id] = ModelConfig(
-            context_window=(
-                context_window if isinstance(context_window, int) and not isinstance(context_window, bool) else None
-            ),
-            max_output_tokens=max_output_tokens
-            if isinstance(max_output_tokens, int) and not isinstance(max_output_tokens, bool)
-            else None,
-            supports_reasoning=supports_reasoning if isinstance(supports_reasoning, bool) else None,
-            supports_image_input=supports_image_input if isinstance(supports_image_input, bool) else None,
+            context_window=as_int(raw_config.get("context_window")),
+            max_output_tokens=as_int(raw_config.get("max_output_tokens")),
+            supports_reasoning=as_bool(raw_config.get("supports_reasoning")),
+            supports_image_input=as_bool(raw_config.get("supports_image_input")),
         )
     return models
 
@@ -348,7 +341,7 @@ def resolve_provider(
             api_base=api_base,
         )
 
-    for available_name, _provider in _available_provider_references(settings):
+    for available_name, _ in _available_provider_references(settings):
         return _resolve_provider_runtime(
             settings,
             selected_name=available_name,
@@ -373,7 +366,7 @@ def resolve_provider_choices(settings: Settings) -> list[ResolvedProvider]:
     """Return currently selectable providers in stable selection order."""
 
     choices: list[ResolvedProvider] = []
-    for selected_name, _provider in _available_provider_references(settings):
+    for selected_name, _ in _available_provider_references(settings):
         try:
             choices.append(_resolve_provider_runtime(settings, selected_name=selected_name))
         except ValueError:
@@ -455,9 +448,7 @@ def _resolve_provider_runtime(
     resolved_api_base = api_base or (provider_config.base_url if provider_config else None)
     model_metadata = lookup_model_metadata(
         provider_type=provider_type,
-        provider_name=selected_name,
         model=resolved_model,
-        api_base=resolved_api_base,
     )
     if provider_config:
         model_config = provider_config.models.get(resolved_model)
@@ -472,29 +463,21 @@ def _resolve_provider_runtime(
                     supports_image_input=model_config.supports_image_input,
                 )
             else:
-                model_metadata = ModelMetadata(
-                    provider=model_metadata.provider,
-                    model=model_metadata.model,
-                    context_window=(
-                        model_config.context_window
-                        if model_config.context_window is not None
-                        else model_metadata.context_window
-                    ),
-                    max_output_tokens=(
-                        model_config.max_output_tokens
-                        if model_config.max_output_tokens is not None
-                        else model_metadata.max_output_tokens
-                    ),
-                    supports_reasoning=(
-                        model_config.supports_reasoning
-                        if model_config.supports_reasoning is not None
-                        else model_metadata.supports_reasoning
-                    ),
-                    supports_image_input=(
-                        model_config.supports_image_input
-                        if model_config.supports_image_input is not None
-                        else model_metadata.supports_image_input
-                    ),
+                # Per-field: use the config override when set, keep catalog value otherwise.
+                model_metadata = replace(
+                    model_metadata,
+                    context_window=model_config.context_window
+                    if model_config.context_window is not None
+                    else model_metadata.context_window,
+                    max_output_tokens=model_config.max_output_tokens
+                    if model_config.max_output_tokens is not None
+                    else model_metadata.max_output_tokens,
+                    supports_reasoning=model_config.supports_reasoning
+                    if model_config.supports_reasoning is not None
+                    else model_metadata.supports_reasoning,
+                    supports_image_input=model_config.supports_image_input
+                    if model_config.supports_image_input is not None
+                    else model_metadata.supports_image_input,
                 )
 
     configured_effort = settings.default_reasoning_effort

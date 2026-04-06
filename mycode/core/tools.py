@@ -28,7 +28,6 @@ from mycode.core.messages import image_block, text_block
 # ---------------------------------------------------------------------------
 # Limits (keep token usage low)
 # ---------------------------------------------------------------------------
-
 DEFAULT_MAX_LINES = 2000
 DEFAULT_MAX_BYTES = 50 * 1024
 READ_MAX_LINE_CHARS = 2000
@@ -192,31 +191,6 @@ def truncate_text(
         output_bytes=len(content.encode("utf-8")),
     )
     return content, trunc
-
-
-def parse_tool_arguments(raw: str | None) -> dict[str, Any] | str:
-    """Parse a JSON tool-arguments payload.
-
-    Returns either the parsed object or an error string. Keeping this helper here
-    makes tool-argument validation consistent across adapters and tests.
-    """
-
-    if raw is None:
-        return {}
-
-    payload = raw.strip()
-    if not payload:
-        return {}
-
-    try:
-        parsed = json.loads(payload)
-    except json.JSONDecodeError:
-        return "error: invalid JSON arguments"
-
-    if not isinstance(parsed, dict):
-        return "error: tool arguments must decode to a JSON object"
-
-    return parsed
 
 
 def resolve_path(path: str, *, cwd: str) -> str:

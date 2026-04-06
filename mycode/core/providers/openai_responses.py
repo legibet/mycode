@@ -19,7 +19,7 @@ from mycode.core.providers.base import (
     load_image_block_payload,
     tool_result_content_blocks,
 )
-from mycode.core.tools import parse_tool_arguments
+from mycode.core.utils import parse_tool_arguments
 
 
 class OpenAIResponsesAdapter(ProviderAdapter):

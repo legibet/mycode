@@ -13,9 +13,7 @@ def test_lookup_model_metadata_prefers_current_provider_family(monkeypatch) -> N
 
     metadata = lookup_model_metadata(
         provider_type="openrouter",
-        provider_name="router",
         model="openai/gpt-5",
-        api_base="https://openrouter.ai/api/v1",
     )
 
     assert metadata is not None
@@ -32,9 +30,7 @@ def test_lookup_model_metadata_falls_back_to_canonical_provider(monkeypatch) -> 
 
     metadata = lookup_model_metadata(
         provider_type="openai_chat",
-        provider_name="compat",
         model="openai/gpt-5",
-        api_base="https://proxy.example/v1",
     )
 
     assert metadata is not None
@@ -49,9 +45,7 @@ def test_lookup_model_metadata_falls_back_to_aihubmix(monkeypatch) -> None:
 
     metadata = lookup_model_metadata(
         provider_type="zai",
-        provider_name="zhipu-coding",
         model="glm-5.1",
-        api_base="https://open.bigmodel.cn/api/coding/paas/v4",
     )
 
     assert metadata is not None
@@ -70,9 +64,7 @@ def test_lookup_model_metadata_does_not_retry_on_miss(monkeypatch) -> None:
 
     metadata = lookup_model_metadata(
         provider_type="zai",
-        provider_name="zhipu-coding",
         model="glm-5.1",
-        api_base="https://open.bigmodel.cn/api/coding/paas/v4",
     )
 
     assert metadata is None
@@ -84,12 +76,15 @@ def test_load_models_catalog_reads_file_once(monkeypatch, tmp_path) -> None:
     catalog_path.write_text('{"openai":{"gpt-5":{}}}', encoding="utf-8")
 
     monkeypatch.setattr(models, "_MODELS_CATALOG_PATH", catalog_path)
-    monkeypatch.setattr(models, "_models_catalog_cache", None)
-    monkeypatch.setattr(models, "_models_catalog_loaded", False)
+    # Clear the functools.cache so this test gets a fresh read.
+    load_models_catalog.cache_clear()
 
     assert load_models_catalog() == {"openai": {"gpt-5": {}}}
     catalog_path.write_text('{"changed":true}', encoding="utf-8")
+    # Second call should return cached result, not re-read.
     assert load_models_catalog() == {"openai": {"gpt-5": {}}}
+
+    load_models_catalog.cache_clear()
 
 
 def test_lookup_model_metadata_reads_image_support(monkeypatch) -> None:
@@ -104,7 +99,7 @@ def test_lookup_model_metadata_reads_image_support(monkeypatch) -> None:
     }
     monkeypatch.setattr("mycode.core.models.load_models_catalog", lambda: fake_catalog)
 
-    metadata = lookup_model_metadata(provider_type="anthropic", provider_name="anthropic", model="claude-sonnet-4-6")
+    metadata = lookup_model_metadata(provider_type="anthropic", model="claude-sonnet-4-6")
 
     assert metadata is not None
     assert metadata.supports_image_input is True

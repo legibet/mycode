@@ -241,7 +241,7 @@ class Agent:
                 if self._cancel_event.is_set():
                     raise asyncio.CancelledError
 
-                self._provider_event_task = asyncio.ensure_future(anext(provider_stream))
+                self._provider_event_task = asyncio.create_task(anext(provider_stream))
                 try:
                     yield await self._provider_event_task
                 except StopAsyncIteration:
@@ -384,24 +384,20 @@ class Agent:
                     if event.type != "tool_done":
                         continue
 
-                    result_data = event.data
-                    result_tool_id = str(result_data.get("tool_use_id") or "")
-                    result_model_text = str(result_data.get("model_text") or "")
-                    result_display_text = str(result_data.get("display_text") or "")
-                    result_is_error = bool(result_data.get("is_error"))
-                    result_content = result_data.get("content")
+                    d = event.data
+                    model_text = str(d.get("model_text") or "")
+                    content = d.get("content")
                     tool_results.append(
                         tool_result_block(
-                            tool_use_id=result_tool_id,
-                            model_text=result_model_text,
-                            display_text=result_display_text,
-                            is_error=result_is_error,
-                            content=result_content if isinstance(result_content, list) else None,
+                            tool_use_id=str(d.get("tool_use_id") or ""),
+                            model_text=model_text,
+                            display_text=str(d.get("display_text") or ""),
+                            is_error=bool(d.get("is_error")),
+                            content=content if isinstance(content, list) else None,
                         )
                     )
 
-                    tool_was_cancelled = result_model_text == "error: cancelled"
-                    if tool_was_cancelled and self._cancel_event.is_set():
+                    if model_text == "error: cancelled" and self._cancel_event.is_set():
                         tool_result_message = build_message("user", tool_results)
                         self.messages.append(tool_result_message)
                         if on_persist:

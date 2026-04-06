@@ -10,9 +10,9 @@ from mycode.core.tools import (
     ToolExecutionResult,
     ToolExecutor,
     detect_image_mime_type,
-    parse_tool_arguments,
     truncate_text,
 )
+from mycode.core.utils import parse_tool_arguments
 
 _PNG_1X1 = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j1X8AAAAASUVORK5CYII="

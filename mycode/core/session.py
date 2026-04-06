@@ -18,6 +18,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import shutil
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -315,42 +316,6 @@ class SessionStore:
         sessions = await self.list_sessions(cwd=cwd)
         return sessions[0] if sessions else None
 
-    async def load_session(self, session_id: str) -> dict | None:
-        def load() -> dict | None:
-            meta = self._read_meta(session_id)
-            if meta is None:
-                return None
-
-            # Read the raw append-only log first. Replay happens after that.
-            raw_messages: list[dict] = []
-            messages_path = self.messages_path(session_id)
-            try:
-                with messages_path.open("r", encoding="utf-8") as handle:
-                    for line in handle:
-                        line = line.strip()
-                        if not line:
-                            continue
-                        try:
-                            msg = json.loads(line)
-                            if isinstance(msg, dict):
-                                raw_messages.append(msg)
-                        except Exception:
-                            continue
-            except FileNotFoundError:
-                pass
-
-            # Replay order defines the visible conversation state.
-            # 1) compact rewrites older history into one summary view
-            # 2) rewind truncates that visible list by message index
-            # 3) interrupted tool repair patches the final visible state
-            visible_messages = apply_compact(raw_messages)
-            visible_messages = apply_rewind(visible_messages)
-            self._repair_interrupted_tool_loop(session_id, meta, visible_messages)
-
-            return {"session": meta, "messages": visible_messages}
-
-        return await asyncio.to_thread(load)
-
     def _repair_interrupted_tool_loop(self, session_id: str, meta: dict, messages: list[dict]) -> None:
         """Append a synthetic tool result when the latest tool loop was interrupted.
 
@@ -388,7 +353,7 @@ class SessionStore:
         if pending_tool_call_index is None:
             return
 
-        # Then collect tool results that were actually recorded after it.
+        # Collect tool results that were recorded after the assistant message.
         completed_tool_use_ids: set[str] = set()
         for message in messages[pending_tool_call_index + 1 :]:
             if message.get("role") != "user":
@@ -432,24 +397,47 @@ class SessionStore:
         self._write_meta(session_id, meta)
         messages.append(repair_message)
 
+    async def load_session(self, session_id: str) -> dict | None:
+        def load() -> dict | None:
+            meta = self._read_meta(session_id)
+            if meta is None:
+                return None
+
+            # Read the raw append-only log first. Replay happens after that.
+            raw_messages: list[dict] = []
+            messages_path = self.messages_path(session_id)
+            try:
+                with messages_path.open("r", encoding="utf-8") as handle:
+                    for line in handle:
+                        line = line.strip()
+                        if not line:
+                            continue
+                        try:
+                            msg = json.loads(line)
+                            if isinstance(msg, dict):
+                                raw_messages.append(msg)
+                        except Exception:
+                            continue
+            except FileNotFoundError:
+                pass
+
+            # Replay order defines the visible conversation state.
+            # 1) compact rewrites older history into one summary view
+            # 2) rewind truncates that visible list by message index
+            # 3) interrupted tool repair patches the final visible state
+            visible_messages = apply_compact(raw_messages)
+            visible_messages = apply_rewind(visible_messages)
+            self._repair_interrupted_tool_loop(session_id, meta, visible_messages)
+
+            return {"session": meta, "messages": visible_messages}
+
+        return await asyncio.to_thread(load)
+
     async def delete_session(self, session_id: str) -> None:
         def delete() -> None:
             sdir = self.session_dir(session_id)
-            if not sdir.exists():
-                return
-            # small recursive delete (no shutil.rmtree to keep deps minimal)
-            for p in sorted(sdir.rglob("*"), reverse=True):
-                try:
-                    if p.is_file() or p.is_symlink():
-                        p.unlink(missing_ok=True)
-                    elif p.is_dir():
-                        p.rmdir()
-                except Exception:
-                    pass
-            try:
-                sdir.rmdir()
-            except Exception:
-                pass
+            if sdir.exists():
+                shutil.rmtree(sdir, ignore_errors=True)
 
         await asyncio.to_thread(delete)
 
