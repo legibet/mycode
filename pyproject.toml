@@ -59,10 +59,29 @@ artifacts = ["mycode/server/static/**", "mycode/core/models_catalog.json"]
 
 [dependency-groups]
 dev = [
+    "basedpyright>=1.39.0",
     "ruff>=0.13.0",
     "pytest>=8.0.0",
     "pytest-asyncio>=0.25.0",
 ]
+
+[tool.basedpyright]
+include = ["mycode"]
+exclude = [
+    "**/__pycache__",
+    ".git",
+    ".pytest_cache",
+    ".ruff_cache",
+    ".venv",
+    ".uv-cache",
+    "dist",
+    "web",
+]
+pythonVersion = "3.12"
+pythonPlatform = "All"
+typeCheckingMode = "recommended"
+reportMissingTypeStubs = false
+baselineFile = ".basedpyright/baseline.json"
 
 # Ruff configuration
 [tool.ruff]

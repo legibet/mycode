@@ -15,7 +15,7 @@ import os
 import re
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from mycode.core.models import ModelMetadata, lookup_model_metadata
 from mycode.core.providers import (
@@ -293,20 +293,22 @@ def get_settings(cwd: str | None = None) -> Settings:
 
             raw_providers[name] = merged
 
-        default = data.get("default") if isinstance(data.get("default"), dict) else {}
-        if "provider" in default:
-            value = default.get("provider")
-            default_provider = value if isinstance(value, str) else None
-        if "model" in default:
-            value = default.get("model")
-            default_model = value if isinstance(value, str) else None
-        if "reasoning_effort" in default:
-            value = default.get("reasoning_effort")
-            default_reasoning_effort = value if isinstance(value, str) else None
-        if "compact_threshold" in default:
-            parsed_threshold = _parse_compact_threshold(default.get("compact_threshold"))
-            if parsed_threshold is not None:
-                compact_threshold = parsed_threshold
+        raw_default = data.get("default")
+        default = cast(dict[str, object] | None, raw_default if isinstance(raw_default, dict) else None)
+        if default is not None:
+            if "provider" in default:
+                value = default.get("provider")
+                default_provider = value if isinstance(value, str) else None
+            if "model" in default:
+                value = default.get("model")
+                default_model = value if isinstance(value, str) else None
+            if "reasoning_effort" in default:
+                value = default.get("reasoning_effort")
+                default_reasoning_effort = value if isinstance(value, str) else None
+            if "compact_threshold" in default:
+                parsed_threshold = _parse_compact_threshold(default.get("compact_threshold"))
+                if parsed_threshold is not None:
+                    compact_threshold = parsed_threshold
 
     return Settings(
         providers=_build_providers(raw_providers),

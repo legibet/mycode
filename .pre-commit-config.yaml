@@ -28,3 +28,13 @@ repos:
         additional_dependencies: ["@biomejs/biome@2.4.7"]
         args: ["--config-path=biome.json"]
         files: ^web/
+
+  # Python - basedpyright
+  - repo: local
+    hooks:
+      - id: basedpyright
+        name: basedpyright
+        entry: uv run basedpyright --baselinemode=lock
+        language: system
+        pass_filenames: false
+        types: [python]

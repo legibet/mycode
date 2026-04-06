@@ -242,11 +242,11 @@ def detect_image_mime_type(path: Path) -> str | None:
 
 
 # Track active subprocesses for cancellation.
-_ACTIVE_PROCS: set[subprocess.Popen] = set()
+_ACTIVE_PROCS: set[subprocess.Popen[str]] = set()
 _ACTIVE_PROCS_LOCK = threading.Lock()
 
 
-def _kill_proc_tree(proc: subprocess.Popen[Any]) -> None:
+def _kill_proc_tree(proc: subprocess.Popen[str]) -> None:
     try:
         if os.name == "posix":
             os.killpg(proc.pid, signal.SIGKILL)

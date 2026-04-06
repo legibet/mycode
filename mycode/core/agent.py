@@ -7,7 +7,7 @@ import logging
 from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from mycode.core.config import Settings, get_settings
 from mycode.core.messages import (
@@ -101,17 +101,25 @@ class Agent:
     def _tool_done_event(tool_id: str, result: ToolExecutionResult) -> Event:
         """Build the standard tool_done event payload."""
 
-        data = {
-            "tool_use_id": tool_id,
-            "model_text": result.model_text,
-            "display_text": result.display_text,
-            "is_error": result.is_error,
-        }
         if result.content:
-            data["content"] = result.content
+            return Event(
+                "tool_done",
+                {
+                    "tool_use_id": tool_id,
+                    "model_text": result.model_text,
+                    "display_text": result.display_text,
+                    "is_error": result.is_error,
+                    "content": result.content,
+                },
+            )
         return Event(
             "tool_done",
-            data,
+            {
+                "tool_use_id": tool_id,
+                "model_text": result.model_text,
+                "display_text": result.display_text,
+                "is_error": result.is_error,
+            },
         )
 
     async def _run_streaming_tool(self, *, tool_id: str, name: str, args: dict[str, Any]) -> AsyncIterator[Event]:
@@ -236,12 +244,16 @@ class Agent:
         """Iterate one provider turn with best-effort cancellation support."""
 
         provider_stream: AsyncIterator[ProviderStreamEvent] = adapter.stream_turn(request)
+
+        async def next_provider_event() -> ProviderStreamEvent:
+            return await anext(provider_stream)
+
         try:
             while True:
                 if self._cancel_event.is_set():
                     raise asyncio.CancelledError
 
-                self._provider_event_task = asyncio.create_task(anext(provider_stream))
+                self._provider_event_task = asyncio.create_task(next_provider_event())
                 try:
                     yield await self._provider_event_task
                 except StopAsyncIteration:
@@ -249,8 +261,8 @@ class Agent:
                 finally:
                     self._provider_event_task = None
         finally:
-            close = getattr(provider_stream, "aclose", None)
-            if callable(close):
+            close = cast(Callable[[], Awaitable[None]] | None, getattr(provider_stream, "aclose", None))
+            if close is not None:
                 try:
                     await close()
                 except Exception:
@@ -276,12 +288,17 @@ class Agent:
         if isinstance(user_input, str):
             user_message = user_text_message(user_input)
         else:
-            user_message = {
+            user_message: ConversationMessage = {
                 "role": str(user_input.get("role") or "user"),
                 "content": [dict(b) for b in user_input.get("content") or [] if isinstance(b, dict)],
             }
-            if isinstance(user_input.get("meta"), dict):
-                user_message["meta"] = dict(user_input["meta"])
+            raw_meta = user_input.get("meta")
+            if isinstance(raw_meta, dict):
+                raw_meta = cast(dict[object, object], raw_meta)
+                meta: dict[str, object] = {}
+                for key, value in raw_meta.items():
+                    meta[str(key)] = value
+                user_message["meta"] = meta
 
         if user_message.get("role") != "user":
             yield Event("error", {"message": "user input must be a user message"})

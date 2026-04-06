@@ -20,7 +20,7 @@ from mycode.core.config import (
     resolve_provider,
     resolve_provider_choices,
 )
-from mycode.core.messages import build_message, flatten_message_text, image_block, text_block
+from mycode.core.messages import ConversationMessage, build_message, flatten_message_text, image_block, text_block
 from mycode.core.providers import get_provider_adapter, provider_default_models
 from mycode.core.tools import detect_image_mime_type, resolve_path
 from mycode.server.deps import RunManagerDep, StoreDep
@@ -152,11 +152,10 @@ async def chat(chat: ChatRequest, store: StoreDep, runs: RunManagerDep):
             )
 
         target = messages[chat.rewind_to]
-        blocks = target.get("content")
-        has_user_content = isinstance(blocks, list) and any(
-            isinstance(block, dict)
-            and ((block.get("type") == "text" and block.get("text")) or block.get("type") == "image")
-            for block in blocks
+        raw_blocks = target.get("content")
+        blocks = raw_blocks if isinstance(raw_blocks, list) else []
+        has_user_content = any(
+            (block.get("type") == "text" and block.get("text")) or block.get("type") == "image" for block in blocks
         )
 
         # Rewind only makes sense for real user prompts. Synthetic compact
@@ -189,7 +188,7 @@ async def chat(chat: ChatRequest, store: StoreDep, runs: RunManagerDep):
 
     rewind_persisted = False
 
-    async def on_persist(message: dict) -> None:
+    async def on_persist(message: ConversationMessage) -> None:
         nonlocal rewind_persisted
         if chat.rewind_to is not None and not rewind_persisted:
             await store.append_rewind(session_id, chat.rewind_to)

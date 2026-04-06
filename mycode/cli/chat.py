@@ -8,12 +8,12 @@ import re
 import shlex
 from base64 import b64encode
 from pathlib import Path
-from typing import Any
+from typing import Any, override
 
 from prompt_toolkit import PromptSession
 from prompt_toolkit.application import Application, get_app
 from prompt_toolkit.completion import Completer, Completion
-from prompt_toolkit.formatted_text import ANSI
+from prompt_toolkit.formatted_text import ANSI, StyleAndTextTuples
 from prompt_toolkit.history import FileHistory
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.keys import Keys
@@ -62,17 +62,19 @@ _AT_PATH_RE = re.compile(r"(?<!\S)@(?:(?P<quote>['\"])(?P<quoted>[^'\"]*)|(?P<pl
 _FOCUSED_STYLE = "bold blue" if TERMINAL_THEME == "light" else "bold cyan"
 
 
-class _InlineRadioList[T](RadioList):
+class _InlineRadioList[T](RadioList[T]):
     """Arrow-key list that shows > on the focused item and exits on Enter."""
 
+    @override
     def _handle_enter(self) -> None:
         # Only called by Enter/Space (not arrows), so safe to exit.
         self.current_value = self.values[self._selected_index][0]
         get_app().exit(result=self.current_value)
 
-    def _get_text_fragments(self):
+    @override
+    def _get_text_fragments(self) -> StyleAndTextTuples:
         # Override rendering: show > based on focus, not checked state.
-        result: list[tuple[str, str]] = []
+        result: StyleAndTextTuples = []
         for i, (_value, text) in enumerate(self.values):
             focused = i == self._selected_index
             style = _FOCUSED_STYLE if focused else ""

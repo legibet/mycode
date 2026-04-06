@@ -31,7 +31,8 @@ async def create_session(req: SessionCreateRequest, store: StoreDep):
 async def list_sessions(store: StoreDep, runs: RunManagerDep, cwd: str | None = None):
     sessions = await store.list_sessions(cwd=cwd)
     for session in sessions:
-        session["is_running"] = await runs.has_active_run(session.get("id", ""))
+        session_id = str(session.get("id") or "")
+        session["is_running"] = await runs.has_active_run(session_id)
     return {"sessions": sessions}
 
 

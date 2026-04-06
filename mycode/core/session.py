@@ -22,7 +22,7 @@ import shutil
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, TypedDict, cast
 from uuid import uuid4
 
 from mycode.core.config import resolve_sessions_dir
@@ -187,6 +187,14 @@ class SessionMeta:
     updated_at: str
 
 
+SessionMetaDict = dict[str, object]
+
+
+class SessionData(TypedDict):
+    session: SessionMetaDict
+    messages: list[ConversationMessage]
+
+
 # ---------------------------------------------------------------------
 # Session store
 # ---------------------------------------------------------------------
@@ -219,13 +227,13 @@ class SessionStore:
         session_dir.mkdir(parents=True, exist_ok=True)
         (session_dir / "tool-output").mkdir(parents=True, exist_ok=True)
 
-    def _read_meta(self, session_id: str) -> dict | None:
+    def _read_meta(self, session_id: str) -> SessionMetaDict | None:
         path = self.meta_path(session_id)
         if not path.exists():
             return None
         return json.loads(path.read_text(encoding="utf-8"))
 
-    def _write_meta(self, session_id: str, meta: dict) -> None:
+    def _write_meta(self, session_id: str, meta: SessionMetaDict) -> None:
         self.meta_path(session_id).write_text(json.dumps(meta, indent=2), encoding="utf-8")
 
     # ---------------------------------------------------------------------
@@ -240,7 +248,7 @@ class SessionStore:
         model: str,
         cwd: str,
         api_base: str | None,
-    ) -> dict:
+    ) -> SessionData:
         session_id = uuid4().hex
         now = _now()
         meta = asdict(
@@ -267,7 +275,7 @@ class SessionStore:
         model: str,
         cwd: str,
         api_base: str | None,
-    ) -> dict:
+    ) -> SessionData:
         data = self.draft_session(
             title,
             provider=provider,
@@ -288,11 +296,11 @@ class SessionStore:
         await asyncio.to_thread(write_files)
         return data
 
-    async def list_sessions(self, *, cwd: str | None = None) -> list[dict]:
+    async def list_sessions(self, *, cwd: str | None = None) -> list[SessionMetaDict]:
         normalized = os.path.abspath(cwd) if cwd else None
 
-        def load_all() -> list[dict]:
-            out: list[dict] = []
+        def load_all() -> list[SessionMetaDict]:
+            out: list[SessionMetaDict] = []
             for entry in self.data_dir.iterdir():
                 if not entry.is_dir():
                     continue
@@ -307,16 +315,21 @@ class SessionStore:
                 except Exception:
                     continue
 
-            out.sort(key=lambda m: m.get("updated_at") or "", reverse=True)
+            out.sort(key=lambda m: str(m.get("updated_at") or ""), reverse=True)
             return out
 
         return await asyncio.to_thread(load_all)
 
-    async def latest_session(self, *, cwd: str | None = None) -> dict | None:
+    async def latest_session(self, *, cwd: str | None = None) -> SessionMetaDict | None:
         sessions = await self.list_sessions(cwd=cwd)
         return sessions[0] if sessions else None
 
-    def _repair_interrupted_tool_loop(self, session_id: str, meta: dict, messages: list[dict]) -> None:
+    def _repair_interrupted_tool_loop(
+        self,
+        session_id: str,
+        meta: SessionMetaDict,
+        messages: list[ConversationMessage],
+    ) -> None:
         """Append a synthetic tool result when the latest tool loop was interrupted.
 
         The runtime persists sessions as append-only JSONL. If a previous run was
@@ -397,14 +410,14 @@ class SessionStore:
         self._write_meta(session_id, meta)
         messages.append(repair_message)
 
-    async def load_session(self, session_id: str) -> dict | None:
-        def load() -> dict | None:
+    async def load_session(self, session_id: str) -> SessionData | None:
+        def load() -> SessionData | None:
             meta = self._read_meta(session_id)
             if meta is None:
                 return None
 
             # Read the raw append-only log first. Replay happens after that.
-            raw_messages: list[dict] = []
+            raw_messages: list[ConversationMessage] = []
             messages_path = self.messages_path(session_id)
             try:
                 with messages_path.open("r", encoding="utf-8") as handle:
@@ -415,7 +428,7 @@ class SessionStore:
                         try:
                             msg = json.loads(line)
                             if isinstance(msg, dict):
-                                raw_messages.append(msg)
+                                raw_messages.append(cast(ConversationMessage, msg))
                         except Exception:
                             continue
             except FileNotFoundError:
@@ -478,7 +491,7 @@ class SessionStore:
     async def append_message(
         self,
         session_id: str,
-        message: dict,
+        message: ConversationMessage,
         *,
         provider: str,
         model: str,
@@ -511,7 +524,7 @@ class SessionStore:
                 handle.write("\n")
 
             meta["updated_at"] = _now()
-            meta.setdefault("message_format_version", MESSAGE_FORMAT_VERSION)
+            _ = meta.setdefault("message_format_version", MESSAGE_FORMAT_VERSION)
 
             if meta.get("title") == DEFAULT_SESSION_TITLE and message.get("role") == "user":
                 # Keep the default title until we see the first real user text,

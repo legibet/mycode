@@ -11,6 +11,7 @@ import typer
 
 from mycode.core.agent import Agent
 from mycode.core.config import get_settings, resolve_provider
+from mycode.core.messages import ConversationMessage
 from mycode.core.session import SessionStore
 
 from .chat import TerminalChat
@@ -34,9 +35,9 @@ async def run_noninteractive(
 ) -> int:
     """Run one CLI message and print only the final assistant reply."""
 
-    latest_assistant: dict | None = None
+    latest_assistant: ConversationMessage | None = None
 
-    async def persist(payload: dict) -> None:
+    async def persist(payload: ConversationMessage) -> None:
         nonlocal latest_assistant
         if payload.get("role") == "assistant":
             latest_assistant = payload

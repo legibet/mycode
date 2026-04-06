@@ -41,6 +41,9 @@ jobs:
       - name: Lint Python
         run: uv run ruff check .
 
+      - name: Typecheck Python
+        run: uv run basedpyright
+
       - name: Run Python tests
         run: uv run pytest
 

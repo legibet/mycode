@@ -137,7 +137,7 @@ class Skill:
 # ---------------------------------------------------------------------
 
 
-def _parse_frontmatter(text: str) -> dict | None:
+def _parse_frontmatter(text: str) -> dict[str, object] | None:
     """Extract YAML frontmatter between --- delimiters."""
 
     lines = text.splitlines()
