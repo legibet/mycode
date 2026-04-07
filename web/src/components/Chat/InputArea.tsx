@@ -129,7 +129,8 @@ async function processFiles(
 ): Promise<AttachedFile[]> {
   const attachedFiles = await Promise.all(
     files.map(async (file) => {
-      if (supportsImages && file.type.startsWith('image/')) {
+      if (file.type.startsWith('image/')) {
+        if (!supportsImages) return null
         return {
           kind: 'image' as const,
           data: await readFileAsBase64(file),
@@ -139,11 +140,11 @@ async function processFiles(
         }
       }
 
-      if (
-        supportsDocuments &&
-        (file.type === 'application/pdf' ||
-          file.name.toLowerCase().endsWith('.pdf'))
-      ) {
+      const isPdfFile =
+        file.type === 'application/pdf' ||
+        file.name.toLowerCase().endsWith('.pdf')
+      if (isPdfFile) {
+        if (!supportsDocuments) return null
         return {
           kind: 'document' as const,
           data: await readFileAsBase64(file),

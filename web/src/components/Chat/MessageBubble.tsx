@@ -183,6 +183,9 @@ export const MessageBubble = memo(function MessageBubble({
   const canEdit =
     isUser &&
     !!textContent &&
+    imageBlocks.length === 0 &&
+    documentBlocks.length === 0 &&
+    textAttachmentBlocks.length === 0 &&
     typeof sourceIndex === 'number' &&
     !synthetic &&
     !isLoading &&
