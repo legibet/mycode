@@ -218,7 +218,7 @@ class GoogleGeminiAdapter(ProviderAdapter):
         return contents
 
     def _build_config(self, request: ProviderRequest) -> types.GenerateContentConfig:
-        tools = None
+        tools: list[types.Tool | Any] | None = None
         tool_config = None
         automatic_function_calling = None
         if request.tools:

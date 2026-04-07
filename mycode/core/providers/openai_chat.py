@@ -162,7 +162,8 @@ class OpenAIChatAdapter(ProviderAdapter):
         payload.update(self._build_provider_payload_overrides(request))
         return omit_none(payload)
 
-    def _build_provider_payload_overrides(self, _request: ProviderRequest) -> dict[str, Any]:
+    def _build_provider_payload_overrides(self, request: ProviderRequest) -> dict[str, Any]:
+        del request
         return {}
 
     def _serialize_tool(self, tool: dict[str, Any]) -> dict[str, Any]:

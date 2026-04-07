@@ -51,27 +51,35 @@ class OpenAIResponsesAdapter(ProviderAdapter):
             # stream so the canonical assistant message stays intact.
             streamed_output_items: dict[int, Any] = {}
             async for event in stream:
-                if event.type == "response.reasoning_text.delta" and event.delta:
-                    yield ProviderStreamEvent("thinking_delta", {"text": event.delta})
+                event_type = getattr(event, "type", None)
+
+                if event_type == "response.reasoning_text.delta":
+                    delta = cast(str | None, getattr(event, "delta", None))
+                    if delta:
+                        yield ProviderStreamEvent("thinking_delta", {"text": delta})
                     continue
 
-                if event.type == "response.output_text.delta" and event.delta:
-                    yield ProviderStreamEvent("text_delta", {"text": event.delta})
+                if event_type == "response.output_text.delta":
+                    delta = cast(str | None, getattr(event, "delta", None))
+                    if delta:
+                        yield ProviderStreamEvent("text_delta", {"text": delta})
                     continue
 
-                if event.type == "response.output_item.done" and getattr(event, "item", None) is not None:
-                    output_index = int(getattr(event, "output_index", 0) or 0)
-                    streamed_output_items[output_index] = event.item
+                if event_type == "response.output_item.done":
+                    item = getattr(event, "item", None)
+                    if item is not None:
+                        output_index = int(getattr(event, "output_index", 0) or 0)
+                        streamed_output_items[output_index] = item
                     continue
 
-                if event.type == "error":
-                    raise ValueError(str(event.message))
+                if event_type == "error":
+                    raise ValueError(str(getattr(event, "message", event)))
 
-                if event.type == "response.failed":
+                if event_type == "response.failed":
                     raise ValueError(str(getattr(event, "response", None) or event))
 
-                if event.type == "response.completed":
-                    final_response = event.response
+                if event_type == "response.completed":
+                    final_response = getattr(event, "response", None)
         except APIError as exc:
             raise ValueError(str(exc)) from exc
 

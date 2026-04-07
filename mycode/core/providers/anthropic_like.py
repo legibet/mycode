@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 from collections.abc import AsyncIterator
-from typing import Any
+from typing import Any, cast
 
 from anthropic import APIError, AsyncAnthropic
 
@@ -46,10 +46,12 @@ class AnthropicLikeAdapter(ProviderAdapter):
     multi-turn tool-loop requests — not just the text portion.
     """
 
-    def thinking_config(self, _request: ProviderRequest) -> dict[str, Any] | None:
+    def thinking_config(self, request: ProviderRequest) -> dict[str, Any] | None:
+        del request
         return None
 
-    def output_config(self, _request: ProviderRequest) -> dict[str, Any] | None:
+    def output_config(self, request: ProviderRequest) -> dict[str, Any] | None:
+        del request
         return None
 
     def manual_thinking_config(self, effort: str | None) -> dict[str, Any] | None:
@@ -125,10 +127,10 @@ class AnthropicLikeAdapter(ProviderAdapter):
             if not isinstance(content, list):
                 return
 
-            for block in reversed(content):
-                if not isinstance(block, dict):
-                    continue
-                if block.get("type") not in {"text", "image", "document", "tool_result"}:
+            blocks: list[dict[str, Any]] = [cast(dict[str, Any], block) for block in content if isinstance(block, dict)]
+            for block in reversed(blocks):
+                block_type = str(block.get("type") or "")
+                if block_type not in {"text", "image", "document", "tool_result"}:
                     continue
 
                 block["cache_control"] = {"type": "ephemeral"}
@@ -147,11 +149,16 @@ class AnthropicLikeAdapter(ProviderAdapter):
         try:
             async with client.messages.stream(**self._build_request_payload(request)) as stream:
                 async for event in stream:
-                    if event.type == "thinking" and event.thinking:
-                        yield ProviderStreamEvent("thinking_delta", {"text": event.thinking})
+                    event_type = getattr(event, "type", None)
+                    if event_type == "thinking":
+                        thinking = cast(str | None, getattr(event, "thinking", None))
+                        if thinking:
+                            yield ProviderStreamEvent("thinking_delta", {"text": thinking})
                         continue
-                    if event.type == "text" and event.text:
-                        yield ProviderStreamEvent("text_delta", {"text": event.text})
+                    if event_type == "text":
+                        text = cast(str | None, getattr(event, "text", None))
+                        if text:
+                            yield ProviderStreamEvent("text_delta", {"text": text})
 
                 final_message = await stream.get_final_message()
         except APIError as exc:

@@ -135,14 +135,14 @@ class ProviderAdapter(ABC):
 
         return prepared_messages
 
-    def project_tool_call_id(self, tool_call_id: str, _used_tool_call_ids: set[str]) -> str:
+    def project_tool_call_id(self, tool_call_id: str, used_tool_call_ids: set[str]) -> str:
         """Project one canonical tool call ID into a provider-safe ID.
 
         Most providers accept canonical tool IDs as-is. Adapters can override
         this when the upstream protocol restricts character sets or length, as
         long as the returned ID stays unique within the projected request.
         """
-
+        del used_tool_call_ids
         return tool_call_id
 
     def api_key_from_env(self) -> str | None:
