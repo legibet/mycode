@@ -45,6 +45,11 @@ class OpenAIResponsesAdapter(ProviderAdapter):
         try:
             stream = await client.responses.create(**payload, stream=True)
             final_response = None
+            # Some Responses-compatible endpoints emit correct completed output
+            # items during the stream but leave `response.output` empty on the
+            # final completed object. Persist the completed items from the
+            # stream so the canonical assistant message stays intact.
+            streamed_output_items: dict[int, Any] = {}
             async for event in stream:
                 if event.type == "response.reasoning_text.delta" and event.delta:
                     yield ProviderStreamEvent("thinking_delta", {"text": event.delta})
@@ -52,6 +57,11 @@ class OpenAIResponsesAdapter(ProviderAdapter):
 
                 if event.type == "response.output_text.delta" and event.delta:
                     yield ProviderStreamEvent("text_delta", {"text": event.delta})
+                    continue
+
+                if event.type == "response.output_item.done" and getattr(event, "item", None) is not None:
+                    output_index = int(getattr(event, "output_index", 0) or 0)
+                    streamed_output_items[output_index] = event.item
                     continue
 
                 if event.type == "error":
@@ -68,7 +78,15 @@ class OpenAIResponsesAdapter(ProviderAdapter):
         if final_response is None:
             raise ValueError("OpenAI Responses stream ended before response.completed")
 
-        yield ProviderStreamEvent("message_done", {"message": self._convert_final_response(final_response)})
+        yield ProviderStreamEvent(
+            "message_done",
+            {
+                "message": self._convert_final_response(
+                    final_response,
+                    output_items=[streamed_output_items[index] for index in sorted(streamed_output_items)] or None,
+                )
+            },
+        )
 
     def _build_request_payload(self, request: ProviderRequest) -> dict[str, Any]:
         prepared_messages = self.prepare_messages(request)
@@ -253,9 +271,14 @@ class OpenAIResponsesAdapter(ProviderAdapter):
             "strict": True,
         }
 
-    def _convert_final_response(self, response: Any) -> dict[str, Any]:
-        raw_output = getattr(response, "output", None) or []
-        output_items = dump_model(raw_output)
+    def _convert_final_response(
+        self,
+        response: Any,
+        *,
+        output_items: list[Any] | None = None,
+    ) -> dict[str, Any]:
+        raw_output = output_items if output_items is not None else (getattr(response, "output", None) or [])
+        dumped_output_items = dump_model(raw_output)
         blocks: list[dict[str, Any]] = []
         for item in raw_output:
             item_type = getattr(item, "type", None)
@@ -337,5 +360,5 @@ class OpenAIResponsesAdapter(ProviderAdapter):
             provider_message_id=getattr(response, "id", None),
             stop_reason=getattr(response, "status", None),
             usage=dump_model(getattr(response, "usage", None)),
-            native_meta={"output_items": output_items} if output_items else None,
+            native_meta={"output_items": dumped_output_items} if dumped_output_items else None,
         )

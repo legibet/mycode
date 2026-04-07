@@ -104,7 +104,7 @@ class ProviderAdapter(ABC):
 - Default models: `gpt-5.4`, `gpt-5.4-mini`
 - `supports_reasoning_effort`: true (`reasoning = {"effort": ...}`, values: `none/low/medium/high/xhigh`)
 - Runs stateless: `store=false`, `include=["reasoning.encrypted_content"]`
-- Native `response.output` items persisted under `assistant.meta.native.output_items` and replayed directly
+- Streaming turns persist completed output items from `response.output_item.done` under `assistant.meta.native.output_items` and replay them directly
 - Tool results replay as `function_call_output`; foreign thinking never converted to OpenAI reasoning items
 - Passes `prompt_cache_key` using current session id
 - Tool schemas use `strict: true` with nullable optional parameters

@@ -613,6 +613,44 @@ def test_openai_responses_converts_final_response_blocks() -> None:
     ]
 
 
+def test_openai_responses_uses_stream_output_items_when_final_output_is_empty() -> None:
+    adapter = OpenAIResponsesAdapter()
+    response = _Obj(
+        id="resp_123",
+        model="gpt-5.4",
+        status="completed",
+        usage=_Obj(input_tokens=10, output_tokens=5),
+        output=[],
+    )
+
+    message = adapter._convert_final_response(
+        response,
+        output_items=[
+            _Obj(type="message", content=[_Obj(type="output_text", text="hello world", annotations=[])]),
+            _Obj(
+                type="function_call",
+                id="fc_1",
+                call_id="call_1",
+                name="read",
+                arguments='{"path":"pyproject.toml"}',
+                status="completed",
+            ),
+        ],
+    )
+
+    assert message["role"] == "assistant"
+    assert message["content"] == [
+        {"type": "text", "text": "hello world"},
+        {
+            "type": "tool_use",
+            "id": "call_1",
+            "name": "read",
+            "input": {"path": "pyproject.toml"},
+            "meta": {"native": {"item_id": "fc_1", "status": "completed"}},
+        },
+    ]
+
+
 def test_openai_responses_serializes_strict_tool_schemas() -> None:
     adapter = OpenAIResponsesAdapter()
 
