@@ -22,6 +22,7 @@ import type {
   DocumentBlock,
   ImageBlock,
   MessageBlock,
+  TextBlock,
 } from '../../types'
 import { copyText } from '../../utils/clipboard'
 import { cn } from '../../utils/cn'
@@ -51,6 +52,15 @@ interface RenderErrorBoundaryProps {
 interface RenderErrorBoundaryState {
   hasError: boolean
   resetKey: string
+}
+
+interface AttachmentMeta {
+  attachment?: boolean
+  path?: string
+}
+
+function getAttachmentMeta(block: MessageBlock): AttachmentMeta | undefined {
+  return block.meta as AttachmentMeta | undefined
 }
 
 class RenderErrorBoundary extends Component<
@@ -110,12 +120,25 @@ export const MessageBubble = memo(function MessageBubble({
   const editRef = useRef<HTMLTextAreaElement | null>(null)
   const resetCopiedTimeoutRef = useRef<number | null>(null)
 
-  const textContent = useMemo(
+  const visibleTextBlocks = useMemo(
     () =>
-      blocks
-        .filter((block) => block?.type === 'text')
-        .map((block) => block.text)
-        .join('\n\n'),
+      blocks.filter(
+        (block): block is TextBlock =>
+          block?.type === 'text' && !getAttachmentMeta(block)?.attachment,
+      ),
+    [blocks],
+  )
+  const textContent = useMemo(
+    () => visibleTextBlocks.map((block) => block.text).join('\n\n'),
+    [visibleTextBlocks],
+  )
+  const textAttachmentBlocks = useMemo(
+    () =>
+      blocks.filter(
+        (block): block is TextBlock =>
+          block?.type === 'text' &&
+          Boolean(getAttachmentMeta(block)?.attachment),
+      ),
     [blocks],
   )
 
@@ -301,6 +324,27 @@ export const MessageBubble = memo(function MessageBubble({
                   </div>
                 </div>
               ))}
+            </div>
+          )}
+          {textAttachmentBlocks.length > 0 && (
+            <div className="flex flex-wrap gap-2 justify-end">
+              {textAttachmentBlocks.map((block, i) => {
+                const path = getAttachmentMeta(block)?.path
+                return (
+                  <div
+                    key={block.renderKey ?? i}
+                    className="min-w-32 max-w-xs rounded-xl border border-border/30 bg-muted/30 px-3 py-2 text-sm text-foreground/80"
+                  >
+                    <div className="flex items-center gap-2">
+                      <FileText className="h-4 w-4 shrink-0 text-accent/80" />
+                      <span className="font-medium">Text</span>
+                    </div>
+                    <div className="mt-1 break-all text-xs text-muted-foreground">
+                      {typeof path === 'string' ? path : 'attached-file'}
+                    </div>
+                  </div>
+                )
+              })}
             </div>
           )}
           {textContent && (

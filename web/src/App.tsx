@@ -162,6 +162,7 @@ function AppContent() {
     setAttachments((prev) => {
       const next = prev.filter(
         (attachment) =>
+          attachment.kind === 'text' ||
           (attachment.kind === 'image' && supportsImageInput) ||
           (attachment.kind === 'document' && supportsPdfInput),
       )

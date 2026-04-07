@@ -36,6 +36,7 @@ Structured `input` uses `ChatInputBlock`:
 ```json
 [
   {"type": "text", "text": "describe this"},
+  {"type": "text", "text": "print('hi')", "name": "main.py", "is_attachment": true},
   {"type": "image", "path": "cat.png"},
   {"type": "image", "data": "<base64>", "mime_type": "image/png", "name": "cat.png"},
   {"type": "document", "path": "report.pdf"},
@@ -44,6 +45,7 @@ Structured `input` uses `ChatInputBlock`:
 ```
 
 - `type: "text"` — uses `text`
+- `type: "text"` with `is_attachment=true` — wraps UTF-8 file content as the same `<file ...>` attachment text used by CLI `@file`
 - `type: "image"` — uses `path` or inline base64 `data`
 - `type: "document"` — uses `path` or inline base64 `data`
 - `mime_type` is required when `data` is provided

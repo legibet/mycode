@@ -96,7 +96,8 @@ Streaming state tracking:
 
 Attachments:
 
-- `InputArea` supports file picker and drag-and-drop
+- `InputArea` always shows the attachment button and supports file picker and drag-and-drop
+- UTF-8 text/code/config files are attached as the same text snapshot format used by CLI `@file`
 - Images and PDFs are sent as structured `input` blocks
 - The attachment button uses `image_input_models` and `pdf_input_models`; unsupported pending attachments are cleared on model switch
 

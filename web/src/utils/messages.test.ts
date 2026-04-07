@@ -5,6 +5,7 @@ import {
   appendRenderToolUse,
   buildRenderMessages,
   createRenderAssistantMessage,
+  createUserMessage,
   updateRenderToolRuntime,
 } from './messages'
 
@@ -75,6 +76,28 @@ describe('messages', () => {
         ],
       },
     ])
+  })
+
+  it('wraps text attachments like CLI file references', () => {
+    const message = createUserMessage('review this', [
+      {
+        kind: 'text',
+        name: 'main <"v2">.py',
+        text: 'print("ok")',
+      },
+    ])
+
+    expect(message).toEqual({
+      role: 'user',
+      content: [
+        { type: 'text', text: 'review this' },
+        {
+          type: 'text',
+          text: '<file name="main &lt;&quot;v2&quot;&gt;.py">\nprint("ok")\n</file>',
+          meta: { attachment: true, path: 'main <"v2">.py' },
+        },
+      ],
+    })
   })
 
   it('preserves earlier render message references when appending assistant delta', () => {

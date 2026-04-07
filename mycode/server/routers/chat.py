@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import html
 import json
 import os
 from base64 import b64encode
@@ -95,8 +96,16 @@ async def chat(chat: ChatRequest, store: StoreDep, runs: RunManagerDep):
         blocks: list[dict[str, Any]] = []
         for block in chat.input:
             if block.type == "text":
-                text = str(block.text or "")
-                if text:
+                text = "" if block.text is None else str(block.text)
+                if block.is_attachment:
+                    name = str(block.name or "attached-file")
+                    blocks.append(
+                        text_block(
+                            f'<file name="{html.escape(name, quote=True)}">\n{text}\n</file>',
+                            meta={"attachment": True, "path": name},
+                        )
+                    )
+                elif text:
                     blocks.append(text_block(text))
                 continue
 

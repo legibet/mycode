@@ -150,8 +150,17 @@ export interface AttachedDocumentFile {
   name: string
 }
 
+export interface AttachedTextFile {
+  kind: 'text'
+  text: string
+  name: string
+}
+
 /** File attached in the input area, pending send. */
-export type AttachedFile = AttachedImageFile | AttachedDocumentFile
+export type AttachedFile =
+  | AttachedImageFile
+  | AttachedDocumentFile
+  | AttachedTextFile
 
 export interface MessageMeta {
   synthetic?: boolean

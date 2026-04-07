@@ -1,5 +1,5 @@
 /**
- * Chat input area with optional image/PDF attachment.
+ * Chat input area with text/image/PDF attachment.
  */
 
 import { ArrowUp, FileText, Paperclip, Square, X } from 'lucide-react'
@@ -15,6 +15,75 @@ import {
 } from 'react'
 import type { AttachedFile, SetString } from '../../types'
 import { cn } from '../../utils/cn'
+
+// File pickers only understand MIME types and extensions, so keep the text
+// allowlist explicit here.
+const TEXT_FILE_ACCEPT = [
+  'text/*',
+  '.txt',
+  '.md',
+  '.mdx',
+  '.rst',
+  '.json',
+  '.jsonl',
+  '.yaml',
+  '.yml',
+  '.toml',
+  '.ini',
+  '.cfg',
+  '.conf',
+  '.xml',
+  '.html',
+  '.htm',
+  '.css',
+  '.scss',
+  '.sass',
+  '.less',
+  '.js',
+  '.jsx',
+  '.mjs',
+  '.cjs',
+  '.ts',
+  '.tsx',
+  '.mts',
+  '.cts',
+  '.py',
+  '.rb',
+  '.php',
+  '.go',
+  '.rs',
+  '.java',
+  '.kt',
+  '.swift',
+  '.c',
+  '.cc',
+  '.cpp',
+  '.cxx',
+  '.h',
+  '.hh',
+  '.hpp',
+  '.m',
+  '.mm',
+  '.sh',
+  '.bash',
+  '.zsh',
+  '.fish',
+  '.ps1',
+  '.sql',
+  '.graphql',
+  '.gql',
+  '.proto',
+  '.csv',
+  '.tsv',
+  '.log',
+  '.env',
+  '.gitignore',
+  '.gitattributes',
+  '.editorconfig',
+  '.npmrc',
+  '.yarnrc',
+  '.pnpmrc',
+].join(',')
 
 interface InputAreaProps {
   input: string
@@ -41,6 +110,16 @@ function readFileAsBase64(file: File): Promise<string> {
   })
 }
 
+async function readFileAsUtf8(file: File): Promise<string | null> {
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(
+      await file.arrayBuffer(),
+    )
+  } catch {
+    return null
+  }
+}
+
 async function processFiles(
   files: File[],
   {
@@ -48,23 +127,23 @@ async function processFiles(
     supportsDocuments,
   }: { supportsImages: boolean; supportsDocuments: boolean },
 ): Promise<AttachedFile[]> {
-  const acceptedFiles = files.filter((file) => {
-    if (supportsImages && file.type.startsWith('image/')) return true
-    return (
-      supportsDocuments &&
-      (file.type === 'application/pdf' ||
-        file.name.toLowerCase().endsWith('.pdf'))
-    )
-  })
-  if (!acceptedFiles.length) return []
-  return Promise.all(
-    acceptedFiles.map(async (file) => {
-      const mimeType =
-        file.type === 'application/pdf' ||
-        file.name.toLowerCase().endsWith('.pdf')
-          ? 'application/pdf'
-          : file.type
-      if (mimeType === 'application/pdf') {
+  const attachedFiles = await Promise.all(
+    files.map(async (file) => {
+      if (supportsImages && file.type.startsWith('image/')) {
+        return {
+          kind: 'image' as const,
+          data: await readFileAsBase64(file),
+          mime_type: file.type,
+          name: file.name,
+          preview: URL.createObjectURL(file),
+        }
+      }
+
+      if (
+        supportsDocuments &&
+        (file.type === 'application/pdf' ||
+          file.name.toLowerCase().endsWith('.pdf'))
+      ) {
         return {
           kind: 'document' as const,
           data: await readFileAsBase64(file),
@@ -72,15 +151,13 @@ async function processFiles(
           name: file.name,
         }
       }
-      return {
-        kind: 'image' as const,
-        data: await readFileAsBase64(file),
-        mime_type: mimeType,
-        name: file.name,
-        preview: URL.createObjectURL(file),
-      }
+
+      const text = await readFileAsUtf8(file)
+      if (text === null) return null
+      return { kind: 'text' as const, text, name: file.name }
     }),
   )
+  return attachedFiles.filter((file) => file !== null)
 }
 
 export const InputArea = memo(function InputArea({
@@ -153,13 +230,12 @@ export const InputArea = memo(function InputArea({
     e.stopPropagation()
     dragCounterRef.current = 0
     setDragging(false)
-    if (!supportsImages && !supportsDocuments) return
     await attachFiles(Array.from(e.dataTransfer.files))
   }
 
-  const hasAttachments = supportsImages || supportsDocuments
   const hasInput = input.trim().length > 0 || files.length > 0
   const accept = [
+    TEXT_FILE_ACCEPT,
     supportsImages ? 'image/*' : null,
     supportsDocuments ? '.pdf,application/pdf' : null,
   ]
@@ -174,9 +250,7 @@ export const InputArea = memo(function InputArea({
         className={cn(
           'relative rounded-xl bg-card border shadow-sm transition duration-200',
           'focus-within:shadow-md focus-within:border-border/50',
-          dragging && hasAttachments
-            ? 'border-accent/50 bg-accent/5'
-            : 'border-border/25',
+          dragging ? 'border-accent/50 bg-accent/5' : 'border-border/25',
         )}
         onDragEnter={handleDragEnter}
         onDragLeave={handleDragLeave}
@@ -199,7 +273,12 @@ export const InputArea = memo(function InputArea({
                 ) : (
                   <div className="h-14 min-w-28 rounded-lg border border-border/30 bg-muted/30 px-3 flex items-center gap-2 text-xs text-foreground/80">
                     <FileText className="h-4 w-4 shrink-0 text-accent/80" />
-                    <span className="line-clamp-2 break-all">{file.name}</span>
+                    <div className="min-w-0">
+                      <div className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground/70">
+                        {file.kind === 'document' ? 'PDF' : 'Text'}
+                      </div>
+                      <div className="line-clamp-2 break-all">{file.name}</div>
+                    </div>
                   </div>
                 )}
                 <button
@@ -215,92 +294,88 @@ export const InputArea = memo(function InputArea({
           </div>
         )}
 
-        <textarea
-          ref={textareaRef}
-          rows={1}
-          name="message"
-          aria-label="Message"
-          value={input}
-          onChange={(e) => {
-            setInput(e.target.value)
-            e.target.style.height = 'auto'
-            e.target.style.height = `${Math.min(e.target.scrollHeight, 200)}px`
-          }}
-          onKeyDown={handleKeyDown}
-          placeholder="Message…"
-          className={cn(
-            'block w-full resize-none bg-transparent py-3 max-md:py-2.5 pr-14 text-base md:text-sm leading-relaxed text-foreground placeholder:text-muted-foreground/40 focus-visible:outline-none max-h-[200px]',
-            hasAttachments ? 'pl-12 max-md:pl-11' : 'px-4',
-          )}
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept={accept}
+          multiple
+          className="hidden"
+          onChange={handleFileChange}
         />
 
-        {dragging && hasAttachments && (
+        <div className="relative">
+          <textarea
+            ref={textareaRef}
+            rows={1}
+            name="message"
+            aria-label="Message"
+            value={input}
+            onChange={(e) => {
+              setInput(e.target.value)
+              e.target.style.height = 'auto'
+              e.target.style.height = `${Math.min(e.target.scrollHeight, 200)}px`
+            }}
+            onKeyDown={handleKeyDown}
+            placeholder="Message…"
+            className="block w-full resize-none bg-transparent py-3 max-md:py-2.5 pr-14 pl-12 max-md:pl-11 text-base md:text-sm leading-relaxed text-foreground placeholder:text-muted-foreground/40 focus-visible:outline-none max-h-[200px]"
+          />
+
+          <div className="absolute inset-y-0 left-2.5 max-md:left-2 flex items-center">
+            <button
+              type="button"
+              aria-label="Attach file"
+              disabled={loading}
+              onClick={() => fileInputRef.current?.click()}
+              className={cn(
+                'h-8 w-8 flex items-center justify-center rounded-lg transition duration-150',
+                loading
+                  ? 'text-muted-foreground/20'
+                  : 'text-muted-foreground/40 hover:text-muted-foreground/70 hover:bg-muted/50 active:scale-95',
+              )}
+              title="Attach file"
+            >
+              <Paperclip className="h-4 w-4" />
+            </button>
+          </div>
+
+          <div className="absolute inset-y-0 right-2.5 max-md:right-2 flex items-center">
+            {loading ? (
+              <button
+                type="button"
+                aria-label="Stop generating"
+                onClick={onCancel}
+                className="h-8 w-8 flex items-center justify-center rounded-lg text-destructive/70 hover:text-destructive hover:bg-destructive/10 active:scale-95 transition"
+                title="Stop"
+              >
+                <Square className="h-3.5 w-3.5 fill-current" />
+              </button>
+            ) : (
+              <button
+                type="button"
+                aria-label="Send message"
+                onClick={onSend}
+                disabled={!hasInput}
+                className={cn(
+                  'h-8 w-8 flex items-center justify-center rounded-lg transition duration-150',
+                  hasInput
+                    ? 'bg-foreground text-background hover:opacity-90 active:scale-95'
+                    : 'text-muted-foreground/40',
+                )}
+                title="Send"
+              >
+                <ArrowUp className="h-4 w-4" strokeWidth={2.5} />
+              </button>
+            )}
+          </div>
+        </div>
+
+        {dragging && (
           <div className="absolute inset-0 flex items-center justify-center rounded-xl bg-accent/5 pointer-events-none z-10">
             <span className="text-sm text-accent font-medium">
               Drop file here
             </span>
           </div>
         )}
-
-        {hasAttachments && (
-          <>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept={accept}
-              multiple
-              className="hidden"
-              onChange={handleFileChange}
-            />
-            <div className="absolute bottom-0 left-2.5 max-md:left-2 h-[calc(100%-1px)] flex items-center">
-              <button
-                type="button"
-                aria-label="Attach file"
-                disabled={loading}
-                onClick={() => fileInputRef.current?.click()}
-                className={cn(
-                  'h-8 w-8 flex items-center justify-center rounded-lg transition duration-150',
-                  loading
-                    ? 'text-muted-foreground/20'
-                    : 'text-muted-foreground/40 hover:text-muted-foreground/70 hover:bg-muted/50 active:scale-95',
-                )}
-                title="Attach file"
-              >
-                <Paperclip className="h-4 w-4" />
-              </button>
-            </div>
-          </>
-        )}
-
-        <div className="absolute bottom-0 right-2.5 max-md:right-2 h-[calc(100%-1px)] flex items-center">
-          {loading ? (
-            <button
-              type="button"
-              aria-label="Stop generating"
-              onClick={onCancel}
-              className="h-8 w-8 flex items-center justify-center rounded-lg text-destructive/70 hover:text-destructive hover:bg-destructive/10 active:scale-95 transition"
-              title="Stop"
-            >
-              <Square className="h-3.5 w-3.5 fill-current" />
-            </button>
-          ) : (
-            <button
-              type="button"
-              aria-label="Send message"
-              onClick={onSend}
-              disabled={!hasInput}
-              className={cn(
-                'h-8 w-8 flex items-center justify-center rounded-lg transition duration-150',
-                hasInput
-                  ? 'bg-foreground text-background hover:opacity-90 active:scale-95'
-                  : 'text-muted-foreground/40',
-              )}
-              title="Send"
-            >
-              <ArrowUp className="h-4 w-4" strokeWidth={2.5} />
-            </button>
-          )}
-        </div>
       </div>
     </div>
   )

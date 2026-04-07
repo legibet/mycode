@@ -4,6 +4,7 @@
  */
 
 import type {
+  AttachedFile,
   ChatMessage,
   DocumentBlock,
   MessageBlock,
@@ -57,6 +58,28 @@ function createMessage(
 
 function createTextBlock(text: string): TextBlock {
   return { type: 'text', text }
+}
+
+function escapeHtmlAttribute(value: string): string {
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('"', '&quot;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+}
+
+function createAttachedTextBlock(
+  text: string,
+  name: string,
+  renderKey?: string,
+): TextBlock {
+  const block: TextBlock = {
+    type: 'text',
+    text: `<file name="${escapeHtmlAttribute(name)}">\n${text}\n</file>`,
+    meta: { attachment: true, path: name },
+  }
+  if (renderKey) block.renderKey = renderKey
+  return block
 }
 
 function createThinkingBlock(text: string): ThinkingBlock {
@@ -115,31 +138,37 @@ function createDocumentBlock(
   return block
 }
 
+function createAttachmentBlock(
+  attachment: AttachedFile,
+  renderKey?: string,
+): MessageBlock {
+  if (attachment.kind === 'image') {
+    return createImageBlock(
+      attachment.data,
+      attachment.mime_type,
+      attachment.name,
+      renderKey,
+    )
+  }
+  if (attachment.kind === 'document') {
+    return createDocumentBlock(
+      attachment.data,
+      attachment.mime_type,
+      attachment.name,
+      renderKey,
+    )
+  }
+  return createAttachedTextBlock(attachment.text, attachment.name, renderKey)
+}
+
 export function createUserMessage(
   text: string,
-  attachments: {
-    kind: 'image' | 'document'
-    data: string
-    mime_type: string
-    name?: string
-  }[],
+  attachments: AttachedFile[],
 ): ChatMessage {
   const blocks: MessageBlock[] = []
   if (text) blocks.push(createTextBlock(text))
   for (const attachment of attachments) {
-    blocks.push(
-      attachment.kind === 'image'
-        ? createImageBlock(
-            attachment.data,
-            attachment.mime_type,
-            attachment.name,
-          )
-        : createDocumentBlock(
-            attachment.data,
-            attachment.mime_type,
-            attachment.name,
-          ),
-    )
+    blocks.push(createAttachmentBlock(attachment))
   }
   return createMessage('user', blocks)
 }
@@ -154,31 +183,14 @@ export function createRenderUserMessage(
   sourceIndex: number,
   text: string,
   meta?: MessageMeta,
-  attachments?: {
-    kind: 'image' | 'document'
-    data: string
-    mime_type: string
-    name?: string
-  }[],
+  attachments?: AttachedFile[],
 ): ChatMessage {
   const blocks: MessageBlock[] = []
   if (text) blocks.push(createTextBlock(text))
   if (attachments?.length) {
     for (const [i, attachment] of attachments.entries()) {
       blocks.push(
-        attachment.kind === 'image'
-          ? createImageBlock(
-              attachment.data,
-              attachment.mime_type,
-              attachment.name,
-              `user:${sourceIndex}:att:${i}`,
-            )
-          : createDocumentBlock(
-              attachment.data,
-              attachment.mime_type,
-              attachment.name,
-              `user:${sourceIndex}:att:${i}`,
-            ),
+        createAttachmentBlock(attachment, `user:${sourceIndex}:att:${i}`),
       )
     }
   }

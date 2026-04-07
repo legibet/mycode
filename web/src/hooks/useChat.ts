@@ -592,12 +592,21 @@ export function useChat(config: LocalConfig) {
             ...commonFields,
             input: [
               ...(content ? [{ type: 'text', text: content }] : []),
-              ...attachments.map((attachment) => ({
-                type: attachment.kind === 'image' ? 'image' : 'document',
-                data: attachment.data,
-                mime_type: attachment.mime_type,
-                name: attachment.name,
-              })),
+              ...attachments.map((attachment) =>
+                attachment.kind === 'text'
+                  ? {
+                      type: 'text',
+                      text: attachment.text,
+                      name: attachment.name,
+                      is_attachment: true,
+                    }
+                  : {
+                      type: attachment.kind === 'image' ? 'image' : 'document',
+                      data: attachment.data,
+                      mime_type: attachment.mime_type,
+                      name: attachment.name,
+                    },
+              ),
             ],
           }
         : { ...commonFields, message: content }
