@@ -37,15 +37,20 @@ Structured `input` uses `ChatInputBlock`:
 [
   {"type": "text", "text": "describe this"},
   {"type": "image", "path": "cat.png"},
-  {"type": "image", "data": "<base64>", "mime_type": "image/png", "name": "cat.png"}
+  {"type": "image", "data": "<base64>", "mime_type": "image/png", "name": "cat.png"},
+  {"type": "document", "path": "report.pdf"},
+  {"type": "document", "data": "<base64>", "mime_type": "application/pdf", "name": "report.pdf"}
 ]
 ```
 
 - `type: "text"` — uses `text`
 - `type: "image"` — uses `path` or inline base64 `data`
+- `type: "document"` — uses `path` or inline base64 `data`
 - `mime_type` is required when `data` is provided
 - `path` accepts `image/png`, `image/jpeg`, `image/gif`, `image/webp`
+- `path` accepts `application/pdf` for `type: "document"`
 - The resolved model must have `supports_image_input=true`
+- The resolved model must have `supports_pdf_input=true` for `type: "document"`
 
 Response:
 
@@ -95,7 +100,9 @@ Response:
       "reasoning_models": ["claude-sonnet-4-6"],
       "reasoning_effort": "auto",
       "supports_image_input": true,
-      "image_input_models": ["claude-sonnet-4-6"]
+      "image_input_models": ["claude-sonnet-4-6"],
+      "supports_pdf_input": true,
+      "pdf_input_models": ["claude-sonnet-4-6"]
     }
   },
   "default": { "provider": "<provider_name>", "model": "claude-sonnet-4-6" },
@@ -107,7 +114,7 @@ Response:
 }
 ```
 
-`reasoning_models` is returned only when `supports_reasoning_effort` is true. `image_input_models` lists models with `supports_image_input=true`.
+`reasoning_models` is returned only when `supports_reasoning_effort` is true. `image_input_models` lists models with `supports_image_input=true`. `pdf_input_models` lists models with `supports_pdf_input=true`.
 
 ## Sessions
 

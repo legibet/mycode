@@ -22,6 +22,7 @@ from mycode.core.tools import DEFAULT_TOOL_SPECS
 _PNG_1X1 = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j1X8AAAAASUVORK5CYII="
 )
+_PDF_BYTES = b"%PDF-1.7\n1 0 obj\n<<>>\nendobj\ntrailer\n<<>>\n%%EOF\n"
 
 
 class _Obj:
@@ -106,6 +107,141 @@ def test_user_image_input_serialization(
     else:
         assert content[0] == {"type": "text", "text": "describe"}
         assert content[1]["image_url"] == {"url": f"data:image/png;base64,{image_data}"}
+
+
+@pytest.mark.parametrize(
+    ("adapter", "payload_builder", "expected_kind"),
+    [
+        pytest.param(
+            OpenAIResponsesAdapter(),
+            lambda adapter, request: adapter._build_request_payload(request)["input"][0]["content"],
+            "input_file",
+            id="openai-responses",
+        ),
+        pytest.param(
+            OpenAIChatAdapter(),
+            lambda adapter, request: adapter._build_request_payload(request)["messages"][0]["content"],
+            "file",
+            id="openai-chat",
+        ),
+        pytest.param(
+            OpenRouterAdapter(),
+            lambda adapter, request: adapter._build_request_payload(request)["messages"][0]["content"],
+            "file",
+            id="openrouter",
+        ),
+        pytest.param(
+            AnthropicAdapter(),
+            lambda adapter, request: adapter._serialize_message(request.messages[0])["content"],
+            "document",
+            id="anthropic",
+        ),
+        pytest.param(
+            GoogleGeminiAdapter(),
+            lambda adapter, request: adapter._build_contents(request)[0]["parts"],
+            "inline_data",
+            id="gemini",
+        ),
+    ],
+)
+def test_user_pdf_input_serialization(
+    adapter: Any,
+    payload_builder: Any,
+    expected_kind: str,
+) -> None:
+    pdf_data = base64.b64encode(_PDF_BYTES).decode("utf-8")
+    request = cast(
+        Any,
+        _Obj(
+            model="gpt-5.4",
+            session_id=None,
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": "summarize"},
+                        {
+                            "type": "document",
+                            "data": pdf_data,
+                            "mime_type": "application/pdf",
+                            "name": "report.pdf",
+                        },
+                    ],
+                }
+            ],
+            system="",
+            tools=[],
+            max_tokens=4096,
+            reasoning_effort=None,
+        ),
+    )
+
+    content = payload_builder(adapter, request)
+
+    if expected_kind == "input_file":
+        assert content[0] == {"type": "input_text", "text": "summarize"}
+        assert content[1] == {
+            "type": "input_file",
+            "filename": "report.pdf",
+            "file_data": f"data:application/pdf;base64,{pdf_data}",
+        }
+    elif expected_kind == "file":
+        assert content[0] == {"type": "text", "text": "summarize"}
+        assert content[1] == {
+            "type": "file",
+            "file": {
+                "filename": "report.pdf",
+                "file_data": f"data:application/pdf;base64,{pdf_data}",
+            },
+        }
+    elif expected_kind == "document":
+        assert content[0] == {"type": "text", "text": "summarize"}
+        assert content[1] == {
+            "type": "document",
+            "source": {
+                "type": "base64",
+                "media_type": "application/pdf",
+                "data": pdf_data,
+            },
+        }
+    else:
+        assert content[0] == {"text": "summarize"}
+        assert content[1] == {"inline_data": {"mime_type": "application/pdf", "data": pdf_data}}
+
+
+def test_repair_messages_for_replay_downgrades_pdf_for_unsupported_models() -> None:
+    replay = repair_messages_for_replay(
+        [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "check this"},
+                    {
+                        "type": "document",
+                        "data": base64.b64encode(_PDF_BYTES).decode("utf-8"),
+                        "mime_type": "application/pdf",
+                        "name": 'report <"draft">.pdf',
+                    },
+                ],
+            }
+        ],
+        supports_image_input=True,
+        supports_pdf_input=False,
+    )
+
+    assert replay == [
+        {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": "check this"},
+                {
+                    "type": "text",
+                    "text": '<file name="report &lt;&quot;draft&quot;&gt;.pdf" media_type="application/pdf" kind="document">Current model does not support PDF input.</file>',
+                    "meta": {"attachment": True},
+                },
+            ],
+        }
+    ]
 
 
 def test_openai_responses_replays_native_output_items_for_tool_results() -> None:
@@ -925,7 +1061,14 @@ def test_openai_chat_extracts_reasoning_from_known_extra_fields(delta, expected_
     ],
 )
 def test_repair_messages_for_replay(messages, expected) -> None:
-    assert repair_messages_for_replay(messages, supports_image_input=True) == expected
+    assert (
+        repair_messages_for_replay(
+            messages,
+            supports_image_input=True,
+            supports_pdf_input=True,
+        )
+        == expected
+    )
 
 
 def test_provider_prepare_messages_filters_history_images_when_disabled() -> None:

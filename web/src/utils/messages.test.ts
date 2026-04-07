@@ -38,6 +38,45 @@ describe('messages', () => {
     expect(thirdMessage?.sourceIndex).toBe(2)
   })
 
+  it('keeps document blocks in user render messages', () => {
+    const renderMessages = buildRenderMessages([
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: 'summarize this' },
+          {
+            type: 'document',
+            data: 'JVBERi0xLjc=',
+            mime_type: 'application/pdf',
+            name: 'report.pdf',
+          },
+        ],
+      },
+    ])
+
+    expect(renderMessages).toEqual([
+      {
+        role: 'user',
+        renderKey: 'user:0',
+        sourceIndex: 0,
+        content: [
+          {
+            type: 'text',
+            text: 'summarize this',
+            renderKey: 'user:0:0',
+          },
+          {
+            type: 'document',
+            data: 'JVBERi0xLjc=',
+            mime_type: 'application/pdf',
+            name: 'report.pdf',
+            renderKey: 'user:0:1',
+          },
+        ],
+      },
+    ])
+  })
+
   it('preserves earlier render message references when appending assistant delta', () => {
     const initial = buildRenderMessages([
       {

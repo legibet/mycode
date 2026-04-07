@@ -103,3 +103,22 @@ def test_lookup_model_metadata_reads_image_support(monkeypatch) -> None:
 
     assert metadata is not None
     assert metadata.supports_image_input is True
+
+
+def test_lookup_model_metadata_reads_pdf_support(monkeypatch) -> None:
+    fake_catalog = {
+        "openai": {
+            "gpt-5.4": {
+                "max_output_tokens": 128000,
+                "supports_reasoning": True,
+                "supports_image_input": True,
+                "supports_pdf_input": True,
+            }
+        }
+    }
+    monkeypatch.setattr("mycode.core.models.load_models_catalog", lambda: fake_catalog)
+
+    metadata = lookup_model_metadata(provider_type="openai", model="gpt-5.4")
+
+    assert metadata is not None
+    assert metadata.supports_pdf_input is True

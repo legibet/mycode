@@ -17,6 +17,7 @@ from mycode.core.providers.base import (
     ProviderStreamEvent,
     dump_model,
     get_native_meta,
+    load_document_block_payload,
     load_image_block_payload,
 )
 from mycode.core.utils import omit_none, parse_tool_arguments
@@ -182,8 +183,8 @@ class OpenAIChatAdapter(ProviderAdapter):
 
         if role == "user":
             payload_messages: list[dict[str, Any]] = []
-            has_images = any(block.get("type") == "image" for block in blocks)
-            if has_images:
+            has_media = any(block.get("type") in {"image", "document"} for block in blocks)
+            if has_media:
                 user_content: str | list[dict[str, Any]] | None = []
                 for block in blocks:
                     block_type = block.get("type")
@@ -192,16 +193,26 @@ class OpenAIChatAdapter(ProviderAdapter):
                         if text:
                             user_content.append({"type": "text", "text": text})
                         continue
-                    if block_type != "image":
+                    if block_type == "image":
+                        mime_type, data = load_image_block_payload(block)
+                        user_content.append(
+                            {
+                                "type": "image_url",
+                                "image_url": {"url": f"data:{mime_type};base64,{data}"},
+                            }
+                        )
                         continue
-
-                    mime_type, data = load_image_block_payload(block)
-                    user_content.append(
-                        {
-                            "type": "image_url",
-                            "image_url": {"url": f"data:{mime_type};base64,{data}"},
-                        }
-                    )
+                    if block_type == "document":
+                        mime_type, data, name = load_document_block_payload(block)
+                        user_content.append(
+                            {
+                                "type": "file",
+                                "file": {
+                                    "filename": name or "document.pdf",
+                                    "file_data": f"data:{mime_type};base64,{data}",
+                                },
+                            }
+                        )
                 if not user_content:
                     user_content = None
             else:

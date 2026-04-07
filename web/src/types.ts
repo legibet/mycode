@@ -33,6 +33,8 @@ export interface ProviderInfo {
   reasoning_effort?: ReasoningEffort | null
   supports_image_input?: boolean
   image_input_models?: string[]
+  supports_pdf_input?: boolean
+  pdf_input_models?: string[]
 }
 
 export interface RemoteConfig {
@@ -116,20 +118,40 @@ export interface ImageBlock {
   meta?: Record<string, unknown>
 }
 
+export interface DocumentBlock {
+  type: 'document'
+  data: string
+  mime_type: string
+  name?: string
+  renderKey?: string
+  meta?: Record<string, unknown>
+}
+
 export type MessageBlock =
   | TextBlock
   | ThinkingBlock
   | ToolUseBlock
   | ToolResultBlock
   | ImageBlock
+  | DocumentBlock
 
-/** Image attached in the input area, pending send. */
-export interface AttachedImage {
+export interface AttachedImageFile {
+  kind: 'image'
   data: string
   mime_type: string
   name: string
   preview: string // object URL for thumbnail display
 }
+
+export interface AttachedDocumentFile {
+  kind: 'document'
+  data: string
+  mime_type: 'application/pdf'
+  name: string
+}
+
+/** File attached in the input area, pending send. */
+export type AttachedFile = AttachedImageFile | AttachedDocumentFile
 
 export interface MessageMeta {
   synthetic?: boolean

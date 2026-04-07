@@ -17,6 +17,7 @@ from mycode.core.providers.base import (
     ProviderRequest,
     ProviderStreamEvent,
     get_native_meta,
+    load_document_block_payload,
     load_image_block_payload,
 )
 
@@ -184,6 +185,10 @@ class GoogleGeminiAdapter(ProviderAdapter):
 
                 if block_type == "image":
                     mime_type, data = load_image_block_payload(block)
+                    parts.append({"inline_data": {"mime_type": mime_type, "data": data}})
+                    continue
+                if block_type == "document":
+                    mime_type, data, _name = load_document_block_payload(block)
                     parts.append({"inline_data": {"mime_type": mime_type, "data": data}})
                     continue
 

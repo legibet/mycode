@@ -13,7 +13,7 @@ import { MobileHeader } from './components/MobileHeader'
 import { Sidebar } from './components/Sidebar'
 import { ThemeProvider, useTheme } from './components/ThemeProvider'
 import { useChat } from './hooks/useChat'
-import type { AttachedImage, LocalConfig, RemoteConfig } from './types'
+import type { AttachedFile, LocalConfig, RemoteConfig } from './types'
 import { normalizeConfigWithRemoteDefaults } from './utils/config'
 import {
   addHistory,
@@ -41,7 +41,7 @@ async function fetchJson<T>(url: string): Promise<T> {
 function AppContent() {
   const [config, setConfig] = useState<LocalConfig>(loadConfig)
   const [input, setInput] = useState('')
-  const [images, setImages] = useState<AttachedImage[]>([])
+  const [attachments, setAttachments] = useState<AttachedFile[]>([])
   const [cwdHistory, setCwdHistory] = useState<string[]>(loadHistory)
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const { theme, setTheme } = useTheme()
@@ -101,32 +101,37 @@ function AppContent() {
 
   const inputRef = useRef(input)
   inputRef.current = input
-  const imagesRef = useRef(images)
-  imagesRef.current = images
+  const attachmentsRef = useRef(attachments)
+  attachmentsRef.current = attachments
 
-  const clearImages = useCallback(() => {
-    setImages((prev) => {
-      for (const img of prev) URL.revokeObjectURL(img.preview)
+  const clearAttachments = useCallback(() => {
+    setAttachments((prev) => {
+      for (const attachment of prev) {
+        if (attachment.kind === 'image') URL.revokeObjectURL(attachment.preview)
+      }
       return []
     })
   }, [])
 
   const handleSend = useCallback(() => {
-    const currentImages = imagesRef.current
-    send(inputRef.current, currentImages.length ? currentImages : undefined)
+    const currentAttachments = attachmentsRef.current
+    send(
+      inputRef.current,
+      currentAttachments.length ? currentAttachments : undefined,
+    )
     setInput('')
-    clearImages()
-  }, [send, clearImages])
+    clearAttachments()
+  }, [send, clearAttachments])
 
-  const handleAttachImages = useCallback((newImages: AttachedImage[]) => {
-    setImages((prev) => [...prev, ...newImages])
+  const handleAttachFiles = useCallback((newFiles: AttachedFile[]) => {
+    setAttachments((prev) => [...prev, ...newFiles])
   }, [])
 
-  const handleRemoveImage = useCallback((index: number) => {
-    setImages((prev) => {
+  const handleRemoveAttachment = useCallback((index: number) => {
+    setAttachments((prev) => {
       const next = [...prev]
       const removed = next.splice(index, 1)
-      if (removed[0]) URL.revokeObjectURL(removed[0].preview)
+      if (removed[0]?.kind === 'image') URL.revokeObjectURL(removed[0].preview)
       return next
     })
   }, [])
@@ -143,26 +148,46 @@ function AppContent() {
       ),
     [activeProviderInfo, activeModel],
   )
+  const supportsPdfInput = useMemo(
+    () =>
+      Boolean(
+        activeProviderInfo?.supports_pdf_input &&
+          activeProviderInfo.pdf_input_models?.includes(activeModel),
+      ),
+    [activeProviderInfo, activeModel],
+  )
 
-  // Clear pending images when switching to a model that doesn't support them
+  // Drop attachments the current model can no longer accept.
   useEffect(() => {
-    if (!supportsImageInput) clearImages()
-  }, [supportsImageInput, clearImages])
+    setAttachments((prev) => {
+      const next = prev.filter(
+        (attachment) =>
+          (attachment.kind === 'image' && supportsImageInput) ||
+          (attachment.kind === 'document' && supportsPdfInput),
+      )
+      if (next.length === prev.length) return prev
+      for (const attachment of prev) {
+        if (attachment.kind !== 'image') continue
+        if (!next.includes(attachment)) URL.revokeObjectURL(attachment.preview)
+      }
+      return next
+    })
+  }, [supportsImageInput, supportsPdfInput])
 
   const handleSelectSession = useCallback(
     (id: string) => {
       selectSession(id)
       setSidebarOpen(false)
-      clearImages()
+      clearAttachments()
     },
-    [selectSession, clearImages],
+    [selectSession, clearAttachments],
   )
 
   const handleCreateSession = useCallback(() => {
     createSession()
     setSidebarOpen(false)
-    clearImages()
-  }, [createSession, clearImages])
+    clearAttachments()
+  }, [createSession, clearAttachments])
 
   return (
     <Layout>
@@ -237,9 +262,10 @@ function AppContent() {
                   onSend={handleSend}
                   onCancel={cancel}
                   supportsImages={supportsImageInput}
-                  images={images}
-                  onAttachImages={handleAttachImages}
-                  onRemoveImage={handleRemoveImage}
+                  supportsDocuments={supportsPdfInput}
+                  files={attachments}
+                  onAttachFiles={handleAttachFiles}
+                  onRemoveFile={handleRemoveAttachment}
                 />
               </div>
             </>

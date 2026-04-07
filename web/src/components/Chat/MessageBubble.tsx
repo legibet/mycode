@@ -5,7 +5,7 @@
  * Assistant: left-aligned, full-width, content-first.
  */
 
-import { Check, Copy, Pencil } from 'lucide-react'
+import { Check, Copy, FileText, Pencil } from 'lucide-react'
 import {
   Component,
   type KeyboardEvent,
@@ -17,7 +17,12 @@ import {
   useRef,
   useState,
 } from 'react'
-import type { ChatMessage, ImageBlock, MessageBlock } from '../../types'
+import type {
+  ChatMessage,
+  DocumentBlock,
+  ImageBlock,
+  MessageBlock,
+} from '../../types'
 import { copyText } from '../../utils/clipboard'
 import { cn } from '../../utils/cn'
 import { MarkdownBlock } from './MarkdownBlock'
@@ -117,6 +122,13 @@ export const MessageBubble = memo(function MessageBubble({
   const imageBlocks = useMemo(
     () =>
       blocks.filter((block): block is ImageBlock => block?.type === 'image'),
+    [blocks],
+  )
+  const documentBlocks = useMemo(
+    () =>
+      blocks.filter(
+        (block): block is DocumentBlock => block?.type === 'document',
+      ),
     [blocks],
   )
 
@@ -270,6 +282,24 @@ export const MessageBubble = memo(function MessageBubble({
                   alt={block.name ?? 'Image'}
                   className="max-h-64 max-w-full rounded-xl"
                 />
+              ))}
+            </div>
+          )}
+          {documentBlocks.length > 0 && (
+            <div className="flex flex-wrap gap-2 justify-end">
+              {documentBlocks.map((block, i) => (
+                <div
+                  key={block.renderKey ?? i}
+                  className="min-w-32 max-w-xs rounded-xl border border-border/30 bg-muted/30 px-3 py-2 text-sm text-foreground/80"
+                >
+                  <div className="flex items-center gap-2">
+                    <FileText className="h-4 w-4 shrink-0 text-accent/80" />
+                    <span className="font-medium">PDF</span>
+                  </div>
+                  <div className="mt-1 break-all text-xs text-muted-foreground">
+                    {block.name ?? 'document.pdf'}
+                  </div>
+                </div>
               ))}
             </div>
           )}

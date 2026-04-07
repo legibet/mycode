@@ -23,6 +23,7 @@ class ModelMetadata:
     max_output_tokens: int | None
     supports_reasoning: bool | None
     supports_image_input: bool | None
+    supports_pdf_input: bool | None
 
 
 @functools.cache
@@ -91,6 +92,7 @@ def _lookup_entry(
         max_output_tokens=as_int(raw_model.get("max_output_tokens")),
         supports_reasoning=as_bool(raw_model.get("supports_reasoning")),
         supports_image_input=as_bool(raw_model.get("supports_image_input")),
+        supports_pdf_input=as_bool(raw_model.get("supports_pdf_input")),
     )
 
 

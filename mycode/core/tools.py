@@ -236,6 +236,21 @@ def detect_image_mime_type(path: Path) -> str | None:
     return None
 
 
+def detect_document_mime_type(path: Path) -> str | None:
+    try:
+        with path.open("rb") as file:
+            header = file.read(8)
+    except OSError:
+        return None
+
+    if header.startswith(b"%PDF-"):
+        return "application/pdf"
+    guessed, _ = guess_type(path.name)
+    if guessed == "application/pdf":
+        return guessed
+    return None
+
+
 # ---------------------------------------------------------------------------
 # Execution
 # ---------------------------------------------------------------------------

@@ -5,7 +5,7 @@
 
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react'
 import type {
-  AttachedImage,
+  AttachedFile,
   ChatErrorResponse,
   ChatMessage,
   ChatResponse,
@@ -50,7 +50,7 @@ interface ChatState {
 
 type ChatAction =
   | { type: 'set_messages'; messages: ChatMessage[] }
-  | { type: 'start_turn'; content: string; images?: AttachedImage[] }
+  | { type: 'start_turn'; content: string; attachments?: AttachedFile[] }
   | { type: 'rewind_and_start_turn'; rewindTo: number; content: string }
   | { type: 'apply_event'; event: StreamEvent }
 
@@ -100,19 +100,19 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
 
     case 'start_turn': {
       const sourceIndex = state.rawMessages.length
-      const { content, images } = action
+      const { content, attachments } = action
       return {
         ...state,
         rawMessages: [
           ...state.rawMessages,
-          images?.length
-            ? createUserMessage(content, images)
+          attachments?.length
+            ? createUserMessage(content, attachments)
             : createUserTextMessage(content),
           createAssistantMessage([]),
         ],
         messages: [
           ...state.messages,
-          createRenderUserMessage(sourceIndex, content, undefined, images),
+          createRenderUserMessage(sourceIndex, content, undefined, attachments),
           createRenderAssistantMessage(sourceIndex + 1),
         ],
       }
@@ -555,9 +555,9 @@ export function useChat(config: LocalConfig) {
   }, [loadSession])
 
   const send = useCallback(
-    async (input: string, images?: AttachedImage[]) => {
+    async (input: string, attachments?: AttachedFile[]) => {
       const content = input.trim()
-      if ((!content && !images?.length) || loading) return
+      if ((!content && !attachments?.length) || loading) return
 
       const sessionId = activeSession.id
       const requestCwd = config.cwd
@@ -570,7 +570,7 @@ export function useChat(config: LocalConfig) {
       dispatch({
         type: 'start_turn',
         content,
-        ...(images?.length ? { images } : {}),
+        ...(attachments?.length ? { attachments } : {}),
       })
       setLoading(true)
       setConnectionState('ready')
@@ -586,17 +586,17 @@ export function useChat(config: LocalConfig) {
             : undefined,
       }
 
-      // Use structured `input` blocks when images are present
-      const body = images?.length
+      // Use structured `input` blocks when attachments are present.
+      const body = attachments?.length
         ? {
             ...commonFields,
             input: [
               ...(content ? [{ type: 'text', text: content }] : []),
-              ...images.map((img) => ({
-                type: 'image',
-                data: img.data,
-                mime_type: img.mime_type,
-                name: img.name,
+              ...attachments.map((attachment) => ({
+                type: attachment.kind === 'image' ? 'image' : 'document',
+                data: attachment.data,
+                mime_type: attachment.mime_type,
+                name: attachment.name,
               })),
             ],
           }

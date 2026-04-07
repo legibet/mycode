@@ -16,6 +16,7 @@ from mycode.core.providers.base import (
     ProviderRequest,
     ProviderStreamEvent,
     dump_model,
+    load_document_block_payload,
     load_image_block_payload,
     tool_result_content_blocks,
 )
@@ -107,7 +108,7 @@ class OpenAIResponsesAdapter(ProviderAdapter):
         items: list[dict[str, Any]] = []
         blocks = [block for block in message.get("content") or [] if isinstance(block, dict)]
         message_content = self._serialize_input_content(
-            [block for block in blocks if block.get("type") in {"text", "image"}]
+            [block for block in blocks if block.get("type") in {"text", "image", "document"}]
         )
         if message_content:
             items.append(
@@ -147,6 +148,16 @@ class OpenAIResponsesAdapter(ProviderAdapter):
             if block_type == "image":
                 mime_type, data = load_image_block_payload(block)
                 content.append({"type": "input_image", "image_url": f"data:{mime_type};base64,{data}"})
+                continue
+            if block_type == "document":
+                mime_type, data, name = load_document_block_payload(block)
+                content.append(
+                    {
+                        "type": "input_file",
+                        "filename": name or "document.pdf",
+                        "file_data": f"data:{mime_type};base64,{data}",
+                    }
+                )
         return content
 
     def _native_output_items(self, message: ConversationMessage) -> list[dict[str, Any]] | None:

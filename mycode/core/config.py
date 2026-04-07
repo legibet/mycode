@@ -40,6 +40,7 @@ class ModelConfig:
     max_output_tokens: int | None = None
     supports_reasoning: bool | None = None
     supports_image_input: bool | None = None
+    supports_pdf_input: bool | None = None
 
 
 @dataclass(frozen=True)
@@ -79,6 +80,7 @@ class ResolvedProvider:
     context_window: int | None = 128_000
     supports_reasoning: bool | None = None
     supports_image_input: bool | None = None
+    supports_pdf_input: bool | None = None
     provider_name: str | None = None
 
     @property
@@ -139,6 +141,7 @@ def _normalize_models(value: Any) -> dict[str, ModelConfig]:
             max_output_tokens=as_int(raw_config.get("max_output_tokens")),
             supports_reasoning=as_bool(raw_config.get("supports_reasoning")),
             supports_image_input=as_bool(raw_config.get("supports_image_input")),
+            supports_pdf_input=as_bool(raw_config.get("supports_pdf_input")),
         )
     return models
 
@@ -465,6 +468,7 @@ def _resolve_provider_runtime(
                     max_output_tokens=model_config.max_output_tokens,
                     supports_reasoning=model_config.supports_reasoning,
                     supports_image_input=model_config.supports_image_input,
+                    supports_pdf_input=model_config.supports_pdf_input,
                 )
             else:
                 # Per-field: use the config override when set, keep catalog value otherwise.
@@ -482,6 +486,9 @@ def _resolve_provider_runtime(
                     supports_image_input=model_config.supports_image_input
                     if model_config.supports_image_input is not None
                     else model_metadata.supports_image_input,
+                    supports_pdf_input=model_config.supports_pdf_input
+                    if model_config.supports_pdf_input is not None
+                    else model_metadata.supports_pdf_input,
                 )
 
     configured_effort = (
@@ -496,6 +503,7 @@ def _resolve_provider_runtime(
 
     supports_reasoning = model_metadata.supports_reasoning if model_metadata else None
     supports_image_input = model_metadata.supports_image_input if model_metadata else None
+    supports_pdf_input = model_metadata.supports_pdf_input if model_metadata else None
     adapter = get_provider_adapter(provider_type)
     reasoning_effort = (
         configured_effort
@@ -532,6 +540,7 @@ def _resolve_provider_runtime(
         context_window=(model_metadata.context_window if model_metadata else None) or 128_000,
         supports_reasoning=supports_reasoning,
         supports_image_input=supports_image_input,
+        supports_pdf_input=supports_pdf_input,
     )
 
 

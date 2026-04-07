@@ -2,6 +2,8 @@
 
 import asyncio
 import base64
+import html
+import shlex
 from io import StringIO
 from pathlib import Path
 from typing import Any, cast
@@ -33,9 +35,17 @@ class _FakeStore:
 
 
 class _AttachmentAgent:
-    def __init__(self, *, cwd: str, session_dir: Path, supports_image_input: bool = True) -> None:
+    def __init__(
+        self,
+        *,
+        cwd: str,
+        session_dir: Path,
+        supports_image_input: bool = True,
+        supports_pdf_input: bool = True,
+    ) -> None:
         self.cwd = cwd
         self.supports_image_input = supports_image_input
+        self.supports_pdf_input = supports_pdf_input
         self.tools = ToolExecutor(cwd=cwd, session_dir=session_dir)
 
 
@@ -404,6 +414,57 @@ def test_terminal_chat_builds_text_notice_for_image_attachment_without_image_inp
         "type": "text",
         "text": f'<file name="{image_file}" media_type="image/png" kind="image">Current model does not support image input.</file>',
         "meta": {"attachment": True, "path": str(image_file)},
+    }
+
+
+def test_terminal_chat_builds_user_message_with_pdf_attachment(tmp_path):
+    pdf_file = tmp_path / "report.pdf"
+    pdf_file.write_bytes(b"%PDF-1.7\nrest")
+
+    chat = TerminalChat(
+        agent=cast(Any, _AttachmentAgent(cwd=str(tmp_path), session_dir=tmp_path / ".session")),
+        store=cast(Any, _FakeStore()),
+        session_id="test-session",
+    )
+    message = chat._build_user_message(f"summarize @{pdf_file}")
+
+    assert message["role"] == "user"
+    assert message["content"][0] == {"type": "text", "text": f"summarize @{pdf_file}"}
+    assert message["content"][1] == {
+        "type": "document",
+        "data": base64.b64encode(pdf_file.read_bytes()).decode("utf-8"),
+        "mime_type": "application/pdf",
+        "name": "report.pdf",
+    }
+
+
+def test_terminal_chat_builds_text_notice_for_pdf_attachment_without_pdf_input(tmp_path):
+    pdf_file = tmp_path / 'report <"draft">.pdf'
+    pdf_file.write_bytes(b"%PDF-1.7\nrest")
+
+    chat = TerminalChat(
+        agent=cast(
+            Any,
+            _AttachmentAgent(
+                cwd=str(tmp_path),
+                session_dir=tmp_path / ".session",
+                supports_pdf_input=False,
+            ),
+        ),
+        store=cast(Any, _FakeStore()),
+        session_id="test-session",
+    )
+    message = chat._build_user_message(f"check @{shlex.quote(str(pdf_file))}")
+
+    assert message["role"] == "user"
+    assert message["content"][0] == {
+        "type": "text",
+        "text": f"check @{shlex.quote(str(pdf_file))}",
+    }
+    assert message["content"][1] == {
+        "type": "text",
+        "text": f'<file name="{html.escape(str(pdf_file), quote=True)}" media_type="application/pdf" kind="document">Current model does not support PDF input.</file>',
+        "meta": {"attachment": True, "path": str(pdf_file)},
     }
 
 

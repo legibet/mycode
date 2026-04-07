@@ -23,6 +23,7 @@ class ProviderAdapter(ABC):
 - Stripping error/aborted/cancelled assistant turns
 - Projecting tool call IDs (some providers restrict charset/length)
 - Replacing replay images with a short text notice when `request.supports_image_input` is false
+- Replacing replay PDFs with a short text notice when `request.supports_pdf_input` is false
 - Flushing interrupted tool calls with synthetic error results
 
 `stream_turn()` yields `ProviderStreamEvent` objects:
@@ -31,7 +32,7 @@ class ProviderAdapter(ABC):
 - `text_delta` — response text
 - `message_done` — final `ConversationMessage` with all blocks and metadata
 
-`ProviderRequest` carries: provider, model, session_id, messages, system, tools, max_tokens, api_key, api_base, reasoning_effort, supports_image_input.
+`ProviderRequest` carries: provider, model, session_id, messages, system, tools, max_tokens, api_key, api_base, reasoning_effort, supports_image_input, supports_pdf_input.
 
 ## Adapters
 
@@ -48,6 +49,7 @@ class ProviderAdapter(ABC):
 - Adds ephemeral `cache_control` to system prompt block and last user content block
 - Tool call IDs projected to ASCII-safe format (letters, numbers, underscores, dashes, max 64 chars) with SHA1 collision suffix
 - Images serialize as Anthropic `image` blocks with base64 `source`
+- PDFs serialize as Anthropic `document` blocks with base64 `source`
 
 ### `moonshotai` — `anthropic_like.py`
 
@@ -59,6 +61,7 @@ class ProviderAdapter(ABC):
 - Prior reasoning must be replayed on later tool-loop turns when thinking is enabled
 - Shares Anthropic-like ephemeral cache markers and tool call ID projection
 - Same image format as `anthropic`
+- Same PDF format as `anthropic`
 
 ### `minimax` — `anthropic_like.py`
 
@@ -70,6 +73,7 @@ class ProviderAdapter(ABC):
 - Preserves provider-native thinking signatures in `block.meta.native`
 - Shares Anthropic-like ephemeral cache markers and tool call ID projection
 - Same image format as `anthropic`
+- Same PDF format as `anthropic`
 
 ### `google` — `gemini.py`
 
@@ -89,6 +93,7 @@ class ProviderAdapter(ABC):
 - Gemini validates function_call id/name match between function_call and function_response pairs
 - `thinking_config.include_thoughts` always true; effort level controls `thinking_level`
 - Images serialize as `inline_data`
+- PDFs serialize as `inline_data`
 
 ### `openai` — `openai_responses.py`
 
@@ -104,6 +109,7 @@ class ProviderAdapter(ABC):
 - Passes `prompt_cache_key` using current session id
 - Tool schemas use `strict: true` with nullable optional parameters
 - Images serialize as `input_image`
+- PDFs serialize as `input_file`
 
 ### `openai_chat` — `openai_chat.py`
 
@@ -115,6 +121,7 @@ class ProviderAdapter(ABC):
 - Preserves third-party reasoning extensions (`reasoning_content`, `reasoning_details`) from SDK extras
 - Sends `stream_options: {include_usage: true}`
 - Images serialize as `image_url` parts with data URLs
+- PDFs serialize as `file` parts with base64 data URLs
 
 ### `deepseek` — `openai_chat.py`
 
@@ -145,6 +152,7 @@ class ProviderAdapter(ABC):
 - `supports_reasoning_effort`: true (forwarded through `extra_body.reasoning.effort`)
 - `auto_discoverable`: true
 - Same image format as `openai_chat`
+- Same PDF format as `openai_chat`
 
 ## Reasoning Effort Mapping
 
@@ -166,6 +174,7 @@ Config-resolved `reasoning_effort` is only applied when both `adapter.supports_r
 2. Project tool call IDs to provider-safe format (only Anthropic-like adapters override this)
 3. Preserve `block.meta.native` for provider-specific replay data (signatures, output items, part metadata)
 4. Replace replay images with a short text notice when `request.supports_image_input` is false
-5. Insert synthetic error tool results when pending tool calls would otherwise make replay invalid
+5. Replace replay PDFs with a short text notice when `request.supports_pdf_input` is false
+6. Insert synthetic error tool results when pending tool calls would otherwise make replay invalid
 
 Provider-specific replay logic lives inside each adapter's serialization methods (e.g., Gemini's `_build_contents` replays native `Part` metadata, OpenAI's `_native_output_items` replays stored output items). These run after `prepare_messages()` produces the canonical replay transcript.

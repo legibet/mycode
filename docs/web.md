@@ -94,11 +94,11 @@ Streaming state tracking:
 - `pendingRequestTokenRef` — deduplicates concurrent send requests
 - `activeRunRef` — tracks the current run for cancel
 
-Image input:
+Attachments:
 
 - `InputArea` supports file picker and drag-and-drop
-- Images are sent as structured `input` blocks
-- The attachment button uses `image_input_models`; pending images are cleared on unsupported model switch
+- Images and PDFs are sent as structured `input` blocks
+- The attachment button uses `image_input_models` and `pdf_input_models`; unsupported pending attachments are cleared on model switch
 
 ## Config Persistence
 

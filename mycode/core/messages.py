@@ -2,7 +2,7 @@
 
 The runtime persists a single message shape everywhere:
 
-- user message: text blocks, image blocks, and tool_result blocks
+- user message: text blocks, image blocks, document blocks, and tool_result blocks
 - assistant message: thinking blocks, text blocks, and tool_use blocks
 
 Provider adapters translate between this internal shape and provider-specific wire
@@ -49,6 +49,21 @@ def image_block(
     meta: dict[str, Any] | None = None,
 ) -> ContentBlock:
     block: ContentBlock = {"type": "image", "data": data, "mime_type": mime_type}
+    if name:
+        block["name"] = name
+    if meta:
+        block["meta"] = dict(meta)
+    return block
+
+
+def document_block(
+    data: str,
+    *,
+    mime_type: str,
+    name: str | None = None,
+    meta: dict[str, Any] | None = None,
+) -> ContentBlock:
+    block: ContentBlock = {"type": "document", "data": data, "mime_type": mime_type}
     if name:
         block["name"] = name
     if meta:

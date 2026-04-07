@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 class ChatInputBlock(BaseModel):
     """One user input block for /chat."""
 
-    type: Literal["text", "image"]
+    type: Literal["text", "image", "document"]
     text: str | None = None
     path: str | None = None
     data: str | None = None  # inline base64 (web upload)

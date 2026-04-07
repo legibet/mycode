@@ -22,6 +22,7 @@ from mycode.core.providers.base import (
     ProviderStreamEvent,
     dump_model,
     get_native_meta,
+    load_document_block_payload,
     load_image_block_payload,
     tool_result_content_blocks,
 )
@@ -127,7 +128,7 @@ class AnthropicLikeAdapter(ProviderAdapter):
             for block in reversed(content):
                 if not isinstance(block, dict):
                     continue
-                if block.get("type") not in {"text", "image", "tool_result"}:
+                if block.get("type") not in {"text", "image", "document", "tool_result"}:
                     continue
 
                 block["cache_control"] = {"type": "ephemeral"}
@@ -268,6 +269,13 @@ class AnthropicLikeAdapter(ProviderAdapter):
             mime_type, data = load_image_block_payload(block)
             return {
                 "type": "image",
+                "source": {"type": "base64", "media_type": mime_type, "data": data},
+            }
+
+        if block_type == "document":
+            mime_type, data, _name = load_document_block_payload(block)
+            return {
+                "type": "document",
                 "source": {"type": "base64", "media_type": mime_type, "data": data},
             }
 

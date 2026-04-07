@@ -38,6 +38,7 @@ class ProviderRequest:
     api_base: str | None
     reasoning_effort: str | None = None
     supports_image_input: bool = True
+    supports_pdf_input: bool = True
 
 
 @dataclass
@@ -97,7 +98,12 @@ class ProviderAdapter(ABC):
         """Repair canonical history, then project tool IDs for provider replay."""
 
         supports_image_input = getattr(request, "supports_image_input", True)
-        repaired_messages = repair_messages_for_replay(request.messages, supports_image_input=supports_image_input)
+        supports_pdf_input = getattr(request, "supports_pdf_input", True)
+        repaired_messages = repair_messages_for_replay(
+            request.messages,
+            supports_image_input=supports_image_input,
+            supports_pdf_input=supports_pdf_input,
+        )
         prepared_messages: list[ConversationMessage] = []
         tool_id_map: dict[str, str] = {}
         used_tool_call_ids: set[str] = set()
@@ -163,6 +169,7 @@ def repair_messages_for_replay(
     source_messages: list[ConversationMessage],
     *,
     supports_image_input: bool,
+    supports_pdf_input: bool,
 ) -> list[ConversationMessage]:
     """Return a minimal replay-safe transcript from canonical session history.
 
@@ -260,6 +267,23 @@ def repair_messages_for_replay(
                     has_user_input = True
                 continue
 
+            if block_type == "document":
+                if supports_pdf_input:
+                    has_user_input = True
+                    content.append(dict(raw_block))
+                else:
+                    path = html.escape(str(raw_block.get("name") or "attached-document"), quote=True)
+                    mime_type = html.escape(str(raw_block.get("mime_type") or "application/pdf"), quote=True)
+                    content.append(
+                        {
+                            "type": "text",
+                            "text": f'<file name="{path}" media_type="{mime_type}" kind="document">Current model does not support PDF input.</file>',
+                            "meta": {"attachment": True},
+                        }
+                    )
+                    has_user_input = True
+                continue
+
             if block_type != "tool_result":
                 continue
 
@@ -350,6 +374,21 @@ def load_image_block_payload(block: dict[str, Any]) -> tuple[str, str]:
         raise ValueError("image block is missing data")
 
     return mime_type, data
+
+
+def load_document_block_payload(block: dict[str, Any]) -> tuple[str, str, str | None]:
+    """Return (mime_type, base64_data, name) for one canonical document block."""
+
+    mime_type = block.get("mime_type")
+    if not isinstance(mime_type, str) or not mime_type:
+        raise ValueError("document block is missing mime_type")
+
+    data = block.get("data")
+    if not isinstance(data, str) or not data:
+        raise ValueError("document block is missing data")
+
+    name = block.get("name")
+    return mime_type, data, name if isinstance(name, str) and name else None
 
 
 def tool_result_content_blocks(block: dict[str, Any]) -> list[dict[str, Any]]:

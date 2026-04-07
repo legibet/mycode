@@ -20,9 +20,16 @@ from mycode.core.config import (
     resolve_provider,
     resolve_provider_choices,
 )
-from mycode.core.messages import ConversationMessage, build_message, flatten_message_text, image_block, text_block
+from mycode.core.messages import (
+    ConversationMessage,
+    build_message,
+    document_block,
+    flatten_message_text,
+    image_block,
+    text_block,
+)
 from mycode.core.providers import get_provider_adapter, provider_default_models
-from mycode.core.tools import detect_image_mime_type, resolve_path
+from mycode.core.tools import detect_document_mime_type, detect_image_mime_type, resolve_path
 from mycode.server.deps import RunManagerDep, StoreDep
 from mycode.server.run_manager import ActiveRunError, RunState
 from mycode.server.schemas import ChatRequest, StreamEvent
@@ -93,6 +100,33 @@ async def chat(chat: ChatRequest, store: StoreDep, runs: RunManagerDep):
                     blocks.append(text_block(text))
                 continue
 
+            if block.type == "document":
+                if block.data:
+                    mime_type = block.mime_type or "application/pdf"
+                    if mime_type != "application/pdf":
+                        raise HTTPException(status_code=400, detail="unsupported document mime_type")
+                    blocks.append(document_block(block.data, mime_type=mime_type, name=block.name or "document.pdf"))
+                    continue
+
+                if not block.path:
+                    raise HTTPException(status_code=400, detail="document input requires path or data")
+                resolved_path = resolve_path(block.path, cwd=cwd)
+                document_path = Path(resolved_path)
+                if not document_path.exists() or not document_path.is_file():
+                    raise HTTPException(status_code=400, detail=f"document file not found: {block.path}")
+                mime_type = block.mime_type or detect_document_mime_type(document_path)
+                if mime_type != "application/pdf":
+                    raise HTTPException(status_code=400, detail=f"unsupported document file: {block.path}")
+                document_data = b64encode(document_path.read_bytes()).decode("utf-8")
+                blocks.append(
+                    document_block(
+                        document_data,
+                        mime_type=mime_type,
+                        name=block.name or document_path.name,
+                    )
+                )
+                continue
+
             if block.data:
                 # Inline base64 from web upload
                 if not block.mime_type:
@@ -124,6 +158,9 @@ async def chat(chat: ChatRequest, store: StoreDep, runs: RunManagerDep):
     if any(isinstance(block, dict) and block.get("type") == "image" for block in user_message.get("content") or []):
         if resolved.supports_image_input is not True:
             raise HTTPException(status_code=400, detail="current model does not support image input")
+    if any(isinstance(block, dict) and block.get("type") == "document" for block in user_message.get("content") or []):
+        if resolved.supports_pdf_input is not True:
+            raise HTTPException(status_code=400, detail="current model does not support PDF input")
 
     data = await store.load_session(session_id)
     session = (data or {}).get("session")
@@ -155,7 +192,8 @@ async def chat(chat: ChatRequest, store: StoreDep, runs: RunManagerDep):
         raw_blocks = target.get("content")
         blocks = raw_blocks if isinstance(raw_blocks, list) else []
         has_user_content = any(
-            (block.get("type") == "text" and block.get("text")) or block.get("type") == "image" for block in blocks
+            (block.get("type") == "text" and block.get("text")) or block.get("type") in {"image", "document"}
+            for block in blocks
         )
 
         # Rewind only makes sense for real user prompts. Synthetic compact
@@ -181,6 +219,7 @@ async def chat(chat: ChatRequest, store: StoreDep, runs: RunManagerDep):
         settings=settings,
         reasoning_effort=reasoning_effort,
         supports_image_input=resolved.supports_image_input,
+        supports_pdf_input=resolved.supports_pdf_input,
         max_tokens=resolved.max_tokens,
         context_window=resolved.context_window,
         compact_threshold=settings.compact_threshold,
@@ -271,37 +310,32 @@ async def get_config(cwd: str | None = None):
         }
 
         image_models: list[str] = []
+        pdf_models: list[str] = []
+        reasoning_models: list[str] = []
         adapter = get_provider_adapter(provider.provider)
-        if adapter.supports_reasoning_effort:
-            reasoning_models: list[str] = []
-            for model in models:
-                resolved_model = resolve_provider(
-                    settings,
-                    provider_name=provider.provider_name or provider.provider,
-                    model=model,
-                    api_base=provider.api_base or None,
-                )
-                if resolved_model.supports_reasoning is True:
-                    reasoning_models.append(model)
-                if resolved_model.supports_image_input is True:
-                    image_models.append(model)
+        for model in models:
+            resolved_model = resolve_provider(
+                settings,
+                provider_name=provider.provider_name or provider.provider,
+                model=model,
+                api_base=provider.api_base or None,
+            )
+            if resolved_model.supports_reasoning is True:
+                reasoning_models.append(model)
+            if resolved_model.supports_image_input is True:
+                image_models.append(model)
+            if resolved_model.supports_pdf_input is True:
+                pdf_models.append(model)
 
+        if adapter.supports_reasoning_effort:
             info["supports_reasoning_effort"] = True
             info["reasoning_models"] = reasoning_models
             info["reasoning_effort"] = provider.reasoning_effort
-        else:
-            for model in models:
-                resolved_model = resolve_provider(
-                    settings,
-                    provider_name=provider.provider_name or provider.provider,
-                    model=model,
-                    api_base=provider.api_base or None,
-                )
-                if resolved_model.supports_image_input is True:
-                    image_models.append(model)
 
         info["supports_image_input"] = bool(image_models)
         info["image_input_models"] = image_models
+        info["supports_pdf_input"] = bool(pdf_models)
+        info["pdf_input_models"] = pdf_models
 
         providers_info[provider.provider_name or provider.provider] = info
 

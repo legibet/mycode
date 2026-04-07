@@ -64,6 +64,7 @@ def build_agent(
         settings=settings,
         reasoning_effort=resolved_provider.reasoning_effort,
         supports_image_input=resolved_provider.supports_image_input,
+        supports_pdf_input=resolved_provider.supports_pdf_input,
         max_tokens=resolved_provider.max_tokens,
         context_window=resolved_provider.context_window,
         compact_threshold=settings.compact_threshold,
@@ -87,6 +88,7 @@ def clone_agent(agent: Agent, *, store: SessionStore, session_id: str, messages:
         max_tokens=agent.max_tokens,
         reasoning_effort=agent.reasoning_effort,
         supports_image_input=agent.supports_image_input,
+        supports_pdf_input=agent.supports_pdf_input,
         settings=agent.settings,
     )
 
@@ -255,6 +257,7 @@ async def update_agent_runtime(
         or agent.max_tokens != resolved.max_tokens
         or agent.context_window != resolved.context_window
         or agent.supports_image_input != resolved.supports_image_input
+        or agent.supports_pdf_input != resolved.supports_pdf_input
     )
 
     agent.provider = resolved.provider
@@ -265,6 +268,7 @@ async def update_agent_runtime(
     agent.max_tokens = resolved.max_tokens
     agent.context_window = resolved.context_window
     agent.supports_image_input = bool(resolved.supports_image_input)
+    agent.supports_pdf_input = bool(resolved.supports_pdf_input)
     agent.settings = settings
     if hasattr(agent, "tools") and hasattr(agent.tools, "supports_image_input"):
         agent.tools.supports_image_input = bool(agent.supports_image_input)

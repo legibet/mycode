@@ -180,6 +180,31 @@ class TestGetSettings:
         assert resolved.model == "gemini-3.1-pro-preview"
         assert resolved.api_key == "gemini-env-key"
 
+    def test_resolve_provider_reads_pdf_support_from_model_metadata(self, tmp_path: Path, monkeypatch) -> None:
+        home = tmp_path / "home"
+        workspace = tmp_path / "workspace"
+        workspace.mkdir()
+
+        monkeypatch.setenv("MYCODE_HOME", str(home / ".mycode"))
+        monkeypatch.setenv("OPENAI_API_KEY", "openai-env-key")
+        monkeypatch.setattr(
+            "mycode.core.config.lookup_model_metadata",
+            lambda **_: ModelMetadata(
+                provider="openai",
+                model="gpt-5.4",
+                context_window=1_000_000,
+                max_output_tokens=128_000,
+                supports_reasoning=True,
+                supports_image_input=True,
+                supports_pdf_input=True,
+            ),
+        )
+
+        settings = get_settings(str(workspace))
+        resolved = resolve_provider(settings, provider_name="openai", model="gpt-5.4")
+
+        assert resolved.supports_pdf_input is True
+
     def test_resolve_provider_auto_discovers_first_available_provider(self, tmp_path: Path, monkeypatch) -> None:
         home = tmp_path / "home"
         workspace = tmp_path / "workspace"
@@ -581,6 +606,7 @@ class TestGetSettings:
                 max_output_tokens=32_768,
                 supports_reasoning=False,
                 supports_image_input=None,
+                supports_pdf_input=None,
             ),
         )
 
@@ -626,6 +652,7 @@ class TestGetSettings:
                 max_output_tokens=32_768,
                 supports_reasoning=False,
                 supports_image_input=True,
+                supports_pdf_input=None,
             ),
         )
 
@@ -669,6 +696,7 @@ class TestGetSettings:
                 max_output_tokens=128_000,
                 supports_reasoning=True,
                 supports_image_input=None,
+                supports_pdf_input=None,
             ),
         )
 
@@ -767,6 +795,7 @@ class TestGetSettings:
                 max_output_tokens=128_000,
                 supports_reasoning=True,
                 supports_image_input=None,
+                supports_pdf_input=None,
             ),
         )
 

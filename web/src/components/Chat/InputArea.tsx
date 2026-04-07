@@ -1,8 +1,8 @@
 /**
- * Chat input area with optional image attachment (file picker + drag-and-drop).
+ * Chat input area with optional image/PDF attachment.
  */
 
-import { ArrowUp, Paperclip, Square, X } from 'lucide-react'
+import { ArrowUp, FileText, Paperclip, Square, X } from 'lucide-react'
 import {
   type ChangeEvent,
   type DragEvent,
@@ -13,7 +13,7 @@ import {
   useRef,
   useState,
 } from 'react'
-import type { AttachedImage, SetString } from '../../types'
+import type { AttachedFile, SetString } from '../../types'
 import { cn } from '../../utils/cn'
 
 interface InputAreaProps {
@@ -23,9 +23,10 @@ interface InputAreaProps {
   onSend: () => void
   onCancel: () => void
   supportsImages?: boolean
-  images?: AttachedImage[]
-  onAttachImages?: (images: AttachedImage[]) => void
-  onRemoveImage?: (index: number) => void
+  supportsDocuments?: boolean
+  files?: AttachedFile[]
+  onAttachFiles?: (files: AttachedFile[]) => void
+  onRemoveFile?: (index: number) => void
 }
 
 function readFileAsBase64(file: File): Promise<string> {
@@ -40,16 +41,45 @@ function readFileAsBase64(file: File): Promise<string> {
   })
 }
 
-async function processImageFiles(files: File[]): Promise<AttachedImage[]> {
-  const imageFiles = files.filter((f) => f.type.startsWith('image/'))
-  if (!imageFiles.length) return []
+async function processFiles(
+  files: File[],
+  {
+    supportsImages,
+    supportsDocuments,
+  }: { supportsImages: boolean; supportsDocuments: boolean },
+): Promise<AttachedFile[]> {
+  const acceptedFiles = files.filter((file) => {
+    if (supportsImages && file.type.startsWith('image/')) return true
+    return (
+      supportsDocuments &&
+      (file.type === 'application/pdf' ||
+        file.name.toLowerCase().endsWith('.pdf'))
+    )
+  })
+  if (!acceptedFiles.length) return []
   return Promise.all(
-    imageFiles.map(async (file) => ({
-      data: await readFileAsBase64(file),
-      mime_type: file.type,
-      name: file.name,
-      preview: URL.createObjectURL(file),
-    })),
+    acceptedFiles.map(async (file) => {
+      const mimeType =
+        file.type === 'application/pdf' ||
+        file.name.toLowerCase().endsWith('.pdf')
+          ? 'application/pdf'
+          : file.type
+      if (mimeType === 'application/pdf') {
+        return {
+          kind: 'document' as const,
+          data: await readFileAsBase64(file),
+          mime_type: 'application/pdf' as const,
+          name: file.name,
+        }
+      }
+      return {
+        kind: 'image' as const,
+        data: await readFileAsBase64(file),
+        mime_type: mimeType,
+        name: file.name,
+        preview: URL.createObjectURL(file),
+      }
+    }),
   )
 }
 
@@ -60,9 +90,10 @@ export const InputArea = memo(function InputArea({
   onSend,
   onCancel,
   supportsImages = false,
-  images = [],
-  onAttachImages,
-  onRemoveImage,
+  supportsDocuments = false,
+  files = [],
+  onAttachFiles,
+  onRemoveFile,
 }: InputAreaProps) {
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
@@ -84,10 +115,13 @@ export const InputArea = memo(function InputArea({
 
   const attachFiles = useCallback(
     async (files: File[]) => {
-      const newImages = await processImageFiles(files)
-      if (newImages.length) onAttachImages?.(newImages)
+      const nextFiles = await processFiles(files, {
+        supportsImages,
+        supportsDocuments,
+      })
+      if (nextFiles.length) onAttachFiles?.(nextFiles)
     },
-    [onAttachImages],
+    [onAttachFiles, supportsDocuments, supportsImages],
   )
 
   const handleFileChange = async (e: ChangeEvent<HTMLInputElement>) => {
@@ -119,11 +153,18 @@ export const InputArea = memo(function InputArea({
     e.stopPropagation()
     dragCounterRef.current = 0
     setDragging(false)
-    if (!supportsImages) return
+    if (!supportsImages && !supportsDocuments) return
     await attachFiles(Array.from(e.dataTransfer.files))
   }
 
-  const hasInput = input.trim().length > 0 || images.length > 0
+  const hasAttachments = supportsImages || supportsDocuments
+  const hasInput = input.trim().length > 0 || files.length > 0
+  const accept = [
+    supportsImages ? 'image/*' : null,
+    supportsDocuments ? '.pdf,application/pdf' : null,
+  ]
+    .filter(Boolean)
+    .join(',')
 
   return (
     <div className="mx-auto max-w-4xl max-md:max-w-none px-5 max-md:px-3 py-3 max-md:py-2">
@@ -133,7 +174,7 @@ export const InputArea = memo(function InputArea({
         className={cn(
           'relative rounded-xl bg-card border shadow-sm transition duration-200',
           'focus-within:shadow-md focus-within:border-border/50',
-          dragging && supportsImages
+          dragging && hasAttachments
             ? 'border-accent/50 bg-accent/5'
             : 'border-border/25',
         )}
@@ -142,19 +183,29 @@ export const InputArea = memo(function InputArea({
         onDragOver={handleDragOver}
         onDrop={handleDrop}
       >
-        {images.length > 0 && (
+        {files.length > 0 && (
           <div className="flex flex-wrap gap-1.5 px-3 pt-2.5 pb-1">
-            {images.map((img, i) => (
-              <div key={i} className="relative group/thumb flex-shrink-0">
-                <img
-                  src={img.preview}
-                  alt={img.name}
-                  className="h-14 w-14 rounded-lg object-cover border border-border/30"
-                />
+            {files.map((file, i) => (
+              <div
+                key={`${file.kind}:${file.name}:${i}`}
+                className="relative group/thumb flex-shrink-0"
+              >
+                {file.kind === 'image' ? (
+                  <img
+                    src={file.preview}
+                    alt={file.name}
+                    className="h-14 w-14 rounded-lg object-cover border border-border/30"
+                  />
+                ) : (
+                  <div className="h-14 min-w-28 rounded-lg border border-border/30 bg-muted/30 px-3 flex items-center gap-2 text-xs text-foreground/80">
+                    <FileText className="h-4 w-4 shrink-0 text-accent/80" />
+                    <span className="line-clamp-2 break-all">{file.name}</span>
+                  </div>
+                )}
                 <button
                   type="button"
-                  onClick={() => onRemoveImage?.(i)}
-                  aria-label={`Remove ${img.name}`}
+                  onClick={() => onRemoveFile?.(i)}
+                  aria-label={`Remove ${file.name}`}
                   className="absolute -top-1 -right-1 h-4 w-4 bg-foreground text-background rounded-full flex items-center justify-center opacity-0 group-hover/thumb:opacity-100 max-md:opacity-100 transition-opacity"
                 >
                   <X className="h-2.5 w-2.5" />
@@ -179,24 +230,24 @@ export const InputArea = memo(function InputArea({
           placeholder="Message…"
           className={cn(
             'block w-full resize-none bg-transparent py-3 max-md:py-2.5 pr-14 text-base md:text-sm leading-relaxed text-foreground placeholder:text-muted-foreground/40 focus-visible:outline-none max-h-[200px]',
-            supportsImages ? 'pl-12 max-md:pl-11' : 'px-4',
+            hasAttachments ? 'pl-12 max-md:pl-11' : 'px-4',
           )}
         />
 
-        {dragging && supportsImages && (
+        {dragging && hasAttachments && (
           <div className="absolute inset-0 flex items-center justify-center rounded-xl bg-accent/5 pointer-events-none z-10">
             <span className="text-sm text-accent font-medium">
-              Drop image here
+              Drop file here
             </span>
           </div>
         )}
 
-        {supportsImages && (
+        {hasAttachments && (
           <>
             <input
               ref={fileInputRef}
               type="file"
-              accept="image/*"
+              accept={accept}
               multiple
               className="hidden"
               onChange={handleFileChange}
@@ -204,7 +255,7 @@ export const InputArea = memo(function InputArea({
             <div className="absolute bottom-0 left-2.5 max-md:left-2 h-[calc(100%-1px)] flex items-center">
               <button
                 type="button"
-                aria-label="Attach image"
+                aria-label="Attach file"
                 disabled={loading}
                 onClick={() => fileInputRef.current?.click()}
                 className={cn(
@@ -213,7 +264,7 @@ export const InputArea = memo(function InputArea({
                     ? 'text-muted-foreground/20'
                     : 'text-muted-foreground/40 hover:text-muted-foreground/70 hover:bg-muted/50 active:scale-95',
                 )}
-                title="Attach image"
+                title="Attach file"
               >
                 <Paperclip className="h-4 w-4" />
               </button>

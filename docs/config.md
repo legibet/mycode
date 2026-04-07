@@ -31,7 +31,8 @@ Config resolution: `get_settings(cwd)` → returns `Settings` dataclass.
           "context_window": 400000,
           "max_output_tokens": 128000,
           "supports_reasoning": true,
-          "supports_image_input": true
+          "supports_image_input": true,
+          "supports_pdf_input": true
         },
         "model-b": {}
       },
@@ -55,6 +56,7 @@ Config resolution: `get_settings(cwd)` → returns `Settings` dataclass.
 - `providers.<name>.models.<model>.max_output_tokens` — override the provider output limit
 - `providers.<name>.models.<model>.supports_reasoning` — override whether reasoning effort is available
 - `providers.<name>.models.<model>.supports_image_input` — override image input support
+- `providers.<name>.models.<model>.supports_pdf_input` — override PDF input support
 - `providers.<name>.api_key` — literal value or `${ENV_NAME}` reference
 - `providers.<name>.base_url` — override the adapter's default base URL
 - `providers.<name>.reasoning_effort` — per-provider override of the global default
@@ -104,6 +106,7 @@ Options: `auto` (default) · `none` · `low` · `medium` · `high` · `xhigh`
 
 - `supports_reasoning` — whether the model supports extended thinking
 - `supports_image_input` — whether the model accepts image input
+- `supports_pdf_input` — whether the model accepts PDF input
 - `context_window` — used for compact threshold calculation
 - `max_output_tokens` — passed to the provider as the output limit; defaults to `16384` when not available
 - `context_window` — defaults to `128000` when the bundled catalog does not provide one

@@ -26,9 +26,9 @@ from rich.text import Text
 
 from mycode.core.agent import Agent
 from mycode.core.config import resolve_mycode_home
-from mycode.core.messages import build_message, image_block, text_block
+from mycode.core.messages import build_message, document_block, image_block, text_block
 from mycode.core.session import SessionStore
-from mycode.core.tools import detect_image_mime_type, resolve_path
+from mycode.core.tools import detect_document_mime_type, detect_image_mime_type, resolve_path
 
 from .render import ReplyRenderer, TerminalView, format_local_timestamp
 from .runtime import (
@@ -299,9 +299,9 @@ class TerminalChat:
     def _build_user_message(self, text: str) -> dict[str, Any]:
         """Build one user message with the raw prompt first, then resolved attachments.
 
-        Text files are appended as extra text blocks. Images become image blocks
-        only when the current model supports image input. Only explicit `@path`
-        tokens that resolve to real files are attached.
+        Text files are appended as extra text blocks. Images and PDFs become
+        native blocks only when the current model supports that input type.
+        Only explicit `@path` tokens that resolve to real files are attached.
         """
 
         blocks = [text_block(text)]
@@ -333,6 +333,20 @@ class TerminalChat:
                     blocks.append(
                         text_block(
                             f'<file name="{html.escape(path_text, quote=True)}" media_type="{image_mime_type}" kind="image">Current model does not support image input.</file>',
+                            meta={"attachment": True, "path": path_text},
+                        )
+                    )
+                continue
+
+            document_mime_type = detect_document_mime_type(path)
+            if document_mime_type:
+                if getattr(self.agent, "supports_pdf_input", False):
+                    document_data = b64encode(path.read_bytes()).decode("utf-8")
+                    blocks.append(document_block(document_data, mime_type=document_mime_type, name=path.name))
+                else:
+                    blocks.append(
+                        text_block(
+                            f'<file name="{html.escape(path_text, quote=True)}" media_type="{document_mime_type}" kind="document">Current model does not support PDF input.</file>',
                             meta={"attachment": True, "path": path_text},
                         )
                     )

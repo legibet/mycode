@@ -5,6 +5,7 @@
 
 import type {
   ChatMessage,
+  DocumentBlock,
   MessageBlock,
   MessageMeta,
   TextBlock,
@@ -102,14 +103,43 @@ function createImageBlock(
   return block
 }
 
+function createDocumentBlock(
+  data: string,
+  mimeType: string,
+  name?: string,
+  renderKey?: string,
+): DocumentBlock {
+  const block: DocumentBlock = { type: 'document', data, mime_type: mimeType }
+  if (name) block.name = name
+  if (renderKey) block.renderKey = renderKey
+  return block
+}
+
 export function createUserMessage(
   text: string,
-  images: { data: string; mime_type: string; name?: string }[],
+  attachments: {
+    kind: 'image' | 'document'
+    data: string
+    mime_type: string
+    name?: string
+  }[],
 ): ChatMessage {
   const blocks: MessageBlock[] = []
   if (text) blocks.push(createTextBlock(text))
-  for (const img of images) {
-    blocks.push(createImageBlock(img.data, img.mime_type, img.name))
+  for (const attachment of attachments) {
+    blocks.push(
+      attachment.kind === 'image'
+        ? createImageBlock(
+            attachment.data,
+            attachment.mime_type,
+            attachment.name,
+          )
+        : createDocumentBlock(
+            attachment.data,
+            attachment.mime_type,
+            attachment.name,
+          ),
+    )
   }
   return createMessage('user', blocks)
 }
@@ -124,19 +154,31 @@ export function createRenderUserMessage(
   sourceIndex: number,
   text: string,
   meta?: MessageMeta,
-  images?: { data: string; mime_type: string; name?: string }[],
+  attachments?: {
+    kind: 'image' | 'document'
+    data: string
+    mime_type: string
+    name?: string
+  }[],
 ): ChatMessage {
   const blocks: MessageBlock[] = []
   if (text) blocks.push(createTextBlock(text))
-  if (images?.length) {
-    for (const [i, img] of images.entries()) {
+  if (attachments?.length) {
+    for (const [i, attachment] of attachments.entries()) {
       blocks.push(
-        createImageBlock(
-          img.data,
-          img.mime_type,
-          img.name,
-          `user:${sourceIndex}:img:${i}`,
-        ),
+        attachment.kind === 'image'
+          ? createImageBlock(
+              attachment.data,
+              attachment.mime_type,
+              attachment.name,
+              `user:${sourceIndex}:att:${i}`,
+            )
+          : createDocumentBlock(
+              attachment.data,
+              attachment.mime_type,
+              attachment.name,
+              `user:${sourceIndex}:att:${i}`,
+            ),
       )
     }
   }
@@ -496,7 +538,9 @@ export function buildRenderMessages(
       const userBlocks = blocks
         .filter(
           (block) =>
-            (block?.type === 'text' && block.text) || block?.type === 'image',
+            (block?.type === 'text' && block.text) ||
+            block?.type === 'image' ||
+            block?.type === 'document',
         )
         .map((block, blockIndex) =>
           cloneBlock(block, `user:${sourceIndex}:${blockIndex}`),

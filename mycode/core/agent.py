@@ -62,6 +62,7 @@ class Agent:
         compact_threshold: float | None = None,
         reasoning_effort: str | None = None,
         supports_image_input: bool | None = None,
+        supports_pdf_input: bool | None = None,
         settings: Settings | None = None,
         system: str | None = None,
         tool_executor: ToolExecutor | None = None,
@@ -79,6 +80,7 @@ class Agent:
         self.compact_threshold = compact_threshold if compact_threshold is not None else DEFAULT_COMPACT_THRESHOLD
         self.reasoning_effort = reasoning_effort
         self.supports_image_input: bool = bool(supports_image_input)
+        self.supports_pdf_input: bool = bool(supports_pdf_input)
         self.settings = settings or get_settings(self.cwd)
         self.system = system or build_system_prompt(self.cwd, self.settings)
         self._cancel_event = asyncio.Event()
@@ -270,6 +272,7 @@ class Agent:
 
         self._cancel_event.clear()
         supports_image_input = self.supports_image_input
+        supports_pdf_input = self.supports_pdf_input
         self.tools.supports_image_input = supports_image_input
 
         if isinstance(user_input, str):
@@ -291,6 +294,11 @@ class Agent:
             isinstance(block, dict) and block.get("type") == "image" for block in user_message.get("content") or []
         ):
             yield Event("error", {"message": "current model does not support image input"})
+            return
+        if not supports_pdf_input and any(
+            isinstance(block, dict) and block.get("type") == "document" for block in user_message.get("content") or []
+        ):
+            yield Event("error", {"message": "current model does not support PDF input"})
             return
 
         self.messages.append(user_message)
@@ -319,6 +327,7 @@ class Agent:
                 api_base=self.api_base,
                 reasoning_effort=self.reasoning_effort,
                 supports_image_input=supports_image_input,
+                supports_pdf_input=supports_pdf_input,
             )
 
             try:
@@ -467,6 +476,7 @@ class Agent:
             api_key=self.api_key,
             api_base=self.api_base,
             supports_image_input=self.supports_image_input,
+            supports_pdf_input=self.supports_pdf_input,
         )
 
         summary_message: ConversationMessage | None = None
