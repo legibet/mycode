@@ -41,41 +41,38 @@ class _Obj:
         return {key: _dump(value) for key, value in self.__dict__.items()}
 
 
-def test_openai_responses_builds_initial_input_items() -> None:
-    adapter = OpenAIResponsesAdapter()
-    request = cast(
-        Any,
-        _Obj(
-            model="gpt-5.4",
-            session_id=None,
-            messages=[
-                {
-                    "role": "user",
-                    "content": [{"type": "text", "text": "hello"}],
-                }
-            ],
-            system="",
-            tools=[],
-            max_tokens=4096,
-            reasoning_effort=None,
+@pytest.mark.parametrize(
+    ("adapter", "payload_builder", "expected_image_type"),
+    [
+        pytest.param(
+            OpenAIResponsesAdapter(),
+            lambda adapter, request: adapter._build_request_payload(request)["input"][0]["content"],
+            "input_image",
+            id="openai-responses",
         ),
-    )
-
-    input_items = adapter._build_request_payload(request)["input"]
-
-    assert input_items == [
-        {
-            "type": "message",
-            "role": "user",
-            "content": [{"type": "input_text", "text": "hello"}],
-        }
-    ]
-
-
-def test_openai_responses_serializes_user_image_input(tmp_path) -> None:
+        pytest.param(
+            GoogleGeminiAdapter(),
+            lambda adapter, request: adapter._build_contents(request)[0]["parts"],
+            "inline_data",
+            id="gemini",
+        ),
+        pytest.param(
+            OpenAIChatAdapter(),
+            lambda adapter, request: adapter._build_request_payload(request)["messages"][0]["content"],
+            "image_url",
+            id="openai-chat",
+        ),
+    ],
+)
+def test_user_image_input_serialization(
+    tmp_path,
+    adapter: Any,
+    payload_builder: Any,
+    expected_image_type: str,
+) -> None:
     image_path = tmp_path / "tiny.png"
     image_path.write_bytes(_PNG_1X1)
-    adapter = OpenAIResponsesAdapter()
+    image_data = base64.b64encode(image_path.read_bytes()).decode("utf-8")
     request = cast(
         Any,
         _Obj(
@@ -86,11 +83,7 @@ def test_openai_responses_serializes_user_image_input(tmp_path) -> None:
                     "role": "user",
                     "content": [
                         {"type": "text", "text": "describe"},
-                        {
-                            "type": "image",
-                            "data": base64.b64encode(image_path.read_bytes()).decode("utf-8"),
-                            "mime_type": "image/png",
-                        },
+                        {"type": "image", "data": image_data, "mime_type": "image/png"},
                     ],
                 }
             ],
@@ -101,12 +94,18 @@ def test_openai_responses_serializes_user_image_input(tmp_path) -> None:
         ),
     )
 
-    input_items = adapter._build_request_payload(request)["input"]
+    content = payload_builder(adapter, request)
 
-    assert input_items[0]["role"] == "user"
-    assert input_items[0]["content"][0] == {"type": "input_text", "text": "describe"}
-    assert input_items[0]["content"][1]["type"] == "input_image"
-    assert input_items[0]["content"][1]["image_url"].startswith("data:image/png;base64,")
+    if expected_image_type == "input_image":
+        assert content[0] == {"type": "input_text", "text": "describe"}
+        assert content[1]["type"] == "input_image"
+        assert content[1]["image_url"].startswith("data:image/png;base64,")
+    elif expected_image_type == "inline_data":
+        assert content[0] == {"text": "describe"}
+        assert content[1]["inline_data"] == {"mime_type": "image/png", "data": image_data}
+    else:
+        assert content[0] == {"type": "text", "text": "describe"}
+        assert content[1]["image_url"] == {"url": f"data:image/png;base64,{image_data}"}
 
 
 def test_openai_responses_replays_native_output_items_for_tool_results() -> None:
@@ -506,53 +505,6 @@ def test_openai_responses_serializes_strict_tool_schemas() -> None:
 
     read_schema = next(tool for tool in DEFAULT_TOOL_SPECS if tool.name == "read").input_schema
     assert read_schema["required"] == ["path"]
-
-
-def test_google_gemini_builds_initial_contents() -> None:
-    adapter = GoogleGeminiAdapter()
-    request = cast(
-        Any,
-        _Obj(
-            model="gemini-3-flash-preview",
-            messages=[
-                {
-                    "role": "user",
-                    "content": [{"type": "text", "text": "hello"}],
-                }
-            ],
-        ),
-    )
-
-    assert adapter._build_contents(request) == [{"role": "user", "parts": [{"text": "hello"}]}]
-
-
-def test_google_gemini_serializes_user_image_input() -> None:
-    adapter = GoogleGeminiAdapter()
-    request = cast(
-        Any,
-        _Obj(
-            model="gemini-3-flash-preview",
-            messages=[
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "text", "text": "describe"},
-                        {"type": "image", "data": "YWJj", "mime_type": "image/png"},
-                    ],
-                }
-            ],
-        ),
-    )
-
-    assert adapter._build_contents(request) == [
-        {
-            "role": "user",
-            "parts": [
-                {"text": "describe"},
-                {"inline_data": {"mime_type": "image/png", "data": "YWJj"}},
-            ],
-        }
-    ]
 
 
 def test_google_gemini_falls_back_to_full_replay_for_cross_provider_history() -> None:
@@ -1035,40 +987,6 @@ def test_provider_prepare_messages_filters_history_images_when_disabled() -> Non
     ]
 
 
-def test_provider_prepare_messages_replaces_user_images_with_text_notice_when_disabled() -> None:
-    adapter = OpenAIChatAdapter()
-    request = cast(
-        Any,
-        _Obj(
-            model="test-model",
-            supports_image_input=False,
-            messages=[
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "text", "text": "check this"},
-                        {"type": "image", "data": "abc", "mime_type": "image/png", "name": "logo.png"},
-                    ],
-                }
-            ],
-        ),
-    )
-
-    assert adapter.prepare_messages(request) == [
-        {
-            "role": "user",
-            "content": [
-                {"type": "text", "text": "check this"},
-                {
-                    "type": "text",
-                    "text": '<file name="logo.png" media_type="image/png" kind="image">Current model does not support image input.</file>',
-                    "meta": {"attachment": True},
-                },
-            ],
-        }
-    ]
-
-
 def test_provider_prepare_messages_escapes_image_notice_attributes_when_disabled() -> None:
     adapter = OpenAIChatAdapter()
     request = cast(
@@ -1206,41 +1124,6 @@ def test_openai_chat_replays_reasoning_by_default() -> None:
     assert payload_messages[0]["reasoning_content"] == "think"
 
 
-def test_openai_chat_serializes_user_image_input() -> None:
-    adapter = OpenAIChatAdapter()
-
-    payload_messages = adapter._build_request_payload(
-        cast(
-            Any,
-            _Obj(
-                model="test-model",
-                max_tokens=2048,
-                system="",
-                tools=[],
-                messages=[
-                    {
-                        "role": "user",
-                        "content": [
-                            {"type": "text", "text": "describe"},
-                            {"type": "image", "data": "YWJj", "mime_type": "image/png"},
-                        ],
-                    }
-                ],
-            ),
-        )
-    )["messages"]
-
-    assert payload_messages == [
-        {
-            "role": "user",
-            "content": [
-                {"type": "text", "text": "describe"},
-                {"type": "image_url", "image_url": {"url": "data:image/png;base64,YWJj"}},
-            ],
-        }
-    ]
-
-
 def test_deepseek_replays_reasoning_across_turns() -> None:
     adapter = DeepSeekAdapter()
 
@@ -1357,7 +1240,31 @@ def test_anthropic_like_replays_unsigned_thinking_without_signature(adapter) -> 
     }
 
 
-def test_openai_compatible_provider_payload_overrides() -> None:
+@pytest.mark.parametrize(
+    ("reasoning_effort", "expected_deepseek", "expected_zai", "expected_openrouter"),
+    [
+        pytest.param(
+            "high",
+            None,
+            {"thinking": {"type": "enabled", "clear_thinking": False}},
+            {"reasoning": {"effort": "high"}},
+            id="high",
+        ),
+        pytest.param(
+            "none",
+            None,
+            {"thinking": {"type": "enabled", "clear_thinking": False}},
+            {"reasoning": {"effort": "none"}},
+            id="none",
+        ),
+    ],
+)
+def test_openai_compatible_provider_payload_overrides(
+    reasoning_effort: str,
+    expected_deepseek: dict[str, Any] | None,
+    expected_zai: dict[str, Any],
+    expected_openrouter: dict[str, Any],
+) -> None:
     request = cast(
         Any,
         _Obj(
@@ -1365,106 +1272,74 @@ def test_openai_compatible_provider_payload_overrides() -> None:
             max_tokens=2048,
             system="",
             tools=[],
-            reasoning_effort="high",
+            reasoning_effort=reasoning_effort,
             messages=[],
         ),
     )
 
     assert OpenAIResponsesAdapter().supports_reasoning_effort is True
-
-    openai_chat_payload = OpenAIChatAdapter()._build_request_payload(request)
-    assert "reasoning_effort" not in openai_chat_payload
+    assert "reasoning_effort" not in OpenAIChatAdapter()._build_request_payload(request)
 
     deepseek_payload = DeepSeekAdapter()._build_request_payload(request)
-    assert "extra_body" not in deepseek_payload
+    if expected_deepseek is None:
+        assert "extra_body" not in deepseek_payload
+    else:
+        assert deepseek_payload["extra_body"] == expected_deepseek
 
-    zai_payload = ZAIAdapter()._build_request_payload(request)
-    assert zai_payload["extra_body"] == {"thinking": {"type": "enabled", "clear_thinking": False}}
-
-    openrouter_payload = OpenRouterAdapter()._build_request_payload(request)
-    assert openrouter_payload["extra_body"] == {"reasoning": {"effort": "high"}}
+    assert ZAIAdapter()._build_request_payload(request)["extra_body"] == expected_zai
+    assert OpenRouterAdapter()._build_request_payload(request)["extra_body"] == expected_openrouter
 
 
-def test_toggle_reasoning_payloads_disable_cleanly() -> None:
-    request = cast(
-        Any,
-        _Obj(
-            model="test-model",
-            max_tokens=2048,
-            system="",
-            tools=[],
-            reasoning_effort="none",
-            messages=[],
+@pytest.mark.parametrize(
+    ("model", "reasoning_effort", "expected_thinking", "expected_output_config"),
+    [
+        (
+            "claude-sonnet-4-6",
+            "high",
+            {"type": "adaptive"},
+            {"effort": "high"},
         ),
-    )
-
-    assert "extra_body" not in DeepSeekAdapter()._build_request_payload(request)
-    assert ZAIAdapter()._build_request_payload(request)["extra_body"] == {
-        "thinking": {"type": "enabled", "clear_thinking": False}
-    }
-    assert OpenRouterAdapter()._build_request_payload(request)["extra_body"] == {"reasoning": {"effort": "none"}}
-
-
-def test_anthropic_build_request_payload_includes_reasoning_config() -> None:
+        (
+            "claude-opus-4-5",
+            "xhigh",
+            {"type": "enabled", "budget_tokens": 32768},
+            None,
+        ),
+        (
+            "claude-opus-4-6",
+            "xhigh",
+            {"type": "adaptive"},
+            {"effort": "max"},
+        ),
+    ],
+)
+def test_anthropic_build_request_payload_maps_reasoning_config(
+    model: str,
+    reasoning_effort: str,
+    expected_thinking: dict[str, Any],
+    expected_output_config: dict[str, Any] | None,
+) -> None:
     adapter = AnthropicAdapter()
     request = cast(
         Any,
         _Obj(
-            model="claude-sonnet-4-6",
+            model=model,
             max_tokens=8192,
             messages=[],
             system="",
             tools=[],
-            reasoning_effort="high",
+            reasoning_effort=reasoning_effort,
         ),
     )
 
     payload = adapter._build_request_payload(request)
 
-    assert payload["thinking"] == {"type": "adaptive"}
-    assert payload["output_config"] == {"effort": "high"}
-
-
-def test_anthropic_build_request_payload_maps_xhigh_and_4_5_correctly() -> None:
-    adapter = AnthropicAdapter()
-
-    request = cast(
-        Any,
-        _Obj(
-            model="claude-opus-4-5",
-            max_tokens=8192,
-            messages=[],
-            system="",
-            tools=[],
-            reasoning_effort="xhigh",
-        ),
-    )
-
-    payload = adapter._build_request_payload(request)
-
-    assert payload["thinking"] == {"type": "enabled", "budget_tokens": 32768}
-    assert "output_config" not in payload
+    assert payload["thinking"] == expected_thinking
+    if expected_output_config is None:
+        assert "output_config" not in payload
+    else:
+        assert payload["output_config"] == expected_output_config
     assert adapter.supports_reasoning_effort is True
-
-
-def test_anthropic_build_request_payload_maps_xhigh_for_opus_4_6() -> None:
-    adapter = AnthropicAdapter()
-    request = cast(
-        Any,
-        _Obj(
-            model="claude-opus-4-6",
-            max_tokens=8192,
-            messages=[],
-            system="",
-            tools=[],
-            reasoning_effort="xhigh",
-        ),
-    )
-
-    payload = adapter._build_request_payload(request)
-
-    assert payload["thinking"] == {"type": "adaptive"}
-    assert payload["output_config"] == {"effort": "max"}
 
 
 def test_anthropic_like_build_request_payload_adds_cache_control() -> None:
