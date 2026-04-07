@@ -1019,6 +1019,11 @@ def test_provider_prepare_messages_filters_history_images_when_disabled() -> Non
             "content": [
                 {"type": "text", "text": "describe this"},
                 {
+                    "type": "text",
+                    "text": '<file name="attached-image" media_type="image/png" kind="image">Current model does not support image input.</file>',
+                    "meta": {"attachment": True},
+                },
+                {
                     "type": "tool_result",
                     "tool_use_id": "call_1",
                     "model_text": "Read image file [image/png]",
@@ -1027,6 +1032,77 @@ def test_provider_prepare_messages_filters_history_images_when_disabled() -> Non
                 },
             ],
         },
+    ]
+
+
+def test_provider_prepare_messages_replaces_user_images_with_text_notice_when_disabled() -> None:
+    adapter = OpenAIChatAdapter()
+    request = cast(
+        Any,
+        _Obj(
+            model="test-model",
+            supports_image_input=False,
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": "check this"},
+                        {"type": "image", "data": "abc", "mime_type": "image/png", "name": "logo.png"},
+                    ],
+                }
+            ],
+        ),
+    )
+
+    assert adapter.prepare_messages(request) == [
+        {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": "check this"},
+                {
+                    "type": "text",
+                    "text": '<file name="logo.png" media_type="image/png" kind="image">Current model does not support image input.</file>',
+                    "meta": {"attachment": True},
+                },
+            ],
+        }
+    ]
+
+
+def test_provider_prepare_messages_escapes_image_notice_attributes_when_disabled() -> None:
+    adapter = OpenAIChatAdapter()
+    request = cast(
+        Any,
+        _Obj(
+            model="test-model",
+            supports_image_input=False,
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image",
+                            "data": "abc",
+                            "mime_type": 'image/"png"',
+                            "name": 'logo"<v2>.png',
+                        },
+                    ],
+                }
+            ],
+        ),
+    )
+
+    assert adapter.prepare_messages(request) == [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "type": "text",
+                    "text": '<file name="logo&quot;&lt;v2&gt;.png" media_type="image/&quot;png&quot;" kind="image">Current model does not support image input.</file>',
+                    "meta": {"attachment": True},
+                },
+            ],
+        }
     ]
 
 

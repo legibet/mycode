@@ -22,7 +22,7 @@ class ProviderAdapter(ABC):
 
 - Stripping error/aborted/cancelled assistant turns
 - Projecting tool call IDs (some providers restrict charset/length)
-- Dropping replay images when `request.supports_image_input` is false
+- Replacing replay images with a short text notice when `request.supports_image_input` is false
 - Flushing interrupted tool calls with synthetic error results
 
 `stream_turn()` yields `ProviderStreamEvent` objects:
@@ -165,7 +165,7 @@ Config-resolved `reasoning_effort` is only applied when both `adapter.supports_r
 1. Skip assistant messages with `stop_reason` in `{error, aborted, cancelled}`
 2. Project tool call IDs to provider-safe format (only Anthropic-like adapters override this)
 3. Preserve `block.meta.native` for provider-specific replay data (signatures, output items, part metadata)
-4. Drop replay images when `request.supports_image_input` is false
+4. Replace replay images with a short text notice when `request.supports_image_input` is false
 5. Insert synthetic error tool results when pending tool calls would otherwise make replay invalid
 
 Provider-specific replay logic lives inside each adapter's serialization methods (e.g., Gemini's `_build_contents` replays native `Part` metadata, OpenAI's `_native_output_items` replays stored output items). These run after `prepare_messages()` produces the canonical replay transcript.

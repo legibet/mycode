@@ -13,6 +13,7 @@ request is sent upstream.
 
 from __future__ import annotations
 
+import html
 import os
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
@@ -246,6 +247,17 @@ def repair_messages_for_replay(
                 if supports_image_input:
                     has_user_input = True
                     content.append(dict(raw_block))
+                else:
+                    path = html.escape(str(raw_block.get("name") or "attached-image"), quote=True)
+                    mime_type = html.escape(str(raw_block.get("mime_type") or "image"), quote=True)
+                    content.append(
+                        {
+                            "type": "text",
+                            "text": f'<file name="{path}" media_type="{mime_type}" kind="image">Current model does not support image input.</file>',
+                            "meta": {"attachment": True},
+                        }
+                    )
+                    has_user_input = True
                 continue
 
             if block_type != "tool_result":

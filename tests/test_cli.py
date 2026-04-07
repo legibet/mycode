@@ -33,8 +33,9 @@ class _FakeStore:
 
 
 class _AttachmentAgent:
-    def __init__(self, *, cwd: str, session_dir: Path) -> None:
+    def __init__(self, *, cwd: str, session_dir: Path, supports_image_input: bool = True) -> None:
         self.cwd = cwd
+        self.supports_image_input = supports_image_input
         self.tools = ToolExecutor(cwd=cwd, session_dir=session_dir)
 
 
@@ -376,6 +377,33 @@ def test_terminal_chat_builds_user_message_with_text_and_image_attachments(tmp_p
         "data": base64.b64encode(image_file.read_bytes()).decode("utf-8"),
         "mime_type": "image/png",
         "name": "diagram.png",
+    }
+
+
+def test_terminal_chat_builds_text_notice_for_image_attachment_without_image_input(tmp_path):
+    image_file = tmp_path / "diagram.png"
+    image_file.write_bytes(b"\x89PNG\r\n\x1a\nrest")
+
+    chat = TerminalChat(
+        agent=cast(
+            Any,
+            _AttachmentAgent(
+                cwd=str(tmp_path),
+                session_dir=tmp_path / ".session",
+                supports_image_input=False,
+            ),
+        ),
+        store=cast(Any, _FakeStore()),
+        session_id="test-session",
+    )
+    message = chat._build_user_message(f"check @{image_file}")
+
+    assert message["role"] == "user"
+    assert message["content"][0] == {"type": "text", "text": f"check @{image_file}"}
+    assert message["content"][1] == {
+        "type": "text",
+        "text": f'<file name="{image_file}" media_type="image/png" kind="image">Current model does not support image input.</file>',
+        "meta": {"attachment": True, "path": str(image_file)},
     }
 
 

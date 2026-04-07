@@ -299,9 +299,9 @@ class TerminalChat:
     def _build_user_message(self, text: str) -> dict[str, Any]:
         """Build one user message with the raw prompt first, then resolved attachments.
 
-        Text files are appended as extra text blocks in their final provider-facing
-        form. Images are appended as image blocks. Only explicit `@path` tokens
-        that resolve to real files are attached.
+        Text files are appended as extra text blocks. Images become image blocks
+        only when the current model supports image input. Only explicit `@path`
+        tokens that resolve to real files are attached.
         """
 
         blocks = [text_block(text)]
@@ -326,8 +326,16 @@ class TerminalChat:
 
             image_mime_type = detect_image_mime_type(path)
             if image_mime_type:
-                image_data = b64encode(path.read_bytes()).decode("utf-8")
-                blocks.append(image_block(image_data, mime_type=image_mime_type, name=path.name))
+                if self.agent.supports_image_input:
+                    image_data = b64encode(path.read_bytes()).decode("utf-8")
+                    blocks.append(image_block(image_data, mime_type=image_mime_type, name=path.name))
+                else:
+                    blocks.append(
+                        text_block(
+                            f'<file name="{html.escape(path_text, quote=True)}" media_type="{image_mime_type}" kind="image">Current model does not support image input.</file>',
+                            meta={"attachment": True, "path": path_text},
+                        )
+                    )
                 continue
 
             # Reuse the existing read tool so attached text files follow the same
