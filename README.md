@@ -8,7 +8,7 @@ A minimal coding agent. Inspired by [pi](https://github.com/badlogic/pi-mono).
 - Unified message format and robust cross-provider replay.
 - 4 built-in tools: `read`, `write`, `edit`, `bash`, expanded via skills.
 - Inspectable runtime, append-only JSONL sessions.
-- Native image input.
+- Native image and pdf input support.
 - Mobile-friendly web UI.
 
 ## Quick Start
