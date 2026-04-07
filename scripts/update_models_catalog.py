@@ -54,6 +54,7 @@ def main() -> None:
             modalities = raw_model.get("modalities")
             input_modalities = modalities.get("input") if isinstance(modalities, dict) else None
             supports_image_input = isinstance(input_modalities, list) and "image" in input_modalities
+            supports_pdf_input = isinstance(input_modalities, list) and "pdf" in input_modalities
 
             models[model_id] = {
                 "context_window": context_window
@@ -64,6 +65,7 @@ def main() -> None:
                 else None,
                 "supports_reasoning": supports_reasoning if isinstance(supports_reasoning, bool) else None,
                 "supports_image_input": supports_image_input,
+                "supports_pdf_input": supports_pdf_input,
             }
 
         if models:
