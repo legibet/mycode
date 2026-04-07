@@ -16,7 +16,7 @@ class ChatInputBlock(BaseModel):
     data: str | None = None  # inline base64 (web upload)
     mime_type: str | None = None
     name: str | None = None
-    is_attachment: bool | None = None
+    is_attachment: bool = False
 
 
 class ChatRequest(BaseModel):

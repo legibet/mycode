@@ -324,29 +324,24 @@ class TerminalChat:
                 continue
             seen.add(path_text)
 
-            image_mime_type = detect_image_mime_type(path)
-            if image_mime_type:
-                if self.agent.supports_image_input:
-                    image_data = b64encode(path.read_bytes()).decode("utf-8")
-                    blocks.append(image_block(image_data, mime_type=image_mime_type, name=path.name))
-                else:
-                    blocks.append(
-                        text_block(
-                            f'<file name="{html.escape(path_text, quote=True)}" media_type="{image_mime_type}" kind="image">Current model does not support image input.</file>',
-                            meta={"attachment": True, "path": path_text},
-                        )
-                    )
-                continue
+            # Detect image or document; bundle (kind, mime, supported) together.
+            media: tuple[str, str, bool] | None = None
+            if m := detect_image_mime_type(path):
+                media = ("image", m, self.agent.supports_image_input)
+            elif m := detect_document_mime_type(path):
+                media = ("document", m, self.agent.supports_pdf_input)
 
-            document_mime_type = detect_document_mime_type(path)
-            if document_mime_type:
-                if getattr(self.agent, "supports_pdf_input", False):
-                    document_data = b64encode(path.read_bytes()).decode("utf-8")
-                    blocks.append(document_block(document_data, mime_type=document_mime_type, name=path.name))
+            if media:
+                kind, mime_type, supported = media
+                if supported:
+                    data = b64encode(path.read_bytes()).decode("utf-8")
+                    fn = image_block if kind == "image" else document_block
+                    blocks.append(fn(data, mime_type=mime_type, name=path.name))
                 else:
+                    label = "image input" if kind == "image" else "PDF input"
                     blocks.append(
                         text_block(
-                            f'<file name="{html.escape(path_text, quote=True)}" media_type="{document_mime_type}" kind="document">Current model does not support PDF input.</file>',
+                            f'<file name="{html.escape(path_text, quote=True)}" media_type="{mime_type}" kind="{kind}">Current model does not support {label}.</file>',
                             meta={"attachment": True, "path": path_text},
                         )
                     )

@@ -250,38 +250,23 @@ def repair_messages_for_replay(
                     content.append(dict(raw_block))
                 continue
 
-            if block_type == "image":
-                if supports_image_input:
-                    has_user_input = True
+            if block_type in {"image", "document"}:
+                supported = supports_image_input if block_type == "image" else supports_pdf_input
+                has_user_input = True
+                if supported:
                     content.append(dict(raw_block))
                 else:
-                    path = html.escape(str(raw_block.get("name") or "attached-image"), quote=True)
-                    mime_type = html.escape(str(raw_block.get("mime_type") or "image"), quote=True)
+                    default_mime = "image" if block_type == "image" else "application/pdf"
+                    label = "image input" if block_type == "image" else "PDF input"
+                    name = html.escape(str(raw_block.get("name") or f"attached-{block_type}"), quote=True)
+                    mime = html.escape(str(raw_block.get("mime_type") or default_mime), quote=True)
                     content.append(
                         {
                             "type": "text",
-                            "text": f'<file name="{path}" media_type="{mime_type}" kind="image">Current model does not support image input.</file>',
+                            "text": f'<file name="{name}" media_type="{mime}" kind="{block_type}">Current model does not support {label}.</file>',
                             "meta": {"attachment": True},
                         }
                     )
-                    has_user_input = True
-                continue
-
-            if block_type == "document":
-                if supports_pdf_input:
-                    has_user_input = True
-                    content.append(dict(raw_block))
-                else:
-                    path = html.escape(str(raw_block.get("name") or "attached-document"), quote=True)
-                    mime_type = html.escape(str(raw_block.get("mime_type") or "application/pdf"), quote=True)
-                    content.append(
-                        {
-                            "type": "text",
-                            "text": f'<file name="{path}" media_type="{mime_type}" kind="document">Current model does not support PDF input.</file>',
-                            "meta": {"attachment": True},
-                        }
-                    )
-                    has_user_input = True
                 continue
 
             if block_type != "tool_result":

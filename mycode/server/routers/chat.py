@@ -96,7 +96,7 @@ async def chat(chat: ChatRequest, store: StoreDep, runs: RunManagerDep):
         blocks: list[dict[str, Any]] = []
         for block in chat.input:
             if block.type == "text":
-                text = "" if block.text is None else str(block.text)
+                text = block.text or ""
                 if block.is_attachment:
                     name = str(block.name or "attached-file")
                     blocks.append(
@@ -121,7 +121,7 @@ async def chat(chat: ChatRequest, store: StoreDep, runs: RunManagerDep):
                     raise HTTPException(status_code=400, detail="document input requires path or data")
                 resolved_path = resolve_path(block.path, cwd=cwd)
                 document_path = Path(resolved_path)
-                if not document_path.exists() or not document_path.is_file():
+                if not document_path.is_file():
                     raise HTTPException(status_code=400, detail=f"document file not found: {block.path}")
                 mime_type = block.mime_type or detect_document_mime_type(document_path)
                 if mime_type != "application/pdf":
@@ -164,12 +164,11 @@ async def chat(chat: ChatRequest, store: StoreDep, runs: RunManagerDep):
             raise HTTPException(status_code=400, detail="message or input is required")
         user_message = build_message("user", [text_block(message_text)])
 
-    if any(isinstance(block, dict) and block.get("type") == "image" for block in user_message.get("content") or []):
-        if resolved.supports_image_input is not True:
-            raise HTTPException(status_code=400, detail="current model does not support image input")
-    if any(isinstance(block, dict) and block.get("type") == "document" for block in user_message.get("content") or []):
-        if resolved.supports_pdf_input is not True:
-            raise HTTPException(status_code=400, detail="current model does not support PDF input")
+    content_types = {b.get("type") for b in (user_message.get("content") or []) if isinstance(b, dict)}
+    if "image" in content_types and resolved.supports_image_input is not True:
+        raise HTTPException(status_code=400, detail="current model does not support image input")
+    if "document" in content_types and resolved.supports_pdf_input is not True:
+        raise HTTPException(status_code=400, detail="current model does not support PDF input")
 
     data = await store.load_session(session_id)
     session = (data or {}).get("session")
