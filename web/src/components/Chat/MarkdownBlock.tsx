@@ -1,30 +1,22 @@
 /**
- * Markdown renderer with GFM support and code highlighting.
- * KaTeX is lazy-loaded only when math content is detected.
+ * Markdown renderer with GFM, code highlighting, and LaTeX math support.
+ * Math is rendered by remark-math + rehype-katex.
+ * \(...\) and \[...\] are normalized to dollar delimiters before parsing.
  */
 
-import {
-  type ComponentPropsWithoutRef,
-  memo,
-  useLayoutEffect,
-  useRef,
-} from 'react'
+import { type ComponentPropsWithoutRef, memo } from 'react'
 import ReactMarkdown, { type Components, type ExtraProps } from 'react-markdown'
+import rehypeKatex from 'rehype-katex'
 import remarkGfm from 'remark-gfm'
+import remarkMath from 'remark-math'
+import 'katex/dist/katex.min.css'
 import { CodeBlock } from './CodeBlock'
-
-const REMARK_PLUGINS = [remarkGfm]
-const MATH_PATTERN =
-  /(\$\$[\s\S]+?\$\$|\$[^\n$]+?\$|\\\([\s\S]+?\\\)|\\\[[\s\S]+?\\\])/
-const MATH_DELIMITERS = [
-  { left: '$$', right: '$$', display: true },
-  { left: '$', right: '$', display: false },
-  { left: '\\(', right: '\\)', display: false },
-  { left: '\\[', right: '\\]', display: true },
-]
 
 type MarkdownPreProps = ComponentPropsWithoutRef<'pre'> & ExtraProps
 type MarkdownTableProps = ComponentPropsWithoutRef<'table'> & ExtraProps
+
+const REMARK_PLUGINS = [remarkGfm, remarkMath]
+const REHYPE_PLUGINS = [rehypeKatex]
 
 const MARKDOWN_COMPONENTS: Components = {
   pre: ({ children }: MarkdownPreProps) => children,
@@ -36,68 +28,108 @@ const MARKDOWN_COMPONENTS: Components = {
   ),
 }
 
-let katexCssLoaded = false
-function ensureKatexCss() {
-  if (katexCssLoaded) return
-  katexCssLoaded = true
-  import('katex/dist/katex.min.css')
-}
+/**
+ * Normalize \(...\) and \[...\] without touching code spans or code blocks.
+ */
+export function normalizeMathDelimiters(text: string): string {
+  let result = ''
+  let i = 0
+  let fenceChar = ''
+  let fenceLength = 0
 
-interface MarkdownContentProps {
-  content: string
-}
+  while (i < text.length) {
+    const lineStart = i === 0 || text[i - 1] === '\n'
+    const lineEnd = text.indexOf('\n', i)
+    const nextLineEnd = lineEnd === -1 ? text.length : lineEnd + 1
 
-function PlainMarkdown({ content }: MarkdownContentProps) {
-  return (
-    <ReactMarkdown
-      remarkPlugins={REMARK_PLUGINS}
-      components={MARKDOWN_COMPONENTS}
-    >
-      {content}
-    </ReactMarkdown>
-  )
-}
+    if (lineStart) {
+      const line = text.slice(i, nextLineEnd)
+      const fenceMatch = /^( {0,3})(`{3,}|~{3,})/.exec(line)
 
-function RenderedMarkdown({ content }: MarkdownContentProps) {
-  const contentRef = useRef<HTMLDivElement | null>(null)
-  const hasMath = MATH_PATTERN.test(content)
+      if (fenceChar) {
+        result += line
+        if (
+          fenceMatch &&
+          fenceMatch[2]?.[0] === fenceChar &&
+          fenceMatch[2].length >= fenceLength
+        ) {
+          fenceChar = ''
+          fenceLength = 0
+        }
+        i = nextLineEnd
+        continue
+      }
 
-  useLayoutEffect(() => {
-    if (!contentRef.current || !hasMath) return
+      if (fenceMatch) {
+        result += line
+        fenceChar = fenceMatch[2]?.[0] || ''
+        fenceLength = fenceMatch[2]?.length || 0
+        i = nextLineEnd
+        continue
+      }
 
-    ensureKatexCss()
-    import('katex/contrib/auto-render').then(
-      ({ default: renderMathInElement }) => {
-        if (!contentRef.current) return
-        renderMathInElement(contentRef.current, {
-          delimiters: MATH_DELIMITERS,
-          throwOnError: false,
-        })
-      },
-    )
-  }, [hasMath])
+      if (line.startsWith('    ') || line.startsWith('\t')) {
+        result += line
+        i = nextLineEnd
+        continue
+      }
+    }
 
-  return (
-    <div ref={contentRef}>
-      <PlainMarkdown content={content} />
-    </div>
-  )
+    if (text[i] === '`') {
+      let ticks = 1
+      while (text[i + ticks] === '`') ticks += 1
+      const delimiter = '`'.repeat(ticks)
+      const close = text.indexOf(delimiter, i + ticks)
+
+      if (close !== -1) {
+        result += text.slice(i, close + ticks)
+        i = close + ticks
+        continue
+      }
+    }
+
+    if (text[i] === '\\' && text[i + 1] === '[') {
+      const close = text.indexOf('\\]', i + 2)
+      if (close !== -1) {
+        result += `$$${text.slice(i + 2, close)}$$`
+        i = close + 2
+        continue
+      }
+    }
+
+    if (text[i] === '\\' && text[i + 1] === '(') {
+      const close = text.indexOf('\\)', i + 2)
+      if (close !== -1) {
+        const body = text.slice(i + 2, close)
+        if (!body.includes('\n')) {
+          result += `$${body}$`
+          i = close + 2
+          continue
+        }
+      }
+    }
+
+    result += text[i]
+    i += 1
+  }
+
+  return result
 }
 
 export const MarkdownBlock = memo(function MarkdownBlock({
   content,
-  isStreaming = false,
 }: {
   content: string
-  isStreaming?: boolean | undefined
 }) {
   return (
     <div className="prose prose-sm max-w-none dark:prose-invert">
-      {isStreaming ? (
-        <PlainMarkdown content={content} />
-      ) : (
-        <RenderedMarkdown key={content} content={content} />
-      )}
+      <ReactMarkdown
+        remarkPlugins={REMARK_PLUGINS}
+        rehypePlugins={REHYPE_PLUGINS}
+        components={MARKDOWN_COMPONENTS}
+      >
+        {normalizeMathDelimiters(content)}
+      </ReactMarkdown>
     </div>
   )
 })

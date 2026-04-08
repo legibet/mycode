@@ -391,7 +391,7 @@ export const MessageBubble = memo(function MessageBubble({
                 fallback={renderErrorFallback}
                 resetKey={`${renderKey}:${block.text}`}
               >
-                <MarkdownBlock content={block.text} isStreaming={isStreaming} />
+                <MarkdownBlock content={block.text} />
               </RenderErrorBoundary>
             )
           }
