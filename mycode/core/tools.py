@@ -195,6 +195,19 @@ def truncate_text(
     if tail:
         out_lines.reverse()
 
+    # Edge case: a single line exceeds max_bytes — take the tail/head slice
+    if not out_lines and lines:
+        target = lines[-1] if tail else lines[0]
+        encoded = target.encode("utf-8")
+        sliced = encoded[-max_bytes:] if tail else encoded[:max_bytes]
+        content = sliced.decode("utf-8", errors="ignore")
+        return content, Truncation(
+            truncated=True,
+            truncated_by="bytes",
+            output_lines=1,
+            output_bytes=len(content.encode("utf-8")),
+        )
+
     content = "\n".join(out_lines)
     truncated = len(out_lines) < len(lines) or out_bytes < len(text.encode("utf-8"))
 
@@ -753,9 +766,14 @@ class ToolExecutor:
     ) -> ToolExecutionResult:
         """Run a shell command and return combined stdout/stderr text.
 
-        Output is streamed line-by-line through ``on_output`` when provided. If
-        the output grows too large for memory or needs truncation, the full log
-        is written under the session's ``tool-output/`` directory.
+        Output is streamed line-by-line through ``on_output`` when provided.
+
+        Truncation has two layers:
+        1. Memory protection: when total output exceeds ``_BASH_MAX_IN_MEMORY_BYTES``,
+           further output is written to a log file and only a bounded tail
+           (``deque(maxlen=DEFAULT_MAX_LINES)``) is kept in memory.
+        2. Display truncation: the final text is truncated to
+           ``DEFAULT_MAX_LINES`` / ``DEFAULT_MAX_BYTES`` via ``truncate_text``.
         """
 
         timeout_seconds = int(timeout or BASH_TIMEOUT_SECONDS)
@@ -764,8 +782,11 @@ class ToolExecutor:
 
         proc: subprocess.Popen[str] | None = None
         log_path = self.tool_output_dir / f"bash-{tool_call_id}.log"
+        # Streaming phase: accumulate in memory until _BASH_MAX_IN_MEMORY_BYTES,
+        # then spill to log file and keep only a bounded tail via deque.
         kept_lines: list[str] = []
         kept_bytes = 0
+        total_line_count = 0
         tail_lines: deque[str] = deque(maxlen=DEFAULT_MAX_LINES)
         log_file: TextIO | None = None
         saved_output_path: Path | None = None
@@ -820,6 +841,7 @@ class ToolExecutor:
                     break
 
                 line = line.rstrip("\n")
+                total_line_count += 1
                 kept_bytes += len((line + "\n").encode("utf-8"))
 
                 if log_file is None:
@@ -859,10 +881,13 @@ class ToolExecutor:
                     is_error=True,
                 )
 
+            exit_code = proc.returncode
+
             raw_output = "\n".join(list(tail_lines) if log_file is not None else kept_lines)
             output = raw_output.strip() or "(empty)"
             content, trunc = truncate_text(output, tail=True)
 
+            # Save full output to log file when truncated but not already on disk
             if log_file is None and trunc.truncated:
                 try:
                     log_path.write_text(raw_output, encoding="utf-8")
@@ -870,25 +895,33 @@ class ToolExecutor:
                 except Exception:
                     saved_output_path = None
 
-            if log_file is not None or trunc.truncated:
-                result = content
-                if log_file is not None:
-                    result += "\n\n[Output truncated in memory.]"
-                else:
-                    result += "\n\n[Output truncated.]"
+            result = content
 
-                if saved_output_path is not None:
-                    result += f" Full output saved to: {saved_output_path}. Use read with offset/limit."
-                    if not content:
-                        quoted = shlex.quote(str(saved_output_path))
-                        result += (
-                            "\nUse bash to inspect bytes:\n"
-                            f"head -c 2000 {quoted}\n"
-                            f"tail -c +2001 {quoted} | head -c 2000"
+            # Truncation notice — either the in-memory tail buffer or the final
+            # display truncation removed part of the output.
+            shown_lines = trunc.output_lines
+            was_truncated = log_file is not None or trunc.truncated
+            if was_truncated:
+                if trunc.truncated_by == "bytes":
+                    if total_line_count <= 1:
+                        notice = (
+                            f"[Truncated: showing last {DEFAULT_MAX_BYTES // 1024}KB of output "
+                            f"({DEFAULT_MAX_BYTES // 1024}KB limit)."
                         )
-                return ToolExecutionResult(model_text=result, display_text=result)
+                    else:
+                        notice = f"[Truncated: showing tail output ({DEFAULT_MAX_BYTES // 1024}KB limit)."
+                else:
+                    notice = f"[Truncated: last {shown_lines} of {total_line_count} lines."
+                if saved_output_path is not None:
+                    notice += f" Full output: {saved_output_path}]"
+                else:
+                    notice += "]"
+                result += "\n\n" + notice
 
-            return ToolExecutionResult(model_text=content, display_text=content)
+            if exit_code:
+                result += f"\n\n[exit code: {exit_code}]"
+
+            return ToolExecutionResult(model_text=result, display_text=result)
 
         except Exception as exc:
             message = str(exc)

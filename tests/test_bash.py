@@ -50,7 +50,7 @@ class TestBashTimeout:
 
 
 class TestBashTruncation:
-    def test_bash_large_output_truncated(self):
+    def test_bash_large_output_truncated_by_lines(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             executor = ToolExecutor(cwd=tmpdir, session_dir=Path(tmpdir))
             result = executor.bash(
@@ -58,9 +58,10 @@ class TestBashTruncation:
                 command='for i in $(seq 1 3000); do echo "line $i"; done',
             )
 
-            assert "truncated" in result.model_text.lower() or "showing" in result.model_text.lower()
+            assert "Truncated:" in result.model_text
+            assert "of 3000 lines" in result.model_text
             assert "line 3000" in result.model_text
-            assert "Use read with offset/limit" in result.model_text
+            assert "Full output:" in result.model_text
             assert (Path(tmpdir) / "tool-output" / "bash-test-large.log").exists()
 
     def test_bash_output_saved_for_large_truncation(self):
@@ -75,17 +76,46 @@ class TestBashTruncation:
             assert log_file.exists()
             assert "3000" in log_file.read_text()
 
-    def test_bash_long_single_line_adds_byte_slice_hint(self):
+    def test_bash_long_single_line_truncated_by_bytes(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             executor = ToolExecutor(cwd=tmpdir, session_dir=Path(tmpdir))
             result = executor.bash(
                 tool_call_id="long-line",
-                command="python -c \"print('x' * 60000, end='')\"",
+                command="python3 -c \"print('x' * 60000, end='')\"",
             )
 
-            assert "Full output saved to:" in result.model_text
-            assert "Use bash to inspect bytes:" in result.model_text
-            assert "head -c 2000" in result.model_text
+            assert "Truncated:" in result.model_text
+            assert "KB limit" in result.model_text
+            assert "Full output:" in result.model_text
+            # Must not say "0 lines" — truncate_text slices the oversized line
+            assert "0 lines" not in result.model_text
+            assert "x" in result.model_text
+
+
+class TestBashExitCode:
+    def test_bash_nonzero_exit_code_reported(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            executor = ToolExecutor(cwd=tmpdir, session_dir=Path(tmpdir))
+            result = executor.bash(tool_call_id="exit-1", command="exit 1")
+
+            assert "[exit code: 1]" in result.model_text
+            assert result.is_error is False
+
+    def test_bash_zero_exit_code_not_reported(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            executor = ToolExecutor(cwd=tmpdir, session_dir=Path(tmpdir))
+            result = executor.bash(tool_call_id="exit-0", command="echo ok")
+
+            assert "exit code" not in result.model_text
+
+    def test_bash_exit_code_with_output(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            executor = ToolExecutor(cwd=tmpdir, session_dir=Path(tmpdir))
+            result = executor.bash(tool_call_id="exit-output", command="echo some output; exit 42")
+
+            assert "some output" in result.model_text
+            assert "[exit code: 42]" in result.model_text
+            assert result.is_error is False
 
 
 class TestBashCallback:
