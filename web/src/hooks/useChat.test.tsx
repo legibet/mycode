@@ -139,7 +139,7 @@ describe('useChat', () => {
 
   it('keeps assistant replies when loading a persisted session with text attachments', async () => {
     globalThis.localStorage.setItem(
-      'mycode.activeSessions',
+      'mycode_active_sessions',
       JSON.stringify({ '/workspace/a': 'session-1' }),
     )
     mockFetch({
@@ -193,7 +193,7 @@ describe('useChat', () => {
 
   it('rebuilds assistant replies from active-run pending events after refresh', async () => {
     globalThis.localStorage.setItem(
-      'mycode.activeSessions',
+      'mycode_active_sessions',
       JSON.stringify({ '/workspace/a': 'session-2' }),
     )
     mockFetch({

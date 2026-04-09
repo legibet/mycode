@@ -3,7 +3,6 @@
   "files": {
     "includes": [
       "**",
-      "!mycode/server/static",
       "!**/node_modules",
       "!**/dist",
       "!**/.vite"

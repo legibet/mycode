@@ -1,13 +1,13 @@
 # Web UI
 
-React + Vite app in `web/`. Built assets are copied to `mycode/server/static/` for packaged serving.
+React + Vite app in `web/`. The built web assets are copied into `mycode-go/internal/server/webdist/` and embedded into the CLI binary.
 
 ## Serving Modes
 
-- `mycode web` — serves packaged web assets from `mycode/server/static/`
-- `mycode web --dev` — API only; no static files (pair with `pnpm --dir web dev`)
+- `mycode-go web` — serves embedded web assets by default, or `MYCODE_WEB_DIST` when explicitly set
+- `mycode-go web --dev` — API only; no static files (pair with `pnpm --dir web dev`)
 
-CORS is enabled for all origins in the FastAPI app.
+CORS is enabled for all origins in the HTTP handler.
 
 ## Component Structure
 
@@ -16,7 +16,7 @@ web/src/
   App.tsx                # root layout, config loading, session init
   main.tsx               # React entry
   types.ts               # shared TypeScript types
-  index.css              # Tailwind CSS
+  index.css              # global styles
   components/
     Chat/
       MessageList.tsx      # scrollable message history
@@ -32,7 +32,7 @@ web/src/
     Sidebar.tsx            # session list + settings panel
     WorkspacePicker.tsx    # workspace browser using /api/workspaces
     MobileHeader.tsx       # mobile nav header
-    ThemeProvider.tsx       # light/dark theme toggle
+    ThemeProvider.tsx      # theme management
     UI/                    # shared UI primitives
   hooks/
     useChat.ts             # main chat state + SSE streaming
@@ -42,11 +42,11 @@ web/src/
     setup.ts               # Vitest + Testing Library setup
   utils/
     messages.ts            # buildRenderMessages() + streaming message builders
-    highlighter.ts         # code syntax highlighting (shiki)
+    highlighter.ts         # code syntax highlighting
     storage.ts             # localStorage helpers
     config.ts              # reasoning effort defaults + provider normalization with remote config
     clipboard.ts           # clipboard copy helper
-    cn.ts                  # CSS class merging (clsx + tailwind-merge)
+    cn.ts                  # CSS class merging
 ```
 
 ## Message State Model
@@ -74,8 +74,8 @@ Key design decisions:
 
 Rendering rules:
 
-- `thinking` blocks → `ReasoningBlock` (expanded while streaming, auto-collapses after)
-- `tool_use` blocks → `ToolCard` (with matching `tool_result` and live runtime folded in)
+- `thinking` blocks → `ReasoningBlock`
+- `tool_use` blocks → `ToolCard`
 - `text` blocks → `MarkdownBlock`
 - `image` blocks → inline image preview in `MessageBubble`
 
@@ -83,10 +83,10 @@ Rendering rules:
 
 1. `POST /api/chat` → get `{run, session}`
 2. `GET /api/runs/{run_id}/stream` → SSE reader
-3. Each `data:` line parsed as `StreamEvent`, dispatched to reducer
+3. Each `data:` line is parsed as one stream event and dispatched to the reducer
 4. `data: [DONE]` ends the stream
-5. On disconnect: attempt session reload recovery via `GET /api/sessions/{id}`
-6. 409 conflict: attach to the existing run's stream
+5. On disconnect, the client reloads session state from `GET /api/sessions/{id}`
+6. `409` conflict attaches to the existing run stream
 
 Streaming state tracking:
 
@@ -97,7 +97,7 @@ Streaming state tracking:
 Attachments:
 
 - `InputArea` always shows the attachment button and supports file picker and drag-and-drop
-- UTF-8 text/code/config files are attached as the same text snapshot format used by CLI `@file`
+- UTF-8 text, code, and config files are attached as the same text snapshot format used by the original CLI `@file`
 - Images and PDFs are sent as structured `input` blocks
 - The attachment button uses `image_input_models` and `pdf_input_models`; unsupported pending attachments are cleared on model switch
 
@@ -105,19 +105,23 @@ Attachments:
 
 Web UI config is persisted to `localStorage`:
 
-- `provider`, `model`, `cwd`, `reasoningEffort`
-- `auto` and empty string both mean "do not send reasoning_effort to server"
-- The reasoning effort selector in the sidebar only renders when `supports_reasoning_effort` is true AND the current model appears in `reasoning_models` (from `GET /api/config`)
+- `provider`
+- `model`
+- `cwd`
+- `reasoningEffort`
+
+`auto` and empty string both mean "do not send `reasoning_effort` to the server".
+
+The reasoning effort selector in the sidebar only renders when `supports_reasoning_effort` is true and the current model appears in `reasoning_models` from `GET /api/config`.
 
 ## Build
 
 ```bash
-pnpm --dir web test:run                                # run web UI tests once
-pnpm --dir web dev                                     # dev server (Vite HMR)
-uv run --no-project python scripts/build_web.py       # production build → mycode/server/static/
-uv build                                               # packages static/ into wheel/sdist
+pnpm --dir web test:run
+pnpm --dir web dev
+pnpm --dir web build
 ```
 
-Built `web/dist/` is **not** the serving path. `scripts/build_web.py` copies the built output into `mycode/server/static/` which is what gets packaged and served.
+Run `make web-build` to build `web/dist` and sync it into `mycode-go/internal/server/webdist/`.
 
-If `mycode/server/static/` is missing at startup, the server falls back to API-only mode with a warning log.
+The server prefers `MYCODE_WEB_DIST` when set. Otherwise it serves the embedded assets compiled into the binary.

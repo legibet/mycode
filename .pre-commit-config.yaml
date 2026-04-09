@@ -1,6 +1,5 @@
 # See https://pre-commit.com for more information
 repos:
-  # General hooks
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v6.0.0
     hooks:
@@ -12,22 +11,25 @@ repos:
       - id: check-merge-conflict
       - id: detect-private-key
 
-  # Markdown
   - repo: https://github.com/igorshubovych/markdownlint-cli
     rev: v0.48.0
     hooks:
       - id: markdownlint
-        args: ["--dot", "--fix", "--disable", "MD013", "--"]
+        args: ["--dot", "--fix", "--disable", "MD013", "MD040", "--"]
 
-  # Python - Ruff (linter + formatter)
-  - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.14.13
+  - repo: local
     hooks:
-      - id: ruff-check
-        args: [--fix]
-      - id: ruff-format
+      - id: gofmt
+        name: gofmt
+        entry: make fmt-go
+        language: system
+        pass_filenames: false
+      - id: golangci-lint
+        name: golangci-lint
+        entry: make lint-go
+        language: system
+        pass_filenames: false
 
-  # Frontend - Biome (linter + formatter)
   - repo: https://github.com/biomejs/pre-commit
     rev: v2.4.7
     hooks:

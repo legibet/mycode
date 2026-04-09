@@ -1,72 +1,78 @@
-# mycode — Project Context
+# mycode-go — Project Context
 
-Authoritative context for agent runs. Keep in sync with the code. See `docs/` for detailed specs.
+Authoritative context for agent runs. Keep this file in sync with the Go code.
 
 ## Product
 
-`mycode` is a personal minimal coding agent with a web UI and CLI.
+`mycode-go` is a personal minimal coding agent with a web UI and a small CLI. It keeps `.mycode` config and session compatibility with the original Python version.
 
-Priorities: small readable core · one message model · one agent loop · append-only sessions · provider adapters at the boundary.
+Priorities:
 
-Not a general agent framework.
+- small readable core
+- one message model
+- one agent loop
+- append-only sessions
+- provider adapters at the boundary
+
+It is not a general agent framework.
 
 ## Core Rules
 
-- 4 built-in tools only: `read`, `write`, `edit`, `bash` — do not add more to core
-- Provider-specific behavior stays inside adapters, never in the agent loop
-- Prefer simple Python; add helpers only for real reuse or non-obvious logic
-- Keep the runtime deterministic and easy to inspect
+- 4 built-in tools only: `read`, `write`, `edit`, `bash`
+- Provider-specific behavior stays inside adapters
+- Keep the runtime explicit and easy to inspect
+- Prefer simple Go over framework-heavy designs
+- Do not add abstraction layers unless they remove real complexity
 
 ## Source Map
 
-Core runtime (`mycode/core/`):
+Core runtime:
 
-- `agent.py` — the only orchestration loop
-- `messages.py` — internal message/block format
-- `tools.py` — 4 built-in tools, executor, truncation, path resolution
-- `session.py` — append-only JSONL session storage, compact/rewind events, interrupted tool repair
-- `config.py` — layered config loading and provider resolution
-- `models.py` — bundled model metadata lookup (`context_window`, `supports_reasoning`, `supports_image_input`)
-- `system_prompt.py` — runtime system prompt assembly, inlined base prompt, AGENTS.md discovery, skills discovery
-- `providers/base.py` — ProviderAdapter abstract interface
-- `providers/__init__.py` — adapter registry and provider lookup helpers
-- `providers/anthropic_like.py` — adapters: `anthropic`, `moonshotai`, `minimax`
-- `providers/gemini.py` — adapter: `google`
-- `providers/openai_responses.py` — adapter: `openai`
-- `providers/openai_chat.py` — adapters: `openai_chat`, `deepseek`, `zai`, `openrouter`
+- `mycode-go/internal/agent/agent.go` — the only orchestration loop
+- `mycode-go/internal/message/message.go` — canonical message/block format
+- `mycode-go/internal/tools/*.go` — 4 built-in tools and execution
+- `mycode-go/internal/session/store.go` — append-only JSONL storage, compact, rewind, repair
+- `mycode-go/internal/config/*.go` — layered config loading and provider resolution
+- `mycode-go/internal/models/catalog.go` — bundled model metadata lookup
+- `mycode-go/internal/prompt/prompt.go` — runtime system prompt assembly, AGENTS discovery, skills discovery
 
-CLI (`mycode/cli/`):
+Providers:
 
-- `main.py` — Typer entrypoint (commands: default, run, web, session)
-- `chat.py` — TerminalChat interactive loop
-- `render.py` — TerminalView rich rendering
-- `runtime.py` — build_agent(), resolve_session()
+- `mycode-go/internal/provider/base.go` — adapter contract and replay helpers
+- `mycode-go/internal/provider/registry.go` — adapter registry
+- `mycode-go/internal/provider/specs.go` — built-in provider metadata
+- `mycode-go/internal/provider/anthropic.go` — `anthropic`, `moonshotai`, `minimax`
+- `mycode-go/internal/provider/openai_responses.go` — `openai`
+- `mycode-go/internal/provider/openai_chat.go` — `openai_chat`, `deepseek`, `zai`, `openrouter`
+- `mycode-go/internal/provider/google.go` — `google`
 
-Server (`mycode/server/`):
+Server:
 
-- `app.py` — FastAPI factory, static mount
-- `routers/chat.py` — POST /api/chat, GET /api/runs/{id}/stream, POST /api/runs/{id}/cancel, GET /api/config
-- `routers/sessions.py` — session CRUD
-- `routers/workspaces.py` — directory browser
-- `run_manager.py` — concurrent run management
-- `schemas.py` — Pydantic request/response models
+- `mycode-go/internal/server/app.go` + `mycode-go/internal/server/*.go` — HTTP API, SSE, static web serving, request parsing
+- `mycode-go/internal/server/run_manager.go` — concurrent run manager
+- `mycode-go/internal/server/types.go` — request/response payload types
+- `mycode-go/internal/workspace/workspace.go` — workspace browser
 
-Web UI (`web/src/`):
+CLI:
 
-- `hooks/useChat.ts` — chat state, SSE streaming, tool runtime
-- `utils/messages.ts` — buildRenderMessages() — canonical blocks → UI messages
+- `mycode-go/cmd/mycode-go/*.go` — `run`, `web`, `session list`, and bare-message convenience mode
+
+Web UI:
+
+- `web/src/hooks/useChat.ts` — chat state and SSE streaming
+- `web/src/utils/messages.ts` — canonical blocks to UI messages
 
 ## Internal Message Model
 
-Block-based JSON — single format used at runtime and persisted to sessions:
+All runtime, persistence, and API data use the same block-based JSON format:
 
 ```json
 {
   "role": "assistant",
   "content": [
-    {"type": "thinking", "text": "...", "meta": {}},
+    {"type": "thinking", "text": "..."},
     {"type": "text", "text": "..."},
-    {"type": "tool_use", "id": "call_1", "name": "read", "input": {"path": "x.py"}}
+    {"type": "tool_use", "id": "call_1", "name": "read", "input": {"path": "x.go"}}
   ],
   "meta": {
     "provider": "anthropic",
@@ -78,105 +84,120 @@ Block-based JSON — single format used at runtime and persisted to sessions:
 }
 ```
 
-Block types: `text` · `image` · `thinking` · `tool_use` · `tool_result`
+Block types:
 
-- `thinking` blocks are first-class session data — persisted and shown in UI
-- Provider-specific extras: `meta.native` on messages, `block.meta.native` on blocks
-- Tool results stored as a `user` message with `tool_result` blocks:
+- `text`
+- `image`
+- `document`
+- `thinking`
+- `tool_use`
+- `tool_result`
 
-  ```json
-  {"type": "tool_result", "tool_use_id": "call_1", "model_text": "ok", "display_text": "Wrote x.py", "is_error": false}
-  ```
-
-  `model_text` is replayed to providers on later turns; `display_text` is shown to users.
-  `tool_result.content` may store structured `text` and `image` blocks.
-- System prompt is runtime-only, not persisted
+Tool results are stored as a `user` message with `tool_result` blocks. `thinking` blocks are first-class session data.
 
 ## Agent Loop
 
-`mycode/core/agent.py` — per user turn:
+`mycode-go/internal/agent/agent.go` runs one user turn:
 
-1. Append user message to session
-2. Call provider adapter → stream events to CLI/server
-3. Persist assistant message to JSONL
+1. Append user message
+2. Stream one provider turn
+3. Persist the assistant message
 4. Execute tool calls locally
-5. Append `user` tool-result message
-6. Repeat until no tool calls; `max_turns` defaults to unlimited
-7. Optionally compact context when usage ≥ `compact_threshold` (default 0.8)
+5. Append tool results as a `user` message
+6. Repeat until there are no tool calls
+7. Optionally compact context when usage crosses `compact_threshold`
 
-## Provider Adapters
+## Provider Types
 
-See `docs/providers.md` for per-adapter details, env vars, and quirks.
+See `docs/providers.md` for details. All provider ids are preserved:
 
-| id            | protocol                      | file                  |
-| ------------- | ----------------------------- | --------------------- |
-| `anthropic`   | Anthropic Messages API        | `anthropic_like.py`   |
-| `moonshotai`  | Anthropic-compatible endpoint | `anthropic_like.py`   |
-| `minimax`     | Anthropic-compatible endpoint | `anthropic_like.py`   |
-| `google`      | Google genai SDK              | `gemini.py`           |
-| `openai`      | OpenAI Responses API          | `openai_responses.py` |
-| `openai_chat` | OpenAI Chat Completions       | `openai_chat.py`      |
-| `deepseek`    | OpenAI-compatible chat        | `openai_chat.py`      |
-| `zai`         | OpenAI-compatible chat        | `openai_chat.py`      |
-| `openrouter`  | OpenAI-compatible chat        | `openai_chat.py`      |
-
-All adapters implement `ProviderAdapter.stream_turn()`. Message projection to provider wire format lives in `prepare_messages()`.
+- `anthropic`
+- `moonshotai`
+- `minimax`
+- `openai`
+- `openai_chat`
+- `deepseek`
+- `zai`
+- `openrouter`
+- `google`
 
 ## SSE Contract
 
-**Do not change event names or payload shapes without updating server, CLI, and web UI.**
+Do not change these event names or shapes without updating server and web UI.
 
-| event         | payload                                                 |
-| ------------- | ------------------------------------------------------- |
-| `reasoning`   | `delta`                                                 |
-| `text`        | `delta`                                                 |
-| `tool_start`  | `tool_call: {id, name, input}`                          |
-| `tool_output` | `tool_use_id`, `output`                                 |
-| `tool_done`   | `tool_use_id`, `model_text`, `display_text`, `is_error` |
-| `compact`     | `message`                                               |
-| `error`       | `message`                                               |
+- `reasoning` — `delta`
+- `text` — `delta`
+- `tool_start` — `tool_call: {id, name, input}`
+- `tool_output` — `tool_use_id`, `output`
+- `tool_done` — `tool_use_id`, `model_text`, `display_text`, `is_error`
+- `compact` — `message`
+- `error` — `message`
 
-## Detailed Docs
-
-- `docs/api.md` — Server API endpoints, request/response schemas, SSE contract details
-- `docs/config.md` — Config files, schema, API key resolution, reasoning effort, skills/instructions discovery
-- `docs/providers.md` — Per-adapter details: SDK, base URL, env vars, reasoning effort mapping, quirks
-- `docs/sessions.md` — Storage layout, JSONL record types, compact/rewind/repair, format version
-- `docs/web.md` — Component structure, message state model, build process
+Every event also carries `seq`.
 
 ## Interfaces
 
-**CLI** — `mycode/cli/main.py`:
+CLI:
 
-- `mycode` — interactive session (default)
-- `mycode run "..."` — non-interactive single run
-- `mycode web [--dev]` — web server; `--dev` serves API only (for Vite dev)
-- `mycode session list` — list sessions
-- Interactive CLI: `@path` attaches files; images become `image` blocks, text files become extra `text` blocks
-- Slash commands: `/clear` `/new` `/resume` `/rewind` `/provider` `/model` `/effort` `/q`
+- `mycode-go <message>` — convenience alias for one non-interactive run
+- `mycode-go run "..."` — one non-interactive run
+- `mycode-go web [--dev]` — web server
+- `mycode-go session list` — list sessions
 
-**Server** — `mycode/server/routers/`:
+This Go rewrite does not include the old terminal TUI.
 
-- `POST /api/chat` — start a run from `message` or `input`; returns `{run, session}` JSON immediately
-- `GET /api/runs/{run_id}/stream` — SSE stream for a run
-- `POST /api/runs/{run_id}/cancel` — cancel a run
-- `GET /api/config` — provider, reasoning, and image-input metadata for the web UI
-- Session CRUD at `/api/sessions`
-- Workspace browser at `/api/workspaces`
+Server:
+
+- `POST /api/chat`
+- `GET /api/runs/{run_id}/stream`
+- `POST /api/runs/{run_id}/cancel`
+- `GET /api/config`
+- session CRUD at `/api/sessions`
+- workspace browser at `/api/workspaces`
+
+## Commit Conventions
+
+`web/` changes and backend changes must be in **separate commits**.
+
+Commit message format: `type(scope): description`
+
+Scopes:
+
+- `web` — changes under `web/` only
+- `backend` — Go backend changes only
+- `cli` — CLI changes only
+- no scope — cross-cutting (document both sides in commit body)
+
+When syncing web changes from `main`:
+
+```bash
+# find web-only commits on main since last sync
+git log main --oneline -- web/
+
+# cherry-pick a specific web commit
+git cherry-pick <hash>
+```
 
 ## Dev Workflow
 
+Backend:
+
 ```bash
-uv sync --dev                                          # Python setup
-uv run basedpyright                                    # Python type checking
-uv run pytest                                          # Python tests
-uv run mycode                                          # run CLI
-uv run mycode web --dev                                # API only (backend for Vite dev)
-pnpm --dir web typecheck                               # Web UI type checking
-pnpm --dir web test:run                                # run web UI tests once
-pnpm --dir web dev                                     # Vite web UI dev server
-uv run --no-project python scripts/build_web.py        # rebuild packaged web UI
-uv build                                               # build wheel + sdist
+go -C mycode-go test ./...
+go -C mycode-go vet ./...
+cd mycode-go && golangci-lint run ./...
+go -C mycode-go run ./cmd/mycode-go web --dev
+uv run --no-project python ./scripts/update_models_catalog.py
+```
+
+Web:
+
+```bash
+pnpm --dir web install
+pnpm --dir web typecheck
+pnpm --dir web test:run
+pnpm --dir web dev
+pnpm --dir web build
 ```
 
 ## Guardrails
@@ -184,9 +205,7 @@ uv build                                               # build wheel + sdist
 Preserve unless explicitly asked to change:
 
 - 4-tool core stays unchanged
-- Append-only sessions stay human-inspectable
-- CLI and server remain thin wrappers over `mycode.core`
-- Provider-specific quirks stay in adapters
-- No new abstraction layers unless they remove real complexity
-
-When in doubt, prefer the simpler and more explicit design.
+- append-only sessions stay human-inspectable
+- CLI and server stay thin wrappers over `mycode-go/internal/agent`
+- provider quirks stay in adapters
+- no unnecessary abstraction layers

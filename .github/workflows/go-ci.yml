@@ -1,0 +1,98 @@
+name: Go CI
+
+on:
+  push:
+    branches:
+      - mycode-go
+    paths:
+      - ".github/workflows/go-ci.yml"
+      - ".golangci.yml"
+      - ".pre-commit-config.yaml"
+      - "Makefile"
+      - "go.work"
+      - "mycode-go/**"
+      - "scripts/sync_web_dist.sh"
+      - "web/**"
+  workflow_dispatch:
+
+concurrency:
+  group: go-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  go:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: mycode-go/go.mod
+
+      - name: Vet Go
+        run: make vet-go
+
+      - name: Test Go
+        run: make test-go-race
+
+      - name: Lint Go
+        uses: golangci/golangci-lint-action@v8
+        with:
+          version: v2.3.0
+          working-directory: mycode-go
+          args: ./...
+
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v5
+        with:
+          version: 10
+
+      - name: Install Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+
+      - name: Install web dependencies
+        run: make web-install
+
+      - name: Check web
+        run: make web-check
+
+  binary:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: mycode-go/go.mod
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v5
+        with:
+          version: 10
+
+      - name: Install Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+
+      - name: Build binary
+        run: make build
+
+      - name: Verify binary
+        run: ./dist/mycode-go --help

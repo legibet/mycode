@@ -8,7 +8,13 @@ from typing import Any
 from urllib.request import Request, urlopen
 
 MODELS_DEV_URL = "https://models.dev/api.json"
-TARGET_PATH = Path(__file__).resolve().parents[1] / "mycode" / "core" / "models_catalog.json"
+TARGET_PATH = (
+    Path(__file__).resolve().parents[1]
+    / "mycode-go"
+    / "internal"
+    / "models"
+    / "models_catalog.json"
+)
 PROVIDERS = (
     "aihubmix",
     "anthropic",
@@ -24,7 +30,7 @@ PROVIDERS = (
 
 
 def main() -> None:
-    request = Request(MODELS_DEV_URL, headers={"User-Agent": "mycode/1.0"})
+    request = Request(MODELS_DEV_URL, headers={"User-Agent": "mycode-go/1.0"})
     with urlopen(request, timeout=30) as response:
         raw_source = json.loads(response.read().decode("utf-8"))
 
@@ -37,6 +43,7 @@ def main() -> None:
         provider = source.get(provider_name)
         if not isinstance(provider, dict):
             continue
+
         raw_models = provider.get("models")
         if not isinstance(raw_models, dict):
             continue

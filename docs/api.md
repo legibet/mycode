@@ -1,6 +1,6 @@
 # Server API
 
-Base prefix: `/api`. All endpoints are defined in `mycode/server/routers/`.
+Base prefix: `/api`. Handlers live in `mycode-go/internal/server/` with routing wired in `mycode-go/internal/server/app.go`.
 
 ## Chat
 
@@ -8,7 +8,7 @@ Base prefix: `/api`. All endpoints are defined in `mycode/server/routers/`.
 
 Start an agent run. Returns JSON immediately while the run streams asynchronously.
 
-Request body (`ChatRequest`, `mycode/server/schemas.py`):
+Request body (`chatRequest`, `mycode-go/internal/server/types.go`):
 
 ```json
 {
@@ -28,10 +28,10 @@ Request body (`ChatRequest`, `mycode/server/schemas.py`):
 Exactly one of `message` or `input` is required.
 
 - `provider` — provider id or configured alias name
-- `reasoning_effort` — overrides config for this request only; `null`/`"auto"` means use config default
+- `reasoning_effort` — overrides config for this request only; `null` or `"auto"` means use config default
 - `rewind_to` — visible message index to rewind to before sending the new message; target must be a real user message
 
-Structured `input` uses `ChatInputBlock`:
+Structured `input` uses `chatInputBlock`:
 
 ```json
 [
@@ -45,7 +45,7 @@ Structured `input` uses `ChatInputBlock`:
 ```
 
 - `type: "text"` — uses `text`
-- `type: "text"` with `is_attachment=true` — wraps UTF-8 file content as the same `<file ...>` attachment text used by CLI `@file`
+- `type: "text"` with `is_attachment=true` — wraps UTF-8 file content as the same `<file ...>` attachment text used by the original CLI `@file`
 - `type: "image"` — uses `path` or inline base64 `data`
 - `type: "document"` — uses `path` or inline base64 `data`
 - `mime_type` is required when `data` is provided
@@ -59,15 +59,15 @@ Response:
 ```json
 {
   "run": { "id": "...", "session_id": "...", "status": "running", "last_seq": 0 },
-  "session": { "id": "...", "title": "...", ... }
+  "session": { "id": "...", "title": "...", "...": "..." }
 }
 ```
 
 Error responses:
 
-- `400` — invalid `rewind_to`; body is `{"detail": "..."}`
+- `400` — invalid request or invalid `rewind_to`; body is `{"detail": "..."}`
 - `409` — session already has a running task; body is `{"detail": {"message": "...", "run": {...}}}`
-- `500` — provider resolution errors currently bubble up as internal server error in this route
+- `500` — provider resolution and runtime errors bubble up as `{"detail": "..."}`
 
 ### `GET /api/runs/{run_id}/stream?after=0`
 
@@ -112,7 +112,7 @@ Response:
   "reasoning_effort_options": ["auto", "none", "low", "medium", "high", "xhigh"],
   "cwd": "...",
   "workspace_root": "...",
-  "config_paths": [...]
+  "config_paths": ["..."]
 }
 ```
 
@@ -120,7 +120,7 @@ Response:
 
 ## Sessions
 
-All session endpoints are in `mycode/server/routers/sessions.py`.
+All session endpoints are routed from `mycode-go/internal/server/app.go` and implemented in `mycode-go/internal/server/sessions.go`.
 
 ### `GET /api/sessions?cwd=...`
 
@@ -132,7 +132,7 @@ Response: `{sessions: [...]}`
 
 Create a new session.
 
-Request body (`SessionCreateRequest`):
+Request body (`sessionCreateRequest`, `mycode-go/internal/server/types.go`):
 
 ```json
 {
@@ -169,7 +169,7 @@ Clear message history (keeps meta). Returns `409` if session has a running task.
 
 ## Workspaces
 
-All workspace endpoints are in `mycode/server/routers/workspaces.py`.
+All workspace endpoints are routed from `mycode-go/internal/server/app.go` and implemented in `mycode-go/internal/server/workspaces.go`.
 
 ### `GET /api/workspaces/roots`
 
@@ -201,7 +201,7 @@ Response: `{cwd: "...", exists: true}`
 
 ## SSE Contract
 
-`GET /api/runs/{run_id}/stream` produces the following event types. The `StreamEvent` schema is in `mycode/server/schemas.py`.
+`GET /api/runs/{run_id}/stream` produces the following event types.
 
 **Do not change event names or payload shapes without updating server, CLI, and web UI.**
 
@@ -215,13 +215,13 @@ Response: `{cwd: "...", exists: true}`
 | `compact`     | `message: str`                                                               |
 | `error`       | `message: str`                                                               |
 
-Every event also carries `seq: int` for reconnect support. The web UI uses `after` parameter to resume from a specific seq number.
+Every event also carries `seq: int` for reconnect support. The web UI uses the `after` parameter to resume from a specific sequence number.
 
 ## Run Manager
 
-`mycode/server/run_manager.py` manages concurrent runs:
+`mycode-go/internal/server/run_manager.go` manages concurrent runs:
 
-- One active run per session (enforced by `ActiveRunError` on conflict)
-- `RunState` tracks events, condition variable for streaming, and cleanup
-- Finished runs pruned after 300 seconds (`FINISHED_RUN_TTL_SECONDS`)
-- `snapshot_session()` returns reconnect data (base messages + buffered events) for active runs
+- One active run per session (enforced by `activeRunError` on conflict)
+- `runState` tracks events, status, reconnect state, and cleanup
+- Finished runs are pruned after 300 seconds
+- `snapshotSession()` returns reconnect data (base messages + buffered events) for active runs

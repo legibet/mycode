@@ -1,40 +1,49 @@
-# mycode
+# mycode-go
 
 >There are many coding agents, but this one is mine.
 
 A minimal coding agent. Inspired by [pi](https://github.com/badlogic/pi-mono).
 
-- Minimal core (under 5k lines of code).
+- Minimal core.
 - Unified message format and robust cross-provider replay.
 - 4 built-in tools: `read`, `write`, `edit`, `bash`, expanded via skills.
 - Inspectable runtime, append-only JSONL sessions.
 - Native image and pdf input support.
 - Mobile-friendly web UI.
 
+This repository is the Go rewrite of the original backend. The web API, SSE contract, session format, provider ids, and core runtime behavior stay aligned with the Python version. The old terminal TUI is not included in this rewrite. The CLI and binary name are `mycode-go`. Config and session directories stay compatible with the original `.mycode` layout.
+
+Repository layout:
+
+- `mycode-go/` — Go module, CLI, server, runtime
+- `web/` — React + Vite frontend source
+- `dist/` — built binaries
+
 ## Quick Start
 
-Requires Python 3.12+. Install via [uv](https://docs.astral.sh/uv/):
+Build a user-ready binary with the web UI embedded:
 
 ```bash
-uv tool install mycode-cli
-```
-
-Interactive terminal session:
-
-```bash
-mycode
-```
-
-Web UI (default at `http://localhost:8000`):
-
-```bash
-mycode web (--port <port> --hostname <hostname>)
+make build
 ```
 
 Single message, non-interactive:
 
 ```bash
-mycode run "explain how the session store works"
+./dist/mycode-go "explain how the session store works"
+./dist/mycode-go run "explain how the session store works"
+```
+
+Resume the latest session in the current workspace:
+
+```bash
+./dist/mycode-go run --continue "continue the last task"
+```
+
+Web UI (default at `http://127.0.0.1:8000`):
+
+```bash
+./dist/mycode-go web (--port <port> --hostname <hostname>)
 ```
 
 API keys are discovered automatically from environment variables (see Providers & Models).
@@ -53,14 +62,21 @@ API keys are discovered automatically from environment variables (see Providers 
 | OpenRouter        | `openrouter`  | `OPENROUTER_API_KEY` | `openrouter/auto`                                  |
 | OpenAI-compatible | `openai_chat` | —                    | (configured per provider)                          |
 
+All four interface families use official Go SDKs:
+
+- Anthropic Messages API and Anthropic-compatible endpoints: `github.com/anthropics/anthropic-sdk-go`
+- OpenAI Responses API: `github.com/openai/openai-go/v3`
+- OpenAI Chat Completions and compatible chat endpoints: `github.com/openai/openai-go/v3`
+- Google Gemini: `google.golang.org/genai`
+
 ## Configuration
 
 No config file is required. It is only used for:
 
 1. Setting default provider, model, and other options
-2. Overriding built-in provider settings (e.g. changing the available model list)
-3. Adding custom providers with any built-in provider type.
-4. Customize model metadata for built-in and custom models.
+2. Overriding built-in provider settings
+3. Adding custom providers with any built-in provider type
+4. Customizing model metadata for built-in and custom models
 
 Config is loaded from `~/.mycode/config.json` (global) and `<workspace>/.mycode/config.json` (project-specific, takes precedence).
 
@@ -92,7 +108,8 @@ Config is loaded from `~/.mycode/config.json` (global) and `<workspace>/.mycode/
           "context_window": 128000,
           "max_output_tokens": 16384,
           "supports_reasoning": true,
-          "supports_image_input": false
+          "supports_image_input": false,
+          "supports_pdf_input": false
         }
       }
     }
@@ -103,49 +120,55 @@ Config is loaded from `~/.mycode/config.json` (global) and `<workspace>/.mycode/
 - Built-in provider ids can be overridden by key without specifying `type`. Custom providers must set `type`.
 - `reasoning_effort` controls extended thinking for supported models: `auto` (default) · `none` · `low` · `medium` · `high` · `xhigh`.
 - API keys in config accept `${ENV_VAR}` references.
-- Model metadata is sourced from models.dev and bundled — no manual config needed for built-in models.
+- Model metadata is bundled locally and can be overridden per model in config.
 
 > Built-in Moonshot, MiniMax, and Z.AI defaults use international endpoints. Override `base_url` in config for China endpoints.
 
 ## CLI Reference
 
 ```bash
-mycode                            start interactive session (new)
-mycode --continue                 resume the most recent session
-mycode --session <id>             resume a specific session
-mycode run "..."                  send one message, non-interactive
-mycode web                        start web server (default port 8000)
-mycode web --dev                  API only, no static files
-mycode session list               list saved sessions
+mycode-go "..."                      send one message, non-interactive
+mycode-go run "..."                  send one message, non-interactive
+mycode-go run --continue "..."       resume the most recent session in the current workspace
+mycode-go run --session <id> "..."   resume a specific session
+mycode-go web                        start web server (default port 8000)
+mycode-go web --dev                  API only, no static files
+mycode-go session list               list saved sessions in the current workspace
+mycode-go session list --all         list saved sessions from all workspaces
 ```
-
-Interactive slash commands: `/new` `/resume` `/provider` `/model` `/effort` `/clear` `/q`
 
 ## Development
 
 ```bash
-git clone <repo> && cd mycode
-uv sync --dev
-uv run mycode
+git clone <repo> && cd mycode-go
+make test-go
+go -C mycode-go run ./cmd/mycode-go "hello"
 ```
 
 Web development (backend + Vite dev server):
 
 ```bash
-uv run mycode web --dev
-pnpm --dir web install && pnpm --dir web dev
+make web-install
+make web-dev
+pnpm --dir web dev
 ```
 
-Rebuild packaged web assets:
+Sync web assets into the embedded static directory:
 
 ```bash
-uv run --no-project python scripts/build_web.py
+make web-build
 ```
 
-Build distributable artifacts:
+Refresh the bundled model catalog from models.dev:
 
 ```bash
-uv build
+make update-models-catalog
+```
+
+Build the binary:
+
+```bash
+make build
 ```
 
 ## License
