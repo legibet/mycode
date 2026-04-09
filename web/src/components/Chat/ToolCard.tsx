@@ -29,6 +29,25 @@ interface EditEntry {
   newText: string
 }
 
+interface BashArgs {
+  command?: string
+  [key: string]: unknown
+}
+
+interface PathArgs {
+  path?: string
+  [key: string]: unknown
+}
+
+interface ReadArgs extends PathArgs {
+  offset?: number
+  limit?: number
+}
+
+interface WriteArgs extends PathArgs {
+  content?: string
+}
+
 interface EditArgs {
   path?: string
   edits?: EditEntry[]
@@ -36,9 +55,10 @@ interface EditArgs {
 }
 
 function isEditArgs(args: Record<string, unknown>): args is EditArgs {
+  const editArgs = args as EditArgs
   return (
-    (args['path'] === undefined || typeof args['path'] === 'string') &&
-    Array.isArray(args['edits'])
+    (editArgs.path === undefined || typeof editArgs.path === 'string') &&
+    Array.isArray(editArgs.edits)
   )
 }
 
@@ -130,14 +150,16 @@ function ResultBlock({ text, isError }: { text: string; isError: boolean }) {
 function getPreview(name: string, args?: Record<string, unknown>): string {
   if (!args) return ''
   switch (name) {
-    case 'bash':
-      // biome-ignore lint/complexity/useLiteralKeys: index signature requires bracket access
-      return typeof args['command'] === 'string' ? args['command'] : ''
+    case 'bash': {
+      const bashArgs = args as BashArgs
+      return typeof bashArgs.command === 'string' ? bashArgs.command : ''
+    }
     case 'read':
     case 'write':
-    case 'edit':
-      // biome-ignore lint/complexity/useLiteralKeys: index signature requires bracket access
-      return typeof args['path'] === 'string' ? args['path'] : ''
+    case 'edit': {
+      const pathArgs = args as PathArgs
+      return typeof pathArgs.path === 'string' ? pathArgs.path : ''
+    }
     default:
       return Object.entries(args)
         .filter(([k]) => k !== 'content' && k !== 'prompt')
@@ -150,7 +172,8 @@ function getEditStats(
   args?: Record<string, unknown>,
 ): { added: number; removed: number } | null {
   if (!args) return null
-  const edits = args['edits']
+  const editArgs = args as EditArgs
+  const edits = editArgs.edits
   if (!Array.isArray(edits)) return null
 
   let added = 0
@@ -181,8 +204,9 @@ function getEditStats(
 
 function getReadHint(args?: Record<string, unknown>): string {
   if (!args) return ''
-  const offset = typeof args['offset'] === 'number' ? args['offset'] : null
-  const limit = typeof args['limit'] === 'number' ? args['limit'] : null
+  const readArgs = args as ReadArgs
+  const offset = typeof readArgs.offset === 'number' ? readArgs.offset : null
+  const limit = typeof readArgs.limit === 'number' ? readArgs.limit : null
   if (offset != null && limit != null) return `:${offset}-${offset + limit}`
   if (offset != null) return `:${offset}`
   if (limit != null) return `:1-${limit}`
@@ -191,7 +215,8 @@ function getReadHint(args?: Record<string, unknown>): string {
 
 function getWriteHint(args?: Record<string, unknown>): string {
   if (!args) return ''
-  const content = args['content']
+  const writeArgs = args as WriteArgs
+  const content = writeArgs.content
   if (typeof content !== 'string') return ''
   return `${content.split('\n').length} lines`
 }
@@ -240,7 +265,8 @@ function BashBody({
   display: string
   isError: boolean
 }) {
-  const command = typeof args?.['command'] === 'string' ? args['command'] : ''
+  const bashArgs = args as BashArgs | undefined
+  const command = typeof bashArgs?.command === 'string' ? bashArgs.command : ''
 
   return (
     <div className="pt-2 space-y-2">
@@ -266,7 +292,8 @@ function ReadBody({
   display: string
   isError: boolean
 }) {
-  const path = typeof args?.['path'] === 'string' ? args['path'] : ''
+  const readArgs = args as ReadArgs | undefined
+  const path = typeof readArgs?.path === 'string' ? readArgs.path : ''
   const hint = getReadHint(args)
 
   return (
@@ -291,8 +318,10 @@ function WriteBody({
   display: string
   isError: boolean
 }) {
-  const path = typeof args?.['path'] === 'string' ? args['path'] : ''
-  const content = typeof args?.['content'] === 'string' ? args['content'] : ''
+  const writeArgs = args as WriteArgs | undefined
+  const path = typeof writeArgs?.path === 'string' ? writeArgs.path : ''
+  const content =
+    typeof writeArgs?.content === 'string' ? writeArgs.content : ''
 
   return (
     <div className="pt-2 space-y-2">

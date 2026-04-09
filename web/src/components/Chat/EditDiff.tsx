@@ -146,12 +146,11 @@ function buildDiffRows(
 
   // Collapse long context runs, keeping CTX lines around actual changes.
   const keep = new Uint8Array(rows.length)
-  for (let i = 0; i < rows.length; i++) {
-    if (rows[i]!.type !== 'context') {
-      const lo = Math.max(0, i - CTX)
-      const hi = Math.min(rows.length - 1, i + CTX)
-      for (let j = lo; j <= hi; j++) keep[j] = 1
-    }
+  for (const [i, row] of rows.entries()) {
+    if (row.type === 'context') continue
+    const lo = Math.max(0, i - CTX)
+    const hi = Math.min(rows.length - 1, i + CTX)
+    for (let j = lo; j <= hi; j++) keep[j] = 1
   }
   const hasChanges = rows.some((r) => r.type !== 'context')
   if (!hasChanges) return rows // no diff — keep all
@@ -233,7 +232,7 @@ function buildSimpleRows(
   lang: ResolvedLanguage,
 ): DiffRow[] {
   const allRows: DiffRow[] = []
-  for (let i = 0; i < edits.length; i++) {
+  for (const [i, edit] of edits.entries()) {
     if (i > 0) {
       allRows.push({
         key: `sep-${i}`,
@@ -242,7 +241,6 @@ function buildSimpleRows(
         html: '',
       })
     }
-    const edit = edits[i]!
     const { oldHighlighted, newHighlighted } = highlightEdit(
       highlighter,
       lang,
@@ -280,9 +278,9 @@ function buildMergedRows(
   // Track where the previous edit's display ended (line number)
   let prevDisplayEnd = -Infinity
 
-  for (let i = 0; i < edits.length; i++) {
-    const edit = edits[i]!
-    const meta = edit.meta!
+  for (const [i, edit] of edits.entries()) {
+    const meta = edit.meta
+    if (!meta) continue
     const startLine = meta.start_line
     const newLc = meta.new_line_count
     const fullCtxBefore = meta.context_before ?? []
@@ -315,7 +313,7 @@ function buildMergedRows(
     // trim context_after to avoid overlapping with next edit's range.
     let ctxAfter = fullCtxAfter
     if (i < edits.length - 1) {
-      const nextMeta = edits[i + 1]!.meta ?? null
+      const nextMeta = edits[i + 1]?.meta ?? null
       const nextStartLine = nextMeta?.start_line ?? 1
       const nextCtxBefore = nextMeta?.context_before ?? []
       const nextDisplayStart = nextStartLine - nextCtxBefore.length
@@ -342,11 +340,13 @@ function buildMergedRows(
     // Context-before rows
     let ln = startLine - ctxBefore.length
     for (let j = 0; j < ctxBefore.length; j++) {
+      const line = ctxBefore[j]
+      if (line === undefined) continue
       allRows.push({
         key: `e${i}-cb-${ln}`,
         type: 'context',
         ln: ln++,
-        html: ctxBeforeHtml[j] ?? escapeHtml(ctxBefore[j]!),
+        html: ctxBeforeHtml[j] ?? escapeHtml(line),
       })
     }
 
@@ -368,11 +368,13 @@ function buildMergedRows(
     // Context-after rows
     let afterLn = startLine + newLc
     for (let j = 0; j < ctxAfter.length; j++) {
+      const line = ctxAfter[j]
+      if (line === undefined) continue
       allRows.push({
         key: `e${i}-ca-${afterLn}`,
         type: 'context',
         ln: afterLn++,
-        html: ctxAfterHtml[j] ?? escapeHtml(ctxAfter[j]!),
+        html: ctxAfterHtml[j] ?? escapeHtml(line),
       })
     }
 
