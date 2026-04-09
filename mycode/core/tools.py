@@ -177,6 +177,7 @@ def truncate_text(
     """
 
     lines = text.splitlines()
+    total_bytes = len(text.encode("utf-8"))
     out_lines: list[str] = []
     out_bytes = 0
 
@@ -185,8 +186,7 @@ def truncate_text(
     for line in source:
         if len(out_lines) >= max_lines:
             break
-        # +1 for newline when joined later
-        b = len((line + "\n").encode("utf-8"))
+        b = len(line.encode("utf-8")) + 1  # +1 for newline
         if out_bytes + b > max_bytes:
             break
         out_lines.append(line)
@@ -205,11 +205,11 @@ def truncate_text(
             truncated=True,
             truncated_by="bytes",
             output_lines=1,
-            output_bytes=len(content.encode("utf-8")),
+            output_bytes=len(sliced),
         )
 
     content = "\n".join(out_lines)
-    truncated = len(out_lines) < len(lines) or out_bytes < len(text.encode("utf-8"))
+    truncated = len(out_lines) < len(lines) or out_bytes < total_bytes
 
     truncated_by: str | None = None
     if truncated:
@@ -222,7 +222,7 @@ def truncate_text(
         truncated=truncated,
         truncated_by=truncated_by,
         output_lines=len(out_lines),
-        output_bytes=len(content.encode("utf-8")),
+        output_bytes=out_bytes,
     )
     return content, trunc
 
@@ -273,16 +273,12 @@ def detect_image_mime_type(path: Path) -> str | None:
 def detect_document_mime_type(path: Path) -> str | None:
     try:
         with path.open("rb") as file:
-            header = file.read(8)
+            if file.read(5).startswith(b"%PDF-"):
+                return "application/pdf"
     except OSError:
-        return None
-
-    if header.startswith(b"%PDF-"):
-        return "application/pdf"
+        pass
     guessed, _ = guess_type(path.name)
-    if guessed == "application/pdf":
-        return guessed
-    return None
+    return "application/pdf" if guessed == "application/pdf" else None
 
 
 # ---------------------------------------------------------------------------
@@ -441,18 +437,6 @@ class ToolExecutor:
         """
 
         file_path = Path(resolve_path(path, cwd=self.cwd))
-        if not file_path.exists():
-            return ToolExecutionResult(
-                model_text=f"error: file not found: {path}",
-                display_text=f"File not found: {path}",
-                is_error=True,
-            )
-        if not file_path.is_file():
-            return ToolExecutionResult(
-                model_text=f"error: not a file: {path}",
-                display_text=f"Not a file: {path}",
-                is_error=True,
-            )
 
         image_mime_type = detect_image_mime_type(file_path)
         if image_mime_type:
@@ -463,7 +447,20 @@ class ToolExecutor:
                     is_error=True,
                 )
             summary = f"Read image file [{image_mime_type}]"
-            image_data = b64encode(file_path.read_bytes()).decode("utf-8")
+            try:
+                image_data = b64encode(file_path.read_bytes()).decode("utf-8")
+            except FileNotFoundError:
+                return ToolExecutionResult(
+                    model_text=f"error: file not found: {path}",
+                    display_text=f"File not found: {path}",
+                    is_error=True,
+                )
+            except Exception as exc:
+                return ToolExecutionResult(
+                    model_text=f"error: failed to read file: {exc}",
+                    display_text=f"Failed to read file: {path}",
+                    is_error=True,
+                )
             return ToolExecutionResult(
                 model_text=summary,
                 display_text=summary,
@@ -490,7 +487,6 @@ class ToolExecutor:
                         next_offset = total_lines
                         break
 
-                    # Keep reads predictable: page by lines and only shorten pathological lines.
                     line = raw_line.rstrip("\r\n")
                     if len(line) > READ_MAX_LINE_CHARS:
                         if first_shortened_line is None:
@@ -498,6 +494,18 @@ class ToolExecutor:
                         shortened_lines += 1
                         line = line[:READ_MAX_LINE_CHARS] + " ... [line truncated]"
                     lines.append(line)
+        except FileNotFoundError:
+            return ToolExecutionResult(
+                model_text=f"error: file not found: {path}",
+                display_text=f"File not found: {path}",
+                is_error=True,
+            )
+        except IsADirectoryError:
+            return ToolExecutionResult(
+                model_text=f"error: not a file: {path}",
+                display_text=f"Not a file: {path}",
+                is_error=True,
+            )
         except UnicodeDecodeError:
             return ToolExecutionResult(
                 model_text=f"error: file is not valid utf-8 text: {path}",
@@ -571,18 +579,6 @@ class ToolExecutor:
         """
 
         file_path = Path(resolve_path(path, cwd=self.cwd))
-        if not file_path.exists():
-            return ToolExecutionResult(
-                model_text=f"error: file not found: {path}",
-                display_text=f"File not found: {path}",
-                is_error=True,
-            )
-        if not file_path.is_file():
-            return ToolExecutionResult(
-                model_text=f"error: not a file: {path}",
-                display_text=f"Not a file: {path}",
-                is_error=True,
-            )
         if not edits:
             return ToolExecutionResult(
                 model_text="error: edits must not be empty",
@@ -612,6 +608,18 @@ class ToolExecutor:
             read_mtime_ns = file_path.stat().st_mtime_ns
             with file_path.open("r", encoding="utf-8", newline="") as file:
                 text = file.read()
+        except FileNotFoundError:
+            return ToolExecutionResult(
+                model_text=f"error: file not found: {path}",
+                display_text=f"File not found: {path}",
+                is_error=True,
+            )
+        except IsADirectoryError:
+            return ToolExecutionResult(
+                model_text=f"error: not a file: {path}",
+                display_text=f"Not a file: {path}",
+                is_error=True,
+            )
         except Exception as exc:
             return ToolExecutionResult(
                 model_text=f"error: failed to read file: {exc}",
@@ -621,8 +629,6 @@ class ToolExecutor:
 
         newline = "\r\n" if "\r\n" in text else None
 
-        # Match all edits against the original text.
-        # Each match: (start, end, new_text, edit_index)
         matches: list[tuple[int, int, str, int]] = []
         norm_text: str | None = None
         norm_imap: list[int] | None = None
@@ -842,7 +848,7 @@ class ToolExecutor:
 
                 line = line.rstrip("\n")
                 total_line_count += 1
-                kept_bytes += len((line + "\n").encode("utf-8"))
+                kept_bytes += len(line.encode("utf-8")) + 1
 
                 if log_file is None:
                     kept_lines.append(line)
@@ -897,8 +903,7 @@ class ToolExecutor:
 
             result = content
 
-            # Truncation notice — either the in-memory tail buffer or the final
-            # display truncation removed part of the output.
+            # Append truncation notice if any output was dropped.
             shown_lines = trunc.output_lines
             was_truncated = log_file is not None or trunc.truncated
             if was_truncated:
@@ -957,6 +962,8 @@ def _closest_line_hint(text: str, needle: str) -> str | None:
         if ratio > best_ratio:
             best_ratio = ratio
             best_line = candidate
+            if ratio >= 1.0:
+                break
 
     if best_ratio < 0.6 or not best_line:
         return None
@@ -981,9 +988,8 @@ def _normalize_text(text: str) -> tuple[str, list[int]]:
     for line in text.splitlines(keepends=True):
         content = line.rstrip("\r\n")
         trimmed = content.rstrip(" \t")
-        for j in range(len(trimmed)):
-            chars.append(trimmed[j])
-            imap.append(pos + j)
+        chars.extend(trimmed)
+        imap.extend(range(pos, pos + len(trimmed)))
         eol = line[len(content) :]
         if eol:
             chars.append("\n")
