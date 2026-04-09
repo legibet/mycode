@@ -304,7 +304,7 @@ export interface ToolMeta {
 
 export interface DiffRow {
   key: string
-  type: 'context' | 'removed' | 'added'
+  type: 'context' | 'removed' | 'added' | 'separator'
   ln: number | null
   html: string
 }

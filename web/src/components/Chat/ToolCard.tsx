@@ -63,9 +63,14 @@ function parseEditMetas(
 
 function EditDiffFallback({ edits }: { edits: EditEntry[] }) {
   return (
-    <div className="rounded-md bg-code px-3 py-2 font-mono text-[13px] leading-[1.5] overflow-x-auto scrollbar-subtle whitespace-pre-wrap space-y-1">
+    <div className="rounded-md bg-code px-3 py-2 font-mono text-[13px] leading-[1.5] overflow-x-auto scrollbar-subtle whitespace-pre-wrap">
       {edits.map((entry, i) => (
         <div key={i}>
+          {i > 0 && (
+            <div className="text-center text-muted-foreground/20 select-none text-xs py-0.5">
+              ···
+            </div>
+          )}
           {entry.oldText && (
             <div className="diff-line-removed px-1">{entry.oldText}</div>
           )}
@@ -319,18 +324,15 @@ function EditBody({
 }) {
   if (args && isEditArgs(args) && args.edits?.length) {
     const metas = parseEditMetas(modelText)
+    const items = args.edits.map((entry, i) => ({
+      oldText: entry.oldText,
+      newText: entry.newText,
+      meta: metas?.[i] ?? null,
+    }))
     return (
       <div className="pt-2 space-y-2">
         <Suspense fallback={<EditDiffFallback edits={args.edits} />}>
-          {args.edits.map((entry, i) => (
-            <EditDiff
-              key={i}
-              path={args.path}
-              oldText={entry.oldText}
-              newText={entry.newText}
-              meta={metas?.[i] ?? null}
-            />
-          ))}
+          <EditDiff path={args.path} edits={items} />
         </Suspense>
         {isError && <ResultBlock text={display} isError />}
       </div>
