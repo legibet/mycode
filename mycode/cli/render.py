@@ -563,20 +563,26 @@ class ReplyRenderer:
         lower = name.lower()
 
         if lower == "edit":
-            old_text = args.get("oldText")
-            new_text = args.get("newText")
-            if isinstance(old_text, str) and isinstance(new_text, str):
+            edits = args.get("edits")
+            if isinstance(edits, list):
                 added = 0
                 removed = 0
-                for tag, old_start, old_end, new_start, new_end in SequenceMatcher(
-                    None,
-                    old_text.splitlines(),
-                    new_text.splitlines(),
-                ).get_opcodes():
-                    if tag in {"replace", "delete"}:
-                        removed += old_end - old_start
-                    if tag in {"replace", "insert"}:
-                        added += new_end - new_start
+                for entry in edits:
+                    if not isinstance(entry, dict):
+                        continue
+                    old_text = entry.get("oldText")
+                    new_text = entry.get("newText")
+                    if not isinstance(old_text, str) or not isinstance(new_text, str):
+                        continue
+                    for tag, old_start, old_end, new_start, new_end in SequenceMatcher(
+                        None,
+                        old_text.splitlines(),
+                        new_text.splitlines(),
+                    ).get_opcodes():
+                        if tag in {"replace", "delete"}:
+                            removed += old_end - old_start
+                        if tag in {"replace", "insert"}:
+                            added += new_end - new_start
                 parts.append(f"+{added}", style="green")
                 parts.append(f" −{removed}", style="red")
         elif lower == "read":

@@ -22,15 +22,29 @@ _PNG_1X1 = base64.b64decode(
 def assert_edit_ok(
     result: ToolExecutionResult,
     *,
-    start_line: int,
-    old_line_count: int,
-    new_line_count: int,
+    start_line: int | list[int],
+    old_line_count: int | list[int],
+    new_line_count: int | list[int],
 ) -> None:
+    """Verify a successful edit result.
+
+    Accepts scalar values (checked against the first/only edit) or lists
+    (checked element-wise against each edit in the result).
+    """
     payload = json.loads(result.model_text)
     assert payload["status"] == "ok"
-    assert payload["start_line"] == start_line
-    assert payload["old_line_count"] == old_line_count
-    assert payload["new_line_count"] == new_line_count
+    edits = payload["edits"]
+    assert isinstance(edits, list) and len(edits) > 0
+
+    starts = [start_line] if isinstance(start_line, int) else start_line
+    olds = [old_line_count] if isinstance(old_line_count, int) else old_line_count
+    news = [new_line_count] if isinstance(new_line_count, int) else new_line_count
+    assert len(edits) == len(starts) == len(olds) == len(news)
+
+    for i, edit in enumerate(edits):
+        assert edit["start_line"] == starts[i]
+        assert edit["old_line_count"] == olds[i]
+        assert edit["new_line_count"] == news[i]
 
 
 class TestTruncateText:
@@ -314,7 +328,7 @@ class TestToolExecutorEdit:
             test_file = Path(tmpdir) / "test.txt"
             test_file.write_text("Hello, World!")
 
-            result = executor.edit(path="test.txt", oldText="World", newText="Universe")
+            result = executor.edit(path="test.txt", edits=[{"oldText": "World", "newText": "Universe"}])
             assert_edit_ok(result, start_line=1, old_line_count=1, new_line_count=1)
             assert test_file.read_text() == "Hello, Universe!"
 
@@ -324,9 +338,8 @@ class TestToolExecutorEdit:
             test_file = Path(tmpdir) / "test.txt"
             test_file.write_text("Hello, World!")
 
-            result = executor.edit(path="test.txt", oldText="NotFound", newText="Replacement")
+            result = executor.edit(path="test.txt", edits=[{"oldText": "NotFound", "newText": "Replacement"}])
             assert result.is_error is True
-            assert "error" in result.model_text.lower()
             assert "not found" in result.model_text.lower()
 
     def test_edit_multiple_occurrences(self):
@@ -335,11 +348,9 @@ class TestToolExecutorEdit:
             test_file = Path(tmpdir) / "test.txt"
             test_file.write_text("apple apple apple")
 
-            result = executor.edit(path="test.txt", oldText="apple", newText="orange")
+            result = executor.edit(path="test.txt", edits=[{"oldText": "apple", "newText": "orange"}])
             assert result.is_error is True
-            assert "error" in result.model_text.lower()
             assert "occurs" in result.model_text.lower()
-            # Should not have changed
             assert test_file.read_text() == "apple apple apple"
 
     def test_edit_exact_snippet_replacement(self):
@@ -348,7 +359,7 @@ class TestToolExecutorEdit:
             test_file = Path(tmpdir) / "test.txt"
             test_file.write_text("Hello World")
 
-            result = executor.edit(path="test.txt", oldText="Hello", newText="Hi")
+            result = executor.edit(path="test.txt", edits=[{"oldText": "Hello", "newText": "Hi"}])
             assert_edit_ok(result, start_line=1, old_line_count=1, new_line_count=1)
             assert test_file.read_text() == "Hi World"
 
@@ -356,9 +367,8 @@ class TestToolExecutorEdit:
         with tempfile.TemporaryDirectory() as tmpdir:
             executor = ToolExecutor(cwd=tmpdir, session_dir=Path(tmpdir))
 
-            result = executor.edit(path="nonexistent.txt", oldText="x", newText="y")
+            result = executor.edit(path="nonexistent.txt", edits=[{"oldText": "x", "newText": "y"}])
             assert result.is_error is True
-            assert "error" in result.model_text.lower()
             assert "not found" in result.model_text.lower()
 
     def test_edit_rejects_empty_old_text(self):
@@ -367,8 +377,7 @@ class TestToolExecutorEdit:
             test_file = Path(tmpdir) / "test.txt"
             test_file.write_text("Hello, World!")
 
-            result = executor.edit(path="test.txt", oldText="", newText="Replacement")
-
+            result = executor.edit(path="test.txt", edits=[{"oldText": "", "newText": "Replacement"}])
             assert result.is_error is True
             assert "must not be empty" in result.model_text.lower()
             assert test_file.read_text() == "Hello, World!"
@@ -379,8 +388,7 @@ class TestToolExecutorEdit:
             test_file = Path(tmpdir) / "test.txt"
             test_file.write_text("Hello, World!")
 
-            result = executor.edit(path="test.txt", oldText="World", newText="World")
-
+            result = executor.edit(path="test.txt", edits=[{"oldText": "World", "newText": "World"}])
             assert result.is_error is True
             assert "identical" in result.model_text.lower()
             assert test_file.read_text() == "Hello, World!"
@@ -391,9 +399,8 @@ class TestToolExecutorEdit:
             test_file = Path(tmpdir) / "test.txt"
             test_file.write_text("alpha\nbeta gamma\ndelta")
 
-            result = executor.edit(path="test.txt", oldText="beta gamam", newText="replacement")
+            result = executor.edit(path="test.txt", edits=[{"oldText": "beta gamam", "newText": "replacement"}])
             assert result.is_error is True
-            assert "error" in result.model_text.lower()
             assert "closest line" in result.model_text.lower()
             assert "beta gamma" in result.model_text
 
@@ -405,10 +412,13 @@ class TestToolExecutorEdit:
 
             result = executor.edit(
                 path="test.py",
-                oldText="def f():\n    return 1\n",
-                newText="def f():\n    return 2\n",
+                edits=[
+                    {
+                        "oldText": "def f():\n    return 1\n",
+                        "newText": "def f():\n    return 2\n",
+                    }
+                ],
             )
-
             assert_edit_ok(result, start_line=1, old_line_count=2, new_line_count=2)
             assert test_file.read_text() == "def f():\n    return 2\n"
 
@@ -418,8 +428,10 @@ class TestToolExecutorEdit:
             test_file = Path(tmpdir) / "test.txt"
             test_file.write_bytes(b"line1\r\nline2\r\n")
 
-            result = executor.edit(path="test.txt", oldText="line1\nline2\n", newText="line1\nlineX\n")
-
+            result = executor.edit(
+                path="test.txt",
+                edits=[{"oldText": "line1\nline2\n", "newText": "line1\nlineX\n"}],
+            )
             assert_edit_ok(result, start_line=1, old_line_count=2, new_line_count=2)
             assert test_file.read_bytes() == b"line1\r\nlineX\r\n"
 
@@ -429,12 +441,118 @@ class TestToolExecutorEdit:
             test_file = Path(tmpdir) / "test.txt"
             test_file.write_bytes(b"x  \r\nx\t\r\n")
 
-            result = executor.edit(path="test.txt", oldText="x\n", newText="y\n")
-
+            result = executor.edit(path="test.txt", edits=[{"oldText": "x\n", "newText": "y\n"}])
             assert result.is_error is True
-            assert "error" in result.model_text.lower()
             assert "occurs" in result.model_text.lower()
             assert "normalization" in result.model_text.lower()
+
+    # ---- multi-edit tests ----
+
+    def test_multi_edit_disjoint(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            executor = ToolExecutor(cwd=tmpdir, session_dir=Path(tmpdir))
+            test_file = Path(tmpdir) / "test.txt"
+            test_file.write_text("aaa\nbbb\nccc\nddd\n")
+
+            result = executor.edit(
+                path="test.txt",
+                edits=[
+                    {"oldText": "aaa", "newText": "AAA"},
+                    {"oldText": "ccc", "newText": "CCC"},
+                ],
+            )
+            assert_edit_ok(
+                result,
+                start_line=[1, 3],
+                old_line_count=[1, 1],
+                new_line_count=[1, 1],
+            )
+            assert test_file.read_text() == "AAA\nbbb\nCCC\nddd\n"
+
+    def test_multi_edit_overlap_rejected(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            executor = ToolExecutor(cwd=tmpdir, session_dir=Path(tmpdir))
+            test_file = Path(tmpdir) / "test.txt"
+            test_file.write_text("aaa bbb ccc")
+
+            result = executor.edit(
+                path="test.txt",
+                edits=[
+                    {"oldText": "aaa bbb", "newText": "XXX"},
+                    {"oldText": "bbb ccc", "newText": "YYY"},
+                ],
+            )
+            assert result.is_error is True
+            assert "overlap" in result.model_text.lower()
+            assert test_file.read_text() == "aaa bbb ccc"
+
+    def test_multi_edit_duplicate_rejected(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            executor = ToolExecutor(cwd=tmpdir, session_dir=Path(tmpdir))
+            test_file = Path(tmpdir) / "test.txt"
+            test_file.write_text("aaa bbb aaa")
+
+            result = executor.edit(
+                path="test.txt",
+                edits=[{"oldText": "aaa", "newText": "XXX"}],
+            )
+            assert result.is_error is True
+            assert "occurs" in result.model_text.lower()
+
+    def test_multi_edit_empty_list_rejected(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            executor = ToolExecutor(cwd=tmpdir, session_dir=Path(tmpdir))
+            test_file = Path(tmpdir) / "test.txt"
+            test_file.write_text("content")
+
+            result = executor.edit(path="test.txt", edits=[])
+            assert result.is_error is True
+            assert "empty" in result.model_text.lower()
+
+    def test_multi_edit_fuzzy_preserves_untouched_regions(self):
+        """Fuzzy match must not alter trailing whitespace in untouched lines."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            executor = ToolExecutor(cwd=tmpdir, session_dir=Path(tmpdir))
+            test_file = Path(tmpdir) / "test.py"
+            # Line 2 has trailing spaces that should be preserved.
+            test_file.write_text("def f():\n    x = 1    \n    return x\n")
+
+            result = executor.edit(
+                path="test.py",
+                edits=[
+                    {
+                        "oldText": "return x",
+                        "newText": "return x + 1",
+                    }
+                ],
+            )
+            assert_edit_ok(result, start_line=3, old_line_count=1, new_line_count=1)
+            content = test_file.read_text()
+            # Trailing spaces on line 2 must be untouched.
+            assert "    x = 1    \n" in content
+            assert "return x + 1" in content
+
+    def test_multi_edit_with_line_expansion(self):
+        """Multi-edit where one edit adds lines — later edit metadata should reflect shifted lines."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            executor = ToolExecutor(cwd=tmpdir, session_dir=Path(tmpdir))
+            test_file = Path(tmpdir) / "test.txt"
+            test_file.write_text("a\nb\nc\n")
+
+            result = executor.edit(
+                path="test.txt",
+                edits=[
+                    {"oldText": "a", "newText": "a1\na2"},
+                    {"oldText": "c", "newText": "C"},
+                ],
+            )
+            assert_edit_ok(
+                result,
+                start_line=[1, 4],  # "c" is now line 4 because "a" expanded to 2 lines
+                old_line_count=[1, 1],
+                new_line_count=[2, 1],
+            )
+            assert test_file.read_text() == "a1\na2\nb\nC\n"
 
 
 class TestToolExecutorAbsolutePath:

@@ -13,6 +13,7 @@ import {
   Terminal,
 } from 'lucide-react'
 import { lazy, memo, Suspense, useState } from 'react'
+import type { EditMeta } from '../../types'
 import { cn } from '../../utils/cn'
 
 let editDiffPromise: Promise<typeof import('./EditDiff')> | undefined
@@ -23,33 +24,56 @@ function loadEditDiff() {
 }
 const EditDiff = lazy(loadEditDiff)
 
+interface EditEntry {
+  oldText: string
+  newText: string
+}
+
 interface EditArgs {
   path?: string
-  oldText?: string
-  newText?: string
+  edits?: EditEntry[]
   [key: string]: unknown
 }
 
 function isEditArgs(args: Record<string, unknown>): args is EditArgs {
-  const { oldText, newText, path } = args
   return (
-    (oldText === undefined || typeof oldText === 'string') &&
-    (newText === undefined || typeof newText === 'string') &&
-    (path === undefined || typeof path === 'string')
+    (args['path'] === undefined || typeof args['path'] === 'string') &&
+    Array.isArray(args['edits'])
   )
 }
 
-function EditDiffFallback({
-  oldText,
-  newText,
-}: {
-  oldText?: string | undefined
-  newText?: string | undefined
-}) {
+/** Parse model_text JSON into per-edit metadata array. */
+function parseEditMetas(
+  modelText: string | null | undefined,
+): EditMeta[] | null {
+  if (!modelText) return null
+  try {
+    const data = JSON.parse(modelText) as {
+      status?: string
+      edits?: EditMeta[]
+    }
+    if (data.status === 'ok' && Array.isArray(data.edits)) {
+      return data.edits.filter((e) => typeof e?.start_line === 'number')
+    }
+  } catch {
+    /* not JSON */
+  }
+  return null
+}
+
+function EditDiffFallback({ edits }: { edits: EditEntry[] }) {
   return (
-    <div className="rounded-md bg-code px-3 py-2 font-mono text-[13px] leading-[1.5] overflow-x-auto scrollbar-subtle whitespace-pre-wrap">
-      {oldText && <div className="diff-line-removed px-1">{oldText}</div>}
-      {newText && <div className="diff-line-added px-1">{newText}</div>}
+    <div className="rounded-md bg-code px-3 py-2 font-mono text-[13px] leading-[1.5] overflow-x-auto scrollbar-subtle whitespace-pre-wrap space-y-1">
+      {edits.map((entry, i) => (
+        <div key={i}>
+          {entry.oldText && (
+            <div className="diff-line-removed px-1">{entry.oldText}</div>
+          )}
+          {entry.newText && (
+            <div className="diff-line-added px-1">{entry.newText}</div>
+          )}
+        </div>
+      ))}
     </div>
   )
 }
@@ -121,29 +145,32 @@ function getEditStats(
   args?: Record<string, unknown>,
 ): { added: number; removed: number } | null {
   if (!args) return null
-  const oldText = args['oldText']
-  const newText = args['newText']
-  if (typeof oldText !== 'string' || typeof newText !== 'string') return null
-
-  const oldLines = oldText.split('\n')
-  const newLines = newText.split('\n')
+  const edits = args['edits']
+  if (!Array.isArray(edits)) return null
 
   let added = 0
   let removed = 0
-  const oldSet = new Map<string, number>()
-  for (const line of oldLines) oldSet.set(line, (oldSet.get(line) ?? 0) + 1)
-  const newSet = new Map<string, number>()
-  for (const line of newLines) newSet.set(line, (newSet.get(line) ?? 0) + 1)
-
-  for (const [line, count] of oldSet) {
-    const newCount = newSet.get(line) ?? 0
-    if (count > newCount) removed += count - newCount
+  for (const entry of edits) {
+    if (
+      typeof entry?.oldText !== 'string' ||
+      typeof entry?.newText !== 'string'
+    )
+      continue
+    const oldSet = new Map<string, number>()
+    for (const line of entry.oldText.split('\n'))
+      oldSet.set(line, (oldSet.get(line) ?? 0) + 1)
+    const newSet = new Map<string, number>()
+    for (const line of entry.newText.split('\n'))
+      newSet.set(line, (newSet.get(line) ?? 0) + 1)
+    for (const [line, count] of oldSet) {
+      const nc = newSet.get(line) ?? 0
+      if (count > nc) removed += count - nc
+    }
+    for (const [line, count] of newSet) {
+      const oc = oldSet.get(line) ?? 0
+      if (count > oc) added += count - oc
+    }
   }
-  for (const [line, count] of newSet) {
-    const oldCount = oldSet.get(line) ?? 0
-    if (count > oldCount) added += count - oldCount
-  }
-
   return { added, removed }
 }
 
@@ -290,20 +317,20 @@ function EditBody({
   display: string
   isError: boolean
 }) {
-  if (args && isEditArgs(args) && args.oldText !== undefined) {
+  if (args && isEditArgs(args) && args.edits?.length) {
+    const metas = parseEditMetas(modelText)
     return (
       <div className="pt-2 space-y-2">
-        <Suspense
-          fallback={
-            <EditDiffFallback oldText={args.oldText} newText={args.newText} />
-          }
-        >
-          <EditDiff
-            path={args.path}
-            oldText={args.oldText}
-            newText={args.newText}
-            result={modelText ?? null}
-          />
+        <Suspense fallback={<EditDiffFallback edits={args.edits} />}>
+          {args.edits.map((entry, i) => (
+            <EditDiff
+              key={i}
+              path={args.path}
+              oldText={entry.oldText}
+              newText={entry.newText}
+              meta={metas?.[i] ?? null}
+            />
+          ))}
         </Suspense>
         {isError && <ResultBlock text={display} isError />}
       </div>

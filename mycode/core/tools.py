@@ -96,15 +96,36 @@ DEFAULT_TOOL_SPECS: tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="edit",
-        description="Edit a file by replacing one oldText snippet with newText. Prefer an exact match.",
+        description=(
+            "Edit a file by replacing text snippets. "
+            "Each edits[].oldText must match uniquely in the original file. "
+            "For multiple disjoint changes in one file, use one call with multiple edits."
+        ),
         input_schema={
             "type": "object",
             "properties": {
                 "path": {"type": "string", "description": "File path (relative or absolute)."},
-                "oldText": {"type": "string", "description": "Exact text to replace (must match exactly)."},
-                "newText": {"type": "string", "description": "Replacement text."},
+                "edits": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "oldText": {
+                                "type": "string",
+                                "description": "Exact text to find (must be unique in the file).",
+                            },
+                            "newText": {
+                                "type": "string",
+                                "description": "Replacement text.",
+                            },
+                        },
+                        "required": ["oldText", "newText"],
+                        "additionalProperties": False,
+                    },
+                    "description": "Replacements to apply. All matched against the original file, not incrementally.",
+                },
             },
-            "required": ["path", "oldText", "newText"],
+            "required": ["path", "edits"],
             "additionalProperties": False,
         },
         method_name="edit",
@@ -527,11 +548,13 @@ class ToolExecutor:
 
     # ---- edit -----------------------------------------------------------------
 
-    def edit(self, *, path: str, oldText: str, newText: str) -> ToolExecutionResult:  # noqa: N803 (pi-compatible)
-        """Replace one unique snippet in a file.
+    def edit(self, *, path: str, edits: list[dict[str, str]]) -> ToolExecutionResult:
+        """Replace one or more unique snippets in a file.
 
-        Tries exact match first. If that fails, only line-ending and trailing-
-        whitespace differences are tolerated.
+        All edits are matched against the original file content (not incrementally).
+        Exact match is tried first; if that fails, a conservative fuzzy match
+        tolerates line-ending and trailing-whitespace differences while only
+        replacing the matched region in the original text.
         """
 
         file_path = Path(resolve_path(path, cwd=self.cwd))
@@ -547,21 +570,32 @@ class ToolExecutor:
                 display_text=f"Not a file: {path}",
                 is_error=True,
             )
-        if oldText == "":
+        if not edits:
             return ToolExecutionResult(
-                model_text="error: oldText must not be empty",
-                display_text="Edit target must not be empty",
-                is_error=True,
-            )
-        if oldText == newText:
-            return ToolExecutionResult(
-                model_text="error: oldText and newText are identical",
-                display_text="Edit would not change the file",
+                model_text="error: edits must not be empty",
+                display_text="Edits list is empty",
                 is_error=True,
             )
 
+        multi = len(edits) > 1
+        for i, entry in enumerate(edits):
+            old_text = entry.get("oldText", "")
+            new_text = entry.get("newText", "")
+            pfx = f"edits[{i}]: " if multi else ""
+            if not old_text:
+                return ToolExecutionResult(
+                    model_text=f"error: {pfx}oldText must not be empty",
+                    display_text="Edit target must not be empty",
+                    is_error=True,
+                )
+            if old_text == new_text:
+                return ToolExecutionResult(
+                    model_text=f"error: {pfx}oldText and newText are identical",
+                    display_text="Edit would not change the file",
+                    is_error=True,
+                )
+
         try:
-            # newline="" keeps the original line endings in memory.
             read_mtime_ns = file_path.stat().st_mtime_ns
             with file_path.open("r", encoding="utf-8", newline="") as file:
                 text = file.read()
@@ -574,51 +608,88 @@ class ToolExecutor:
 
         newline = "\r\n" if "\r\n" in text else None
 
-        # Exact match first (deterministic and preferred)
-        exact_count = text.count(oldText)
-        match_pos: int | None = None
-        if exact_count == 1:
-            match_pos = text.index(oldText)
-            updated = text.replace(oldText, newText, 1)
-        elif exact_count > 1:
-            return ToolExecutionResult(
-                model_text=f"error: oldText occurs {exact_count} times; provide a more specific oldText",
-                display_text="Edit target is ambiguous; provide a more specific oldText",
-                is_error=True,
-            )
-        else:
-            # Conservative fuzzy fallback:
-            # tolerate line-ending and trailing-whitespace differences only.
-            fuzzy_span, fuzzy_count = _find_fuzzy_edit_span(text, oldText)
-            if fuzzy_span is None:
-                if fuzzy_count > 1:
-                    return ToolExecutionResult(
-                        model_text=(
-                            f"error: oldText occurs {fuzzy_count} times after normalization; "
-                            "provide a more specific oldText"
-                        ),
-                        display_text="Edit target is ambiguous after normalization",
-                        is_error=True,
-                    )
-                hint = _closest_line_hint(text, oldText)
-                if hint:
-                    return ToolExecutionResult(
-                        model_text=f"error: oldText not found. closest line: {hint}",
-                        display_text="Edit target not found",
-                        is_error=True,
-                    )
+        # Match all edits against the original text.
+        # Each match: (start, end, new_text, edit_index)
+        matches: list[tuple[int, int, str, int]] = []
+        norm_text: str | None = None
+        norm_imap: list[int] | None = None
+
+        for i, entry in enumerate(edits):
+            old_text = entry["oldText"]
+            new_text = entry["newText"]
+            pfx = f"edits[{i}]: " if multi else ""
+
+            exact_count = text.count(old_text)
+            if exact_count == 1:
+                pos = text.index(old_text)
+                matches.append((pos, pos + len(old_text), new_text, i))
+                continue
+            if exact_count > 1:
                 return ToolExecutionResult(
-                    model_text="error: oldText not found",
-                    display_text="Edit target not found",
+                    model_text=f"error: {pfx}oldText occurs {exact_count} times; provide a more specific oldText",
+                    display_text="Edit target is ambiguous",
                     is_error=True,
                 )
 
-            start, end = fuzzy_span
-            match_pos = start
-            updated = text[:start] + newText + text[end:]
+            # Fuzzy fallback: normalize both sides, find in normalized space,
+            # but map the span back to the original text for replacement.
+            if norm_text is None:
+                norm_text, norm_imap = _normalize_text(text)
+            norm_old, _ = _normalize_text(old_text)
+
+            norm_count = norm_text.count(norm_old)
+            if norm_count == 0:
+                hint = _closest_line_hint(text, old_text)
+                msg = f"error: {pfx}oldText not found"
+                if hint:
+                    msg += f". closest line: {hint}"
+                return ToolExecutionResult(
+                    model_text=msg,
+                    display_text="Edit target not found",
+                    is_error=True,
+                )
+            if norm_count > 1:
+                return ToolExecutionResult(
+                    model_text=(
+                        f"error: {pfx}oldText occurs {norm_count} times after normalization; "
+                        "provide a more specific oldText"
+                    ),
+                    display_text="Edit target is ambiguous after normalization",
+                    is_error=True,
+                )
+
+            idx = norm_text.find(norm_old)
+            assert norm_imap is not None  # set together with norm_text
+            orig_start = norm_imap[idx]
+            end_idx = idx + len(norm_old)
+            orig_end = norm_imap[end_idx] if end_idx < len(norm_imap) else len(text)
+            matches.append((orig_start, orig_end, new_text, i))
+
+        # Sort by position and reject overlapping edits.
+        matches.sort(key=lambda m: m[0])
+        for j in range(1, len(matches)):
+            _, prev_end, _, prev_i = matches[j - 1]
+            curr_start, _, _, curr_i = matches[j]
+            if prev_end > curr_start:
+                return ToolExecutionResult(
+                    model_text=f"error: edits[{prev_i}] and edits[{curr_i}] overlap",
+                    display_text="Edit regions overlap",
+                    is_error=True,
+                )
+
+        # Apply replacements back-to-front so earlier offsets stay valid.
+        updated = text
+        for start, end, new_text, _ in reversed(matches):
+            updated = updated[:start] + new_text + updated[end:]
+
+        if updated == text:
+            return ToolExecutionResult(
+                model_text="error: edits produced no changes",
+                display_text="Edits would not change the file",
+                is_error=True,
+            )
 
         try:
-            # Avoid overwriting a file that changed after we read it.
             if file_path.stat().st_mtime_ns != read_mtime_ns:
                 return ToolExecutionResult(
                     model_text="error: file changed while editing; read it again and retry",
@@ -633,29 +704,41 @@ class ToolExecutor:
                 is_error=True,
             )
 
-        # Return a compact JSON payload so the web UI can render a focused diff
-        # around the edited range without re-reading the whole file.
-        start_line = text[:match_pos].count("\n") + 1
-        old_line_count = len(oldText.splitlines()) or 1
-        new_line_count = len(newText.splitlines()) or 1
-        context_lines = 3
-        lines = updated.splitlines()
-        edit_start = start_line - 1
-        before = lines[max(0, edit_start - context_lines) : edit_start]
-        after = lines[edit_start + new_line_count : edit_start + new_line_count + context_lines]
+        # Build per-edit metadata for the web UI diff view.
+        # Matches are sorted by original position; track cumulative character
+        # shift so we can compute correct line numbers in the updated text.
+        updated_lines = updated.splitlines()
+        edit_metas: list[dict[str, Any]] = []
+        char_shift = 0
+        ctx = 3
 
-        return ToolExecutionResult(
-            model_text=json.dumps(
+        for start, end, new_text, _ in matches:
+            old_snippet = text[start:end]
+            new_start = start + char_shift
+            start_line = updated[:new_start].count("\n") + 1
+            old_lc = len(old_snippet.splitlines()) or 1
+            new_lc = len(new_text.splitlines()) or 1
+
+            si = start_line - 1
+            before = updated_lines[max(0, si - ctx) : si]
+            after = updated_lines[si + new_lc : si + new_lc + ctx]
+
+            edit_metas.append(
                 {
-                    "status": "ok",
                     "start_line": start_line,
-                    "old_line_count": old_line_count,
-                    "new_line_count": new_line_count,
+                    "old_line_count": old_lc,
+                    "new_line_count": new_lc,
                     "context_before": before,
                     "context_after": after,
                 }
-            ),
-            display_text=f"Updated {path}",
+            )
+            char_shift += len(new_text) - (end - start)
+
+        n = len(edits)
+        display = f"Updated {path}" if n == 1 else f"Updated {path} ({n} edits)"
+        return ToolExecutionResult(
+            model_text=json.dumps({"status": "ok", "edits": edit_metas}),
+            display_text=display,
         )
 
     # ---- bash -----------------------------------------------------------------
@@ -850,66 +933,27 @@ def _closest_line_hint(text: str, needle: str) -> str | None:
     return best_line
 
 
-def _find_fuzzy_edit_span(text: str, old_text: str) -> tuple[tuple[int, int] | None, int]:
-    """Find unique match span with conservative normalization.
+def _normalize_text(text: str) -> tuple[str, list[int]]:
+    """Normalize for fuzzy edit matching: strip trailing whitespace per line, CRLF→LF.
 
-    Normalization is intentionally limited to:
-    - line ending normalization (CRLF/CR -> LF)
-    - trailing space/tab removal per line
-    """
-
-    normalized_text, text_map = _normalize_for_fuzzy_edit(text)
-    normalized_old, _ = _normalize_for_fuzzy_edit(old_text)
-
-    first = normalized_text.find(normalized_old)
-    if first == -1:
-        return None, 0
-
-    count = normalized_text.count(normalized_old)
-    if count != 1:
-        return None, count
-
-    end_normalized = first + len(normalized_old)
-    start_original = text_map[first]
-    end_original = text_map[end_normalized] if end_normalized < len(text_map) else len(text)
-    return (start_original, end_original), 1
-
-
-def _normalize_for_fuzzy_edit(text: str) -> tuple[str, list[int]]:
-    """Normalize text for conservative fuzzy edit matching.
-
-    Returns normalized text plus a map from normalized index -> original index.
+    Returns (normalized, index_map) where ``index_map[i]`` is the position of
+    normalized char *i* in the original text.  This lets callers find a match in
+    the normalized string and map the span back to exact original byte offsets,
+    so untouched regions of the file are never altered.
     """
 
     chars: list[str] = []
-    index_map: list[int] = []
-
-    i = 0
-    n = len(text)
-    while i < n:
-        line_start = i
-        while i < n and text[i] not in ("\n", "\r"):
-            i += 1
-
-        line_end = i
-        trimmed_end = line_end
-        while trimmed_end > line_start and text[trimmed_end - 1] in (" ", "\t"):
-            trimmed_end -= 1
-
-        for pos in range(line_start, trimmed_end):
-            chars.append(text[pos])
-            index_map.append(pos)
-
-        if i >= n:
-            continue
-
-        # Normalize any line ending to LF and map it to the original EOL start index.
-        eol_start = i
-        if text[i] == "\r" and i + 1 < n and text[i + 1] == "\n":
-            i += 2
-        else:
-            i += 1
-        chars.append("\n")
-        index_map.append(eol_start)
-
-    return "".join(chars), index_map
+    imap: list[int] = []
+    pos = 0
+    for line in text.splitlines(keepends=True):
+        content = line.rstrip("\r\n")
+        trimmed = content.rstrip(" \t")
+        for j in range(len(trimmed)):
+            chars.append(trimmed[j])
+            imap.append(pos + j)
+        eol = line[len(content) :]
+        if eol:
+            chars.append("\n")
+            imap.append(pos + len(content))
+        pos += len(line)
+    return "".join(chars), imap

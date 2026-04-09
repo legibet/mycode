@@ -310,8 +310,9 @@ export interface DiffRow {
 }
 
 export interface EditMeta {
-  status: 'ok'
   start_line: number
+  old_line_count: number
+  new_line_count: number
   context_before?: string[]
   context_after?: string[]
 }

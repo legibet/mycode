@@ -76,35 +76,6 @@ function splitHtmlLines(html: string): string[] {
   })
 }
 
-function parseEditResult(result?: string | null): EditMeta | null {
-  if (!result || typeof result !== 'string') return null
-  try {
-    const data = JSON.parse(result) as Partial<EditMeta> & { status?: string }
-    if (data.status === 'ok' && typeof data.start_line === 'number') {
-      const contextBefore = Array.isArray(data.context_before)
-        ? data.context_before.filter(
-            (line): line is string => typeof line === 'string',
-          )
-        : undefined
-      const contextAfter = Array.isArray(data.context_after)
-        ? data.context_after.filter(
-            (line): line is string => typeof line === 'string',
-          )
-        : undefined
-
-      return {
-        status: 'ok',
-        start_line: data.start_line,
-        ...(contextBefore ? { context_before: contextBefore } : {}),
-        ...(contextAfter ? { context_after: contextAfter } : {}),
-      }
-    }
-  } catch {
-    /* not JSON, ignore */
-  }
-  return null
-}
-
 function highlight(
   highlighter: AppHighlighter,
   code: string,
@@ -226,14 +197,14 @@ interface EditDiffProps {
   path?: string | undefined
   oldText?: string | undefined
   newText?: string | undefined
-  result?: string | null | undefined
+  meta?: EditMeta | null | undefined
 }
 
 export default function EditDiff({
   path,
   oldText,
   newText,
-  result,
+  meta,
 }: EditDiffProps) {
   const highlighter = use(highlighterPromise)
 
@@ -246,7 +217,6 @@ export default function EditDiff({
     const resolved = use(loadResult)
     if (resolved) lang = resolved
   }
-  const meta = parseEditResult(result)
 
   // Highlight oldText, newText, and context lines together for proper syntax
   const ctxBeforeText = meta?.context_before?.join('\n') ?? ''
