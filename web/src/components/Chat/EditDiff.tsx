@@ -226,11 +226,55 @@ function highlightEdit(
  * Adjacent edits whose context regions overlap or touch are merged
  * into a single continuous hunk; otherwise a separator is inserted.
  */
+/** Render each edit independently with separators — no hunk merging. */
+function buildSimpleRows(
+  edits: EditItem[],
+  highlighter: AppHighlighter,
+  lang: ResolvedLanguage,
+): DiffRow[] {
+  const allRows: DiffRow[] = []
+  for (let i = 0; i < edits.length; i++) {
+    if (i > 0) {
+      allRows.push({
+        key: `sep-${i}`,
+        type: 'separator',
+        ln: null,
+        html: '',
+      })
+    }
+    const edit = edits[i]!
+    const { oldHighlighted, newHighlighted } = highlightEdit(
+      highlighter,
+      lang,
+      edit.oldText,
+      edit.newText,
+      [],
+      [],
+    )
+    const rows = buildDiffRows(
+      edit.oldText,
+      edit.newText,
+      oldHighlighted,
+      newHighlighted,
+    )
+    for (const row of rows) {
+      allRows.push({ ...row, key: `e${i}-${row.key}` })
+    }
+  }
+  return allRows
+}
+
 function buildMergedRows(
   edits: EditItem[],
   highlighter: AppHighlighter,
   lang: ResolvedLanguage,
 ): DiffRow[] {
+  // Without meta on every edit, line positions are unknown — fall back to
+  // independent rendering so we don't merge edits based on bogus offsets.
+  if (!edits.every((e) => e.meta != null)) {
+    return buildSimpleRows(edits, highlighter, lang)
+  }
+
   const allRows: DiffRow[] = []
 
   // Track where the previous edit's display ended (line number)
@@ -238,11 +282,11 @@ function buildMergedRows(
 
   for (let i = 0; i < edits.length; i++) {
     const edit = edits[i]!
-    const meta = edit.meta ?? null
-    const startLine = meta?.start_line ?? 1
-    const newLc = meta?.new_line_count ?? (edit.newText.split('\n').length || 1)
-    const fullCtxBefore = meta?.context_before ?? []
-    const fullCtxAfter = meta?.context_after ?? []
+    const meta = edit.meta!
+    const startLine = meta.start_line
+    const newLc = meta.new_line_count
+    const fullCtxBefore = meta.context_before ?? []
+    const fullCtxAfter = meta.context_after ?? []
 
     // Where this edit's display region starts (in file line numbers)
     const displayStart = startLine - fullCtxBefore.length
