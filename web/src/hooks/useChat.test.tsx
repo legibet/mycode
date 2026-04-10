@@ -56,7 +56,10 @@ function mockFetch(
       const url = String(input)
       for (const [prefix, response] of Object.entries(routes)) {
         if (!url.startsWith(prefix)) continue
-        return typeof response === 'function' ? response(init) : response
+        if (typeof response === 'function') {
+          return response(init)
+        }
+        return response.clone()
       }
       throw new Error(`Unexpected fetch: ${url}`)
     },
