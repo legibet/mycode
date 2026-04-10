@@ -77,7 +77,6 @@ legacy/
 # Local data
 /mycode/server/static/
 /mycode-go/internal/server/webdist/*
-!/mycode-go/internal/server/webdist/.keep
 
 # Config with secrets (use config.example.json as template)
 config.json

@@ -1,3 +1,5 @@
+//go:build embedweb
+
 package server
 
 import (

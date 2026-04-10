@@ -2,6 +2,7 @@ GO_DIR := mycode-go
 WEB_DIR := web
 DIST_DIR := $(CURDIR)/dist
 BIN := $(DIST_DIR)/mycode-go
+WEB_EMBED_TAG := embedweb
 
 .PHONY: fmt-go vet-go test-go test-go-race lint-go update-models-catalog web-install web-build web-check check build run web-dev clean
 
@@ -39,7 +40,7 @@ check: vet-go test-go-race lint-go web-check
 
 build: web-build
 	mkdir -p $(DIST_DIR)
-	go -C $(GO_DIR) build -o $(BIN) ./cmd/mycode-go
+	go -C $(GO_DIR) build -tags $(WEB_EMBED_TAG) -o $(BIN) ./cmd/mycode-go
 
 run:
 	go -C $(GO_DIR) run ./cmd/mycode-go
@@ -49,5 +50,4 @@ web-dev:
 
 clean:
 	rm -rf $(DIST_DIR)
-	rm -rf $(GO_DIR)/internal/server/webdist/*
-	touch $(GO_DIR)/internal/server/webdist/.keep
+	rm -rf $(GO_DIR)/internal/server/webdist
