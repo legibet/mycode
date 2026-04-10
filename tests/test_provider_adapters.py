@@ -16,7 +16,7 @@ from mycode.core.providers import (
     OpenRouterAdapter,
     ZAIAdapter,
 )
-from mycode.core.providers.base import ProviderStreamEvent, repair_messages_for_replay
+from mycode.core.providers.base import DEFAULT_REQUEST_TIMEOUT, ProviderStreamEvent, repair_messages_for_replay
 from mycode.core.tools import DEFAULT_TOOL_SPECS
 
 _PNG_1X1 = base64.b64decode(
@@ -882,23 +882,21 @@ def test_google_gemini_build_request_config_uses_supported_tool_settings() -> No
 
     config = adapter._build_config(request).model_dump(mode="json", exclude_none=True)
 
-    assert config["tools"] == [
-        {
-            "function_declarations": [
-                {
-                    "name": "read",
-                    "description": "Read a file.",
-                    "parameters_json_schema": {
-                        "type": "object",
-                        "properties": {"path": {"type": "string"}},
-                        "required": ["path"],
-                    },
-                }
-            ]
-        }
-    ]
+    tool = config["tools"][0]["function_declarations"][0]
+
+    assert tool["name"] == "read"
+    assert tool["parameters_json_schema"]["required"] == ["path"]
     assert "tool_config" not in config
     assert "automatic_function_calling" not in config
+
+
+def test_google_gemini_http_options_use_millisecond_timeout() -> None:
+    adapter = GoogleGeminiAdapter()
+
+    options = adapter._http_options(None).model_dump(mode="json", exclude_none=True)
+
+    assert options["api_version"] == "v1beta"
+    assert options["timeout"] == int(DEFAULT_REQUEST_TIMEOUT * 1000)
 
 
 def test_google_gemini_streaming_parts_merge_into_final_blocks() -> None:

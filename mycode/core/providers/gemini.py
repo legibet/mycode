@@ -112,7 +112,9 @@ class GoogleGeminiAdapter(ProviderAdapter):
         api_version = "v1beta"
         if base_url and urlparse(base_url).path.rstrip("/").lower().endswith(("/v1", "/v1beta")):
             api_version = None
-        return types.HttpOptions(base_url=base_url, api_version=api_version, timeout=int(DEFAULT_REQUEST_TIMEOUT))
+        # google-genai expects milliseconds here; DEFAULT_REQUEST_TIMEOUT is seconds.
+        timeout_ms = int(DEFAULT_REQUEST_TIMEOUT * 1000)
+        return types.HttpOptions(base_url=base_url, api_version=api_version, timeout=timeout_ms)
 
     def _build_contents(self, request: ProviderRequest) -> list[dict[str, Any]]:
         """Convert canonical replay messages into Gemini contents."""
