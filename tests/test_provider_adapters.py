@@ -857,6 +857,50 @@ def test_google_gemini_build_request_config_maps_reasoning_effort() -> None:
     assert flash_config["thinking_config"] == {"include_thoughts": True, "thinking_level": "MINIMAL"}
 
 
+def test_google_gemini_build_request_config_uses_supported_tool_settings() -> None:
+    adapter = GoogleGeminiAdapter()
+    request = cast(
+        Any,
+        _Obj(
+            model="gemini-3-flash-preview",
+            system="You are helpful.",
+            tools=[
+                {
+                    "name": "read",
+                    "description": "Read a file.",
+                    "input_schema": {
+                        "type": "object",
+                        "properties": {"path": {"type": "string"}},
+                        "required": ["path"],
+                    },
+                }
+            ],
+            max_tokens=2048,
+            reasoning_effort=None,
+        ),
+    )
+
+    config = adapter._build_config(request).model_dump(mode="json", exclude_none=True)
+
+    assert config["tools"] == [
+        {
+            "function_declarations": [
+                {
+                    "name": "read",
+                    "description": "Read a file.",
+                    "parameters_json_schema": {
+                        "type": "object",
+                        "properties": {"path": {"type": "string"}},
+                        "required": ["path"],
+                    },
+                }
+            ]
+        }
+    ]
+    assert "tool_config" not in config
+    assert "automatic_function_calling" not in config
+
+
 def test_google_gemini_streaming_parts_merge_into_final_blocks() -> None:
     adapter = GoogleGeminiAdapter()
     blocks: list[dict[str, Any]] = []

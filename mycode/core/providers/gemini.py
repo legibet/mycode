@@ -219,8 +219,6 @@ class GoogleGeminiAdapter(ProviderAdapter):
 
     def _build_config(self, request: ProviderRequest) -> types.GenerateContentConfig:
         tools: list[types.Tool | Any] | None = None
-        tool_config = None
-        automatic_function_calling = None
         if request.tools:
             tools = [
                 types.Tool(
@@ -234,10 +232,6 @@ class GoogleGeminiAdapter(ProviderAdapter):
                     ]
                 )
             ]
-            automatic_function_calling = types.AutomaticFunctionCallingConfig(disable=True)
-            tool_config = types.ToolConfig(
-                function_calling_config=types.FunctionCallingConfig(stream_function_call_arguments=False)
-            )
 
         thinking_config = types.ThinkingConfig(include_thoughts=True)
         if request.reasoning_effort and request.model.lower().startswith("gemini-3"):
@@ -260,8 +254,6 @@ class GoogleGeminiAdapter(ProviderAdapter):
             system_instruction=request.system or None,
             max_output_tokens=request.max_tokens,
             tools=tools,
-            tool_config=tool_config,
-            automatic_function_calling=automatic_function_calling,
             thinking_config=thinking_config,
         )
 
