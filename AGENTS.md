@@ -164,6 +164,30 @@ All adapters implement `ProviderAdapter.stream_turn()`. Message projection to pr
 - Session CRUD at `/api/sessions`
 - Workspace browser at `/api/workspaces`
 
+## Commit Conventions
+
+`web/` changes and backend changes must be in **separate commits**. This is required so that the Go rewrite branch (`mycode-go`) can cherry-pick web changes without pulling in Python-specific code.
+
+Commit message format: `type(scope): description`
+
+Scopes:
+
+- `web` — changes under `web/` only
+- `backend` — Python core/server changes only
+- `cli` — CLI changes only
+- no scope — cross-cutting changes (e.g. SSE contract changes that touch both sides — document what changed in both in the commit body)
+
+Examples:
+
+```
+feat(web): add tool duration display
+fix(backend): handle empty tool result in compact
+refactor(web): unify diff panel hunk merging
+docs: update SSE contract in AGENTS.md
+```
+
+When a feature requires both web and backend changes, make two commits: backend first, then web.
+
 ## Dev Workflow
 
 ```bash
