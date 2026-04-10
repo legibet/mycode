@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"google.golang.org/genai"
 
@@ -12,6 +13,7 @@ import (
 )
 
 const googleDummyThoughtSignature = "skip_thought_signature_validator"
+const googleRequestTimeout = 300 * time.Second
 
 type googleAdapter struct {
 	baseAdapter
@@ -28,12 +30,9 @@ func (a googleAdapter) StreamTurn(ctx context.Context, req Request) <-chan Strea
 		defer close(out)
 
 		client, err := genai.NewClient(ctx, &genai.ClientConfig{
-			APIKey:  req.APIKey,
-			Backend: genai.BackendGeminiAPI,
-			HTTPOptions: genai.HTTPOptions{
-				BaseURL:    strings.TrimSpace(req.APIBase),
-				APIVersion: googleAPIVersion(req.APIBase),
-			},
+			APIKey:      req.APIKey,
+			Backend:     genai.BackendGeminiAPI,
+			HTTPOptions: *googleHTTPOptions(req.APIBase),
 		})
 		if err != nil {
 			out <- StreamEvent{Type: "provider_error", Err: err}
@@ -163,22 +162,14 @@ func (a googleAdapter) buildContents(req Request) []*genai.Content {
 }
 
 func (a googleAdapter) buildConfig(req Request) *genai.GenerateContentConfig {
-	httpOptions := &genai.HTTPOptions{
-		BaseURL:    strings.TrimSpace(req.APIBase),
-		APIVersion: googleAPIVersion(req.APIBase),
-	}
-	level := googleThinkingLevel(req.Model, req.ReasoningEffort)
-	if level != "" || len(req.Tools) > 0 {
-		httpOptions.ExtrasRequestProvider = func(body map[string]any) map[string]any {
-			return applyGoogleRequestExtras(body, level, len(req.Tools) > 0)
-		}
-	}
-
 	config := &genai.GenerateContentConfig{
-		HTTPOptions:       httpOptions,
+		HTTPOptions:       googleHTTPOptions(req.APIBase),
 		MaxOutputTokens:   int32(req.MaxTokens),
 		ThinkingConfig:    &genai.ThinkingConfig{IncludeThoughts: true},
 		SystemInstruction: genai.NewContentFromText(req.System, genai.RoleUser),
+	}
+	if level := googleThinkingLevel(req.Model, req.ReasoningEffort); level != genai.ThinkingLevelUnspecified {
+		config.ThinkingConfig.ThinkingLevel = level
 	}
 	if strings.TrimSpace(req.System) == "" {
 		config.SystemInstruction = nil
@@ -195,39 +186,17 @@ func (a googleAdapter) buildConfig(req Request) *genai.GenerateContentConfig {
 		config.Tools = []*genai.Tool{{
 			FunctionDeclarations: declarations,
 		}}
-		config.ToolConfig = &genai.ToolConfig{
-			FunctionCallingConfig: &genai.FunctionCallingConfig{
-				Mode: genai.FunctionCallingConfigModeAuto,
-			},
-		}
 	}
 	return config
 }
 
-func applyGoogleRequestExtras(body map[string]any, thinkingLevel string, hasTools bool) map[string]any {
-	if thinkingLevel != "" {
-		thinkingConfig, _ := body["thinkingConfig"].(map[string]any)
-		if thinkingConfig == nil {
-			thinkingConfig = map[string]any{}
-			body["thinkingConfig"] = thinkingConfig
-		}
-		thinkingConfig["thinkingLevel"] = thinkingLevel
+func googleHTTPOptions(apiBase string) *genai.HTTPOptions {
+	timeout := googleRequestTimeout
+	return &genai.HTTPOptions{
+		BaseURL:    strings.TrimSpace(apiBase),
+		APIVersion: googleAPIVersion(apiBase),
+		Timeout:    &timeout,
 	}
-	if hasTools {
-		body["automaticFunctionCalling"] = map[string]any{"disable": true}
-		toolConfig, _ := body["toolConfig"].(map[string]any)
-		if toolConfig == nil {
-			toolConfig = map[string]any{}
-			body["toolConfig"] = toolConfig
-		}
-		functionCallingConfig, _ := toolConfig["functionCallingConfig"].(map[string]any)
-		if functionCallingConfig == nil {
-			functionCallingConfig = map[string]any{}
-			toolConfig["functionCallingConfig"] = functionCallingConfig
-		}
-		functionCallingConfig["streamFunctionCallArguments"] = false
-	}
-	return body
 }
 
 func (a googleAdapter) consumePart(blocks *[]message.Block, part *genai.Part) []StreamEvent {
@@ -362,23 +331,23 @@ func googleAPIVersion(apiBase string) string {
 	return "v1beta"
 }
 
-func googleThinkingLevel(model, effort string) string {
+func googleThinkingLevel(model, effort string) genai.ThinkingLevel {
 	if effort == "" {
-		return ""
+		return genai.ThinkingLevelUnspecified
 	}
 	model = strings.ToLower(model)
 	if !strings.HasPrefix(model, "gemini-3") {
-		return ""
+		return genai.ThinkingLevelUnspecified
 	}
 	switch effort {
 	case "none", "low":
 		if strings.HasPrefix(model, "gemini-3.1-pro") {
-			return "LOW"
+			return genai.ThinkingLevelLow
 		}
-		return "MINIMAL"
+		return genai.ThinkingLevelMinimal
 	case "medium":
-		return "MEDIUM"
+		return genai.ThinkingLevelMedium
 	default:
-		return "HIGH"
+		return genai.ThinkingLevelHigh
 	}
 }

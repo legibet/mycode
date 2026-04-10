@@ -266,30 +266,6 @@ func TestOpenAIResponsesFallbackReplaySkipsReasoningBlocks(t *testing.T) {
 	}
 }
 
-func TestGoogleApplyRequestExtras(t *testing.T) {
-	body := applyGoogleRequestExtras(map[string]any{
-		"toolConfig": map[string]any{
-			"functionCallingConfig": map[string]any{
-				"mode": "AUTO",
-			},
-		},
-	}, "LOW", true)
-
-	thinkingConfig, _ := body["thinkingConfig"].(map[string]any)
-	if thinkingConfig["thinkingLevel"] != "LOW" {
-		t.Fatalf("unexpected thinking config: %#v", body)
-	}
-	automatic, _ := body["automaticFunctionCalling"].(map[string]any)
-	if automatic["disable"] != true {
-		t.Fatalf("unexpected automatic function calling: %#v", body)
-	}
-	toolConfig, _ := body["toolConfig"].(map[string]any)
-	functionCallingConfig, _ := toolConfig["functionCallingConfig"].(map[string]any)
-	if functionCallingConfig["streamFunctionCallArguments"] != false {
-		t.Fatalf("unexpected tool config: %#v", body)
-	}
-}
-
 func TestUserPDFInputSerialization(t *testing.T) {
 	pdfData := base64.StdEncoding.EncodeToString(pdfBytes)
 	request := Request{
@@ -786,10 +762,10 @@ func TestGoogleBuildConfigMapsReasoningEffort(t *testing.T) {
 	adapter := newGoogleAdapter().(googleAdapter)
 	cases := []struct {
 		model string
-		level string
+		level genai.ThinkingLevel
 	}{
-		{model: "gemini-3.1-pro-preview", level: "LOW"},
-		{model: "gemini-3-flash-preview", level: "MINIMAL"},
+		{model: "gemini-3.1-pro-preview", level: genai.ThinkingLevelLow},
+		{model: "gemini-3-flash-preview", level: genai.ThinkingLevelMinimal},
 	}
 
 	for _, tc := range cases {
@@ -803,14 +779,112 @@ func TestGoogleBuildConfigMapsReasoningEffort(t *testing.T) {
 			if config.ThinkingConfig == nil || !config.ThinkingConfig.IncludeThoughts {
 				t.Fatalf("unexpected config: %#v", config)
 			}
-			body := map[string]any{"thinkingConfig": map[string]any{"includeThoughts": true}}
-			if config.HTTPOptions == nil || config.HTTPOptions.ExtrasRequestProvider == nil {
-				t.Fatalf("missing extras provider: %#v", config)
+			if config.ThinkingConfig.ThinkingLevel != tc.level {
+				t.Fatalf("unexpected config: %#v", config)
 			}
-			body = config.HTTPOptions.ExtrasRequestProvider(body)
-			thinkingConfig, _ := body["thinkingConfig"].(map[string]any)
-			if thinkingConfig["thinkingLevel"] != tc.level {
-				t.Fatalf("unexpected config body: %#v", body)
+		})
+	}
+}
+
+func TestGoogleBuildConfigUsesSupportedToolSettings(t *testing.T) {
+	adapter := newGoogleAdapter().(googleAdapter)
+	config := adapter.buildConfig(Request{
+		Model:     "gemini-3-flash-preview",
+		System:    "You are helpful.",
+		MaxTokens: 2048,
+		Tools: []map[string]any{
+			{
+				"name":        "read",
+				"description": "Read a file.",
+				"input_schema": map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"path": map[string]any{"type": "string"},
+					},
+					"required": []string{"path"},
+				},
+			},
+		},
+	})
+
+	if len(config.Tools) != 1 || len(config.Tools[0].FunctionDeclarations) != 1 {
+		t.Fatalf("unexpected config: %#v", config)
+	}
+	if config.Tools[0].FunctionDeclarations[0].Name != "read" {
+		t.Fatalf("unexpected config: %#v", config)
+	}
+	if config.ToolConfig != nil {
+		t.Fatalf("unexpected tool config: %#v", config)
+	}
+}
+
+func TestGoogleHTTPOptionsUseMillisecondTimeout(t *testing.T) {
+	options := googleHTTPOptions("")
+	if options.APIVersion != "v1beta" {
+		t.Fatalf("unexpected options: %#v", options)
+	}
+	if options.Timeout == nil || *options.Timeout != googleRequestTimeout {
+		t.Fatalf("unexpected timeout: %#v", options)
+	}
+}
+
+func TestGoogleBuildConfigOmitsUnsupportedExtrasProvider(t *testing.T) {
+	adapter := newGoogleAdapter().(googleAdapter)
+	config := adapter.buildConfig(Request{
+		Model:     "gemini-3-flash-preview",
+		System:    "You are helpful.",
+		MaxTokens: 2048,
+		Tools: []map[string]any{
+			{"name": "read", "description": "Read a file.", "input_schema": map[string]any{"type": "object"}},
+		},
+		ReasoningEffort: "none",
+	})
+	if config.HTTPOptions == nil {
+		t.Fatalf("missing http options: %#v", config)
+	}
+	if config.HTTPOptions.ExtrasRequestProvider != nil {
+		t.Fatalf("unexpected extras provider: %#v", config)
+	}
+}
+
+func TestGoogleNativePartRestoresSDKShape(t *testing.T) {
+	block := message.ToolUseBlock("call_1", "read", map[string]any{"path": "x.py"}, map[string]any{
+		"native": map[string]any{
+			"part": map[string]any{
+				"function_call":     map[string]any{"id": "call_1", "name": "read", "args": map[string]any{"path": "x.py"}},
+				"thought_signature": "c2ln",
+			},
+		},
+	})
+
+	part := googleNativePart(block)
+	if part == nil || part.FunctionCall == nil {
+		t.Fatalf("unexpected part: %#v", part)
+	}
+	if part.FunctionCall.ID != "call_1" || part.FunctionCall.Name != "read" {
+		t.Fatalf("unexpected part: %#v", part)
+	}
+	if string(part.ThoughtSignature) != "sig" {
+		t.Fatalf("unexpected part: %#v", part)
+	}
+	if !reflect.DeepEqual(part.FunctionCall.Args, map[string]any{"path": "x.py"}) {
+		t.Fatalf("unexpected part: %#v", part)
+	}
+}
+
+func TestGoogleHTTPOptionsDropsVersionWhenBaseIncludesAPIVersion(t *testing.T) {
+	cases := []string{
+		"https://example.test/v1",
+		"https://example.test/v1beta",
+	}
+	for _, baseURL := range cases {
+		t.Run(baseURL, func(t *testing.T) {
+			options := googleHTTPOptions(baseURL)
+			if options.APIVersion != "" {
+				t.Fatalf("unexpected options: %#v", options)
+			}
+			if options.BaseURL != baseURL {
+				t.Fatalf("unexpected options: %#v", options)
 			}
 		})
 	}
