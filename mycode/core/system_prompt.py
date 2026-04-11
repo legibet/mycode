@@ -13,6 +13,7 @@ import logging
 import re
 from collections import deque
 from dataclasses import dataclass
+from datetime import date
 from pathlib import Path
 
 import yaml
@@ -35,9 +36,8 @@ You have four tools: read, write, edit, bash.
 - Use bash for file operations and exploration like `ls`, `find`, `rg`, etc.
 - Always set offset/limit when reading large files.
 - Always read files before editing them.
-- Use write only for new files or complete rewrites
-- Your response should be concise and relevant.
-- When available skills match the current task, prefer them over manual alternatives. To use a skill: read its `SKILL.md`, then follow the instructions inside.\
+- Use write only for new files or complete rewrites.
+- Your response should be concise and relevant.\
 """
 
 
@@ -62,7 +62,7 @@ def build_system_prompt(cwd: str, settings: Settings | None = None) -> str:
     if skills_prompt:
         parts.append(skills_prompt)
 
-    parts.append(f"Current working directory: {resolved_cwd}")
+    parts.append(f"Current working directory: {resolved_cwd}\nCurrent date: {date.today().strftime('%Y-%m')}")
     return "\n\n".join(parts)
 
 
@@ -108,7 +108,7 @@ def load_instructions_prompt(cwd: str, settings: Settings | None = None) -> str:
             continue
 
         if text:
-            sections.append(f"## {path}\n{text}")
+            sections.append(f"Instructions from: {path}\n{text}")
 
     if not sections:
         return ""
@@ -116,7 +116,7 @@ def load_instructions_prompt(cwd: str, settings: Settings | None = None) -> str:
     return "\n".join(
         [
             "<workspace_instructions>",
-            "Instructions are ordered from global to current cwd. Later files are more specific.",
+            "Ordered from global to project; later instructions take precedence.",
             "",
             "\n\n".join(sections),
             "</workspace_instructions>",
@@ -308,12 +308,17 @@ def format_skills_for_prompt(skills: list[Skill]) -> str:
     if not skills:
         return ""
 
-    lines = ["<available_skills>"]
+    lines = [
+        "When a task matches a skill's description, prefer it over manual alternatives — use the read tool to load the file at <location> and follow the instructions inside.",
+        "Relative paths inside a skill file resolve against the skill's directory (dirname of <location>).",
+        "<available_skills>",
+    ]
     for skill in skills:
-        lines.append(f"- name: {skill.name}")
-        lines.append(f"  path: {skill.path}")
-        lines.append(f"  description: {skill.description}")
-        lines.append("")
+        lines.append("  <skill>")
+        lines.append(f"    <name>{skill.name}</name>")
+        lines.append(f"    <description>{skill.description}</description>")
+        lines.append(f"    <location>{skill.path}</location>")
+        lines.append("  </skill>")
     lines.append("</available_skills>")
     return "\n".join(lines)
 

@@ -236,7 +236,7 @@ class TestLoadSkillsPrompt:
             result = load_skills_prompt(str(tmp_path))
 
         assert "<available_skills>" in result
-        assert "name: greet" in result
+        assert "<name>greet</name>" in result
 
     def test_no_skills_returns_empty(self, tmp_path: Path, monkeypatch) -> None:
         monkeypatch.setenv("MYCODE_HOME", str(tmp_path / "home" / ".mycode"))
