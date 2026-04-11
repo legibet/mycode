@@ -1,17 +1,19 @@
 package provider
 
 import (
+	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
+	"net/url"
 	"slices"
 	"strings"
 
 	"github.com/legibet/mycode-go/internal/message"
 	"github.com/legibet/mycode-go/internal/tools"
-	openai "github.com/openai/openai-go/v3"
-	"github.com/openai/openai-go/v3/option"
-	oparam "github.com/openai/openai-go/v3/packages/param"
 	"github.com/openai/openai-go/v3/responses"
 )
 
@@ -29,50 +31,56 @@ func (a openAIResponsesAdapter) StreamTurn(ctx context.Context, req Request) <-c
 	go func() {
 		defer close(out)
 
-		opts := []option.RequestOption{option.WithAPIKey(req.APIKey)}
-		if strings.TrimSpace(req.APIBase) != "" {
-			opts = append(opts, option.WithBaseURL(strings.TrimRight(req.APIBase, "/")))
-		}
-		client := openai.NewClient(opts...)
-
-		bodyBytes, err := json.Marshal(a.buildPayload(req))
+		resp, err := a.openStream(ctx, req)
 		if err != nil {
 			out <- StreamEvent{Type: "provider_error", Err: err}
 			return
 		}
+		defer func() { _ = resp.Body.Close() }()
 
-		stream := client.Responses.NewStreaming(ctx, oparam.Override[responses.ResponseNewParams](json.RawMessage(bodyBytes)))
 		var final *responses.Response
 		doneItems := map[int]responses.ResponseOutputItemUnion{}
-		for stream.Next() {
-			event := stream.Current()
-			switch variant := event.AsAny().(type) {
-			case responses.ResponseReasoningTextDeltaEvent:
-				if variant.Delta != "" {
-					out <- StreamEvent{Type: "thinking_delta", Text: variant.Delta}
-				}
-			case responses.ResponseTextDeltaEvent:
-				if variant.Delta != "" {
-					out <- StreamEvent{Type: "text_delta", Text: variant.Delta}
-				}
-			case responses.ResponseOutputItemDoneEvent:
-				doneItems[int(variant.OutputIndex)] = variant.Item
-			case responses.ResponseCompletedEvent:
-				response := variant.Response
-				final = &response
-			case responses.ResponseErrorEvent:
-				out <- StreamEvent{Type: "provider_error", Err: fmt.Errorf("%s", strings.TrimSpace(variant.Message))}
-				return
-			case responses.ResponseFailedEvent:
-				msg := "response failed"
-				if variant.Response.Error.Message != "" {
-					msg = variant.Response.Error.Message
-				}
-				out <- StreamEvent{Type: "provider_error", Err: fmt.Errorf("%s", msg)}
-				return
+
+		scanner := bufio.NewScanner(resp.Body)
+		scanner.Buffer(make([]byte, 0, 64*1024), bufio.MaxScanTokenSize<<9)
+		data := bytes.NewBuffer(nil)
+
+		flush := func() error {
+			raw := bytes.TrimSpace(append([]byte(nil), data.Bytes()...))
+			data.Reset()
+			if len(raw) == 0 || bytes.Equal(raw, []byte("[DONE]")) {
+				return nil
 			}
+			return a.applyStreamEvent(raw, doneItems, &final, out)
 		}
-		if err := stream.Err(); err != nil {
+
+		for scanner.Scan() {
+			line := scanner.Bytes()
+			if len(line) == 0 {
+				if err := flush(); err != nil {
+					out <- StreamEvent{Type: "provider_error", Err: err}
+					return
+				}
+				continue
+			}
+
+			name, value, ok := bytes.Cut(line, []byte(":"))
+			if !ok || !bytes.Equal(name, []byte("data")) {
+				continue
+			}
+			if len(value) > 0 && value[0] == ' ' {
+				value = value[1:]
+			}
+			if data.Len() > 0 {
+				data.WriteByte('\n')
+			}
+			data.Write(value)
+		}
+		if err := scanner.Err(); err != nil {
+			out <- StreamEvent{Type: "provider_error", Err: err}
+			return
+		}
+		if err := flush(); err != nil {
 			out <- StreamEvent{Type: "provider_error", Err: err}
 			return
 		}
@@ -94,6 +102,121 @@ func (a openAIResponsesAdapter) StreamTurn(ctx context.Context, req Request) <-c
 		out <- StreamEvent{Type: "message_done", Msg: &msg}
 	}()
 	return out
+}
+
+func (a openAIResponsesAdapter) openStream(ctx context.Context, req Request) (*http.Response, error) {
+	payload := a.buildPayload(req)
+	payload["stream"] = true
+	bodyBytes, err := json.Marshal(payload)
+	if err != nil {
+		return nil, err
+	}
+
+	endpoint, err := url.JoinPath(defaultString(strings.TrimSpace(req.APIBase), a.Spec().DefaultBaseURL), "responses")
+	if err != nil {
+		return nil, err
+	}
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(bodyBytes))
+	if err != nil {
+		return nil, err
+	}
+	httpReq.Header.Set("Authorization", "Bearer "+req.APIKey)
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Accept", "application/json")
+
+	resp, err := http.DefaultClient.Do(httpReq)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		return resp, nil
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	raw, readErr := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if readErr != nil {
+		return nil, fmt.Errorf("openai responses request failed with status %s", resp.Status)
+	}
+	return nil, openAIResponsesHTTPError(resp.Status, raw)
+}
+
+func (a openAIResponsesAdapter) applyStreamEvent(raw []byte, doneItems map[int]responses.ResponseOutputItemUnion, final **responses.Response, out chan<- StreamEvent) error {
+	var envelope struct {
+		Type string `json:"type"`
+	}
+	if err := json.Unmarshal(raw, &envelope); err != nil {
+		return err
+	}
+
+	switch envelope.Type {
+	case "response.reasoning_text.delta":
+		var event responses.ResponseReasoningTextDeltaEvent
+		if err := json.Unmarshal(raw, &event); err != nil {
+			return err
+		}
+		if event.Delta != "" {
+			out <- StreamEvent{Type: "thinking_delta", Text: event.Delta}
+		}
+	case "response.output_text.delta":
+		var event responses.ResponseTextDeltaEvent
+		if err := json.Unmarshal(raw, &event); err != nil {
+			return err
+		}
+		if event.Delta != "" {
+			out <- StreamEvent{Type: "text_delta", Text: event.Delta}
+		}
+	case "response.output_item.done":
+		var event responses.ResponseOutputItemDoneEvent
+		if err := json.Unmarshal(raw, &event); err != nil {
+			return err
+		}
+		doneItems[int(event.OutputIndex)] = event.Item
+	case "response.completed":
+		var event responses.ResponseCompletedEvent
+		if err := json.Unmarshal(raw, &event); err != nil {
+			return err
+		}
+		response := event.Response
+		*final = &response
+	case "error":
+		var event responses.ResponseErrorEvent
+		if err := json.Unmarshal(raw, &event); err != nil {
+			return err
+		}
+		return fmt.Errorf("%s", strings.TrimSpace(event.Message))
+	case "response.failed":
+		var event responses.ResponseFailedEvent
+		if err := json.Unmarshal(raw, &event); err != nil {
+			return err
+		}
+		msg := "response failed"
+		if event.Response.Error.Message != "" {
+			msg = event.Response.Error.Message
+		}
+		return fmt.Errorf("%s", msg)
+	}
+	return nil
+}
+
+func openAIResponsesHTTPError(status string, raw []byte) error {
+	var body struct {
+		Error struct {
+			Message string `json:"message"`
+		} `json:"error"`
+		Message string `json:"message"`
+	}
+	if err := json.Unmarshal(raw, &body); err == nil {
+		if msg := strings.TrimSpace(body.Error.Message); msg != "" {
+			return fmt.Errorf("openai responses request failed with status %s: %s", status, msg)
+		}
+		if msg := strings.TrimSpace(body.Message); msg != "" {
+			return fmt.Errorf("openai responses request failed with status %s: %s", status, msg)
+		}
+	}
+	if text := strings.TrimSpace(string(raw)); text != "" {
+		return fmt.Errorf("openai responses request failed with status %s: %s", status, text)
+	}
+	return fmt.Errorf("openai responses request failed with status %s", status)
 }
 
 func (a openAIResponsesAdapter) buildPayload(req Request) map[string]any {
@@ -215,16 +338,15 @@ func (a openAIResponsesAdapter) nativeOutputItems(msg message.Message) []any {
 	}
 	replay := make([]any, 0, len(outputItems))
 	for _, item := range outputItems {
-		copied, ok := item.(map[string]any)
+		copied, ok := dumpJSON(item).(map[string]any)
 		if !ok {
 			continue
 		}
-		next := dumpJSONMap(copied)
-		delete(next, "status")
-		if next["type"] != "reasoning" {
-			delete(next, "id")
+		delete(copied, "status")
+		if copied["type"] != "reasoning" {
+			delete(copied, "id")
 		}
-		replay = append(replay, next)
+		replay = append(replay, copied)
 	}
 	return replay
 }
@@ -391,8 +513,18 @@ func (a openAIResponsesAdapter) convertResponse(response responses.Response, out
 	}
 
 	nativeMeta := map[string]any{}
-	if dumped := dumpJSON(rawOutput); dumped != nil {
-		nativeMeta["output_items"] = dumped
+	if len(rawOutput) > 0 {
+		stored := make([]any, 0, len(rawOutput))
+		for _, item := range rawOutput {
+			var dumped any
+			if err := json.Unmarshal([]byte(item.RawJSON()), &dumped); err != nil {
+				continue
+			}
+			stored = append(stored, dumped)
+		}
+		if len(stored) > 0 {
+			nativeMeta["output_items"] = stored
+		}
 	}
 	return message.AssistantMessage(
 		blocks,

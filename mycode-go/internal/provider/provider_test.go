@@ -1,9 +1,14 @@
 package provider
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"reflect"
+	"strings"
 	"testing"
 
 	anthropic "github.com/anthropics/anthropic-sdk-go"
@@ -159,6 +164,108 @@ func TestOpenAIResponsesBuildPayloadIncludesPromptCacheKey(t *testing.T) {
 	}
 	if _, ok := payload["previous_response_id"]; ok {
 		t.Fatalf("unexpected previous_response_id: %#v", payload)
+	}
+}
+
+func TestOpenAIResponsesTextStreamIgnoresTrailingEmptyEvent(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/responses" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		defer func() { _ = r.Body.Close() }()
+		_, _ = io.ReadAll(r.Body)
+
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w,
+			"event: response.output_text.delta\n"+
+				"data: {\"type\":\"response.output_text.delta\",\"content_index\":0,\"delta\":\"OK\",\"item_id\":\"msg_1\",\"logprobs\":[],\"output_index\":1,\"sequence_number\":1}\n\n"+
+				"event: response.output_item.done\n"+
+				"data: {\"type\":\"response.output_item.done\",\"item\":{\"id\":\"msg_1\",\"type\":\"message\",\"status\":\"completed\",\"content\":[{\"type\":\"output_text\",\"annotations\":[],\"logprobs\":[],\"text\":\"OK\"}],\"phase\":\"final_answer\",\"role\":\"assistant\"},\"output_index\":1,\"sequence_number\":2}\n\n"+
+				"event: response.completed\n"+
+				"data: {\"type\":\"response.completed\",\"sequence_number\":3,\"response\":{\"id\":\"resp_1\",\"model\":\"gpt-5.4-mini\",\"object\":\"response\",\"output\":[],\"status\":\"completed\"}}\n\n\n",
+		)
+	}))
+	defer server.Close()
+
+	adapter := newOpenAIResponsesAdapter().(openAIResponsesAdapter)
+	stream := adapter.StreamTurn(context.Background(), Request{
+		Model:     "gpt-5.4-mini",
+		APIKey:    "sk-test",
+		APIBase:   server.URL,
+		MaxTokens: 64,
+		Messages:  []message.Message{message.UserTextMessage("hi", nil)},
+	})
+
+	text := strings.Builder{}
+	var final *message.Message
+	for event := range stream {
+		switch event.Type {
+		case "provider_error":
+			t.Fatalf("unexpected provider error: %v", event.Err)
+		case "text_delta":
+			text.WriteString(event.Text)
+		case "message_done":
+			final = event.Msg
+		}
+	}
+
+	if text.String() != "OK" {
+		t.Fatalf("unexpected text delta: %q", text.String())
+	}
+	if final == nil {
+		t.Fatal("missing final message")
+	}
+	if len(final.Content) != 1 || final.Content[0].Type != "text" || final.Content[0].Text != "OK" {
+		t.Fatalf("unexpected final message: %#v", final.Content)
+	}
+}
+
+func TestOpenAIResponsesToolCallStreamIgnoresTrailingEmptyEvent(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer func() { _ = r.Body.Close() }()
+		_, _ = io.ReadAll(r.Body)
+
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w,
+			"event: response.output_item.done\n"+
+				"data: {\"type\":\"response.output_item.done\",\"item\":{\"id\":\"fc_1\",\"type\":\"function_call\",\"call_id\":\"call_1\",\"name\":\"read\",\"arguments\":\"{\\\"path\\\":\\\"x.py\\\"}\",\"status\":\"completed\"},\"output_index\":0,\"sequence_number\":1}\n\n"+
+				"event: response.completed\n"+
+				"data: {\"type\":\"response.completed\",\"sequence_number\":2,\"response\":{\"id\":\"resp_2\",\"model\":\"gpt-5.4-mini\",\"object\":\"response\",\"output\":[],\"status\":\"completed\"}}\n\n\n",
+		)
+	}))
+	defer server.Close()
+
+	adapter := newOpenAIResponsesAdapter().(openAIResponsesAdapter)
+	stream := adapter.StreamTurn(context.Background(), Request{
+		Model:     "gpt-5.4-mini",
+		APIKey:    "sk-test",
+		APIBase:   server.URL,
+		MaxTokens: 64,
+		Messages:  []message.Message{message.UserTextMessage("use a tool", nil)},
+	})
+
+	var final *message.Message
+	for event := range stream {
+		if event.Type == "provider_error" {
+			t.Fatalf("unexpected provider error: %v", event.Err)
+		}
+		if event.Type == "message_done" {
+			final = event.Msg
+		}
+	}
+
+	if final == nil {
+		t.Fatal("missing final message")
+	}
+	if len(final.Content) != 1 {
+		t.Fatalf("unexpected final blocks: %#v", final.Content)
+	}
+	block := final.Content[0]
+	if block.Type != "tool_use" || block.ID != "call_1" || block.Name != "read" {
+		t.Fatalf("unexpected tool block: %#v", block)
+	}
+	if path, _ := block.Input["path"].(string); path != "x.py" {
+		t.Fatalf("unexpected tool input: %#v", block.Input)
 	}
 }
 
@@ -519,6 +626,20 @@ func TestOpenAIResponsesConvertsFinalResponseBlocks(t *testing.T) {
 	outputItems, _ := native["output_items"].([]any)
 	if len(outputItems) != 3 {
 		t.Fatalf("unexpected native meta: %#v", msg.Meta)
+	}
+	first, _ := outputItems[0].(map[string]any)
+	if _, ok := first["acknowledged_safety_checks"]; ok {
+		t.Fatalf("unexpected union junk in stored output item: %#v", first)
+	}
+	replayPayload := adapter.buildPayload(Request{
+		Model:     "gpt-5.4",
+		Messages:  []message.Message{msg},
+		MaxTokens: 4096,
+	})
+	replayInput := replayPayload["input"].([]any)
+	replayFirst, _ := replayInput[0].(map[string]any)
+	if _, ok := replayFirst["acknowledged_safety_checks"]; ok {
+		t.Fatalf("unexpected replay item: %#v", replayFirst)
 	}
 }
 
