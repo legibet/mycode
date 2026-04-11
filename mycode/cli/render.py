@@ -669,7 +669,11 @@ class ReplyRenderer:
         self._thinking_collapsed = True
 
         if self._live is not None:
+            # Rich's stop() refreshes the last renderable once more before
+            # restoring the cursor. Blank it first so a final spinner frame
+            # can't get stranded in terminals that occasionally miss the clear.
             self._live.transient = True
+            self._live.update(Text(""))
             self._live.stop()
             self._live = None
 
