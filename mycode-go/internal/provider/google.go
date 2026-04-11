@@ -28,8 +28,19 @@ func (a googleAdapter) StreamTurn(ctx context.Context, req Request) <-chan Strea
 	out := make(chan StreamEvent, 32)
 	go func() {
 		defer close(out)
+		requestCtx := ctx
+		cancel := func() {}
+		// Keep the same 300s effective timeout as the Python adapter, but apply
+		// it on our own context. The current Go genai streaming path cancels a
+		// request-scoped timeout too early if it is passed via HTTPOptions.
+		if googleRequestTimeout > 0 {
+			if deadline, ok := ctx.Deadline(); !ok || time.Until(deadline) > googleRequestTimeout {
+				requestCtx, cancel = context.WithTimeout(ctx, googleRequestTimeout)
+			}
+		}
+		defer cancel()
 
-		client, err := genai.NewClient(ctx, &genai.ClientConfig{
+		client, err := genai.NewClient(requestCtx, &genai.ClientConfig{
 			APIKey:      req.APIKey,
 			Backend:     genai.BackendGeminiAPI,
 			HTTPOptions: *googleHTTPOptions(req.APIBase),
@@ -47,7 +58,7 @@ func (a googleAdapter) StreamTurn(ctx context.Context, req Request) <-chan Strea
 		finishMessage := ""
 		var usage any
 
-		for response, err := range client.Models.GenerateContentStream(ctx, req.Model, a.buildContents(req), config) {
+		for response, err := range client.Models.GenerateContentStream(requestCtx, req.Model, a.buildContents(req), config) {
 			if err != nil {
 				out <- StreamEvent{Type: "provider_error", Err: err}
 				return
@@ -191,11 +202,9 @@ func (a googleAdapter) buildConfig(req Request) *genai.GenerateContentConfig {
 }
 
 func googleHTTPOptions(apiBase string) *genai.HTTPOptions {
-	timeout := googleRequestTimeout
 	return &genai.HTTPOptions{
 		BaseURL:    strings.TrimSpace(apiBase),
 		APIVersion: googleAPIVersion(apiBase),
-		Timeout:    &timeout,
 	}
 }
 

@@ -939,12 +939,12 @@ func TestGoogleBuildConfigUsesSupportedToolSettings(t *testing.T) {
 	}
 }
 
-func TestGoogleHTTPOptionsUseMillisecondTimeout(t *testing.T) {
+func TestGoogleHTTPOptionsDoNotUseSDKTimeout(t *testing.T) {
 	options := googleHTTPOptions("")
 	if options.APIVersion != "v1beta" {
 		t.Fatalf("unexpected options: %#v", options)
 	}
-	if options.Timeout == nil || *options.Timeout != googleRequestTimeout {
+	if options.Timeout != nil {
 		t.Fatalf("unexpected timeout: %#v", options)
 	}
 }
