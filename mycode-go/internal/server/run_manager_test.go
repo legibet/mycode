@@ -58,26 +58,20 @@ func (a *completeAdapter) StreamTurn(_ context.Context, _ provider.Request) <-ch
 func newTestAgent(t *testing.T, adapter provider.Adapter) *agentpkg.Agent {
 	t.Helper()
 	dir := t.TempDir()
-	agent, err := agentpkg.New(
-		"gpt-5.4",
-		"openai",
-		dir,
-		filepath.Join(dir, "session"),
-		"session",
-		"",
-		"",
-		"system",
-		nil,
-		0,
-		4096,
-		128000,
-		0.8,
-		"",
-		true,
-		true,
-		adapter,
-		nil,
-	)
+	agent, err := agentpkg.New(agentpkg.Options{
+		Model:              "gpt-5.4",
+		Provider:           "openai",
+		CWD:                dir,
+		SessionDir:         filepath.Join(dir, "session"),
+		SessionID:          "session",
+		System:             "system",
+		MaxTokens:          4096,
+		ContextWindow:      128000,
+		CompactThreshold:   0.8,
+		SupportsImageInput: true,
+		SupportsPDFInput:   true,
+		Adapter:            adapter,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -113,27 +107,20 @@ func TestRunManagerSnapshotIncludesUserMessageAndPendingEvents(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	var snapshot map[string]any
+	var snapshot *runSnapshot
 	waitFor(t, time.Second, func() bool {
 		snapshot = manager.snapshotSession("session-1")
-		if snapshot == nil {
-			return false
-		}
-		pending, _ := snapshot["pending_events"].([]map[string]any)
-		return len(pending) > 0
+		return snapshot != nil && len(snapshot.PendingEvents) > 0
 	})
 
-	runInfo, _ := snapshot["run"].(map[string]any)
-	if runInfo["id"] != run["id"] {
-		t.Fatalf("unexpected run info: %#v", runInfo)
+	if snapshot.Run["id"] != run["id"] {
+		t.Fatalf("unexpected run info: %#v", snapshot.Run)
 	}
-	messages, _ := snapshot["messages"].([]message.Message)
-	if len(messages) != 2 || messages[0].Content[0].Text != "Earlier" || messages[1].Content[0].Text != "build feature" {
-		t.Fatalf("unexpected snapshot messages: %#v", messages)
+	if len(snapshot.Messages) != 2 || snapshot.Messages[0].Content[0].Text != "Earlier" || snapshot.Messages[1].Content[0].Text != "build feature" {
+		t.Fatalf("unexpected snapshot messages: %#v", snapshot.Messages)
 	}
-	pending, _ := snapshot["pending_events"].([]map[string]any)
-	if len(pending) != 1 || pending[0]["type"] != "text" || pending[0]["delta"] != "reply" {
-		t.Fatalf("unexpected pending events: %#v", pending)
+	if len(snapshot.PendingEvents) != 1 || snapshot.PendingEvents[0]["type"] != "text" || snapshot.PendingEvents[0]["delta"] != "reply" {
+		t.Fatalf("unexpected pending events: %#v", snapshot.PendingEvents)
 	}
 
 	close(adapter.release)

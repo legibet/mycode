@@ -48,25 +48,21 @@ func (a *app) serveStatic(w http.ResponseWriter, r *http.Request) {
 	if requested == "." || requested == "/" {
 		requested = "index.html"
 	}
-	if a.serveStaticFile(w, r, requested, r.URL.Path) {
+	if a.serveStaticFile(w, r, requested) {
 		return
 	}
-
-	if a.serveStaticFile(w, r, "index.html", r.URL.Path) {
+	if a.serveStaticFile(w, r, "index.html") {
 		return
 	}
-
 	http.NotFound(w, r)
 }
 
-func (a *app) serveStaticFile(w http.ResponseWriter, r *http.Request, name, requestPath string) bool {
+func (a *app) serveStaticFile(w http.ResponseWriter, r *http.Request, name string) bool {
 	info, err := fs.Stat(a.webFS, name)
 	if err != nil || info.IsDir() {
 		return false
 	}
-	clone := r.Clone(r.Context())
-	clone.URL.Path = requestPath
-	http.ServeFileFS(w, clone, a.webFS, name)
+	http.ServeFileFS(w, r, a.webFS, name)
 	return true
 }
 

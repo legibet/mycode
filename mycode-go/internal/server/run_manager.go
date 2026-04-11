@@ -32,12 +32,19 @@ func (e activeRunError) Error() string {
 	return e.RunID
 }
 
+// runSnapshot is the typed view of an active run returned to callers.
+type runSnapshot struct {
+	Run           map[string]any
+	Messages      []message.Message
+	PendingEvents []map[string]any
+}
+
 type runState struct {
-	ID           string
-	SessionID    string
-	UserMessage  message.Message
-	BaseMessages []message.Message
-	Agent        *agentpkg.Agent
+	id           string
+	sessionID    string
+	userMessage  message.Message
+	baseMessages []message.Message
+	agent        *agentpkg.Agent
 
 	mu         sync.RWMutex
 	status     runStatus
@@ -49,28 +56,27 @@ type runState struct {
 }
 
 func newRunState(id, sessionID string, userMessage message.Message, baseMessages []message.Message, agent *agentpkg.Agent, cancel context.CancelFunc) *runState {
-	clonedMessages := make([]message.Message, len(baseMessages))
+	cloned := make([]message.Message, len(baseMessages))
 	for i, msg := range baseMessages {
-		clonedMessages[i] = message.Clone(msg)
+		cloned[i] = message.Clone(msg)
 	}
 	return &runState{
-		ID:           id,
-		SessionID:    sessionID,
-		UserMessage:  message.Clone(userMessage),
-		BaseMessages: clonedMessages,
-		Agent:        agent,
+		id:           id,
+		sessionID:    sessionID,
+		userMessage:  message.Clone(userMessage),
+		baseMessages: cloned,
+		agent:        agent,
 		status:       runStatusRunning,
 		nextSeq:      1,
 		cancel:       cancel,
 	}
 }
 
-func (r *runState) info() map[string]any {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
+// infoLocked builds the run summary map. Caller must hold r.mu.
+func (r *runState) infoLocked() map[string]any {
 	out := map[string]any{
-		"id":         r.ID,
-		"session_id": r.SessionID,
+		"id":         r.id,
+		"session_id": r.sessionID,
 		"status":     string(r.status),
 		"last_seq":   r.nextSeq - 1,
 	}
@@ -78,6 +84,12 @@ func (r *runState) info() map[string]any {
 		out["error"] = r.errorText
 	}
 	return out
+}
+
+func (r *runState) info() map[string]any {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.infoLocked()
 }
 
 func (r *runState) appendEvent(event agentpkg.Event) {
@@ -104,7 +116,7 @@ func (r *runState) finish(status runStatus, errText string) {
 func (r *runState) pendingAfter(after int) ([]map[string]any, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	pending := make([]map[string]any, 0)
+	var pending []map[string]any
 	for _, event := range r.events {
 		seq, _ := event["seq"].(int)
 		if seq > after {
@@ -114,33 +126,25 @@ func (r *runState) pendingAfter(after int) ([]map[string]any, bool) {
 	return pending, r.status != runStatusRunning
 }
 
-func (r *runState) snapshot() map[string]any {
+func (r *runState) snapshot() runSnapshot {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	messages := make([]message.Message, 0, len(r.BaseMessages)+1)
-	for _, msg := range r.BaseMessages {
+	messages := make([]message.Message, 0, len(r.baseMessages)+1)
+	for _, msg := range r.baseMessages {
 		messages = append(messages, message.Clone(msg))
 	}
-	messages = append(messages, message.Clone(r.UserMessage))
+	messages = append(messages, message.Clone(r.userMessage))
+
 	events := make([]map[string]any, 0, len(r.events))
 	for _, event := range r.events {
 		events = append(events, maps.Clone(event))
 	}
 
-	run := map[string]any{
-		"id":         r.ID,
-		"session_id": r.SessionID,
-		"status":     string(r.status),
-		"last_seq":   r.nextSeq - 1,
-	}
-	if r.errorText != "" {
-		run["error"] = r.errorText
-	}
-	return map[string]any{
-		"run":            run,
-		"messages":       messages,
-		"pending_events": events,
+	return runSnapshot{
+		Run:           r.infoLocked(),
+		Messages:      messages,
+		PendingEvents: events,
 	}
 }
 
@@ -163,13 +167,13 @@ func (m *runManager) startRun(sessionID string, userMessage message.Message, bas
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if existing := m.activeBySession[sessionID]; existing != nil {
-		return nil, activeRunError{RunID: existing.ID}
+		return nil, activeRunError{RunID: existing.id}
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	state := newRunState(newID(), sessionID, userMessage, baseMessages, agent, cancel)
 	m.activeBySession[sessionID] = state
-	m.runsByID[state.ID] = state
+	m.runsByID[state.id] = state
 
 	go m.run(ctx, state, onPersist)
 	return state.info(), nil
@@ -182,14 +186,15 @@ func (m *runManager) getRun(runID string) *runState {
 	return m.runsByID[runID]
 }
 
-func (m *runManager) snapshotSession(sessionID string) map[string]any {
+func (m *runManager) snapshotSession(sessionID string) *runSnapshot {
 	m.mu.Lock()
 	state := m.activeBySession[sessionID]
 	m.mu.Unlock()
 	if state == nil {
 		return nil
 	}
-	return state.snapshot()
+	snap := state.snapshot()
+	return &snap
 }
 
 func (m *runManager) cancelRun(runID string) map[string]any {
@@ -197,7 +202,7 @@ func (m *runManager) cancelRun(runID string) map[string]any {
 	if state == nil {
 		return nil
 	}
-	state.Agent.Cancel()
+	state.agent.Cancel()
 	if state.cancel != nil {
 		state.cancel()
 	}
@@ -212,7 +217,7 @@ func (m *runManager) hasActiveRun(sessionID string) bool {
 
 func (m *runManager) run(ctx context.Context, state *runState, onPersist func(message.Message) error) {
 	var lastError string
-	for event := range state.Agent.Chat(ctx, state.UserMessage, onPersist) {
+	for event := range state.agent.Chat(ctx, state.userMessage, onPersist) {
 		if event.Type == "error" {
 			if messageText, _ := event.Data["message"].(string); messageText != "" {
 				lastError = messageText
@@ -232,8 +237,8 @@ func (m *runManager) run(ctx context.Context, state *runState, onPersist func(me
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if m.activeBySession[state.SessionID] == state {
-		delete(m.activeBySession, state.SessionID)
+	if m.activeBySession[state.sessionID] == state {
+		delete(m.activeBySession, state.sessionID)
 	}
 }
 
@@ -245,10 +250,7 @@ func (m *runManager) pruneFinishedRuns() {
 		state.mu.RLock()
 		finishedAt := state.finishedAt
 		state.mu.RUnlock()
-		if finishedAt.IsZero() {
-			continue
-		}
-		if now.Sub(finishedAt) >= finishedRunTTL {
+		if !finishedAt.IsZero() && now.Sub(finishedAt) >= finishedRunTTL {
 			delete(m.runsByID, runID)
 		}
 	}

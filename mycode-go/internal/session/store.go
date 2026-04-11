@@ -329,15 +329,6 @@ func (s *Store) AppendRewind(sessionID string, rewindTo int) error {
 
 // AppendMessage appends one canonical message.
 func (s *Store) AppendMessage(sessionID string, msg message.Message, providerName, model, cwd, apiBase string) error {
-	return s.append(sessionID, msg, providerName, model, cwd, apiBase)
-}
-
-// SessionDir returns the absolute session directory.
-func (s *Store) SessionDir(sessionID string) string {
-	return s.sessionDir(sessionID)
-}
-
-func (s *Store) append(sessionID string, msg message.Message, providerName, model, cwd, apiBase string) error {
 	lock := s.sessionLock(sessionID)
 	lock.Lock()
 	defer lock.Unlock()
@@ -381,6 +372,11 @@ func (s *Store) append(sessionID string, msg message.Message, providerName, mode
 		}
 	}
 	return s.writeMeta(sessionID, meta)
+}
+
+// SessionDir returns the absolute session directory.
+func (s *Store) SessionDir(sessionID string) string {
+	return s.sessionDir(sessionID)
 }
 
 func (s *Store) repairInterruptedToolLoop(sessionID string, meta *Meta, messages *[]message.Message) error {

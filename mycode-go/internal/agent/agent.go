@@ -24,6 +24,28 @@ type Event struct {
 // PersistFunc stores one canonical message.
 type PersistFunc func(message.Message) error
 
+// Options configures one agent instance.
+type Options struct {
+	Model              string
+	Provider           string
+	CWD                string
+	SessionDir         string
+	SessionID          string
+	APIKey             string
+	APIBase            string
+	System             string
+	Messages           []message.Message
+	MaxTurns           int
+	MaxTokens          int
+	ContextWindow      int
+	CompactThreshold   float64
+	ReasoningEffort    string
+	SupportsImageInput bool
+	SupportsPDFInput   bool
+	Adapter            provider.Adapter
+	Tools              *tools.Executor
+}
+
 // Agent is the single orchestration loop.
 type Agent struct {
 	Model              string
@@ -46,57 +68,56 @@ type Agent struct {
 	Adapter            provider.Adapter
 }
 
-// New creates an agent.
-func New(
-	model, providerType, cwd, sessionDir, sessionID, apiKey, apiBase, system string,
-	messages []message.Message,
-	maxTurns, maxTokens, contextWindow int,
-	compactThreshold float64,
-	reasoningEffort string,
-	supportsImageInput, supportsPDFInput bool,
-	adapter provider.Adapter,
-	toolExecutor *tools.Executor,
-) (*Agent, error) {
-	resolvedSessionDir := sessionDir
-	if resolvedSessionDir == "" {
-		resolvedSessionDir = cwd
+// New creates an agent from options.
+func New(opts Options) (*Agent, error) {
+	sessionDir := opts.SessionDir
+	if sessionDir == "" {
+		sessionDir = opts.CWD
 	}
-	resolvedSessionID := sessionID
-	if resolvedSessionID == "" {
-		resolvedSessionID = filepath.Base(resolvedSessionDir)
+	sessionID := opts.SessionID
+	if sessionID == "" {
+		sessionID = filepath.Base(sessionDir)
 	}
+
+	toolExecutor := opts.Tools
 	if toolExecutor == nil {
-		toolExecutor = tools.NewExecutor(cwd, resolvedSessionDir, supportsImageInput)
+		toolExecutor = tools.NewExecutor(opts.CWD, sessionDir, opts.SupportsImageInput)
 	}
+
+	adapter := opts.Adapter
 	if adapter == nil {
 		var ok bool
-		adapter, ok = provider.LookupAdapter(providerType)
+		adapter, ok = provider.LookupAdapter(opts.Provider)
 		if !ok {
-			return nil, errors.New("unsupported provider adapter: " + providerType)
+			return nil, errors.New("unsupported provider adapter: " + opts.Provider)
 		}
 	}
+
+	system := opts.System
 	if system == "" {
-		system = prompt.Build(cwd, config.ResolveHome())
+		system = prompt.Build(opts.CWD, config.ResolveHome())
 	}
-	cloned := make([]message.Message, len(messages))
-	for i, msg := range messages {
+
+	cloned := make([]message.Message, len(opts.Messages))
+	for i, msg := range opts.Messages {
 		cloned[i] = message.Clone(msg)
 	}
+
 	return &Agent{
-		Model:              model,
-		Provider:           providerType,
-		CWD:                cwd,
-		SessionDir:         resolvedSessionDir,
-		SessionID:          resolvedSessionID,
-		APIKey:             apiKey,
-		APIBase:            apiBase,
-		MaxTurns:           maxTurns,
-		MaxTokens:          maxTokens,
-		ContextWindow:      contextWindow,
-		CompactThreshold:   compactThreshold,
-		ReasoningEffort:    reasoningEffort,
-		SupportsImageInput: supportsImageInput,
-		SupportsPDFInput:   supportsPDFInput,
+		Model:              opts.Model,
+		Provider:           opts.Provider,
+		CWD:                opts.CWD,
+		SessionDir:         sessionDir,
+		SessionID:          sessionID,
+		APIKey:             opts.APIKey,
+		APIBase:            opts.APIBase,
+		MaxTurns:           opts.MaxTurns,
+		MaxTokens:          opts.MaxTokens,
+		ContextWindow:      opts.ContextWindow,
+		CompactThreshold:   opts.CompactThreshold,
+		ReasoningEffort:    opts.ReasoningEffort,
+		SupportsImageInput: opts.SupportsImageInput,
+		SupportsPDFInput:   opts.SupportsPDFInput,
 		System:             system,
 		Messages:           cloned,
 		Tools:              toolExecutor,
@@ -123,18 +144,25 @@ func (a *Agent) Chat(ctx context.Context, userInput message.Message, onPersist P
 			return
 		}
 
-		a.Messages = append(a.Messages, message.Clone(userInput))
-		if onPersist != nil {
-			if err := onPersist(userInput); err != nil {
-				out <- Event{Type: "error", Data: map[string]any{"message": err.Error()}}
-				return
+		// persist saves a message and emits an error event on failure, returning false to abort.
+		persist := func(msg message.Message) bool {
+			if onPersist == nil {
+				return true
 			}
+			if err := onPersist(msg); err != nil {
+				out <- Event{Type: "error", Data: map[string]any{"message": err.Error()}}
+				return false
+			}
+			return true
 		}
 
-		turn := 0
+		a.Messages = append(a.Messages, message.Clone(userInput))
+		if !persist(userInput) {
+			return
+		}
+
 		completed := false
-		for a.MaxTurns <= 0 || turn < a.MaxTurns {
-			turn++
+		for turn := 0; a.MaxTurns <= 0 || turn < a.MaxTurns; turn++ {
 			req := provider.Request{
 				Provider:           a.Provider,
 				Model:              a.Model,
@@ -164,11 +192,11 @@ func (a *Agent) Chat(ctx context.Context, userInput message.Message, onPersist P
 				case "message_done":
 					assistant = event.Msg
 				case "provider_error":
+					msg := "provider error"
 					if event.Err != nil {
-						out <- Event{Type: "error", Data: map[string]any{"message": event.Err.Error()}}
-					} else {
-						out <- Event{Type: "error", Data: map[string]any{"message": "provider error"}}
+						msg = event.Err.Error()
 					}
+					out <- Event{Type: "error", Data: map[string]any{"message": msg}}
 					return
 				}
 			}
@@ -182,14 +210,11 @@ func (a *Agent) Chat(ctx context.Context, userInput message.Message, onPersist P
 			}
 
 			a.Messages = append(a.Messages, message.Clone(*assistant))
-			if onPersist != nil {
-				if err := onPersist(*assistant); err != nil {
-					out <- Event{Type: "error", Data: map[string]any{"message": err.Error()}}
-					return
-				}
+			if !persist(*assistant) {
+				return
 			}
 
-			toolCalls := make([]message.Block, 0)
+			toolCalls := make([]message.Block, 0, len(assistant.Content))
 			for _, block := range assistant.Content {
 				if block.Type == "tool_use" {
 					toolCalls = append(toolCalls, block)
@@ -250,21 +275,17 @@ func (a *Agent) Chat(ctx context.Context, userInput message.Message, onPersist P
 
 			toolMessage := message.BuildMessage("user", toolResults, nil)
 			a.Messages = append(a.Messages, toolMessage)
-			if onPersist != nil {
-				if err := onPersist(toolMessage); err != nil {
-					out <- Event{Type: "error", Data: map[string]any{"message": err.Error()}}
-					return
-				}
+			if !persist(toolMessage) {
+				return
 			}
 		}
+
 		if !completed && a.MaxTurns > 0 {
 			out <- Event{Type: "error", Data: map[string]any{"message": "max_turns reached"}}
 			return
 		}
 
-		for event := range a.compactIfNeeded(ctx, onPersist) {
-			out <- event
-		}
+		a.compactIfNeeded(ctx, onPersist, out)
 	}()
 	return out
 }
@@ -301,77 +322,71 @@ func (a *Agent) runTool(toolCall message.Block, out chan<- Event) tools.Result {
 	}
 }
 
-func (a *Agent) compactIfNeeded(ctx context.Context, onPersist PersistFunc) <-chan Event {
-	out := make(chan Event, 1)
-	go func() {
-		defer close(out)
-		if len(a.Messages) == 0 {
-			return
-		}
+func (a *Agent) compactIfNeeded(ctx context.Context, onPersist PersistFunc, out chan<- Event) {
+	if len(a.Messages) == 0 {
+		return
+	}
 
-		var usage map[string]any
-		for i := len(a.Messages) - 1; i >= 0; i-- {
-			msg := a.Messages[i]
-			if msg.Role != "assistant" {
-				continue
-			}
-			if raw, ok := msg.Meta["usage"].(map[string]any); ok {
-				usage = raw
-			}
-			break
+	var usage map[string]any
+	for i := len(a.Messages) - 1; i >= 0; i-- {
+		msg := a.Messages[i]
+		if msg.Role != "assistant" {
+			continue
 		}
-		if !session.ShouldCompact(usage, a.ContextWindow, a.CompactThreshold) {
-			return
+		if raw, ok := msg.Meta["usage"].(map[string]any); ok {
+			usage = raw
 		}
+		break
+	}
+	if !session.ShouldCompact(usage, a.ContextWindow, a.CompactThreshold) {
+		return
+	}
 
-		beforeCount := len(a.Messages)
-		compactMessages := append(append([]message.Message(nil), a.Messages...), message.UserTextMessage(session.CompactSummaryPrompt, nil))
-		req := provider.Request{
-			Provider:           a.Provider,
-			Model:              a.Model,
-			SessionID:          a.SessionID,
-			Messages:           compactMessages,
-			System:             a.System,
-			MaxTokens:          min(a.MaxTokens, 8192),
-			APIKey:             a.APIKey,
-			APIBase:            a.APIBase,
-			SupportsImageInput: a.SupportsImageInput,
-			SupportsPDFInput:   a.SupportsPDFInput,
-		}
+	beforeCount := len(a.Messages)
+	compactMessages := append(append([]message.Message(nil), a.Messages...), message.UserTextMessage(session.CompactSummaryPrompt, nil))
+	req := provider.Request{
+		Provider:           a.Provider,
+		Model:              a.Model,
+		SessionID:          a.SessionID,
+		Messages:           compactMessages,
+		System:             a.System,
+		MaxTokens:          min(a.MaxTokens, 8192),
+		APIKey:             a.APIKey,
+		APIBase:            a.APIBase,
+		SupportsImageInput: a.SupportsImageInput,
+		SupportsPDFInput:   a.SupportsPDFInput,
+	}
 
-		var summary *message.Message
-		for event := range a.Adapter.StreamTurn(ctx, req) {
-			if event.Type == "message_done" {
-				summary = event.Msg
-			}
-			if event.Type == "provider_error" {
-				return
-			}
+	var summary *message.Message
+	for event := range a.Adapter.StreamTurn(ctx, req) {
+		if event.Type == "message_done" {
+			summary = event.Msg
 		}
-		if ctx.Err() != nil || summary == nil {
+		if event.Type == "provider_error" {
 			return
 		}
-		summaryText := message.FlattenText(*summary, false)
-		if summaryText == "" {
+	}
+	if ctx.Err() != nil || summary == nil {
+		return
+	}
+	summaryText := message.FlattenText(*summary, false)
+	if summaryText == "" {
+		return
+	}
+	compactEvent := session.BuildCompactEvent(summaryText, a.Provider, a.Model, beforeCount, summary.Meta["usage"])
+	if onPersist != nil {
+		if err := onPersist(compactEvent); err != nil {
 			return
 		}
-		compactEvent := session.BuildCompactEvent(summaryText, a.Provider, a.Model, beforeCount, summary.Meta["usage"])
-		if onPersist != nil {
-			if err := onPersist(compactEvent); err != nil {
-				return
-			}
-		}
-		a.Messages = append(a.Messages, compactEvent)
-		a.Messages = session.ApplyCompact(a.Messages)
-		out <- Event{Type: "compact", Data: map[string]any{
-			"message":         fmt.Sprintf("Context compacted (%d messages -> summary)", beforeCount),
-			"compacted_count": beforeCount,
-		}}
-	}()
-	return out
+	}
+	a.Messages = append(a.Messages, compactEvent)
+	a.Messages = session.ApplyCompact(a.Messages)
+	out <- Event{Type: "compact", Data: map[string]any{
+		"message":         fmt.Sprintf("Context compacted (%d messages -> summary)", beforeCount),
+		"compacted_count": beforeCount,
+	}}
 }
 
-// toolSpecs converts internal tool definitions to provider-facing maps.
 func toolSpecs(specs []tools.ToolSpec) []map[string]any {
 	out := make([]map[string]any, 0, len(specs))
 	for _, spec := range specs {

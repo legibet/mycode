@@ -35,50 +35,43 @@ func Bool(v bool) *bool {
 	return &v
 }
 
-// TextBlock returns a plain text block.
-func TextBlock(text string, meta map[string]any) Block {
-	block := Block{Type: "text", Text: text}
+func newTextBlock(blockType, text string, meta map[string]any) Block {
+	block := Block{Type: blockType, Text: text}
 	if len(meta) > 0 {
 		block.Meta = maps.Clone(meta)
 	}
 	return block
 }
 
-// ThinkingBlock returns a reasoning block.
-func ThinkingBlock(text string, meta map[string]any) Block {
-	block := Block{Type: "thinking", Text: text}
+func newDataBlock(blockType, data, mimeType, name string, meta map[string]any) Block {
+	block := Block{Type: blockType, Data: data, MIMEType: mimeType, Name: name}
 	if len(meta) > 0 {
 		block.Meta = maps.Clone(meta)
 	}
 	return block
+}
+
+// TextBlock returns a plain text block.
+func TextBlock(text string, meta map[string]any) Block { return newTextBlock("text", text, meta) }
+
+// ThinkingBlock returns a reasoning block.
+func ThinkingBlock(text string, meta map[string]any) Block {
+	return newTextBlock("thinking", text, meta)
 }
 
 // ImageBlock returns an image block.
 func ImageBlock(data, mimeType, name string, meta map[string]any) Block {
-	block := Block{Type: "image", Data: data, MIMEType: mimeType, Name: name}
-	if len(meta) > 0 {
-		block.Meta = maps.Clone(meta)
-	}
-	return block
+	return newDataBlock("image", data, mimeType, name, meta)
 }
 
 // DocumentBlock returns a document block.
 func DocumentBlock(data, mimeType, name string, meta map[string]any) Block {
-	block := Block{Type: "document", Data: data, MIMEType: mimeType, Name: name}
-	if len(meta) > 0 {
-		block.Meta = maps.Clone(meta)
-	}
-	return block
+	return newDataBlock("document", data, mimeType, name, meta)
 }
 
 // ToolUseBlock returns a tool use block.
 func ToolUseBlock(id, name string, input map[string]any, meta map[string]any) Block {
-	block := Block{
-		Type:  "tool_use",
-		ID:    id,
-		Name:  name,
-		Input: maps.Clone(input),
-	}
+	block := Block{Type: "tool_use", ID: id, Name: name, Input: maps.Clone(input)}
 	if len(meta) > 0 {
 		block.Meta = maps.Clone(meta)
 	}

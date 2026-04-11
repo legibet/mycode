@@ -6,7 +6,28 @@ import (
 
 	"github.com/legibet/mycode-go/internal/config"
 	"github.com/legibet/mycode-go/internal/message"
+	"github.com/legibet/mycode-go/internal/session"
 )
+
+type sessionCreateRequest struct {
+	Title    string `json:"title"`
+	Provider string `json:"provider"`
+	Model    string `json:"model"`
+	CWD      string `json:"cwd"`
+	APIBase  string `json:"api_base"`
+}
+
+type sessionResponse struct {
+	Session       any               `json:"session"`
+	Messages      []message.Message `json:"messages"`
+	ActiveRun     any               `json:"active_run"`
+	PendingEvents []map[string]any  `json:"pending_events"`
+}
+
+type sessionListItem struct {
+	session.Meta
+	IsRunning bool `json:"is_running"`
+}
 
 func (a *app) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 	var req sessionCreateRequest
@@ -43,22 +64,13 @@ func (a *app) handleListSessions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sessions := make([]map[string]any, 0, len(items))
+	sessions := make([]sessionListItem, 0, len(items))
 	for _, item := range items {
-		sessions = append(sessions, map[string]any{
-			"id":                     item.ID,
-			"title":                  item.Title,
-			"provider":               item.Provider,
-			"model":                  item.Model,
-			"cwd":                    item.CWD,
-			"api_base":               item.APIBase,
-			"message_format_version": item.MessageFormatVersion,
-			"created_at":             item.CreatedAt,
-			"updated_at":             item.UpdatedAt,
-			"is_running":             a.runs.hasActiveRun(item.ID),
+		sessions = append(sessions, sessionListItem{
+			Meta:      item,
+			IsRunning: a.runs.hasActiveRun(item.ID),
 		})
 	}
-
 	writeJSON(w, http.StatusOK, map[string]any{"sessions": sessions})
 }
 
@@ -70,38 +82,22 @@ func (a *app) handleLoadSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if active := a.runs.snapshotSession(sessionID); active != nil {
-		var sessionMeta any
-		if data != nil {
-			sessionMeta = data.Session
-		}
-		messages, _ := active["messages"].([]message.Message)
-		pendingEvents, _ := active["pending_events"].([]map[string]any)
-		writeJSON(w, http.StatusOK, sessionResponse{
-			Session:       sessionMeta,
-			Messages:      messages,
-			ActiveRun:     active["run"],
-			PendingEvents: pendingEvents,
-		})
-		return
-	}
-
-	if data == nil {
-		writeJSON(w, http.StatusOK, sessionResponse{
-			Session:       nil,
-			Messages:      []message.Message{},
-			ActiveRun:     nil,
-			PendingEvents: []map[string]any{},
-		})
-		return
-	}
-
-	writeJSON(w, http.StatusOK, sessionResponse{
-		Session:       data.Session,
-		Messages:      data.Messages,
-		ActiveRun:     nil,
+	resp := sessionResponse{
+		Messages:      []message.Message{},
 		PendingEvents: []map[string]any{},
-	})
+	}
+	if data != nil {
+		resp.Session = data.Session
+		resp.Messages = data.Messages
+	}
+
+	if active := a.runs.snapshotSession(sessionID); active != nil {
+		resp.ActiveRun = active.Run
+		resp.Messages = active.Messages
+		resp.PendingEvents = active.PendingEvents
+	}
+
+	writeJSON(w, http.StatusOK, resp)
 }
 
 func (a *app) handleDeleteSession(w http.ResponseWriter, r *http.Request) {

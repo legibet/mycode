@@ -38,24 +38,18 @@ func (f *fakeAdapter) StreamTurn(_ context.Context, req provider.Request) <-chan
 
 func TestChatPersistsReasoningBlocks(t *testing.T) {
 	dir := t.TempDir()
-	agent, err := New(
-		"gpt-5.4",
-		"openai",
-		dir,
-		filepath.Join(dir, "session"),
-		"session",
-		"",
-		"",
-		"",
-		nil,
-		0,
-		4096,
-		128000,
-		0.8,
-		"",
-		true,
-		true,
-		&fakeAdapter{
+	agent, err := New(Options{
+		Model:              "gpt-5.4",
+		Provider:           "openai",
+		CWD:                dir,
+		SessionDir:         filepath.Join(dir, "session"),
+		SessionID:          "session",
+		MaxTokens:          4096,
+		ContextWindow:      128000,
+		CompactThreshold:   0.8,
+		SupportsImageInput: true,
+		SupportsPDFInput:   true,
+		Adapter: &fakeAdapter{
 			spec: provider.Spec{ID: "openai"},
 			turns: [][]provider.StreamEvent{{
 				{Type: "thinking_delta", Text: "hidden "},
@@ -66,8 +60,7 @@ func TestChatPersistsReasoningBlocks(t *testing.T) {
 				}, "openai", "gpt-5.4", "", "", nil, nil))},
 			}},
 		},
-		nil,
-	)
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -88,24 +81,19 @@ func TestChatPersistsReasoningBlocks(t *testing.T) {
 
 func TestChatRespectsExplicitTurnLimit(t *testing.T) {
 	dir := t.TempDir()
-	agent, err := New(
-		"gpt-5.4",
-		"openai",
-		dir,
-		filepath.Join(dir, "session"),
-		"session",
-		"",
-		"",
-		"",
-		nil,
-		2,
-		4096,
-		128000,
-		0.8,
-		"",
-		true,
-		true,
-		&fakeAdapter{
+	agent, err := New(Options{
+		Model:              "gpt-5.4",
+		Provider:           "openai",
+		CWD:                dir,
+		SessionDir:         filepath.Join(dir, "session"),
+		SessionID:          "session",
+		MaxTurns:           2,
+		MaxTokens:          4096,
+		ContextWindow:      128000,
+		CompactThreshold:   0.8,
+		SupportsImageInput: true,
+		SupportsPDFInput:   true,
+		Adapter: &fakeAdapter{
 			spec: provider.Spec{ID: "openai"},
 			turns: [][]provider.StreamEvent{
 				{{
@@ -122,8 +110,7 @@ func TestChatRespectsExplicitTurnLimit(t *testing.T) {
 				}},
 			},
 		},
-		nil,
-	)
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -146,26 +133,19 @@ func TestChatPassesSessionIDToProviderRequest(t *testing.T) {
 			},
 		}},
 	}
-	agent, err := New(
-		"gpt-5.4",
-		"openai",
-		dir,
-		filepath.Join(dir, "session-explicit"),
-		"session-explicit",
-		"",
-		"",
-		"",
-		nil,
-		0,
-		4096,
-		128000,
-		0.8,
-		"",
-		true,
-		true,
-		adapter,
-		nil,
-	)
+	agent, err := New(Options{
+		Model:              "gpt-5.4",
+		Provider:           "openai",
+		CWD:                dir,
+		SessionDir:         filepath.Join(dir, "session-explicit"),
+		SessionID:          "session-explicit",
+		MaxTokens:          4096,
+		ContextWindow:      128000,
+		CompactThreshold:   0.8,
+		SupportsImageInput: true,
+		SupportsPDFInput:   true,
+		Adapter:            adapter,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -196,26 +176,20 @@ func TestCompactRequestOmitsReasoningEffort(t *testing.T) {
 			}},
 		},
 	}
-	agent, err := New(
-		"gpt-5.4",
-		"openai",
-		dir,
-		filepath.Join(dir, "session"),
-		"session",
-		"",
-		"",
-		"",
-		nil,
-		0,
-		4096,
-		100,
-		0.8,
-		"high",
-		true,
-		true,
-		adapter,
-		nil,
-	)
+	agent, err := New(Options{
+		Model:              "gpt-5.4",
+		Provider:           "openai",
+		CWD:                dir,
+		SessionDir:         filepath.Join(dir, "session"),
+		SessionID:          "session",
+		MaxTokens:          4096,
+		ContextWindow:      100,
+		CompactThreshold:   0.8,
+		ReasoningEffort:    "high",
+		SupportsImageInput: true,
+		SupportsPDFInput:   true,
+		Adapter:            adapter,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -237,6 +211,22 @@ func TestCompactRequestOmitsReasoningEffort(t *testing.T) {
 	}
 }
 
+func TestNewRejectsUnsupportedProviderAdapter(t *testing.T) {
+	dir := t.TempDir()
+	agent, err := New(Options{
+		Model:     "gpt-5.4",
+		Provider:  "missing",
+		CWD:       dir,
+		SessionID: "session",
+	})
+	if err == nil {
+		t.Fatalf("expected error, got agent %#v", agent)
+	}
+	if err.Error() != "unsupported provider adapter: missing" {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func collectEvents(stream <-chan Event) []Event {
 	events := []Event{}
 	for event := range stream {
@@ -247,34 +237,4 @@ func collectEvents(stream <-chan Event) []Event {
 
 func ptrMessage(msg message.Message) *message.Message {
 	return &msg
-}
-
-func TestNewRejectsUnsupportedProviderAdapter(t *testing.T) {
-	dir := t.TempDir()
-	agent, err := New(
-		"gpt-5.4",
-		"missing",
-		dir,
-		filepath.Join(dir, "session"),
-		"session",
-		"",
-		"",
-		"",
-		nil,
-		0,
-		4096,
-		128000,
-		0.8,
-		"",
-		true,
-		true,
-		nil,
-		nil,
-	)
-	if err == nil {
-		t.Fatalf("expected error, got agent %#v", agent)
-	}
-	if err.Error() != "unsupported provider adapter: missing" {
-		t.Fatalf("unexpected error: %v", err)
-	}
 }

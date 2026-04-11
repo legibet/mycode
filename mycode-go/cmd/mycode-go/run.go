@@ -76,26 +76,23 @@ func runCommand(args []string) int {
 		return 1
 	}
 
-	agent, err := agentpkg.New(
-		resolvedProvider.Model,
-		resolvedProvider.ProviderType,
-		cwd,
-		store.SessionDir(resolvedSession.ID),
-		resolvedSession.ID,
-		resolvedProvider.APIKey,
-		resolvedProvider.APIBase,
-		"",
-		resolvedSession.Messages,
-		*maxTurns,
-		resolvedProvider.MaxTokens,
-		resolvedProvider.ContextWindow,
-		settings.CompactThreshold,
-		resolvedProvider.ReasoningEffort,
-		resolvedProvider.SupportsImageInput,
-		resolvedProvider.SupportsPDFInput,
-		nil,
-		nil,
-	)
+	agent, err := agentpkg.New(agentpkg.Options{
+		Model:              resolvedProvider.Model,
+		Provider:           resolvedProvider.ProviderType,
+		CWD:                cwd,
+		SessionDir:         store.SessionDir(resolvedSession.ID),
+		SessionID:          resolvedSession.ID,
+		APIKey:             resolvedProvider.APIKey,
+		APIBase:            resolvedProvider.APIBase,
+		Messages:           resolvedSession.Messages,
+		MaxTurns:           *maxTurns,
+		MaxTokens:          resolvedProvider.MaxTokens,
+		ContextWindow:      resolvedProvider.ContextWindow,
+		CompactThreshold:   settings.CompactThreshold,
+		ReasoningEffort:    resolvedProvider.ReasoningEffort,
+		SupportsImageInput: resolvedProvider.SupportsImageInput,
+		SupportsPDFInput:   resolvedProvider.SupportsPDFInput,
+	})
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
