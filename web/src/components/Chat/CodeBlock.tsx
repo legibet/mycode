@@ -68,10 +68,10 @@ export function CodeBlock({ className, children, ...props }: CodeBlockProps) {
   return (
     <div
       data-code-block
-      className="group/code relative my-3 rounded-md bg-code overflow-x-auto scrollbar-subtle"
+      className="group/code relative my-3 rounded-md bg-code"
     >
       {language && (
-        <span className="absolute top-1.5 left-3 text-[11px] font-mono text-muted-foreground/50 uppercase tracking-wider select-none">
+        <span className="absolute top-1.5 left-3 text-[11px] font-mono text-muted-foreground/50 uppercase tracking-wider select-none pointer-events-none z-10">
           {language}
         </span>
       )}
@@ -95,8 +95,10 @@ export function CodeBlock({ className, children, ...props }: CodeBlockProps) {
         )}
       </button>
 
-      <div className={cn('px-3 pb-2.5', language ? 'pt-6' : 'pt-2')}>
-        <HighlightedCode language={language} code={codeContent} />
+      <div className="overflow-x-auto scrollbar-subtle">
+        <div className={cn('px-3 pb-2.5', language ? 'pt-6' : 'pt-2')}>
+          <HighlightedCode language={language} code={codeContent} />
+        </div>
       </div>
     </div>
   )
