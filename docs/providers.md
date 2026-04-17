@@ -42,10 +42,11 @@ class ProviderAdapter(ABC):
 - API: Anthropic Messages API
 - Base URL: `https://api.anthropic.com`
 - API key env: `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`
-- Default models: `claude-sonnet-4-6`, `claude-opus-4-6`
+- Default models: `claude-sonnet-4-6`, `claude-opus-4-7`
 - `supports_reasoning_effort`: true
-- Adaptive thinking for `claude-sonnet-4-6` / `claude-opus-4-6`; manual `budget_tokens` for older reasoning models
-- `reasoning_effort=xhigh` maps to `high` for sonnet-4-6, `max` for opus-4-6
+- Adaptive thinking for `claude-sonnet-4-6` / `claude-opus-4-6` / `claude-opus-4-7`; manual `budget_tokens` for older reasoning models
+- `claude-opus-4-7` only accepts adaptive thinking; manual `budget_tokens` returns a 400 upstream
+- `reasoning_effort=xhigh` maps to `high` for sonnet-4-6, `max` for opus-4-6, and stays `xhigh` for opus-4-7
 - Adds ephemeral `cache_control` to system prompt block and last user content block
 - Tool call IDs projected to ASCII-safe format (letters, numbers, underscores, dashes, max 64 chars) with SHA1 collision suffix
 - Images serialize as Anthropic `image` blocks with base64 `source`

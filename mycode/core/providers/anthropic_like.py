@@ -312,7 +312,7 @@ class AnthropicAdapter(AnthropicLikeAdapter):
     label = "Anthropic"
     default_base_url = "https://api.anthropic.com"
     env_api_key_names = ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN")
-    default_models = ("claude-sonnet-4-6", "claude-opus-4-6")
+    default_models = ("claude-sonnet-4-6", "claude-opus-4-7")
     supports_reasoning_effort = True
 
     def thinking_config(self, request: ProviderRequest) -> dict[str, Any] | None:
@@ -322,8 +322,11 @@ class AnthropicAdapter(AnthropicLikeAdapter):
         if effort == "none":
             return {"type": "disabled"}
         normalized = request.model.lower()
-        if normalized.startswith("claude-sonnet-4-6") or normalized.startswith("claude-opus-4-6"):
-            return {"type": "adaptive"}
+        if normalized.startswith(("claude-opus-4-7", "claude-opus-4-6", "claude-sonnet-4-6")):
+            thinking: dict[str, Any] = {"type": "adaptive"}
+            if normalized.startswith("claude-opus-4-7"):
+                thinking["display"] = "summarized"
+            return thinking
         return self.manual_thinking_config(effort)
 
     def output_config(self, request: ProviderRequest) -> dict[str, Any] | None:
@@ -332,6 +335,9 @@ class AnthropicAdapter(AnthropicLikeAdapter):
             return None
 
         normalized = request.model.lower()
+        if normalized.startswith("claude-opus-4-7"):
+            return {"effort": effort}
+
         if normalized.startswith("claude-sonnet-4-6"):
             mapped_effort = "high" if effort == "xhigh" else effort
             return {"effort": mapped_effort}

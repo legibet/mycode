@@ -1534,6 +1534,12 @@ def test_openai_compatible_provider_payload_overrides(
             {"type": "adaptive"},
             {"effort": "max"},
         ),
+        (
+            "claude-opus-4-7",
+            "xhigh",
+            {"type": "adaptive", "display": "summarized"},
+            {"effort": "xhigh"},
+        ),
     ],
 )
 def test_anthropic_build_request_payload_maps_reasoning_config(
