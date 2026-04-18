@@ -190,6 +190,17 @@ function AppContent() {
     clearAttachments()
   }, [createSession, clearAttachments])
 
+  const handleDeleteSession = useCallback(
+    async (id: string) => {
+      const isActive = activeSession?.id === id
+      await deleteSession(id)
+      if (!isActive) return
+      setSidebarOpen(false)
+      clearAttachments()
+    },
+    [activeSession?.id, clearAttachments, deleteSession],
+  )
+
   return (
     <Layout>
       <div className="relative flex h-full min-h-0 overflow-hidden">
@@ -218,7 +229,7 @@ function AppContent() {
             activeSession={activeSession}
             onSelectSession={handleSelectSession}
             onCreateSession={handleCreateSession}
-            onDeleteSession={deleteSession}
+            onDeleteSession={handleDeleteSession}
             config={config}
             onUpdateConfig={handleConfigUpdate}
             cwdHistory={cwdHistory}

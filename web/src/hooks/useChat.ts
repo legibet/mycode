@@ -33,7 +33,11 @@ import {
   findLatestAssistantIndex,
   updateRenderToolRuntime,
 } from '../utils/messages'
-import { loadActiveSession, saveActiveSession } from '../utils/storage'
+import {
+  loadActiveSession,
+  removeActiveSession,
+  saveActiveSession,
+} from '../utils/storage'
 import {
   isCurrentSendRequest,
   isCurrentWorkspaceRequest,
@@ -872,13 +876,17 @@ export function useChat(config: LocalConfig) {
 
   const deleteSession = useCallback(
     async (sessionId: string) => {
-      if (
-        !sessionId ||
-        sessions.length === 1 ||
-        sessionId === activeSession.id
-      ) {
-        return
-      }
+      if (!sessionId) return
+
+      const isDeletingActive = sessionId === activeSession.id
+      const deletedIndex = sessions.findIndex(
+        (session) => session.id === sessionId,
+      )
+      const remainingSessions = sessions.filter(
+        (session) => session.id !== sessionId,
+      )
+      const fallbackSession =
+        deletedIndex >= 0 ? remainingSessions[deletedIndex] || null : null
 
       setSessionLoading(true)
       try {
@@ -889,16 +897,44 @@ export function useChat(config: LocalConfig) {
           },
         )
         if (!res.ok) throw new Error('Failed to delete session')
-        setSessions((prev) =>
-          prev.filter((session) => session.id !== sessionId),
-        )
+
+        if (!isDeletingActive) {
+          setSessions(remainingSessions)
+          return
+        }
+
+        stopStreaming()
+        initRef.current = true
+        sessionRequestTokenRef.current += 1
+        const requestToken = sessionRequestTokenRef.current
+
+        removeActiveSession(config.cwd)
+        dispatch({ type: 'set_messages', messages: [] })
+
+        if (fallbackSession && !fallbackSession.isDraft) {
+          setSessions(remainingSessions)
+          activeSessionRef.current = fallbackSession
+          setActiveSession(fallbackSession)
+          await loadSession(fallbackSession.id, {
+            requestCwd: config.cwd,
+            requestToken,
+          })
+          return
+        }
+
+        const draft = createDraftSession()
+        activeSessionRef.current = draft
+        setActiveSession(draft)
+        setSessions([draft])
+        setLoading(false)
+        setConnectionState('ready')
       } catch (e) {
         console.error('Failed to delete session:', e)
       } finally {
         setSessionLoading(false)
       }
     },
-    [activeSession.id, sessions.length],
+    [activeSession.id, config.cwd, loadSession, sessions, stopStreaming],
   )
 
   const initializeSessions = useCallback(async () => {

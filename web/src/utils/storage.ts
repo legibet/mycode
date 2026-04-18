@@ -168,3 +168,9 @@ export function saveActiveSession(cwd: string, sessionId: string): void {
   activeSessions[normalizeCwdKey(cwd)] = sessionId
   saveActiveSessionMap(activeSessions)
 }
+
+export function removeActiveSession(cwd: string): void {
+  const activeSessions = loadActiveSessionMap()
+  delete activeSessions[normalizeCwdKey(cwd)]
+  saveActiveSessionMap(activeSessions)
+}

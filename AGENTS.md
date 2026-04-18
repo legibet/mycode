@@ -170,8 +170,6 @@ All adapters implement `ProviderAdapter.stream_turn()`. Message projection to pr
 
 ## Commit Conventions
 
-`web/` changes and backend changes must be in **separate commits**. This is required so that the Go rewrite branch (`mycode-go`) can cherry-pick web changes without pulling in Python-specific code.
-
 Commit message format: `type(scope): description`
 
 Scopes:
@@ -191,7 +189,7 @@ refactor(cli): unify provider switcher
 docs: update SSE contract in AGENTS.md
 ```
 
-When a feature requires both web and CLI changes, make two commits: CLI first, then web.
+When a feature requires both web and CLI changes, make two commits.
 
 ## Dev Workflow
 

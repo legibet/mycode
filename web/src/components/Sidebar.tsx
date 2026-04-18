@@ -213,20 +213,21 @@ export const Sidebar = memo(function Sidebar({
                           <span className="shrink-0 h-1.5 w-1.5 rounded-full bg-accent animate-breathing" />
                         )}
                       </button>
-                      {!isActive && (
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="session-delete-button absolute right-2 top-1/2 h-5 w-5 -translate-y-1/2 transition-opacity"
-                          aria-label="Delete session"
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            onDeleteSession(session.id)
-                          }}
-                        >
-                          <Trash2 className="session-delete-icon h-3 w-3 text-muted-foreground" />
-                        </Button>
-                      )}
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className={cn(
+                          'session-delete-button absolute right-2 top-1/2 h-5 w-5 -translate-y-1/2 transition-opacity',
+                          isActive && 'opacity-100',
+                        )}
+                        aria-label="Delete session"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          onDeleteSession(session.id)
+                        }}
+                      >
+                        <Trash2 className="session-delete-icon h-3 w-3 text-muted-foreground" />
+                      </Button>
                     </div>
                   )
                 })}

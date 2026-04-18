@@ -1,6 +1,10 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 
-import { loadActiveSession, saveActiveSession } from './storage'
+import {
+  loadActiveSession,
+  removeActiveSession,
+  saveActiveSession,
+} from './storage'
 
 function createLocalStorage() {
   const store = new Map()
@@ -44,5 +48,15 @@ describe('storage', () => {
     saveActiveSession('/workspace/a', 'session-a')
 
     expect(loadActiveSession('/workspace/b')).toBe('')
+  })
+
+  it('removes the saved active session for a workspace', () => {
+    saveActiveSession('/workspace/a', 'session-a')
+    saveActiveSession('/workspace/b', 'session-b')
+
+    removeActiveSession('/workspace/a')
+
+    expect(loadActiveSession('/workspace/a')).toBe('')
+    expect(loadActiveSession('/workspace/b')).toBe('session-b')
   })
 })
