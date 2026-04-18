@@ -1,6 +1,6 @@
 # Configuration
 
-Source: `mycode/core/config.py`
+Source: `cli/src/mycode_cli/config.py`
 
 ## Config Files
 
@@ -102,7 +102,7 @@ Options: `auto` (default) · `none` · `low` · `medium` · `high` · `xhigh`
 
 ## Model Metadata
 
-`mycode/core/models.py` reads the bundled `mycode/core/models_catalog.json` catalog to look up:
+`mycode/src/mycode/models.py` reads the bundled `mycode/src/mycode/models_catalog.json` catalog to look up:
 
 - `supports_reasoning` — whether the model supports extended thinking
 - `supports_image_input` — whether the model accepts image input
@@ -125,7 +125,7 @@ uv run python scripts/update_models_catalog.py
 
 ## Skills Discovery
 
-`mycode/core/system_prompt.py` scans for `SKILL.md` files and injects an `<available_skills>` block into the system prompt.
+`cli/src/mycode_cli/system_prompt.py` scans for `SKILL.md` files and injects an `<available_skills>` block into the system prompt.
 
 Scan roots (lowest to highest priority):
 
@@ -140,7 +140,7 @@ The model uses the `read` tool to load full skill content on demand from the ski
 
 ## Instructions Discovery
 
-`mycode/core/system_prompt.py` reads `AGENTS.md` files and injects them as `<workspace_instructions>` into the system prompt. Files checked:
+`cli/src/mycode_cli/system_prompt.py` reads `AGENTS.md` files and injects them as `<workspace_instructions>` into the system prompt. Files checked:
 
 1. `~/.mycode/AGENTS.md` (fallback: `~/.agents/AGENTS.md`)
 2. `{cwd}/AGENTS.md`

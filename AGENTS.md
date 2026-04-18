@@ -4,7 +4,10 @@ Authoritative context for agent runs. Keep in sync with the code. See `docs/` fo
 
 ## Product
 
-`mycode` is a personal minimal coding agent with a web UI and CLI.
+`mycode` is a personal minimal coding agent shipped as two PyPI packages:
+
+- `mycode-sdk` (import `mycode`) — the runtime: agent loop, message format, session store, provider adapters, and built-in tools. Lightweight, suitable for embedding the agent in other Python apps.
+- `mycode-cli` (import `mycode_cli`) — the interactive CLI and FastAPI web server built on top of the SDK.
 
 Priorities: small readable core · one message model · one agent loop · append-only sessions · provider adapters at the boundary.
 
@@ -12,49 +15,49 @@ Not a general agent framework.
 
 ## Core Rules
 
-- 4 built-in tools only: `read`, `write`, `edit`, `bash` — do not add more to core
+- 4 built-in tools only: `read`, `write`, `edit`, `bash` — do not add more to the SDK
 - Provider-specific behavior stays inside adapters, never in the agent loop
 - Prefer simple Python; add helpers only for real reuse or non-obvious logic
 - Keep the runtime deterministic and easy to inspect
 
 ## Source Map
 
-Core runtime (`mycode/core/`):
+SDK package — `mycode/src/mycode/`:
 
-- `agent.py` — the only orchestration loop
+- `__init__.py` — public API re-exports (`Agent`, `tool`, built-in tool constants, message helpers, …)
+- `agent.py` — agent loop (`Agent`)
 - `messages.py` — internal message/block format
-- `tools.py` — 4 built-in tools, executor, truncation, path resolution
-- `session.py` — append-only JSONL session storage, compact/rewind events, interrupted tool repair
-- `config.py` — layered config loading and provider resolution
-- `models.py` — bundled model metadata lookup (`context_window`, `supports_reasoning`, `supports_image_input`)
-- `system_prompt.py` — runtime system prompt assembly, inlined base prompt, AGENTS.md discovery, skills discovery
-- `providers/base.py` — ProviderAdapter abstract interface
+- `tools.py` — `ToolSpec`, `ToolExecutor`, `ToolContext`, the four built-in tools, `@tool` decorator
+- `session.py` — append-only JSONL session storage, compact/rewind events, interrupted tool repair, `resolve_mycode_home`/`resolve_sessions_dir`
+- `models.py` + `models_catalog.json` — bundled model metadata lookup
+- `utils.py` — small typed helpers (`as_int`, `as_bool`, `omit_none`, `parse_tool_arguments`)
+- `providers/base.py` — `ProviderAdapter` abstract interface
 - `providers/__init__.py` — adapter registry and provider lookup helpers
 - `providers/anthropic_like.py` — adapters: `anthropic`, `moonshotai`, `minimax`
 - `providers/gemini.py` — adapter: `google`
 - `providers/openai_responses.py` — adapter: `openai`
 - `providers/openai_chat.py` — adapters: `openai_chat`, `deepseek`, `zai`, `openrouter`
 
-CLI (`mycode/cli/`):
+CLI package — `cli/src/mycode_cli/`:
 
 - `main.py` — Typer entrypoint (commands: default, run, web, session)
-- `chat.py` — TerminalChat interactive loop
-- `render.py` — TerminalView rich rendering
-- `runtime.py` — build_agent(), resolve_session()
+- `tui/chat.py` — TerminalChat interactive loop
+- `tui/render.py` — TerminalView rich rendering
+- `tui/theme.py` — terminal theme detection and color tokens
+- `runtime.py` — `build_agent()`, `resolve_session()`
+- `config.py` — layered TOML/JSON config loading and provider resolution (CLI/server only)
+- `system_prompt.py` — runtime system prompt assembly: inlined base prompt + AGENTS.md + skills discovery
+- `server/app.py` — FastAPI factory, static mount
+- `server/routers/chat.py` — POST /api/chat, GET /api/runs/{id}/stream, POST /api/runs/{id}/cancel, GET /api/config
+- `server/routers/sessions.py` — session CRUD
+- `server/routers/workspaces.py` — directory browser
+- `server/run_manager.py` — concurrent run management
+- `server/schemas.py` — Pydantic request/response models
 
-Server (`mycode/server/`):
-
-- `app.py` — FastAPI factory, static mount
-- `routers/chat.py` — POST /api/chat, GET /api/runs/{id}/stream, POST /api/runs/{id}/cancel, GET /api/config
-- `routers/sessions.py` — session CRUD
-- `routers/workspaces.py` — directory browser
-- `run_manager.py` — concurrent run management
-- `schemas.py` — Pydantic request/response models
-
-Web UI (`web/src/`):
+Web UI — `web/src/`:
 
 - `hooks/useChat.ts` — chat state, SSE streaming, tool runtime
-- `utils/messages.ts` — buildRenderMessages() — canonical blocks → UI messages
+- `utils/messages.ts` — `buildRenderMessages()` — canonical blocks → UI messages
 
 ## Internal Message Model
 
@@ -94,7 +97,7 @@ Block types: `text` · `image` · `thinking` · `tool_use` · `tool_result`
 
 ## Agent Loop
 
-`mycode/core/agent.py` — per user turn:
+`mycode/src/mycode/agent.py` — per user turn:
 
 1. Append user message to session
 2. Call provider adapter → stream events to CLI/server
@@ -141,12 +144,13 @@ All adapters implement `ProviderAdapter.stream_turn()`. Message projection to pr
 - `docs/api.md` — Server API endpoints, request/response schemas, SSE contract details
 - `docs/config.md` — Config files, schema, API key resolution, reasoning effort, skills/instructions discovery
 - `docs/providers.md` — Per-adapter details: SDK, base URL, env vars, reasoning effort mapping, quirks
+- `docs/sdk.md` — Public SDK surface, `Agent`, `@tool`, `SessionStore`
 - `docs/sessions.md` — Storage layout, JSONL record types, compact/rewind/repair, format version
 - `docs/web.md` — Component structure, message state model, build process
 
 ## Interfaces
 
-**CLI** — `mycode/cli/main.py`:
+**CLI** — `cli/src/mycode_cli/main.py`:
 
 - `mycode` — interactive session (default)
 - `mycode run "..."` — non-interactive single run
@@ -155,7 +159,7 @@ All adapters implement `ProviderAdapter.stream_turn()`. Message projection to pr
 - Interactive CLI: `@path` attaches files; images become `image` blocks, text files become extra `text` blocks
 - Slash commands: `/clear` `/new` `/resume` `/rewind` `/provider` `/model` `/effort` `/q`
 
-**Server** — `mycode/server/routers/`:
+**Server** — `cli/src/mycode_cli/server/routers/`:
 
 - `POST /api/chat` — start a run from `message` or `input`; returns `{run, session}` JSON immediately
 - `GET /api/runs/{run_id}/stream` — SSE stream for a run
@@ -173,25 +177,26 @@ Commit message format: `type(scope): description`
 Scopes:
 
 - `web` — changes under `web/` only
-- `backend` — Python core/server changes only
-- `cli` — CLI changes only
+- `sdk` — SDK package (`mycode/`) only
+- `cli` — CLI/server package (`cli/`) only
 - no scope — cross-cutting changes (e.g. SSE contract changes that touch both sides — document what changed in both in the commit body)
 
 Examples:
 
 ```
 feat(web): add tool duration display
-fix(backend): handle empty tool result in compact
-refactor(web): unify diff panel hunk merging
+fix(sdk): handle empty tool result in compact
+feat(sdk): add tool decorator
+refactor(cli): unify provider switcher
 docs: update SSE contract in AGENTS.md
 ```
 
-When a feature requires both web and backend changes, make two commits: backend first, then web.
+When a feature requires both web and CLI changes, make two commits: CLI first, then web.
 
 ## Dev Workflow
 
 ```bash
-uv sync --dev                                          # Python setup
+uv sync --dev                                          # Python setup (workspace)
 uv run basedpyright                                    # Python type checking
 uv run pytest                                          # Python tests
 uv run mycode                                          # run CLI
@@ -200,16 +205,17 @@ pnpm --dir web typecheck                               # Web UI type checking
 pnpm --dir web test:run                                # run web UI tests once
 pnpm --dir web dev                                     # Vite web UI dev server
 uv run --no-project python scripts/build_web.py        # rebuild packaged web UI
-uv build                                               # build wheel + sdist
+uv build --package mycode-sdk                          # build SDK wheel + sdist
+uv build --package mycode-cli                          # build CLI wheel + sdist
 ```
 
 ## Guardrails
 
 Preserve unless explicitly asked to change:
 
-- 4-tool core stays unchanged
+- 4 built-in tools stay unchanged
 - Append-only sessions stay human-inspectable
-- CLI and server remain thin wrappers over `mycode.core`
+- CLI and server remain thin wrappers over the `mycode` SDK
 - Provider-specific quirks stay in adapters
 - No new abstraction layers unless they remove real complexity
 

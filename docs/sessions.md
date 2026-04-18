@@ -1,6 +1,6 @@
 # Sessions
 
-Source: `mycode/core/session.py`
+Source: `mycode/src/mycode/session.py`
 
 ## Storage Layout
 
@@ -108,7 +108,7 @@ Stored in `meta.json`. The field is written when missing but not validated on lo
 
 ## Session Store API
 
-`SessionStore` (in `mycode/core/session.py`) provides:
+`SessionStore` (in `mycode/src/mycode/session.py`) provides:
 
 - `create_session(title, *, session_id, provider, model, cwd, api_base)` → create on disk
 - `list_sessions(*, cwd)` → list by workspace, sorted by `updated_at` desc

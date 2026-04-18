@@ -1,6 +1,6 @@
 # Provider Adapters
 
-All adapters live in `mycode/core/providers/`. Each implements `ProviderAdapter` from `base.py`.
+All adapters live in `mycode/src/mycode/providers/`. Each implements `ProviderAdapter` from `base.py`.
 
 ## Interface
 

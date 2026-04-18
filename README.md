@@ -10,6 +10,12 @@ A minimal coding agent. Inspired by [pi](https://github.com/badlogic/pi-mono).
 - Inspectable runtime, append-only JSONL sessions.
 - Native image and pdf input support.
 - Mobile-friendly web UI.
+- Lightweight `mycode-sdk` for embedding the agent in other Python apps.
+
+Two PyPI packages live in this workspace:
+
+- `mycode-sdk` (import name `mycode`) — the runtime: agent loop, providers, tools, session store. Lightweight.
+- `mycode-cli` (import name `mycode_cli`) — interactive CLI and web server. Depends on `mycode-sdk`.
 
 ## Quick Start
 
@@ -145,8 +151,32 @@ uv run --no-project python scripts/build_web.py
 Build distributable artifacts:
 
 ```bash
-uv build
+uv build --package mycode-sdk
+uv build --package mycode-cli
 ```
+
+## Embedding (mycode-sdk)
+
+```python
+import asyncio
+from mycode import Agent, bash_tool, read_tool
+
+async def main() -> None:
+    agent = Agent(
+        model="claude-sonnet-4-6",
+        api_key="...",
+        cwd=".",
+        system="You are a concise coding assistant.",
+        tools=[read_tool, bash_tool],
+    )
+    async for event in agent.achat("Read pyproject.toml and tell me the project name."):
+        if event.type == "text":
+            print(event.data["delta"], end="")
+
+asyncio.run(main())
+```
+
+See `docs/sdk.md` for the full SDK surface.
 
 ## License
 

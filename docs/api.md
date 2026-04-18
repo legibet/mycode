@@ -1,6 +1,6 @@
 # Server API
 
-Base prefix: `/api`. All endpoints are defined in `mycode/server/routers/`.
+Base prefix: `/api`. All endpoints are defined in `cli/src/mycode_cli/server/routers/`.
 
 ## Chat
 
@@ -8,7 +8,7 @@ Base prefix: `/api`. All endpoints are defined in `mycode/server/routers/`.
 
 Start an agent run. Returns JSON immediately while the run streams asynchronously.
 
-Request body (`ChatRequest`, `mycode/server/schemas.py`):
+Request body (`ChatRequest`, `cli/src/mycode_cli/server/schemas.py`):
 
 ```json
 {
@@ -120,7 +120,7 @@ Response:
 
 ## Sessions
 
-All session endpoints are in `mycode/server/routers/sessions.py`.
+All session endpoints are in `cli/src/mycode_cli/server/routers/sessions.py`.
 
 ### `GET /api/sessions?cwd=...`
 
@@ -169,7 +169,7 @@ Clear message history (keeps meta). Returns `409` if session has a running task.
 
 ## Workspaces
 
-All workspace endpoints are in `mycode/server/routers/workspaces.py`.
+All workspace endpoints are in `cli/src/mycode_cli/server/routers/workspaces.py`.
 
 ### `GET /api/workspaces/roots`
 
@@ -201,7 +201,7 @@ Response: `{cwd: "...", exists: true}`
 
 ## SSE Contract
 
-`GET /api/runs/{run_id}/stream` produces the following event types. The `StreamEvent` schema is in `mycode/server/schemas.py`.
+`GET /api/runs/{run_id}/stream` produces the following event types. The `StreamEvent` schema is in `cli/src/mycode_cli/server/schemas.py`.
 
 **Do not change event names or payload shapes without updating server, CLI, and web UI.**
 
@@ -219,7 +219,7 @@ Every event also carries `seq: int` for reconnect support. The web UI uses `afte
 
 ## Run Manager
 
-`mycode/server/run_manager.py` manages concurrent runs:
+`cli/src/mycode_cli/server/run_manager.py` manages concurrent runs:
 
 - One active run per session (enforced by `ActiveRunError` on conflict)
 - `RunState` tracks events, condition variable for streaming, and cleanup
