@@ -42,6 +42,17 @@ open(path, "w").write(text)
 PY
 uv lock
 
+rm -rf dist
+uv build --package mycode-sdk --no-sources
+uv build --package mycode-cli --no-sources
+
+sdk_wheel="$(echo dist/mycode_sdk-*.whl)"
+cli_wheel="$(echo dist/mycode_cli-*.whl)"
+uv run --isolated --no-project \
+  --with "$sdk_wheel" \
+  --with "$cli_wheel" \
+  -- python -c "import mycode, mycode_cli"
+
 git add mycode/pyproject.toml cli/pyproject.toml uv.lock
 git commit -m "Release $version"
 git tag -a "$tag" -m "Release $tag"

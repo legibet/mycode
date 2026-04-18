@@ -142,12 +142,6 @@ uv run mycode web --dev
 pnpm --dir web install && pnpm --dir web dev
 ```
 
-Rebuild packaged web assets:
-
-```bash
-uv run --no-project python scripts/build_web.py
-```
-
 Build distributable artifacts:
 
 ```bash

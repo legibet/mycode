@@ -204,7 +204,6 @@ uv run mycode web --dev                                # API only (backend for V
 pnpm --dir web typecheck                               # Web UI type checking
 pnpm --dir web test:run                                # run web UI tests once
 pnpm --dir web dev                                     # Vite web UI dev server
-uv run --no-project python scripts/build_web.py        # rebuild packaged web UI
 uv build --package mycode-sdk                          # build SDK wheel + sdist
 uv build --package mycode-cli                          # build CLI wheel + sdist
 ```

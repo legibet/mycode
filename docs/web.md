@@ -114,10 +114,9 @@ Web UI config is persisted to `localStorage`:
 ```bash
 pnpm --dir web test:run                                # run web UI tests once
 pnpm --dir web dev                                     # dev server (Vite HMR)
-uv run --no-project python scripts/build_web.py       # production build → cli/src/mycode_cli/server/static/
-uv build                                               # packages static/ into wheel/sdist
+uv build --package mycode-cli                          # builds web assets and packages static/ into wheel/sdist
 ```
 
-Built `web/dist/` is **not** the serving path. `scripts/build_web.py` copies the built output into `cli/src/mycode_cli/server/static/` which is what gets packaged and served.
+Built `web/dist/` is **not** the serving path. `cli/hatch_build.py` copies the built output into `cli/src/mycode_cli/server/static/` during `mycode-cli` package builds, which is what gets packaged and served.
 
 If `cli/src/mycode_cli/server/static/` is missing at startup, the server falls back to API-only mode with a warning log.
