@@ -54,6 +54,8 @@ uv run --isolated --no-project \
   -- python -c "import mycode, mycode_cli"
 
 git add mycode/pyproject.toml cli/pyproject.toml uv.lock
-git commit -m "Release $version"
+if ! git diff --cached --quiet; then
+  git commit -m "Release $version"
+fi
 git tag -a "$tag" -m "Release $tag"
 git push origin "$branch" --follow-tags
