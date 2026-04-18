@@ -9,7 +9,7 @@ description = "Multi-turn tool-calling agent runtime for embedding the mycode ag
 readme = "README.md"
 requires-python = ">=3.12"
 license = "MIT"
-license-files = ["../LICENSE"]
+license-files = ["LICENSE"]
 authors = [{ name = "LeGibet", email = "legibetpeng@gmail.com" }]
 classifiers = [
     "Development Status :: 3 - Alpha",
@@ -38,5 +38,5 @@ packages = ["src/mycode"]
 artifacts = ["src/mycode/models_catalog.json"]
 
 [tool.hatch.build.targets.sdist]
-include = ["src/mycode", "README.md", "pyproject.toml"]
+include = ["src/mycode", "README.md", "LICENSE", "pyproject.toml"]
 artifacts = ["src/mycode/models_catalog.json"]
