@@ -1,6 +1,6 @@
 # mycode — Project Context
 
-Authoritative context for agent runs. Keep in sync with the code. See `docs/` for detailed specs.
+Authoritative context for agent runs on this project. Keep in sync with the code. See `docs/` for detailed specs.
 
 ## Product
 
@@ -10,8 +10,6 @@ Authoritative context for agent runs. Keep in sync with the code. See `docs/` fo
 - `mycode-cli` (import `mycode_cli`) — the interactive CLI and FastAPI web server built on top of the SDK.
 
 Priorities: small readable core · one message model · one agent loop · append-only sessions · provider adapters at the boundary.
-
-Not a general agent framework.
 
 ## Core Rules
 
