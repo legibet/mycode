@@ -12,11 +12,6 @@ A minimal coding agent. Inspired by [pi](https://github.com/badlogic/pi-mono).
 - Mobile-friendly web UI.
 - Lightweight `mycode-sdk` for embedding the agent in other Python apps.
 
-Two PyPI packages live in this workspace:
-
-- `mycode-sdk` (import name `mycode`) — the runtime: agent loop, providers, tools, session store. Lightweight.
-- `mycode-cli` (import name `mycode_cli`) — interactive CLI and web server. Depends on `mycode-sdk`.
-
 ## Quick Start
 
 Requires Python 3.12+. Install via [uv](https://docs.astral.sh/uv/):
@@ -149,7 +144,7 @@ uv build --package mycode-sdk
 uv build --package mycode-cli
 ```
 
-## Embedding (mycode-sdk)
+## mycode-sdk
 
 ```python
 import asyncio
@@ -170,7 +165,7 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
-See `docs/sdk.md` for the full SDK surface.
+See `mycode/README.md` for details.
 
 ## License
 
