@@ -8,10 +8,10 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from mycode.core.session import SessionStore, apply_rewind, build_compact_event, build_rewind_event
-from mycode.server.app import create_app
-from mycode.server.deps import get_run_manager, get_store
-from mycode.server.run_manager import RunManager
+from mycode.session import SessionStore, apply_rewind, build_compact_event, build_rewind_event
+from mycode_cli.server.app import create_app
+from mycode_cli.server.deps import get_run_manager, get_store
+from mycode_cli.server.run_manager import RunManager
 
 
 @pytest.fixture

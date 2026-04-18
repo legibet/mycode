@@ -6,9 +6,9 @@ from unittest.mock import patch
 
 import pytest
 
-from mycode.core.agent import Agent
-from mycode.core.providers.base import ProviderStreamEvent
-from mycode.core.tools import ToolExecutionResult, ToolExecutor, ToolSpec
+from mycode.agent import Agent
+from mycode.providers.base import ProviderStreamEvent
+from mycode.tools import ToolContext, ToolExecutionResult, ToolExecutor, ToolSpec
 
 
 class _CaptureAdapter:
@@ -22,28 +22,22 @@ class _CaptureAdapter:
         )
 
 
-class _CustomToolExecutor(ToolExecutor):
-    def __init__(self, *, cwd: str, session_dir: Path) -> None:
-        super().__init__(
-            cwd=cwd,
-            session_dir=session_dir,
-            tools=(
-                ToolSpec(
-                    name="ping",
-                    description="Echoes a short string.",
-                    input_schema={
-                        "type": "object",
-                        "properties": {"text": {"type": "string", "description": "Text to echo."}},
-                        "required": ["text"],
-                        "additionalProperties": False,
-                    },
-                    method_name="ping",
-                ),
-            ),
-        )
+def _ping_runner(_ctx: ToolContext, args: dict[str, object]) -> ToolExecutionResult:
+    text = str(args.get("text") or "")
+    return ToolExecutionResult(model_text=text, display_text=text)
 
-    def ping(self, *, text: str) -> ToolExecutionResult:
-        return ToolExecutionResult(model_text=text, display_text=text)
+
+_PING_TOOL = ToolSpec(
+    name="ping",
+    description="Echoes a short string.",
+    input_schema={
+        "type": "object",
+        "properties": {"text": {"type": "string", "description": "Text to echo."}},
+        "required": ["text"],
+        "additionalProperties": False,
+    },
+    runner=_ping_runner,
+)
 
 
 @pytest.mark.asyncio
@@ -57,7 +51,7 @@ async def test_agent_passes_session_id_to_provider_request(tmp_path: Path) -> No
         session_id="session-explicit",
     )
 
-    with patch("mycode.core.agent.get_provider_adapter", return_value=adapter):
+    with patch("mycode.agent.get_provider_adapter", return_value=adapter):
         _ = [event async for event in agent.achat("hello")]
 
     assert adapter.requests[0].session_id == "session-explicit"
@@ -74,7 +68,7 @@ async def test_agent_falls_back_to_session_dir_name_for_provider_request(tmp_pat
         session_dir=session_dir,
     )
 
-    with patch("mycode.core.agent.get_provider_adapter", return_value=adapter):
+    with patch("mycode.agent.get_provider_adapter", return_value=adapter):
         _ = [event async for event in agent.achat("hello")]
 
     assert adapter.requests[0].session_id == "session-derived"
@@ -91,7 +85,7 @@ async def test_agent_uses_explicit_system_prompt_when_provided(tmp_path: Path) -
         system="Use this exact system prompt.",
     )
 
-    with patch("mycode.core.agent.get_provider_adapter", return_value=adapter):
+    with patch("mycode.agent.get_provider_adapter", return_value=adapter):
         _ = [event async for event in agent.achat("hello")]
 
     assert adapter.requests[0].system == "Use this exact system prompt."
@@ -106,10 +100,10 @@ async def test_agent_uses_tool_executor_definitions_in_provider_request(tmp_path
         provider="openai",
         cwd=str(tmp_path),
         session_dir=session_dir,
-        tool_executor=_CustomToolExecutor(cwd=str(tmp_path), session_dir=session_dir),
+        tools=ToolExecutor(cwd=str(tmp_path), session_dir=session_dir, tools=[_PING_TOOL]),
     )
 
-    with patch("mycode.core.agent.get_provider_adapter", return_value=adapter):
+    with patch("mycode.agent.get_provider_adapter", return_value=adapter):
         _ = [event async for event in agent.achat("hello")]
 
     assert adapter.requests[0].tools == [

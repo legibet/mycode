@@ -1,0 +1,63 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "mycode-cli"
+version = "0.4.0"
+description = "Minimal coding agent CLI and web UI built on mycode-sdk."
+requires-python = ">=3.12"
+license = "MIT"
+license-files = ["../LICENSE"]
+authors = [{ name = "LeGibet", email = "legibetpeng@gmail.com" }]
+dynamic = ["readme"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Environment :: Web Environment",
+    "Framework :: FastAPI",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development",
+]
+keywords = ["agent", "cli", "llm", "coding-agent", "fastapi"]
+dependencies = [
+    "mycode-sdk==0.4.0",
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.32.0",
+    "rich>=14.2.0",
+    "prompt-toolkit>=3.0.52",
+    "typer>=0.24.1",
+    "pyyaml>=6.0.0",
+]
+
+[project.scripts]
+mycode = "mycode_cli.main:main"
+
+[project.urls]
+Homepage = "https://github.com/legibet/mycode"
+Repository = "https://github.com/legibet/mycode"
+Issues = "https://github.com/legibet/mycode/issues"
+
+[tool.hatch.metadata.hooks.custom]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/mycode_cli"]
+artifacts = ["src/mycode_cli/server/static/**"]
+
+[tool.hatch.build.targets.wheel.hooks.custom]
+path = "hatch_build.py"
+
+[tool.hatch.build.targets.sdist]
+include = ["src/mycode_cli", "hatch_build.py", "pyproject.toml"]
+artifacts = ["src/mycode_cli/server/static/**"]
+
+[tool.hatch.build.targets.sdist.force-include]
+"../README.md" = "README.md"
+
+[tool.hatch.build.targets.sdist.hooks.custom]
+path = "hatch_build.py"

@@ -6,8 +6,8 @@ import asyncio
 
 import pytest
 
-from mycode.core.agent import Event
-from mycode.server.run_manager import ActiveRunError, RunManager
+from mycode.agent import Event
+from mycode_cli.server.run_manager import ActiveRunError, RunManager
 
 
 class BlockingAgent:
@@ -19,26 +19,21 @@ class BlockingAgent:
         self.cancelled = True
         self.release.set()
 
-    async def achat(self, user_input, *, on_persist=None):
+    async def achat(self, user_input):
         text = user_input["content"][0]["text"] if isinstance(user_input, dict) else user_input
         yield Event("text", {"delta": f"reply:{text}"})
         await self.release.wait()
         if self.cancelled:
             yield Event("error", {"message": "cancelled"})
-            return
-        if on_persist:
-            await on_persist({"role": "assistant", "content": [{"type": "text", "text": f"reply:{text}"}]})
 
 
 class SimpleAgent:
     def cancel(self) -> None:
         return None
 
-    async def achat(self, user_input, *, on_persist=None):
+    async def achat(self, user_input):
         text = user_input["content"][0]["text"] if isinstance(user_input, dict) else user_input
         yield Event("text", {"delta": f"reply:{text}"})
-        if on_persist:
-            await on_persist({"role": "assistant", "content": [{"type": "text", "text": f"reply:{text}"}]})
 
 
 @pytest.mark.asyncio
@@ -51,7 +46,6 @@ async def test_snapshot_includes_user_message_and_pending_events():
         user_message={"role": "user", "content": [{"type": "text", "text": "build feature"}]},
         base_messages=[{"role": "assistant", "content": [{"type": "text", "text": "Earlier"}]}],
         agent=agent,
-        on_persist=lambda message: asyncio.sleep(0),
     )
 
     snapshot = None
@@ -85,7 +79,6 @@ async def test_same_session_cannot_start_second_run():
         user_message={"role": "user", "content": [{"type": "text", "text": "first"}]},
         base_messages=[],
         agent=first_agent,
-        on_persist=lambda message: asyncio.sleep(0),
     )
 
     with pytest.raises(ActiveRunError):
@@ -94,7 +87,6 @@ async def test_same_session_cannot_start_second_run():
             user_message={"role": "user", "content": [{"type": "text", "text": "second"}]},
             base_messages=[],
             agent=BlockingAgent(),
-            on_persist=lambda message: asyncio.sleep(0),
         )
 
     first_agent.release.set()
@@ -114,14 +106,12 @@ async def test_cancel_only_marks_target_run_cancelled():
         user_message={"role": "user", "content": [{"type": "text", "text": "first"}]},
         base_messages=[],
         agent=first_agent,
-        on_persist=lambda message: asyncio.sleep(0),
     )
     second = await manager.start_run(
         session_id="session-2",
         user_message={"role": "user", "content": [{"type": "text", "text": "second"}]},
         base_messages=[],
         agent=second_agent,
-        on_persist=lambda message: asyncio.sleep(0),
     )
 
     await manager.cancel_run(first["id"])
@@ -151,7 +141,6 @@ async def test_finished_run_stays_available_for_reconnect_window():
         user_message={"role": "user", "content": [{"type": "text", "text": "done"}]},
         base_messages=[],
         agent=SimpleAgent(),
-        on_persist=lambda message: asyncio.sleep(0),
     )
 
     state = await manager.get_run(run["id"])

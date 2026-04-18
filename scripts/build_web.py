@@ -7,7 +7,7 @@ from pathlib import Path
 ROOT_DIR = Path(__file__).resolve().parent.parent
 WEB_DIR = ROOT_DIR / "web"
 WEB_DIST_DIR = WEB_DIR / "dist"
-STATIC_DIR = ROOT_DIR / "mycode" / "server" / "static"
+STATIC_DIR = ROOT_DIR / "cli" / "src" / "mycode_cli" / "server" / "static"
 
 
 def build_web() -> None:

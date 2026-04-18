@@ -5,7 +5,7 @@ from typing import Any, cast
 
 import pytest
 
-from mycode.core.providers import (
+from mycode.providers import (
     AnthropicAdapter,
     DeepSeekAdapter,
     GoogleGeminiAdapter,
@@ -16,8 +16,8 @@ from mycode.core.providers import (
     OpenRouterAdapter,
     ZAIAdapter,
 )
-from mycode.core.providers.base import DEFAULT_REQUEST_TIMEOUT, ProviderStreamEvent, repair_messages_for_replay
-from mycode.core.tools import DEFAULT_TOOL_SPECS
+from mycode.providers.base import DEFAULT_REQUEST_TIMEOUT, ProviderStreamEvent, repair_messages_for_replay
+from mycode.tools import DEFAULT_TOOL_SPECS
 
 _PNG_1X1 = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j1X8AAAAASUVORK5CYII="

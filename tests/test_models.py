@@ -1,7 +1,7 @@
 """Tests for bundled model metadata lookup behavior."""
 
-import mycode.core.models as models
-from mycode.core.models import load_models_catalog, lookup_model_metadata
+import mycode.models as models
+from mycode.models import load_models_catalog, lookup_model_metadata
 
 
 def test_lookup_model_metadata_prefers_current_provider_family(monkeypatch) -> None:
@@ -9,7 +9,7 @@ def test_lookup_model_metadata_prefers_current_provider_family(monkeypatch) -> N
         "openai": {"gpt-5": {"max_output_tokens": 128_000, "supports_reasoning": True, "supports_image_input": True}},
         "openrouter": {"openai/gpt-5": {"max_output_tokens": 64_000, "supports_reasoning": True}},
     }
-    monkeypatch.setattr("mycode.core.models.load_models_catalog", lambda: fake_catalog)
+    monkeypatch.setattr("mycode.models.load_models_catalog", lambda: fake_catalog)
 
     metadata = lookup_model_metadata(
         provider_type="openrouter",
@@ -26,7 +26,7 @@ def test_lookup_model_metadata_falls_back_to_canonical_provider(monkeypatch) -> 
         "openai": {"gpt-5": {"max_output_tokens": 128_000, "supports_reasoning": True, "supports_image_input": True}},
         "other": {},
     }
-    monkeypatch.setattr("mycode.core.models.load_models_catalog", lambda: fake_catalog)
+    monkeypatch.setattr("mycode.models.load_models_catalog", lambda: fake_catalog)
 
     metadata = lookup_model_metadata(
         provider_type="openai_chat",
@@ -39,18 +39,34 @@ def test_lookup_model_metadata_falls_back_to_canonical_provider(monkeypatch) -> 
     assert metadata.supports_image_input is True
 
 
-def test_lookup_model_metadata_falls_back_to_aihubmix(monkeypatch) -> None:
-    fake_catalog = {"aihubmix": {"glm-5.1": {"max_output_tokens": 131_072}}}
-    monkeypatch.setattr("mycode.core.models.load_models_catalog", lambda: fake_catalog)
+def test_lookup_model_metadata_uses_aihubmix_for_capability_bits(monkeypatch) -> None:
+    """Aihubmix data may fill in capability bits, but the returned provider
+    field must always be a real registered provider — never ``aihubmix``."""
 
-    metadata = lookup_model_metadata(
-        provider_type="zai",
-        model="glm-5.1",
-    )
+    fake_catalog = {
+        "zai": {},
+        "aihubmix": {"glm-5.1": {"max_output_tokens": 131_072, "supports_image_input": True}},
+    }
+    monkeypatch.setattr("mycode.models.load_models_catalog", lambda: fake_catalog)
+
+    metadata = lookup_model_metadata(provider_type="zai", model="glm-5.1")
 
     assert metadata is not None
-    assert metadata.provider == "aihubmix"
+    assert metadata.provider == "zai"
     assert metadata.max_output_tokens == 131_072
+    assert metadata.supports_image_input is True
+
+
+def test_lookup_model_metadata_aihubmix_fallback_requires_real_provider(monkeypatch) -> None:
+    """Without a caller-supplied or prefix-inferred provider, the fallback
+    refuses to attribute the bits to a fake type."""
+
+    fake_catalog = {"aihubmix": {"some-niche-model": {"max_output_tokens": 64_000}}}
+    monkeypatch.setattr("mycode.models.load_models_catalog", lambda: fake_catalog)
+
+    metadata = lookup_model_metadata(provider_type=None, model="some-niche-model")
+
+    assert metadata is None
 
 
 def test_lookup_model_metadata_does_not_retry_on_miss(monkeypatch) -> None:
@@ -60,7 +76,7 @@ def test_lookup_model_metadata_does_not_retry_on_miss(monkeypatch) -> None:
         calls["count"] += 1
         return {"zai": {}}
 
-    monkeypatch.setattr("mycode.core.models.load_models_catalog", fake_load_models_catalog)
+    monkeypatch.setattr("mycode.models.load_models_catalog", fake_load_models_catalog)
 
     metadata = lookup_model_metadata(
         provider_type="zai",
@@ -97,7 +113,7 @@ def test_lookup_model_metadata_reads_image_support(monkeypatch) -> None:
             }
         }
     }
-    monkeypatch.setattr("mycode.core.models.load_models_catalog", lambda: fake_catalog)
+    monkeypatch.setattr("mycode.models.load_models_catalog", lambda: fake_catalog)
 
     metadata = lookup_model_metadata(provider_type="anthropic", model="claude-sonnet-4-6")
 
@@ -116,7 +132,7 @@ def test_lookup_model_metadata_reads_pdf_support(monkeypatch) -> None:
             }
         }
     }
-    monkeypatch.setattr("mycode.core.models.load_models_catalog", lambda: fake_catalog)
+    monkeypatch.setattr("mycode.models.load_models_catalog", lambda: fake_catalog)
 
     metadata = lookup_model_metadata(provider_type="openai", model="gpt-5.4")
 

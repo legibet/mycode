@@ -5,8 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import patch
 
-from mycode.core.config import get_settings
-from mycode.core.system_prompt import discover_instruction_files, load_instructions_prompt
+from mycode_cli.config import get_settings
+from mycode_cli.system_prompt import discover_instruction_files, load_instructions_prompt
 
 
 def _write(path: Path, content: str) -> None:
@@ -27,7 +27,7 @@ class TestInstructions:
         _write(home / ".mycode" / "AGENTS.md", "Global native")
         _write(cwd / "AGENTS.md", "Current cwd")
 
-        with patch("mycode.core.system_prompt.Path.home", return_value=home):
+        with patch("mycode_cli.system_prompt.Path.home", return_value=home):
             settings = get_settings(str(cwd))
             files = discover_instruction_files(str(cwd), settings)
             prompt = load_instructions_prompt(str(cwd), settings)
@@ -49,7 +49,7 @@ class TestInstructions:
         monkeypatch.setenv("MYCODE_HOME", str(home / ".mycode"))
         _write(project / "AGENTS.md", "Parent project")
 
-        with patch("mycode.core.system_prompt.Path.home", return_value=home):
+        with patch("mycode_cli.system_prompt.Path.home", return_value=home):
             prompt = load_instructions_prompt(str(cwd))
 
         assert "Parent project" not in prompt
@@ -62,7 +62,7 @@ class TestInstructions:
         monkeypatch.setenv("MYCODE_HOME", str(home / ".mycode"))
         _write(home / ".agents" / "AGENTS.md", "Compat global")
 
-        with patch("mycode.core.system_prompt.Path.home", return_value=home):
+        with patch("mycode_cli.system_prompt.Path.home", return_value=home):
             prompt = load_instructions_prompt(str(workspace))
 
         assert "Compat global" in prompt

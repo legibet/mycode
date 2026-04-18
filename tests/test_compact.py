@@ -8,14 +8,14 @@ from pathlib import Path
 
 import pytest
 
-from mycode.core.config import get_settings
-from mycode.core.session import (
+from mycode.session import (
     DEFAULT_COMPACT_THRESHOLD,
     SessionStore,
     apply_compact,
     build_compact_event,
     should_compact,
 )
+from mycode_cli.config import get_settings
 
 
 def _write(path: Path, content: str) -> None:
@@ -123,8 +123,8 @@ def test_apply_compact_marks_synthetic_messages():
 
 
 def test_agent_uses_default_compact_threshold():
-    from mycode.core.agent import Agent
+    from mycode.agent import Agent
 
-    agent = Agent(model="m", cwd="/tmp", session_dir=Path("/tmp/s"))
+    agent = Agent(model="m", provider="anthropic", cwd="/tmp", session_dir=Path("/tmp/s"))
 
     assert agent.compact_threshold == DEFAULT_COMPACT_THRESHOLD

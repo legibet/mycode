@@ -5,7 +5,7 @@ from __future__ import annotations
 from starlette.routing import Mount
 from starlette.testclient import TestClient
 
-from mycode.server.app import create_app
+from mycode_cli.server.app import create_app
 
 
 def _mount_paths(app) -> list[str]:
@@ -14,7 +14,7 @@ def _mount_paths(app) -> list[str]:
 
 def test_create_app_mounts_web_when_static_exists(tmp_path, monkeypatch) -> None:
     (tmp_path / "index.html").write_text("<html></html>", encoding="utf-8")
-    monkeypatch.setattr("mycode.server.app.web_static_path", lambda: tmp_path)
+    monkeypatch.setattr("mycode_cli.server.app.web_static_path", lambda: tmp_path)
 
     app = create_app()
 
@@ -23,7 +23,7 @@ def test_create_app_mounts_web_when_static_exists(tmp_path, monkeypatch) -> None
 
 def test_create_app_skips_web_mount_when_static_missing(tmp_path, monkeypatch) -> None:
     missing = tmp_path / "static"
-    monkeypatch.setattr("mycode.server.app.web_static_path", lambda: missing)
+    monkeypatch.setattr("mycode_cli.server.app.web_static_path", lambda: missing)
 
     app = create_app()
 
@@ -32,7 +32,7 @@ def test_create_app_skips_web_mount_when_static_missing(tmp_path, monkeypatch) -
 
 def test_create_app_skips_web_mount_in_dev_mode(tmp_path, monkeypatch) -> None:
     (tmp_path / "index.html").write_text("<html></html>", encoding="utf-8")
-    monkeypatch.setattr("mycode.server.app.web_static_path", lambda: tmp_path)
+    monkeypatch.setattr("mycode_cli.server.app.web_static_path", lambda: tmp_path)
 
     app = create_app(serve_web=False)
 

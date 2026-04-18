@@ -7,10 +7,10 @@ from unittest.mock import patch
 
 import pytest
 
-from mycode.core.agent import Agent
-from mycode.core.messages import ConversationMessage
-from mycode.core.providers.base import ProviderStreamEvent
-from mycode.core.tools import ToolExecutionResult, ToolExecutor, ToolSpec
+from mycode.agent import Agent
+from mycode.messages import ConversationMessage
+from mycode.providers.base import ProviderStreamEvent
+from mycode.tools import ToolContext, ToolExecutionResult, ToolExecutor, ToolSpec
 
 
 class _FakeProviderAdapter:
@@ -23,28 +23,26 @@ class _FakeProviderAdapter:
             yield event
 
 
-class _CustomToolExecutor(ToolExecutor):
-    def __init__(self, *, cwd: str, session_dir: Path) -> None:
-        super().__init__(
-            cwd=cwd,
-            session_dir=session_dir,
-            tools=(
-                ToolSpec(
-                    name="ping",
-                    description="Echoes a short string.",
-                    input_schema={
-                        "type": "object",
-                        "properties": {"text": {"type": "string", "description": "Text to echo."}},
-                        "required": ["text"],
-                        "additionalProperties": False,
-                    },
-                    method_name="ping",
-                ),
-            ),
-        )
+def _ping_runner(_ctx: ToolContext, args: dict[str, object]) -> ToolExecutionResult:
+    text = str(args.get("text") or "")
+    return ToolExecutionResult(model_text=f"pong: {text}", display_text=f"pong: {text}")
 
-    def ping(self, *, text: str) -> ToolExecutionResult:
-        return ToolExecutionResult(model_text=f"pong: {text}", display_text=f"pong: {text}")
+
+_PING_TOOL = ToolSpec(
+    name="ping",
+    description="Echoes a short string.",
+    input_schema={
+        "type": "object",
+        "properties": {"text": {"type": "string", "description": "Text to echo."}},
+        "required": ["text"],
+        "additionalProperties": False,
+    },
+    runner=_ping_runner,
+)
+
+
+def _ping_executor(*, cwd: str, session_dir: Path) -> ToolExecutor:
+    return ToolExecutor(cwd=cwd, session_dir=session_dir, tools=[_PING_TOOL])
 
 
 class _SlowProviderAdapter:
@@ -67,6 +65,7 @@ class TestAgentReasoningPersistence:
 
             agent = Agent(
                 model="gpt-5.4",
+                provider="openai",
                 cwd=tmpdir,
                 session_dir=Path(tmpdir),
             )
@@ -95,7 +94,7 @@ class TestAgentReasoningPersistence:
                 ]
             )
 
-            with patch("mycode.core.agent.get_provider_adapter", return_value=adapter):
+            with patch("mycode.agent.get_provider_adapter", return_value=adapter):
                 events = [event async for event in agent.achat("hello", on_persist=on_persist)]
 
             assert [event.type for event in events] == ["reasoning", "text"]
@@ -114,6 +113,7 @@ class TestAgentReasoningPersistence:
 
             agent = Agent(
                 model="gpt-5.4",
+                provider="openai",
                 cwd=tmpdir,
                 session_dir=Path(tmpdir),
             )
@@ -155,7 +155,7 @@ class TestAgentReasoningPersistence:
                 ]
             )
 
-            with patch("mycode.core.agent.get_provider_adapter", return_value=adapter):
+            with patch("mycode.agent.get_provider_adapter", return_value=adapter):
                 events = [event async for event in agent.achat("hello", on_persist=on_persist)]
 
             assert [event.type for event in events] == ["tool_start", "tool_done"]
@@ -185,6 +185,7 @@ class TestAgentTurnLimits:
         with tempfile.TemporaryDirectory() as tmpdir:
             agent = Agent(
                 model="gpt-5.4",
+                provider="openai",
                 cwd=tmpdir,
                 session_dir=Path(tmpdir),
             )
@@ -226,7 +227,7 @@ class TestAgentTurnLimits:
                 ]
             )
 
-            with patch("mycode.core.agent.get_provider_adapter", return_value=adapter):
+            with patch("mycode.agent.get_provider_adapter", return_value=adapter):
                 events = [event async for event in agent.achat("hello")]
 
             assert events[-1].type == "tool_done"
@@ -237,6 +238,7 @@ class TestAgentTurnLimits:
         with tempfile.TemporaryDirectory() as tmpdir:
             agent = Agent(
                 model="gpt-5.4",
+                provider="openai",
                 cwd=tmpdir,
                 session_dir=Path(tmpdir),
                 max_turns=2,
@@ -283,7 +285,7 @@ class TestAgentTurnLimits:
                 ]
             )
 
-            with patch("mycode.core.agent.get_provider_adapter", return_value=adapter):
+            with patch("mycode.agent.get_provider_adapter", return_value=adapter):
                 events = [event async for event in agent.achat("hello")]
 
             assert events[-1].type == "error"
@@ -297,9 +299,10 @@ class TestCustomTools:
             session_dir = Path(tmpdir)
             agent = Agent(
                 model="gpt-5.4",
+                provider="openai",
                 cwd=tmpdir,
                 session_dir=session_dir,
-                tool_executor=_CustomToolExecutor(cwd=tmpdir, session_dir=session_dir),
+                tools=_ping_executor(cwd=tmpdir, session_dir=session_dir),
             )
 
             adapter = _FakeProviderAdapter(
@@ -336,7 +339,7 @@ class TestCustomTools:
                 ]
             )
 
-            with patch("mycode.core.agent.get_provider_adapter", return_value=adapter):
+            with patch("mycode.agent.get_provider_adapter", return_value=adapter):
                 events = [event async for event in agent.achat("hello")]
 
             assert [event.type for event in events] == ["tool_start", "tool_done"]
@@ -354,12 +357,13 @@ class TestAgentCancel:
         with tempfile.TemporaryDirectory() as tmpdir:
             agent = Agent(
                 model="gpt-5.4",
+                provider="openai",
                 cwd=tmpdir,
                 session_dir=Path(tmpdir),
             )
             adapter = _SlowProviderAdapter()
 
-            with patch("mycode.core.agent.get_provider_adapter", return_value=adapter):
+            with patch("mycode.agent.get_provider_adapter", return_value=adapter):
                 stream = agent.achat("hello")
                 first_event = await anext(stream)
                 assert first_event.type == "reasoning"

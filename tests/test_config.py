@@ -6,8 +6,11 @@ from pathlib import Path
 
 import pytest
 
-from mycode.core.config import get_settings, resolve_provider
-from mycode.core.models import ModelMetadata
+from mycode.agent import Agent
+from mycode.models import ModelMetadata
+from mycode.session import SessionStore
+from mycode_cli.config import ResolvedProvider, Settings, get_settings, resolve_provider
+from mycode_cli.runtime import build_agent
 
 
 def _write(path: Path, content: str) -> None:
@@ -15,9 +18,33 @@ def _write(path: Path, content: str) -> None:
     path.write_text(content, encoding="utf-8")
 
 
+def _patch_metadata(monkeypatch, metadata: ModelMetadata | None) -> None:
+    """Patch the catalog lookup at its source so every caller sees ``metadata``."""
+
+    monkeypatch.setattr("mycode.models.lookup_model_metadata", lambda **_: metadata)
+
+
+def _agent_for(
+    *,
+    tmp_path: Path,
+    cwd: Path,
+    settings: Settings,
+    resolved: ResolvedProvider,
+) -> Agent:
+    """Build an agent for capability-inference assertions."""
+
+    return build_agent(
+        store=SessionStore(data_dir=tmp_path / "sessions"),
+        cwd=str(cwd),
+        settings=settings,
+        resolved_provider=resolved,
+        session_id="test",
+    )
+
+
 @pytest.fixture(autouse=True)
 def _disable_live_models_dev_lookup(monkeypatch) -> None:
-    monkeypatch.setattr("mycode.core.config.lookup_model_metadata", lambda **_: None)
+    _patch_metadata(monkeypatch, None)
 
 
 @pytest.fixture(autouse=True)
@@ -145,7 +172,7 @@ class TestGetSettings:
         settings = get_settings(str(workspace))
         resolved = resolve_provider(settings)
 
-        assert resolved.provider_type == "anthropic"
+        assert resolved.provider == "anthropic"
         assert resolved.model == "claude-sonnet-4-6"
         assert resolved.api_key == "config-key"
         assert resolved.api_base == "https://config.example/v1"
@@ -161,7 +188,7 @@ class TestGetSettings:
         settings = get_settings(str(workspace))
         resolved = resolve_provider(settings, provider_name="moonshotai", model="kimi-k2-thinking")
 
-        assert resolved.provider_type == "moonshotai"
+        assert resolved.provider == "moonshotai"
         assert resolved.model == "kimi-k2-thinking"
         assert resolved.api_key == "moonshot-env-key"
 
@@ -176,7 +203,7 @@ class TestGetSettings:
         settings = get_settings(str(workspace))
         resolved = resolve_provider(settings, provider_name="google")
 
-        assert resolved.provider_type == "google"
+        assert resolved.provider == "google"
         assert resolved.model == "gemini-3.1-pro-preview"
         assert resolved.api_key == "gemini-env-key"
 
@@ -187,9 +214,9 @@ class TestGetSettings:
 
         monkeypatch.setenv("MYCODE_HOME", str(home / ".mycode"))
         monkeypatch.setenv("OPENAI_API_KEY", "openai-env-key")
-        monkeypatch.setattr(
-            "mycode.core.config.lookup_model_metadata",
-            lambda **_: ModelMetadata(
+        _patch_metadata(
+            monkeypatch,
+            ModelMetadata(
                 provider="openai",
                 model="gpt-5.4",
                 context_window=1_000_000,
@@ -203,7 +230,8 @@ class TestGetSettings:
         settings = get_settings(str(workspace))
         resolved = resolve_provider(settings, provider_name="openai", model="gpt-5.4")
 
-        assert resolved.supports_pdf_input is True
+        agent = _agent_for(tmp_path=tmp_path, cwd=workspace, settings=settings, resolved=resolved)
+        assert agent.supports_pdf_input is True
 
     def test_resolve_provider_auto_discovers_first_available_provider(self, tmp_path: Path, monkeypatch) -> None:
         home = tmp_path / "home"
@@ -218,7 +246,7 @@ class TestGetSettings:
         resolved = resolve_provider(settings)
 
         assert resolved.provider_name == "openai"
-        assert resolved.provider_type == "openai"
+        assert resolved.provider == "openai"
         assert resolved.model == "gpt-5.4"
         assert resolved.api_key == "openai-env-key"
 
@@ -251,7 +279,7 @@ class TestGetSettings:
         resolved = resolve_provider(settings)
 
         assert resolved.provider_name == "shared"
-        assert resolved.provider_type == "openai"
+        assert resolved.provider == "openai"
         assert resolved.model == "gpt-5.4-mini"
         assert resolved.api_key == "config-openai-key"
 
@@ -270,7 +298,7 @@ class TestGetSettings:
         resolved = resolve_provider(settings)
 
         assert resolved.provider_name == "deepseek"
-        assert resolved.provider_type == "deepseek"
+        assert resolved.provider == "deepseek"
         assert resolved.model == "deepseek-chat"
         assert resolved.api_key == "deepseek-env-key"
 
@@ -409,7 +437,7 @@ class TestGetSettings:
         settings = get_settings(str(workspace))
         resolved = resolve_provider(settings)
 
-        assert resolved.provider_type == "openai_chat"
+        assert resolved.provider == "openai_chat"
         assert resolved.reasoning_effort is None
 
     def test_resolve_provider_does_not_fallback_away_from_default_provider(self, tmp_path: Path, monkeypatch) -> None:
@@ -534,7 +562,7 @@ class TestGetSettings:
 
         assert settings.providers["openrouter"].type == "openrouter"
         assert list(settings.providers["openrouter"].models) == ["deepseek/deepseek-v3.2"]
-        assert resolved.provider_type == "openrouter"
+        assert resolved.provider == "openrouter"
         assert resolved.model == "deepseek/deepseek-v3.2"
         assert resolved.api_key == "router-env-key"
 
@@ -584,11 +612,13 @@ class TestGetSettings:
         settings = get_settings(str(workspace))
         resolved = resolve_provider(settings, provider_name="openai")
 
-        assert resolved.provider_type == "openai"
+        assert resolved.provider == "openai"
         assert resolved.model == "gpt-5.4"
         assert resolved.api_key == "env-key"
-        assert resolved.max_tokens == 16_384
-        assert resolved.context_window == 128_000
+
+        agent = _agent_for(tmp_path=tmp_path, cwd=workspace, settings=settings, resolved=resolved)
+        assert agent.max_tokens == 16_384
+        assert agent.context_window == 128_000
 
     def test_resolve_provider_applies_catalog_metadata(self, tmp_path: Path, monkeypatch) -> None:
         home = tmp_path / "home"
@@ -597,9 +627,9 @@ class TestGetSettings:
 
         monkeypatch.setenv("MYCODE_HOME", str(home / ".mycode"))
         monkeypatch.setenv("OPENAI_API_KEY", "env-key")
-        monkeypatch.setattr(
-            "mycode.core.config.lookup_model_metadata",
-            lambda **_: ModelMetadata(
+        _patch_metadata(
+            monkeypatch,
+            ModelMetadata(
                 provider="openai",
                 model="gpt-4.1-mini",
                 context_window=1_000_000,
@@ -632,9 +662,11 @@ class TestGetSettings:
         resolved = resolve_provider(settings)
 
         assert resolved.model == "gpt-4.1-mini"
-        assert resolved.max_tokens == 32_768
-        assert resolved.context_window == 1_000_000
         assert resolved.reasoning_effort is None
+
+        agent = _agent_for(tmp_path=tmp_path, cwd=workspace, settings=settings, resolved=resolved)
+        assert agent.max_tokens == 32_768
+        assert agent.context_window == 1_000_000
 
     def test_resolve_provider_uses_model_metadata_for_image_input_support(self, tmp_path: Path, monkeypatch) -> None:
         home = tmp_path / "home"
@@ -643,9 +675,9 @@ class TestGetSettings:
 
         monkeypatch.setenv("MYCODE_HOME", str(home / ".mycode"))
         monkeypatch.setenv("OPENAI_API_KEY", "env-key")
-        monkeypatch.setattr(
-            "mycode.core.config.lookup_model_metadata",
-            lambda **_: ModelMetadata(
+        _patch_metadata(
+            monkeypatch,
+            ModelMetadata(
                 provider="openai_chat",
                 model="gpt-4.1-mini",
                 context_window=1_000_000,
@@ -677,8 +709,10 @@ class TestGetSettings:
         settings = get_settings(str(workspace))
         resolved = resolve_provider(settings)
 
-        assert resolved.provider_type == "openai_chat"
-        assert resolved.supports_image_input is True
+        assert resolved.provider == "openai_chat"
+
+        agent = _agent_for(tmp_path=tmp_path, cwd=workspace, settings=settings, resolved=resolved)
+        assert agent.supports_image_input is True
 
     def test_resolve_provider_uses_global_default_reasoning_effort(self, tmp_path: Path, monkeypatch) -> None:
         home = tmp_path / "home"
@@ -687,9 +721,9 @@ class TestGetSettings:
 
         monkeypatch.setenv("MYCODE_HOME", str(home / ".mycode"))
         monkeypatch.setenv("OPENAI_API_KEY", "env-key")
-        monkeypatch.setattr(
-            "mycode.core.config.lookup_model_metadata",
-            lambda **_: ModelMetadata(
+        _patch_metadata(
+            monkeypatch,
+            ModelMetadata(
                 provider="openai",
                 model="gpt-5.4",
                 context_window=400_000,
@@ -715,7 +749,7 @@ class TestGetSettings:
         settings = get_settings(str(workspace))
         resolved = resolve_provider(settings)
 
-        assert resolved.provider_type == "openai"
+        assert resolved.provider == "openai"
         assert resolved.reasoning_effort == "high"
 
     def test_resolve_provider_rejects_unsupported_reasoning_effort(self, tmp_path: Path, monkeypatch) -> None:
@@ -738,10 +772,8 @@ class TestGetSettings:
             """,
         )
 
-        settings = get_settings(str(workspace))
-
         with pytest.raises(ValueError, match="unsupported reasoning_effort 'minimal'"):
-            resolve_provider(settings)
+            get_settings(str(workspace))
 
     def test_resolve_provider_keeps_default_behavior_when_provider_has_no_effort_support(
         self, tmp_path: Path, monkeypatch
@@ -776,7 +808,7 @@ class TestGetSettings:
         settings = get_settings(str(workspace))
         resolved = resolve_provider(settings)
 
-        assert resolved.provider_type == "openai_chat"
+        assert resolved.provider == "openai_chat"
         assert resolved.reasoning_effort is None
 
     def test_resolve_provider_applies_config_model_metadata_override(self, tmp_path: Path, monkeypatch) -> None:
@@ -786,9 +818,9 @@ class TestGetSettings:
 
         monkeypatch.setenv("MYCODE_HOME", str(home / ".mycode"))
         monkeypatch.setenv("OPENAI_API_KEY", "env-key")
-        monkeypatch.setattr(
-            "mycode.core.config.lookup_model_metadata",
-            lambda **_: ModelMetadata(
+        _patch_metadata(
+            monkeypatch,
+            ModelMetadata(
                 provider="openai",
                 model="gpt-5.4",
                 context_window=400_000,
@@ -825,7 +857,8 @@ class TestGetSettings:
         settings = get_settings(str(workspace))
         resolved = resolve_provider(settings)
 
-        assert resolved.context_window == 500_000
-        assert resolved.max_tokens == 64_000
-        assert resolved.supports_reasoning is False
-        assert resolved.supports_image_input is True
+        agent = _agent_for(tmp_path=tmp_path, cwd=workspace, settings=settings, resolved=resolved)
+        assert agent.context_window == 500_000
+        assert agent.max_tokens == 64_000
+        assert agent.supports_reasoning is False
+        assert agent.supports_image_input is True

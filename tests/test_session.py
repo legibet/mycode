@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from mycode.core.session import SessionStore
+from mycode.session import SessionStore
 
 
 @pytest.fixture

@@ -1,0 +1,239 @@
+"""Command-line entrypoint for mycode."""
+
+from __future__ import annotations
+
+import asyncio
+import os
+import sys
+from dataclasses import dataclass
+from typing import Annotated
+
+import typer
+
+from mycode.agent import Agent
+from mycode.messages import ConversationMessage
+from mycode.session import SessionStore
+from mycode_cli.config import ResolvedProvider, Settings, get_settings, resolve_provider
+
+from .runtime import ResolvedSession, build_agent, resolve_session
+from .tui.chat import TerminalChat
+from .tui.render import TerminalView
+
+app = typer.Typer(add_completion=False, pretty_exceptions_enable=False)
+session_app = typer.Typer(help="Session management")
+app.add_typer(session_app, name="session")
+
+
+async def run_noninteractive(agent: Agent, message: str) -> int:
+    """Run one message non-interactively and print only the final assistant reply."""
+
+    latest_assistant: ConversationMessage | None = None
+
+    async def track(payload: ConversationMessage) -> None:
+        nonlocal latest_assistant
+        if payload.get("role") == "assistant":
+            latest_assistant = payload
+
+    error_message = ""
+    async for event in agent.achat(message, on_persist=track):
+        if event.type == "error":
+            error_message = str(event.data.get("message") or "agent error")
+
+    if error_message:
+        print(error_message, file=sys.stderr)
+        return 1
+
+    reply = ""
+    if latest_assistant:
+        reply = "".join(
+            str(block.get("text") or "")
+            for block in latest_assistant.get("content") or []
+            if isinstance(block, dict) and block.get("type") == "text"
+        )
+
+    if reply:
+        sys.stdout.write(reply)
+        if not reply.endswith("\n"):
+            sys.stdout.write("\n")
+    return 0
+
+
+@dataclass
+class _BootstrapContext:
+    store: SessionStore
+    view: TerminalView
+    settings: Settings
+    resolved_provider: ResolvedProvider
+    resolved_session: ResolvedSession
+    agent: Agent
+
+
+def _bootstrap(
+    *,
+    provider: str | None,
+    model: str | None,
+    session: str | None,
+    continue_last: bool,
+    max_turns: int | None,
+) -> _BootstrapContext:
+    """Shared setup for the chat and run commands."""
+
+    if session and continue_last:
+        raise typer.BadParameter("--session and --continue are mutually exclusive")
+
+    cwd = os.path.abspath(os.getcwd())
+    store = SessionStore()
+    view = TerminalView()
+    settings = get_settings(cwd)
+
+    try:
+        resolved_provider = resolve_provider(settings, provider_name=provider, model=model)
+        resolved_session = asyncio.run(
+            resolve_session(
+                store=store,
+                provider=resolved_provider.provider,
+                cwd=cwd,
+                model=resolved_provider.model,
+                api_base=resolved_provider.api_base,
+                requested_session_id=session,
+                continue_last=continue_last,
+            )
+        )
+    except ValueError as exc:
+        view.console.print(f"[red]{exc}[/red]")
+        raise SystemExit(1) from exc
+
+    agent = build_agent(
+        store=store,
+        cwd=cwd,
+        settings=settings,
+        resolved_provider=resolved_provider,
+        session_id=resolved_session.session_id,
+        messages=resolved_session.messages,
+        max_turns=max_turns,
+    )
+
+    return _BootstrapContext(
+        store=store,
+        view=view,
+        settings=settings,
+        resolved_provider=resolved_provider,
+        resolved_session=resolved_session,
+        agent=agent,
+    )
+
+
+# -- Commands ----------------------------------------------------------------
+
+
+@app.callback(invoke_without_command=True)
+def chat(
+    ctx: typer.Context,
+    provider: Annotated[str | None, typer.Option(help="Provider id or configured alias")] = None,
+    model: Annotated[str | None, typer.Option(help="Model name (overrides default)")] = None,
+    max_turns: Annotated[int | None, typer.Option(min=1, help="Limit agent loop turns")] = None,
+    session: Annotated[str | None, typer.Option(help="Resume a specific session id")] = None,
+    continue_last: Annotated[bool, typer.Option("--continue", "-c", help="Resume the most recent session")] = False,
+) -> None:
+    """Interactive coding agent."""
+
+    if ctx.invoked_subcommand is not None:
+        return
+
+    setup = _bootstrap(
+        provider=provider,
+        model=model,
+        session=session,
+        continue_last=continue_last,
+        max_turns=max_turns,
+    )
+
+    setup.view.print_header(
+        provider=setup.resolved_provider.provider,
+        model=setup.resolved_provider.model,
+        session=setup.resolved_session.session,
+        mode=setup.resolved_session.mode,
+        message_count=len(setup.resolved_session.messages),
+        reasoning_effort=setup.resolved_provider.reasoning_effort,
+    )
+    if setup.resolved_session.mode == "resumed":
+        setup.view.print_history_preview(setup.resolved_session.messages)
+
+    try:
+        asyncio.run(
+            TerminalChat(
+                agent=setup.agent,
+                settings=setup.settings,
+                store=setup.store,
+                session_id=setup.resolved_session.session_id,
+                view=setup.view,
+            ).run()
+        )
+    except KeyboardInterrupt:
+        pass
+
+
+@app.command()
+def run(
+    message: Annotated[list[str], typer.Argument(help="Prompt to send")],
+    provider: Annotated[str | None, typer.Option(help="Provider id or configured alias")] = None,
+    model: Annotated[str | None, typer.Option(help="Model name (overrides default)")] = None,
+    max_turns: Annotated[int | None, typer.Option(min=1, help="Limit agent loop turns")] = None,
+    session: Annotated[str | None, typer.Option(help="Resume a specific session id")] = None,
+    continue_last: Annotated[bool, typer.Option("--continue", "-c", help="Resume the most recent session")] = False,
+) -> None:
+    """Send one message and exit."""
+
+    setup = _bootstrap(
+        provider=provider,
+        model=model,
+        session=session,
+        continue_last=continue_last,
+        max_turns=max_turns,
+    )
+
+    code = asyncio.run(run_noninteractive(setup.agent, " ".join(message).strip()))
+    raise SystemExit(code)
+
+
+@app.command()
+def web(
+    hostname: Annotated[str, typer.Option(help="Hostname to listen on")] = "127.0.0.1",
+    port: Annotated[int | None, typer.Option(help="Port to listen on")] = None,
+    dev: Annotated[bool, typer.Option(help="API-only backend for web UI dev workflows")] = False,
+) -> None:
+    """Start the web server."""
+
+    cwd = os.path.abspath(os.getcwd())
+    settings = get_settings(cwd)
+    resolved_port = port or settings.port
+
+    import uvicorn
+
+    from mycode_cli.server.app import create_app
+
+    uvicorn.run(create_app(serve_web=not dev), host=hostname, port=resolved_port)
+
+
+@session_app.command("list")
+def session_list(
+    all_workspaces: Annotated[bool, typer.Option("--all", help="Show sessions from all workspaces")] = False,
+) -> None:
+    """List saved sessions."""
+
+    cwd = os.path.abspath(os.getcwd())
+    store = SessionStore()
+    view = TerminalView()
+
+    sessions = asyncio.run(store.list_sessions(cwd=None if all_workspaces else cwd))
+    heading = "all sessions" if all_workspaces else f"sessions for {cwd}"
+    view.print_session_list(sessions, include_cwd=all_workspaces, heading=heading)
+
+
+def main() -> None:
+    """CLI entrypoint."""
+    app()
+
+
+if __name__ == "__main__":
+    main()

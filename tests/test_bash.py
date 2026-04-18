@@ -3,14 +3,14 @@
 import tempfile
 from pathlib import Path
 
-from mycode.core.tools import ToolExecutionResult, ToolExecutor, cancel_all_tools
+from mycode.tools import ToolExecutionResult, ToolExecutor, cancel_all_tools
 
 
 class TestToolExecutorBash:
     def test_bash_simple_command(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             executor = ToolExecutor(cwd=tmpdir, session_dir=Path(tmpdir))
-            result = executor.bash(tool_call_id="test-1", command="echo Hello")
+            result = executor.execute("bash", {"command": "echo Hello"}, tool_call_id="test-1")
 
             assert "Hello" in result.model_text
             assert result.is_error is False
@@ -18,14 +18,14 @@ class TestToolExecutorBash:
     def test_bash_empty_output(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             executor = ToolExecutor(cwd=tmpdir, session_dir=Path(tmpdir))
-            result = executor.bash(tool_call_id="test-2", command="true")
+            result = executor.execute("bash", {"command": "true"}, tool_call_id="test-2")
 
             assert result.model_text == "(empty)"
 
     def test_bash_runs_in_shell_environment(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             executor = ToolExecutor(cwd=tmpdir, session_dir=Path(tmpdir))
-            result = executor.bash(tool_call_id="test-3", command='printf "%s\n%s" "$PWD" "$HOME"')
+            result = executor.execute("bash", {"command": 'printf "%s\n%s" "$PWD" "$HOME"'}, tool_call_id="test-3")
 
             assert tmpdir in result.model_text
             assert str(Path.home()) in result.model_text
@@ -35,7 +35,7 @@ class TestBashTimeout:
     def test_bash_timeout(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             executor = ToolExecutor(cwd=tmpdir, session_dir=Path(tmpdir))
-            result = executor.bash(tool_call_id="test-timeout", command="sleep 5", timeout=1)
+            result = executor.execute("bash", {"command": "sleep 5", "timeout": 1}, tool_call_id="test-timeout")
 
             assert "timeout" in result.model_text.lower()
             assert result.is_error is True
@@ -43,7 +43,7 @@ class TestBashTimeout:
     def test_bash_zero_timeout_falls_back_to_default(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             executor = ToolExecutor(cwd=tmpdir, session_dir=Path(tmpdir))
-            result = executor.bash(tool_call_id="test-zero-timeout", command="echo ok", timeout=0)
+            result = executor.execute("bash", {"command": "echo ok", "timeout": 0}, tool_call_id="test-zero-timeout")
 
             assert "ok" in result.model_text
             assert "timeout" not in result.model_text.lower()
@@ -53,9 +53,8 @@ class TestBashTruncation:
     def test_bash_large_output_truncated_by_lines(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             executor = ToolExecutor(cwd=tmpdir, session_dir=Path(tmpdir))
-            result = executor.bash(
-                tool_call_id="test-large",
-                command='for i in $(seq 1 3000); do echo "line $i"; done',
+            result = executor.execute(
+                "bash", {"command": 'for i in $(seq 1 3000); do echo "line $i"; done'}, tool_call_id="test-large"
             )
 
             assert "Truncated:" in result.model_text
@@ -67,10 +66,7 @@ class TestBashTruncation:
     def test_bash_output_saved_for_large_truncation(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             executor = ToolExecutor(cwd=tmpdir, session_dir=Path(tmpdir))
-            executor.bash(
-                tool_call_id="saved-output",
-                command="seq 1 3000",
-            )
+            executor.execute("bash", {"command": "seq 1 3000"}, tool_call_id="saved-output")
 
             log_file = Path(tmpdir) / "tool-output" / "bash-saved-output.log"
             assert log_file.exists()
@@ -79,9 +75,8 @@ class TestBashTruncation:
     def test_bash_long_single_line_truncated_by_bytes(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             executor = ToolExecutor(cwd=tmpdir, session_dir=Path(tmpdir))
-            result = executor.bash(
-                tool_call_id="long-line",
-                command="python3 -c \"print('x' * 60000, end='')\"",
+            result = executor.execute(
+                "bash", {"command": "python3 -c \"print('x' * 60000, end='')\""}, tool_call_id="long-line"
             )
 
             assert "Truncated:" in result.model_text
@@ -96,7 +91,7 @@ class TestBashExitCode:
     def test_bash_nonzero_exit_code_reported(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             executor = ToolExecutor(cwd=tmpdir, session_dir=Path(tmpdir))
-            result = executor.bash(tool_call_id="exit-1", command="exit 1")
+            result = executor.execute("bash", {"command": "exit 1"}, tool_call_id="exit-1")
 
             assert "[exit code: 1]" in result.model_text
             assert result.is_error is False
@@ -104,14 +99,14 @@ class TestBashExitCode:
     def test_bash_zero_exit_code_not_reported(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             executor = ToolExecutor(cwd=tmpdir, session_dir=Path(tmpdir))
-            result = executor.bash(tool_call_id="exit-0", command="echo ok")
+            result = executor.execute("bash", {"command": "echo ok"}, tool_call_id="exit-0")
 
             assert "exit code" not in result.model_text
 
     def test_bash_exit_code_with_output(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             executor = ToolExecutor(cwd=tmpdir, session_dir=Path(tmpdir))
-            result = executor.bash(tool_call_id="exit-output", command="echo some output; exit 42")
+            result = executor.execute("bash", {"command": "echo some output; exit 42"}, tool_call_id="exit-output")
 
             assert "some output" in result.model_text
             assert "[exit code: 42]" in result.model_text
@@ -127,9 +122,10 @@ class TestBashCallback:
             def on_output(line: str) -> None:
                 received_lines.append(line)
 
-            executor.bash(
+            executor.execute(
+                "bash",
+                {"command": "echo line1 && echo line2"},
                 tool_call_id="test-callback",
-                command="echo line1 && echo line2",
                 on_output=on_output,
             )
 
@@ -148,10 +144,8 @@ class TestCancelAllTools:
             result_holder: dict[str, ToolExecutionResult] = {}
 
             def run_bash():
-                result_holder["result"] = executor.bash(
-                    tool_call_id="long-running",
-                    command="sleep 10",
-                    timeout=15,
+                result_holder["result"] = executor.execute(
+                    "bash", {"command": "sleep 10", "timeout": 15}, tool_call_id="long-running"
                 )
 
             thread = threading.Thread(target=run_bash)
@@ -175,17 +169,13 @@ class TestCancelAllTools:
             second_result: dict[str, ToolExecutionResult] = {}
 
             def run_first() -> None:
-                first_result["result"] = first.bash(
-                    tool_call_id="first",
-                    command="sleep 10",
-                    timeout=15,
+                first_result["result"] = first.execute(
+                    "bash", {"command": "sleep 10", "timeout": 15}, tool_call_id="first"
                 )
 
             def run_second() -> None:
-                second_result["result"] = second.bash(
-                    tool_call_id="second",
-                    command="sleep 10",
-                    timeout=15,
+                second_result["result"] = second.execute(
+                    "bash", {"command": "sleep 10", "timeout": 15}, tool_call_id="second"
                 )
 
             first_thread = threading.Thread(target=run_first)

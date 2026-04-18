@@ -17,16 +17,15 @@ from prompt_toolkit.input.defaults import create_pipe_input
 from prompt_toolkit.output import DummyOutput
 from rich.console import Console
 
-from mycode.cli.chat import TerminalChat, _build_chat_key_bindings, _PromptCompleter, _rewrite_pasted_file_paths
-from mycode.cli.main import app, run_noninteractive
-from mycode.cli.render import TerminalView
-from mycode.cli.runtime import list_model_options, resolve_session
-from mycode.cli.runtime import update_agent_runtime as _update_agent_runtime
-from mycode.core.agent import Event
-from mycode.core.config import ModelConfig, ProviderConfig, ResolvedProvider, Settings
-from mycode.core.messages import ConversationMessage
-from mycode.core.session import SessionStore
-from mycode.core.tools import ToolExecutor
+from mycode.agent import Event
+from mycode.messages import ConversationMessage
+from mycode.session import SessionStore
+from mycode.tools import ToolExecutor
+from mycode_cli.config import ModelConfig, ProviderConfig, ResolvedProvider, Settings
+from mycode_cli.main import app, run_noninteractive
+from mycode_cli.runtime import apply_resolved_provider, list_model_options, resolve_session
+from mycode_cli.tui.chat import TerminalChat, _build_chat_key_bindings, _PromptCompleter, _rewrite_pasted_file_paths
+from mycode_cli.tui.render import TerminalView
 
 
 class _FakeStore:
@@ -47,6 +46,18 @@ class _AttachmentAgent:
         self.supports_image_input = supports_image_input
         self.supports_pdf_input = supports_pdf_input
         self.tools = ToolExecutor(cwd=cwd, session_dir=session_dir)
+
+
+def _settings_for(cwd: str) -> Settings:
+    return Settings(
+        providers={},
+        default_provider=None,
+        default_model=None,
+        port=8000,
+        cwd=cwd,
+        workspace_root=cwd,
+        config_paths=[],
+    )
 
 
 class _FakeAgent:
@@ -70,12 +81,7 @@ class _FakeAgent:
 
 @pytest.mark.asyncio
 async def test_run_noninteractive_prints_only_final_reply(capsys):
-    code = await run_noninteractive(
-        cast(Any, _FakeAgent()),
-        store=cast(Any, _FakeStore()),
-        session_id="test-session",
-        message="hello",
-    )
+    code = await run_noninteractive(cast(Any, _FakeAgent()), "hello")
 
     assert code == 0
     captured = capsys.readouterr()
@@ -90,12 +96,7 @@ class _ErrorAgent:
 
 @pytest.mark.asyncio
 async def test_run_noninteractive_prints_errors_to_stderr(capsys):
-    code = await run_noninteractive(
-        cast(Any, _ErrorAgent()),
-        store=cast(Any, _FakeStore()),
-        session_id="test-session",
-        message="hello",
-    )
+    code = await run_noninteractive(cast(Any, _ErrorAgent()), "hello")
 
     assert code == 1
     captured = capsys.readouterr()
@@ -371,6 +372,7 @@ def test_terminal_chat_builds_user_message_with_text_and_image_attachments(tmp_p
 
     chat = TerminalChat(
         agent=cast(Any, _AttachmentAgent(cwd=str(tmp_path), session_dir=tmp_path / ".session")),
+        settings=_settings_for(str(tmp_path)),
         store=cast(Any, _FakeStore()),
         session_id="test-session",
     )
@@ -403,6 +405,7 @@ def test_terminal_chat_builds_text_notice_for_image_attachment_without_image_inp
                 supports_image_input=False,
             ),
         ),
+        settings=_settings_for(str(tmp_path)),
         store=cast(Any, _FakeStore()),
         session_id="test-session",
     )
@@ -423,6 +426,7 @@ def test_terminal_chat_builds_user_message_with_pdf_attachment(tmp_path):
 
     chat = TerminalChat(
         agent=cast(Any, _AttachmentAgent(cwd=str(tmp_path), session_dir=tmp_path / ".session")),
+        settings=_settings_for(str(tmp_path)),
         store=cast(Any, _FakeStore()),
         session_id="test-session",
     )
@@ -451,6 +455,7 @@ def test_terminal_chat_builds_text_notice_for_pdf_attachment_without_pdf_input(t
                 supports_pdf_input=False,
             ),
         ),
+        settings=_settings_for(str(tmp_path)),
         store=cast(Any, _FakeStore()),
         session_id="test-session",
     )
@@ -536,7 +541,7 @@ def test_model_options_use_configured_provider_models():
 
 
 class _RuntimeAgent:
-    def __init__(self, *, cwd: str, settings: Settings) -> None:
+    def __init__(self, *, cwd: str) -> None:
         self.cwd = cwd
         self.provider = "anthropic"
         self.model = "claude-sonnet-4-6"
@@ -544,11 +549,18 @@ class _RuntimeAgent:
         self.api_base = None
         self.reasoning_effort = None
         self.max_tokens = 16_384
-        self.settings = settings
+        self.context_window = 128_000
+        self.supports_reasoning: bool | None = None
+        self.supports_image_input = False
+        self.supports_pdf_input = False
+        self.tools = ToolExecutor(cwd=cwd, session_dir=Path(cwd) / ".session")
+
+    def refresh_capabilities(self, **_: Any) -> None:
+        """No-op capability refresh — the real inference lives on ``Agent``."""
 
 
 @pytest.mark.asyncio
-async def test_update_agent_runtime_updates_agent_without_rewriting_session(tmp_path, monkeypatch):
+async def test_apply_resolved_provider_updates_agent_without_rewriting_session(tmp_path):
     store = SessionStore(data_dir=tmp_path / "sessions")
     created = await store.create_session(
         None,
@@ -567,44 +579,16 @@ async def test_update_agent_runtime_updates_agent_without_rewriting_session(tmp_
         api_base=None,
     )
 
-    old_settings = Settings(
-        providers={},
-        default_provider=None,
-        default_model=None,
-        port=8000,
-        cwd=str(tmp_path),
-        workspace_root=str(tmp_path),
-        config_paths=[],
-    )
-    new_settings = Settings(
-        providers={},
-        default_provider=None,
-        default_model=None,
-        port=8000,
-        cwd=str(tmp_path),
-        workspace_root=str(tmp_path),
-        config_paths=[],
-    )
-    agent = _RuntimeAgent(cwd=str(tmp_path), settings=old_settings)
-
-    monkeypatch.setattr("mycode.cli.runtime.get_settings", lambda cwd: new_settings)
-    monkeypatch.setattr(
-        "mycode.cli.runtime.resolve_provider",
-        lambda settings, provider_name=None, model=None: ResolvedProvider(
-            provider="openai",
-            model="gpt-5.4",
-            api_key="test-key",
-            api_base="https://api.openai.com/v1",
-            reasoning_effort="medium",
-            max_tokens=16000,
-        ),
+    agent = _RuntimeAgent(cwd=str(tmp_path))
+    resolved = ResolvedProvider(
+        provider="openai",
+        model="gpt-5.4",
+        api_key="test-key",
+        api_base="https://api.openai.com/v1",
+        reasoning_effort="medium",
     )
 
-    changed = await _update_agent_runtime(
-        cast(Any, agent),
-        provider_name="openai",
-        model=None,
-    )
+    changed = apply_resolved_provider(cast(Any, agent), resolved, _settings_for(str(tmp_path)))
 
     assert changed is True
     assert agent.provider == "openai"
@@ -612,8 +596,6 @@ async def test_update_agent_runtime_updates_agent_without_rewriting_session(tmp_
     assert agent.api_key == "test-key"
     assert agent.api_base == "https://api.openai.com/v1"
     assert agent.reasoning_effort == "medium"
-    assert agent.max_tokens == 16000
-    assert agent.settings is new_settings
 
     loaded = await store.load_session(session_id)
     assert loaded is not None
