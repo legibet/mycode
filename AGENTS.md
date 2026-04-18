@@ -26,7 +26,7 @@ SDK package — `mycode/src/mycode/`:
 - `agent.py` — agent loop (`Agent`)
 - `messages.py` — internal message/block format
 - `tools.py` — `ToolSpec`, `ToolExecutor`, `ToolContext`, the four built-in tools, `@tool` decorator
-- `session.py` — append-only JSONL session storage, compact/rewind events, interrupted tool repair, `resolve_mycode_home`/`resolve_sessions_dir`
+- `session.py` — append-only JSONL session storage, compact/rewind events, interrupted tool repair
 - `models.py` + `models_catalog.json` — bundled model metadata lookup
 - `utils.py` — small typed helpers (`as_int`, `as_bool`, `omit_none`, `parse_tool_arguments`)
 - `providers/base.py` — `ProviderAdapter` abstract interface
@@ -43,7 +43,7 @@ CLI package — `cli/src/mycode_cli/`:
 - `tui/render.py` — TerminalView rich rendering
 - `tui/theme.py` — terminal theme detection and color tokens
 - `runtime.py` — `build_agent()`, `resolve_session()`
-- `config.py` — layered TOML/JSON config loading and provider resolution (CLI/server only)
+- `config.py` — layered JSON config loading, provider resolution, and CLI-owned path helpers (`resolve_mycode_home` / `resolve_sessions_dir`)
 - `system_prompt.py` — runtime system prompt assembly: inlined base prompt + AGENTS.md + skills discovery
 - `server/app.py` — FastAPI factory, static mount
 - `server/routers/chat.py` — POST /api/chat, GET /api/runs/{id}/stream, POST /api/runs/{id}/cancel, GET /api/config

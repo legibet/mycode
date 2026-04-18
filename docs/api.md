@@ -136,13 +136,11 @@ Request body (`SessionCreateRequest`):
 
 ```json
 {
-  "title": null,
-  "provider": null,
-  "model": null,
-  "cwd": null,
-  "api_base": null
+  "cwd": null
 }
 ```
+
+`cwd` defaults to the server's current working directory. A new uuid-hex `session_id` is allocated.
 
 ### `GET /api/sessions/{id}`
 

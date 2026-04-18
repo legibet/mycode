@@ -5,33 +5,34 @@ Source: `mycode/src/mycode/session.py`
 ## Storage Layout
 
 ```text
-~/.mycode/sessions/<session_id>/
-  meta.json        # session metadata
+<data_dir>/<session_id>/
+  meta.json        # immutable session metadata
   messages.jsonl   # one JSON record per line (append-only)
-  tool-output/     # large bash outputs spilled to disk
+  tool-output/     # bash spill files (lazy; only if configured)
 ```
 
-Sessions directory resolved by `resolve_sessions_dir()` → `$MYCODE_HOME/sessions/` (default `~/.mycode/sessions/`).
+`data_dir` is supplied by the caller. The SDK never picks a default path. The CLI resolves it to `$MYCODE_HOME/sessions/` (default `~/.mycode/sessions/`) via `mycode_cli.config.resolve_sessions_dir()`.
+
+The `tool-output/` subdirectory is owned by `ToolExecutor`, not `SessionStore`. It only appears when the executor was given a `tool_output_dir` and bash actually spills.
 
 ## meta.json
 
 ```json
 {
-  "id": "...",
-  "title": "...",
-  "provider": "anthropic",
-  "model": "claude-sonnet-4-6",
   "cwd": "/path/to/workspace",
-  "api_base": null,
-  "message_format_version": 5,
+  "title": "...",
   "created_at": "...",
-  "updated_at": "..."
+  "updated_at": "...",
+  "message_format_version": 6
 }
 ```
 
-- `title` — auto-set from the first user message text (first 48 chars)
-- `provider` / `model` / `api_base` — fixed at session creation; request-time overrides are runtime-only
-- `message_format_version` — written as `5` when missing; no version check on load
+- `cwd` — workspace path recorded at session creation; used by `list_sessions(cwd=...)` for filtering
+- `title` — defaults to `"New chat"`; promoted to the first user message text (truncated to 48 chars) on the first `append_message` carrying readable user text
+- `updated_at` — bumped on every `append_message`
+- `message_format_version` — written as `6`, not validated on load
+
+Per-turn state (`provider` / `model` / `api_base`) intentionally lives only on each `ConversationMessage.meta`; caching a "current" value at the session level would drift after `/model` switches.
 
 ## messages.jsonl Record Types
 
@@ -39,11 +40,10 @@ Each line is a JSON object. The `role` field acts as a discriminator.
 
 ### Regular message
 
-Standard `user` or `assistant` message in the internal block format (see AGENTS.md).
+Standard `user` or `assistant` message in the internal block format.
 
 ```json
 {"role": "user", "content": [{"type": "text", "text": "..."}], "meta": {...}}
-{"role": "user", "content": [{"type": "text", "text": "..."}, {"type": "image", "data": "...", "mime_type": "image/png"}], "meta": {...}}
 {"role": "assistant", "content": [{"type": "thinking", "text": "..."}, {"type": "text", "text": "..."}, {"type": "tool_use", "id": "...", "name": "...", "input": {...}}], "meta": {"provider": "...", "model": "...", "stop_reason": "...", "usage": {...}}}
 ```
 
@@ -55,7 +55,7 @@ Standard `user` or `assistant` message in the internal block format (see AGENTS.
 {"role": "compact", "content": [{"type": "text", "text": "<summary>"}], "meta": {"provider": "...", "model": "...", "compacted_count": 12}}
 ```
 
-Marks a context compaction point. The agent loop writes a compact event when token usage ≥ `compact_threshold` × context window. See "Context Compaction" below.
+Marks a context compaction point. Written when token usage ≥ `compact_threshold × context_window`. See "Context Compaction" below.
 
 ### Rewind event
 
@@ -67,55 +67,52 @@ Marks an undo point. See "Rewind" below.
 
 ## Load Order
 
-When a session is loaded (`SessionStore.load_session`):
+When `SessionStore.load_session` runs:
 
 1. Read all JSONL lines into a raw list
 2. `apply_compact()` — find the last `role: "compact"` record, replace everything before it with a synthetic user summary + assistant ack, keep messages after
-3. `apply_rewind()` — scan sequentially; when a rewind record is found, truncate the accumulated list to `meta.rewind_to` and continue loading subsequent lines
-4. `_repair_interrupted_tool_loop()` — if the latest assistant tool loop has unmatched `tool_use` blocks (no corresponding `tool_result` user message), append one synthetic error result message
+3. `apply_rewind()` — scan sequentially; when a rewind record is found, truncate the accumulated list to `meta.rewind_to` and continue
+4. `_repair_interrupted_tool_loop()` — if the latest assistant tool loop has unmatched `tool_use` blocks, append one synthetic error `tool_result` message
 
 ## Context Compaction
 
-Triggered in `Agent._compact_if_needed()` after a successful turn completes:
+Triggered in `Agent._compact_if_needed()` after a completed turn:
 
-1. Check `should_compact()` — true when last assistant message's `usage.input_tokens` ≥ `context_window × compact_threshold`
-2. Ask the same provider for a summary (no tools, just text, max 8192 tokens)
+1. `should_compact()` — true when last assistant message's `usage.input_tokens` ≥ `context_window × compact_threshold` (default `0.8`)
+2. Ask the same provider for a summary (no tools, text only, max 8192 tokens)
 3. Build a compact event with the summary text and `compacted_count`
 4. Persist the compact event (append-only — original messages stay in JSONL)
 5. Apply `apply_compact()` in memory to rebuild the message list
-6. Emit SSE `compact` event to the web UI
+6. Emit the `compact` event to the caller
 
-`should_compact()` checks multiple usage field names: `input_tokens`, `prompt_tokens`, `prompt_token_count`.
+`should_compact()` accepts `input_tokens`, `prompt_tokens`, and `prompt_token_count` field names.
 
 ## Rewind
 
-Triggered by `POST /api/chat` with `rewind_to` parameter:
+Triggered by `POST /api/chat` with `rewind_to`:
 
-1. Server validates the target message is a real user message
-2. Optimistically truncates messages in memory
-3. On first persist, appends a rewind event to JSONL
-4. On load, `apply_rewind()` processes rewind markers inline
+1. Server validates the target is a real user message
+2. Server calls `append_rewind(session_id, rewind_to)` — appends a rewind marker to JSONL
+3. Agent auto-resumes; `apply_rewind()` produces the truncated visible history
 
 ## tool-output/ Spill
 
-Bash output exceeding 5MB in memory (`_BASH_MAX_IN_MEMORY_BYTES`) is written to `tool-output/bash-<tool_call_id>.log`. The tool result keeps the last 2000 lines in memory. When output is truncated, the result text includes the saved log path and instructions to read it with offset/limit.
+Bash output exceeding 5MB in memory (`_BASH_MAX_IN_MEMORY_BYTES`) is written to `<tool_output_dir>/bash-<tool_call_id>.log`. The tool result keeps the last 2000 lines in memory and cites the saved log path.
 
-## Current Format Version
-
-`MESSAGE_FORMAT_VERSION = 5`
-
-Stored in `meta.json`. The field is written when missing but not validated on load — newer versions are accepted silently.
+When the executor has `tool_output_dir=None`, there is no spill: output is inline-truncated to the same bounded tail, and the result notes truncation without a log path.
 
 ## Session Store API
 
-`SessionStore` (in `mycode/src/mycode/session.py`) provides:
+`SessionStore` (in `mycode/src/mycode/session.py`):
 
-- `create_session(title, *, session_id, provider, model, cwd, api_base)` → create on disk
-- `list_sessions(*, cwd)` → list by workspace, sorted by `updated_at` desc
-- `load_session(session_id)` → load with full replay pipeline
-- `delete_session(session_id)` → recursive directory delete
-- `clear_session(session_id)` → truncate messages.jsonl, keep meta
-- `append_message(session_id, message, *, provider, model, cwd, api_base)` → append one line; auto-creates session on first message
-- `append_rewind(session_id, rewind_to)` → append rewind marker
+- `SessionStore(data_dir: Path)` — required; no default
+- `session_exists(session_id)` — check by `meta.json` presence
+- `create_session(session_id, *, cwd)` — write `meta.json` and touch `messages.jsonl`
+- `list_sessions(*, cwd=None)` — filter by workspace, sorted by `updated_at` desc; derived `title` / `updated_at` included per entry
+- `load_session(session_id)` — load with full replay pipeline (returns `None` when absent)
+- `delete_session(session_id)` — recursive directory delete
+- `clear_session(session_id)` — truncate `messages.jsonl`, keep `meta.json`
+- `append_message(session_id, message)` — append one line; refresh meta's `updated_at` and promote `title` on the first user message
+- `append_rewind(session_id, rewind_to)` — append a rewind marker
 
-All file I/O is offloaded to `asyncio.to_thread()` to avoid blocking the event loop.
+All file I/O is offloaded to `asyncio.to_thread()`.
