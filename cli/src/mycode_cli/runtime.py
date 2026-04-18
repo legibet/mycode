@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any
+from uuid import uuid4
 
 from mycode.agent import Agent
 from mycode.providers import (
@@ -48,22 +49,24 @@ def build_agent(
     settings: Settings,
     resolved_provider: ResolvedProvider,
     session_id: str,
-    messages: list[dict[str, Any]] | None = None,
     max_turns: int | None = None,
     reasoning_effort: str | None = None,
 ) -> Agent:
-    """Build an agent from the resolved provider, honoring model config overrides."""
+    """Build an agent from the resolved provider, honoring model config overrides.
+
+    History is auto-loaded from disk when ``session_id`` already exists under
+    the store; callers never pass messages explicitly.
+    """
 
     model_config = _model_config_for(settings, resolved_provider)
     return Agent(
         model=resolved_provider.model,
         provider=resolved_provider.provider,
         cwd=cwd,
-        session_dir=store.session_dir(session_id),
+        session_dir=store.data_dir,
         session_id=session_id,
         api_key=resolved_provider.api_key,
         api_base=resolved_provider.api_base,
-        messages=messages,
         reasoning_effort=reasoning_effort if reasoning_effort is not None else resolved_provider.reasoning_effort,
         max_tokens=model_config.max_output_tokens if model_config else None,
         context_window=model_config.context_window if model_config else None,
@@ -86,18 +89,20 @@ def _model_config_for(settings: Settings, resolved: ResolvedProvider) -> ModelCo
     return provider_config.models.get(resolved.model)
 
 
-def clone_agent(agent: Agent, *, store: SessionStore, session_id: str, messages: list[dict[str, Any]]) -> Agent:
-    """Keep the current runtime config while swapping session state."""
+def clone_agent(agent: Agent, *, store: SessionStore, session_id: str) -> Agent:
+    """Keep the current runtime config while swapping session state.
+
+    History auto-loads from disk when ``session_id`` exists under the store.
+    """
 
     return Agent(
         model=agent.model,
         provider=agent.provider,
         cwd=agent.cwd,
-        session_dir=store.session_dir(session_id),
+        session_dir=store.data_dir,
         session_id=session_id,
         api_key=agent.api_key,
         api_base=agent.api_base,
-        messages=messages,
         max_turns=agent.max_turns,
         max_tokens=agent.max_tokens,
         context_window=agent.context_window,
@@ -171,10 +176,7 @@ def supports_reasoning_effort(agent: Agent) -> bool:
 async def resolve_session(
     *,
     store: SessionStore,
-    provider: str,
     cwd: str,
-    model: str,
-    api_base: str | None,
     requested_session_id: str | None,
     continue_last: bool,
 ) -> ResolvedSession:
@@ -205,9 +207,9 @@ async def resolve_session(
                 "resumed",
             )
 
-    data = store.draft_session(None, provider=provider, model=model, cwd=cwd, api_base=api_base)
-    session = data.get("session") or {}
-    return ResolvedSession(str(session.get("id") or ""), session, [], "new")
+    # New sessions: the id is allocated here; the on-disk session is created
+    # lazily by Agent.achat on the first persist.
+    return ResolvedSession(uuid4().hex, {}, [], "new")
 
 
 def apply_resolved_provider(agent: Agent, resolved: ResolvedProvider, settings: Settings) -> bool:

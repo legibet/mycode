@@ -112,8 +112,8 @@ class TestSessionRewind:
     @pytest.mark.asyncio
     async def test_append_rewind_and_reload(self, temp_store):
         """Rewind event should truncate messages when session is reloaded."""
-        result = await temp_store.create_session(title="Test", model="m", cwd="/tmp", api_base=None)
-        sid = result["session"]["id"]
+        await temp_store.create_session("s1", cwd="/tmp")
+        sid = "s1"
 
         for msg in [
             {"role": "user", "content": [{"type": "text", "text": "hello"}]},
@@ -121,17 +121,13 @@ class TestSessionRewind:
             {"role": "user", "content": [{"type": "text", "text": "explain X"}]},
             {"role": "assistant", "content": [{"type": "text", "text": "X is..."}]},
         ]:
-            await temp_store.append_message(sid, msg, provider="p", model="m", cwd="/tmp", api_base=None)
+            await temp_store.append_message(sid, msg)
 
         await temp_store.append_rewind(sid, 2)
 
         await temp_store.append_message(
             sid,
             {"role": "user", "content": [{"type": "text", "text": "explain Y instead"}]},
-            provider="p",
-            model="m",
-            cwd="/tmp",
-            api_base=None,
         )
 
         loaded = await temp_store.load_session(sid)
@@ -144,14 +140,14 @@ class TestSessionRewind:
     @pytest.mark.asyncio
     async def test_rewind_preserves_original_lines_in_jsonl(self, temp_store):
         """JSONL file should contain all original messages plus the rewind marker."""
-        result = await temp_store.create_session(title="Test", model="m", cwd="/tmp", api_base=None)
-        sid = result["session"]["id"]
+        await temp_store.create_session("s1", cwd="/tmp")
+        sid = "s1"
 
         for msg in [
             {"role": "user", "content": [{"type": "text", "text": "a"}]},
             {"role": "assistant", "content": [{"type": "text", "text": "b"}]},
         ]:
-            await temp_store.append_message(sid, msg, provider="p", model="m", cwd="/tmp", api_base=None)
+            await temp_store.append_message(sid, msg)
 
         await temp_store.append_rewind(sid, 0)
 
@@ -163,8 +159,8 @@ class TestSessionRewind:
     @pytest.mark.asyncio
     async def test_rewind_then_compact_works(self, temp_store):
         """Rewind followed by compact should work correctly."""
-        result = await temp_store.create_session(title="Test", model="m", cwd="/tmp", api_base=None)
-        sid = result["session"]["id"]
+        await temp_store.create_session("s1", cwd="/tmp")
+        sid = "s1"
 
         for msg in [
             {"role": "user", "content": [{"type": "text", "text": "a"}]},
@@ -172,7 +168,7 @@ class TestSessionRewind:
             {"role": "user", "content": [{"type": "text", "text": "c"}]},
             {"role": "assistant", "content": [{"type": "text", "text": "d"}]},
         ]:
-            await temp_store.append_message(sid, msg, provider="p", model="m", cwd="/tmp", api_base=None)
+            await temp_store.append_message(sid, msg)
 
         # Rewind to keep first 2 messages
         await temp_store.append_rewind(sid, 2)
@@ -182,11 +178,11 @@ class TestSessionRewind:
             {"role": "user", "content": [{"type": "text", "text": "e"}]},
             {"role": "assistant", "content": [{"type": "text", "text": "f"}]},
         ]:
-            await temp_store.append_message(sid, msg, provider="p", model="m", cwd="/tmp", api_base=None)
+            await temp_store.append_message(sid, msg)
 
         # Compact should operate on the post-rewind messages
         compact = build_compact_event("summary of a+b+e+f", provider="p", model="m", compacted_count=4)
-        await temp_store.append_message(sid, compact, provider="p", model="m", cwd="/tmp", api_base=None)
+        await temp_store.append_message(sid, compact)
 
         loaded = await temp_store.load_session(sid)
         messages = loaded["messages"]
@@ -196,15 +192,10 @@ class TestSessionRewind:
         assert "summary of a+b+e+f" in messages[0]["content"][0]["text"]
 
     @pytest.mark.asyncio
-    async def test_rewind_nonexistent_session_is_noop(self, temp_store):
-        """Rewinding a session that doesn't exist should not crash."""
-        await temp_store.append_rewind("nonexistent", 0)
-
-    @pytest.mark.asyncio
     async def test_rewind_with_interrupted_tool_loop(self, temp_store):
         """Rewind past an interrupted tool loop should not trigger repair."""
-        result = await temp_store.create_session(title="Test", model="m", cwd="/tmp", api_base=None)
-        sid = result["session"]["id"]
+        await temp_store.create_session("s1", cwd="/tmp")
+        sid = "s1"
 
         for msg in [
             {"role": "user", "content": [{"type": "text", "text": "hello"}]},
@@ -214,7 +205,7 @@ class TestSessionRewind:
                 "content": [{"type": "tool_use", "id": "call_1", "name": "read", "input": {"path": "x.py"}}],
             },
         ]:
-            await temp_store.append_message(sid, msg, provider="p", model="m", cwd="/tmp", api_base=None)
+            await temp_store.append_message(sid, msg)
 
         # Rewind to before the tool_use message — the interrupted loop is gone
         await temp_store.append_rewind(sid, 2)
@@ -229,8 +220,8 @@ class TestSessionRewind:
     async def test_rewind_after_compact_preserves_summary(self, temp_store):
         """Rewind on a compacted session should use post-compact indices,
         preserving the summary rather than falling back to raw JSONL indices."""
-        result = await temp_store.create_session(title="Test", model="m", cwd="/tmp", api_base=None)
-        sid = result["session"]["id"]
+        await temp_store.create_session("s1", cwd="/tmp")
+        sid = "s1"
 
         # Original conversation + compact
         for msg in [
@@ -240,7 +231,7 @@ class TestSessionRewind:
             {"role": "user", "content": [{"type": "text", "text": "explain X"}]},
             {"role": "assistant", "content": [{"type": "text", "text": "X is..."}]},
         ]:
-            await temp_store.append_message(sid, msg, provider="p", model="m", cwd="/tmp", api_base=None)
+            await temp_store.append_message(sid, msg)
 
         # After loading, messages are:
         # [0] summary_user, [1] summary_ack, [2] user "explain X", [3] asst "X is..."
@@ -252,10 +243,6 @@ class TestSessionRewind:
         await temp_store.append_message(
             sid,
             {"role": "user", "content": [{"type": "text", "text": "explain Y instead"}]},
-            provider="p",
-            model="m",
-            cwd="/tmp",
-            api_base=None,
         )
 
         reloaded = await temp_store.load_session(sid)
@@ -274,8 +261,8 @@ def test_chat_rejects_rewind_to_compact_summary(tmp_path: Path, monkeypatch) -> 
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
 
     store = SessionStore(data_dir=tmp_path / "sessions")
-    session = asyncio.run(store.create_session(title="Test", model="m", cwd="/tmp", api_base=None))
-    sid = str(session["session"]["id"])
+    asyncio.run(store.create_session("chat-42", cwd="/tmp"))
+    sid = "chat-42"
 
     for message in [
         {"role": "user", "content": [{"type": "text", "text": "hello"}]},
@@ -283,16 +270,7 @@ def test_chat_rejects_rewind_to_compact_summary(tmp_path: Path, monkeypatch) -> 
         build_compact_event("summary of hello+hi", provider="p", model="m", compacted_count=2),
         {"role": "user", "content": [{"type": "text", "text": "explain X"}]},
     ]:
-        asyncio.run(
-            store.append_message(
-                sid,
-                message,
-                provider="p",
-                model="m",
-                cwd="/tmp",
-                api_base=None,
-            )
-        )
+        asyncio.run(store.append_message(sid, message))
 
     app = create_app(serve_web=False)
     app.dependency_overrides[get_store] = lambda: store

@@ -237,8 +237,7 @@ class TerminalView:
         self.console.print(Text(f"{heading} ({len(sessions)})", style=MUTED))
         self.console.print()
 
-        title_limit = 24 if include_cwd else 40
-        model_limit = 18 if include_cwd else 24
+        title_limit = 32 if include_cwd else 48
         cwd_limit = 32 if include_cwd else 48
 
         table = Table(box=None, show_header=False, padding=(0, 2, 0, 0), expand=False)
@@ -247,7 +246,6 @@ class TerminalView:
         table.add_column(no_wrap=True)  # session id
         table.add_column(no_wrap=True)  # timestamp
         table.add_column()  # title
-        table.add_column(no_wrap=True)  # model
         if include_cwd:
             table.add_column()  # cwd
 
@@ -261,13 +259,7 @@ class TerminalView:
             ts = Text(self._format_timestamp(str(session.get("updated_at") or "")), style=MUTED)
             title = Text(self._shorten(str(session.get("title") or "New chat"), limit=title_limit))
 
-            model = str(session.get("model") or "")
-            model_text = Text(
-                f"[{self._shorten(model, limit=model_limit)}]" if model else "",
-                style=MUTED,
-            )
-
-            row: list[Any] = [marker, idx, sid, ts, title, model_text]
+            row: list[Any] = [marker, idx, sid, ts, title]
             if include_cwd:
                 cwd = str(session.get("cwd") or "")
                 row.append(Text(self._shorten(cwd, limit=cwd_limit), style=MUTED))

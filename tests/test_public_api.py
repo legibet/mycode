@@ -97,10 +97,10 @@ def read_back(context: ToolContext, path: str) -> str:
 def _new_agent(tmp_path: Path, **overrides) -> Agent:
     """Build an Agent rooted under tmp_path so tests don't touch the real home."""
 
-    session_id = overrides.pop("session_id", "session")
     overrides.setdefault("model", "gpt-5.4")
     overrides.setdefault("cwd", str(tmp_path))
-    overrides.setdefault("session_dir", tmp_path / session_id)
+    overrides.setdefault("session_dir", tmp_path)
+    overrides.setdefault("session_id", "session")
     return Agent(**overrides)
 
 
@@ -125,9 +125,11 @@ def test_agent_rejects_unknown_model_when_provider_omitted(tmp_path: Path) -> No
 
 
 def test_agent_session_id_defaults_to_uuid(tmp_path: Path) -> None:
+    """Without session_dir, agent still has a uuid session_id for runtime tagging."""
+
     agent = Agent(model="gpt-5.4", cwd=str(tmp_path))
     assert agent.session_id and len(agent.session_id) == 32
-    assert agent.session_dir.name == agent.session_id
+    assert agent.session_dir is None
 
 
 @pytest.mark.asyncio
@@ -173,6 +175,26 @@ async def test_agent_resumes_existing_session_on_construction(tmp_path: Path) ->
 
 
 @pytest.mark.asyncio
+async def test_agent_rejects_messages_for_existing_session(tmp_path: Path) -> None:
+    """Passing explicit messages= when the session exists on disk is a footgun
+    (would produce a split-brain JSONL), so Agent.__init__ rejects it."""
+
+    first = _new_agent(tmp_path, session_id="s3")
+    with patch("mycode.agent.get_provider_adapter", return_value=_CaptureAdapter("ok")):
+        _ = [ev async for ev in first.achat("hi")]
+
+    with pytest.raises(ValueError, match="already exists"):
+        _new_agent(tmp_path, session_id="s3", messages=[])
+
+    with pytest.raises(ValueError, match="already exists"):
+        _new_agent(
+            tmp_path,
+            session_id="s3",
+            messages=[{"role": "user", "content": [text_block("fake history")]}],
+        )
+
+
+@pytest.mark.asyncio
 async def test_custom_tool_can_reuse_builtin_tools(tmp_path: Path) -> None:
     note_path = tmp_path / "note.txt"
     note_path.write_text("hello from sdk\n", encoding="utf-8")
@@ -214,7 +236,7 @@ def test_tool_path_annotation_passes_path_instance(tmp_path: Path) -> None:
     assert show.input_schema["properties"]["target"] == {"type": "string"}
 
     result = show.runner(
-        ToolContext(executor=ToolExecutor(cwd=".", session_dir=tmp_path / "_p")),
+        ToolContext(executor=ToolExecutor(cwd=".", tool_output_dir=tmp_path / "_p")),
         {"target": "/etc/hosts"},
     )
     assert isinstance(captured["value"], Path)

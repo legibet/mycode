@@ -57,8 +57,8 @@ class TestSessionCompact:
 
     @pytest.mark.asyncio
     async def test_load_session_applies_latest_compact_summary(self, temp_store):
-        result = await temp_store.create_session(title="Test", model="m", cwd="/tmp", api_base=None)
-        sid = result["session"]["id"]
+        await temp_store.create_session("s1", cwd="/tmp")
+        sid = "s1"
 
         for msg in [
             {"role": "user", "content": [{"type": "text", "text": "hello"}]},
@@ -68,7 +68,7 @@ class TestSessionCompact:
             build_compact_event("new summary", provider="p", model="m", compacted_count=4),
             {"role": "assistant", "content": [{"type": "text", "text": "latest reply"}]},
         ]:
-            await temp_store.append_message(sid, msg, provider="p", model="m", cwd="/tmp", api_base=None)
+            await temp_store.append_message(sid, msg)
 
         loaded = await temp_store.load_session(sid)
 
@@ -93,15 +93,15 @@ class TestSessionCompact:
 
     @pytest.mark.asyncio
     async def test_original_messages_preserved_in_jsonl(self, temp_store):
-        result = await temp_store.create_session(title="Test", model="m", cwd="/tmp", api_base=None)
-        sid = result["session"]["id"]
+        await temp_store.create_session("s1", cwd="/tmp")
+        sid = "s1"
 
         for msg in [
             {"role": "user", "content": [{"type": "text", "text": "hello"}]},
             {"role": "assistant", "content": [{"type": "text", "text": "hi"}]},
             build_compact_event("summary", provider="p", model="m", compacted_count=2),
         ]:
-            await temp_store.append_message(sid, msg, provider="p", model="m", cwd="/tmp", api_base=None)
+            await temp_store.append_message(sid, msg)
 
         raw_lines = temp_store.messages_path(sid).read_text().strip().splitlines()
 
@@ -122,9 +122,9 @@ def test_apply_compact_marks_synthetic_messages():
     assert result[1]["meta"]["synthetic"] is True
 
 
-def test_agent_uses_default_compact_threshold():
+def test_agent_uses_default_compact_threshold(tmp_path):
     from mycode.agent import Agent
 
-    agent = Agent(model="m", provider="anthropic", cwd="/tmp", session_dir=Path("/tmp/s"))
+    agent = Agent(model="m", provider="anthropic", cwd="/tmp", session_dir=tmp_path)
 
     assert agent.compact_threshold == DEFAULT_COMPACT_THRESHOLD

@@ -147,7 +147,7 @@ class TestToolExecutorRead:
 
     def test_read_existing_file(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            executor = ToolExecutor(cwd=tmpdir, session_dir=Path(tmpdir))
+            executor = ToolExecutor(cwd=tmpdir, tool_output_dir=Path(tmpdir))
             test_file = Path(tmpdir) / "test.txt"
             test_file.write_text("Hello, World!")
 
@@ -156,7 +156,7 @@ class TestToolExecutorRead:
 
     def test_read_nonexistent_file(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            executor = ToolExecutor(cwd=tmpdir, session_dir=Path(tmpdir))
+            executor = ToolExecutor(cwd=tmpdir, tool_output_dir=Path(tmpdir))
 
             result = executor.execute("read", {"path": "nonexistent.txt"})
             assert result.is_error is True
@@ -165,7 +165,7 @@ class TestToolExecutorRead:
 
     def test_read_directory(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            executor = ToolExecutor(cwd=tmpdir, session_dir=Path(tmpdir))
+            executor = ToolExecutor(cwd=tmpdir, tool_output_dir=Path(tmpdir))
             subdir = Path(tmpdir) / "subdir"
             subdir.mkdir()
 
@@ -176,7 +176,7 @@ class TestToolExecutorRead:
 
     def test_read_with_offset(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            executor = ToolExecutor(cwd=tmpdir, session_dir=Path(tmpdir))
+            executor = ToolExecutor(cwd=tmpdir, tool_output_dir=Path(tmpdir))
             test_file = Path(tmpdir) / "test.txt"
             test_file.write_text("line 1\nline 2\nline 3\nline 4")
 
@@ -188,7 +188,7 @@ class TestToolExecutorRead:
 
     def test_read_with_limit_only(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            executor = ToolExecutor(cwd=tmpdir, session_dir=Path(tmpdir))
+            executor = ToolExecutor(cwd=tmpdir, tool_output_dir=Path(tmpdir))
             test_file = Path(tmpdir) / "test.txt"
             test_file.write_text("line 1\nline 2\nline 3\nline 4")
 
@@ -199,7 +199,7 @@ class TestToolExecutorRead:
 
     def test_read_offset_beyond_end(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            executor = ToolExecutor(cwd=tmpdir, session_dir=Path(tmpdir))
+            executor = ToolExecutor(cwd=tmpdir, tool_output_dir=Path(tmpdir))
             test_file = Path(tmpdir) / "test.txt"
             test_file.write_text("line 1\nline 2")
 
@@ -210,7 +210,7 @@ class TestToolExecutorRead:
 
     def test_read_binary_file(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            executor = ToolExecutor(cwd=tmpdir, session_dir=Path(tmpdir))
+            executor = ToolExecutor(cwd=tmpdir, tool_output_dir=Path(tmpdir))
             test_file = Path(tmpdir) / "binary.bin"
             # Use invalid UTF-8 sequence
             test_file.write_bytes(b"\x80\x81\x82\x83")
@@ -222,7 +222,7 @@ class TestToolExecutorRead:
 
     def test_read_truncated_output(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            executor = ToolExecutor(cwd=tmpdir, session_dir=Path(tmpdir))
+            executor = ToolExecutor(cwd=tmpdir, tool_output_dir=Path(tmpdir))
             test_file = Path(tmpdir) / "large.txt"
             # Create a file larger than the default line window
             lines = [f"line {i}" for i in range(3000)]
@@ -233,7 +233,7 @@ class TestToolExecutorRead:
 
     def test_read_shortens_long_line_and_adds_slice_hint(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            executor = ToolExecutor(cwd=tmpdir, session_dir=Path(tmpdir))
+            executor = ToolExecutor(cwd=tmpdir, tool_output_dir=Path(tmpdir))
             test_file = Path(tmpdir) / "long.txt"
             test_file.write_text("short\n" + ("x" * (READ_MAX_LINE_CHARS + 50)))
 
@@ -246,7 +246,7 @@ class TestToolExecutorRead:
 
     def test_read_image_returns_structured_content_when_model_supports_images(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            executor = ToolExecutor(cwd=tmpdir, session_dir=Path(tmpdir), supports_image_input=True)
+            executor = ToolExecutor(cwd=tmpdir, tool_output_dir=Path(tmpdir), supports_image_input=True)
             image_path = Path(tmpdir) / "tiny.png"
             image_path.write_bytes(_PNG_1X1)
 
@@ -266,7 +266,7 @@ class TestToolExecutorRead:
 
     def test_read_image_errors_when_model_does_not_support_images(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            executor = ToolExecutor(cwd=tmpdir, session_dir=Path(tmpdir), supports_image_input=False)
+            executor = ToolExecutor(cwd=tmpdir, tool_output_dir=Path(tmpdir), supports_image_input=False)
             image_path = Path(tmpdir) / "tiny.png"
             image_path.write_bytes(_PNG_1X1)
 
@@ -288,7 +288,7 @@ class TestToolExecutorWrite:
 
     def test_write_new_file(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            executor = ToolExecutor(cwd=tmpdir, session_dir=Path(tmpdir))
+            executor = ToolExecutor(cwd=tmpdir, tool_output_dir=Path(tmpdir))
 
             result = executor.execute("write", {"path": "new.txt", "content": "Hello!"})
             assert result.model_text == "ok"
@@ -299,7 +299,7 @@ class TestToolExecutorWrite:
 
     def test_write_overwrite_existing(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            executor = ToolExecutor(cwd=tmpdir, session_dir=Path(tmpdir))
+            executor = ToolExecutor(cwd=tmpdir, tool_output_dir=Path(tmpdir))
             test_file = Path(tmpdir) / "existing.txt"
             test_file.write_text("Old content")
 
@@ -309,7 +309,7 @@ class TestToolExecutorWrite:
 
     def test_write_nested_path(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            executor = ToolExecutor(cwd=tmpdir, session_dir=Path(tmpdir))
+            executor = ToolExecutor(cwd=tmpdir, tool_output_dir=Path(tmpdir))
 
             result = executor.execute("write", {"path": "subdir/nested/file.txt", "content": "Nested!"})
             assert result.model_text == "ok"
@@ -324,7 +324,7 @@ class TestToolExecutorEdit:
 
     def test_edit_success(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            executor = ToolExecutor(cwd=tmpdir, session_dir=Path(tmpdir))
+            executor = ToolExecutor(cwd=tmpdir, tool_output_dir=Path(tmpdir))
             test_file = Path(tmpdir) / "test.txt"
             test_file.write_text("Hello, World!")
 
@@ -336,7 +336,7 @@ class TestToolExecutorEdit:
 
     def test_edit_not_found(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            executor = ToolExecutor(cwd=tmpdir, session_dir=Path(tmpdir))
+            executor = ToolExecutor(cwd=tmpdir, tool_output_dir=Path(tmpdir))
             test_file = Path(tmpdir) / "test.txt"
             test_file.write_text("Hello, World!")
 
@@ -348,7 +348,7 @@ class TestToolExecutorEdit:
 
     def test_edit_multiple_occurrences(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            executor = ToolExecutor(cwd=tmpdir, session_dir=Path(tmpdir))
+            executor = ToolExecutor(cwd=tmpdir, tool_output_dir=Path(tmpdir))
             test_file = Path(tmpdir) / "test.txt"
             test_file.write_text("apple apple apple")
 
@@ -361,7 +361,7 @@ class TestToolExecutorEdit:
 
     def test_edit_exact_snippet_replacement(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            executor = ToolExecutor(cwd=tmpdir, session_dir=Path(tmpdir))
+            executor = ToolExecutor(cwd=tmpdir, tool_output_dir=Path(tmpdir))
             test_file = Path(tmpdir) / "test.txt"
             test_file.write_text("Hello World")
 
@@ -371,7 +371,7 @@ class TestToolExecutorEdit:
 
     def test_edit_nonexistent_file(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            executor = ToolExecutor(cwd=tmpdir, session_dir=Path(tmpdir))
+            executor = ToolExecutor(cwd=tmpdir, tool_output_dir=Path(tmpdir))
 
             result = executor.execute("edit", {"path": "nonexistent.txt", "edits": [{"oldText": "x", "newText": "y"}]})
             assert result.is_error is True
@@ -379,7 +379,7 @@ class TestToolExecutorEdit:
 
     def test_edit_rejects_empty_old_text(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            executor = ToolExecutor(cwd=tmpdir, session_dir=Path(tmpdir))
+            executor = ToolExecutor(cwd=tmpdir, tool_output_dir=Path(tmpdir))
             test_file = Path(tmpdir) / "test.txt"
             test_file.write_text("Hello, World!")
 
@@ -392,7 +392,7 @@ class TestToolExecutorEdit:
 
     def test_edit_rejects_no_op(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            executor = ToolExecutor(cwd=tmpdir, session_dir=Path(tmpdir))
+            executor = ToolExecutor(cwd=tmpdir, tool_output_dir=Path(tmpdir))
             test_file = Path(tmpdir) / "test.txt"
             test_file.write_text("Hello, World!")
 
@@ -403,7 +403,7 @@ class TestToolExecutorEdit:
 
     def test_edit_not_found_includes_closest_hint(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            executor = ToolExecutor(cwd=tmpdir, session_dir=Path(tmpdir))
+            executor = ToolExecutor(cwd=tmpdir, tool_output_dir=Path(tmpdir))
             test_file = Path(tmpdir) / "test.txt"
             test_file.write_text("alpha\nbeta gamma\ndelta")
 
@@ -416,7 +416,7 @@ class TestToolExecutorEdit:
 
     def test_edit_fuzzy_matches_trailing_whitespace(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            executor = ToolExecutor(cwd=tmpdir, session_dir=Path(tmpdir))
+            executor = ToolExecutor(cwd=tmpdir, tool_output_dir=Path(tmpdir))
             test_file = Path(tmpdir) / "test.py"
             test_file.write_text("def f():\n    return 1    \n")
 
@@ -437,7 +437,7 @@ class TestToolExecutorEdit:
 
     def test_edit_fuzzy_matches_crlf(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            executor = ToolExecutor(cwd=tmpdir, session_dir=Path(tmpdir))
+            executor = ToolExecutor(cwd=tmpdir, tool_output_dir=Path(tmpdir))
             test_file = Path(tmpdir) / "test.txt"
             test_file.write_bytes(b"line1\r\nline2\r\n")
 
@@ -449,7 +449,7 @@ class TestToolExecutorEdit:
 
     def test_edit_fuzzy_requires_unique_match(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            executor = ToolExecutor(cwd=tmpdir, session_dir=Path(tmpdir))
+            executor = ToolExecutor(cwd=tmpdir, tool_output_dir=Path(tmpdir))
             test_file = Path(tmpdir) / "test.txt"
             test_file.write_bytes(b"x  \r\nx\t\r\n")
 
@@ -462,7 +462,7 @@ class TestToolExecutorEdit:
 
     def test_multi_edit_disjoint(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            executor = ToolExecutor(cwd=tmpdir, session_dir=Path(tmpdir))
+            executor = ToolExecutor(cwd=tmpdir, tool_output_dir=Path(tmpdir))
             test_file = Path(tmpdir) / "test.txt"
             test_file.write_text("aaa\nbbb\nccc\nddd\n")
 
@@ -486,7 +486,7 @@ class TestToolExecutorEdit:
 
     def test_multi_edit_overlap_rejected(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            executor = ToolExecutor(cwd=tmpdir, session_dir=Path(tmpdir))
+            executor = ToolExecutor(cwd=tmpdir, tool_output_dir=Path(tmpdir))
             test_file = Path(tmpdir) / "test.txt"
             test_file.write_text("aaa bbb ccc")
 
@@ -506,7 +506,7 @@ class TestToolExecutorEdit:
 
     def test_multi_edit_duplicate_rejected(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            executor = ToolExecutor(cwd=tmpdir, session_dir=Path(tmpdir))
+            executor = ToolExecutor(cwd=tmpdir, tool_output_dir=Path(tmpdir))
             test_file = Path(tmpdir) / "test.txt"
             test_file.write_text("aaa bbb aaa")
 
@@ -516,7 +516,7 @@ class TestToolExecutorEdit:
 
     def test_multi_edit_empty_list_rejected(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            executor = ToolExecutor(cwd=tmpdir, session_dir=Path(tmpdir))
+            executor = ToolExecutor(cwd=tmpdir, tool_output_dir=Path(tmpdir))
             test_file = Path(tmpdir) / "test.txt"
             test_file.write_text("content")
 
@@ -527,7 +527,7 @@ class TestToolExecutorEdit:
     def test_multi_edit_fuzzy_preserves_untouched_regions(self):
         """Fuzzy match must not alter trailing whitespace in untouched lines."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            executor = ToolExecutor(cwd=tmpdir, session_dir=Path(tmpdir))
+            executor = ToolExecutor(cwd=tmpdir, tool_output_dir=Path(tmpdir))
             test_file = Path(tmpdir) / "test.py"
             # Line 2 has trailing spaces that should be preserved.
             test_file.write_text("def f():\n    x = 1    \n    return x\n")
@@ -553,7 +553,7 @@ class TestToolExecutorEdit:
     def test_multi_edit_with_line_expansion(self):
         """Multi-edit where one edit adds lines — later edit metadata should reflect shifted lines."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            executor = ToolExecutor(cwd=tmpdir, session_dir=Path(tmpdir))
+            executor = ToolExecutor(cwd=tmpdir, tool_output_dir=Path(tmpdir))
             test_file = Path(tmpdir) / "test.txt"
             test_file.write_text("a\nb\nc\n")
 
@@ -581,7 +581,7 @@ class TestToolExecutorAbsolutePath:
 
     def test_read_absolute_path(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            executor = ToolExecutor(cwd="/tmp", session_dir=Path(tmpdir))
+            executor = ToolExecutor(cwd="/tmp", tool_output_dir=Path(tmpdir))
             test_file = Path(tmpdir) / "abs_test.txt"
             test_file.write_text("Absolute path content")
 
@@ -591,7 +591,7 @@ class TestToolExecutorAbsolutePath:
 
     def test_read_relative_path(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            executor = ToolExecutor(cwd=tmpdir, session_dir=Path(tmpdir))
+            executor = ToolExecutor(cwd=tmpdir, tool_output_dir=Path(tmpdir))
             test_file = Path(tmpdir) / "rel_test.txt"
             test_file.write_text("Relative path content")
 
@@ -601,7 +601,7 @@ class TestToolExecutorAbsolutePath:
 
     def test_write_relative_path_resolves_to_cwd(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            executor = ToolExecutor(cwd=tmpdir, session_dir=Path(tmpdir))
+            executor = ToolExecutor(cwd=tmpdir, tool_output_dir=Path(tmpdir))
 
             result = executor.execute("write", {"path": "relative.txt", "content": "Content"})
             assert result.model_text == "ok"

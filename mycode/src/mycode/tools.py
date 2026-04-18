@@ -273,11 +273,7 @@ class ToolContext:
         return self.executor.cwd
 
     @property
-    def session_dir(self) -> Path:
-        return self.executor.session_dir
-
-    @property
-    def tool_output_dir(self) -> Path:
+    def tool_output_dir(self) -> Path | None:
         return self.executor.tool_output_dir
 
     @property
@@ -312,16 +308,16 @@ class ToolExecutor:
         self,
         *,
         cwd: str,
-        session_dir: Path,
+        tool_output_dir: Path | None = None,
         tools: Sequence[ToolSpec] | None = None,
         supports_image_input: bool = False,
     ):
         self.cwd = str(Path(cwd).resolve(strict=False))
-        self.session_dir = session_dir
+        # tool_output_dir holds spill files from streaming tools (bash). When
+        # None, tools run in memory-only mode and must handle large outputs
+        # themselves (bash falls back to inline truncation).
+        self.tool_output_dir = tool_output_dir
         self.supports_image_input = supports_image_input
-        self.session_dir.mkdir(parents=True, exist_ok=True)
-        self.tool_output_dir = self.session_dir / "tool-output"
-        self.tool_output_dir.mkdir(parents=True, exist_ok=True)
         self._active_procs: set[subprocess.Popen[str]] = set()
         self._active_procs_lock = threading.Lock()
 
@@ -332,6 +328,14 @@ class ToolExecutor:
             if spec.name in self._tools_by_name:
                 raise ValueError(f"duplicate tool name: {spec.name}")
             self._tools_by_name[spec.name] = spec
+
+    def ensure_tool_output_dir(self) -> Path | None:
+        """Create ``tool_output_dir`` lazily on first spill; return None if disabled."""
+
+        if self.tool_output_dir is None:
+            return None
+        self.tool_output_dir.mkdir(parents=True, exist_ok=True)
+        return self.tool_output_dir
 
     @property
     def definitions(self) -> list[dict[str, Any]]:
@@ -772,15 +776,18 @@ def _run_bash(ctx: ToolContext, args: dict[str, Any]) -> ToolExecutionResult:
     timeout_seconds = int(timeout) if isinstance(timeout, int) and timeout > 0 else BASH_TIMEOUT_SECONDS
 
     proc: subprocess.Popen[str] | None = None
-    log_path = ctx.tool_output_dir / f"bash-{ctx.tool_call_id or 'call'}.log"
-    # Streaming phase: accumulate in memory until _BASH_MAX_IN_MEMORY_BYTES,
-    # then spill to log file and keep only a bounded tail via deque.
+    # When tool_output_dir is configured, oversized output spills to a log file
+    # and the returned text cites its path. When it's None, we drop the middle
+    # of the output and keep only a bounded tail in memory.
+    spill_dir = ctx.executor.ensure_tool_output_dir() if ctx.tool_output_dir is not None else None
+    log_path = spill_dir / f"bash-{ctx.tool_call_id or 'call'}.log" if spill_dir is not None else None
     kept_lines: list[str] = []
     kept_bytes = 0
     total_line_count = 0
     tail_lines: deque[str] = deque(maxlen=DEFAULT_MAX_LINES)
     log_file: TextIO | None = None
     saved_output_path: Path | None = None
+    memory_overflow = False
 
     try:
         proc = subprocess.Popen(
@@ -835,20 +842,29 @@ def _run_bash(ctx: ToolContext, args: dict[str, Any]) -> ToolExecutionResult:
             total_line_count += 1
             kept_bytes += len(line.encode("utf-8")) + 1
 
-            if log_file is None:
+            if log_file is None and not memory_overflow:
                 kept_lines.append(line)
                 if kept_bytes > _BASH_MAX_IN_MEMORY_BYTES:
-                    log_file = log_path.open("w", encoding="utf-8")
-                    saved_output_path = log_path
-                    if kept_lines:
-                        log_file.write("\n".join(kept_lines))
-                        log_file.write("\n")
+                    if log_path is not None:
+                        log_file = log_path.open("w", encoding="utf-8")
+                        saved_output_path = log_path
+                        if kept_lines:
+                            log_file.write("\n".join(kept_lines))
+                            log_file.write("\n")
+                            tail_lines.extend(kept_lines)
+                        kept_lines = []
+                    else:
+                        # No spill dir: keep only the tail in memory.
+                        memory_overflow = True
                         tail_lines.extend(kept_lines)
-                    kept_lines = []
-            else:
+                        kept_lines = []
+            elif log_file is not None:
                 tail_lines.append(line)
                 log_file.write(line)
                 log_file.write("\n")
+            else:
+                # Memory overflow without a spill dir — drop middle, keep tail.
+                tail_lines.append(line)
 
             if ctx.emit is not None:
                 ctx.emit(line)
@@ -874,12 +890,13 @@ def _run_bash(ctx: ToolContext, args: dict[str, Any]) -> ToolExecutionResult:
 
         exit_code = proc.returncode
 
-        raw_output = "\n".join(list(tail_lines) if log_file is not None else kept_lines)
+        raw_output = "\n".join(list(tail_lines) if (log_file is not None or memory_overflow) else kept_lines)
         output = raw_output.strip() or "(empty)"
         content, trunc = truncate_text(output, tail=True)
 
         # Save full output to log file when truncated but not already on disk
-        if log_file is None and trunc.truncated:
+        # (only possible when a spill dir is configured).
+        if log_file is None and not memory_overflow and trunc.truncated and log_path is not None:
             try:
                 log_path.write_text(raw_output, encoding="utf-8")
                 saved_output_path = log_path
@@ -890,7 +907,7 @@ def _run_bash(ctx: ToolContext, args: dict[str, Any]) -> ToolExecutionResult:
 
         # Append truncation notice if any output was dropped.
         shown_lines = trunc.output_lines
-        was_truncated = log_file is not None or trunc.truncated
+        was_truncated = log_file is not None or memory_overflow or trunc.truncated
         if was_truncated:
             if trunc.truncated_by == "bytes":
                 if total_line_count <= 1:

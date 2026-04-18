@@ -17,7 +17,6 @@ from fastapi.responses import StreamingResponse
 from mycode.messages import (
     build_message,
     document_block,
-    flatten_message_text,
     image_block,
     text_block,
 )
@@ -165,19 +164,19 @@ async def chat(chat: ChatRequest, store: StoreDep, runs: RunManagerDep):
 
     data = await store.load_session(session_id)
     session = (data or {}).get("session")
-    messages = (data or {}).get("messages") or []
+    existing_messages = (data or {}).get("messages") or []
 
     if not session and chat.rewind_to is not None:
         raise HTTPException(status_code=400, detail="rewind_to requires an existing session")
 
     if chat.rewind_to is not None:
-        if not (0 <= chat.rewind_to < len(messages)):
+        if not (0 <= chat.rewind_to < len(existing_messages)):
             raise HTTPException(
                 status_code=400,
-                detail=f"rewind_to must reference a visible message index between 0 and {len(messages) - 1}",
+                detail=f"rewind_to must reference a visible message index between 0 and {len(existing_messages) - 1}",
             )
 
-        target = messages[chat.rewind_to]
+        target = existing_messages[chat.rewind_to]
         raw_blocks = target.get("content")
         blocks = raw_blocks if isinstance(raw_blocks, list) else []
         has_user_content = any(
@@ -194,7 +193,15 @@ async def chat(chat: ChatRequest, store: StoreDep, runs: RunManagerDep):
                 detail="rewind_to must reference a real user message",
             )
 
-        messages = messages[: chat.rewind_to]
+        # Land the rewind marker before the agent auto-resumes so apply_rewind
+        # produces the correct visible history during Agent.__init__.
+        await store.append_rewind(session_id, chat.rewind_to)
+
+    # Pre-create the session on first contact so the response payload has a
+    # meta dict and the Agent's auto-resume finds an empty log to load.
+    if not session:
+        created = await store.create_session(session_id, cwd=cwd)
+        session = created["session"]
 
     agent = build_agent(
         store=store,
@@ -202,7 +209,6 @@ async def chat(chat: ChatRequest, store: StoreDep, runs: RunManagerDep):
         settings=settings,
         resolved_provider=resolved,
         session_id=session_id,
-        messages=messages,
         reasoning_effort=reasoning_effort,
     )
 
@@ -212,27 +218,11 @@ async def chat(chat: ChatRequest, store: StoreDep, runs: RunManagerDep):
     if "document" in content_types and not agent.supports_pdf_input:
         raise HTTPException(status_code=400, detail="current model does not support PDF input")
 
-    if not session:
-        title = flatten_message_text(user_message).replace("\n", " ").strip()[:48] or "New chat"
-        created = await store.create_session(
-            title,
-            session_id=session_id,
-            provider=resolved.provider,
-            model=resolved.model,
-            cwd=cwd,
-            api_base=resolved.api_base,
-        )
-        session = created["session"]
-
-    if chat.rewind_to is not None:
-        # Land the rewind marker before the agent appends the next user turn.
-        await store.append_rewind(session_id, chat.rewind_to)
-
     try:
         run = await runs.start_run(
             session_id=session_id,
             user_message=user_message,
-            base_messages=messages,
+            base_messages=agent.messages,
             agent=agent,
         )
     except ActiveRunError as exc:

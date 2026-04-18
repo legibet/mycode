@@ -16,42 +16,24 @@ def temp_store():
         yield store
 
 
-def test_default_store_uses_mycode_home(tmp_path, monkeypatch):
-    mycode_home = tmp_path / ".mycode"
-    monkeypatch.setenv("MYCODE_HOME", str(mycode_home))
-
-    store = SessionStore()
-
-    assert store.data_dir == (mycode_home / "sessions").resolve()
-    assert store.data_dir.exists()
-
-
 class TestSessionStore:
     """Tests for SessionStore CRUD operations."""
 
     @pytest.mark.asyncio
     async def test_create_session(self, temp_store):
         """Session creation should persist metadata immediately."""
-        result = await temp_store.create_session(
-            title="My Test",
-            model="claude-sonnet-4-6",
-            cwd="/home/user/project",
-            api_base="https://api.example.com",
-        )
+        result = await temp_store.create_session("s1", cwd="/home/user/project")
 
         session = result["session"]
-        assert session["title"] == "My Test"
-        assert session["model"] == "claude-sonnet-4-6"
+        assert session["id"] == "s1"
         assert session["cwd"] == "/home/user/project"
-        assert session["api_base"] == "https://api.example.com"
-        assert "id" in session
         assert "created_at" in session
         assert "updated_at" in session
         assert result["messages"] == []
 
         sessions = await temp_store.list_sessions()
         assert len(sessions) == 1
-        assert sessions[0]["id"] == session["id"]
+        assert sessions[0]["id"] == "s1"
 
     @pytest.mark.asyncio
     async def test_list_sessions_empty(self, temp_store):
@@ -62,23 +44,15 @@ class TestSessionStore:
     @pytest.mark.asyncio
     async def test_list_sessions_with_data(self, temp_store):
         """Listing should return sessions sorted by updated_at desc."""
-        first = await temp_store.create_session(title="First", model="gpt-5.4", cwd="/tmp", api_base=None)
-        second = await temp_store.create_session(title="Second", model="gpt-5.4", cwd="/tmp", api_base=None)
+        await temp_store.create_session("first", cwd="/tmp")
+        await temp_store.create_session("second", cwd="/tmp")
         await temp_store.append_message(
-            first["session"]["id"],
+            "first",
             {"role": "user", "content": [{"type": "text", "text": "first"}]},
-            provider="anthropic",
-            model="gpt-5.4",
-            cwd="/tmp",
-            api_base=None,
         )
         await temp_store.append_message(
-            second["session"]["id"],
+            "second",
             {"role": "user", "content": [{"type": "text", "text": "second"}]},
-            provider="anthropic",
-            model="gpt-5.4",
-            cwd="/tmp",
-            api_base=None,
         )
 
         sessions = await temp_store.list_sessions()
@@ -89,21 +63,16 @@ class TestSessionStore:
     @pytest.mark.asyncio
     async def test_latest_session_returns_newest_match(self, temp_store):
         """latest_session should return the most recently updated session."""
-        first = await temp_store.create_session(title="First", model="gpt-5.4", cwd="/tmp", api_base=None)
-        second = await temp_store.create_session(title="Second", model="gpt-5.4", cwd="/tmp", api_base=None)
+        await temp_store.create_session("first", cwd="/tmp")
+        await temp_store.create_session("second", cwd="/tmp")
         await temp_store.append_message(
-            first["session"]["id"],
+            "first",
             {"role": "user", "content": [{"type": "text", "text": "bump first"}]},
-            provider="anthropic",
-            model="gpt-5.4",
-            cwd="/tmp",
-            api_base=None,
         )
 
         latest = await temp_store.latest_session(cwd="/tmp")
         assert latest is not None
-        assert latest["id"] == first["session"]["id"]
-        assert latest["id"] != second["session"]["id"]
+        assert latest["id"] == "first"
 
     @pytest.mark.asyncio
     async def test_load_session_not_found(self, temp_store):
@@ -114,30 +83,11 @@ class TestSessionStore:
     @pytest.mark.asyncio
     async def test_load_session_with_messages(self, temp_store):
         """Loading session should restore persisted messages."""
-        # Create session
-        result = await temp_store.create_session(title="Test", model="gpt-5.4", cwd="/tmp", api_base=None)
-        session_id = result["session"]["id"]
+        await temp_store.create_session("s1", cwd="/tmp")
+        await temp_store.append_message("s1", {"role": "user", "content": [{"type": "text", "text": "Hello"}]})
+        await temp_store.append_message("s1", {"role": "assistant", "content": [{"type": "text", "text": "Hi there"}]})
 
-        # Append some messages
-        await temp_store.append_message(
-            session_id,
-            {"role": "user", "content": [{"type": "text", "text": "Hello"}]},
-            provider="anthropic",
-            model="gpt-5.4",
-            cwd="/tmp",
-            api_base=None,
-        )
-        await temp_store.append_message(
-            session_id,
-            {"role": "assistant", "content": [{"type": "text", "text": "Hi there"}]},
-            provider="anthropic",
-            model="gpt-5.4",
-            cwd="/tmp",
-            api_base=None,
-        )
-
-        # Load and verify
-        loaded = await temp_store.load_session(session_id)
+        loaded = await temp_store.load_session("s1")
         assert loaded is not None
         assert len(loaded["messages"]) == 2
         assert loaded["messages"][0]["role"] == "user"
@@ -148,22 +98,16 @@ class TestSessionStore:
     async def test_load_session_repairs_interrupted_tool_loop(self, temp_store):
         """Loading should append a synthetic result for an interrupted tool loop."""
 
-        result = await temp_store.create_session(title="Test", model="gpt-5.4", cwd="/tmp", api_base=None)
-        session_id = result["session"]["id"]
-
+        await temp_store.create_session("s1", cwd="/tmp")
         await temp_store.append_message(
-            session_id,
+            "s1",
             {
                 "role": "assistant",
                 "content": [{"type": "tool_use", "id": "call_1", "name": "read", "input": {"path": "x.py"}}],
             },
-            provider="anthropic",
-            model="gpt-5.4",
-            cwd="/tmp",
-            api_base=None,
         )
 
-        loaded = await temp_store.load_session(session_id)
+        loaded = await temp_store.load_session("s1")
 
         assert loaded is not None
         assert loaded["messages"] == [
@@ -185,97 +129,58 @@ class TestSessionStore:
             },
         ]
 
-        loaded_again = await temp_store.load_session(session_id)
+        loaded_again = await temp_store.load_session("s1")
         assert loaded_again is not None
         assert loaded_again["messages"] == loaded["messages"]
 
     @pytest.mark.asyncio
-    async def test_append_message_updates_title(self, temp_store):
-        """First user message should auto-update session title."""
-        result = await temp_store.create_session(title="New chat", model="gpt-5.4", cwd="/tmp", api_base=None)
-        session_id = result["session"]["id"]
-
+    async def test_title_derived_from_first_user_message(self, temp_store):
+        """Title is derived at read time from the first user message."""
+        await temp_store.create_session("s1", cwd="/tmp")
         await temp_store.append_message(
-            session_id,
+            "s1",
             {"role": "user", "content": [{"type": "text", "text": "How do I write a Python function?"}]},
-            provider="anthropic",
-            model="gpt-5.4",
-            cwd="/tmp",
-            api_base=None,
         )
 
-        loaded = await temp_store.load_session(session_id)
+        loaded = await temp_store.load_session("s1")
         assert loaded["session"]["title"] == "How do I write a Python function?"
 
     @pytest.mark.asyncio
     async def test_clear_session(self, temp_store):
         """Clearing session should remove all messages but keep meta."""
-        result = await temp_store.create_session(title="Test", model="gpt-5.4", cwd="/tmp", api_base=None)
-        session_id = result["session"]["id"]
+        await temp_store.create_session("s1", cwd="/tmp")
+        await temp_store.append_message("s1", {"role": "user", "content": [{"type": "text", "text": "Hello"}]})
+        await temp_store.clear_session("s1")
 
-        await temp_store.append_message(
-            session_id,
-            {"role": "user", "content": [{"type": "text", "text": "Hello"}]},
-            provider="anthropic",
-            model="gpt-5.4",
-            cwd="/tmp",
-            api_base=None,
-        )
-        await temp_store.clear_session(session_id)
-
-        loaded = await temp_store.load_session(session_id)
+        loaded = await temp_store.load_session("s1")
         assert loaded["messages"] == []
-        assert loaded["session"]["title"] == "Test"  # Meta preserved
+        assert loaded["session"]["cwd"] == "/tmp"  # Meta preserved
 
     @pytest.mark.asyncio
     async def test_delete_session(self, temp_store):
         """Deleting session should remove all files."""
-        result = await temp_store.create_session(title="Test", model="gpt-5.4", cwd="/tmp", api_base=None)
-        session_id = result["session"]["id"]
+        await temp_store.create_session("s1", cwd="/tmp")
+        await temp_store.append_message("s1", {"role": "user", "content": [{"type": "text", "text": "Hello"}]})
 
-        session_dir = temp_store.session_dir(session_id)
-        await temp_store.append_message(
-            session_id,
-            {"role": "user", "content": [{"type": "text", "text": "Hello"}]},
-            provider="anthropic",
-            model="gpt-5.4",
-            cwd="/tmp",
-            api_base=None,
-        )
+        session_dir = temp_store.session_dir("s1")
         assert session_dir.exists()
 
-        await temp_store.delete_session(session_id)
+        await temp_store.delete_session("s1")
 
         assert not session_dir.exists()
-        assert await temp_store.load_session(session_id) is None
-
-    @pytest.mark.asyncio
-    async def test_draft_session_is_not_saved_until_first_message(self, temp_store):
-        """Draft sessions should stay in memory until a message is persisted."""
-        result = temp_store.draft_session(title="Test", model="gpt-5.4", cwd="/tmp", api_base=None)
-
-        assert await temp_store.load_session(result["session"]["id"]) is None
-        assert await temp_store.list_sessions() == []
+        assert await temp_store.load_session("s1") is None
 
 
 class TestSessionStoreEdgeCases:
     """Edge case tests for SessionStore."""
 
     @pytest.mark.asyncio
-    async def test_append_message_creates_directories(self, temp_store):
-        """Appending to non-existent session should create directories."""
-        store = SessionStore(data_dir=temp_store.data_dir)
-        session_id = "brand-new-session"
+    async def test_create_session_is_lazy_for_tool_output(self, temp_store):
+        """Creating a session should not create a tool-output subdir eagerly."""
+        await temp_store.create_session("s1", cwd="/tmp")
 
-        # Session doesn't exist yet
-        await store.append_message(
-            session_id,
-            {"role": "user", "content": [{"type": "text", "text": "Hello"}]},
-            provider="anthropic",
-            model="gpt-5.4",
-            cwd="/tmp",
-            api_base=None,
-        )
-
-        assert (store.session_dir(session_id) / "tool-output").exists()
-        assert store.messages_path(session_id).exists()
+        # Session dir and messages.jsonl exist; tool-output belongs to the
+        # tool executor and is created lazily only when bash spills.
+        assert temp_store.meta_path("s1").exists()
+        assert temp_store.messages_path("s1").exists()
+        assert not (temp_store.session_dir("s1") / "tool-output").exists()

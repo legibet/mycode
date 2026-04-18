@@ -1,11 +1,4 @@
-"""Application configuration and provider resolution.
-
-This module keeps runtime config loading intentionally simple:
-
-- read the global config, then the workspace config
-- merge provider entries by name
-- resolve one runnable provider from explicit args, config defaults, or env
-"""
+"""Config loading, provider resolution, and CLI-owned filesystem paths."""
 
 from __future__ import annotations
 
@@ -27,8 +20,23 @@ from mycode.providers import (
     provider_default_models,
     provider_env_api_key_names,
 )
-from mycode.session import resolve_mycode_home
 from mycode.utils import as_bool, as_int
+
+_DEFAULT_MYCODE_HOME = "~/.mycode"
+
+
+def resolve_mycode_home() -> Path:
+    """Resolve the mycode home directory (``$MYCODE_HOME`` or ``~/.mycode``)."""
+
+    raw = os.environ.get("MYCODE_HOME", _DEFAULT_MYCODE_HOME)
+    return Path(raw).expanduser().resolve(strict=False)
+
+
+def resolve_sessions_dir() -> Path:
+    """Resolve the directory used for persisted sessions."""
+
+    return resolve_mycode_home() / "sessions"
+
 
 _API_KEY_ENV_REF_RE = re.compile(r"^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$")
 # Full set of user-facing choices. "auto" means "do not send an explicit effort

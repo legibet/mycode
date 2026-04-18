@@ -8,6 +8,7 @@ from typing import Annotated
 from fastapi import Depends
 
 from mycode.session import SessionStore
+from mycode_cli.config import resolve_sessions_dir
 from mycode_cli.server.run_manager import RunManager
 
 
@@ -15,7 +16,7 @@ from mycode_cli.server.run_manager import RunManager
 def get_store() -> SessionStore:
     """Return the shared session store for server requests."""
 
-    return SessionStore()
+    return SessionStore(data_dir=resolve_sessions_dir())
 
 
 @lru_cache

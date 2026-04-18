@@ -18,8 +18,7 @@ from pathlib import Path
 
 import yaml
 
-from mycode.session import resolve_mycode_home
-from mycode_cli.config import Settings, get_settings
+from mycode_cli.config import Settings, get_settings, resolve_mycode_home
 
 logger = logging.getLogger(__name__)
 

@@ -1,8 +1,8 @@
 """Multi-turn agent loop.
 
 :class:`Agent` drives one conversation. Each call to :meth:`Agent.achat`
-runs one user turn and appends every emitted message to the on-disk
-session log.
+runs one user turn; when a ``session_dir`` is configured, every emitted
+message is appended to the on-disk session log.
 """
 
 from __future__ import annotations
@@ -31,7 +31,6 @@ from mycode.session import (
     SessionStore,
     apply_compact,
     build_compact_event,
-    resolve_sessions_dir,
     should_compact,
 )
 from mycode.tools import ToolExecutionResult, ToolExecutor, ToolSpec
@@ -58,8 +57,8 @@ class Agent:
         model: str,
         cwd: str,
         provider: str | None = None,
-        session_id: str | None = None,
         session_dir: Path | None = None,
+        session_id: str | None = None,
         api_key: str | None = None,
         api_base: str | None = None,
         messages: list[ConversationMessage] | None = None,
@@ -83,10 +82,13 @@ class Agent:
         self.provider = provider
 
         self.cwd = str(Path(cwd).resolve(strict=False))
-        # If only ``session_dir`` is supplied, derive the id from its directory name.
-        self.session_id = (session_id or "").strip() or (session_dir.name if session_dir is not None else uuid4().hex)
-        self.session_dir = session_dir if session_dir is not None else resolve_sessions_dir() / self.session_id
-        self._store = SessionStore(data_dir=self.session_dir.parent)
+
+        # Persistence is opt-in: a store is only created when ``session_dir``
+        # is supplied. ``session_id`` is always populated (uuid when absent)
+        # so Events can carry a stable runtime tag even in memory-only mode.
+        self.session_dir = session_dir
+        self.session_id = (session_id or "").strip() or uuid4().hex
+        self._store: SessionStore | None = SessionStore(data_dir=session_dir) if session_dir is not None else None
 
         self.api_key = api_key
         self.api_base = api_base
@@ -98,17 +100,32 @@ class Agent:
         self._cancel_event = asyncio.Event()
         self._provider_event_task: asyncio.Future[ProviderStreamEvent] | None = None
 
+        # History resolution:
+        # - messages is None → auto-resume from disk if the session exists
+        # - messages is [] or [...] → use as-is; refuse if it would overwrite disk
         if messages is None:
-            data = self._store.load_session_sync(self.session_id)
-            messages = list(data["messages"]) if data is not None else []
+            if self._store is not None:
+                data = self._store.load_session_sync(self.session_id)
+                messages = list(data["messages"]) if data is not None else []
+            else:
+                messages = []
+        elif self._store is not None and self._store.session_exists(self.session_id):
+            msg = (
+                f"session {self.session_id!r} already exists on disk; "
+                "pass messages=None to resume or choose a different session_id"
+            )
+            raise ValueError(msg)
         self.messages: list[ConversationMessage] = list(messages)
 
         if isinstance(tools, ToolExecutor):
             self.tools = tools
         else:
+            tool_output_dir = (
+                self.session_dir / self.session_id / "tool-output" if self.session_dir is not None else None
+            )
             self.tools = ToolExecutor(
                 cwd=self.cwd,
-                session_dir=self.session_dir,
+                tool_output_dir=tool_output_dir,
                 tools=list(tools) if tools is not None else [],
                 supports_image_input=False,
             )
@@ -352,22 +369,21 @@ class Agent:
         requests tools, the agent runs them locally, appends one user-side
         tool_result message, and continues until the assistant stops using tools.
 
-        Every emitted message is appended to the session log. ``on_persist`` is
-        an optional hook fired *before* that append, useful for staging related
-        side effects (the web server uses it to land a rewind marker first).
+        When a ``session_dir`` is configured, every emitted message is appended
+        to the on-disk session log. ``on_persist`` fires *before* that append
+        regardless of whether a store is configured, so callers can plug in a
+        custom backend or stage related records (the web server uses it to
+        land a rewind marker first).
         """
 
         async def persist(message: ConversationMessage) -> None:
             if on_persist is not None:
                 await on_persist(message)
-            await self._store.append_message(
-                self.session_id,
-                message,
-                provider=self.provider,
-                model=self.model,
-                cwd=self.cwd,
-                api_base=self.api_base,
-            )
+            if self._store is None:
+                return
+            if not self._store.session_exists(self.session_id):
+                await self._store.create_session(self.session_id, cwd=self.cwd)
+            await self._store.append_message(self.session_id, message)
 
         self._cancel_event.clear()
         supports_image_input = self.supports_image_input

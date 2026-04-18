@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import os
+from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException
 
-from mycode_cli.config import get_settings, resolve_provider
 from mycode_cli.server.deps import RunManagerDep, StoreDep
 from mycode_cli.server.schemas import SessionCreateRequest
 
@@ -16,15 +16,8 @@ router = APIRouter(prefix="/sessions", tags=["sessions"])
 @router.post("")
 async def create_session(req: SessionCreateRequest, store: StoreDep):
     cwd = os.path.abspath(req.cwd or os.getcwd())
-    settings = get_settings(cwd)
-    resolved = resolve_provider(settings, provider_name=req.provider, model=req.model, api_base=req.api_base)
-    return await store.create_session(
-        req.title,
-        provider=resolved.provider,
-        model=resolved.model,
-        cwd=cwd,
-        api_base=resolved.api_base,
-    )
+    session_id = uuid4().hex
+    return await store.create_session(session_id, cwd=cwd)
 
 
 @router.get("")

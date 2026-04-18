@@ -37,11 +37,7 @@ class ChatRequest(BaseModel):
 class SessionCreateRequest(BaseModel):
     """Request body for /sessions."""
 
-    title: str | None = None
-    provider: str | None = None
-    model: str | None = None
     cwd: str | None = None
-    api_base: str | None = None
 
 
 class ToolCallPayload(BaseModel):

@@ -45,7 +45,7 @@ class _AttachmentAgent:
         self.cwd = cwd
         self.supports_image_input = supports_image_input
         self.supports_pdf_input = supports_pdf_input
-        self.tools = ToolExecutor(cwd=cwd, session_dir=session_dir)
+        self.tools = ToolExecutor(cwd=cwd, tool_output_dir=session_dir)
 
 
 def _settings_for(cwd: str) -> Settings:
@@ -110,48 +110,37 @@ async def test_resolve_session_defaults_to_new(tmp_path):
 
     resolved = await resolve_session(
         store=store,
-        provider="anthropic",
         cwd=str(tmp_path),
-        model="gpt-5.4",
-        api_base=None,
         requested_session_id=None,
         continue_last=False,
     )
 
     assert resolved.mode == "new"
     assert resolved.messages == []
-    assert resolved.session["cwd"] == str(tmp_path)
+    # New sessions are allocated an id but not yet written to disk.
+    assert resolved.session_id
     assert await store.list_sessions() == []
 
 
 @pytest.mark.asyncio
 async def test_resolve_session_continue_reuses_latest(tmp_path):
     store = SessionStore(data_dir=tmp_path / "sessions")
-    first = await store.create_session("First", model="gpt-5.4", cwd=str(tmp_path), api_base=None)
-    second = await store.create_session("Second", model="gpt-5.4", cwd=str(tmp_path), api_base=None)
-    second_id = str(second["session"]["id"])
+    await store.create_session("first", cwd=str(tmp_path))
+    await store.create_session("second", cwd=str(tmp_path))
     await store.append_message(
-        second_id,
+        "second",
         {"role": "user", "content": [{"type": "text", "text": "hello"}]},
-        provider="anthropic",
-        model="gpt-5.4",
-        cwd=str(tmp_path),
-        api_base=None,
     )
 
     resolved = await resolve_session(
         store=store,
-        provider="anthropic",
         cwd=str(tmp_path),
-        model="gpt-5.4",
-        api_base=None,
         requested_session_id=None,
         continue_last=True,
     )
 
     assert resolved.mode == "resumed"
-    assert resolved.session_id != first["session"]["id"]
-    assert resolved.session_id == second_id
+    assert resolved.session_id == "second"
     assert resolved.messages[0]["content"] == [{"type": "text", "text": "hello"}]
 
 
@@ -162,10 +151,7 @@ async def test_resolve_session_explicit_missing_id_errors(tmp_path):
     with pytest.raises(ValueError, match="Unknown session"):
         await resolve_session(
             store=store,
-            provider="anthropic",
             cwd=str(tmp_path),
-            model="gpt-5.4",
-            api_base=None,
             requested_session_id="missing",
             continue_last=False,
         )
@@ -553,7 +539,7 @@ class _RuntimeAgent:
         self.supports_reasoning: bool | None = None
         self.supports_image_input = False
         self.supports_pdf_input = False
-        self.tools = ToolExecutor(cwd=cwd, session_dir=Path(cwd) / ".session")
+        self.tools = ToolExecutor(cwd=cwd, tool_output_dir=Path(cwd) / ".session")
 
     def refresh_capabilities(self, **_: Any) -> None:
         """No-op capability refresh — the real inference lives on ``Agent``."""
@@ -562,21 +548,10 @@ class _RuntimeAgent:
 @pytest.mark.asyncio
 async def test_apply_resolved_provider_updates_agent_without_rewriting_session(tmp_path):
     store = SessionStore(data_dir=tmp_path / "sessions")
-    created = await store.create_session(
-        None,
-        provider="anthropic",
-        model="claude-sonnet-4-6",
-        cwd=str(tmp_path),
-        api_base=None,
-    )
-    session_id = str(created["session"]["id"])
+    await store.create_session("s1", cwd=str(tmp_path))
     await store.append_message(
-        session_id,
+        "s1",
         {"role": "user", "content": [{"type": "text", "text": "hello"}]},
-        provider="anthropic",
-        model="claude-sonnet-4-6",
-        cwd=str(tmp_path),
-        api_base=None,
     )
 
     agent = _RuntimeAgent(cwd=str(tmp_path))
@@ -597,12 +572,6 @@ async def test_apply_resolved_provider_updates_agent_without_rewriting_session(t
     assert agent.api_base == "https://api.openai.com/v1"
     assert agent.reasoning_effort == "medium"
 
-    loaded = await store.load_session(session_id)
-    assert loaded is not None
-    assert loaded["session"]["provider"] == "anthropic"
-    assert loaded["session"]["model"] == "claude-sonnet-4-6"
-    assert loaded["session"]["api_base"] is None
-
 
 @pytest.mark.asyncio
 async def test_list_cli_sessions_filters_current_workspace(tmp_path):
@@ -610,40 +579,20 @@ async def test_list_cli_sessions_filters_current_workspace(tmp_path):
     current_cwd = str(tmp_path / "project-a")
     other_cwd = str(tmp_path / "project-b")
 
-    current_session = await store.create_session(
-        "Current",
-        model="gpt-5.4",
-        cwd=current_cwd,
-        api_base=None,
-    )
-    other_session = await store.create_session(
-        "Other",
-        model="gpt-5.4",
-        cwd=other_cwd,
-        api_base=None,
-    )
-    current_session_id = str(current_session["session"]["id"])
-    other_session_id = str(other_session["session"]["id"])
+    await store.create_session("current", cwd=current_cwd)
+    await store.create_session("other", cwd=other_cwd)
     await store.append_message(
-        current_session_id,
-        {"role": "user", "content": [{"type": "text", "text": "hello"}]},
-        provider="anthropic",
-        model="gpt-5.4",
-        cwd=current_cwd,
-        api_base=None,
+        "current",
+        {"role": "user", "content": [{"type": "text", "text": "hello current"}]},
     )
     await store.append_message(
-        other_session_id,
-        {"role": "user", "content": [{"type": "text", "text": "hello"}]},
-        provider="anthropic",
-        model="gpt-5.4",
-        cwd=other_cwd,
-        api_base=None,
+        "other",
+        {"role": "user", "content": [{"type": "text", "text": "hello other"}]},
     )
 
     current = await store.list_sessions(cwd=current_cwd)
     all_sessions = await store.list_sessions(cwd=None)
 
     assert len(current) == 1
-    assert current[0]["title"] == "Current"
+    assert current[0]["id"] == "current"
     assert len(all_sessions) == 2

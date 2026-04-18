@@ -13,7 +13,7 @@ import typer
 from mycode.agent import Agent
 from mycode.messages import ConversationMessage
 from mycode.session import SessionStore
-from mycode_cli.config import ResolvedProvider, Settings, get_settings, resolve_provider
+from mycode_cli.config import ResolvedProvider, Settings, get_settings, resolve_provider, resolve_sessions_dir
 
 from .runtime import ResolvedSession, build_agent, resolve_session
 from .tui.chat import TerminalChat
@@ -82,7 +82,7 @@ def _bootstrap(
         raise typer.BadParameter("--session and --continue are mutually exclusive")
 
     cwd = os.path.abspath(os.getcwd())
-    store = SessionStore()
+    store = SessionStore(data_dir=resolve_sessions_dir())
     view = TerminalView()
     settings = get_settings(cwd)
 
@@ -91,10 +91,7 @@ def _bootstrap(
         resolved_session = asyncio.run(
             resolve_session(
                 store=store,
-                provider=resolved_provider.provider,
                 cwd=cwd,
-                model=resolved_provider.model,
-                api_base=resolved_provider.api_base,
                 requested_session_id=session,
                 continue_last=continue_last,
             )
@@ -109,7 +106,6 @@ def _bootstrap(
         settings=settings,
         resolved_provider=resolved_provider,
         session_id=resolved_session.session_id,
-        messages=resolved_session.messages,
         max_turns=max_turns,
     )
 
@@ -222,7 +218,7 @@ def session_list(
     """List saved sessions."""
 
     cwd = os.path.abspath(os.getcwd())
-    store = SessionStore()
+    store = SessionStore(data_dir=resolve_sessions_dir())
     view = TerminalView()
 
     sessions = asyncio.run(store.list_sessions(cwd=None if all_workspaces else cwd))

@@ -10,6 +10,7 @@ from base64 import b64encode
 from collections.abc import Iterable
 from pathlib import Path
 from typing import Any, override
+from uuid import uuid4
 
 from prompt_toolkit import PromptSession
 from prompt_toolkit.application import Application, get_app
@@ -26,13 +27,14 @@ from rich.text import Text
 
 from mycode.agent import Agent
 from mycode.messages import build_message, document_block, image_block, text_block
-from mycode.session import SessionStore, resolve_mycode_home
+from mycode.session import SessionStore
 from mycode.tools import detect_document_mime_type, detect_image_mime_type, resolve_path
 from mycode_cli.config import (
     REASONING_EFFORT_OPTIONS,
     Settings,
     get_settings,
     normalize_reasoning_effort,
+    resolve_mycode_home,
     resolve_provider,
 )
 from mycode_cli.runtime import (
@@ -457,20 +459,12 @@ class TerminalChat:
     async def _start_new_session(self) -> None:
         """Start a fresh session while keeping the current runtime settings."""
 
-        data = self.store.draft_session(
-            None,
-            provider=self.agent.provider,
-            model=self.agent.model,
-            cwd=self.agent.cwd,
-            api_base=self.agent.api_base,
-        )
-        session = data.get("session") or {}
-        self.session_id = str(session.get("id") or "")
-        self.agent = clone_agent(self.agent, store=self.store, session_id=self.session_id, messages=[])
+        self.session_id = uuid4().hex
+        self.agent = clone_agent(self.agent, store=self.store, session_id=self.session_id)
         self.view.print_header(
             provider=self.agent.provider,
             model=self.agent.model,
-            session=session,
+            session={"id": self.session_id, "title": "New chat"},
             mode="new",
             message_count=0,
             reasoning_effort=self.agent.reasoning_effort,
@@ -559,7 +553,7 @@ class TerminalChat:
             return
         messages = data.get("messages") or []
         loaded_session = data.get("session") or session
-        self.agent = clone_agent(self.agent, store=self.store, session_id=self.session_id, messages=messages)
+        self.agent = clone_agent(self.agent, store=self.store, session_id=self.session_id)
         self.view.print_header(
             provider=self.agent.provider,
             model=self.agent.model,

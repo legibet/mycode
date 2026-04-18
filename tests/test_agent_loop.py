@@ -42,7 +42,7 @@ _PING_TOOL = ToolSpec(
 
 
 def _ping_executor(*, cwd: str, session_dir: Path) -> ToolExecutor:
-    return ToolExecutor(cwd=cwd, session_dir=session_dir, tools=[_PING_TOOL])
+    return ToolExecutor(cwd=cwd, tool_output_dir=session_dir, tools=[_PING_TOOL])
 
 
 class _SlowProviderAdapter:

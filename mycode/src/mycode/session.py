@@ -1,16 +1,10 @@
 """Session storage and timeline events (append-only JSONL).
 
-Inspired by pi/mom design principles:
-- append-only message log (JSONL)
-- small metadata file per session
-- no rewriting of full conversation on each turn
-
 On disk:
 
-~/.mycode/sessions/<session_id>/
+<data_dir>/<session_id>/
   meta.json
-  messages.jsonl   # Internal message/block dicts (excluding system prompt)
-  tool-output/     # large bash outputs (referenced by tool results)
+  messages.jsonl   # internal message/block dicts (system prompt excluded)
 """
 
 from __future__ import annotations
@@ -19,41 +13,20 @@ import asyncio
 import json
 import os
 import shutil
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, TypedDict, cast
-from uuid import uuid4
 
 from mycode.messages import ConversationMessage, build_message, flatten_message_text, text_block, tool_result_block
-
-# Filesystem layout: ``$MYCODE_HOME`` (default ``~/.mycode``) holds session
-# storage, CLI history, and the optional global config. Path helpers live with
-# ``SessionStore`` so the SDK can resolve them without depending on the CLI.
-_DEFAULT_MYCODE_HOME = "~/.mycode"
-
-
-def resolve_mycode_home() -> Path:
-    """Resolve the mycode home directory (``$MYCODE_HOME`` or ``~/.mycode``)."""
-
-    raw = os.environ.get("MYCODE_HOME", _DEFAULT_MYCODE_HOME)
-    return Path(raw).expanduser().resolve(strict=False)
-
-
-def resolve_sessions_dir() -> Path:
-    """Resolve the default directory used for persisted sessions."""
-
-    return resolve_mycode_home() / "sessions"
-
 
 # ---------------------------------------------------------------------
 # Session format and compacting defaults
 # ---------------------------------------------------------------------
 
-MESSAGE_FORMAT_VERSION = 5
-DEFAULT_SESSION_PROVIDER = "anthropic"
-DEFAULT_SESSION_TITLE = "New chat"
+MESSAGE_FORMAT_VERSION = 6
 DEFAULT_COMPACT_THRESHOLD = 0.8
+DEFAULT_SESSION_TITLE = "New chat"
 
 COMPACT_SUMMARY_PROMPT = """\
 Summarize this conversation to create a continuation document. \
@@ -194,15 +167,17 @@ def apply_rewind(messages: list[ConversationMessage]) -> list[ConversationMessag
 
 @dataclass
 class SessionMeta:
-    id: str
-    title: str
-    provider: str
-    model: str
+    """Session metadata persisted to meta.json.
+
+    Excludes per-turn state like provider / model / api_base — those live on
+    each ConversationMessage and would drift after ``/model`` switches.
+    """
+
     cwd: str
-    api_base: str | None
-    message_format_version: int
+    title: str
     created_at: str
     updated_at: str
+    message_format_version: int
 
 
 SessionMetaDict = dict[str, object]
@@ -220,15 +195,20 @@ class SessionData(TypedDict):
 
 @dataclass
 class SessionStore:
-    """File-based session store backed by append-only JSONL files."""
+    """File-based session store backed by append-only JSONL files.
 
-    data_dir: Path = field(default_factory=resolve_sessions_dir)
+    ``data_dir`` is the directory under which each session lives as its own
+    subdirectory named by ``session_id``. The SDK never picks a default path;
+    callers (CLI/server) decide where sessions are stored.
+    """
+
+    data_dir: Path
 
     def __post_init__(self) -> None:
         self.data_dir.mkdir(parents=True, exist_ok=True)
 
     # ---------------------------------------------------------------------
-    # Session paths and small JSON helpers
+    # Session paths
     # ---------------------------------------------------------------------
 
     def session_dir(self, session_id: str) -> Path:
@@ -240,81 +220,51 @@ class SessionStore:
     def messages_path(self, session_id: str) -> Path:
         return self.session_dir(session_id) / "messages.jsonl"
 
-    def _ensure_session_dir(self, session_id: str) -> None:
-        session_dir = self.session_dir(session_id)
-        session_dir.mkdir(parents=True, exist_ok=True)
-        (session_dir / "tool-output").mkdir(parents=True, exist_ok=True)
+    def session_exists(self, session_id: str) -> bool:
+        return self.meta_path(session_id).exists()
 
     def _read_meta(self, session_id: str) -> SessionMetaDict | None:
         path = self.meta_path(session_id)
         if not path.exists():
             return None
-        return json.loads(path.read_text(encoding="utf-8"))
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return None
 
     def _write_meta(self, session_id: str, meta: SessionMetaDict) -> None:
         self.meta_path(session_id).write_text(json.dumps(meta, indent=2), encoding="utf-8")
 
     # ---------------------------------------------------------------------
-    # Session CRUD and loading
+    # Session CRUD
     # ---------------------------------------------------------------------
 
-    def draft_session(
-        self,
-        title: str | None,
-        *,
-        provider: str = DEFAULT_SESSION_PROVIDER,
-        model: str,
-        cwd: str,
-        api_base: str | None,
-    ) -> SessionData:
-        session_id = uuid4().hex
+    async def create_session(self, session_id: str, *, cwd: str) -> SessionData:
+        """Create the on-disk session directory with a fresh meta.json."""
+
         now = _now()
         meta = asdict(
             SessionMeta(
-                id=session_id,
-                title=title or DEFAULT_SESSION_TITLE,
-                provider=provider,
-                model=model,
                 cwd=os.path.abspath(cwd),
-                api_base=api_base,
-                message_format_version=MESSAGE_FORMAT_VERSION,
+                title=DEFAULT_SESSION_TITLE,
                 created_at=now,
                 updated_at=now,
+                message_format_version=MESSAGE_FORMAT_VERSION,
             )
         )
-        return {"session": meta, "messages": []}
-
-    async def create_session(
-        self,
-        title: str | None,
-        *,
-        session_id: str | None = None,
-        provider: str = DEFAULT_SESSION_PROVIDER,
-        model: str,
-        cwd: str,
-        api_base: str | None,
-    ) -> SessionData:
-        data = self.draft_session(
-            title,
-            provider=provider,
-            model=model,
-            cwd=cwd,
-            api_base=api_base,
-        )
-        session = data["session"]
-        if session_id:
-            session["id"] = session_id
-        session_id = str(session["id"])
 
         def write_files() -> None:
-            self._ensure_session_dir(session_id)
-            self._write_meta(session_id, session)
+            session_dir = self.session_dir(session_id)
+            session_dir.mkdir(parents=True, exist_ok=True)
+            self._write_meta(session_id, meta)
             self.messages_path(session_id).touch(exist_ok=True)
 
         await asyncio.to_thread(write_files)
-        return data
+        return {"session": self._summary(session_id, meta), "messages": []}
 
     async def list_sessions(self, *, cwd: str | None = None) -> list[SessionMetaDict]:
+        """List all sessions under ``data_dir``, newest first."""
+
         normalized = os.path.abspath(cwd) if cwd else None
 
         def load_all() -> list[SessionMetaDict]:
@@ -322,16 +272,12 @@ class SessionStore:
             for entry in self.data_dir.iterdir():
                 if not entry.is_dir():
                     continue
-                mp = entry / "meta.json"
-                if not mp.exists():
+                meta = self._read_meta(entry.name)
+                if meta is None:
                     continue
-                try:
-                    meta = json.loads(mp.read_text(encoding="utf-8"))
-                    if normalized and os.path.abspath(meta.get("cwd") or "") != normalized:
-                        continue
-                    out.append(meta)
-                except Exception:
+                if normalized and os.path.abspath(str(meta.get("cwd") or "")) != normalized:
                     continue
+                out.append(self._summary(entry.name, meta))
 
             out.sort(key=lambda m: str(m.get("updated_at") or ""), reverse=True)
             return out
@@ -342,10 +288,104 @@ class SessionStore:
         sessions = await self.list_sessions(cwd=cwd)
         return sessions[0] if sessions else None
 
+    def load_session_sync(self, session_id: str) -> SessionData | None:
+        """Synchronous variant of :meth:`load_session`."""
+
+        meta = self._read_meta(session_id)
+        if meta is None:
+            return None
+
+        # Read the raw append-only log first. Replay happens after that.
+        raw_messages: list[ConversationMessage] = []
+        try:
+            with self.messages_path(session_id).open("r", encoding="utf-8") as handle:
+                for line in handle:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        msg = json.loads(line)
+                        if isinstance(msg, dict):
+                            raw_messages.append(cast(ConversationMessage, msg))
+                    except ValueError:
+                        continue
+        except FileNotFoundError:
+            pass
+
+        # Replay order defines the visible conversation state.
+        # 1) compact rewrites older history into one summary view
+        # 2) rewind truncates that visible list by message index
+        # 3) interrupted tool repair patches the final visible state
+        visible_messages = apply_compact(raw_messages)
+        visible_messages = apply_rewind(visible_messages)
+        self._repair_interrupted_tool_loop(session_id, visible_messages)
+
+        return {"session": self._summary(session_id, meta), "messages": visible_messages}
+
+    async def load_session(self, session_id: str) -> SessionData | None:
+        return await asyncio.to_thread(self.load_session_sync, session_id)
+
+    async def delete_session(self, session_id: str) -> None:
+        def delete() -> None:
+            sdir = self.session_dir(session_id)
+            if sdir.exists():
+                shutil.rmtree(sdir, ignore_errors=True)
+
+        await asyncio.to_thread(delete)
+
+    async def clear_session(self, session_id: str) -> None:
+        def clear() -> None:
+            if self.messages_path(session_id).exists():
+                self.messages_path(session_id).write_text("", encoding="utf-8")
+
+        await asyncio.to_thread(clear)
+
+    # ---------------------------------------------------------------------
+    # Append-only updates
+    # ---------------------------------------------------------------------
+
+    async def append_message(self, session_id: str, message: ConversationMessage) -> None:
+        """Append one message to ``messages.jsonl`` and refresh meta.
+
+        Meta's ``updated_at`` is bumped on every call; ``title`` is promoted
+        from the default placeholder on the first user message that carries
+        readable text.
+        """
+
+        def append() -> None:
+            with self.messages_path(session_id).open("a", encoding="utf-8") as handle:
+                handle.write(json.dumps(message, ensure_ascii=False))
+                handle.write("\n")
+
+            meta = self._read_meta(session_id)
+            if meta is None:
+                return
+            meta["updated_at"] = _now()
+            if meta.get("title") == DEFAULT_SESSION_TITLE and message.get("role") == "user":
+                title_text = flatten_message_text(message, include_thinking=False).replace("\n", " ").strip()
+                if title_text:
+                    meta["title"] = title_text[:48]
+            self._write_meta(session_id, meta)
+
+        await asyncio.to_thread(append)
+
+    async def append_rewind(self, session_id: str, rewind_to: int) -> None:
+        """Append a rewind marker to the session JSONL."""
+
+        await self.append_message(session_id, build_rewind_event(rewind_to))
+
+    def _summary(self, session_id: str, meta: SessionMetaDict) -> SessionMetaDict:
+        """Return meta augmented with the session id for API responses."""
+
+        return {"id": session_id, **meta}
+
+    # ---------------------------------------------------------------------
+    # Interrupted tool repair
+    # ---------------------------------------------------------------------
+
     def _repair_interrupted_tool_loop(
         self,
         session_id: str,
-        meta: SessionMetaDict,
         messages: list[ConversationMessage],
     ) -> None:
         """Append a synthetic tool result when the latest tool loop was interrupted.
@@ -424,139 +464,9 @@ class SessionStore:
             handle.write(json.dumps(repair_message, ensure_ascii=False))
             handle.write("\n")
 
-        meta["updated_at"] = _now()
-        self._write_meta(session_id, meta)
-        messages.append(repair_message)
-
-    def load_session_sync(self, session_id: str) -> SessionData | None:
-        """Synchronous variant of :meth:`load_session`.
-
-        Used by :class:`Agent` to restore history during construction without
-        requiring an event loop.
-        """
-
         meta = self._read_meta(session_id)
-        if meta is None:
-            return None
-
-        # Read the raw append-only log first. Replay happens after that.
-        raw_messages: list[ConversationMessage] = []
-        messages_path = self.messages_path(session_id)
-        try:
-            with messages_path.open("r", encoding="utf-8") as handle:
-                for line in handle:
-                    line = line.strip()
-                    if not line:
-                        continue
-                    try:
-                        msg = json.loads(line)
-                        if isinstance(msg, dict):
-                            raw_messages.append(cast(ConversationMessage, msg))
-                    except Exception:
-                        continue
-        except FileNotFoundError:
-            pass
-
-        # Replay order defines the visible conversation state.
-        # 1) compact rewrites older history into one summary view
-        # 2) rewind truncates that visible list by message index
-        # 3) interrupted tool repair patches the final visible state
-        visible_messages = apply_compact(raw_messages)
-        visible_messages = apply_rewind(visible_messages)
-        self._repair_interrupted_tool_loop(session_id, meta, visible_messages)
-
-        return {"session": meta, "messages": visible_messages}
-
-    async def load_session(self, session_id: str) -> SessionData | None:
-        return await asyncio.to_thread(self.load_session_sync, session_id)
-
-    async def delete_session(self, session_id: str) -> None:
-        def delete() -> None:
-            sdir = self.session_dir(session_id)
-            if sdir.exists():
-                shutil.rmtree(sdir, ignore_errors=True)
-
-        await asyncio.to_thread(delete)
-
-    async def clear_session(self, session_id: str) -> None:
-        def clear() -> None:
-            meta = self._read_meta(session_id)
-            if meta is None:
-                return
-            meta["updated_at"] = _now()
-            self._write_meta(session_id, meta)
-            self.messages_path(session_id).write_text("", encoding="utf-8")
-
-        await asyncio.to_thread(clear)
-
-    # ---------------------------------------------------------------------
-    # Append-only updates
-    # ---------------------------------------------------------------------
-
-    async def append_rewind(self, session_id: str, rewind_to: int) -> None:
-        """Append a rewind marker to the session JSONL."""
-
-        def append() -> None:
-            meta = self._read_meta(session_id)
-            if meta is None:
-                return
-
-            event = build_rewind_event(rewind_to)
-            messages_path = self.messages_path(session_id)
-            with messages_path.open("a", encoding="utf-8") as handle:
-                handle.write(json.dumps(event, ensure_ascii=False))
-                handle.write("\n")
-
+        if meta is not None:
             meta["updated_at"] = _now()
             self._write_meta(session_id, meta)
 
-        await asyncio.to_thread(append)
-
-    async def append_message(
-        self,
-        session_id: str,
-        message: ConversationMessage,
-        *,
-        provider: str,
-        model: str,
-        cwd: str,
-        api_base: str | None,
-    ) -> None:
-        def append() -> None:
-            meta = self._read_meta(session_id)
-            if meta is None:
-                # Create the on-disk session only when the first message is persisted.
-                self._ensure_session_dir(session_id)
-                now = _now()
-                meta = asdict(
-                    SessionMeta(
-                        id=session_id,
-                        title=DEFAULT_SESSION_TITLE,
-                        provider=provider,
-                        model=model,
-                        cwd=os.path.abspath(cwd),
-                        api_base=api_base,
-                        message_format_version=MESSAGE_FORMAT_VERSION,
-                        created_at=now,
-                        updated_at=now,
-                    )
-                )
-
-            messages_path = self.messages_path(session_id)
-            with messages_path.open("a", encoding="utf-8") as handle:
-                handle.write(json.dumps(message, ensure_ascii=False))
-                handle.write("\n")
-
-            meta["updated_at"] = _now()
-            meta.setdefault("message_format_version", MESSAGE_FORMAT_VERSION)
-
-            if meta.get("title") == DEFAULT_SESSION_TITLE and message.get("role") == "user":
-                # Keep the default title until we see the first real user text,
-                # then promote a short preview into the session title.
-                title_text = flatten_message_text(message, include_thinking=False).replace("\n", " ").strip()
-                if title_text:
-                    meta["title"] = title_text[:48]
-
-            self._write_meta(session_id, meta)
-
-        await asyncio.to_thread(append)
+        messages.append(repair_message)
