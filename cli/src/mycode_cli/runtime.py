@@ -58,7 +58,7 @@ def build_agent(
     the store; callers never pass messages explicitly.
     """
 
-    model_config = _model_config_for(settings, resolved_provider)
+    model_config = model_config_for(settings, resolved_provider)
     return Agent(
         model=resolved_provider.model,
         provider=resolved_provider.provider,
@@ -80,7 +80,7 @@ def build_agent(
     )
 
 
-def _model_config_for(settings: Settings, resolved: ResolvedProvider) -> ModelConfig | None:
+def model_config_for(settings: Settings, resolved: ResolvedProvider) -> ModelConfig | None:
     """Return the user-configured overrides for the resolved provider+model, if any."""
 
     provider_config = settings.providers.get(resolved.provider_name or "")
@@ -235,7 +235,7 @@ def apply_resolved_provider(agent: Agent, resolved: ResolvedProvider, settings: 
     agent.reasoning_effort = resolved.reasoning_effort
 
     if runtime_changed:
-        model_config = _model_config_for(settings, resolved)
+        model_config = model_config_for(settings, resolved)
         agent.refresh_capabilities(
             max_tokens=model_config.max_output_tokens if model_config else None,
             context_window=model_config.context_window if model_config else None,

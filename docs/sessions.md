@@ -111,7 +111,7 @@ When the executor has `tool_output_dir=None`, there is no spill: output is inlin
 - `list_sessions(*, cwd=None)` — filter by workspace, sorted by `updated_at` desc; derived `title` / `updated_at` included per entry
 - `load_session(session_id)` — load with full replay pipeline (returns `None` when absent)
 - `delete_session(session_id)` — recursive directory delete
-- `clear_session(session_id)` — truncate `messages.jsonl`, keep `meta.json`
+- `clear_session(session_id)` — truncate `messages.jsonl`, reset `title` to the default and bump `updated_at`
 - `append_message(session_id, message)` — append one line; refresh meta's `updated_at` and promote `title` on the first user message
 - `append_rewind(session_id, rewind_to)` — append a rewind marker
 

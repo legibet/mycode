@@ -318,7 +318,7 @@ class SessionStore:
         # 3) interrupted tool repair patches the final visible state
         visible_messages = apply_compact(raw_messages)
         visible_messages = apply_rewind(visible_messages)
-        self._repair_interrupted_tool_loop(session_id, visible_messages)
+        self._repair_interrupted_tool_loop(session_id, meta, visible_messages)
 
         return {"session": self._summary(session_id, meta), "messages": visible_messages}
 
@@ -334,9 +334,18 @@ class SessionStore:
         await asyncio.to_thread(delete)
 
     async def clear_session(self, session_id: str) -> None:
+        """Drop all messages and reset derived meta to the "new chat" state."""
+
         def clear() -> None:
-            if self.messages_path(session_id).exists():
-                self.messages_path(session_id).write_text("", encoding="utf-8")
+            if not self.messages_path(session_id).exists():
+                return
+            self.messages_path(session_id).write_text("", encoding="utf-8")
+            meta = self._read_meta(session_id)
+            if meta is None:
+                return
+            meta["title"] = DEFAULT_SESSION_TITLE
+            meta["updated_at"] = _now()
+            self._write_meta(session_id, meta)
 
         await asyncio.to_thread(clear)
 
@@ -386,6 +395,7 @@ class SessionStore:
     def _repair_interrupted_tool_loop(
         self,
         session_id: str,
+        meta: SessionMetaDict,
         messages: list[ConversationMessage],
     ) -> None:
         """Append a synthetic tool result when the latest tool loop was interrupted.
@@ -393,7 +403,8 @@ class SessionStore:
         The runtime persists sessions as append-only JSONL. If a previous run was
         interrupted after an assistant emitted `tool_use` blocks but before a
         matching `tool_result` user message was written, repair the session by
-        appending one synthetic error result message.
+        appending one synthetic error result message. ``meta`` is mutated in
+        place so the caller's view stays consistent with the updated file.
         """
 
         pending_tool_use_ids: list[str] = []
@@ -464,9 +475,7 @@ class SessionStore:
             handle.write(json.dumps(repair_message, ensure_ascii=False))
             handle.write("\n")
 
-        meta = self._read_meta(session_id)
-        if meta is not None:
-            meta["updated_at"] = _now()
-            self._write_meta(session_id, meta)
+        meta["updated_at"] = _now()
+        self._write_meta(session_id, meta)
 
         messages.append(repair_message)

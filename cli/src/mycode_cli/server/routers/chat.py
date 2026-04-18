@@ -30,7 +30,7 @@ from mycode_cli.config import (
     resolve_provider,
     resolve_provider_choices,
 )
-from mycode_cli.runtime import build_agent
+from mycode_cli.runtime import build_agent, model_config_for
 from mycode_cli.server.deps import RunManagerDep, StoreDep
 from mycode_cli.server.run_manager import ActiveRunError, RunState
 from mycode_cli.server.schemas import ChatRequest, StreamEvent
@@ -193,12 +193,26 @@ async def chat(chat: ChatRequest, store: StoreDep, runs: RunManagerDep):
                 detail="rewind_to must reference a real user message",
             )
 
-        # Land the rewind marker before the agent auto-resumes so apply_rewind
-        # produces the correct visible history during Agent.__init__.
-        await store.append_rewind(session_id, chat.rewind_to)
+    # Capability check before any disk mutation — a failed check must not
+    # leave an empty session on disk or land a premature rewind marker.
+    model_config = model_config_for(settings, resolved)
+    caps = resolve_model_metadata(
+        provider=resolved.provider,
+        model=resolved.model,
+        supports_image_input=model_config.supports_image_input if model_config else None,
+        supports_pdf_input=model_config.supports_pdf_input if model_config else None,
+    )
+    content_types = {b.get("type") for b in (user_message.get("content") or []) if isinstance(b, dict)}
+    if "image" in content_types and not caps.supports_image_input:
+        raise HTTPException(status_code=400, detail="current model does not support image input")
+    if "document" in content_types and not caps.supports_pdf_input:
+        raise HTTPException(status_code=400, detail="current model does not support PDF input")
 
-    # Pre-create the session on first contact so the response payload has a
-    # meta dict and the Agent's auto-resume finds an empty log to load.
+    # All validation passed. Land the rewind marker (if any) and create the
+    # session so the response payload has a meta dict and the agent's
+    # auto-resume sees the correct on-disk state.
+    if chat.rewind_to is not None:
+        await store.append_rewind(session_id, chat.rewind_to)
     if not session:
         created = await store.create_session(session_id, cwd=cwd)
         session = created["session"]
@@ -211,12 +225,6 @@ async def chat(chat: ChatRequest, store: StoreDep, runs: RunManagerDep):
         session_id=session_id,
         reasoning_effort=reasoning_effort,
     )
-
-    content_types = {b.get("type") for b in (user_message.get("content") or []) if isinstance(b, dict)}
-    if "image" in content_types and not agent.supports_image_input:
-        raise HTTPException(status_code=400, detail="current model does not support image input")
-    if "document" in content_types and not agent.supports_pdf_input:
-        raise HTTPException(status_code=400, detail="current model does not support PDF input")
 
     try:
         run = await runs.start_run(
