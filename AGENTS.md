@@ -194,16 +194,29 @@ When a feature requires both web and CLI changes, make two commits.
 ## Dev Workflow
 
 ```bash
-uv sync --dev                                          # Python setup (workspace)
+uv sync --dev                                          # install/update Python deps
+pnpm --dir web install                                # install web deps
+
+uv run mycode                                          # start the CLI
+uv run mycode web --dev                                # backend API for Vite dev
+pnpm --dir web dev                                     # frontend Vite dev server
+
 uv run basedpyright                                    # Python type checking
+pnpm --dir web typecheck                               # web type checking
 uv run pytest                                          # Python tests
-uv run mycode                                          # run CLI
-uv run mycode web --dev                                # API only (backend for Vite dev)
-pnpm --dir web typecheck                               # Web UI type checking
-pnpm --dir web test:run                                # run web UI tests once
-pnpm --dir web dev                                     # Vite web UI dev server
-uv build --package mycode-sdk                          # build SDK wheel + sdist
-uv build --package mycode-cli                          # build CLI wheel + sdist
+pnpm --dir web test:run                                # web tests
+
+uv build --package mycode-sdk                          # build SDK package
+uv build --package mycode-cli                          # build CLI package
+```
+
+Useful shortcuts:
+
+```bash
+just dev                                               # start backend API and Vite dev server together
+just check                                             # run ruff check, basedpyright, web typecheck, and biome check
+just test                                              # run Python tests and web tests
+just fmt                                               # run ruff fix/format and biome check --write
 ```
 
 ## Guardrails

@@ -72,18 +72,3 @@ agent = Agent(
 ```
 
 Type hints drive the JSON schema. Unknown types raise; missing docstrings raise. `async def` tools are run via `asyncio.run` on the executor's worker thread.
-
-## Disabling auto-persistence
-
-Point `session_dir` (or the implied `SessionStore` data dir) at a temporary directory if you need an ephemeral session:
-
-```python
-import tempfile
-from pathlib import Path
-
-agent = Agent(
-    model="claude-sonnet-4-6",
-    cwd=".",
-    session_dir=Path(tempfile.mkdtemp()) / "scratch",
-)
-```

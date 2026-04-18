@@ -137,6 +137,14 @@ uv run mycode web --dev
 pnpm --dir web install && pnpm --dir web dev
 ```
 
+Or start both together:
+
+```bash
+just dev
+```
+
+Other useful shortcuts: `just check` · `just test` · `just fmt`
+
 Build distributable artifacts:
 
 ```bash
