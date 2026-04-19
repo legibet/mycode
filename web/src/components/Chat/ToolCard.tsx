@@ -62,23 +62,14 @@ function isEditArgs(args: Record<string, unknown>): args is EditArgs {
   )
 }
 
-/** Parse model_text JSON into per-edit metadata array. */
-function parseEditMetas(
-  modelText: string | null | undefined,
+/** Extract per-edit metadata from the result metadata payload. */
+function getEditMetas(
+  metadata: Record<string, unknown> | null | undefined,
 ): EditMeta[] | null {
-  if (!modelText) return null
-  try {
-    const data = JSON.parse(modelText) as {
-      status?: string
-      edits?: EditMeta[]
-    }
-    if (data.status === 'ok' && Array.isArray(data.edits)) {
-      return data.edits.filter((e) => typeof e?.start_line === 'number')
-    }
-  } catch {
-    /* not JSON */
-  }
-  return null
+  if (!metadata) return null
+  const edits = (metadata as { edits?: unknown }).edits
+  if (!Array.isArray(edits)) return null
+  return (edits as EditMeta[]).filter((e) => typeof e?.start_line === 'number')
 }
 
 function EditDiffFallback({ edits }: { edits: EditEntry[] }) {
@@ -114,8 +105,8 @@ interface ToolCardProps {
   name: string
   args?: Record<string, unknown>
   output?: string | null | undefined
-  modelText?: string | null | undefined
-  displayText?: string | null | undefined
+  finalOutput?: string | null | undefined
+  metadata?: Record<string, unknown> | null | undefined
   pending?: boolean | undefined
   isError?: boolean | undefined
 }
@@ -342,17 +333,17 @@ function WriteBody({
 
 function EditBody({
   args,
-  modelText,
+  metadata,
   display,
   isError,
 }: {
   args: Record<string, unknown> | undefined
-  modelText: string | null | undefined
+  metadata: Record<string, unknown> | null | undefined
   display: string
   isError: boolean
 }) {
   if (args && isEditArgs(args) && args.edits?.length) {
-    const metas = parseEditMetas(modelText)
+    const metas = getEditMetas(metadata)
     const items = args.edits.map((entry, i) => ({
       oldText: entry.oldText,
       newText: entry.newText,
@@ -401,20 +392,22 @@ export const ToolCard = memo(function ToolCard({
   name,
   args,
   output,
-  modelText,
-  displayText,
+  finalOutput,
+  metadata,
   pending,
   isError,
 }: ToolCardProps) {
+  // Prefer the final output (available once tool_done fires) over the
+  // incremental streaming output, and fall back to "" for pending tools.
   const display =
-    typeof displayText === 'string'
-      ? displayText
+    typeof finalOutput === 'string'
+      ? finalOutput
       : typeof output === 'string'
         ? output
         : ''
   const resolvedIsError =
     Boolean(isError) ||
-    (typeof modelText === 'string' && modelText.startsWith('error:'))
+    (typeof finalOutput === 'string' && finalOutput.startsWith('error:'))
   const [expandedOverride, setExpandedOverride] = useState<boolean | null>(null)
   const expanded = expandedOverride ?? resolvedIsError
 
@@ -518,7 +511,7 @@ export const ToolCard = memo(function ToolCard({
           ) : name === 'edit' ? (
             <EditBody
               args={args}
-              modelText={modelText}
+              metadata={metadata}
               display={display}
               isError={resolvedIsError}
             />

@@ -147,8 +147,8 @@ describe('messages', () => {
       {
         pending: true,
         output: '',
-        modelText: null,
-        displayText: null,
+        finalOutput: null,
+        metadata: null,
         isError: false,
       },
     )
@@ -160,8 +160,8 @@ describe('messages', () => {
       {
         pending: false,
         output: 'file.txt',
-        modelText: 'file.txt',
-        displayText: 'file.txt',
+        finalOutput: 'file.txt',
+        metadata: null,
         isError: false,
       },
       1,
@@ -178,8 +178,8 @@ describe('messages', () => {
     expect(toolBlock.runtime).toEqual({
       pending: false,
       output: 'file.txt',
-      modelText: 'file.txt',
-      displayText: 'file.txt',
+      finalOutput: 'file.txt',
+      metadata: null,
       isError: false,
     })
   })
@@ -208,8 +208,8 @@ describe('messages', () => {
           {
             type: 'tool_result',
             tool_use_id: 'tool-1',
-            model_text: 'file.txt',
-            display_text: 'file.txt',
+            output: 'file.txt',
+            metadata: null,
             is_error: false,
           },
         ],
@@ -250,8 +250,8 @@ describe('messages', () => {
           {
             type: 'tool_result',
             tool_use_id: 'tool-1',
-            model_text: 'file.txt',
-            display_text: 'file.txt',
+            output: 'file.txt',
+            metadata: null,
             is_error: false,
           },
         ],

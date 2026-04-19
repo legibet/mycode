@@ -172,11 +172,11 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
         rawMessages = appendToolUse(rawMessages, toolCall)
         const sourceIndex = findLatestAssistantIndex(rawMessages)
         if (toolCall.id) {
-          const runtime = {
+          const runtime: ToolRuntime = {
             pending: true,
             output: '',
-            modelText: null,
-            displayText: null,
+            finalOutput: null,
+            metadata: null,
             isError: false,
           }
           toolRuntimeById[toolCall.id] = runtime
@@ -196,8 +196,8 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
           const current = toolRuntimeById[toolUseId] || {
             pending: true,
             output: '',
-            modelText: null,
-            displayText: null,
+            finalOutput: null,
+            metadata: null,
             isError: false,
           }
           const nextOutput = event.output || ''
@@ -217,33 +217,34 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
         }
       } else if (event.type === 'tool_done') {
         const toolUseId = event.tool_use_id || ''
-        const modelText = event.model_text || ''
-        const displayText = event.display_text || ''
+        const finalOutput = event.output || ''
+        const metadata = event.metadata ?? null
         const isError = Boolean(
           event.is_error ||
-            (typeof modelText === 'string' && modelText.startsWith('error:')),
+            (typeof finalOutput === 'string' &&
+              finalOutput.startsWith('error:')),
         )
 
         if (toolUseId) {
           const current = toolRuntimeById[toolUseId] || {
             pending: false,
             output: '',
-            modelText: null,
-            displayText: null,
+            finalOutput: null,
+            metadata: null,
             isError: false,
           }
           toolRuntimeById[toolUseId] = {
             ...current,
             pending: false,
-            modelText,
-            displayText,
+            finalOutput,
+            metadata,
             isError,
           }
           rawMessages = appendToolResult(
             rawMessages,
             toolUseId,
-            modelText,
-            displayText,
+            finalOutput,
+            metadata,
             isError,
           )
           const sourceIndex = findLatestAssistantIndex(rawMessages)
@@ -255,8 +256,8 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
             {
               type: 'tool_result',
               tool_use_id: toolUseId,
-              model_text: modelText,
-              display_text: displayText,
+              output: finalOutput,
+              metadata,
               is_error: isError,
             },
           )

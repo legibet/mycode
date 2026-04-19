@@ -68,8 +68,8 @@ export interface RunInfo {
 export interface ToolRuntime {
   pending: boolean
   output: string
-  modelText: string | null
-  displayText: string | null
+  finalOutput: string | null
+  metadata: Record<string, unknown> | null
   isError: boolean
 }
 
@@ -102,8 +102,8 @@ export interface ToolUseBlock {
 export interface ToolResultBlock {
   type: 'tool_result'
   tool_use_id: string
-  model_text: string | null
-  display_text: string | null
+  output: string | null
+  metadata: Record<string, unknown> | null
   is_error: boolean
   renderKey?: string
   meta?: Record<string, unknown>
@@ -208,8 +208,8 @@ export interface ToolOutputEvent extends StreamEventBase {
 export interface ToolDoneEvent extends StreamEventBase {
   type: 'tool_done'
   tool_use_id?: string
-  model_text?: string
-  display_text?: string
+  output?: string
+  metadata?: Record<string, unknown>
   is_error?: boolean
 }
 

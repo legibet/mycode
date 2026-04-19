@@ -398,7 +398,7 @@ export const MessageBubble = memo(function MessageBubble({
           if (block.type === 'tool_use') {
             const renderKey =
               block.renderKey || block.id || `tool:${block.name || 'tool'}`
-            const resetKey = `${renderKey}:${JSON.stringify(block.input)}:${block.runtime?.pending ? '1' : '0'}:${block.runtime?.isError ? '1' : '0'}:${block.runtime?.output ?? ''}:${block.runtime?.modelText ?? ''}:${block.runtime?.displayText ?? ''}`
+            const resetKey = `${renderKey}:${JSON.stringify(block.input)}:${block.runtime?.pending ? '1' : '0'}:${block.runtime?.isError ? '1' : '0'}:${block.runtime?.output ?? ''}:${block.runtime?.finalOutput ?? ''}`
             return (
               <RenderErrorBoundary
                 key={renderKey}
@@ -409,8 +409,8 @@ export const MessageBubble = memo(function MessageBubble({
                   name={block.name}
                   args={block.input}
                   output={block.runtime?.output}
-                  modelText={block.runtime?.modelText}
-                  displayText={block.runtime?.displayText}
+                  finalOutput={block.runtime?.finalOutput}
+                  metadata={block.runtime?.metadata}
                   pending={block.runtime?.pending}
                   isError={block.runtime?.isError}
                 />

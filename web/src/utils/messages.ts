@@ -97,15 +97,15 @@ function createToolUseBlock(toolCall: ToolCall): ToolUseBlock {
 
 function createToolResultBlock(
   toolUseId: string,
-  modelText: string | null,
-  displayText: string | null,
+  output: string | null,
+  metadata: Record<string, unknown> | null,
   isError = false,
 ): ToolResultBlock {
   return {
     type: 'tool_result',
     tool_use_id: toolUseId,
-    model_text: modelText,
-    display_text: displayText,
+    output,
+    metadata,
     is_error: isError,
   }
 }
@@ -291,16 +291,11 @@ function isToolResultOnlyUserMessage(message?: ChatMessage): boolean {
 export function appendToolResult(
   messages: ChatMessage[],
   toolUseId: string,
-  modelText: string | null,
-  displayText: string | null,
+  output: string | null,
+  metadata: Record<string, unknown> | null,
   isError = false,
 ): ChatMessage[] {
-  const block = createToolResultBlock(
-    toolUseId,
-    modelText,
-    displayText,
-    isError,
-  )
+  const block = createToolResultBlock(toolUseId, output, metadata, isError)
   const next = [...messages]
   const lastIndex = next.length - 1
 
@@ -323,31 +318,27 @@ function buildToolRuntime(
   toolResultBlock: ToolResultBlock | null,
 ): ToolRuntime {
   const output = typeof runtime?.output === 'string' ? runtime.output : ''
-  const hasRuntimeModelText = typeof runtime?.modelText === 'string'
-  const persistedModelText =
-    typeof toolResultBlock?.model_text === 'string'
-      ? toolResultBlock.model_text
-      : null
-  const hasRuntimeDisplayText = typeof runtime?.displayText === 'string'
-  const persistedDisplayText =
-    typeof toolResultBlock?.display_text === 'string'
-      ? toolResultBlock.display_text
-      : null
-  const modelText = hasRuntimeModelText ? runtime.modelText : persistedModelText
-  const displayText = hasRuntimeDisplayText
-    ? runtime.displayText
-    : (persistedDisplayText ?? modelText)
+  const runtimeFinal =
+    typeof runtime?.finalOutput === 'string' ? runtime.finalOutput : null
+  const persistedOutput =
+    typeof toolResultBlock?.output === 'string' ? toolResultBlock.output : null
+  const finalOutput = runtimeFinal ?? persistedOutput
+  const runtimeMetadata = isObject(runtime?.metadata) ? runtime.metadata : null
+  const persistedMetadata = isObject(toolResultBlock?.metadata)
+    ? toolResultBlock.metadata
+    : null
+  const metadata = runtimeMetadata ?? persistedMetadata
   const isError = Boolean(
     runtime?.isError ||
       toolResultBlock?.is_error ||
-      (typeof modelText === 'string' && modelText.startsWith('error:')),
+      (typeof finalOutput === 'string' && finalOutput.startsWith('error:')),
   )
 
   return {
     pending: Boolean(runtime?.pending),
     output,
-    modelText,
-    displayText,
+    finalOutput,
+    metadata,
     isError,
   }
 }
