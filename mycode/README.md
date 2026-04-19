@@ -1,6 +1,6 @@
 # mycode-sdk
 
-Lightweight Python SDK for building agents.
+Lightweight Python SDK for building AI agents.
 
 ## Install
 
@@ -33,18 +33,42 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
-`Agent(...)` infers the provider from the model id and defaults `cwd` to the current working directory. No tools are registered unless you pass `tools=[...]`, and nothing is persisted unless you pass `session_dir=`.
+`Agent(...)` infers the provider from the model id. No tools are registered unless you pass `tools=[...]`.
 
-For a synchronous call, use `run()` — it collects the stream into a `RunResult`:
+For a simple synchronous call, use `run()`:
 
 ```python
 result = agent.run("Read pyproject.toml and tell me the project name.")
 print(result.text)
 ```
 
-Call `achat` or `run` again on the same `Agent` to continue the conversation — history accumulates in `agent.messages`.
+## Multi-turn conversations
 
-To persist across processes, pass `session_dir` as the root directory; each `session_id` becomes a subdirectory. Reconstruct with the same `(session_dir, session_id)` to resume.
+Call `achat()` or `run()` again on the same `Agent` — history accumulates automatically:
+
+```python
+agent = Agent(model="claude-sonnet-4-6", api_key="...")
+
+agent.run("What is 2 + 2?")
+agent.run("Now multiply that by 10.")    # remembers the earlier answer
+```
+
+## Saving sessions
+
+Pass `session_dir` to persist the conversation to disk. Each session lives in a subdirectory named by `session_id`:
+
+```python
+from pathlib import Path
+
+agent = Agent(
+    model="claude-sonnet-4-6",
+    api_key="...",
+    session_dir=Path("./chats"),
+    session_id="my-chat",
+)
+```
+
+Construct another `Agent` with the same `(session_dir, session_id)` later to resume the conversation — the history is loaded automatically.
 
 ## Built-in tools
 
@@ -52,16 +76,34 @@ To persist across processes, pass `session_dir` as the root directory; each `ses
 from mycode import read_tool, write_tool, edit_tool, bash_tool
 ```
 
-Only `bash_tool` streams incremental output as `tool_output` events; the others return a single result.
+Four tools for reading, writing, editing files, and running shell commands. Opt in by passing them to `tools=[...]`.
 
 ## Custom tools
 
-`@tool` wraps a sync or `async def` Python function as a `ToolSpec`. Parameter type hints become the JSON schema sent to the provider.
-
-Annotate the first parameter as `ToolContext` to have the context injected. Use `ctx.read / ctx.write / ctx.edit / ctx.bash` to invoke the built-ins, or `ctx.call(name, args)` for any registered tool by name.
+Decorate any function with `@tool`. Parameter type hints become the JSON schema sent to the provider; the docstring becomes the description:
 
 ```python
-from mycode import Agent, ToolContext, read_tool, tool
+from mycode import Agent, tool
+
+
+@tool
+def greet(name: str) -> str:
+    """Return a friendly greeting."""
+
+    return f"hello, {name}"
+
+
+agent = Agent(
+    model="claude-sonnet-4-6",
+    api_key="...",
+    tools=[greet],
+)
+```
+
+To call a built-in tool from inside your own, type the first parameter as `ToolContext`:
+
+```python
+from mycode import ToolContext, tool
 
 
 @tool
@@ -70,15 +112,6 @@ def summarize_file(ctx: ToolContext, path: str) -> str:
 
     result = ctx.read(path)
     return result.output.splitlines()[0] if result.output else ""
-
-
-agent = Agent(
-    model="claude-sonnet-4-6",
-    api_key="YOUR_API_KEY",
-    tools=[read_tool, summarize_file],
-)
 ```
 
-A bare `str` return becomes the tool `output`; any other JSON-serializable value is dumped to JSON. For finer control, return a `ToolExecutionResult` to set `output`, `content` (multimodal blocks such as images), `metadata` (structured UI data), and `is_error` independently.
-
-See [docs/sdk.md](../docs/sdk.md) for the event stream, cancellation, session rules, and the full `Agent` / `@tool` reference.
+See [docs/sdk.md](../docs/sdk.md) for the event stream, cancellation, sessions, and the full `Agent` / `@tool` reference.

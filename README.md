@@ -8,7 +8,6 @@ A minimal coding agent. Inspired by [pi](https://github.com/badlogic/pi-mono).
 - 4 built-in tools only (`read`, `write`, `edit`, `bash`), expanded via skills.
 - Mobile-friendly web UI.
 - Native image and pdf input support.
-- Lightweight Python SDK for building custom agents.
 
 ## Quick Start
 
@@ -153,25 +152,19 @@ uv build --package mycode-cli
 
 ## mycode-sdk
 
-Agent core as a lightweight Python SDK for building agents. Install via: `uv add mycode-sdk`
+Agent core of mycode as a lightweight Python SDK for building custom agents. Install via: `uv add mycode-sdk`
 
 ```python
-import asyncio
-from mycode import Agent, bash_tool, read_tool
+from mycode import Agent, read_tool
 
-async def main() -> None:
-    agent = Agent(
-        model="claude-sonnet-4-6",
-        api_key="...",
-        cwd=".",
-        system="You are a concise coding assistant.",
-        tools=[read_tool, bash_tool],
-    )
-    async for event in agent.achat("Read pyproject.toml and tell me the project name."):
-        if event.type == "text":
-            print(event.data["delta"], end="")
+agent = Agent(
+    model="claude-sonnet-4-6",
+    api_key="...",
+    tools=[read_tool],
+)
 
-asyncio.run(main())
+result = agent.run("Read pyproject.toml and tell me the project name.")
+print(result.text)
 ```
 
 See [mycode/README.md](mycode/README.md) for details.

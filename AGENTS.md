@@ -195,7 +195,7 @@ When a feature requires both web and CLI changes, make two commits.
 
 ```bash
 uv sync --dev                                          # install/update Python deps
-pnpm --dir web install                                # install web deps
+pnpm --dir web install                                 # install web deps
 
 uv run mycode                                          # start the CLI
 uv run mycode web --dev                                # backend API for Vite dev

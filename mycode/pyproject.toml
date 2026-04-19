@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "mycode-sdk"
 version = "0.5.2"
-description = "Multi-turn tool-calling agent runtime for embedding the mycode agent loop."
+description = "Lightweight Python SDK for building AI agents."
 readme = "README.md"
 requires-python = ">=3.12"
 license = "MIT"

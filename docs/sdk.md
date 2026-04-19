@@ -6,15 +6,6 @@ Source: `mycode/src/mycode/`
 
 `mycode-sdk` is a standalone Python SDK for multi-turn tool-calling agents. Import name: `mycode`. Ships independently of the CLI.
 
-## Public exports
-
-- `Agent`, `Event`, `PersistCallback`, `RunResult`
-- `ToolExecutor`, `ToolSpec`, `ToolContext`, `ToolExecutionResult`
-- `DEFAULT_TOOL_SPECS`, `read_tool`, `write_tool`, `edit_tool`, `bash_tool`, `cancel_all_tools`
-- `SessionStore`
-- `tool`
-- Message helpers: `ContentBlock`, `ConversationMessage`, `build_message`, `text_block`, `image_block`, `document_block`, `thinking_block`, `tool_use_block`, `tool_result_block`, `user_text_message`, `assistant_message`, `flatten_message_text`
-
 ## Agent
 
 ```python
@@ -31,16 +22,22 @@ async for event in agent.achat("Hello"):
     ...
 ```
 
+`achat(user_input)` drives **one user turn** as a streaming async iterator. A turn repeats `provider → tool calls → provider` internally until the assistant stops calling tools; the iterator ends when that turn is done.
+
+### `run()` — synchronous wrapper
+
+`run()` is a thin wrapper around `achat()`. It consumes the stream via `asyncio.run`, concatenates the `text` deltas into `RunResult.text`, stashes every event in `RunResult.events`, and captures the first error message in `RunResult.error`:
+
 ```python
 result = agent.run("Hello")
 print(result.text)
 ```
 
-`achat(user_input)` drives **one user turn** as a streaming async iterator. `run(user_input)` is the synchronous convenience wrapper for the same turn: it runs `achat()`, collects streamed `Event`s, concatenates `text` deltas into `RunResult.text`, and stores the first error message in `RunResult.error`.
+Because it calls `asyncio.run`, `run()` must not be invoked from inside an already-running event loop — use `achat()` there. `run()` also discards the ability to observe individual events as they happen; reach for `achat()` whenever you need to render tool calls, reasoning, or partial text live.
 
-### Multi-turn conversation
+### Multi-turn conversations
 
-`agent.messages` accumulates across `achat` and `run` calls. `cwd` defaults to the current working directory. Keep the same `Agent` instance and call either method again to continue the conversation — the previous turn is already in memory, so the next call just extends it:
+`agent.messages` accumulates across `achat()` and `run()` calls. Keep the same `Agent` instance and call either method again — the previous turn is already in memory, so the next call just extends it:
 
 ```python
 agent = Agent(model="...", api_key="...")
@@ -51,20 +48,15 @@ async for _ in agent.achat("follow-up that references the earlier answer"):
     ...
 ```
 
-```python
-first = agent.run("hi")
-second = agent.run("follow-up that references the earlier answer")
-```
-
-`agent.clear()` drops the in-memory history without touching the on-disk log. To resume across processes, pass the same `session_dir` and `session_id` (see below).
+`agent.clear()` drops the in-memory history without touching the on-disk log. `cwd` defaults to the current working directory and is the working directory for the built-in file and shell tools.
 
 ### Cancellation
 
-`agent.cancel()` aborts the in-flight turn from another task: sets the cancel flag, terminates active bash subprocesses, and cancels the provider stream. The active `achat` yields an `error` event with `message="cancelled"` and returns. `run()` collects the same `error` event into `RunResult.events` and copies its message into `RunResult.error`.
+`agent.cancel()` aborts the in-flight turn from another task: it sets the cancel flag, terminates active bash subprocesses, and cancels the provider stream. The active `achat()` yields one final `error` event with `message="cancelled"` and stops. `run()` collects the same event into `RunResult.events` and copies its message into `RunResult.error`.
 
 ### Streaming events
 
-`achat` yields `Event(type, data)`:
+`achat()` yields `Event(type, data)`:
 
 | `type`        | `data`                                                                   |
 | ------------- | ------------------------------------------------------------------------ |
@@ -78,7 +70,7 @@ second = agent.run("follow-up that references the earlier answer")
 
 ## Sessions
 
-Persistence is opt-in. With no `session_dir`, `achat` runs in memory only and touches no files. Pass a `session_dir` to enable persistence:
+Persistence is opt-in. Without `session_dir` the agent runs purely in memory and touches no files. Pass a `session_dir` to turn persistence on:
 
 ```python
 agent = Agent(
@@ -89,15 +81,36 @@ agent = Agent(
 )
 ```
 
-Rules:
+### What gets persisted
 
-- `session_dir=None` — no persistence. `session_id` still gets a uuid for runtime tagging.
-- `session_dir=Path(...)`, `session_id=None` — persistence; a uuid is allocated.
-- `session_dir=Path(...)`, `session_id="X"` — persistence at `<session_dir>/X/`. If that session already exists, history is auto-loaded into `agent.messages` during `__init__`. Passing `messages=[]` or `messages=[...]` when the session exists is refused with `ValueError` (would split-brain the on-disk JSONL).
+Every message emitted during a turn — the user input, the assistant response (including `thinking` blocks), each `tool_result`, and any `compact` event — is appended as one JSONL line to `<session_dir>/<session_id>/messages.jsonl`. The SDK never rewrites or deletes past lines; compaction records a new event instead of mutating history.
 
-`achat(..., on_persist=coro)` and `run(..., on_persist=coro)` await `coro(message)` right before each append. Works with or without `session_dir` — use it to plug in a custom persistence backend or to stage related records (the web server lands rewind markers this way). `run()` must run outside an active asyncio event loop; use `achat()` inside async applications.
+Runtime-only fields are **not** persisted: the `system` prompt, `api_key`, `api_base`, the registered `tools`, and per-turn `provider` / `model` (those travel as `meta` on the individual assistant message).
 
-See `docs/sessions.md` for the on-disk record format and compact / rewind semantics.
+The session subdirectory is created lazily. Constructing an `Agent` with an unused `session_id` does not write anything — `<session_dir>/<session_id>/` and `messages.jsonl` only appear when the first message is persisted. The `session_dir` root itself is created on `Agent` construction.
+
+### Resolving `session_dir` and `session_id`
+
+| `session_dir` | `session_id`                     | behaviour                                                        |
+| ------------- | -------------------------------- | ---------------------------------------------------------------- |
+| `None`        | any                              | no persistence; a runtime-only uuid is assigned when omitted     |
+| `Path(...)`   | `None`                           | persistence on; a fresh uuid is allocated                        |
+| `Path(...)`   | `"X"`, `<dir>/X/` does not exist | new session; subdirectory created on the first persisted message |
+| `Path(...)`   | `"X"`, `<dir>/X/` exists         | history auto-loaded into `agent.messages` during `__init__`      |
+
+Resuming across processes is therefore implicit: construct an `Agent` with the same `(session_dir, session_id)` and the conversation is back. If you also pass `messages=[]` or `messages=[...]` while the session already exists on disk, `__init__` refuses with `ValueError` — there is no "force fresh" shortcut, because the empty list would split-brain the JSONL log. Delete the session (`SessionStore.delete_session`) or pick a different `session_id` instead.
+
+### `on_persist`
+
+`achat(..., on_persist=coro)` and `run(..., on_persist=coro)` await `coro(message)` once per persisted message, **before** the internal store appends it. It fires for the user input, the assistant response, `tool_result` messages, and `compact` events alike, and works with or without `session_dir`. Use it as a custom persistence backend, or to stage related records alongside the SDK's own append (the CLI web server lands rewind markers this way).
+
+### Compaction
+
+When a turn completes the agent checks the last assistant message's `usage.input_tokens` (as reported by the provider). If that count has reached `context_window * compact_threshold`, it asks the same provider for a summary, appends a `compact` event to the log, and rebuilds `agent.messages` from the summary so the next turn sees a shorter history. The default threshold is `0.8`; pass `compact_threshold=0` to disable.
+
+If compaction itself fails — provider error, cancellation, empty summary — the agent logs a warning and continues with the uncompacted history. The turn that triggered it does not fail.
+
+See `docs/sessions.md` for the on-disk record format and the replay rules (`compact` → `rewind` → interrupted-tool repair) applied by `SessionStore.load_session`.
 
 ## Tools
 
@@ -107,11 +120,11 @@ See `docs/sessions.md` for the on-disk record format and compact / rewind semant
 from mycode import read_tool, write_tool, edit_tool, bash_tool
 ```
 
-Opt in via `tools=[...]`. Only `bash_tool` streams incremental output (emitted as `tool_output` events); the other three return a single result.
+Four built-in tools, opted in via `tools=[...]`. Only `bash_tool` streams incremental output as `tool_output` events; the other three return a single `tool_done` result.
 
-### @tool
+### `@tool`
 
-`@tool` wraps a sync or `async def` Python function as a `ToolSpec`. Parameter type hints drive the JSON schema sent to the provider.
+`@tool` wraps a sync or `async def` Python function as a `ToolSpec`. Parameter type hints drive the JSON schema sent to the provider; the docstring becomes the tool description.
 
 ```python
 from mycode import ToolContext, ToolExecutionResult, tool
@@ -144,24 +157,19 @@ def tail(ctx: ToolContext, path: str) -> ToolExecutionResult:
     return ToolExecutionResult(output="done")
 ```
 
-- A missing docstring raises at decoration time — pass `description=...` if no docstring fits.
-- Async tools run via `asyncio.run` on the executor's worker thread, so each call gets its own fresh event loop.
-- Return a `ToolExecutionResult` to set `output` (replayed to the provider), `content` (multimodal blocks such as images, also replayed), `metadata` (UI-side structured data — e.g. `edit` uses this to carry per-edit line numbers), and `is_error` independently. A bare `str` is used as `output`; any other JSON-serializable return is dumped to JSON first.
+- Missing docstrings raise at decoration time — pass `description=...` when no docstring fits.
+- Async tools are dispatched via `asyncio.run` on the executor's worker thread, so each call gets its own fresh event loop.
+- A bare `str` return becomes the tool's `output` (replayed to the provider on the next turn). Any other JSON-serializable return is dumped to JSON first. Return a `ToolExecutionResult` for finer control: `output` (replayed), `content` (multimodal blocks such as images, also replayed), `metadata` (structured UI data — `edit` uses this to carry per-edit line numbers), and `is_error`.
 
-### ToolContext
+### `ToolContext`
 
-Injected when the first parameter is typed `ToolContext`; built-in tools receive one too. Fields:
+Annotate the first parameter of a custom tool as `ToolContext` to have the runtime context injected. The two things you typically reach for:
 
-- `cwd`, `tool_output_dir`, `supports_image_input`, `tool_call_id`, `emit`.
+- `ctx.read` / `ctx.write` / `ctx.edit` / `ctx.bash` — typed facades over the built-ins, useful when your tool wraps or composes built-in behaviour. `ctx.call(name, args)` is the generic by-name dispatch for any registered tool.
+- `ctx.emit(line)` — emit one `tool_output` event. Only meaningful on specs declared with `streams_output=True`.
 
-Methods custom tools typically use:
+`ctx.tool_output_dir` is always a valid `Path`: `<session_dir>/<session_id>/tool-output/` when the agent has a session, or a tempdir-scoped fallback otherwise. The built-in `bash` tool spills large outputs there lazily; custom tools can treat it as their own scratch area.
 
-- `ctx.read(path, *, offset=None, limit=None)`, `ctx.write(path, content)`, `ctx.edit(path, edits)`, `ctx.bash(command, *, timeout=None)` — typed facades for the built-ins. Return a `ToolExecutionResult`.
-- `ctx.call(name, args)` — generic dispatch by name, for custom tools that wrap another registered tool.
-- `ctx.emit(line)` — stream one line as a `tool_output` event (only meaningful when the spec has `streams_output=True`).
-
-`tool_output_dir` is always a valid `Path`: `<session_dir>/<session_id>/tool-output/` when the agent has a session, or a tempdir-scoped equivalent when it doesn't. Built-ins (bash in particular) spill large outputs there lazily; custom tools can treat it as their own scratch area.
-
-### cancel_all_tools()
+### `cancel_all_tools()`
 
 Terminates every bash subprocess started by any `ToolExecutor` in the process. `agent.cancel()` already covers its own executor; use this for signal handlers or shutdown hooks that don't hold an agent reference.
