@@ -4,7 +4,7 @@ Authoritative context for agent runs on this project. Keep in sync with the code
 
 ## Product
 
-`mycode` is a personal minimal coding agent shipped as two PyPI packages:
+`mycode` is a minimal coding agent shipped as two PyPI packages:
 
 - `mycode-sdk` (import `mycode`) — the runtime: agent loop, message format, session store, provider adapters, and built-in tools. Lightweight, suitable for embedding the agent in other Python apps.
 - `mycode-cli` (import `mycode_cli`) — the interactive CLI and FastAPI web server built on top of the SDK.
@@ -138,6 +138,8 @@ All adapters implement `ProviderAdapter.stream_turn()`. Message projection to pr
 | `error`       | `message`                                                    |
 
 ## Detailed Docs
+
+Always read relevant docs before making changes:
 
 - `docs/api.md` — Server API endpoints, request/response schemas, SSE contract details
 - `docs/config.md` — Config files, schema, API key resolution, reasoning effort, skills/instructions discovery

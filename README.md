@@ -4,13 +4,11 @@
 
 A minimal coding agent. Inspired by [pi](https://github.com/badlogic/pi-mono).
 
-- Minimal core (under 5k lines of code).
-- Unified message format and robust cross-provider replay.
-- 4 built-in tools: `read`, `write`, `edit`, `bash`, expanded via skills.
-- Inspectable runtime, append-only JSONL sessions.
-- Native image and pdf input support.
+- Minimal agent core (< 5k lines) with multiple provider support and robust message replay.
+- 4 built-in tools only (`read`, `write`, `edit`, `bash`), expanded via skills.
 - Mobile-friendly web UI.
-- Lightweight `mycode-sdk` for embedding the agent in other Python apps.
+- Native image and pdf input support.
+- Lightweight Python SDK for building custom agents.
 
 ## Quick Start
 
@@ -20,7 +18,7 @@ Requires Python 3.12+. Install via [uv](https://docs.astral.sh/uv/):
 uv tool install mycode-cli
 ```
 
-Interactive terminal session:
+Interactive terminal UI:
 
 ```bash
 mycode
@@ -29,7 +27,7 @@ mycode
 Web UI (default at `http://localhost:8000`):
 
 ```bash
-mycode web (--port <port> --hostname <hostname>)
+mycode web [--port <port>] [--hostname <hostname>]
 ```
 
 Single message, non-interactive:
@@ -38,32 +36,33 @@ Single message, non-interactive:
 mycode run "explain how the session store works"
 ```
 
-API keys are discovered automatically from environment variables (see Providers & Models).
+API keys are discovered automatically from environment variables (see Providers).
 
-## Providers & Models
+## Providers
 
-| Provider          | id            | Env var              | Default models                                     |
-| ----------------- | ------------- | -------------------- | -------------------------------------------------- |
-| Anthropic         | `anthropic`   | `ANTHROPIC_API_KEY`  | `claude-sonnet-4-6`, `claude-opus-4-7`             |
-| OpenAI            | `openai`      | `OPENAI_API_KEY`     | `gpt-5.4`, `gpt-5.4-mini`                          |
-| Google Gemini     | `google`      | `GEMINI_API_KEY`     | `gemini-3.1-pro-preview`, `gemini-3-flash-preview` |
-| Moonshot          | `moonshotai`  | `MOONSHOT_API_KEY`   | `kimi-k2.5`                                        |
-| MiniMax           | `minimax`     | `MINIMAX_API_KEY`    | `MiniMax-M2.7`, `MiniMax-M2.7-highspeed`           |
-| DeepSeek          | `deepseek`    | `DEEPSEEK_API_KEY`   | `deepseek-chat`, `deepseek-reasoner`               |
-| Z.AI              | `zai`         | `ZAI_API_KEY`        | `glm-5.1`, `glm-5-turbo`                           |
-| OpenRouter        | `openrouter`  | `OPENROUTER_API_KEY` | `openrouter/auto`                                  |
-| OpenAI-compatible | `openai_chat` | —                    | (configured per provider)                          |
+| Provider          | id            | Env var              |
+| ----------------- | ------------- | -------------------- |
+| Anthropic         | `anthropic`   | `ANTHROPIC_API_KEY`  |
+| OpenAI            | `openai`      | `OPENAI_API_KEY`     |
+| Google Gemini     | `google`      | `GEMINI_API_KEY`     |
+| Moonshot          | `moonshotai`  | `MOONSHOT_API_KEY`   |
+| MiniMax           | `minimax`     | `MINIMAX_API_KEY`    |
+| DeepSeek          | `deepseek`    | `DEEPSEEK_API_KEY`   |
+| Z.AI              | `zai`         | `ZAI_API_KEY`        |
+| OpenRouter        | `openrouter`  | `OPENROUTER_API_KEY` |
+| OpenAI-compatible | `openai_chat` | —                    |
+
+Run `/model` in tui to see the available models.
 
 ## Configuration
 
-No config file is required. It is only used for:
+A config file is optional — API keys from the environment are usually sufficient.
 
-1. Setting default provider, model, and other options
-2. Overriding built-in provider settings (e.g. changing the available model list)
-3. Adding custom providers with any built-in provider type.
-4. Customize model metadata for built-in and custom models.
+Create `~/.mycode/config.json` (global) or `<workspace>/.mycode/config.json` (project, takes precedence) to:
 
-Config is loaded from `~/.mycode/config.json` (global) and `<workspace>/.mycode/config.json` (project-specific, takes precedence).
+- set a default provider, model, and reasoning effort
+- expose additional models on an existing provider (e.g. OpenRouter's catalog)
+- register a custom endpoint, such as a private or regional deployment
 
 ```json
 {
@@ -101,12 +100,12 @@ Config is loaded from `~/.mycode/config.json` (global) and `<workspace>/.mycode/
 }
 ```
 
-- Built-in provider ids can be overridden by key without specifying `type`. Custom providers must set `type`.
+- To override a built-in provider, reuse its id as the key — no `type` needed. Custom providers must declare a `type` — one of the built-in protocols.
 - `reasoning_effort` controls extended thinking for supported models: `auto` (default) · `none` · `low` · `medium` · `high` · `xhigh`.
 - API keys in config accept `${ENV_VAR}` references.
-- Model metadata is sourced from models.dev and bundled — no manual config needed for built-in models.
+- Model metadata is bundled from [models.dev](https://models.dev) — `{}` is enough for most models. Provide explicit fields only for models not listed there.
 
-> Built-in Moonshot, MiniMax, and Z.AI defaults use international endpoints. Override `base_url` in config for China endpoints.
+> Built-in Moonshot, MiniMax, and Z.AI providers default to international endpoints. Override `base_url` for China endpoints.
 
 ## CLI Reference
 
@@ -120,12 +119,12 @@ mycode web --dev                  API only, no static files
 mycode session list               list saved sessions
 ```
 
-Interactive slash commands: `/new` `/resume` `/provider` `/model` `/effort` `/clear` `/q`
+Interactive slash commands: `/new` `/resume` `/rewind` `/provider` `/model` `/effort` `/clear` `/q`
 
 ## Development
 
 ```bash
-git clone <repo> && cd mycode
+git clone https://github.com/legibet/mycode.git && cd mycode
 uv sync --dev
 uv run mycode
 ```
@@ -154,6 +153,8 @@ uv build --package mycode-cli
 
 ## mycode-sdk
 
+Agent core as a lightweight Python SDK for building agents. Install via: `uv add mycode-sdk`
+
 ```python
 import asyncio
 from mycode import Agent, bash_tool, read_tool
@@ -173,7 +174,7 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
-See `mycode/README.md` for details.
+See [mycode/README.md](mycode/README.md) for details.
 
 ## License
 

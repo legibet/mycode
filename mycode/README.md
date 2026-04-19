@@ -1,6 +1,6 @@
 # mycode-sdk
 
-Lightweight Python SDK for building multi-turn tool-calling agents. Import name: `mycode`.
+Lightweight Python SDK for building agents.
 
 ## Install
 
@@ -11,8 +11,6 @@ pip install mycode-sdk
 ```
 
 ## Quick start
-
-`Agent(...)` fills in sensible defaults: provider inferred from the model id, `session_id` generated, no persistence unless you pass `session_dir=`. No tools are registered by default — opt in via `tools=[...]`.
 
 ```python
 import asyncio
@@ -36,7 +34,18 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
-Call `achat` again on the same `Agent` to continue the conversation — history accumulates in `agent.messages`. To persist across processes, pass a `session_dir` (the root directory under which each `session_id` is a subdirectory); reconstruct with the same `(session_dir, session_id)` to resume.
+`Agent(...)` infers the provider from the model id. No tools are registered unless you pass `tools=[...]`, and nothing is persisted unless you pass `session_dir=`.
+
+For a synchronous call, use `run()` — it collects the stream into a `RunResult`:
+
+```python
+result = agent.run("Read pyproject.toml and tell me the project name.")
+print(result.text)
+```
+
+Call `achat` or `run` again on the same `Agent` to continue the conversation — history accumulates in `agent.messages`.
+
+To persist across processes, pass `session_dir` as the root directory; each `session_id` becomes a subdirectory. Reconstruct with the same `(session_dir, session_id)` to resume.
 
 ## Built-in tools
 
@@ -44,9 +53,13 @@ Call `achat` again on the same `Agent` to continue the conversation — history 
 from mycode import read_tool, write_tool, edit_tool, bash_tool
 ```
 
+Only `bash_tool` streams incremental output as `tool_output` events; the others return a single result.
+
 ## Custom tools
 
-`@tool` wraps a sync or async Python function as a `ToolSpec`. If the first parameter is annotated `ToolContext`, the context is injected; use `ctx.read / ctx.write / ctx.edit / ctx.bash` to invoke the built-ins, or `ctx.call(name, args)` for any registered tool by name.
+`@tool` wraps a sync or `async def` Python function as a `ToolSpec`. Parameter type hints become the JSON schema sent to the provider.
+
+Annotate the first parameter as `ToolContext` to have the context injected. Use `ctx.read / ctx.write / ctx.edit / ctx.bash` to invoke the built-ins, or `ctx.call(name, args)` for any registered tool by name.
 
 ```python
 from mycode import Agent, ToolContext, read_tool, tool
@@ -68,4 +81,6 @@ agent = Agent(
 )
 ```
 
-See `docs/sdk.md` for multi-turn behaviour, session persistence, and the full `Agent` / `@tool` reference.
+A bare `str` return becomes the tool `output`; any other JSON-serializable value is dumped to JSON. For finer control, return a `ToolExecutionResult` to set `output`, `content` (multimodal blocks such as images), `metadata` (structured UI data), and `is_error` independently.
+
+See [docs/sdk.md](../docs/sdk.md) for the event stream, cancellation, session rules, and the full `Agent` / `@tool` reference.

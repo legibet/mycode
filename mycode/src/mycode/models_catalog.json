@@ -901,13 +901,6 @@
       "supports_pdf_input": false,
       "supports_reasoning": false
     },
-    "codex-mini-latest": {
-      "context_window": 200000,
-      "max_output_tokens": 100000,
-      "supports_image_input": false,
-      "supports_pdf_input": false,
-      "supports_reasoning": true
-    },
     "gpt-3.5-turbo": {
       "context_window": 16385,
       "max_output_tokens": 4096,
