@@ -86,11 +86,11 @@ Block types: `text` · `image` · `thinking` · `tool_use` · `tool_result`
 - Tool results stored as a `user` message with `tool_result` blocks:
 
   ```json
-  {"type": "tool_result", "tool_use_id": "call_1", "model_text": "ok", "display_text": "Wrote x.py", "is_error": false}
+  {"type": "tool_result", "tool_use_id": "call_1", "output": "ok", "metadata": {"edits": [...]}, "is_error": false}
   ```
 
-  `model_text` is replayed to providers on later turns; `display_text` is shown to users.
-  `tool_result.content` may store structured `text` and `image` blocks.
+  `output` is replayed to providers on later turns; `metadata` is structured UI data (e.g. `edit` carries per-edit line numbers).
+  `tool_result.content` may store structured `text` and `image` blocks (replayed to providers alongside `output`).
 - System prompt is runtime-only, not persisted
 
 ## Agent Loop
@@ -127,15 +127,15 @@ All adapters implement `ProviderAdapter.stream_turn()`. Message projection to pr
 
 **Do not change event names or payload shapes without updating server, CLI, and web UI.**
 
-| event         | payload                                                 |
-| ------------- | ------------------------------------------------------- |
-| `reasoning`   | `delta`                                                 |
-| `text`        | `delta`                                                 |
-| `tool_start`  | `tool_call: {id, name, input}`                          |
-| `tool_output` | `tool_use_id`, `output`                                 |
-| `tool_done`   | `tool_use_id`, `model_text`, `display_text`, `is_error` |
-| `compact`     | `message`                                               |
-| `error`       | `message`                                               |
+| event         | payload                                                      |
+| ------------- | ------------------------------------------------------------ |
+| `reasoning`   | `delta`                                                      |
+| `text`        | `delta`                                                      |
+| `tool_start`  | `tool_call: {id, name, input}`                               |
+| `tool_output` | `tool_use_id`, `output`                                      |
+| `tool_done`   | `tool_use_id`, `output`, `is_error`, `metadata?`, `content?` |
+| `compact`     | `message`                                                    |
+| `error`       | `message`                                                    |
 
 ## Detailed Docs
 

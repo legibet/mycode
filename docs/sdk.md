@@ -57,15 +57,15 @@ async for _ in agent.achat("follow-up that references the earlier answer"):
 
 `achat` yields `Event(type, data)`:
 
-| `type` | `data` |
-| --- | --- |
-| `reasoning` | `{"delta": str}` |
-| `text` | `{"delta": str}` |
-| `tool_start` | `{"tool_call": {"id", "name", "input"}}` |
-| `tool_output` | `{"tool_use_id", "output"}` — only for tools with `streams_output=True` |
-| `tool_done` | `{"tool_use_id", "model_text", "display_text", "is_error", "content"?}` |
-| `compact` | `{"message", "compacted_count"}` |
-| `error` | `{"message"}` — fatal for the turn; the iterator stops after emitting it |
+| `type`        | `data`                                                                   |
+| ------------- | ------------------------------------------------------------------------ |
+| `reasoning`   | `{"delta": str}`                                                         |
+| `text`        | `{"delta": str}`                                                         |
+| `tool_start`  | `{"tool_call": {"id", "name", "input"}}`                                 |
+| `tool_output` | `{"tool_use_id", "output"}` — only for tools with `streams_output=True`  |
+| `tool_done`   | `{"tool_use_id", "output", "is_error", "metadata"?, "content"?}`         |
+| `compact`     | `{"message", "compacted_count"}`                                         |
+| `error`       | `{"message"}` — fatal for the turn; the iterator stops after emitting it |
 
 ## Sessions
 
@@ -133,21 +133,26 @@ def tail(ctx: ToolContext, path: str) -> ToolExecutionResult:
     for line in open(path):
         if ctx.emit:
             ctx.emit(line.rstrip("\n"))
-    return ToolExecutionResult(model_text="done", display_text="done")
+    return ToolExecutionResult(output="done")
 ```
 
 - A missing docstring raises at decoration time — pass `description=...` if no docstring fits.
 - Async tools run via `asyncio.run` on the executor's worker thread, so each call gets its own fresh event loop.
-- Return a `ToolExecutionResult` to set `model_text` (replayed to the provider on the next turn), `display_text` (shown in UIs), `is_error`, and structured `content` blocks independently. A bare `str` is used for both `model_text` and `display_text`; any other JSON-serializable return is dumped to JSON and used for both.
+- Return a `ToolExecutionResult` to set `output` (replayed to the provider), `content` (multimodal blocks such as images, also replayed), `metadata` (UI-side structured data — e.g. `edit` uses this to carry per-edit line numbers), and `is_error` independently. A bare `str` is used as `output`; any other JSON-serializable return is dumped to JSON first.
 
 ### ToolContext
 
-Injected when the first parameter is typed `ToolContext`; built-in tools receive one too. Exposes `cwd`, `tool_output_dir`, `supports_image_input`, `tool_call_id`, plus two methods worth calling out:
+Injected when the first parameter is typed `ToolContext`; built-in tools receive one too. Fields:
 
-- `ctx.emit(line)` — stream a line as a `tool_output` event. Only meaningful when the spec has `streams_output=True`.
-- `ctx.call(name, args)` — invoke another registered tool synchronously. Forwards `tool_call_id` and `emit`, so a streaming wrapper that delegates to `bash` keeps producing `tool_output` events upstream.
+- `cwd`, `tool_output_dir`, `supports_image_input`, `tool_call_id`, `emit`.
 
-`tool_output_dir` is `Path | None`. When the `Agent` has `session_dir` set, it's `<session_dir>/<session_id>/tool-output/` and bash spills large outputs there. When `None`, bash inline-truncates instead (no disk writes).
+Methods custom tools typically use:
+
+- `ctx.read(path, *, offset=None, limit=None)`, `ctx.write(path, content)`, `ctx.edit(path, edits)`, `ctx.bash(command, *, timeout=None)` — typed facades for the built-ins. Return a `ToolExecutionResult`.
+- `ctx.call(name, args)` — generic dispatch by name, for custom tools that wrap another registered tool.
+- `ctx.emit(line)` — stream one line as a `tool_output` event (only meaningful when the spec has `streams_output=True`).
+
+`tool_output_dir` is always a valid `Path`: `<session_dir>/<session_id>/tool-output/` when the agent has a session, or a tempdir-scoped equivalent when it doesn't. Built-ins (bash in particular) spill large outputs there lazily; custom tools can treat it as their own scratch area.
 
 ### cancel_all_tools()
 

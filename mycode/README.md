@@ -46,7 +46,7 @@ from mycode import read_tool, write_tool, edit_tool, bash_tool
 
 ## Custom tools
 
-`@tool` wraps a sync or async Python function as a `ToolSpec`. If the first parameter is annotated `ToolContext`, the context is injected; use `ctx.call("read", {...})` to invoke another registered tool.
+`@tool` wraps a sync or async Python function as a `ToolSpec`. If the first parameter is annotated `ToolContext`, the context is injected; use `ctx.read / ctx.write / ctx.edit / ctx.bash` to invoke the built-ins, or `ctx.call(name, args)` for any registered tool by name.
 
 ```python
 from mycode import Agent, ToolContext, read_tool, tool
@@ -56,8 +56,8 @@ from mycode import Agent, ToolContext, read_tool, tool
 def summarize_file(ctx: ToolContext, path: str) -> str:
     """Return the first line of a text file."""
 
-    result = ctx.call("read", {"path": path})
-    return result.model_text.splitlines()[0] if result.model_text else ""
+    result = ctx.read(path)
+    return result.output.splitlines()[0] if result.output else ""
 
 
 agent = Agent(

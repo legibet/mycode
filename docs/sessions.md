@@ -8,12 +8,12 @@ Source: `mycode/src/mycode/session.py`
 <data_dir>/<session_id>/
   meta.json        # immutable session metadata
   messages.jsonl   # one JSON record per line (append-only)
-  tool-output/     # bash spill files (lazy; only if configured)
+  tool-output/     # bash spill files (lazy; created on first spill)
 ```
 
 `data_dir` is supplied by the caller. The SDK never picks a default path. The CLI resolves it to `$MYCODE_HOME/sessions/` (default `~/.mycode/sessions/`) via `mycode_cli.config.resolve_sessions_dir()`.
 
-The `tool-output/` subdirectory is owned by `ToolExecutor`, not `SessionStore`. It only appears when the executor was given a `tool_output_dir` and bash actually spills.
+`tool-output/` is the per-session directory Agent passes into the `ToolContext`. It's created lazily on the first bash spill; custom tools can treat it as scratch space.
 
 ## meta.json
 
@@ -99,7 +99,7 @@ Triggered by `POST /api/chat` with `rewind_to`:
 
 Bash output exceeding 5MB in memory (`_BASH_MAX_IN_MEMORY_BYTES`) is written to `<tool_output_dir>/bash-<tool_call_id>.log`. The tool result keeps the last 2000 lines in memory and cites the saved log path.
 
-When the executor has `tool_output_dir=None`, there is no spill: output is inline-truncated to the same bounded tail, and the result notes truncation without a log path.
+`tool_output_dir` is always set — Agent defaults it to a session-adjacent directory when persistence is configured, or a tempdir-scoped equivalent otherwise. The directory itself is created lazily on first spill.
 
 ## Session Store API
 

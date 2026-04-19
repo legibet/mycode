@@ -209,7 +209,7 @@ Response: `{cwd: "...", exists: true}`
 | `text`        | `delta: str`                                                                 |
 | `tool_start`  | `tool_call: {id, name, input}`                                               |
 | `tool_output` | `tool_use_id: str`, `output: str`                                            |
-| `tool_done`   | `tool_use_id: str`, `model_text: str`, `display_text: str`, `is_error: bool` |
+| `tool_done`   | `tool_use_id: str`, `output: str`, `is_error: bool`, `metadata?`, `content?` |
 | `compact`     | `message: str`                                                               |
 | `error`       | `message: str`                                                               |
 
