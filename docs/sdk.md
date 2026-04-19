@@ -8,7 +8,7 @@ Source: `mycode/src/mycode/`
 
 ## Public exports
 
-- `Agent`, `Event`, `PersistCallback`
+- `Agent`, `Event`, `PersistCallback`, `RunResult`
 - `ToolExecutor`, `ToolSpec`, `ToolContext`, `ToolExecutionResult`
 - `DEFAULT_TOOL_SPECS`, `read_tool`, `write_tool`, `edit_tool`, `bash_tool`, `cancel_all_tools`
 - `SessionStore`
@@ -32,11 +32,16 @@ async for event in agent.achat("Hello"):
     ...
 ```
 
-One `achat(user_input)` call drives **one user turn**: the agent records `user_input`, asks the provider for an assistant message, runs any tool calls locally, appends one user-side `tool_result` message, and loops until the assistant stops calling tools. Streaming events are yielded in order along the way.
+```python
+result = agent.run("Hello")
+print(result.text)
+```
+
+`achat(user_input)` drives **one user turn** as a streaming async iterator. `run(user_input)` is the synchronous convenience wrapper for the same turn: it runs `achat()`, collects streamed `Event`s, concatenates `text` deltas into `RunResult.text`, and stores the first error message in `RunResult.error`.
 
 ### Multi-turn conversation
 
-`agent.messages` accumulates across `achat` calls. Keep the same `Agent` instance and call `achat` again to continue the conversation — the previous turn is already in memory, so the next call just extends it:
+`agent.messages` accumulates across `achat` and `run` calls. Keep the same `Agent` instance and call either method again to continue the conversation — the previous turn is already in memory, so the next call just extends it:
 
 ```python
 agent = Agent(model="...", api_key="...", cwd=".")
@@ -47,11 +52,16 @@ async for _ in agent.achat("follow-up that references the earlier answer"):
     ...
 ```
 
+```python
+first = agent.run("hi")
+second = agent.run("follow-up that references the earlier answer")
+```
+
 `agent.clear()` drops the in-memory history without touching the on-disk log. To resume across processes, pass the same `session_dir` and `session_id` (see below).
 
 ### Cancellation
 
-`agent.cancel()` aborts the in-flight turn from another task: sets the cancel flag, terminates active bash subprocesses, and cancels the provider stream. The active `achat` yields an `error` event with `message="cancelled"` and returns.
+`agent.cancel()` aborts the in-flight turn from another task: sets the cancel flag, terminates active bash subprocesses, and cancels the provider stream. The active `achat` yields an `error` event with `message="cancelled"` and returns. `run()` collects the same `error` event into `RunResult.events` and copies its message into `RunResult.error`.
 
 ### Streaming events
 
@@ -87,7 +97,7 @@ Rules:
 - `session_dir=Path(...)`, `session_id=None` — persistence; a uuid is allocated.
 - `session_dir=Path(...)`, `session_id="X"` — persistence at `<session_dir>/X/`. If that session already exists, history is auto-loaded into `agent.messages` during `__init__`. Passing `messages=[]` or `messages=[...]` when the session exists is refused with `ValueError` (would split-brain the on-disk JSONL).
 
-`achat(..., on_persist=coro)` awaits `coro(message)` right before each append. Works with or without `session_dir` — use it to plug in a custom persistence backend or to stage related records (the web server lands rewind markers this way).
+`achat(..., on_persist=coro)` and `run(..., on_persist=coro)` await `coro(message)` right before each append. Works with or without `session_dir` — use it to plug in a custom persistence backend or to stage related records (the web server lands rewind markers this way). `run()` must run outside an active asyncio event loop; use `achat()` inside async applications.
 
 See `docs/sessions.md` for the on-disk record format and compact / rewind semantics.
 

@@ -71,6 +71,27 @@ class _ToolLoopAdapter:
         )
 
 
+class _StreamingAdapter:
+    def __init__(self, text: str = "ok") -> None:
+        self.text = text
+
+    async def stream_turn(self, _request) -> AsyncIterator[ProviderStreamEvent]:
+        yield ProviderStreamEvent("thinking_delta", {"text": "plan "})
+        yield ProviderStreamEvent("text_delta", {"text": self.text})
+        yield ProviderStreamEvent(
+            "message_done",
+            {
+                "message": {
+                    "role": "assistant",
+                    "content": [
+                        {"type": "thinking", "text": "plan "},
+                        {"type": "text", "text": self.text},
+                    ],
+                }
+            },
+        )
+
+
 @tool
 def ping(text: str) -> str:
     """Echo text."""
@@ -130,6 +151,28 @@ def test_agent_session_id_defaults_to_uuid(tmp_path: Path) -> None:
     agent = Agent(model="gpt-5.4", cwd=str(tmp_path))
     assert agent.session_id and len(agent.session_id) == 32
     assert agent.session_dir is None
+
+
+def test_agent_run_collects_text_and_events(tmp_path: Path) -> None:
+    agent = _new_agent(tmp_path)
+    with patch("mycode.agent.get_provider_adapter", return_value=_StreamingAdapter("hello")):
+        result = agent.run("hi")
+
+    assert result.text == "hello"
+    assert result.error is None
+    assert [event.type for event in result.events] == ["reasoning", "text"]
+    assert result.events[0].data == {"delta": "plan "}
+    assert result.events[1].data == {"delta": "hello"}
+
+
+def test_agent_run_collects_error_event(tmp_path: Path) -> None:
+    agent = _new_agent(tmp_path)
+    with patch("mycode.agent.get_provider_adapter", return_value=_CaptureAdapter("ok")):
+        result = agent.run({"role": "assistant", "content": [text_block("bad")]})
+
+    assert result.text == ""
+    assert result.error == "user input must be a user message"
+    assert [event.type for event in result.events] == ["error"]
 
 
 @pytest.mark.asyncio

@@ -7,7 +7,7 @@ runtime ships four built-in coding tools (``read``, ``write``, ``edit``,
 silently exposing file system and shell access.
 """
 
-from mycode.agent import Agent, Event, PersistCallback
+from mycode.agent import Agent, Event, PersistCallback, RunResult
 from mycode.messages import (
     ContentBlock,
     ConversationMessage,
@@ -47,6 +47,7 @@ __all__ = [
     "DEFAULT_TOOL_SPECS",
     "Event",
     "PersistCallback",
+    "RunResult",
     "SessionStore",
     "ToolContext",
     "ToolExecutionResult",

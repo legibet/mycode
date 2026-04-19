@@ -49,6 +49,15 @@ class Event:
     data: dict[str, Any] = field(default_factory=dict)
 
 
+@dataclass
+class RunResult:
+    """Collected result returned by :meth:`Agent.run`."""
+
+    text: str = ""
+    events: list[Event] = field(default_factory=list)
+    error: str | None = None
+
+
 class Agent:
     """Multi-turn tool-calling agent runtime."""
 
@@ -353,7 +362,7 @@ class Agent:
                     pass
 
     # ------------------------------------------------------------------
-    # Public entry point
+    # Public entry points
     # ------------------------------------------------------------------
 
     async def achat(
@@ -539,6 +548,33 @@ class Agent:
         if not self._cancel_event.is_set():
             async for event in self._compact_if_needed(adapter, persist):
                 yield event
+
+    def run(
+        self,
+        user_input: str | ConversationMessage,
+        *,
+        on_persist: PersistCallback | None = None,
+    ) -> RunResult:
+        """Run one user turn synchronously and collect the streamed result."""
+
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            pass
+        else:
+            raise RuntimeError("Agent.run() cannot run inside an active event loop; use Agent.achat() instead")
+
+        async def collect() -> RunResult:
+            result = RunResult()
+            async for event in self.achat(user_input, on_persist=on_persist):
+                result.events.append(event)
+                if event.type == "text":
+                    result.text += str(event.data.get("delta") or "")
+                elif event.type == "error" and result.error is None:
+                    result.error = str(event.data.get("message") or "")
+            return result
+
+        return asyncio.run(collect())
 
     # ------------------------------------------------------------------
     # Context compaction
