@@ -23,7 +23,6 @@ from mycode import Agent, bash_tool, read_tool
 agent = Agent(
     model="claude-sonnet-4-6",
     api_key="YOUR_API_KEY",
-    cwd=".",
     system="You are helpful.",
     tools=[read_tool, bash_tool],   # default: no tools registered
 )
@@ -41,10 +40,10 @@ print(result.text)
 
 ### Multi-turn conversation
 
-`agent.messages` accumulates across `achat` and `run` calls. Keep the same `Agent` instance and call either method again to continue the conversation — the previous turn is already in memory, so the next call just extends it:
+`agent.messages` accumulates across `achat` and `run` calls. `cwd` defaults to the current working directory. Keep the same `Agent` instance and call either method again to continue the conversation — the previous turn is already in memory, so the next call just extends it:
 
 ```python
-agent = Agent(model="...", api_key="...", cwd=".")
+agent = Agent(model="...", api_key="...")
 
 async for _ in agent.achat("hi"):
     ...
@@ -85,7 +84,6 @@ Persistence is opt-in. With no `session_dir`, `achat` runs in memory only and to
 agent = Agent(
     model="claude-sonnet-4-6",
     api_key="...",
-    cwd=".",
     session_dir=Path("/data/chats"),   # root directory for all sessions
     session_id="chat-42",              # subdirectory under session_dir
 )

@@ -22,7 +22,6 @@ async def main() -> None:
     agent = Agent(
         model="claude-sonnet-4-6",
         api_key="YOUR_API_KEY",
-        cwd=".",
         tools=[read_tool, bash_tool],
     )
 
@@ -34,7 +33,7 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
-`Agent(...)` infers the provider from the model id. No tools are registered unless you pass `tools=[...]`, and nothing is persisted unless you pass `session_dir=`.
+`Agent(...)` infers the provider from the model id and defaults `cwd` to the current working directory. No tools are registered unless you pass `tools=[...]`, and nothing is persisted unless you pass `session_dir=`.
 
 For a synchronous call, use `run()` — it collects the stream into a `RunResult`:
 
@@ -76,7 +75,6 @@ def summarize_file(ctx: ToolContext, path: str) -> str:
 agent = Agent(
     model="claude-sonnet-4-6",
     api_key="YOUR_API_KEY",
-    cwd=".",
     tools=[read_tool, summarize_file],
 )
 ```

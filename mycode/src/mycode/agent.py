@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import tempfile
 from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
 from dataclasses import dataclass, field
@@ -65,7 +66,7 @@ class Agent:
         self,
         *,
         model: str,
-        cwd: str,
+        cwd: str | None = None,
         provider: str | None = None,
         session_dir: Path | None = None,
         session_id: str | None = None,
@@ -91,7 +92,8 @@ class Agent:
             provider = inferred
         self.provider = provider
 
-        self.cwd = str(Path(cwd).resolve(strict=False))
+        resolved_cwd = cwd if cwd is not None else os.getcwd()
+        self.cwd = str(Path(resolved_cwd).resolve(strict=False))
 
         # Persistence is opt-in: a store is only created when ``session_dir``
         # is supplied. ``session_id`` is always populated (uuid when absent)
