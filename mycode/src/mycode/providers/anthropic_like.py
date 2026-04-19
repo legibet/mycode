@@ -300,7 +300,7 @@ class AnthropicLikeAdapter(ProviderAdapter):
             return {
                 "type": "tool_result",
                 "tool_use_id": block.get("tool_use_id"),
-                "content": content_blocks or str(block.get("model_text") or ""),
+                "content": content_blocks or str(block.get("output") or ""),
                 "is_error": bool(block.get("is_error")),
             }
 

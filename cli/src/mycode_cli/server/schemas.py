@@ -56,8 +56,7 @@ class StreamEvent(BaseModel):
     delta: str | None = None  # text/reasoning
     tool_call: ToolCallPayload | None = None  # tool_start
     tool_use_id: str | None = None
-    output: str | None = None  # tool_output
-    model_text: str | None = None  # tool_done
-    display_text: str | None = None  # tool_done
+    output: str | None = None  # tool_output + tool_done
+    metadata: dict[str, Any] | None = None  # tool_done
     is_error: bool | None = None  # tool_done
     message: str | None = None  # error

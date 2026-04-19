@@ -463,8 +463,7 @@ class SessionStore:
             [
                 tool_result_block(
                     tool_use_id=tool_use_id,
-                    model_text="error: tool call was interrupted",
-                    display_text="Tool call was interrupted",
+                    output="error: tool call was interrupted",
                     is_error=True,
                 )
                 for tool_use_id in missing_tool_use_ids

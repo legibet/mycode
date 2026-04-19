@@ -8,7 +8,7 @@ import pytest
 
 from mycode.agent import Agent
 from mycode.providers.base import ProviderStreamEvent
-from mycode.tools import ToolContext, ToolExecutionResult, ToolExecutor, ToolSpec
+from mycode.tools import ToolContext, ToolExecutionResult, ToolSpec
 
 
 class _CaptureAdapter:
@@ -24,7 +24,7 @@ class _CaptureAdapter:
 
 def _ping_runner(_ctx: ToolContext, args: dict[str, object]) -> ToolExecutionResult:
     text = str(args.get("text") or "")
-    return ToolExecutionResult(model_text=text, display_text=text)
+    return ToolExecutionResult(output=text)
 
 
 _PING_TOOL = ToolSpec(
@@ -75,7 +75,7 @@ async def test_agent_uses_explicit_system_prompt_when_provided(tmp_path: Path) -
 
 
 @pytest.mark.asyncio
-async def test_agent_uses_tool_executor_definitions_in_provider_request(tmp_path: Path) -> None:
+async def test_agent_uses_tool_definitions_in_provider_request(tmp_path: Path) -> None:
     adapter = _CaptureAdapter()
     session_dir = tmp_path / "session-custom-tools"
     agent = Agent(
@@ -83,7 +83,7 @@ async def test_agent_uses_tool_executor_definitions_in_provider_request(tmp_path
         provider="openai",
         cwd=str(tmp_path),
         session_dir=session_dir,
-        tools=ToolExecutor(cwd=str(tmp_path), tool_output_dir=session_dir, tools=[_PING_TOOL]),
+        tools=[_PING_TOOL],
     )
 
     with patch("mycode.agent.get_provider_adapter", return_value=adapter):

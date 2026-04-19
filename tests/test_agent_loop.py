@@ -10,7 +10,7 @@ import pytest
 from mycode.agent import Agent
 from mycode.messages import ConversationMessage
 from mycode.providers.base import ProviderStreamEvent
-from mycode.tools import ToolContext, ToolExecutionResult, ToolExecutor, ToolSpec
+from mycode.tools import ToolContext, ToolExecutionResult, ToolSpec
 
 
 class _FakeProviderAdapter:
@@ -25,7 +25,7 @@ class _FakeProviderAdapter:
 
 def _ping_runner(_ctx: ToolContext, args: dict[str, object]) -> ToolExecutionResult:
     text = str(args.get("text") or "")
-    return ToolExecutionResult(model_text=f"pong: {text}", display_text=f"pong: {text}")
+    return ToolExecutionResult(output=f"pong: {text}")
 
 
 _PING_TOOL = ToolSpec(
@@ -39,10 +39,6 @@ _PING_TOOL = ToolSpec(
     },
     runner=_ping_runner,
 )
-
-
-def _ping_executor(*, cwd: str, session_dir: Path) -> ToolExecutor:
-    return ToolExecutor(cwd=cwd, tool_output_dir=session_dir, tools=[_PING_TOOL])
 
 
 class _SlowProviderAdapter:
@@ -302,7 +298,7 @@ class TestCustomTools:
                 provider="openai",
                 cwd=tmpdir,
                 session_dir=session_dir,
-                tools=_ping_executor(cwd=tmpdir, session_dir=session_dir),
+                tools=[_PING_TOOL],
             )
 
             adapter = _FakeProviderAdapter(
@@ -345,8 +341,7 @@ class TestCustomTools:
             assert [event.type for event in events] == ["tool_start", "tool_done"]
             assert events[1].data == {
                 "tool_use_id": "call-1",
-                "model_text": "pong: hello",
-                "display_text": "pong: hello",
+                "output": "pong: hello",
                 "is_error": False,
             }
 

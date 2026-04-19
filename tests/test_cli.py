@@ -20,7 +20,7 @@ from rich.console import Console
 from mycode.agent import Event
 from mycode.messages import ConversationMessage
 from mycode.session import SessionStore
-from mycode.tools import ToolExecutor
+from mycode.tools import DEFAULT_TOOL_SPECS, ToolContext, ToolExecutor
 from mycode_cli.config import ModelConfig, ProviderConfig, ResolvedProvider, Settings
 from mycode_cli.main import app, run_noninteractive
 from mycode_cli.runtime import apply_resolved_provider, list_model_options, resolve_session
@@ -45,7 +45,13 @@ class _AttachmentAgent:
         self.cwd = cwd
         self.supports_image_input = supports_image_input
         self.supports_pdf_input = supports_pdf_input
-        self.tools = ToolExecutor(cwd=cwd, tool_output_dir=session_dir)
+        self.tools = ToolExecutor(DEFAULT_TOOL_SPECS)
+        self.tool_ctx = ToolContext(
+            executor=self.tools,
+            cwd=cwd,
+            tool_output_dir=session_dir,
+            supports_image_input=supports_image_input,
+        )
 
 
 def _settings_for(cwd: str) -> Settings:
@@ -539,7 +545,7 @@ class _RuntimeAgent:
         self.supports_reasoning: bool | None = None
         self.supports_image_input = False
         self.supports_pdf_input = False
-        self.tools = ToolExecutor(cwd=cwd, tool_output_dir=Path(cwd) / ".session")
+        self.tools = ToolExecutor(DEFAULT_TOOL_SPECS)
 
     def refresh_capabilities(self, **_: Any) -> None:
         """No-op capability refresh — the real inference lives on ``Agent``."""

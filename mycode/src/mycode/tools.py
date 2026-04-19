@@ -1,13 +1,18 @@
 """Tool execution runtime.
 
-Runtime exposes four built-in tools: ``read``, ``write``, ``edit``, ``bash``.
-External callers register custom tools in two ways:
+The SDK ships four built-in coding tools (``read`` / ``write`` / ``edit`` /
+``bash``) as :data:`DEFAULT_TOOL_SPECS`. SDK users register additional tools
+either by building :class:`ToolSpec` directly or by wrapping a typed function
+with :func:`tool`.
 
-- Build a :class:`ToolSpec` directly (full control over JSON schema).
-- Use :func:`tool` to wrap a plain Python function; the schema is inferred
-  from type hints.
+Every tool runner receives a :class:`ToolContext` and a raw argument dict.
+Context exposes the runtime state (cwd, output directory, image support) plus
+typed facades for the four built-ins so custom tools can invoke them without
+stringly-typed dispatch::
 
-Built-in and custom tools share one execution path: ``ToolExecutor.execute``.
+    @tool
+    def smart_read(ctx: ToolContext, path: str) -> str:
+        return ctx.read(path).output
 """
 
 from __future__ import annotations
@@ -35,31 +40,42 @@ from typing import Any, Literal, TextIO, cast, get_args, get_origin, overload
 from mycode.messages import image_block, text_block
 
 # ---------------------------------------------------------------------------
-# Limits (keep token usage low)
+# Limits
 # ---------------------------------------------------------------------------
+# read
 DEFAULT_MAX_LINES = 2000
 DEFAULT_MAX_BYTES = 50 * 1024
 READ_MAX_LINE_CHARS = 2000
-
+# bash
 BASH_TIMEOUT_SECONDS = 120
 _BASH_MAX_IN_MEMORY_BYTES = 5_000_000
 
+
+# ---------------------------------------------------------------------------
+# Core types
+# ---------------------------------------------------------------------------
 
 ToolOutputCallback = Callable[[str], None]
 
 
 @dataclass(frozen=True)
 class ToolExecutionResult:
-    """Structured tool result used by the runtime.
+    """Result of one tool run.
 
-    ``model_text`` is appended to session history for future provider replay.
-    ``display_text`` is shown to the user.
+    Two consumers read this:
+
+    - **provider** — gets ``output`` (a text summary) and, for multimodal
+      returns, ``content`` (structured blocks such as an image). ``output``
+      is replayed on later turns.
+    - **UI** — reads ``metadata`` for structured rendering (e.g. edit diff
+      line numbers). When ``metadata`` is absent, the UI falls back to
+      ``output`` as a one-line summary.
     """
 
-    model_text: str
-    display_text: str
-    is_error: bool = False
+    output: str
     content: list[dict[str, Any]] | None = None
+    metadata: dict[str, Any] | None = None
+    is_error: bool = False
 
 
 ToolRunner = Callable[["ToolContext", dict[str, Any]], ToolExecutionResult]
@@ -69,9 +85,10 @@ ToolRunner = Callable[["ToolContext", dict[str, Any]], ToolExecutionResult]
 class ToolSpec:
     """One tool the agent can call.
 
-    ``runner`` receives a :class:`ToolContext` and the raw argument dict from
-    the model. Tools that emit incremental output (currently only ``bash``)
-    set ``streams_output=True`` and write lines via ``ctx.emit``.
+    ``runner`` receives a :class:`ToolContext` and the raw argument dict.
+    Tools that emit incremental output (``bash``) set ``streams_output=True``
+    and push lines via ``ctx.emit``; the agent forwards them as
+    ``tool_output`` events live during execution.
     """
 
     name: str
@@ -82,8 +99,194 @@ class ToolSpec:
 
 
 # ---------------------------------------------------------------------------
-# Utilities
+# ToolContext
 # ---------------------------------------------------------------------------
+
+
+@dataclass
+class ToolContext:
+    """Per-call runtime context handed to every tool runner.
+
+    ``cwd`` / ``tool_output_dir`` / ``supports_image_input`` describe where
+    the tool runs and what the model accepts. ``tool_call_id`` and ``emit``
+    are set by the agent for live streaming; they are ``None`` when a tool
+    is invoked outside the agent loop (e.g. TUI attachment read).
+
+    The four facades :meth:`read`, :meth:`write`, :meth:`edit`, :meth:`bash`
+    are the SDK-friendly way to invoke the built-in tools from custom code.
+    :meth:`call` is a generic fallback for dispatching to any registered
+    tool by name.
+    """
+
+    executor: ToolExecutor
+    cwd: str
+    tool_output_dir: Path
+    supports_image_input: bool = False
+    tool_call_id: str | None = None
+    emit: ToolOutputCallback | None = None
+
+    # Typed facades for the built-ins.
+
+    def read(
+        self,
+        path: str,
+        *,
+        offset: int | None = None,
+        limit: int | None = None,
+    ) -> ToolExecutionResult:
+        return self.call("read", {"path": path, "offset": offset, "limit": limit})
+
+    def write(self, path: str, content: str) -> ToolExecutionResult:
+        return self.call("write", {"path": path, "content": content})
+
+    def edit(self, path: str, edits: list[dict[str, str]]) -> ToolExecutionResult:
+        return self.call("edit", {"path": path, "edits": edits})
+
+    def bash(self, command: str, *, timeout: int | None = None) -> ToolExecutionResult:
+        return self.call("bash", {"command": command, "timeout": timeout})
+
+    def call(self, name: str, args: dict[str, Any]) -> ToolExecutionResult:
+        """Dispatch to a tool by name. Used by the facades above and by
+        custom tools that wrap another registered tool."""
+
+        return self.executor.execute(name, args, self)
+
+    # Subprocess hooks — used by bash to register/unregister its child so
+    # ``Agent.cancel`` and ``cancel_all_tools`` can terminate it.
+
+    def track_proc(self, proc: subprocess.Popen[str]) -> None:
+        self.executor.track_proc(proc)
+
+    def untrack_proc(self, proc: subprocess.Popen[str]) -> None:
+        self.executor.untrack_proc(proc)
+
+
+# ---------------------------------------------------------------------------
+# ToolExecutor
+# ---------------------------------------------------------------------------
+
+
+class ToolExecutor:
+    """Tool registry plus subprocess lifecycle for one agent session.
+
+    Agents construct one executor internally; SDK users normally pass
+    ``tools=[...]`` to :class:`~mycode.agent.Agent` rather than building
+    this directly.
+    """
+
+    def __init__(self, tools: Sequence[ToolSpec]):
+        names = [spec.name for spec in tools]
+        if len(set(names)) != len(names):
+            raise ValueError(f"duplicate tool name in specs: {names}")
+        self._tools: dict[str, ToolSpec] = {spec.name: spec for spec in tools}
+        self._active_procs: set[subprocess.Popen[str]] = set()
+        self._lock = threading.Lock()
+
+    @property
+    def definitions(self) -> list[dict[str, Any]]:
+        """Provider-facing tool definitions (name / description / schema)."""
+
+        return [
+            {"name": spec.name, "description": spec.description, "input_schema": spec.input_schema}
+            for spec in self._tools.values()
+        ]
+
+    def get(self, name: str) -> ToolSpec | None:
+        return self._tools.get(name)
+
+    def execute(self, name: str, args: dict[str, Any], ctx: ToolContext) -> ToolExecutionResult:
+        spec = self._tools.get(name)
+        if spec is None:
+            return ToolExecutionResult(output=f"error: unknown tool: {name}", is_error=True)
+        return spec.runner(ctx, args)
+
+    # Subprocess tracking: register with both this executor (per-session
+    # cancel) and the process-global set (shutdown cleanup).
+
+    def track_proc(self, proc: subprocess.Popen[str]) -> None:
+        with self._lock:
+            self._active_procs.add(proc)
+        with _ACTIVE_PROCS_LOCK:
+            _ACTIVE_PROCS.add(proc)
+
+    def untrack_proc(self, proc: subprocess.Popen[str]) -> None:
+        with self._lock:
+            self._active_procs.discard(proc)
+        with _ACTIVE_PROCS_LOCK:
+            _ACTIVE_PROCS.discard(proc)
+
+    def cancel_active(self) -> None:
+        """Terminate bash subprocesses started by this executor."""
+
+        with self._lock:
+            procs = list(self._active_procs)
+            self._active_procs.clear()
+        for proc in procs:
+            with _ACTIVE_PROCS_LOCK:
+                _ACTIVE_PROCS.discard(proc)
+            _kill_proc_tree(proc)
+
+
+# ---------------------------------------------------------------------------
+# Subprocess lifecycle (process-global)
+# ---------------------------------------------------------------------------
+# Bash registers each child in both the executor and this module-level set.
+# The executor set scopes cancellation to one session (multiple agents may
+# run concurrently in the same process); the global set is a shutdown-time
+# safety net exposed as ``cancel_all_tools``.
+
+_ACTIVE_PROCS: set[subprocess.Popen[str]] = set()
+_ACTIVE_PROCS_LOCK = threading.Lock()
+
+
+def _kill_proc_tree(proc: subprocess.Popen[str]) -> None:
+    try:
+        if os.name == "posix":
+            os.killpg(proc.pid, signal.SIGKILL)
+        else:
+            proc.kill()
+    except Exception:
+        try:
+            proc.kill()
+        except Exception:
+            pass
+
+
+def cancel_all_tools() -> None:
+    """Terminate every running bash subprocess in the current process."""
+
+    with _ACTIVE_PROCS_LOCK:
+        procs = list(_ACTIVE_PROCS)
+        _ACTIVE_PROCS.clear()
+    for proc in procs:
+        _kill_proc_tree(proc)
+
+
+# ---------------------------------------------------------------------------
+# Generic file utilities
+# ---------------------------------------------------------------------------
+
+
+def resolve_path(path: str, *, cwd: str) -> str:
+    """Resolve ``path`` relative to ``cwd`` without changing the process cwd."""
+
+    p = Path(path).expanduser()
+    if not p.is_absolute():
+        p = Path(cwd) / p
+    return str(p.resolve(strict=False))
+
+
+def _atomic_write_text(path: Path, content: str, *, newline: str | None = None) -> None:
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    if newline is None:
+        tmp.write_text(content, encoding="utf-8")
+    else:
+        normalized = content.replace("\r\n", "\n")
+        if newline == "\r\n":
+            normalized = normalized.replace("\n", "\r\n")
+        with tmp.open("w", encoding="utf-8", newline="") as file:
+            file.write(normalized)
+    tmp.replace(path)
 
 
 @dataclass(frozen=True)
@@ -101,10 +304,7 @@ def truncate_text(
     max_bytes: int = DEFAULT_MAX_BYTES,
     tail: bool = False,
 ) -> tuple[str, Truncation]:
-    """Truncate text by both line and byte limits.
-
-    Returns (content, truncation).
-    """
+    """Truncate text by both line and byte limits; keep head or tail."""
 
     lines = text.splitlines()
     total_bytes = len(text.encode("utf-8"))
@@ -125,7 +325,7 @@ def truncate_text(
     if tail:
         out_lines.reverse()
 
-    # Edge case: a single line exceeds max_bytes — take the tail/head slice
+    # Edge case: a single line exceeds max_bytes — slice the tail/head.
     if not out_lines and lines:
         target = lines[-1] if tail else lines[0]
         encoded = target.encode("utf-8")
@@ -157,26 +357,9 @@ def truncate_text(
     return content, trunc
 
 
-def resolve_path(path: str, *, cwd: str) -> str:
-    """Resolve path relative to cwd (without changing global process cwd)."""
-
-    p = Path(path).expanduser()
-    if not p.is_absolute():
-        p = Path(cwd) / p
-    return str(p.resolve(strict=False))
-
-
-def _atomic_write_text(path: Path, content: str, *, newline: str | None = None) -> None:
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    if newline is None:
-        tmp.write_text(content, encoding="utf-8")
-    else:
-        normalized = content.replace("\r\n", "\n")
-        if newline == "\r\n":
-            normalized = normalized.replace("\n", "\r\n")
-        with tmp.open("w", encoding="utf-8", newline="") as file:
-            file.write(normalized)
-    tmp.replace(path)
+# ---------------------------------------------------------------------------
+# MIME detection
+# ---------------------------------------------------------------------------
 
 
 def detect_image_mime_type(path: Path) -> str | None:
@@ -212,212 +395,14 @@ def detect_document_mime_type(path: Path) -> str | None:
 
 
 # ---------------------------------------------------------------------------
-# Subprocess tracking for cancellation
-# ---------------------------------------------------------------------------
-
-
-_ACTIVE_PROCS: set[subprocess.Popen[str]] = set()
-_ACTIVE_PROCS_LOCK = threading.Lock()
-
-
-def _kill_proc_tree(proc: subprocess.Popen[str]) -> None:
-    try:
-        if os.name == "posix":
-            os.killpg(proc.pid, signal.SIGKILL)
-        else:
-            proc.kill()
-    except Exception:
-        try:
-            proc.kill()
-        except Exception:
-            pass
-
-
-def cancel_all_tools() -> None:
-    """Terminate all running bash subprocesses across every executor."""
-
-    with _ACTIVE_PROCS_LOCK:
-        procs = list(_ACTIVE_PROCS)
-        _ACTIVE_PROCS.clear()
-
-    for proc in procs:
-        _kill_proc_tree(proc)
-
-
-# ---------------------------------------------------------------------------
-# Tool execution context
-# ---------------------------------------------------------------------------
-
-
-class ToolContext:
-    """Runtime context passed to a tool's ``runner``.
-
-    Exposes executor configuration, the executor itself (so custom tools can
-    invoke other registered tools via :meth:`call`), and streaming helpers for
-    tools declared with ``streams_output=True``.
-    """
-
-    def __init__(
-        self,
-        *,
-        executor: ToolExecutor,
-        tool_call_id: str | None = None,
-        emit: ToolOutputCallback | None = None,
-    ):
-        self.executor = executor
-        self.tool_call_id = tool_call_id
-        self.emit = emit
-
-    @property
-    def cwd(self) -> str:
-        return self.executor.cwd
-
-    @property
-    def tool_output_dir(self) -> Path | None:
-        return self.executor.tool_output_dir
-
-    @property
-    def supports_image_input(self) -> bool:
-        return self.executor.supports_image_input
-
-    def call(self, name: str, args: dict[str, Any]) -> ToolExecutionResult:
-        """Invoke another registered tool from inside this one.
-
-        ``tool_call_id`` and ``emit`` from the current context are forwarded,
-        so a streaming tool that delegates to ``bash`` keeps producing
-        ``tool_output`` events upstream.
-        """
-
-        return self.executor.execute(
-            name,
-            args,
-            tool_call_id=self.tool_call_id,
-            on_output=self.emit,
-        )
-
-
-# ---------------------------------------------------------------------------
-# Executor
-# ---------------------------------------------------------------------------
-
-
-class ToolExecutor:
-    """Execute tool calls for a single session."""
-
-    def __init__(
-        self,
-        *,
-        cwd: str,
-        tool_output_dir: Path | None = None,
-        tools: Sequence[ToolSpec] | None = None,
-        supports_image_input: bool = False,
-    ):
-        self.cwd = str(Path(cwd).resolve(strict=False))
-        # tool_output_dir holds spill files from streaming tools (bash). When
-        # None, tools run in memory-only mode and must handle large outputs
-        # themselves (bash falls back to inline truncation).
-        self.tool_output_dir = tool_output_dir
-        self.supports_image_input = supports_image_input
-        self._active_procs: set[subprocess.Popen[str]] = set()
-        self._active_procs_lock = threading.Lock()
-
-        specs = tuple(tools if tools is not None else DEFAULT_TOOL_SPECS)
-        self.tool_specs: tuple[ToolSpec, ...] = specs
-        self._tools_by_name: dict[str, ToolSpec] = {}
-        for spec in specs:
-            if spec.name in self._tools_by_name:
-                raise ValueError(f"duplicate tool name: {spec.name}")
-            self._tools_by_name[spec.name] = spec
-
-    def ensure_tool_output_dir(self) -> Path | None:
-        """Create ``tool_output_dir`` lazily on first spill; return None if disabled."""
-
-        if self.tool_output_dir is None:
-            return None
-        self.tool_output_dir.mkdir(parents=True, exist_ok=True)
-        return self.tool_output_dir
-
-    @property
-    def definitions(self) -> list[dict[str, Any]]:
-        """Return provider-facing tool definitions."""
-
-        return [
-            {
-                "name": spec.name,
-                "description": spec.description,
-                "input_schema": spec.input_schema,
-            }
-            for spec in self.tool_specs
-        ]
-
-    def get(self, name: str) -> ToolSpec | None:
-        """Return the registered spec for a tool name."""
-
-        return self._tools_by_name.get(name)
-
-    def execute(
-        self,
-        name: str,
-        args: dict[str, Any],
-        *,
-        tool_call_id: str | None = None,
-        on_output: ToolOutputCallback | None = None,
-    ) -> ToolExecutionResult:
-        """Execute one registered tool by name.
-
-        ``on_output`` is forwarded to the runner as ``ctx.emit`` for tools that
-        stream incremental output.
-        """
-
-        spec = self._tools_by_name.get(name)
-        if spec is None:
-            return ToolExecutionResult(
-                model_text=f"error: unknown tool: {name}",
-                display_text=f"Unknown tool: {name}",
-                is_error=True,
-            )
-        ctx = ToolContext(executor=self, tool_call_id=tool_call_id, emit=on_output)
-        return spec.runner(ctx, args)
-
-    def cancel_active(self) -> None:
-        """Terminate bash subprocesses started by this executor."""
-
-        with self._active_procs_lock:
-            procs = list(self._active_procs)
-            self._active_procs.clear()
-
-        for proc in procs:
-            with _ACTIVE_PROCS_LOCK:
-                _ACTIVE_PROCS.discard(proc)
-            _kill_proc_tree(proc)
-
-    def track_proc(self, proc: subprocess.Popen[str]) -> None:
-        """Register a subprocess so ``cancel_active`` and ``cancel_all_tools``
-        can terminate it if the agent turn is cancelled."""
-
-        with self._active_procs_lock:
-            self._active_procs.add(proc)
-        with _ACTIVE_PROCS_LOCK:
-            _ACTIVE_PROCS.add(proc)
-
-    def untrack_proc(self, proc: subprocess.Popen[str]) -> None:
-        """Remove a subprocess from the cancellation registry once it exits."""
-
-        with self._active_procs_lock:
-            self._active_procs.discard(proc)
-        with _ACTIVE_PROCS_LOCK:
-            _ACTIVE_PROCS.discard(proc)
-
-
-# ---------------------------------------------------------------------------
-# Built-in tool runners
+# Built-in: read
 # ---------------------------------------------------------------------------
 
 
 def _run_read(ctx: ToolContext, args: dict[str, Any]) -> ToolExecutionResult:
-    """Read a text file or supported image file.
+    """Read a UTF-8 text file or a supported image file.
 
-    ``offset`` is 1-indexed. ``limit`` is the number of lines.
+    ``offset`` is 1-indexed. ``limit`` caps the number of lines returned.
     """
 
     path = str(args.get("path") or "")
@@ -429,28 +414,18 @@ def _run_read(ctx: ToolContext, args: dict[str, Any]) -> ToolExecutionResult:
     if image_mime_type:
         if not ctx.supports_image_input:
             return ToolExecutionResult(
-                model_text="error: image input is not supported by the current model",
-                display_text="Current model does not support image input",
+                output="error: image input is not supported by the current model",
                 is_error=True,
             )
         summary = f"Read image file [{image_mime_type}]"
         try:
             image_data = b64encode(file_path.read_bytes()).decode("utf-8")
         except FileNotFoundError:
-            return ToolExecutionResult(
-                model_text=f"error: file not found: {path}",
-                display_text=f"File not found: {path}",
-                is_error=True,
-            )
+            return ToolExecutionResult(output=f"error: file not found: {path}", is_error=True)
         except Exception as exc:
-            return ToolExecutionResult(
-                model_text=f"error: failed to read file: {exc}",
-                display_text=f"Failed to read file: {path}",
-                is_error=True,
-            )
+            return ToolExecutionResult(output=f"error: failed to read file: {exc}", is_error=True)
         return ToolExecutionResult(
-            model_text=summary,
-            display_text=summary,
+            output=summary,
             content=[
                 text_block(summary),
                 image_block(image_data, mime_type=image_mime_type, name=file_path.name),
@@ -482,34 +457,17 @@ def _run_read(ctx: ToolContext, args: dict[str, Any]) -> ToolExecutionResult:
                     line = line[:READ_MAX_LINE_CHARS] + " ... [line truncated]"
                 lines.append(line)
     except FileNotFoundError:
-        return ToolExecutionResult(
-            model_text=f"error: file not found: {path}",
-            display_text=f"File not found: {path}",
-            is_error=True,
-        )
+        return ToolExecutionResult(output=f"error: file not found: {path}", is_error=True)
     except IsADirectoryError:
-        return ToolExecutionResult(
-            model_text=f"error: not a file: {path}",
-            display_text=f"Not a file: {path}",
-            is_error=True,
-        )
+        return ToolExecutionResult(output=f"error: not a file: {path}", is_error=True)
     except UnicodeDecodeError:
-        return ToolExecutionResult(
-            model_text=f"error: file is not valid utf-8 text: {path}",
-            display_text=f"File is not valid UTF-8 text: {path}",
-            is_error=True,
-        )
+        return ToolExecutionResult(output=f"error: file is not valid utf-8 text: {path}", is_error=True)
     except Exception as exc:
-        return ToolExecutionResult(
-            model_text=f"error: failed to read file: {exc}",
-            display_text=f"Failed to read file: {path}",
-            is_error=True,
-        )
+        return ToolExecutionResult(output=f"error: failed to read file: {exc}", is_error=True)
 
     if total_lines < start_line and not (total_lines == 0 and start_line == 1):
         return ToolExecutionResult(
-            model_text=f"error: offset {offset} beyond end of file ({total_lines} lines)",
-            display_text=f"Offset {offset} beyond end of file: {path}",
+            output=f"error: offset {offset} beyond end of file ({total_lines} lines)",
             is_error=True,
         )
 
@@ -537,7 +495,12 @@ def _run_read(ctx: ToolContext, args: dict[str, Any]) -> ToolExecutionResult:
         )
 
     joined = "\n\n".join(parts) if parts else ""
-    return ToolExecutionResult(model_text=joined, display_text=joined)
+    return ToolExecutionResult(output=joined)
+
+
+# ---------------------------------------------------------------------------
+# Built-in: write
+# ---------------------------------------------------------------------------
 
 
 def _run_write(ctx: ToolContext, args: dict[str, Any]) -> ToolExecutionResult:
@@ -548,39 +511,31 @@ def _run_write(ctx: ToolContext, args: dict[str, Any]) -> ToolExecutionResult:
         file_path.parent.mkdir(parents=True, exist_ok=True)
         _atomic_write_text(file_path, content)
     except Exception as exc:
-        return ToolExecutionResult(
-            model_text=f"error: failed to write file: {exc}",
-            display_text=f"Failed to write file: {path}",
-            is_error=True,
-        )
-    return ToolExecutionResult(model_text="ok", display_text=f"Wrote {path}")
+        return ToolExecutionResult(output=f"error: failed to write file: {exc}", is_error=True)
+    return ToolExecutionResult(output=f"Wrote {path}")
+
+
+# ---------------------------------------------------------------------------
+# Built-in: edit
+# ---------------------------------------------------------------------------
 
 
 def _run_edit(ctx: ToolContext, args: dict[str, Any]) -> ToolExecutionResult:
     """Replace one or more unique snippets in a file.
 
-    All edits are matched against the original file content (not
-    incrementally). Exact match is tried first; if that fails, a conservative
-    fuzzy match tolerates line-ending and trailing-whitespace differences
-    while only replacing the matched region in the original text.
+    Edits all match against the original file content. Exact match is tried
+    first; a conservative fuzzy fallback tolerates line-ending and trailing-
+    whitespace differences while only replacing the matched region.
     """
 
     path = str(args.get("path") or "")
     raw_edits = args.get("edits")
     if not isinstance(raw_edits, list):
-        return ToolExecutionResult(
-            model_text="error: edits must be a list",
-            display_text="Edits must be a list",
-            is_error=True,
-        )
+        return ToolExecutionResult(output="error: edits must be a list", is_error=True)
     edits = cast(list[dict[str, str]], raw_edits)
     file_path = Path(resolve_path(path, cwd=ctx.cwd))
     if not edits:
-        return ToolExecutionResult(
-            model_text="error: edits must not be empty",
-            display_text="Edits list is empty",
-            is_error=True,
-        )
+        return ToolExecutionResult(output="error: edits must not be empty", is_error=True)
 
     multi = len(edits) > 1
     for i, entry in enumerate(edits):
@@ -588,40 +543,20 @@ def _run_edit(ctx: ToolContext, args: dict[str, Any]) -> ToolExecutionResult:
         new_text = entry.get("newText", "")
         pfx = f"edits[{i}]: " if multi else ""
         if not old_text:
-            return ToolExecutionResult(
-                model_text=f"error: {pfx}oldText must not be empty",
-                display_text="Edit target must not be empty",
-                is_error=True,
-            )
+            return ToolExecutionResult(output=f"error: {pfx}oldText must not be empty", is_error=True)
         if old_text == new_text:
-            return ToolExecutionResult(
-                model_text=f"error: {pfx}oldText and newText are identical",
-                display_text="Edit would not change the file",
-                is_error=True,
-            )
+            return ToolExecutionResult(output=f"error: {pfx}oldText and newText are identical", is_error=True)
 
     try:
         read_mtime_ns = file_path.stat().st_mtime_ns
         with file_path.open("r", encoding="utf-8", newline="") as file:
             text = file.read()
     except FileNotFoundError:
-        return ToolExecutionResult(
-            model_text=f"error: file not found: {path}",
-            display_text=f"File not found: {path}",
-            is_error=True,
-        )
+        return ToolExecutionResult(output=f"error: file not found: {path}", is_error=True)
     except IsADirectoryError:
-        return ToolExecutionResult(
-            model_text=f"error: not a file: {path}",
-            display_text=f"Not a file: {path}",
-            is_error=True,
-        )
+        return ToolExecutionResult(output=f"error: not a file: {path}", is_error=True)
     except Exception as exc:
-        return ToolExecutionResult(
-            model_text=f"error: failed to read file: {exc}",
-            display_text=f"Failed to read file: {path}",
-            is_error=True,
-        )
+        return ToolExecutionResult(output=f"error: failed to read file: {exc}", is_error=True)
 
     newline = "\r\n" if "\r\n" in text else None
 
@@ -641,8 +576,7 @@ def _run_edit(ctx: ToolContext, args: dict[str, Any]) -> ToolExecutionResult:
             continue
         if exact_count > 1:
             return ToolExecutionResult(
-                model_text=f"error: {pfx}oldText occurs {exact_count} times; provide a more specific oldText",
-                display_text="Edit target is ambiguous",
+                output=f"error: {pfx}oldText occurs {exact_count} times; provide a more specific oldText",
                 is_error=True,
             )
 
@@ -658,37 +592,30 @@ def _run_edit(ctx: ToolContext, args: dict[str, Any]) -> ToolExecutionResult:
             msg = f"error: {pfx}oldText not found"
             if hint:
                 msg += f". closest line: {hint}"
-            return ToolExecutionResult(
-                model_text=msg,
-                display_text="Edit target not found",
-                is_error=True,
-            )
+            return ToolExecutionResult(output=msg, is_error=True)
         if norm_count > 1:
             return ToolExecutionResult(
-                model_text=(
+                output=(
                     f"error: {pfx}oldText occurs {norm_count} times after normalization; "
                     "provide a more specific oldText"
                 ),
-                display_text="Edit target is ambiguous after normalization",
                 is_error=True,
             )
 
         idx = norm_text.find(norm_old)
-        assert norm_imap is not None  # set together with norm_text
+        assert norm_imap is not None
         orig_start = norm_imap[idx]
         end_idx = idx + len(norm_old)
         orig_end = norm_imap[end_idx] if end_idx < len(norm_imap) else len(text)
         matches.append((orig_start, orig_end, new_text, i))
 
-    # Sort by position and reject overlapping edits.
     matches.sort(key=lambda m: m[0])
     for j in range(1, len(matches)):
         _, prev_end, _, prev_i = matches[j - 1]
         curr_start, _, _, curr_i = matches[j]
         if prev_end > curr_start:
             return ToolExecutionResult(
-                model_text=f"error: edits[{prev_i}] and edits[{curr_i}] overlap",
-                display_text="Edit regions overlap",
+                output=f"error: edits[{prev_i}] and edits[{curr_i}] overlap",
                 is_error=True,
             )
 
@@ -698,30 +625,21 @@ def _run_edit(ctx: ToolContext, args: dict[str, Any]) -> ToolExecutionResult:
         updated = updated[:start] + new_text + updated[end:]
 
     if updated == text:
-        return ToolExecutionResult(
-            model_text="error: edits produced no changes",
-            display_text="Edits would not change the file",
-            is_error=True,
-        )
+        return ToolExecutionResult(output="error: edits produced no changes", is_error=True)
 
     try:
         if file_path.stat().st_mtime_ns != read_mtime_ns:
             return ToolExecutionResult(
-                model_text="error: file changed while editing; read it again and retry",
-                display_text="File changed while editing",
+                output="error: file changed while editing; read it again and retry",
                 is_error=True,
             )
         _atomic_write_text(file_path, updated, newline=newline)
     except Exception as exc:
-        return ToolExecutionResult(
-            model_text=f"error: failed to write file: {exc}",
-            display_text=f"Failed to write file: {path}",
-            is_error=True,
-        )
+        return ToolExecutionResult(output=f"error: failed to write file: {exc}", is_error=True)
 
-    # Build per-edit metadata for the web UI diff view.
-    # Matches are sorted by original position; track cumulative character
-    # shift so we can compute correct line numbers in the updated text.
+    # Per-edit metadata for the web diff view. ``matches`` is sorted by
+    # original offset; track cumulative char shift to compute correct line
+    # numbers in the updated text.
     updated_lines = updated.splitlines()
     edit_metas: list[dict[str, Any]] = []
     char_shift = 0
@@ -749,25 +667,75 @@ def _run_edit(ctx: ToolContext, args: dict[str, Any]) -> ToolExecutionResult:
         )
         char_shift += len(new_text) - (end - start)
 
-    n = len(edits)
-    display = f"Updated {path}" if n == 1 else f"Updated {path} ({n} edits)"
-    return ToolExecutionResult(
-        model_text=json.dumps({"status": "ok", "edits": edit_metas}),
-        display_text=display,
-    )
+    summary = f"Updated {path}" if len(edits) == 1 else f"Updated {path} ({len(edits)} edits)"
+    return ToolExecutionResult(output=summary, metadata={"edits": edit_metas})
+
+
+def _closest_line_hint(text: str, needle: str) -> str | None:
+    needle_clean = needle.strip()
+    if not needle_clean:
+        return None
+
+    best_ratio = 0.0
+    best_line = ""
+    for line in text.splitlines():
+        candidate = line.strip()
+        if not candidate:
+            continue
+        ratio = SequenceMatcher(None, needle_clean, candidate).ratio()
+        if ratio > best_ratio:
+            best_ratio = ratio
+            best_line = candidate
+            if ratio >= 1.0:
+                break
+
+    if best_ratio < 0.6 or not best_line:
+        return None
+
+    if len(best_line) > 120:
+        return best_line[:117] + "..."
+    return best_line
+
+
+def _normalize_text(text: str) -> tuple[str, list[int]]:
+    """Normalize for fuzzy edit matching: strip trailing whitespace per line, CRLF→LF.
+
+    Returns (normalized, index_map) where ``index_map[i]`` is the position of
+    normalized char *i* in the original text, so callers can map matches in
+    the normalized string back to exact original byte offsets.
+    """
+
+    chars: list[str] = []
+    imap: list[int] = []
+    pos = 0
+    for line in text.splitlines(keepends=True):
+        content = line.rstrip("\r\n")
+        trimmed = content.rstrip(" \t")
+        chars.extend(trimmed)
+        imap.extend(range(pos, pos + len(trimmed)))
+        eol = line[len(content) :]
+        if eol:
+            chars.append("\n")
+            imap.append(pos + len(content))
+        pos += len(line)
+
+    return "".join(chars), imap
+
+
+# ---------------------------------------------------------------------------
+# Built-in: bash
+# ---------------------------------------------------------------------------
 
 
 def _run_bash(ctx: ToolContext, args: dict[str, Any]) -> ToolExecutionResult:
     """Run a shell command and return combined stdout/stderr text.
 
-    Output is streamed line-by-line through ``ctx.emit`` when present.
+    Output is streamed line-by-line through ``ctx.emit`` when set.
 
-    Truncation has two layers:
-    1. Memory protection: when total output exceeds ``_BASH_MAX_IN_MEMORY_BYTES``,
-       further output is written to a log file and only a bounded tail
-       (``deque(maxlen=DEFAULT_MAX_LINES)``) is kept in memory.
-    2. Display truncation: the final text is truncated to
-       ``DEFAULT_MAX_LINES`` / ``DEFAULT_MAX_BYTES`` via ``truncate_text``.
+    Truncation has two layers: when total output exceeds the in-memory
+    ceiling, further output spills to ``tool_output_dir/bash-<id>.log`` and
+    only a bounded tail stays in memory; the returned text is then truncated
+    again by :func:`truncate_text` to the display limits.
     """
 
     command = str(args.get("command") or "")
@@ -776,18 +744,13 @@ def _run_bash(ctx: ToolContext, args: dict[str, Any]) -> ToolExecutionResult:
     timeout_seconds = int(timeout) if isinstance(timeout, int) and timeout > 0 else BASH_TIMEOUT_SECONDS
 
     proc: subprocess.Popen[str] | None = None
-    # When tool_output_dir is configured, oversized output spills to a log file
-    # and the returned text cites its path. When it's None, we drop the middle
-    # of the output and keep only a bounded tail in memory.
-    spill_dir = ctx.executor.ensure_tool_output_dir() if ctx.tool_output_dir is not None else None
-    log_path = spill_dir / f"bash-{ctx.tool_call_id or 'call'}.log" if spill_dir is not None else None
+    log_path = ctx.tool_output_dir / f"bash-{ctx.tool_call_id or 'call'}.log"
     kept_lines: list[str] = []
     kept_bytes = 0
     total_line_count = 0
     tail_lines: deque[str] = deque(maxlen=DEFAULT_MAX_LINES)
     log_file: TextIO | None = None
     saved_output_path: Path | None = None
-    memory_overflow = False
 
     try:
         proc = subprocess.Popen(
@@ -801,7 +764,7 @@ def _run_bash(ctx: ToolContext, args: dict[str, Any]) -> ToolExecutionResult:
             universal_newlines=True,
             start_new_session=os.name == "posix",
         )
-        ctx.executor.track_proc(proc)
+        ctx.track_proc(proc)
 
         stdout = cast(TextIO, proc.stdout)
         output_queue: queue.Queue[str | None] = queue.Queue()
@@ -824,11 +787,7 @@ def _run_bash(ctx: ToolContext, args: dict[str, Any]) -> ToolExecutionResult:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 _kill_proc_tree(proc)
-                return ToolExecutionResult(
-                    model_text=f"error: timeout after {timeout_seconds}s",
-                    display_text=f"Command timed out after {timeout_seconds}s",
-                    is_error=True,
-                )
+                return ToolExecutionResult(output=f"error: timeout after {timeout_seconds}s", is_error=True)
 
             try:
                 line = output_queue.get(timeout=min(0.1, remaining))
@@ -842,72 +801,56 @@ def _run_bash(ctx: ToolContext, args: dict[str, Any]) -> ToolExecutionResult:
             total_line_count += 1
             kept_bytes += len(line.encode("utf-8")) + 1
 
-            if log_file is None and not memory_overflow:
+            if log_file is None:
                 kept_lines.append(line)
                 if kept_bytes > _BASH_MAX_IN_MEMORY_BYTES:
-                    if log_path is not None:
-                        log_file = log_path.open("w", encoding="utf-8")
-                        saved_output_path = log_path
-                        if kept_lines:
-                            log_file.write("\n".join(kept_lines))
-                            log_file.write("\n")
-                            tail_lines.extend(kept_lines)
-                        kept_lines = []
-                    else:
-                        # No spill dir: keep only the tail in memory.
-                        memory_overflow = True
+                    # Spill to disk. Create the output dir lazily on first
+                    # spill so runs that stay in memory never touch the FS.
+                    ctx.tool_output_dir.mkdir(parents=True, exist_ok=True)
+                    log_file = log_path.open("w", encoding="utf-8")
+                    saved_output_path = log_path
+                    if kept_lines:
+                        log_file.write("\n".join(kept_lines))
+                        log_file.write("\n")
                         tail_lines.extend(kept_lines)
-                        kept_lines = []
-            elif log_file is not None:
+                    kept_lines = []
+            else:
                 tail_lines.append(line)
                 log_file.write(line)
                 log_file.write("\n")
-            else:
-                # Memory overflow without a spill dir — drop middle, keep tail.
-                tail_lines.append(line)
 
             if ctx.emit is not None:
                 ctx.emit(line)
 
         if reader_errors:
-            message = str(reader_errors[0])
-            return ToolExecutionResult(
-                model_text=f"error: {message}",
-                display_text=message,
-                is_error=True,
-            )
+            return ToolExecutionResult(output=f"error: {reader_errors[0]}", is_error=True)
 
         try:
             remaining = max(0.1, deadline - time.monotonic())
             proc.wait(timeout=remaining)
         except subprocess.TimeoutExpired:
             _kill_proc_tree(proc)
-            return ToolExecutionResult(
-                model_text=f"error: timeout after {timeout_seconds}s",
-                display_text=f"Command timed out after {timeout_seconds}s",
-                is_error=True,
-            )
+            return ToolExecutionResult(output=f"error: timeout after {timeout_seconds}s", is_error=True)
 
         exit_code = proc.returncode
 
-        raw_output = "\n".join(list(tail_lines) if (log_file is not None or memory_overflow) else kept_lines)
+        raw_output = "\n".join(list(tail_lines) if log_file is not None else kept_lines)
         output = raw_output.strip() or "(empty)"
         content, trunc = truncate_text(output, tail=True)
 
-        # Save full output to log file when truncated but not already on disk
-        # (only possible when a spill dir is configured).
-        if log_file is None and not memory_overflow and trunc.truncated and log_path is not None:
+        # If truncation happened but we never spilled, save the full output
+        # now so the user can inspect it via the "Full output" hint.
+        if log_file is None and trunc.truncated:
             try:
+                ctx.tool_output_dir.mkdir(parents=True, exist_ok=True)
                 log_path.write_text(raw_output, encoding="utf-8")
                 saved_output_path = log_path
             except Exception:
                 saved_output_path = None
 
         result = content
-
-        # Append truncation notice if any output was dropped.
         shown_lines = trunc.output_lines
-        was_truncated = log_file is not None or memory_overflow or trunc.truncated
+        was_truncated = log_file is not None or trunc.truncated
         if was_truncated:
             if trunc.truncated_by == "bytes":
                 if total_line_count <= 1:
@@ -928,15 +871,10 @@ def _run_bash(ctx: ToolContext, args: dict[str, Any]) -> ToolExecutionResult:
         if exit_code:
             result += f"\n\n[exit code: {exit_code}]"
 
-        return ToolExecutionResult(model_text=result, display_text=result)
+        return ToolExecutionResult(output=result)
 
     except Exception as exc:
-        message = str(exc)
-        return ToolExecutionResult(
-            model_text=f"error: {message}",
-            display_text=message,
-            is_error=True,
-        )
+        return ToolExecutionResult(output=f"error: {exc}", is_error=True)
     finally:
         if log_file is not None:
             try:
@@ -944,10 +882,14 @@ def _run_bash(ctx: ToolContext, args: dict[str, Any]) -> ToolExecutionResult:
             except Exception:
                 pass
         if proc is not None:
-            ctx.executor.untrack_proc(proc)
+            ctx.untrack_proc(proc)
             if proc.poll() is None:
                 _kill_proc_tree(proc)
 
+
+# ---------------------------------------------------------------------------
+# Built-in tool specs
+# ---------------------------------------------------------------------------
 
 DEFAULT_TOOL_SPECS: tuple[ToolSpec, ...] = (
     ToolSpec(
@@ -1040,63 +982,6 @@ DEFAULT_TOOL_SPECS: tuple[ToolSpec, ...] = (
 
 
 # ---------------------------------------------------------------------------
-# Internal helpers
-# ---------------------------------------------------------------------------
-
-
-def _closest_line_hint(text: str, needle: str) -> str | None:
-    needle_clean = needle.strip()
-    if not needle_clean:
-        return None
-
-    best_ratio = 0.0
-    best_line = ""
-    for line in text.splitlines():
-        candidate = line.strip()
-        if not candidate:
-            continue
-        ratio = SequenceMatcher(None, needle_clean, candidate).ratio()
-        if ratio > best_ratio:
-            best_ratio = ratio
-            best_line = candidate
-            if ratio >= 1.0:
-                break
-
-    if best_ratio < 0.6 or not best_line:
-        return None
-
-    if len(best_line) > 120:
-        return best_line[:117] + "..."
-    return best_line
-
-
-def _normalize_text(text: str) -> tuple[str, list[int]]:
-    """Normalize for fuzzy edit matching: strip trailing whitespace per line, CRLF→LF.
-
-    Returns (normalized, index_map) where ``index_map[i]`` is the position of
-    normalized char *i* in the original text. This lets callers find a match
-    in the normalized string and map the span back to exact original byte
-    offsets, so untouched regions of the file are never altered.
-    """
-
-    chars: list[str] = []
-    imap: list[int] = []
-    pos = 0
-    for line in text.splitlines(keepends=True):
-        content = line.rstrip("\r\n")
-        trimmed = content.rstrip(" \t")
-        chars.extend(trimmed)
-        imap.extend(range(pos, pos + len(trimmed)))
-        eol = line[len(content) :]
-        if eol:
-            chars.append("\n")
-            imap.append(pos + len(content))
-        pos += len(line)
-
-    return "".join(chars), imap
-
-
-# ---------------------------------------------------------------------------
 # @tool decorator
 # ---------------------------------------------------------------------------
 
@@ -1131,11 +1016,11 @@ def tool(
     """Wrap a plain Python function as a :class:`ToolSpec`.
 
     Sync and async functions are both supported. If the first parameter is
-    annotated :class:`ToolContext` the context is injected automatically and
-    the remaining parameters drive the JSON schema sent to the provider.
+    annotated :class:`ToolContext`, the context is injected automatically
+    and the remaining parameters drive the JSON schema sent to the provider.
 
     The function may return a :class:`ToolExecutionResult` or any
-    JSON-serializable value; non-result values are wrapped as plain text.
+    JSON-serializable value; non-result values are wrapped as text output.
     """
 
     def wrap(fn: Callable[..., Any]) -> ToolSpec:
@@ -1163,8 +1048,8 @@ def tool(
                 coerce = coercions.get(key)
                 call_args[key] = coerce(raw_value) if (coerce is not None and raw_value is not None) else raw_value
             if is_async:
-                # The executor itself runs on a worker thread (see Agent loop),
-                # so spinning a fresh event loop here is safe.
+                # The executor runs on a worker thread, so spinning a fresh
+                # event loop here is safe.
                 value = asyncio.run(fn(context, **call_args) if wants_context else fn(**call_args))
             else:
                 value = fn(context, **call_args) if wants_context else fn(**call_args)
@@ -1189,8 +1074,8 @@ def _build_input_schema(
 ) -> tuple[dict[str, Any], dict[str, Callable[[Any], Any]]]:
     """Build the JSON schema for ``parameters`` and a per-name coercion map.
 
-    The coercion map carries the post-JSON conversions needed when an
-    annotation has no native JSON type (currently only ``Path``).
+    The coercion map carries post-JSON conversions for annotations with no
+    native JSON type (currently only ``Path``).
     """
 
     properties: dict[str, Any] = {}
@@ -1223,26 +1108,6 @@ def _build_input_schema(
         "additionalProperties": False,
     }
     return schema, coercions
-
-
-def _coercion_for_annotation(annotation: Any) -> Callable[[Any], Any] | None:
-    """Return a value coercion to apply after JSON parsing, or None.
-
-    Path is the only non-JSON-native type that ``_annotation_to_schema``
-    accepts; the runner must rebuild a Path from the raw string the model
-    sends.
-    """
-
-    if annotation is Path:
-        return Path
-
-    args = get_args(annotation)
-    if args and type(None) in args:
-        non_none = [arg for arg in args if arg is not type(None)]
-        if len(non_none) == 1:
-            return _coercion_for_annotation(non_none[0])
-
-    return None
 
 
 def _annotation_to_schema(annotation: Any, parameter_name: str) -> dict[str, Any]:
@@ -1280,13 +1145,28 @@ def _annotation_to_schema(annotation: Any, parameter_name: str) -> dict[str, Any
     raise TypeError(f"unsupported tool parameter type for {parameter_name!r}: {annotation!r}")
 
 
+def _coercion_for_annotation(annotation: Any) -> Callable[[Any], Any] | None:
+    """Return a value coercion to apply after JSON parsing, or None."""
+
+    if annotation is Path:
+        return Path
+
+    args = get_args(annotation)
+    if args and type(None) in args:
+        non_none = [arg for arg in args if arg is not type(None)]
+        if len(non_none) == 1:
+            return _coercion_for_annotation(non_none[0])
+
+    return None
+
+
 def _coerce_tool_result(value: Any) -> ToolExecutionResult:
     if isinstance(value, ToolExecutionResult):
         return value
     if isinstance(value, str):
-        return ToolExecutionResult(model_text=value, display_text=value)
+        return ToolExecutionResult(output=value)
     try:
         text = json.dumps(value, ensure_ascii=False)
     except TypeError:
         text = str(value)
-    return ToolExecutionResult(model_text=text, display_text=text)
+    return ToolExecutionResult(output=text)

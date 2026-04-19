@@ -235,7 +235,7 @@ class OpenAIChatAdapter(ProviderAdapter):
                     {
                         "role": "tool",
                         "tool_call_id": block.get("tool_use_id") or "",
-                        "content": str(block.get("model_text") or ""),
+                        "content": str(block.get("output") or ""),
                     }
                 )
             return payload_messages

@@ -293,8 +293,7 @@ def test_openai_responses_replays_native_output_items_for_tool_results() -> None
                         {
                             "type": "tool_result",
                             "tool_use_id": "call_1",
-                            "model_text": "file contents",
-                            "display_text": "file contents",
+                            "output": "file contents",
                         }
                     ],
                 },
@@ -346,8 +345,7 @@ def test_openai_responses_serializes_tool_result_images(tmp_path) -> None:
                         {
                             "type": "tool_result",
                             "tool_use_id": "call_1",
-                            "model_text": "Read image file [image/png]",
-                            "display_text": "Read image file [image/png]",
+                            "output": "Read image file [image/png]",
                             "content": [
                                 {"type": "text", "text": "Read image file [image/png]"},
                                 {
@@ -405,8 +403,7 @@ def test_openai_responses_falls_back_to_full_replay_for_cross_provider_history()
                         {
                             "type": "tool_result",
                             "tool_use_id": "call_1",
-                            "model_text": "42",
-                            "display_text": "42",
+                            "output": "42",
                         }
                     ],
                 },
@@ -461,8 +458,7 @@ def test_anthropic_serializes_image_tool_result_content(tmp_path) -> None:
                             {
                                 "type": "tool_result",
                                 "tool_use_id": "call_1",
-                                "model_text": "Read image file [image/png]",
-                                "display_text": "Read image file [image/png]",
+                                "output": "Read image file [image/png]",
                                 "content": [
                                     {"type": "text", "text": "Read image file [image/png]"},
                                     {
@@ -704,8 +700,7 @@ def test_google_gemini_falls_back_to_full_replay_for_cross_provider_history() ->
                         {
                             "type": "tool_result",
                             "tool_use_id": "call_1",
-                            "model_text": "42",
-                            "display_text": "42",
+                            "output": "42",
                         }
                     ],
                 },
@@ -791,8 +786,7 @@ def test_google_gemini_replays_native_parts_for_same_provider_history() -> None:
                         {
                             "type": "tool_result",
                             "tool_use_id": "call_1",
-                            "model_text": "file contents",
-                            "display_text": "file contents",
+                            "output": "file contents",
                         }
                     ],
                 },
@@ -1037,8 +1031,7 @@ def test_openai_chat_extracts_reasoning_from_known_extra_fields(delta, expected_
                         {
                             "type": "tool_result",
                             "tool_use_id": "call_1",
-                            "model_text": "error: tool call was interrupted",
-                            "display_text": "Tool call was interrupted",
+                            "output": "error: tool call was interrupted",
                             "is_error": True,
                         }
                     ],
@@ -1070,20 +1063,17 @@ def test_openai_chat_extracts_reasoning_from_known_extra_fields(delta, expected_
                         {
                             "type": "tool_result",
                             "tool_use_id": "call_1",
-                            "model_text": "first",
-                            "display_text": "first",
+                            "output": "first",
                         },
                         {
                             "type": "tool_result",
                             "tool_use_id": "call_1",
-                            "model_text": "duplicate",
-                            "display_text": "duplicate",
+                            "output": "duplicate",
                         },
                         {
                             "type": "tool_result",
                             "tool_use_id": "call_2",
-                            "model_text": "orphan",
-                            "display_text": "orphan",
+                            "output": "orphan",
                         },
                     ],
                 },
@@ -1103,8 +1093,7 @@ def test_openai_chat_extracts_reasoning_from_known_extra_fields(delta, expected_
                         {
                             "type": "tool_result",
                             "tool_use_id": "call_1",
-                            "model_text": "first",
-                            "display_text": "first",
+                            "output": "first",
                         }
                     ],
                 },
@@ -1120,8 +1109,7 @@ def test_openai_chat_extracts_reasoning_from_known_extra_fields(delta, expected_
                         {
                             "type": "tool_result",
                             "tool_use_id": "missing",
-                            "model_text": "orphan",
-                            "display_text": "orphan",
+                            "output": "orphan",
                         }
                     ],
                 },
@@ -1171,8 +1159,7 @@ def test_provider_prepare_messages_filters_history_images_when_disabled() -> Non
                         {
                             "type": "tool_result",
                             "tool_use_id": "call_1",
-                            "model_text": "Read image file [image/png]",
-                            "display_text": "Read image file [image/png]",
+                            "output": "Read image file [image/png]",
                             "content": [
                                 {"type": "text", "text": "Read image file [image/png]"},
                                 {"type": "image", "data": "abc", "mime_type": "image/png"},
@@ -1201,8 +1188,7 @@ def test_provider_prepare_messages_filters_history_images_when_disabled() -> Non
                 {
                     "type": "tool_result",
                     "tool_use_id": "call_1",
-                    "model_text": "Read image file [image/png]",
-                    "display_text": "Read image file [image/png]",
+                    "output": "Read image file [image/png]",
                     "content": [{"type": "text", "text": "Read image file [image/png]"}],
                 },
             ],
@@ -1268,14 +1254,12 @@ def test_anthropic_prepare_messages_normalizes_tool_ids() -> None:
                         {
                             "type": "tool_result",
                             "tool_use_id": "a/b",
-                            "model_text": "done a",
-                            "display_text": "done a",
+                            "output": "done a",
                         },
                         {
                             "type": "tool_result",
                             "tool_use_id": "a|b",
-                            "model_text": "done b",
-                            "display_text": "done b",
+                            "output": "done b",
                         },
                     ],
                 },
@@ -1306,14 +1290,12 @@ def test_anthropic_prepare_messages_normalizes_tool_ids() -> None:
                 {
                     "type": "tool_result",
                     "tool_use_id": first_tool_id,
-                    "model_text": "done a",
-                    "display_text": "done a",
+                    "output": "done a",
                 },
                 {
                     "type": "tool_result",
                     "tool_use_id": second_tool_id,
-                    "model_text": "done b",
-                    "display_text": "done b",
+                    "output": "done b",
                 },
             ],
         },
@@ -1376,8 +1358,7 @@ def test_deepseek_replays_reasoning_across_turns() -> None:
                             {
                                 "type": "tool_result",
                                 "tool_use_id": "call_1",
-                                "model_text": "done",
-                                "display_text": "done",
+                                "output": "done",
                             }
                         ],
                     },
@@ -1603,8 +1584,7 @@ def test_anthropic_like_build_request_payload_adds_cache_control() -> None:
                             {
                                 "type": "tool_result",
                                 "tool_use_id": "call_1",
-                                "model_text": "tool output",
-                                "display_text": "tool output",
+                                "output": "tool output",
                                 "is_error": False,
                             },
                         ],

@@ -1,12 +1,13 @@
 """Basic tests for tool execution and truncation."""
 
 import base64
-import json
 import tempfile
 from pathlib import Path
 
 from mycode.tools import (
+    DEFAULT_TOOL_SPECS,
     READ_MAX_LINE_CHARS,
+    ToolContext,
     ToolExecutionResult,
     ToolExecutor,
     detect_image_mime_type,
@@ -17,6 +18,18 @@ from mycode.utils import parse_tool_arguments
 _PNG_1X1 = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j1X8AAAAASUVORK5CYII="
 )
+
+
+def _ctx(cwd: str, *, tool_output_dir: Path | None = None, supports_image_input: bool = False) -> ToolContext:
+    """Build a ToolContext with the four built-ins registered."""
+
+    executor = ToolExecutor(DEFAULT_TOOL_SPECS)
+    return ToolContext(
+        executor=executor,
+        cwd=cwd,
+        tool_output_dir=tool_output_dir if tool_output_dir is not None else Path(cwd),
+        supports_image_input=supports_image_input,
+    )
 
 
 def assert_edit_ok(
@@ -31,9 +44,9 @@ def assert_edit_ok(
     Accepts scalar values (checked against the first/only edit) or lists
     (checked element-wise against each edit in the result).
     """
-    payload = json.loads(result.model_text)
-    assert payload["status"] == "ok"
-    edits = payload["edits"]
+    assert result.is_error is False
+    assert result.metadata is not None
+    edits = result.metadata["edits"]
     assert isinstance(edits, list) and len(edits) > 0
 
     starts = [start_line] if isinstance(start_line, int) else start_line
@@ -142,118 +155,97 @@ class TestParseToolArguments:
         assert "object" in result.lower()
 
 
-class TestToolExecutorRead:
-    """Tests for ToolExecutor.read()."""
-
+class TestRead:
     def test_read_existing_file(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            executor = ToolExecutor(cwd=tmpdir, tool_output_dir=Path(tmpdir))
-            test_file = Path(tmpdir) / "test.txt"
-            test_file.write_text("Hello, World!")
+            ctx = _ctx(tmpdir)
+            (Path(tmpdir) / "test.txt").write_text("Hello, World!")
 
-            result = executor.execute("read", {"path": "test.txt"})
-            assert result.model_text == "Hello, World!"
+            result = ctx.read("test.txt")
+            assert result.output == "Hello, World!"
 
     def test_read_nonexistent_file(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            executor = ToolExecutor(cwd=tmpdir, tool_output_dir=Path(tmpdir))
+            result = _ctx(tmpdir).read("nonexistent.txt")
 
-            result = executor.execute("read", {"path": "nonexistent.txt"})
             assert result.is_error is True
-            assert "error" in result.model_text.lower()
-            assert "not found" in result.model_text.lower()
+            assert "error" in result.output.lower()
+            assert "not found" in result.output.lower()
 
     def test_read_directory(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            executor = ToolExecutor(cwd=tmpdir, tool_output_dir=Path(tmpdir))
-            subdir = Path(tmpdir) / "subdir"
-            subdir.mkdir()
+            (Path(tmpdir) / "subdir").mkdir()
 
-            result = executor.execute("read", {"path": "subdir"})
+            result = _ctx(tmpdir).read("subdir")
             assert result.is_error is True
-            assert "error" in result.model_text.lower()
-            assert "not a file" in result.model_text.lower()
+            assert "error" in result.output.lower()
+            assert "not a file" in result.output.lower()
 
     def test_read_with_offset(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            executor = ToolExecutor(cwd=tmpdir, tool_output_dir=Path(tmpdir))
-            test_file = Path(tmpdir) / "test.txt"
-            test_file.write_text("line 1\nline 2\nline 3\nline 4")
+            (Path(tmpdir) / "test.txt").write_text("line 1\nline 2\nline 3\nline 4")
 
-            result = executor.execute("read", {"path": "test.txt", "offset": 2, "limit": 2})
-            assert "line 2" in result.model_text
-            assert "line 3" in result.model_text
-            assert "line 1" not in result.model_text
-            assert "line 4" not in result.model_text
+            result = _ctx(tmpdir).read("test.txt", offset=2, limit=2)
+            assert "line 2" in result.output
+            assert "line 3" in result.output
+            assert "line 1" not in result.output
+            assert "line 4" not in result.output
 
     def test_read_with_limit_only(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            executor = ToolExecutor(cwd=tmpdir, tool_output_dir=Path(tmpdir))
-            test_file = Path(tmpdir) / "test.txt"
-            test_file.write_text("line 1\nline 2\nline 3\nline 4")
+            (Path(tmpdir) / "test.txt").write_text("line 1\nline 2\nline 3\nline 4")
 
-            result = executor.execute("read", {"path": "test.txt", "limit": 2})
-            assert "line 1" in result.model_text
-            assert "line 2" in result.model_text
-            assert "line 3" not in result.model_text
+            result = _ctx(tmpdir).read("test.txt", limit=2)
+            assert "line 1" in result.output
+            assert "line 2" in result.output
+            assert "line 3" not in result.output
 
     def test_read_offset_beyond_end(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            executor = ToolExecutor(cwd=tmpdir, tool_output_dir=Path(tmpdir))
-            test_file = Path(tmpdir) / "test.txt"
-            test_file.write_text("line 1\nline 2")
+            (Path(tmpdir) / "test.txt").write_text("line 1\nline 2")
 
-            result = executor.execute("read", {"path": "test.txt", "offset": 10})
+            result = _ctx(tmpdir).read("test.txt", offset=10)
             assert result.is_error is True
-            assert "error" in result.model_text.lower()
-            assert "beyond" in result.model_text.lower()
+            assert "error" in result.output.lower()
+            assert "beyond" in result.output.lower()
 
     def test_read_binary_file(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            executor = ToolExecutor(cwd=tmpdir, tool_output_dir=Path(tmpdir))
-            test_file = Path(tmpdir) / "binary.bin"
-            # Use invalid UTF-8 sequence
-            test_file.write_bytes(b"\x80\x81\x82\x83")
+            (Path(tmpdir) / "binary.bin").write_bytes(b"\x80\x81\x82\x83")
 
-            result = executor.execute("read", {"path": "binary.bin"})
+            result = _ctx(tmpdir).read("binary.bin")
             assert result.is_error is True
-            assert "error" in result.model_text.lower()
-            assert "utf-8" in result.model_text.lower()
+            assert "error" in result.output.lower()
+            assert "utf-8" in result.output.lower()
 
     def test_read_truncated_output(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            executor = ToolExecutor(cwd=tmpdir, tool_output_dir=Path(tmpdir))
-            test_file = Path(tmpdir) / "large.txt"
-            # Create a file larger than the default line window
             lines = [f"line {i}" for i in range(3000)]
-            test_file.write_text("\n".join(lines))
+            (Path(tmpdir) / "large.txt").write_text("\n".join(lines))
 
-            result = executor.execute("read", {"path": "large.txt"})
-            assert "[Showing lines 1-2000. Use offset=2001 to continue.]" in result.model_text
+            result = _ctx(tmpdir).read("large.txt")
+            assert "[Showing lines 1-2000. Use offset=2001 to continue.]" in result.output
 
     def test_read_shortens_long_line_and_adds_slice_hint(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            executor = ToolExecutor(cwd=tmpdir, tool_output_dir=Path(tmpdir))
-            test_file = Path(tmpdir) / "long.txt"
-            test_file.write_text("short\n" + ("x" * (READ_MAX_LINE_CHARS + 50)))
+            (Path(tmpdir) / "long.txt").write_text("short\n" + ("x" * (READ_MAX_LINE_CHARS + 50)))
 
-            result = executor.execute("read", {"path": "long.txt"})
+            result = _ctx(tmpdir).read("long.txt")
 
-            assert "... [line truncated]" in result.model_text
-            assert f"shortened to {READ_MAX_LINE_CHARS} chars" in result.model_text
-            assert "sed -n '2p'" in result.model_text
-            assert "head -c 2000" in result.model_text
+            assert "... [line truncated]" in result.output
+            assert f"shortened to {READ_MAX_LINE_CHARS} chars" in result.output
+            assert "sed -n '2p'" in result.output
+            assert "head -c 2000" in result.output
 
     def test_read_image_returns_structured_content_when_model_supports_images(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            executor = ToolExecutor(cwd=tmpdir, tool_output_dir=Path(tmpdir), supports_image_input=True)
             image_path = Path(tmpdir) / "tiny.png"
             image_path.write_bytes(_PNG_1X1)
 
-            result = executor.execute("read", {"path": "tiny.png"})
+            result = _ctx(tmpdir, supports_image_input=True).read("tiny.png")
 
             assert result.is_error is False
-            assert result.model_text == "Read image file [image/png]"
+            assert result.output == "Read image file [image/png]"
             assert result.content == [
                 {"type": "text", "text": "Read image file [image/png]"},
                 {
@@ -266,14 +258,12 @@ class TestToolExecutorRead:
 
     def test_read_image_errors_when_model_does_not_support_images(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            executor = ToolExecutor(cwd=tmpdir, tool_output_dir=Path(tmpdir), supports_image_input=False)
-            image_path = Path(tmpdir) / "tiny.png"
-            image_path.write_bytes(_PNG_1X1)
+            (Path(tmpdir) / "tiny.png").write_bytes(_PNG_1X1)
 
-            result = executor.execute("read", {"path": "tiny.png"})
+            result = _ctx(tmpdir, supports_image_input=False).read("tiny.png")
 
             assert result.is_error is True
-            assert "not supported by the current model" in result.model_text
+            assert "not supported by the current model" in result.output
 
 
 def test_detect_image_mime_type_from_header(tmp_path):
@@ -283,198 +273,158 @@ def test_detect_image_mime_type_from_header(tmp_path):
     assert detect_image_mime_type(image_path) == "image/png"
 
 
-class TestToolExecutorWrite:
-    """Tests for ToolExecutor.write()."""
-
+class TestWrite:
     def test_write_new_file(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            executor = ToolExecutor(cwd=tmpdir, tool_output_dir=Path(tmpdir))
+            result = _ctx(tmpdir).write("new.txt", "Hello!")
+            assert result.is_error is False
+            assert result.output == "Wrote new.txt"
 
-            result = executor.execute("write", {"path": "new.txt", "content": "Hello!"})
-            assert result.model_text == "ok"
-            assert result.display_text == "Wrote new.txt"
-
-            written = Path(tmpdir) / "new.txt"
-            assert written.read_text() == "Hello!"
+            assert (Path(tmpdir) / "new.txt").read_text() == "Hello!"
 
     def test_write_overwrite_existing(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            executor = ToolExecutor(cwd=tmpdir, tool_output_dir=Path(tmpdir))
             test_file = Path(tmpdir) / "existing.txt"
             test_file.write_text("Old content")
 
-            result = executor.execute("write", {"path": "existing.txt", "content": "New content"})
-            assert result.model_text == "ok"
+            result = _ctx(tmpdir).write("existing.txt", "New content")
+            assert result.is_error is False
             assert test_file.read_text() == "New content"
 
     def test_write_nested_path(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            executor = ToolExecutor(cwd=tmpdir, tool_output_dir=Path(tmpdir))
-
-            result = executor.execute("write", {"path": "subdir/nested/file.txt", "content": "Nested!"})
-            assert result.model_text == "ok"
+            result = _ctx(tmpdir).write("subdir/nested/file.txt", "Nested!")
+            assert result.is_error is False
 
             written = Path(tmpdir) / "subdir" / "nested" / "file.txt"
             assert written.exists()
             assert written.read_text() == "Nested!"
 
 
-class TestToolExecutorEdit:
-    """Tests for ToolExecutor.edit()."""
-
+class TestEdit:
     def test_edit_success(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            executor = ToolExecutor(cwd=tmpdir, tool_output_dir=Path(tmpdir))
             test_file = Path(tmpdir) / "test.txt"
             test_file.write_text("Hello, World!")
 
-            result = executor.execute(
-                "edit", {"path": "test.txt", "edits": [{"oldText": "World", "newText": "Universe"}]}
-            )
+            result = _ctx(tmpdir).edit("test.txt", [{"oldText": "World", "newText": "Universe"}])
             assert_edit_ok(result, start_line=1, old_line_count=1, new_line_count=1)
             assert test_file.read_text() == "Hello, Universe!"
 
     def test_edit_not_found(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            executor = ToolExecutor(cwd=tmpdir, tool_output_dir=Path(tmpdir))
-            test_file = Path(tmpdir) / "test.txt"
-            test_file.write_text("Hello, World!")
+            (Path(tmpdir) / "test.txt").write_text("Hello, World!")
 
-            result = executor.execute(
-                "edit", {"path": "test.txt", "edits": [{"oldText": "NotFound", "newText": "Replacement"}]}
-            )
+            result = _ctx(tmpdir).edit("test.txt", [{"oldText": "NotFound", "newText": "Replacement"}])
             assert result.is_error is True
-            assert "not found" in result.model_text.lower()
+            assert "not found" in result.output.lower()
 
     def test_edit_multiple_occurrences(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            executor = ToolExecutor(cwd=tmpdir, tool_output_dir=Path(tmpdir))
             test_file = Path(tmpdir) / "test.txt"
             test_file.write_text("apple apple apple")
 
-            result = executor.execute(
-                "edit", {"path": "test.txt", "edits": [{"oldText": "apple", "newText": "orange"}]}
-            )
+            result = _ctx(tmpdir).edit("test.txt", [{"oldText": "apple", "newText": "orange"}])
             assert result.is_error is True
-            assert "occurs" in result.model_text.lower()
+            assert "occurs" in result.output.lower()
             assert test_file.read_text() == "apple apple apple"
 
     def test_edit_exact_snippet_replacement(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            executor = ToolExecutor(cwd=tmpdir, tool_output_dir=Path(tmpdir))
             test_file = Path(tmpdir) / "test.txt"
             test_file.write_text("Hello World")
 
-            result = executor.execute("edit", {"path": "test.txt", "edits": [{"oldText": "Hello", "newText": "Hi"}]})
+            result = _ctx(tmpdir).edit("test.txt", [{"oldText": "Hello", "newText": "Hi"}])
             assert_edit_ok(result, start_line=1, old_line_count=1, new_line_count=1)
             assert test_file.read_text() == "Hi World"
 
     def test_edit_nonexistent_file(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            executor = ToolExecutor(cwd=tmpdir, tool_output_dir=Path(tmpdir))
-
-            result = executor.execute("edit", {"path": "nonexistent.txt", "edits": [{"oldText": "x", "newText": "y"}]})
+            result = _ctx(tmpdir).edit("nonexistent.txt", [{"oldText": "x", "newText": "y"}])
             assert result.is_error is True
-            assert "not found" in result.model_text.lower()
+            assert "not found" in result.output.lower()
 
     def test_edit_rejects_empty_old_text(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            executor = ToolExecutor(cwd=tmpdir, tool_output_dir=Path(tmpdir))
             test_file = Path(tmpdir) / "test.txt"
             test_file.write_text("Hello, World!")
 
-            result = executor.execute(
-                "edit", {"path": "test.txt", "edits": [{"oldText": "", "newText": "Replacement"}]}
-            )
+            result = _ctx(tmpdir).edit("test.txt", [{"oldText": "", "newText": "Replacement"}])
             assert result.is_error is True
-            assert "must not be empty" in result.model_text.lower()
+            assert "must not be empty" in result.output.lower()
             assert test_file.read_text() == "Hello, World!"
 
     def test_edit_rejects_no_op(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            executor = ToolExecutor(cwd=tmpdir, tool_output_dir=Path(tmpdir))
             test_file = Path(tmpdir) / "test.txt"
             test_file.write_text("Hello, World!")
 
-            result = executor.execute("edit", {"path": "test.txt", "edits": [{"oldText": "World", "newText": "World"}]})
+            result = _ctx(tmpdir).edit("test.txt", [{"oldText": "World", "newText": "World"}])
             assert result.is_error is True
-            assert "identical" in result.model_text.lower()
+            assert "identical" in result.output.lower()
             assert test_file.read_text() == "Hello, World!"
 
     def test_edit_not_found_includes_closest_hint(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            executor = ToolExecutor(cwd=tmpdir, tool_output_dir=Path(tmpdir))
-            test_file = Path(tmpdir) / "test.txt"
-            test_file.write_text("alpha\nbeta gamma\ndelta")
+            (Path(tmpdir) / "test.txt").write_text("alpha\nbeta gamma\ndelta")
 
-            result = executor.execute(
-                "edit", {"path": "test.txt", "edits": [{"oldText": "beta gamam", "newText": "replacement"}]}
-            )
+            result = _ctx(tmpdir).edit("test.txt", [{"oldText": "beta gamam", "newText": "replacement"}])
             assert result.is_error is True
-            assert "closest line" in result.model_text.lower()
-            assert "beta gamma" in result.model_text
+            assert "closest line" in result.output.lower()
+            assert "beta gamma" in result.output
 
     def test_edit_fuzzy_matches_trailing_whitespace(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            executor = ToolExecutor(cwd=tmpdir, tool_output_dir=Path(tmpdir))
             test_file = Path(tmpdir) / "test.py"
             test_file.write_text("def f():\n    return 1    \n")
 
-            result = executor.execute(
-                "edit",
-                {
-                    "path": "test.py",
-                    "edits": [
-                        {
-                            "oldText": "def f():\n    return 1\n",
-                            "newText": "def f():\n    return 2\n",
-                        }
-                    ],
-                },
+            result = _ctx(tmpdir).edit(
+                "test.py",
+                [
+                    {
+                        "oldText": "def f():\n    return 1\n",
+                        "newText": "def f():\n    return 2\n",
+                    }
+                ],
             )
             assert_edit_ok(result, start_line=1, old_line_count=2, new_line_count=2)
             assert test_file.read_text() == "def f():\n    return 2\n"
 
     def test_edit_fuzzy_matches_crlf(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            executor = ToolExecutor(cwd=tmpdir, tool_output_dir=Path(tmpdir))
             test_file = Path(tmpdir) / "test.txt"
             test_file.write_bytes(b"line1\r\nline2\r\n")
 
-            result = executor.execute(
-                "edit", {"path": "test.txt", "edits": [{"oldText": "line1\nline2\n", "newText": "line1\nlineX\n"}]}
+            result = _ctx(tmpdir).edit(
+                "test.txt",
+                [{"oldText": "line1\nline2\n", "newText": "line1\nlineX\n"}],
             )
             assert_edit_ok(result, start_line=1, old_line_count=2, new_line_count=2)
             assert test_file.read_bytes() == b"line1\r\nlineX\r\n"
 
     def test_edit_fuzzy_requires_unique_match(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            executor = ToolExecutor(cwd=tmpdir, tool_output_dir=Path(tmpdir))
             test_file = Path(tmpdir) / "test.txt"
             test_file.write_bytes(b"x  \r\nx\t\r\n")
 
-            result = executor.execute("edit", {"path": "test.txt", "edits": [{"oldText": "x\n", "newText": "y\n"}]})
+            result = _ctx(tmpdir).edit("test.txt", [{"oldText": "x\n", "newText": "y\n"}])
             assert result.is_error is True
-            assert "occurs" in result.model_text.lower()
-            assert "normalization" in result.model_text.lower()
+            assert "occurs" in result.output.lower()
+            assert "normalization" in result.output.lower()
 
     # ---- multi-edit tests ----
 
     def test_multi_edit_disjoint(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            executor = ToolExecutor(cwd=tmpdir, tool_output_dir=Path(tmpdir))
             test_file = Path(tmpdir) / "test.txt"
             test_file.write_text("aaa\nbbb\nccc\nddd\n")
 
-            result = executor.execute(
-                "edit",
-                {
-                    "path": "test.txt",
-                    "edits": [
-                        {"oldText": "aaa", "newText": "AAA"},
-                        {"oldText": "ccc", "newText": "CCC"},
-                    ],
-                },
+            result = _ctx(tmpdir).edit(
+                "test.txt",
+                [
+                    {"oldText": "aaa", "newText": "AAA"},
+                    {"oldText": "ccc", "newText": "CCC"},
+                ],
             )
             assert_edit_ok(
                 result,
@@ -486,86 +436,65 @@ class TestToolExecutorEdit:
 
     def test_multi_edit_overlap_rejected(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            executor = ToolExecutor(cwd=tmpdir, tool_output_dir=Path(tmpdir))
             test_file = Path(tmpdir) / "test.txt"
             test_file.write_text("aaa bbb ccc")
 
-            result = executor.execute(
-                "edit",
-                {
-                    "path": "test.txt",
-                    "edits": [
-                        {"oldText": "aaa bbb", "newText": "XXX"},
-                        {"oldText": "bbb ccc", "newText": "YYY"},
-                    ],
-                },
+            result = _ctx(tmpdir).edit(
+                "test.txt",
+                [
+                    {"oldText": "aaa bbb", "newText": "XXX"},
+                    {"oldText": "bbb ccc", "newText": "YYY"},
+                ],
             )
             assert result.is_error is True
-            assert "overlap" in result.model_text.lower()
+            assert "overlap" in result.output.lower()
             assert test_file.read_text() == "aaa bbb ccc"
 
     def test_multi_edit_duplicate_rejected(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            executor = ToolExecutor(cwd=tmpdir, tool_output_dir=Path(tmpdir))
             test_file = Path(tmpdir) / "test.txt"
             test_file.write_text("aaa bbb aaa")
 
-            result = executor.execute("edit", {"path": "test.txt", "edits": [{"oldText": "aaa", "newText": "XXX"}]})
+            result = _ctx(tmpdir).edit("test.txt", [{"oldText": "aaa", "newText": "XXX"}])
             assert result.is_error is True
-            assert "occurs" in result.model_text.lower()
+            assert "occurs" in result.output.lower()
 
     def test_multi_edit_empty_list_rejected(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            executor = ToolExecutor(cwd=tmpdir, tool_output_dir=Path(tmpdir))
-            test_file = Path(tmpdir) / "test.txt"
-            test_file.write_text("content")
+            (Path(tmpdir) / "test.txt").write_text("content")
 
-            result = executor.execute("edit", {"path": "test.txt", "edits": []})
+            result = _ctx(tmpdir).edit("test.txt", [])
             assert result.is_error is True
-            assert "empty" in result.model_text.lower()
+            assert "empty" in result.output.lower()
 
     def test_multi_edit_fuzzy_preserves_untouched_regions(self):
         """Fuzzy match must not alter trailing whitespace in untouched lines."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            executor = ToolExecutor(cwd=tmpdir, tool_output_dir=Path(tmpdir))
             test_file = Path(tmpdir) / "test.py"
             # Line 2 has trailing spaces that should be preserved.
             test_file.write_text("def f():\n    x = 1    \n    return x\n")
 
-            result = executor.execute(
-                "edit",
-                {
-                    "path": "test.py",
-                    "edits": [
-                        {
-                            "oldText": "return x",
-                            "newText": "return x + 1",
-                        }
-                    ],
-                },
+            result = _ctx(tmpdir).edit(
+                "test.py",
+                [{"oldText": "return x", "newText": "return x + 1"}],
             )
             assert_edit_ok(result, start_line=3, old_line_count=1, new_line_count=1)
             content = test_file.read_text()
-            # Trailing spaces on line 2 must be untouched.
             assert "    x = 1    \n" in content
             assert "return x + 1" in content
 
     def test_multi_edit_with_line_expansion(self):
         """Multi-edit where one edit adds lines — later edit metadata should reflect shifted lines."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            executor = ToolExecutor(cwd=tmpdir, tool_output_dir=Path(tmpdir))
             test_file = Path(tmpdir) / "test.txt"
             test_file.write_text("a\nb\nc\n")
 
-            result = executor.execute(
-                "edit",
-                {
-                    "path": "test.txt",
-                    "edits": [
-                        {"oldText": "a", "newText": "a1\na2"},
-                        {"oldText": "c", "newText": "C"},
-                    ],
-                },
+            result = _ctx(tmpdir).edit(
+                "test.txt",
+                [
+                    {"oldText": "a", "newText": "a1\na2"},
+                    {"oldText": "c", "newText": "C"},
+                ],
             )
             assert_edit_ok(
                 result,
@@ -576,35 +505,35 @@ class TestToolExecutorEdit:
             assert test_file.read_text() == "a1\na2\nb\nC\n"
 
 
-class TestToolExecutorAbsolutePath:
-    """Tests for handling absolute vs relative paths."""
-
+class TestAbsolutePath:
     def test_read_absolute_path(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            executor = ToolExecutor(cwd="/tmp", tool_output_dir=Path(tmpdir))
             test_file = Path(tmpdir) / "abs_test.txt"
             test_file.write_text("Absolute path content")
 
-            # Use absolute path
-            result = executor.execute("read", {"path": str(test_file)})
-            assert "Absolute path content" in result.model_text
+            # cwd elsewhere; reading by absolute path must still work.
+            result = _ctx("/tmp").read(str(test_file))
+            assert "Absolute path content" in result.output
 
     def test_read_relative_path(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            executor = ToolExecutor(cwd=tmpdir, tool_output_dir=Path(tmpdir))
-            test_file = Path(tmpdir) / "rel_test.txt"
-            test_file.write_text("Relative path content")
+            (Path(tmpdir) / "rel_test.txt").write_text("Relative path content")
 
-            # Use relative path
-            result = executor.execute("read", {"path": "rel_test.txt"})
-            assert "Relative path content" in result.model_text
+            result = _ctx(tmpdir).read("rel_test.txt")
+            assert "Relative path content" in result.output
 
     def test_write_relative_path_resolves_to_cwd(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            executor = ToolExecutor(cwd=tmpdir, tool_output_dir=Path(tmpdir))
+            result = _ctx(tmpdir).write("relative.txt", "Content")
+            assert result.is_error is False
 
-            result = executor.execute("write", {"path": "relative.txt", "content": "Content"})
-            assert result.model_text == "ok"
-
-            # File should be in cwd, not session_dir
             assert (Path(tmpdir) / "relative.txt").exists()
+
+
+# ``ToolExecutionResult`` constructor shape sanity check.
+def test_tool_execution_result_fields():
+    result = ToolExecutionResult(output="ok", metadata={"k": 1})
+    assert result.output == "ok"
+    assert result.metadata == {"k": 1}
+    assert result.content is None
+    assert result.is_error is False

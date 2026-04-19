@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import tempfile
 from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -33,7 +34,7 @@ from mycode.session import (
     build_compact_event,
     should_compact,
 )
-from mycode.tools import ToolExecutionResult, ToolExecutor, ToolSpec
+from mycode.tools import ToolContext, ToolExecutionResult, ToolExecutor, ToolSpec
 
 logger = logging.getLogger(__name__)
 
@@ -71,7 +72,7 @@ class Agent:
         supports_image_input: bool | None = None,
         supports_pdf_input: bool | None = None,
         system: str = "",
-        tools: ToolExecutor | Sequence[ToolSpec] | None = None,
+        tools: Sequence[ToolSpec] = (),
     ):
         self.model = model
         if provider is None:
@@ -117,18 +118,21 @@ class Agent:
             raise ValueError(msg)
         self.messages: list[ConversationMessage] = list(messages)
 
-        if isinstance(tools, ToolExecutor):
-            self.tools = tools
+        # Tool runtime: one executor per agent. ``tool_output_dir`` is where
+        # tools can drop artifacts — defaults to a session-adjacent directory
+        # so logs (e.g. bash spill files) live next to the session JSONL.
+        # When no session is configured, use a tempdir scoped to session_id.
+        if session_dir is not None:
+            tool_output_dir = session_dir / self.session_id / "tool-output"
         else:
-            tool_output_dir = (
-                self.session_dir / self.session_id / "tool-output" if self.session_dir is not None else None
-            )
-            self.tools = ToolExecutor(
-                cwd=self.cwd,
-                tool_output_dir=tool_output_dir,
-                tools=list(tools) if tools is not None else [],
-                supports_image_input=False,
-            )
+            tool_output_dir = Path(tempfile.gettempdir()) / "mycode" / self.session_id / "tool-output"
+        self.tools = ToolExecutor(tools)
+        self.tool_ctx = ToolContext(
+            executor=self.tools,
+            cwd=self.cwd,
+            tool_output_dir=tool_output_dir,
+            supports_image_input=False,
+        )
 
         self.refresh_capabilities(
             max_tokens=max_tokens,
@@ -168,7 +172,7 @@ class Agent:
         self.supports_reasoning: bool | None = meta.supports_reasoning
         self.supports_image_input: bool = bool(meta.supports_image_input)
         self.supports_pdf_input: bool = bool(meta.supports_pdf_input)
-        self.tools.supports_image_input = self.supports_image_input
+        self.tool_ctx.supports_image_input = self.supports_image_input
 
     def cancel(self) -> None:
         """Request cancellation of the in-flight turn."""
@@ -200,11 +204,7 @@ class Agent:
         if self._cancel_event.is_set():
             yield self._tool_done_event(
                 tool_id,
-                ToolExecutionResult(
-                    model_text="error: cancelled",
-                    display_text="Cancelled",
-                    is_error=True,
-                ),
+                ToolExecutionResult(output="error: cancelled", is_error=True),
             )
             return
 
@@ -212,11 +212,7 @@ class Agent:
         if spec is None:
             yield self._tool_done_event(
                 tool_id,
-                ToolExecutionResult(
-                    model_text=f"error: unknown tool: {name}",
-                    display_text=f"Unknown tool: {name}",
-                    is_error=True,
-                ),
+                ToolExecutionResult(output=f"error: unknown tool: {name}", is_error=True),
             )
             return
 
@@ -226,13 +222,10 @@ class Agent:
             return
 
         try:
-            result = await asyncio.to_thread(self.tools.execute, name, args)
+            ctx = self._ctx_for_call(tool_id)
+            result = await asyncio.to_thread(self.tools.execute, name, args, ctx)
         except Exception as exc:  # pragma: no cover - defensive
-            result = ToolExecutionResult(
-                model_text=f"error: {exc}",
-                display_text=str(exc),
-                is_error=True,
-            )
+            result = ToolExecutionResult(output=f"error: {exc}", is_error=True)
 
         yield self._tool_done_event(tool_id, result)
 
@@ -251,15 +244,11 @@ class Agent:
         def on_output(line: str) -> None:
             loop.call_soon_threadsafe(output_queue.put_nowait, line)
 
+        ctx = self._ctx_for_call(tool_id, emit=on_output)
+
         async def run_in_thread() -> ToolExecutionResult:
             try:
-                return await asyncio.to_thread(
-                    self.tools.execute,
-                    name,
-                    args,
-                    tool_call_id=tool_id,
-                    on_output=on_output,
-                )
+                return await asyncio.to_thread(self.tools.execute, name, args, ctx)
             finally:
                 loop.call_soon_threadsafe(output_queue.put_nowait, None)
 
@@ -288,31 +277,41 @@ class Agent:
                 await task
             except Exception:
                 pass
-            result = ToolExecutionResult(
-                model_text="error: cancelled",
-                display_text="Cancelled",
-                is_error=True,
-            )
+            result = ToolExecutionResult(output="error: cancelled", is_error=True)
         else:
             try:
                 result = await task
             except Exception as exc:  # pragma: no cover - defensive
-                result = ToolExecutionResult(
-                    model_text=f"error: {exc}",
-                    display_text=str(exc),
-                    is_error=True,
-                )
+                result = ToolExecutionResult(output=f"error: {exc}", is_error=True)
 
         yield self._tool_done_event(tool_id, result)
+
+    def _ctx_for_call(
+        self,
+        tool_id: str,
+        *,
+        emit: Callable[[str], None] | None = None,
+    ) -> ToolContext:
+        """Build a per-call ToolContext from the base context."""
+
+        return ToolContext(
+            executor=self.tools,
+            cwd=self.tool_ctx.cwd,
+            tool_output_dir=self.tool_ctx.tool_output_dir,
+            supports_image_input=self.tool_ctx.supports_image_input,
+            tool_call_id=tool_id,
+            emit=emit,
+        )
 
     @staticmethod
     def _tool_done_event(tool_id: str, result: ToolExecutionResult) -> Event:
         data: dict[str, Any] = {
             "tool_use_id": tool_id,
-            "model_text": result.model_text,
-            "display_text": result.display_text,
+            "output": result.output,
             "is_error": result.is_error,
         }
+        if result.metadata:
+            data["metadata"] = result.metadata
         if result.content:
             data["content"] = result.content
         return Event("tool_done", data)
@@ -388,7 +387,7 @@ class Agent:
         self._cancel_event.clear()
         supports_image_input = self.supports_image_input
         supports_pdf_input = self.supports_pdf_input
-        self.tools.supports_image_input = supports_image_input
+        self.tool_ctx.supports_image_input = supports_image_input
 
         if isinstance(user_input, str):
             user_message = user_text_message(user_input)
@@ -507,19 +506,20 @@ class Agent:
                         continue
 
                     d = event.data
-                    model_text = str(d.get("model_text") or "")
+                    output = str(d.get("output") or "")
+                    metadata = d.get("metadata") if isinstance(d.get("metadata"), dict) else None
                     content = d.get("content")
                     tool_results.append(
                         tool_result_block(
                             tool_use_id=str(d.get("tool_use_id") or ""),
-                            model_text=model_text,
-                            display_text=str(d.get("display_text") or ""),
+                            output=output,
+                            metadata=metadata,
                             is_error=bool(d.get("is_error")),
                             content=content if isinstance(content, list) else None,
                         )
                     )
 
-                    if model_text == "error: cancelled" and self._cancel_event.is_set():
+                    if output == "error: cancelled" and self._cancel_event.is_set():
                         tool_result_message = build_message("user", tool_results)
                         self.messages.append(tool_result_message)
                         await persist(tool_result_message)

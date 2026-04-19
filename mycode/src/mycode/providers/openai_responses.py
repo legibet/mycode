@@ -153,7 +153,7 @@ class OpenAIResponsesAdapter(ProviderAdapter):
             if has_images:
                 output: str | list[dict[str, Any]] = self._serialize_input_content(result_blocks)
             else:
-                output = str(block.get("model_text") or "")
+                output = str(block.get("output") or "")
             items.append(
                 {
                     "type": "function_call_output",

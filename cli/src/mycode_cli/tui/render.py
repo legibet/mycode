@@ -393,10 +393,9 @@ class ReplyRenderer:
                 case "tool_output":
                     self.tool_output(event.data.get("output", ""))
                 case "tool_done":
-                    model_text = str(event.data.get("model_text") or "")
-                    display_text = str(event.data.get("display_text") or "")
+                    output = str(event.data.get("output") or "")
                     is_error = bool(event.data.get("is_error"))
-                    self.tool_done(model_text, display_text, is_error=is_error)
+                    self.tool_done(output, is_error=is_error)
                     if is_error:
                         exit_code = 1
                 case "compact":
@@ -474,9 +473,9 @@ class ReplyRenderer:
             text.append(line, style=MUTED)
             self._console.print(text)
 
-    def tool_done(self, model_text: str, display_text: str, *, is_error: bool) -> None:
+    def tool_done(self, output: str, *, is_error: bool) -> None:
         """Render the final tool result."""
-        shown_text = display_text or model_text
+        shown_text = output
 
         elapsed = 0.0
         if self._tool_start_time is not None:

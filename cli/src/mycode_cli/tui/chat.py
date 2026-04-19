@@ -356,13 +356,13 @@ class TerminalChat:
 
             # Reuse the existing read tool so attached text files follow the same
             # UTF-8, truncation, and long-line rules as agent-initiated reads.
-            result = self.agent.tools.execute("read", {"path": path_text})
+            result = self.agent.tool_ctx.read(path_text)
             if result.is_error:
                 continue
 
             blocks.append(
                 text_block(
-                    f'<file name="{html.escape(path_text, quote=True)}">\n{result.model_text}\n</file>',
+                    f'<file name="{html.escape(path_text, quote=True)}">\n{result.output}\n</file>',
                     meta={"attachment": True, "path": path_text},
                 )
             )

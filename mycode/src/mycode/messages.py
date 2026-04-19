@@ -92,25 +92,28 @@ def tool_use_block(
 def tool_result_block(
     *,
     tool_use_id: str,
-    model_text: str,
-    display_text: str,
+    output: str,
+    metadata: dict[str, Any] | None = None,
     is_error: bool = False,
     content: list[ContentBlock] | None = None,
     meta: dict[str, Any] | None = None,
 ) -> ContentBlock:
     """Build a tool-result block.
 
-    `model_text` is replayed back to providers on later turns.
-    `display_text` is the user-facing text shown by CLI and web UI.
+    `output` is replayed back to providers on later turns.
+    `content` carries multimodal blocks (e.g. images) that providers should
+    replay alongside the text. `metadata` is an optional structured payload
+    for UI consumption (e.g. edit diff line numbers).
     """
 
     block: ContentBlock = {
         "type": "tool_result",
         "tool_use_id": tool_use_id,
-        "model_text": model_text,
-        "display_text": display_text,
+        "output": output,
         "is_error": is_error,
     }
+    if metadata:
+        block["metadata"] = dict(metadata)
     if content:
         block["content"] = [dict(item) for item in content]
     if meta:

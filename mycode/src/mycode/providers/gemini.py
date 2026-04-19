@@ -198,7 +198,7 @@ class GoogleGeminiAdapter(ProviderAdapter):
                     continue
 
                 tool_id = str(block.get("tool_use_id") or "")
-                response: dict[str, Any] = {"result": str(block.get("model_text") or "")}
+                response: dict[str, Any] = {"result": str(block.get("output") or "")}
                 if block.get("is_error"):
                     response["is_error"] = True
 

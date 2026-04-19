@@ -84,14 +84,14 @@ def stream_ping(context: ToolContext, text: str) -> ToolExecutionResult:
 
     if context.emit:
         context.emit(f"stream: {text}")
-    return ToolExecutionResult(model_text=f"done: {text}", display_text=f"done: {text}")
+    return ToolExecutionResult(output=f"done: {text}")
 
 
 @tool
 def read_back(context: ToolContext, path: str) -> str:
     """Read a file through the built-in read tool."""
 
-    return context.call("read", {"path": path}).model_text
+    return context.read(path).output
 
 
 def _new_agent(tmp_path: Path, **overrides) -> Agent:
@@ -205,7 +205,7 @@ async def test_custom_tool_can_reuse_builtin_tools(tmp_path: Path) -> None:
         events = [ev async for ev in agent.achat("Read note.txt and repeat it.")]
 
     assert [ev.type for ev in events] == ["tool_start", "tool_done"]
-    assert events[1].data["model_text"] == "hello from sdk"
+    assert events[1].data["output"] == "hello from sdk"
 
 
 def test_tool_decorator_infers_schema_from_signature() -> None:
@@ -235,10 +235,9 @@ def test_tool_path_annotation_passes_path_instance(tmp_path: Path) -> None:
 
     assert show.input_schema["properties"]["target"] == {"type": "string"}
 
-    result = show.runner(
-        ToolContext(executor=ToolExecutor(cwd=".", tool_output_dir=tmp_path / "_p")),
-        {"target": "/etc/hosts"},
-    )
+    executor = ToolExecutor([show])
+    ctx = ToolContext(executor=executor, cwd=".", tool_output_dir=tmp_path / "_p")
+    result = show.runner(ctx, {"target": "/etc/hosts"})
     assert isinstance(captured["value"], Path)
     assert captured["value"] == Path("/etc/hosts")
-    assert result.model_text == "/etc/hosts"
+    assert result.output == "/etc/hosts"

@@ -338,8 +338,7 @@ def _interrupted_tool_result_message(tool_use_ids: list[str]) -> ConversationMes
         [
             tool_result_block(
                 tool_use_id=tool_use_id,
-                model_text="error: tool call was interrupted",
-                display_text="Tool call was interrupted",
+                output="error: tool call was interrupted",
                 is_error=True,
             )
             for tool_use_id in tool_use_ids
@@ -384,4 +383,4 @@ def tool_result_content_blocks(block: dict[str, Any]) -> list[dict[str, Any]]:
         structured = [dict(item) for item in raw_content if isinstance(item, dict)]
         if structured:
             return structured
-    return [text_block(str(block.get("model_text") or ""))]
+    return [text_block(str(block.get("output") or ""))]
