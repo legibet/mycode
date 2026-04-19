@@ -159,36 +159,24 @@ function getPreview(name: string, args?: Record<string, unknown>): string {
   }
 }
 
+/**
+ * Sum +N −M from metadata.edits. Numbers are computed backend-side via
+ * SequenceMatcher so TUI and web agree.
+ */
 function getEditStats(
-  args?: Record<string, unknown>,
+  metadata: Record<string, unknown> | null | undefined,
 ): { added: number; removed: number } | null {
-  if (!args) return null
-  const editArgs = args as EditArgs
-  const edits = editArgs.edits
+  if (!metadata) return null
+  const edits = (metadata as { edits?: unknown }).edits
   if (!Array.isArray(edits)) return null
-
   let added = 0
   let removed = 0
-  for (const entry of edits) {
-    if (
-      typeof entry?.oldText !== 'string' ||
-      typeof entry?.newText !== 'string'
-    )
-      continue
-    const oldSet = new Map<string, number>()
-    for (const line of entry.oldText.split('\n'))
-      oldSet.set(line, (oldSet.get(line) ?? 0) + 1)
-    const newSet = new Map<string, number>()
-    for (const line of entry.newText.split('\n'))
-      newSet.set(line, (newSet.get(line) ?? 0) + 1)
-    for (const [line, count] of oldSet) {
-      const nc = newSet.get(line) ?? 0
-      if (count > nc) removed += count - nc
-    }
-    for (const [line, count] of newSet) {
-      const oc = oldSet.get(line) ?? 0
-      if (count > oc) added += count - oc
-    }
+  for (const entry of edits as Array<{
+    added_lines?: unknown
+    removed_lines?: unknown
+  }>) {
+    if (typeof entry?.added_lines === 'number') added += entry.added_lines
+    if (typeof entry?.removed_lines === 'number') removed += entry.removed_lines
   }
   return { added, removed }
 }
@@ -218,12 +206,14 @@ const SUFFIX_HINT =
 function CollapsedSuffix({
   name,
   args,
+  metadata,
 }: {
   name: string
   args: Record<string, unknown> | undefined
+  metadata: Record<string, unknown> | null | undefined
 }) {
   if (name === 'edit') {
-    const stats = getEditStats(args)
+    const stats = getEditStats(metadata)
     if (!stats || (stats.added === 0 && stats.removed === 0)) return null
     return (
       <span className="shrink-0 ml-1.5 text-[12px] font-mono tabular-nums">
@@ -469,7 +459,9 @@ export const ToolCard = memo(function ToolCard({
           </span>
         )}
 
-        {!expanded && <CollapsedSuffix name={name} args={args} />}
+        {!expanded && (
+          <CollapsedSuffix name={name} args={args} metadata={metadata} />
+        )}
 
         <span className="flex-1" />
 

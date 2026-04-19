@@ -313,6 +313,8 @@ export interface EditMeta {
   start_line: number
   old_line_count: number
   new_line_count: number
+  added_lines: number
+  removed_lines: number
   context_before?: string[]
   context_after?: string[]
 }
