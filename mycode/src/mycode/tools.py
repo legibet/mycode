@@ -637,9 +637,11 @@ def _run_edit(ctx: ToolContext, args: dict[str, Any]) -> ToolExecutionResult:
     except Exception as exc:
         return ToolExecutionResult(output=f"error: failed to write file: {exc}", is_error=True)
 
-    # Per-edit metadata for the web diff view. ``matches`` is sorted by
-    # original offset; track cumulative char shift to compute correct line
-    # numbers in the updated text.
+    # Per-edit metadata for the web diff view and +N −M suffix. ``matches``
+    # is sorted by original offset; track cumulative char shift to compute
+    # correct line numbers in the updated text. ``added_lines`` /
+    # ``removed_lines`` are authoritative diff stats derived from
+    # ``SequenceMatcher`` so TUI and web display identical numbers.
     updated_lines = updated.splitlines()
     edit_metas: list[dict[str, Any]] = []
     char_shift = 0
@@ -649,8 +651,18 @@ def _run_edit(ctx: ToolContext, args: dict[str, Any]) -> ToolExecutionResult:
         old_snippet = text[start:end]
         new_start = start + char_shift
         start_line = updated[:new_start].count("\n") + 1
-        old_lc = len(old_snippet.splitlines()) or 1
-        new_lc = len(new_text.splitlines()) or 1
+        old_lines_list = old_snippet.splitlines()
+        new_lines_list = new_text.splitlines()
+        old_lc = len(old_lines_list) or 1
+        new_lc = len(new_lines_list) or 1
+
+        added = 0
+        removed = 0
+        for tag, i1, i2, j1, j2 in SequenceMatcher(None, old_lines_list, new_lines_list).get_opcodes():
+            if tag in ("replace", "delete"):
+                removed += i2 - i1
+            if tag in ("replace", "insert"):
+                added += j2 - j1
 
         si = start_line - 1
         before = updated_lines[max(0, si - context_lines) : si]
@@ -661,6 +673,8 @@ def _run_edit(ctx: ToolContext, args: dict[str, Any]) -> ToolExecutionResult:
                 "start_line": start_line,
                 "old_line_count": old_lc,
                 "new_line_count": new_lc,
+                "added_lines": added,
+                "removed_lines": removed,
                 "context_before": before,
                 "context_after": after,
             }

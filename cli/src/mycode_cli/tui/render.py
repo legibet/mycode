@@ -5,7 +5,6 @@ from __future__ import annotations
 import time
 from collections.abc import Awaitable, Callable
 from datetime import datetime
-from difflib import SequenceMatcher
 from typing import Any
 
 from rich.console import Console, ConsoleOptions, RenderResult
@@ -395,7 +394,9 @@ class ReplyRenderer:
                 case "tool_done":
                     output = str(event.data.get("output") or "")
                     is_error = bool(event.data.get("is_error"))
-                    self.tool_done(output, is_error=is_error)
+                    raw_meta = event.data.get("metadata")
+                    metadata = raw_meta if isinstance(raw_meta, dict) else None
+                    self.tool_done(output, is_error=is_error, metadata=metadata)
                     if is_error:
                         exit_code = 1
                 case "compact":
@@ -473,7 +474,13 @@ class ReplyRenderer:
             text.append(line, style=MUTED)
             self._console.print(text)
 
-    def tool_done(self, output: str, *, is_error: bool) -> None:
+    def tool_done(
+        self,
+        output: str,
+        *,
+        is_error: bool,
+        metadata: dict[str, Any] | None = None,
+    ) -> None:
         """Render the final tool result."""
         shown_text = output
 
@@ -491,7 +498,7 @@ class ReplyRenderer:
                 first_line = shown_text.split("\n", 1)[0][:100]
                 self._console.print(Text(f"    {first_line}", style=ERROR))
             else:
-                suffix = self._format_tool_suffix(self._tool_name, self._tool_args, duration)
+                suffix = self._format_tool_suffix(self._tool_name, self._tool_args, duration, metadata)
                 self._print_tool_header(self._tool_name, self._tool_args, suffix=suffix)
         else:
             # Bash: streaming tool
@@ -547,33 +554,35 @@ class ReplyRenderer:
             self._tool_live = None
 
     @staticmethod
-    def _format_tool_suffix(name: str, args: dict[str, Any], duration: str) -> Text | None:
-        """Build the inline suffix shown after the tool preview on success."""
+    def _format_tool_suffix(
+        name: str,
+        args: dict[str, Any],
+        duration: str,
+        metadata: dict[str, Any] | None = None,
+    ) -> Text | None:
+        """Build the inline suffix shown after the tool preview on success.
+
+        Edit stats read from ``metadata.edits`` (authoritative, computed
+        backend-side) so TUI and web display identical ``+N −M`` counts.
+        """
 
         parts = Text()
         lower = name.lower()
 
         if lower == "edit":
-            edits = args.get("edits")
+            edits = (metadata or {}).get("edits")
             if isinstance(edits, list):
                 added = 0
                 removed = 0
                 for entry in edits:
                     if not isinstance(entry, dict):
                         continue
-                    old_text = entry.get("oldText")
-                    new_text = entry.get("newText")
-                    if not isinstance(old_text, str) or not isinstance(new_text, str):
-                        continue
-                    for tag, old_start, old_end, new_start, new_end in SequenceMatcher(
-                        None,
-                        old_text.splitlines(),
-                        new_text.splitlines(),
-                    ).get_opcodes():
-                        if tag in {"replace", "delete"}:
-                            removed += old_end - old_start
-                        if tag in {"replace", "insert"}:
-                            added += new_end - new_start
+                    a = entry.get("added_lines")
+                    r = entry.get("removed_lines")
+                    if isinstance(a, int):
+                        added += a
+                    if isinstance(r, int):
+                        removed += r
                 parts.append(f"+{added}", style="green")
                 parts.append(f" −{removed}", style="red")
         elif lower == "read":

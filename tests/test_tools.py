@@ -504,6 +504,40 @@ class TestEdit:
             )
             assert test_file.read_text() == "a1\na2\nb\nC\n"
 
+    def test_edit_added_removed_line_stats(self):
+        """``added_lines`` / ``removed_lines`` in metadata reflect a real diff.
+
+        These numbers drive the shared ``+N −M`` indicator in both TUI and
+        web — they must match ``difflib.SequenceMatcher`` semantics so the
+        two surfaces agree.
+        """
+
+        cases = [
+            # single-line replace
+            ("foo\n", "foo", "bar", 1, 1),
+            # pure insert (one line becomes three, two new)
+            ("foo\n", "foo", "foo\nbar\nbaz", 2, 0),
+            # pure delete
+            ("a\nb\nc\n", "a\nb\nc", "a\nc", 0, 1),
+            # multi-line replace with shared prefix/suffix
+            ("x\nold1\nold2\ny\n", "old1\nold2", "new1\nnew2\nnew3", 3, 2),
+            # reorder — SequenceMatcher keeps one common line
+            ("A\nB\n", "A\nB", "B\nA", 1, 1),
+        ]
+        for initial, old_text, new_text, expected_added, expected_removed in cases:
+            with tempfile.TemporaryDirectory() as tmpdir:
+                test_file = Path(tmpdir) / "f.txt"
+                test_file.write_text(initial)
+                result = _ctx(tmpdir).edit(
+                    "f.txt",
+                    [{"oldText": old_text, "newText": new_text}],
+                )
+                assert result.is_error is False
+                assert result.metadata is not None
+                edit = result.metadata["edits"][0]
+                assert edit["added_lines"] == expected_added, (old_text, new_text, edit)
+                assert edit["removed_lines"] == expected_removed, (old_text, new_text, edit)
+
 
 class TestAbsolutePath:
     def test_read_absolute_path(self):
