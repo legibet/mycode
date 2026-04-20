@@ -550,7 +550,7 @@ class ReplyRenderer:
 
     def _stop_tool_live(self) -> None:
         if self._tool_live is not None:
-            self._tool_live.stop()
+            self._clear_live(self._tool_live)
             self._tool_live = None
 
     @staticmethod
@@ -669,12 +669,7 @@ class ReplyRenderer:
         self._thinking_collapsed = True
 
         if self._live is not None:
-            # Rich's stop() refreshes the last renderable once more before
-            # restoring the cursor. Blank it first so a final spinner frame
-            # can't get stranded in terminals that occasionally miss the clear.
-            self._live.transient = True
-            self._live.update(Text(""))
-            self._live.stop()
+            self._clear_live(self._live)
             self._live = None
 
         duration = ""
@@ -714,7 +709,7 @@ class ReplyRenderer:
         """Stop live rendering and clear transient buffers for the current phase."""
 
         if self._live is not None:
-            self._live.stop()
+            self._clear_live(self._live)
             self._live = None
         self._stop_tool_live()
         self._reasoning.clear()
@@ -722,6 +717,12 @@ class ReplyRenderer:
         self._printed_static_reasoning = False
         self._thinking_collapsed = False
         self._thinking_start_time = None
+
+    @staticmethod
+    def _clear_live(live: Live) -> None:
+        live.transient = True
+        live.update(Text(""))
+        live.stop()
 
     def _build_live_renderable(self) -> Spinner | _LeftMarkdown:
         """Build the Rich renderable used while a reply is streaming."""
