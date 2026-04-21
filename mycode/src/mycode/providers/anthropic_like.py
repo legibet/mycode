@@ -311,7 +311,7 @@ class AnthropicAdapter(AnthropicLikeAdapter):
     provider_id = "anthropic"
     label = "Anthropic"
     default_base_url = "https://api.anthropic.com"
-    env_api_key_names = ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN")
+    env_api_key_names = ("ANTHROPIC_API_KEY",)
     default_models = ("claude-sonnet-4-6", "claude-opus-4-7")
     supports_reasoning_effort = True
 

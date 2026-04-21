@@ -51,7 +51,6 @@ def _disable_live_models_dev_lookup(monkeypatch) -> None:
 def _clear_provider_env(monkeypatch) -> None:
     for env_name in (
         "ANTHROPIC_API_KEY",
-        "ANTHROPIC_AUTH_TOKEN",
         "GEMINI_API_KEY",
         "GOOGLE_API_KEY",
         "OPENAI_API_KEY",
@@ -176,6 +175,22 @@ class TestGetSettings:
         assert resolved.model == "claude-sonnet-4-6"
         assert resolved.api_key == "config-key"
         assert resolved.api_base == "https://config.example/v1"
+
+    def test_resolve_provider_ignores_anthropic_auth_token_env(self, tmp_path: Path, monkeypatch) -> None:
+        home = tmp_path / "home"
+        workspace = tmp_path / "workspace"
+        workspace.mkdir()
+
+        monkeypatch.setenv("MYCODE_HOME", str(home / ".mycode"))
+        monkeypatch.setenv("ANTHROPIC_AUTH_TOKEN", "env-token")
+
+        settings = get_settings(str(workspace))
+
+        with pytest.raises(ValueError, match="no available providers found") as exc_info:
+            resolve_provider(settings)
+
+        assert "ANTHROPIC_API_KEY" in str(exc_info.value)
+        assert "ANTHROPIC_AUTH_TOKEN" not in str(exc_info.value)
 
     def test_resolve_provider_accepts_raw_supported_provider(self, tmp_path: Path, monkeypatch) -> None:
         home = tmp_path / "home"

@@ -41,7 +41,7 @@ class ProviderAdapter(ABC):
 - SDK: `anthropic` (official)
 - API: Anthropic Messages API
 - Base URL: `https://api.anthropic.com`
-- API key env: `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`
+- API key env: `ANTHROPIC_API_KEY`
 - Default models: `claude-sonnet-4-6`, `claude-opus-4-7`
 - `supports_reasoning_effort`: true
 - Adaptive thinking for `claude-sonnet-4-6` / `claude-opus-4-6` / `claude-opus-4-7`; manual `budget_tokens` for older reasoning models
