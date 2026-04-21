@@ -23,11 +23,10 @@ class _CaptureAdapter:
 
 
 def _ping_runner(_ctx: ToolContext, args: dict[str, object]) -> ToolExecutionResult:
-    text = str(args.get("text") or "")
-    return ToolExecutionResult(output=text)
+    return ToolExecutionResult(output=str(args.get("text") or ""))
 
 
-_PING_TOOL = ToolSpec(
+PING_TOOL = ToolSpec(
     name="ping",
     description="Echoes a short string.",
     input_schema={
@@ -40,64 +39,46 @@ _PING_TOOL = ToolSpec(
 )
 
 
-@pytest.mark.asyncio
-async def test_agent_passes_session_id_to_provider_request(tmp_path: Path) -> None:
+async def capture_request(tmp_path: Path, **agent_kwargs):
     adapter = _CaptureAdapter()
     agent = Agent(
         model="gpt-5.4",
         provider="openai",
         cwd=str(tmp_path),
-        session_dir=tmp_path / "session-explicit",
-        session_id="session-explicit",
+        session_dir=tmp_path / "session",
+        **agent_kwargs,
     )
 
     with patch("mycode.agent.get_provider_adapter", return_value=adapter):
         _ = [event async for event in agent.achat("hello")]
 
-    assert adapter.requests[0].session_id == "session-explicit"
+    return adapter.requests[0]
 
 
 @pytest.mark.asyncio
-async def test_agent_uses_explicit_system_prompt_when_provided(tmp_path: Path) -> None:
-    adapter = _CaptureAdapter()
-    agent = Agent(
-        model="gpt-5.4",
-        provider="openai",
-        cwd=str(tmp_path),
-        session_dir=tmp_path / "session-explicit-system",
-        system="Use this exact system prompt.",
-    )
+class TestAgentProviderRequest:
+    async def test_includes_session_id(self, tmp_path: Path) -> None:
+        request = await capture_request(tmp_path, session_id="session-explicit")
 
-    with patch("mycode.agent.get_provider_adapter", return_value=adapter):
-        _ = [event async for event in agent.achat("hello")]
+        assert request.session_id == "session-explicit"
 
-    assert adapter.requests[0].system == "Use this exact system prompt."
+    async def test_uses_explicit_system_prompt(self, tmp_path: Path) -> None:
+        request = await capture_request(tmp_path, system="Use this exact system prompt.")
 
+        assert request.system == "Use this exact system prompt."
 
-@pytest.mark.asyncio
-async def test_agent_uses_tool_definitions_in_provider_request(tmp_path: Path) -> None:
-    adapter = _CaptureAdapter()
-    session_dir = tmp_path / "session-custom-tools"
-    agent = Agent(
-        model="gpt-5.4",
-        provider="openai",
-        cwd=str(tmp_path),
-        session_dir=session_dir,
-        tools=[_PING_TOOL],
-    )
+    async def test_includes_custom_tool_definitions(self, tmp_path: Path) -> None:
+        request = await capture_request(tmp_path, tools=[PING_TOOL])
 
-    with patch("mycode.agent.get_provider_adapter", return_value=adapter):
-        _ = [event async for event in agent.achat("hello")]
-
-    assert adapter.requests[0].tools == [
-        {
-            "name": "ping",
-            "description": "Echoes a short string.",
-            "input_schema": {
-                "type": "object",
-                "properties": {"text": {"type": "string", "description": "Text to echo."}},
-                "required": ["text"],
-                "additionalProperties": False,
-            },
-        }
-    ]
+        assert request.tools == [
+            {
+                "name": "ping",
+                "description": "Echoes a short string.",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {"text": {"type": "string", "description": "Text to echo."}},
+                    "required": ["text"],
+                    "additionalProperties": False,
+                },
+            }
+        ]

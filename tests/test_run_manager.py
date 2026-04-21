@@ -9,6 +9,8 @@ import pytest
 from mycode.agent import Event
 from mycode_cli.server.run_manager import ActiveRunError, RunManager
 
+pytestmark = pytest.mark.asyncio
+
 
 class BlockingAgent:
     def __init__(self) -> None:
@@ -36,8 +38,7 @@ class SimpleAgent:
         yield Event("text", {"delta": f"reply:{text}"})
 
 
-@pytest.mark.asyncio
-async def test_snapshot_includes_user_message_and_pending_events():
+async def test_snapshot_includes_user_message_and_pending_events() -> None:
     manager = RunManager()
     agent = BlockingAgent()
 
@@ -69,12 +70,11 @@ async def test_snapshot_includes_user_message_and_pending_events():
     await state.task
 
 
-@pytest.mark.asyncio
-async def test_same_session_cannot_start_second_run():
+async def test_same_session_cannot_start_second_run() -> None:
     manager = RunManager()
     first_agent = BlockingAgent()
 
-    run = await manager.start_run(
+    first = await manager.start_run(
         session_id="session-1",
         user_message={"role": "user", "content": [{"type": "text", "text": "first"}]},
         base_messages=[],
@@ -89,14 +89,13 @@ async def test_same_session_cannot_start_second_run():
             agent=BlockingAgent(),
         )
 
-    first_agent.release.set()
-    state = await manager.get_run(run["id"])
+    state = await manager.get_run(first["id"])
     assert state is not None and state.task is not None
+    first_agent.release.set()
     await state.task
 
 
-@pytest.mark.asyncio
-async def test_cancel_only_marks_target_run_cancelled():
+async def test_cancel_only_marks_target_run_cancelled() -> None:
     manager = RunManager()
     first_agent = BlockingAgent()
     second_agent = BlockingAgent()
@@ -132,8 +131,7 @@ async def test_cancel_only_marks_target_run_cancelled():
     await updated_second.task
 
 
-@pytest.mark.asyncio
-async def test_finished_run_stays_available_for_reconnect_window():
+async def test_finished_run_stays_available_for_reconnect_window() -> None:
     manager = RunManager()
 
     run = await manager.start_run(

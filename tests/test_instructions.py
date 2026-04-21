@@ -5,64 +5,65 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
+
 from mycode_cli.config import get_settings
 from mycode_cli.system_prompt import discover_instruction_files, load_instructions_prompt
 
 
-def _write(path: Path, content: str) -> None:
+def write_file(path: Path, content: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content, encoding="utf-8")
 
 
-class TestInstructions:
-    def test_prefers_mycode_global_agents_and_current_cwd_agents(self, tmp_path: Path, monkeypatch) -> None:
-        home = tmp_path / "home"
-        project = tmp_path / "project"
-        cwd = project / "apps" / "api"
-        cwd.mkdir(parents=True)
+@pytest.fixture
+def home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    path = tmp_path / "home"
+    monkeypatch.setenv("MYCODE_HOME", str(path / ".mycode"))
+    return path
 
-        monkeypatch.setenv("MYCODE_HOME", str(home / ".mycode"))
 
-        _write(home / ".agents" / "AGENTS.md", "Global compat")
-        _write(home / ".mycode" / "AGENTS.md", "Global native")
-        _write(cwd / "AGENTS.md", "Current cwd")
+def test_prefers_native_global_agents_and_current_cwd_agents(tmp_path: Path, home: Path) -> None:
+    project = tmp_path / "project"
+    cwd = project / "apps" / "api"
+    cwd.mkdir(parents=True)
 
-        with patch("mycode_cli.system_prompt.Path.home", return_value=home):
-            settings = get_settings(str(cwd))
-            files = discover_instruction_files(str(cwd), settings)
-            prompt = load_instructions_prompt(str(cwd), settings)
+    write_file(home / ".agents" / "AGENTS.md", "Global compat")
+    write_file(home / ".mycode" / "AGENTS.md", "Global native")
+    write_file(cwd / "AGENTS.md", "Current cwd")
 
-        assert [str(path.resolve()) for path in files] == [
-            str((home / ".mycode" / "AGENTS.md").resolve()),
-            str((cwd / "AGENTS.md").resolve()),
-        ]
-        assert "Global native" in prompt
-        assert "Current cwd" in prompt
-        assert "Global compat" not in prompt
+    with patch("mycode_cli.system_prompt.Path.home", return_value=home):
+        settings = get_settings(str(cwd))
+        files = discover_instruction_files(str(cwd), settings)
+        prompt = load_instructions_prompt(str(cwd), settings)
 
-    def test_does_not_load_parent_agents_from_nested_cwd(self, tmp_path: Path, monkeypatch) -> None:
-        home = tmp_path / "home"
-        project = tmp_path / "project"
-        cwd = project / "apps" / "api"
-        cwd.mkdir(parents=True)
+    assert [str(path.resolve()) for path in files] == [
+        str((home / ".mycode" / "AGENTS.md").resolve()),
+        str((cwd / "AGENTS.md").resolve()),
+    ]
+    assert "Global native" in prompt
+    assert "Current cwd" in prompt
+    assert "Global compat" not in prompt
 
-        monkeypatch.setenv("MYCODE_HOME", str(home / ".mycode"))
-        _write(project / "AGENTS.md", "Parent project")
 
-        with patch("mycode_cli.system_prompt.Path.home", return_value=home):
-            prompt = load_instructions_prompt(str(cwd))
+def test_does_not_load_parent_agents_from_nested_cwd(tmp_path: Path, home: Path) -> None:
+    project = tmp_path / "project"
+    cwd = project / "apps" / "api"
+    cwd.mkdir(parents=True)
+    write_file(project / "AGENTS.md", "Parent project")
 
-        assert "Parent project" not in prompt
+    with patch("mycode_cli.system_prompt.Path.home", return_value=home):
+        prompt = load_instructions_prompt(str(cwd))
 
-    def test_uses_agents_global_when_mycode_missing(self, tmp_path: Path, monkeypatch) -> None:
-        home = tmp_path / "home"
-        workspace = tmp_path / "workspace"
-        workspace.mkdir()
+    assert "Parent project" not in prompt
 
-        monkeypatch.setenv("MYCODE_HOME", str(home / ".mycode"))
-        _write(home / ".agents" / "AGENTS.md", "Compat global")
 
-        with patch("mycode_cli.system_prompt.Path.home", return_value=home):
-            prompt = load_instructions_prompt(str(workspace))
+def test_uses_compat_global_agents_when_native_is_missing(tmp_path: Path, home: Path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    write_file(home / ".agents" / "AGENTS.md", "Compat global")
 
-        assert "Compat global" in prompt
+    with patch("mycode_cli.system_prompt.Path.home", return_value=home):
+        prompt = load_instructions_prompt(str(workspace))
+
+    assert "Compat global" in prompt

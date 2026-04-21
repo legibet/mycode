@@ -2,41 +2,42 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
+import pytest
 from starlette.routing import Mount
 from starlette.testclient import TestClient
 
 from mycode_cli.server.app import create_api_app, create_app
 
 
-def _mount_paths(app) -> list[str]:
+def mount_paths(app) -> list[str]:
     return [route.path for route in app.routes if isinstance(route, Mount)]
 
 
-def test_create_app_mounts_web_when_static_exists(tmp_path, monkeypatch) -> None:
-    (tmp_path / "index.html").write_text("<html></html>", encoding="utf-8")
-    monkeypatch.setattr("mycode_cli.server.app.web_static_path", lambda: tmp_path)
+@pytest.mark.parametrize(
+    ("factory", "has_static", "expected_mounts"),
+    [
+        (create_app, True, [""]),
+        (create_app, False, []),
+        (create_api_app, True, []),
+    ],
+)
+def test_web_mount_behavior(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    factory,
+    has_static: bool,
+    expected_mounts: list[str],
+) -> None:
+    static_dir = tmp_path if has_static else tmp_path / "missing"
+    if has_static:
+        (static_dir / "index.html").write_text("<html></html>", encoding="utf-8")
+    monkeypatch.setattr("mycode_cli.server.app.web_static_path", lambda: static_dir)
 
-    app = create_app()
+    app = factory()
 
-    assert "" in _mount_paths(app)
-
-
-def test_create_app_skips_web_mount_when_static_missing(tmp_path, monkeypatch) -> None:
-    missing = tmp_path / "static"
-    monkeypatch.setattr("mycode_cli.server.app.web_static_path", lambda: missing)
-
-    app = create_app()
-
-    assert _mount_paths(app) == []
-
-
-def test_create_api_app_skips_web_mount(tmp_path, monkeypatch) -> None:
-    (tmp_path / "index.html").write_text("<html></html>", encoding="utf-8")
-    monkeypatch.setattr("mycode_cli.server.app.web_static_path", lambda: tmp_path)
-
-    app = create_api_app()
-
-    assert _mount_paths(app) == []
+    assert mount_paths(app) == expected_mounts
 
 
 def test_create_app_starts_without_models_catalog_side_effects() -> None:

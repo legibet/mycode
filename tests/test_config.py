@@ -1,38 +1,29 @@
-"""Tests for config loading."""
+"""Tests for config loading and provider resolution."""
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
 
-from mycode.agent import Agent
 from mycode.models import ModelMetadata
+from mycode.providers import list_env_discoverable_providers, provider_env_api_key_names
 from mycode.session import SessionStore
-from mycode_cli.config import ResolvedProvider, Settings, get_settings, resolve_provider
+from mycode_cli.config import get_settings, resolve_provider
 from mycode_cli.runtime import build_agent
 
 
-def _write(path: Path, content: str) -> None:
+def write_json(path: Path, payload: object) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(content, encoding="utf-8")
+    path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
 
-def _patch_metadata(monkeypatch, metadata: ModelMetadata | None) -> None:
-    """Patch the catalog lookup at its source so every caller sees ``metadata``."""
-
+def patch_metadata(monkeypatch: pytest.MonkeyPatch, metadata: ModelMetadata | None) -> None:
     monkeypatch.setattr("mycode.models.lookup_model_metadata", lambda **_: metadata)
 
 
-def _agent_for(
-    *,
-    tmp_path: Path,
-    cwd: Path,
-    settings: Settings,
-    resolved: ResolvedProvider,
-) -> Agent:
-    """Build an agent for capability-inference assertions."""
-
+def build_test_agent(tmp_path: Path, cwd: Path, settings, resolved):
     return build_agent(
         store=SessionStore(data_dir=tmp_path / "sessions"),
         cwd=str(cwd),
@@ -43,73 +34,68 @@ def _agent_for(
 
 
 @pytest.fixture(autouse=True)
-def _disable_live_models_dev_lookup(monkeypatch) -> None:
-    _patch_metadata(monkeypatch, None)
+def clear_provider_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    for provider in list_env_discoverable_providers():
+        for env_name in provider_env_api_key_names(provider):
+            monkeypatch.delenv(env_name, raising=False)
+    monkeypatch.delenv("ANTHROPIC_AUTH_TOKEN", raising=False)
 
 
 @pytest.fixture(autouse=True)
-def _clear_provider_env(monkeypatch) -> None:
-    for env_name in (
-        "ANTHROPIC_API_KEY",
-        "GEMINI_API_KEY",
-        "GOOGLE_API_KEY",
-        "OPENAI_API_KEY",
-        "MOONSHOT_API_KEY",
-        "MINIMAX_API_KEY",
-        "DEEPSEEK_API_KEY",
-        "ZAI_API_KEY",
-        "OPENROUTER_API_KEY",
-    ):
-        monkeypatch.delenv(env_name, raising=False)
+def disable_live_models_dev_lookup(monkeypatch: pytest.MonkeyPatch) -> None:
+    patch_metadata(monkeypatch, None)
+
+
+@pytest.fixture
+def config_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    home = tmp_path / "home" / ".mycode"
+    monkeypatch.setenv("MYCODE_HOME", str(home))
+    return home
+
+
+@pytest.fixture
+def workspace(tmp_path: Path, config_home: Path) -> Path:
+    path = tmp_path / "workspace"
+    path.mkdir()
+    return path
 
 
 class TestGetSettings:
-    def test_merges_global_and_project_configs(self, tmp_path: Path, monkeypatch) -> None:
-        home = tmp_path / "home"
+    def test_merges_global_and_project_configs(self, tmp_path: Path, config_home: Path) -> None:
         project = tmp_path / "project"
         cwd = project / "apps" / "api"
         cwd.mkdir(parents=True)
         (project / ".git").mkdir()
 
-        monkeypatch.setenv("MYCODE_HOME", str(home / ".mycode"))
-
-        _write(
-            home / ".mycode" / "config.json",
-            """
+        global_config = config_home / "config.json"
+        project_config = project / ".mycode" / "config.json"
+        write_json(
+            global_config,
             {
-              "providers": {
-                "shared": {
-                  "type": "openai",
-                  "api_key": "global-key",
-                  "models": {"gpt-5-mini": {}}
-                }
-              },
-              "default": {
-                "provider": "shared",
-                "model": "gpt-5-mini"
-              }
-            }
-            """,
+                "providers": {
+                    "shared": {
+                        "type": "openai",
+                        "api_key": "global-key",
+                        "models": {"gpt-5-mini": {}},
+                    }
+                },
+                "default": {"provider": "shared", "model": "gpt-5-mini"},
+            },
         )
-        _write(
-            project / ".mycode" / "config.json",
-            """
+        write_json(
+            project_config,
             {
-              "default": {
-                "provider": "shared",
-                "model": "gpt-5.4"
-              },
-              "providers": {
-                "shared": {
-                  "base_url": "https://root.example/v1",
-                  "models": {"gpt-5.4": {}}
-                }
-              }
-            }
-            """,
+                "default": {"provider": "shared", "model": "gpt-5.4"},
+                "providers": {
+                    "shared": {
+                        "base_url": "https://root.example/v1",
+                        "models": {"gpt-5.4": {}},
+                    }
+                },
+            },
         )
 
-        settings = get_settings(str(cwd))
+        settings = get_settings(str(cwd.resolve()))
 
         assert settings.cwd == str(cwd.resolve())
         assert settings.workspace_root == str(project.resolve())
@@ -119,460 +105,73 @@ class TestGetSettings:
         assert settings.providers["shared"].base_url == "https://root.example/v1"
         assert list(settings.providers["shared"].models) == ["gpt-5.4"]
         assert settings.config_paths == [
-            str((home / ".mycode" / "config.json").resolve()),
-            str((project / ".mycode" / "config.json").resolve()),
+            str(global_config.resolve()),
+            str(project_config.resolve()),
         ]
 
-    def test_ignores_model_and_base_url_env_without_config(self, tmp_path: Path, monkeypatch) -> None:
-        home = tmp_path / "home"
-        workspace = tmp_path / "workspace"
-        workspace.mkdir()
-
-        monkeypatch.setenv("MYCODE_HOME", str(home / ".mycode"))
+    def test_ignores_legacy_env_without_config(
+        self, workspace: Path, monkeypatch: pytest.MonkeyPatch, config_home: Path
+    ) -> None:
         monkeypatch.setenv("MODEL", "openai:gpt-5.4")
         monkeypatch.setenv("BASE_URL", "https://env.example/v1")
         monkeypatch.setenv("OPENAI_API_KEY", "env-key")
 
-        settings = get_settings(str(workspace))
+        settings = get_settings(str(workspace.resolve()))
 
         assert settings.providers == {}
         assert settings.default_provider is None
         assert settings.default_model is None
 
-    def test_resolve_provider_prefers_configured_api_key_over_default_env(self, tmp_path: Path, monkeypatch) -> None:
-        home = tmp_path / "home"
-        workspace = tmp_path / "workspace"
-        workspace.mkdir()
-
-        monkeypatch.setenv("MYCODE_HOME", str(home / ".mycode"))
-        monkeypatch.setenv("ANTHROPIC_API_KEY", "env-key")
-        monkeypatch.setenv("BASE_URL", "https://env.example/v1")
-
-        _write(
-            home / ".mycode" / "config.json",
-            """
+    def test_ignores_agents_compat_config(self, tmp_path: Path, workspace: Path, config_home: Path) -> None:
+        write_json(
+            tmp_path / "home" / ".agents" / "config.json",
             {
+                "default": {"provider": "compat"},
                 "providers": {
-                  "shared": {
-                    "type": "anthropic",
-                    "api_key": "config-key",
-                    "base_url": "https://config.example/v1",
-                    "models": {"claude-sonnet-4-6": {}}
-                  }
+                    "compat": {
+                        "type": "openai",
+                        "models": {"gpt-5.4": {}},
+                    }
                 },
-                "default": {
-                  "provider": "shared",
-                  "model": "claude-sonnet-4-6"
-                }
-              }
-            """,
+            },
         )
 
-        settings = get_settings(str(workspace))
-        resolved = resolve_provider(settings)
-
-        assert resolved.provider == "anthropic"
-        assert resolved.model == "claude-sonnet-4-6"
-        assert resolved.api_key == "config-key"
-        assert resolved.api_base == "https://config.example/v1"
-
-    def test_resolve_provider_ignores_anthropic_auth_token_env(self, tmp_path: Path, monkeypatch) -> None:
-        home = tmp_path / "home"
-        workspace = tmp_path / "workspace"
-        workspace.mkdir()
-
-        monkeypatch.setenv("MYCODE_HOME", str(home / ".mycode"))
-        monkeypatch.setenv("ANTHROPIC_AUTH_TOKEN", "env-token")
-
-        settings = get_settings(str(workspace))
-
-        with pytest.raises(ValueError, match="no available providers found") as exc_info:
-            resolve_provider(settings)
-
-        assert "ANTHROPIC_API_KEY" in str(exc_info.value)
-        assert "ANTHROPIC_AUTH_TOKEN" not in str(exc_info.value)
-
-    def test_resolve_provider_accepts_raw_supported_provider(self, tmp_path: Path, monkeypatch) -> None:
-        home = tmp_path / "home"
-        workspace = tmp_path / "workspace"
-        workspace.mkdir()
-
-        monkeypatch.setenv("MYCODE_HOME", str(home / ".mycode"))
-        monkeypatch.setenv("MOONSHOT_API_KEY", "moonshot-env-key")
-
-        settings = get_settings(str(workspace))
-        resolved = resolve_provider(settings, provider_name="moonshotai", model="kimi-k2-thinking")
-
-        assert resolved.provider == "moonshotai"
-        assert resolved.model == "kimi-k2-thinking"
-        assert resolved.api_key == "moonshot-env-key"
-
-    def test_resolve_provider_accepts_raw_google_provider(self, tmp_path: Path, monkeypatch) -> None:
-        home = tmp_path / "home"
-        workspace = tmp_path / "workspace"
-        workspace.mkdir()
-
-        monkeypatch.setenv("MYCODE_HOME", str(home / ".mycode"))
-        monkeypatch.setenv("GEMINI_API_KEY", "gemini-env-key")
-
-        settings = get_settings(str(workspace))
-        resolved = resolve_provider(settings, provider_name="google")
-
-        assert resolved.provider == "google"
-        assert resolved.model == "gemini-3.1-pro-preview"
-        assert resolved.api_key == "gemini-env-key"
-
-    def test_resolve_provider_reads_pdf_support_from_model_metadata(self, tmp_path: Path, monkeypatch) -> None:
-        home = tmp_path / "home"
-        workspace = tmp_path / "workspace"
-        workspace.mkdir()
-
-        monkeypatch.setenv("MYCODE_HOME", str(home / ".mycode"))
-        monkeypatch.setenv("OPENAI_API_KEY", "openai-env-key")
-        _patch_metadata(
-            monkeypatch,
-            ModelMetadata(
-                provider="openai",
-                model="gpt-5.4",
-                context_window=1_000_000,
-                max_output_tokens=128_000,
-                supports_reasoning=True,
-                supports_image_input=True,
-                supports_pdf_input=True,
-            ),
-        )
-
-        settings = get_settings(str(workspace))
-        resolved = resolve_provider(settings, provider_name="openai", model="gpt-5.4")
-
-        agent = _agent_for(tmp_path=tmp_path, cwd=workspace, settings=settings, resolved=resolved)
-        assert agent.supports_pdf_input is True
-
-    def test_resolve_provider_auto_discovers_first_available_provider(self, tmp_path: Path, monkeypatch) -> None:
-        home = tmp_path / "home"
-        workspace = tmp_path / "workspace"
-        workspace.mkdir()
-
-        monkeypatch.setenv("MYCODE_HOME", str(home / ".mycode"))
-        monkeypatch.setenv("OPENAI_API_KEY", "openai-env-key")
-        monkeypatch.setenv("MOONSHOT_API_KEY", "moonshot-env-key")
-
-        settings = get_settings(str(workspace))
-        resolved = resolve_provider(settings)
-
-        assert resolved.provider_name == "openai"
-        assert resolved.provider == "openai"
-        assert resolved.model == "gpt-5.4"
-        assert resolved.api_key == "openai-env-key"
-
-    def test_resolve_provider_prefers_first_configured_provider_with_credentials(
-        self, tmp_path: Path, monkeypatch
-    ) -> None:
-        home = tmp_path / "home"
-        workspace = tmp_path / "workspace"
-        workspace.mkdir()
-
-        monkeypatch.setenv("MYCODE_HOME", str(home / ".mycode"))
-        monkeypatch.setenv("ANTHROPIC_API_KEY", "anthropic-env-key")
-
-        _write(
-            home / ".mycode" / "config.json",
-            """
-            {
-              "providers": {
-                "shared": {
-                  "type": "openai",
-                  "api_key": "config-openai-key",
-                  "models": {"gpt-5.4-mini": {}}
-                }
-              }
-            }
-            """,
-        )
-
-        settings = get_settings(str(workspace))
-        resolved = resolve_provider(settings)
-
-        assert resolved.provider_name == "shared"
-        assert resolved.provider == "openai"
-        assert resolved.model == "gpt-5.4-mini"
-        assert resolved.api_key == "config-openai-key"
-
-    def test_resolve_provider_prefers_deepseek_before_openrouter_in_auto_discovery(
-        self, tmp_path: Path, monkeypatch
-    ) -> None:
-        home = tmp_path / "home"
-        workspace = tmp_path / "workspace"
-        workspace.mkdir()
-
-        monkeypatch.setenv("MYCODE_HOME", str(home / ".mycode"))
-        monkeypatch.setenv("DEEPSEEK_API_KEY", "deepseek-env-key")
-        monkeypatch.setenv("OPENROUTER_API_KEY", "openrouter-env-key")
-
-        settings = get_settings(str(workspace))
-        resolved = resolve_provider(settings)
-
-        assert resolved.provider_name == "deepseek"
-        assert resolved.provider == "deepseek"
-        assert resolved.model == "deepseek-chat"
-        assert resolved.api_key == "deepseek-env-key"
-
-    def test_resolve_provider_prefers_explicit_api_key_over_env(self, tmp_path: Path, monkeypatch) -> None:
-        home = tmp_path / "home"
-        workspace = tmp_path / "workspace"
-        workspace.mkdir()
-
-        monkeypatch.setenv("MYCODE_HOME", str(home / ".mycode"))
-        monkeypatch.setenv("ANTHROPIC_API_KEY", "env-key")
-
-        _write(
-            home / ".mycode" / "config.json",
-            """
-            {
-              "providers": {
-                "claude": {
-                  "type": "anthropic",
-                  "api_key": "config-key",
-                  "models": {"claude-sonnet-4-6": {}}
-                }
-              },
-              "default": {
-                "provider": "claude",
-                "model": "claude-sonnet-4-6"
-              }
-            }
-            """,
-        )
-
-        settings = get_settings(str(workspace))
-        resolved = resolve_provider(settings, api_key="request-key")
-
-        assert resolved.api_key == "request-key"
-
-    def test_resolve_provider_uses_configured_api_key_env_var_before_default_env(
-        self, tmp_path: Path, monkeypatch
-    ) -> None:
-        home = tmp_path / "home"
-        workspace = tmp_path / "workspace"
-        workspace.mkdir()
-
-        monkeypatch.setenv("MYCODE_HOME", str(home / ".mycode"))
-        monkeypatch.setenv("OPENAI_API_KEY", "default-env-key")
-        monkeypatch.setenv("OPENROUTER_API_KEY", "router-env-key")
-
-        _write(
-            home / ".mycode" / "config.json",
-            """
-            {
-              "providers": {
-                "router": {
-                  "type": "openai_chat",
-                  "api_key": "${OPENROUTER_API_KEY}",
-                  "base_url": "https://openrouter.ai/api/v1",
-                  "models": {"openai/gpt-5": {}}
-                }
-              },
-              "default": {
-                "provider": "router",
-                "model": "openai/gpt-5"
-              }
-            }
-            """,
-        )
-
-        settings = get_settings(str(workspace))
-        resolved = resolve_provider(settings)
-
-        assert resolved.api_key == "router-env-key"
-
-    def test_resolve_provider_errors_when_configured_api_key_env_var_is_missing(
-        self, tmp_path: Path, monkeypatch
-    ) -> None:
-        home = tmp_path / "home"
-        workspace = tmp_path / "workspace"
-        workspace.mkdir()
-
-        monkeypatch.setenv("MYCODE_HOME", str(home / ".mycode"))
-        monkeypatch.setenv("OPENAI_API_KEY", "default-env-key")
-        monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
-
-        _write(
-            home / ".mycode" / "config.json",
-            """
-            {
-              "providers": {
-                "router": {
-                  "type": "openai_chat",
-                  "api_key": "${OPENROUTER_API_KEY}",
-                  "base_url": "https://openrouter.ai/api/v1",
-                  "models": {"openai/gpt-5": {}}
-                }
-              },
-              "default": {
-                "provider": "router",
-                "model": "openai/gpt-5"
-              }
-            }
-            """,
-        )
-
-        settings = get_settings(str(workspace))
-
-        with pytest.raises(ValueError, match="OPENROUTER_API_KEY"):
-            resolve_provider(settings)
-
-    def test_resolve_provider_ignores_reasoning_effort_for_openai_chat(self, tmp_path: Path, monkeypatch) -> None:
-        home = tmp_path / "home"
-        workspace = tmp_path / "workspace"
-        workspace.mkdir()
-
-        monkeypatch.setenv("MYCODE_HOME", str(home / ".mycode"))
-        monkeypatch.setenv("OPENROUTER_API_KEY", "router-env-key")
-
-        _write(
-            home / ".mycode" / "config.json",
-            """
-            {
-              "providers": {
-                "router": {
-                  "type": "openai_chat",
-                  "api_key": "${OPENROUTER_API_KEY}",
-                  "base_url": "https://openrouter.ai/api/v1",
-                  "models": {"openai/gpt-5": {}},
-                  "reasoning_effort": "high"
-                }
-              },
-              "default": {
-                "provider": "router"
-              }
-            }
-            """,
-        )
-
-        settings = get_settings(str(workspace))
-        resolved = resolve_provider(settings)
-
-        assert resolved.provider == "openai_chat"
-        assert resolved.reasoning_effort is None
-
-    def test_resolve_provider_does_not_fallback_away_from_default_provider(self, tmp_path: Path, monkeypatch) -> None:
-        home = tmp_path / "home"
-        workspace = tmp_path / "workspace"
-        workspace.mkdir()
-
-        monkeypatch.setenv("MYCODE_HOME", str(home / ".mycode"))
-        monkeypatch.setenv("OPENAI_API_KEY", "openai-env-key")
-
-        _write(
-            home / ".mycode" / "config.json",
-            """
-            {
-              "providers": {
-                "claude": {
-                  "type": "anthropic",
-                  "models": {"claude-sonnet-4-6": {}}
-                }
-              },
-              "default": {
-                "provider": "claude"
-              }
-            }
-            """,
-        )
-
-        settings = get_settings(str(workspace))
-
-        with pytest.raises(ValueError, match="provider 'claude' is selected"):
-            resolve_provider(settings)
-
-    def test_ignores_agents_config(self, tmp_path: Path, monkeypatch) -> None:
-        home = tmp_path / "home"
-        workspace = tmp_path / "workspace"
-        workspace.mkdir()
-
-        monkeypatch.setenv("MYCODE_HOME", str(home / ".mycode"))
-        monkeypatch.delenv("MODEL", raising=False)
-        monkeypatch.delenv("BASE_URL", raising=False)
-        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-
-        _write(
-            home / ".agents" / "config.json",
-            """
-            {
-              "default": {
-                "provider": "compat"
-              },
-              "providers": {
-                "compat": {
-                  "type": "openai",
-                  "models": {"gpt-5.4": {}}
-                }
-              }
-            }
-            """,
-        )
-
-        settings = get_settings(str(workspace))
+        settings = get_settings(str(workspace.resolve()))
 
         assert settings.providers == {}
         assert settings.default_provider is None
         assert settings.config_paths == []
 
-    def test_provider_without_models_uses_builtin_defaults(self, tmp_path: Path, monkeypatch) -> None:
-        home = tmp_path / "home"
-        workspace = tmp_path / "workspace"
-        workspace.mkdir()
-
-        monkeypatch.setenv("MYCODE_HOME", str(home / ".mycode"))
-
-        _write(
-            home / ".mycode" / "config.json",
-            """
+    def test_builtin_provider_without_models_uses_builtin_defaults(self, workspace: Path, config_home: Path) -> None:
+        write_json(
+            config_home / "config.json",
             {
-              "providers": {
-                "moonshotai": {
-                  "type": "moonshotai"
-                }
-              },
-              "default": {
-                "provider": "moonshotai"
-              }
-            }
-            """,
+                "providers": {"moonshotai": {"type": "moonshotai"}},
+                "default": {"provider": "moonshotai"},
+            },
         )
 
-        settings = get_settings(str(workspace))
+        settings = get_settings(str(workspace.resolve()))
 
         assert list(settings.providers["moonshotai"].models) == ["kimi-k2.6"]
 
-    def test_builtin_provider_override_uses_name_as_type_when_type_is_omitted(
-        self, tmp_path: Path, monkeypatch
+    def test_builtin_provider_alias_can_omit_type(
+        self, workspace: Path, config_home: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        home = tmp_path / "home"
-        workspace = tmp_path / "workspace"
-        workspace.mkdir()
-
-        monkeypatch.setenv("MYCODE_HOME", str(home / ".mycode"))
         monkeypatch.setenv("OPENROUTER_API_KEY", "router-env-key")
-
-        _write(
-            home / ".mycode" / "config.json",
-            """
+        write_json(
+            config_home / "config.json",
             {
-              "providers": {
-                "openrouter": {
-                  "models": {"deepseek/deepseek-v3.2": {}}
-                }
-              },
-              "default": {
-                "provider": "openrouter"
-              }
-            }
-            """,
+                "providers": {
+                    "openrouter": {
+                        "models": {"deepseek/deepseek-v3.2": {}},
+                    }
+                },
+                "default": {"provider": "openrouter"},
+            },
         )
 
-        settings = get_settings(str(workspace))
+        settings = get_settings(str(workspace.resolve()))
         resolved = resolve_provider(settings)
 
         assert settings.providers["openrouter"].type == "openrouter"
@@ -581,162 +180,306 @@ class TestGetSettings:
         assert resolved.model == "deepseek/deepseek-v3.2"
         assert resolved.api_key == "router-env-key"
 
-    def test_custom_provider_alias_requires_type(self, tmp_path: Path, monkeypatch) -> None:
-        home = tmp_path / "home"
-        workspace = tmp_path / "workspace"
-        workspace.mkdir()
-
-        monkeypatch.setenv("MYCODE_HOME", str(home / ".mycode"))
-
-        _write(
-            home / ".mycode" / "config.json",
-            """
+    def test_custom_provider_alias_requires_type(self, workspace: Path, config_home: Path) -> None:
+        write_json(
+            config_home / "config.json",
             {
-              "providers": {
-                "custom-provider": {
-                  "base_url": "https://custom-endpoint.example/v1"
+                "providers": {
+                    "custom-provider": {
+                        "base_url": "https://custom-endpoint.example/v1",
+                    }
                 }
-              }
-            }
-            """,
+            },
         )
 
         with pytest.raises(ValueError, match="provider 'custom-provider' must set 'type'"):
-            get_settings(str(workspace))
+            get_settings(str(workspace.resolve()))
 
-    def test_resolve_provider_errors_when_no_providers_are_available(self, tmp_path: Path, monkeypatch) -> None:
-        home = tmp_path / "home"
-        workspace = tmp_path / "workspace"
-        workspace.mkdir()
+    def test_rejects_unsupported_reasoning_effort_value(self, workspace: Path, config_home: Path) -> None:
+        write_json(
+            config_home / "config.json",
+            {
+                "default": {
+                    "provider": "openai",
+                    "reasoning_effort": "minimal",
+                }
+            },
+        )
 
-        monkeypatch.setenv("MYCODE_HOME", str(home / ".mycode"))
+        with pytest.raises(ValueError, match="unsupported reasoning_effort 'minimal'"):
+            get_settings(str(workspace.resolve()))
 
-        settings = get_settings(str(workspace))
 
+class TestResolveProvider:
+    @pytest.mark.parametrize(
+        ("provider_name", "env_name", "env_value", "model", "expected_model"),
+        [
+            ("moonshotai", "MOONSHOT_API_KEY", "moonshot-env-key", "kimi-k2-thinking", "kimi-k2-thinking"),
+            ("google", "GEMINI_API_KEY", "gemini-env-key", None, "gemini-3.1-pro-preview"),
+        ],
+    )
+    def test_accepts_raw_supported_providers(
+        self,
+        workspace: Path,
+        config_home: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        provider_name: str,
+        env_name: str,
+        env_value: str,
+        model: str | None,
+        expected_model: str,
+    ) -> None:
+        monkeypatch.setenv(env_name, env_value)
+
+        resolved = resolve_provider(get_settings(str(workspace.resolve())), provider_name=provider_name, model=model)
+
+        assert resolved.provider == provider_name
+        assert resolved.model == expected_model
+        assert resolved.api_key == env_value
+
+    def test_uses_configured_api_key_and_base_url_before_default_env(
+        self, workspace: Path, config_home: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "env-key")
+        monkeypatch.setenv("BASE_URL", "https://env.example/v1")
+        write_json(
+            config_home / "config.json",
+            {
+                "providers": {
+                    "shared": {
+                        "type": "anthropic",
+                        "api_key": "config-key",
+                        "base_url": "https://config.example/v1",
+                        "models": {"claude-sonnet-4-6": {}},
+                    }
+                },
+                "default": {
+                    "provider": "shared",
+                    "model": "claude-sonnet-4-6",
+                },
+            },
+        )
+
+        resolved = resolve_provider(get_settings(str(workspace.resolve())))
+
+        assert resolved.provider == "anthropic"
+        assert resolved.model == "claude-sonnet-4-6"
+        assert resolved.api_key == "config-key"
+        assert resolved.api_base == "https://config.example/v1"
+
+    def test_explicit_api_key_override_wins_over_configured_key(
+        self, workspace: Path, config_home: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "env-key")
+        write_json(
+            config_home / "config.json",
+            {
+                "providers": {
+                    "claude": {
+                        "type": "anthropic",
+                        "api_key": "config-key",
+                        "models": {"claude-sonnet-4-6": {}},
+                    }
+                },
+                "default": {
+                    "provider": "claude",
+                    "model": "claude-sonnet-4-6",
+                },
+            },
+        )
+
+        resolved = resolve_provider(get_settings(str(workspace.resolve())), api_key="request-key")
+
+        assert resolved.api_key == "request-key"
+
+    def test_reads_api_key_from_configured_env_var_before_default_env(
+        self, workspace: Path, config_home: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("OPENAI_API_KEY", "default-env-key")
+        monkeypatch.setenv("OPENROUTER_API_KEY", "router-env-key")
+        write_json(
+            config_home / "config.json",
+            {
+                "providers": {
+                    "router": {
+                        "type": "openai_chat",
+                        "api_key": "${OPENROUTER_API_KEY}",
+                        "base_url": "https://openrouter.ai/api/v1",
+                        "models": {"openai/gpt-5": {}},
+                    }
+                },
+                "default": {"provider": "router", "model": "openai/gpt-5"},
+            },
+        )
+
+        resolved = resolve_provider(get_settings(str(workspace.resolve())))
+
+        assert resolved.api_key == "router-env-key"
+
+    def test_errors_when_configured_api_key_env_var_is_missing(
+        self, workspace: Path, config_home: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("OPENAI_API_KEY", "default-env-key")
+        write_json(
+            config_home / "config.json",
+            {
+                "providers": {
+                    "router": {
+                        "type": "openai_chat",
+                        "api_key": "${OPENROUTER_API_KEY}",
+                        "base_url": "https://openrouter.ai/api/v1",
+                        "models": {"openai/gpt-5": {}},
+                    }
+                },
+                "default": {"provider": "router", "model": "openai/gpt-5"},
+            },
+        )
+
+        with pytest.raises(ValueError, match="OPENROUTER_API_KEY"):
+            resolve_provider(get_settings(str(workspace.resolve())))
+
+    def test_auto_discovers_first_env_provider(self, workspace: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("OPENAI_API_KEY", "openai-env-key")
+        monkeypatch.setenv("MOONSHOT_API_KEY", "moonshot-env-key")
+
+        resolved = resolve_provider(get_settings(str(workspace.resolve())))
+
+        assert resolved.provider_name == "openai"
+        assert resolved.provider == "openai"
+        assert resolved.model == "gpt-5.4"
+        assert resolved.api_key == "openai-env-key"
+
+    def test_auto_discovery_prefers_configured_provider_with_credentials(
+        self, workspace: Path, config_home: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "anthropic-env-key")
+        write_json(
+            config_home / "config.json",
+            {
+                "providers": {
+                    "shared": {
+                        "type": "openai",
+                        "api_key": "config-openai-key",
+                        "models": {"gpt-5.4-mini": {}},
+                    }
+                }
+            },
+        )
+
+        resolved = resolve_provider(get_settings(str(workspace.resolve())))
+
+        assert resolved.provider_name == "shared"
+        assert resolved.provider == "openai"
+        assert resolved.model == "gpt-5.4-mini"
+        assert resolved.api_key == "config-openai-key"
+
+    def test_auto_discovery_prefers_deepseek_before_openrouter(
+        self, workspace: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("DEEPSEEK_API_KEY", "deepseek-env-key")
+        monkeypatch.setenv("OPENROUTER_API_KEY", "openrouter-env-key")
+
+        resolved = resolve_provider(get_settings(str(workspace.resolve())))
+
+        assert resolved.provider_name == "deepseek"
+        assert resolved.provider == "deepseek"
+        assert resolved.model == "deepseek-chat"
+        assert resolved.api_key == "deepseek-env-key"
+
+    def test_does_not_fallback_away_from_selected_default_provider(
+        self, workspace: Path, config_home: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("OPENAI_API_KEY", "openai-env-key")
+        write_json(
+            config_home / "config.json",
+            {
+                "providers": {
+                    "claude": {
+                        "type": "anthropic",
+                        "models": {"claude-sonnet-4-6": {}},
+                    }
+                },
+                "default": {"provider": "claude"},
+            },
+        )
+
+        with pytest.raises(ValueError, match="provider 'claude' is selected"):
+            resolve_provider(get_settings(str(workspace.resolve())))
+
+    def test_ignores_anthropic_auth_token_env(self, workspace: Path, config_home: Path, monkeypatch) -> None:
+        monkeypatch.setenv("ANTHROPIC_AUTH_TOKEN", "env-token")
+
+        with pytest.raises(ValueError, match="no available providers found") as exc_info:
+            resolve_provider(get_settings(str(workspace.resolve())))
+
+        assert "ANTHROPIC_API_KEY" in str(exc_info.value)
+        assert "ANTHROPIC_AUTH_TOKEN" not in str(exc_info.value)
+
+    def test_errors_when_no_providers_are_available(self, workspace: Path, config_home: Path) -> None:
         with pytest.raises(ValueError, match="no available providers found"):
-            resolve_provider(settings)
+            resolve_provider(get_settings(str(workspace.resolve())))
 
-    def test_resolve_provider_uses_builtin_default_model_for_raw_provider(self, tmp_path: Path, monkeypatch) -> None:
-        home = tmp_path / "home"
-        workspace = tmp_path / "workspace"
-        workspace.mkdir()
-
-        monkeypatch.setenv("MYCODE_HOME", str(home / ".mycode"))
+    def test_raw_provider_uses_builtin_agent_defaults_without_catalog_metadata(
+        self, tmp_path: Path, workspace: Path, config_home: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         monkeypatch.setenv("OPENAI_API_KEY", "env-key")
 
-        settings = get_settings(str(workspace))
+        settings = get_settings(str(workspace.resolve()))
         resolved = resolve_provider(settings, provider_name="openai")
+        agent = build_test_agent(tmp_path, workspace, settings, resolved)
 
         assert resolved.provider == "openai"
         assert resolved.model == "gpt-5.4"
-        assert resolved.api_key == "env-key"
-
-        agent = _agent_for(tmp_path=tmp_path, cwd=workspace, settings=settings, resolved=resolved)
         assert agent.max_tokens == 16_384
         assert agent.context_window == 128_000
 
-    def test_resolve_provider_applies_catalog_metadata(self, tmp_path: Path, monkeypatch) -> None:
-        home = tmp_path / "home"
-        workspace = tmp_path / "workspace"
-        workspace.mkdir()
 
-        monkeypatch.setenv("MYCODE_HOME", str(home / ".mycode"))
+class TestAgentCapabilities:
+    def test_catalog_metadata_drives_agent_capabilities(
+        self, tmp_path: Path, workspace: Path, config_home: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         monkeypatch.setenv("OPENAI_API_KEY", "env-key")
-        _patch_metadata(
+        patch_metadata(
             monkeypatch,
             ModelMetadata(
                 provider="openai",
-                model="gpt-4.1-mini",
-                context_window=1_000_000,
-                max_output_tokens=32_768,
-                supports_reasoning=False,
-                supports_image_input=None,
-                supports_pdf_input=None,
-            ),
-        )
-
-        _write(
-            home / ".mycode" / "config.json",
-            """
-            {
-              "providers": {
-                "shared": {
-                  "type": "openai",
-                  "reasoning_effort": "high",
-                  "models": {"gpt-4.1-mini": {}}
-                }
-              },
-              "default": {
-                "provider": "shared"
-              }
-            }
-            """,
-        )
-
-        settings = get_settings(str(workspace))
-        resolved = resolve_provider(settings)
-
-        assert resolved.model == "gpt-4.1-mini"
-        assert resolved.reasoning_effort is None
-
-        agent = _agent_for(tmp_path=tmp_path, cwd=workspace, settings=settings, resolved=resolved)
-        assert agent.max_tokens == 32_768
-        assert agent.context_window == 1_000_000
-
-    def test_resolve_provider_uses_model_metadata_for_image_input_support(self, tmp_path: Path, monkeypatch) -> None:
-        home = tmp_path / "home"
-        workspace = tmp_path / "workspace"
-        workspace.mkdir()
-
-        monkeypatch.setenv("MYCODE_HOME", str(home / ".mycode"))
-        monkeypatch.setenv("OPENAI_API_KEY", "env-key")
-        _patch_metadata(
-            monkeypatch,
-            ModelMetadata(
-                provider="openai_chat",
                 model="gpt-4.1-mini",
                 context_window=1_000_000,
                 max_output_tokens=32_768,
                 supports_reasoning=False,
                 supports_image_input=True,
-                supports_pdf_input=None,
+                supports_pdf_input=True,
             ),
         )
-
-        _write(
-            home / ".mycode" / "config.json",
-            """
+        write_json(
+            config_home / "config.json",
             {
-              "providers": {
-                "compatible": {
-                  "type": "openai_chat",
-                  "api_key": "${OPENAI_API_KEY}",
-                  "models": {"gpt-4.1-mini": {}}
-                }
-              },
-              "default": {
-                "provider": "compatible"
-              }
-            }
-            """,
+                "providers": {
+                    "shared": {
+                        "type": "openai",
+                        "reasoning_effort": "high",
+                        "models": {"gpt-4.1-mini": {}},
+                    }
+                },
+                "default": {"provider": "shared"},
+            },
         )
 
-        settings = get_settings(str(workspace))
+        settings = get_settings(str(workspace.resolve()))
         resolved = resolve_provider(settings)
+        agent = build_test_agent(tmp_path, workspace, settings, resolved)
 
-        assert resolved.provider == "openai_chat"
-
-        agent = _agent_for(tmp_path=tmp_path, cwd=workspace, settings=settings, resolved=resolved)
+        assert resolved.reasoning_effort is None
+        assert agent.max_tokens == 32_768
+        assert agent.context_window == 1_000_000
         assert agent.supports_image_input is True
+        assert agent.supports_pdf_input is True
 
-    def test_resolve_provider_uses_global_default_reasoning_effort(self, tmp_path: Path, monkeypatch) -> None:
-        home = tmp_path / "home"
-        workspace = tmp_path / "workspace"
-        workspace.mkdir()
-
-        monkeypatch.setenv("MYCODE_HOME", str(home / ".mycode"))
+    def test_applies_global_reasoning_effort_only_when_supported(
+        self, workspace: Path, config_home: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         monkeypatch.setenv("OPENAI_API_KEY", "env-key")
-        _patch_metadata(
+        patch_metadata(
             monkeypatch,
             ModelMetadata(
                 provider="openai",
@@ -748,92 +491,53 @@ class TestGetSettings:
                 supports_pdf_input=None,
             ),
         )
-
-        _write(
-            home / ".mycode" / "config.json",
-            """
+        write_json(
+            config_home / "config.json",
             {
-              "default": {
-                "provider": "openai",
-                "reasoning_effort": "high"
-              }
-            }
-            """,
+                "default": {
+                    "provider": "openai",
+                    "reasoning_effort": "high",
+                }
+            },
         )
 
-        settings = get_settings(str(workspace))
-        resolved = resolve_provider(settings)
+        resolved = resolve_provider(get_settings(str(workspace.resolve())))
 
         assert resolved.provider == "openai"
         assert resolved.reasoning_effort == "high"
 
-    def test_resolve_provider_rejects_unsupported_reasoning_effort(self, tmp_path: Path, monkeypatch) -> None:
-        home = tmp_path / "home"
-        workspace = tmp_path / "workspace"
-        workspace.mkdir()
-
-        monkeypatch.setenv("MYCODE_HOME", str(home / ".mycode"))
-        monkeypatch.setenv("OPENAI_API_KEY", "env-key")
-
-        _write(
-            home / ".mycode" / "config.json",
-            """
-            {
-              "default": {
-                "provider": "openai",
-                "reasoning_effort": "minimal"
-              }
-            }
-            """,
-        )
-
-        with pytest.raises(ValueError, match="unsupported reasoning_effort 'minimal'"):
-            get_settings(str(workspace))
-
-    def test_resolve_provider_keeps_default_behavior_when_provider_has_no_effort_support(
-        self, tmp_path: Path, monkeypatch
+    def test_drops_reasoning_effort_for_providers_without_support(
+        self, workspace: Path, config_home: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        home = tmp_path / "home"
-        workspace = tmp_path / "workspace"
-        workspace.mkdir()
-
-        monkeypatch.setenv("MYCODE_HOME", str(home / ".mycode"))
         monkeypatch.setenv("OPENROUTER_API_KEY", "router-env-key")
-
-        _write(
-            home / ".mycode" / "config.json",
-            """
+        write_json(
+            config_home / "config.json",
             {
-              "providers": {
-                "router": {
-                  "type": "openai_chat",
-                  "api_key": "${OPENROUTER_API_KEY}",
-                  "base_url": "https://openrouter.ai/api/v1",
-                  "models": {"openai/gpt-5": {}}
-                }
-              },
-              "default": {
-                "provider": "router",
-                "reasoning_effort": "high"
-              }
-            }
-            """,
+                "providers": {
+                    "router": {
+                        "type": "openai_chat",
+                        "api_key": "${OPENROUTER_API_KEY}",
+                        "base_url": "https://openrouter.ai/api/v1",
+                        "models": {"openai/gpt-5": {}},
+                    }
+                },
+                "default": {
+                    "provider": "router",
+                    "reasoning_effort": "high",
+                },
+            },
         )
 
-        settings = get_settings(str(workspace))
-        resolved = resolve_provider(settings)
+        resolved = resolve_provider(get_settings(str(workspace.resolve())))
 
         assert resolved.provider == "openai_chat"
         assert resolved.reasoning_effort is None
 
-    def test_resolve_provider_applies_config_model_metadata_override(self, tmp_path: Path, monkeypatch) -> None:
-        home = tmp_path / "home"
-        workspace = tmp_path / "workspace"
-        workspace.mkdir()
-
-        monkeypatch.setenv("MYCODE_HOME", str(home / ".mycode"))
+    def test_config_model_metadata_overrides_catalog_values(
+        self, tmp_path: Path, workspace: Path, config_home: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         monkeypatch.setenv("OPENAI_API_KEY", "env-key")
-        _patch_metadata(
+        patch_metadata(
             monkeypatch,
             ModelMetadata(
                 provider="openai",
@@ -845,34 +549,29 @@ class TestGetSettings:
                 supports_pdf_input=None,
             ),
         )
-
-        _write(
-            home / ".mycode" / "config.json",
-            """
+        write_json(
+            config_home / "config.json",
             {
-              "providers": {
-                "openai": {
-                  "models": {
-                    "gpt-5.4": {
-                      "context_window": 500000,
-                      "max_output_tokens": 64000,
-                      "supports_reasoning": false,
-                      "supports_image_input": true
+                "providers": {
+                    "openai": {
+                        "models": {
+                            "gpt-5.4": {
+                                "context_window": 500_000,
+                                "max_output_tokens": 64_000,
+                                "supports_reasoning": False,
+                                "supports_image_input": True,
+                            }
+                        }
                     }
-                  }
-                }
-              },
-              "default": {
-                "provider": "openai"
-              }
-            }
-            """,
+                },
+                "default": {"provider": "openai"},
+            },
         )
 
-        settings = get_settings(str(workspace))
+        settings = get_settings(str(workspace.resolve()))
         resolved = resolve_provider(settings)
+        agent = build_test_agent(tmp_path, workspace, settings, resolved)
 
-        agent = _agent_for(tmp_path=tmp_path, cwd=workspace, settings=settings, resolved=resolved)
         assert agent.context_window == 500_000
         assert agent.max_tokens == 64_000
         assert agent.supports_reasoning is False

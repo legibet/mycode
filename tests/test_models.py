@@ -1,68 +1,69 @@
 """Tests for bundled model metadata lookup behavior."""
 
+from __future__ import annotations
+
+from pathlib import Path
+
 import mycode.models as models
 from mycode.models import load_models_catalog, lookup_model_metadata
 
 
-def test_lookup_model_metadata_prefers_current_provider_family(monkeypatch) -> None:
-    fake_catalog = {
-        "openai": {"gpt-5": {"max_output_tokens": 128_000, "supports_reasoning": True, "supports_image_input": True}},
-        "openrouter": {"openai/gpt-5": {"max_output_tokens": 64_000, "supports_reasoning": True}},
-    }
-    monkeypatch.setattr("mycode.models.load_models_catalog", lambda: fake_catalog)
+def patch_catalog(monkeypatch, catalog: dict[str, object]) -> None:
+    monkeypatch.setattr("mycode.models.load_models_catalog", lambda: catalog)
 
-    metadata = lookup_model_metadata(
-        provider_type="openrouter",
-        model="openai/gpt-5",
+
+def test_lookup_model_metadata_prefers_provider_specific_match(monkeypatch) -> None:
+    patch_catalog(
+        monkeypatch,
+        {
+            "openai": {"gpt-5": {"max_output_tokens": 128_000, "supports_reasoning": True}},
+            "openrouter": {"openai/gpt-5": {"max_output_tokens": 64_000, "supports_reasoning": True}},
+        },
     )
+
+    metadata = lookup_model_metadata(provider_type="openrouter", model="openai/gpt-5")
 
     assert metadata is not None
     assert metadata.provider == "openrouter"
     assert metadata.max_output_tokens == 64_000
 
 
-def test_lookup_model_metadata_falls_back_to_canonical_provider(monkeypatch) -> None:
-    fake_catalog = {
-        "openai": {"gpt-5": {"max_output_tokens": 128_000, "supports_reasoning": True, "supports_image_input": True}},
-        "other": {},
-    }
-    monkeypatch.setattr("mycode.models.load_models_catalog", lambda: fake_catalog)
-
-    metadata = lookup_model_metadata(
-        provider_type="openai_chat",
-        model="openai/gpt-5",
+def test_lookup_model_metadata_falls_back_across_provider_families(monkeypatch) -> None:
+    patch_catalog(
+        monkeypatch,
+        {
+            "openai": {
+                "gpt-5": {"max_output_tokens": 128_000, "supports_reasoning": True, "supports_image_input": True}
+            },
+            "openrouter": {"moonshotai/kimi-k2.6": {"max_output_tokens": 262_144, "supports_reasoning": True}},
+        },
     )
 
-    assert metadata is not None
-    assert metadata.provider == "openai_chat"
-    assert metadata.model == "openai/gpt-5"
-    assert metadata.supports_image_input is True
+    openai_chat = lookup_model_metadata(provider_type="openai_chat", model="openai/gpt-5")
+    moonshot = lookup_model_metadata(provider_type="moonshotai", model="kimi-k2.6")
+
+    assert openai_chat is not None
+    assert openai_chat.provider == "openai_chat"
+    assert openai_chat.model == "openai/gpt-5"
+    assert openai_chat.supports_image_input is True
+
+    assert moonshot is not None
+    assert moonshot.provider == "moonshotai"
+    assert moonshot.model == "kimi-k2.6"
+    assert moonshot.max_output_tokens == 262_144
+    assert moonshot.supports_reasoning is True
 
 
-def test_lookup_model_metadata_uses_openrouter_suffix_fallback(monkeypatch) -> None:
-    fake_catalog = {
-        "moonshotai": {},
-        "openrouter": {"moonshotai/kimi-k2.6": {"max_output_tokens": 262_144, "supports_reasoning": True}},
-    }
-    monkeypatch.setattr("mycode.models.load_models_catalog", lambda: fake_catalog)
-
-    metadata = lookup_model_metadata(provider_type="moonshotai", model="kimi-k2.6")
-
-    assert metadata is not None
-    assert metadata.provider == "moonshotai"
-    assert metadata.model == "kimi-k2.6"
-    assert metadata.max_output_tokens == 262_144
-    assert metadata.supports_reasoning is True
-
-
-def test_lookup_model_metadata_openrouter_suffix_fallback_rejects_ambiguous_matches(monkeypatch) -> None:
-    fake_catalog = {
-        "openrouter": {
-            "first/shared-model": {"max_output_tokens": 64_000},
-            "second/shared-model": {"max_output_tokens": 128_000},
-        }
-    }
-    monkeypatch.setattr("mycode.models.load_models_catalog", lambda: fake_catalog)
+def test_lookup_model_metadata_rejects_ambiguous_openrouter_suffix_matches(monkeypatch) -> None:
+    patch_catalog(
+        monkeypatch,
+        {
+            "openrouter": {
+                "first/shared-model": {"max_output_tokens": 64_000},
+                "second/shared-model": {"max_output_tokens": 128_000},
+            }
+        },
+    )
 
     metadata = lookup_model_metadata(provider_type="moonshotai", model="shared-model")
 
@@ -70,19 +71,16 @@ def test_lookup_model_metadata_openrouter_suffix_fallback_rejects_ambiguous_matc
 
 
 def test_lookup_model_metadata_requires_query_provider(monkeypatch) -> None:
-    """Without a caller-supplied provider, lookup has no metadata identity."""
+    patch_catalog(
+        monkeypatch,
+        {
+            "openai": {"gpt-5": {"max_output_tokens": 128_000}},
+            "openrouter": {"some-provider/some-niche-model": {"max_output_tokens": 64_000}},
+        },
+    )
 
-    fake_catalog = {
-        "openai": {"gpt-5": {"max_output_tokens": 128_000}},
-        "openrouter": {"some-provider/some-niche-model": {"max_output_tokens": 64_000}},
-    }
-    monkeypatch.setattr("mycode.models.load_models_catalog", lambda: fake_catalog)
-
-    metadata = lookup_model_metadata(provider_type=None, model="some-niche-model")
-    inferred_metadata = lookup_model_metadata(provider_type=None, model="gpt-5")
-
-    assert metadata is None
-    assert inferred_metadata is None
+    assert lookup_model_metadata(provider_type=None, model="some-niche-model") is None
+    assert lookup_model_metadata(provider_type=None, model="gpt-5") is None
 
 
 def test_lookup_model_metadata_does_not_retry_on_miss(monkeypatch) -> None:
@@ -94,63 +92,43 @@ def test_lookup_model_metadata_does_not_retry_on_miss(monkeypatch) -> None:
 
     monkeypatch.setattr("mycode.models.load_models_catalog", fake_load_models_catalog)
 
-    metadata = lookup_model_metadata(
-        provider_type="zai",
-        model="glm-5.1",
-    )
+    metadata = lookup_model_metadata(provider_type="zai", model="glm-5.1")
 
     assert metadata is None
     assert calls["count"] == 1
 
 
-def test_load_models_catalog_reads_file_once(monkeypatch, tmp_path) -> None:
+def test_load_models_catalog_reads_file_once(monkeypatch, tmp_path: Path) -> None:
     catalog_path = tmp_path / "models_catalog.json"
     catalog_path.write_text('{"openai":{"gpt-5":{}}}', encoding="utf-8")
 
     monkeypatch.setattr(models, "_MODELS_CATALOG_PATH", catalog_path)
-    # Clear the functools.cache so this test gets a fresh read.
     load_models_catalog.cache_clear()
 
     assert load_models_catalog() == {"openai": {"gpt-5": {}}}
     catalog_path.write_text('{"changed":true}', encoding="utf-8")
-    # Second call should return cached result, not re-read.
     assert load_models_catalog() == {"openai": {"gpt-5": {}}}
 
     load_models_catalog.cache_clear()
 
 
-def test_lookup_model_metadata_reads_image_support(monkeypatch) -> None:
-    fake_catalog = {
-        "anthropic": {
-            "claude-sonnet-4-6": {
-                "max_output_tokens": 64000,
-                "supports_reasoning": True,
-                "supports_image_input": True,
+def test_lookup_model_metadata_reads_capability_flags(monkeypatch) -> None:
+    patch_catalog(
+        monkeypatch,
+        {
+            "openai": {
+                "gpt-5.4": {
+                    "max_output_tokens": 128_000,
+                    "supports_reasoning": True,
+                    "supports_image_input": True,
+                    "supports_pdf_input": True,
+                }
             }
-        }
-    }
-    monkeypatch.setattr("mycode.models.load_models_catalog", lambda: fake_catalog)
-
-    metadata = lookup_model_metadata(provider_type="anthropic", model="claude-sonnet-4-6")
-
-    assert metadata is not None
-    assert metadata.supports_image_input is True
-
-
-def test_lookup_model_metadata_reads_pdf_support(monkeypatch) -> None:
-    fake_catalog = {
-        "openai": {
-            "gpt-5.4": {
-                "max_output_tokens": 128000,
-                "supports_reasoning": True,
-                "supports_image_input": True,
-                "supports_pdf_input": True,
-            }
-        }
-    }
-    monkeypatch.setattr("mycode.models.load_models_catalog", lambda: fake_catalog)
+        },
+    )
 
     metadata = lookup_model_metadata(provider_type="openai", model="gpt-5.4")
 
     assert metadata is not None
+    assert metadata.supports_image_input is True
     assert metadata.supports_pdf_input is True

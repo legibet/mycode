@@ -42,6 +42,24 @@ class _Obj:
         return {key: _dump(value) for key, value in self.__dict__.items()}
 
 
+def request_obj(**overrides: Any) -> Any:
+    data = {
+        "model": "test-model",
+        "session_id": None,
+        "messages": [],
+        "system": "",
+        "tools": [],
+        "max_tokens": 4096,
+        "reasoning_effort": None,
+        "api_key": None,
+        "api_base": None,
+        "supports_image_input": True,
+        "supports_pdf_input": True,
+    }
+    data.update(overrides)
+    return cast(Any, _Obj(**data))
+
+
 @pytest.mark.parametrize(
     ("adapter", "payload_builder", "expected_image_type"),
     [
@@ -74,25 +92,17 @@ def test_user_image_input_serialization(
     image_path = tmp_path / "tiny.png"
     image_path.write_bytes(_PNG_1X1)
     image_data = base64.b64encode(image_path.read_bytes()).decode("utf-8")
-    request = cast(
-        Any,
-        _Obj(
-            model="gpt-5.4",
-            session_id=None,
-            messages=[
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "text", "text": "describe"},
-                        {"type": "image", "data": image_data, "mime_type": "image/png"},
-                    ],
-                }
-            ],
-            system="",
-            tools=[],
-            max_tokens=4096,
-            reasoning_effort=None,
-        ),
+    request = request_obj(
+        model="gpt-5.4",
+        messages=[
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "describe"},
+                    {"type": "image", "data": image_data, "mime_type": "image/png"},
+                ],
+            }
+        ],
     )
 
     content = payload_builder(adapter, request)
@@ -150,30 +160,22 @@ def test_user_pdf_input_serialization(
     expected_kind: str,
 ) -> None:
     pdf_data = base64.b64encode(_PDF_BYTES).decode("utf-8")
-    request = cast(
-        Any,
-        _Obj(
-            model="gpt-5.4",
-            session_id=None,
-            messages=[
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "text", "text": "summarize"},
-                        {
-                            "type": "document",
-                            "data": pdf_data,
-                            "mime_type": "application/pdf",
-                            "name": "report.pdf",
-                        },
-                    ],
-                }
-            ],
-            system="",
-            tools=[],
-            max_tokens=4096,
-            reasoning_effort=None,
-        ),
+    request = request_obj(
+        model="gpt-5.4",
+        messages=[
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "summarize"},
+                    {
+                        "type": "document",
+                        "data": pdf_data,
+                        "mime_type": "application/pdf",
+                        "name": "report.pdf",
+                    },
+                ],
+            }
+        ],
     )
 
     content = payload_builder(adapter, request)
@@ -246,63 +248,55 @@ def test_repair_messages_for_replay_downgrades_pdf_for_unsupported_models() -> N
 
 def test_openai_responses_replays_native_output_items_for_tool_results() -> None:
     adapter = OpenAIResponsesAdapter()
-    request = cast(
-        Any,
-        _Obj(
-            model="gpt-5.4",
-            session_id=None,
-            messages=[
-                {
-                    "role": "assistant",
-                    "content": [{"type": "tool_use", "id": "call_1", "name": "read", "input": {"path": "x.py"}}],
-                    "meta": {
-                        "provider": "openai",
-                        "model": "gpt-5.4",
-                        "native": {
-                            "output_items": [
-                                {
-                                    "type": "reasoning",
-                                    "id": "rs_1",
-                                    "status": "completed",
-                                    "summary": [],
-                                    "encrypted_content": "enc_1",
-                                },
-                                {
-                                    "type": "message",
-                                    "id": "msg_1",
-                                    "role": "assistant",
-                                    "phase": "commentary",
-                                    "status": "completed",
-                                    "content": [{"type": "output_text", "text": "Checking the file."}],
-                                },
-                                {
-                                    "type": "function_call",
-                                    "id": "fc_1",
-                                    "call_id": "call_1",
-                                    "name": "read",
-                                    "arguments": '{"path": "x.py"}',
-                                    "status": "completed",
-                                },
-                            ]
-                        },
+    request = request_obj(
+        model="gpt-5.4",
+        messages=[
+            {
+                "role": "assistant",
+                "content": [{"type": "tool_use", "id": "call_1", "name": "read", "input": {"path": "x.py"}}],
+                "meta": {
+                    "provider": "openai",
+                    "model": "gpt-5.4",
+                    "native": {
+                        "output_items": [
+                            {
+                                "type": "reasoning",
+                                "id": "rs_1",
+                                "status": "completed",
+                                "summary": [],
+                                "encrypted_content": "enc_1",
+                            },
+                            {
+                                "type": "message",
+                                "id": "msg_1",
+                                "role": "assistant",
+                                "phase": "commentary",
+                                "status": "completed",
+                                "content": [{"type": "output_text", "text": "Checking the file."}],
+                            },
+                            {
+                                "type": "function_call",
+                                "id": "fc_1",
+                                "call_id": "call_1",
+                                "name": "read",
+                                "arguments": '{"path": "x.py"}',
+                                "status": "completed",
+                            },
+                        ]
                     },
                 },
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "tool_result",
-                            "tool_use_id": "call_1",
-                            "output": "file contents",
-                        }
-                    ],
-                },
-            ],
-            system="",
-            tools=[],
-            max_tokens=4096,
-            reasoning_effort=None,
-        ),
+            },
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": "call_1",
+                        "output": "file contents",
+                    }
+                ],
+            },
+        ],
     )
 
     input_items = adapter._build_request_payload(request)["input"]
@@ -329,40 +323,32 @@ def test_openai_responses_serializes_tool_result_images(tmp_path) -> None:
     image_path = tmp_path / "tiny.png"
     image_path.write_bytes(_PNG_1X1)
     adapter = OpenAIResponsesAdapter()
-    request = cast(
-        Any,
-        _Obj(
-            model="gpt-5.4",
-            session_id=None,
-            messages=[
-                {
-                    "role": "assistant",
-                    "content": [{"type": "tool_use", "id": "call_1", "name": "read", "input": {"path": "x.png"}}],
-                },
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "tool_result",
-                            "tool_use_id": "call_1",
-                            "output": "Read image file [image/png]",
-                            "content": [
-                                {"type": "text", "text": "Read image file [image/png]"},
-                                {
-                                    "type": "image",
-                                    "data": base64.b64encode(image_path.read_bytes()).decode("utf-8"),
-                                    "mime_type": "image/png",
-                                },
-                            ],
-                        }
-                    ],
-                },
-            ],
-            system="",
-            tools=[],
-            max_tokens=4096,
-            reasoning_effort=None,
-        ),
+    request = request_obj(
+        model="gpt-5.4",
+        messages=[
+            {
+                "role": "assistant",
+                "content": [{"type": "tool_use", "id": "call_1", "name": "read", "input": {"path": "x.png"}}],
+            },
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": "call_1",
+                        "output": "Read image file [image/png]",
+                        "content": [
+                            {"type": "text", "text": "Read image file [image/png]"},
+                            {
+                                "type": "image",
+                                "data": base64.b64encode(image_path.read_bytes()).decode("utf-8"),
+                                "mime_type": "image/png",
+                            },
+                        ],
+                    }
+                ],
+            },
+        ],
     )
 
     input_items = adapter._build_request_payload(request)["input"]
@@ -382,37 +368,29 @@ def test_openai_responses_serializes_tool_result_images(tmp_path) -> None:
 
 def test_openai_responses_falls_back_to_full_replay_for_cross_provider_history() -> None:
     adapter = OpenAIResponsesAdapter()
-    request = cast(
-        Any,
-        _Obj(
-            model="gpt-5.4",
-            session_id=None,
-            messages=[
-                {"role": "user", "content": [{"type": "text", "text": "double 21"}]},
-                {
-                    "role": "assistant",
-                    "content": [
-                        {"type": "thinking", "text": "Need the tool first."},
-                        {"type": "tool_use", "id": "call_1", "name": "read", "input": {"path": "x.py"}},
-                    ],
-                    "meta": {"provider": "anthropic", "model": "claude-sonnet-4-6"},
-                },
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "tool_result",
-                            "tool_use_id": "call_1",
-                            "output": "42",
-                        }
-                    ],
-                },
-            ],
-            system="",
-            tools=[],
-            max_tokens=4096,
-            reasoning_effort=None,
-        ),
+    request = request_obj(
+        model="gpt-5.4",
+        messages=[
+            {"role": "user", "content": [{"type": "text", "text": "double 21"}]},
+            {
+                "role": "assistant",
+                "content": [
+                    {"type": "thinking", "text": "Need the tool first."},
+                    {"type": "tool_use", "id": "call_1", "name": "read", "input": {"path": "x.py"}},
+                ],
+                "meta": {"provider": "anthropic", "model": "claude-sonnet-4-6"},
+            },
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": "call_1",
+                        "output": "42",
+                    }
+                ],
+            },
+        ],
     )
 
     input_items = adapter._build_request_payload(request)["input"]
@@ -443,42 +421,32 @@ def test_anthropic_serializes_image_tool_result_content(tmp_path) -> None:
     adapter = AnthropicAdapter()
 
     payload = adapter._build_request_payload(
-        cast(
-            Any,
-            _Obj(
-                model="claude-sonnet-4-6",
-                messages=[
-                    {
-                        "role": "assistant",
-                        "content": [{"type": "tool_use", "id": "call_1", "name": "read", "input": {"path": "x.png"}}],
-                    },
-                    {
-                        "role": "user",
-                        "content": [
-                            {
-                                "type": "tool_result",
-                                "tool_use_id": "call_1",
-                                "output": "Read image file [image/png]",
-                                "content": [
-                                    {"type": "text", "text": "Read image file [image/png]"},
-                                    {
-                                        "type": "image",
-                                        "data": base64.b64encode(image_path.read_bytes()).decode("utf-8"),
-                                        "mime_type": "image/png",
-                                    },
-                                ],
-                            }
-                        ],
-                    },
-                ],
-                system="",
-                tools=[],
-                max_tokens=4096,
-                reasoning_effort=None,
-                api_key=None,
-                api_base=None,
-                session_id=None,
-            ),
+        request_obj(
+            model="claude-sonnet-4-6",
+            messages=[
+                {
+                    "role": "assistant",
+                    "content": [{"type": "tool_use", "id": "call_1", "name": "read", "input": {"path": "x.png"}}],
+                },
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "tool_result",
+                            "tool_use_id": "call_1",
+                            "output": "Read image file [image/png]",
+                            "content": [
+                                {"type": "text", "text": "Read image file [image/png]"},
+                                {
+                                    "type": "image",
+                                    "data": base64.b64encode(image_path.read_bytes()).decode("utf-8"),
+                                    "mime_type": "image/png",
+                                },
+                            ],
+                        }
+                    ],
+                },
+            ],
         )
     )
 
@@ -490,27 +458,19 @@ def test_anthropic_serializes_image_tool_result_content(tmp_path) -> None:
 
 def test_openai_responses_fallback_replay_skips_reasoning_blocks() -> None:
     adapter = OpenAIResponsesAdapter()
-    request = cast(
-        Any,
-        _Obj(
-            model="gpt-5.4",
-            session_id=None,
-            messages=[
-                {
-                    "role": "assistant",
-                    "content": [
-                        {"type": "thinking", "text": "Need the tool first."},
-                        {"type": "text", "text": "I will inspect the file."},
-                        {"type": "tool_use", "id": "call_1", "name": "read", "input": {"path": "x.py"}},
-                    ],
-                    "meta": {"provider": "openai", "model": "gpt-5.4"},
-                },
-            ],
-            system="",
-            tools=[],
-            max_tokens=4096,
-            reasoning_effort=None,
-        ),
+    request = request_obj(
+        model="gpt-5.4",
+        messages=[
+            {
+                "role": "assistant",
+                "content": [
+                    {"type": "thinking", "text": "Need the tool first."},
+                    {"type": "text", "text": "I will inspect the file."},
+                    {"type": "tool_use", "id": "call_1", "name": "read", "input": {"path": "x.py"}},
+                ],
+                "meta": {"provider": "openai", "model": "gpt-5.4"},
+            },
+        ],
     )
 
     input_items = adapter._build_request_payload(request)["input"]
@@ -537,22 +497,16 @@ def test_openai_responses_fallback_replay_skips_reasoning_blocks() -> None:
 
 def test_openai_responses_build_request_payload_includes_prompt_cache_key() -> None:
     adapter = OpenAIResponsesAdapter()
-    request = cast(
-        Any,
-        _Obj(
-            model="gpt-5.4",
-            session_id="session_123",
-            messages=[
-                {
-                    "role": "user",
-                    "content": [{"type": "text", "text": "hello"}],
-                }
-            ],
-            system="You are helpful.",
-            tools=[],
-            max_tokens=4096,
-            reasoning_effort=None,
-        ),
+    request = request_obj(
+        model="gpt-5.4",
+        session_id="session_123",
+        messages=[
+            {
+                "role": "user",
+                "content": [{"type": "text", "text": "hello"}],
+            }
+        ],
+        system="You are helpful.",
     )
 
     payload = adapter._build_request_payload(request)
@@ -679,33 +633,30 @@ def test_openai_responses_serializes_strict_tool_schemas() -> None:
 
 def test_google_gemini_falls_back_to_full_replay_for_cross_provider_history() -> None:
     adapter = GoogleGeminiAdapter()
-    request = cast(
-        Any,
-        _Obj(
-            model="gemini-3-flash-preview",
-            messages=[
-                {"role": "user", "content": [{"type": "text", "text": "double 21"}]},
-                {
-                    "role": "assistant",
-                    "content": [
-                        {"type": "thinking", "text": "Need the tool first."},
-                        {"type": "text", "text": "I will inspect the file."},
-                        {"type": "tool_use", "id": "call_1", "name": "read", "input": {"path": "x.py"}},
-                    ],
-                    "meta": {"provider": "anthropic", "model": "claude-sonnet-4-6"},
-                },
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "tool_result",
-                            "tool_use_id": "call_1",
-                            "output": "42",
-                        }
-                    ],
-                },
-            ],
-        ),
+    request = request_obj(
+        model="gemini-3-flash-preview",
+        messages=[
+            {"role": "user", "content": [{"type": "text", "text": "double 21"}]},
+            {
+                "role": "assistant",
+                "content": [
+                    {"type": "thinking", "text": "Need the tool first."},
+                    {"type": "text", "text": "I will inspect the file."},
+                    {"type": "tool_use", "id": "call_1", "name": "read", "input": {"path": "x.py"}},
+                ],
+                "meta": {"provider": "anthropic", "model": "claude-sonnet-4-6"},
+            },
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": "call_1",
+                        "output": "42",
+                    }
+                ],
+            },
+        ],
     )
 
     assert adapter._build_contents(request) == [
@@ -738,60 +689,57 @@ def test_google_gemini_falls_back_to_full_replay_for_cross_provider_history() ->
 
 def test_google_gemini_replays_native_parts_for_same_provider_history() -> None:
     adapter = GoogleGeminiAdapter()
-    request = cast(
-        Any,
-        _Obj(
-            model="gemini-3-flash-preview",
-            messages=[
-                {
-                    "role": "assistant",
-                    "content": [
-                        {
-                            "type": "thinking",
-                            "text": "Think",
-                            "meta": {
-                                "native": {
-                                    "part": {
-                                        "text": "Think",
-                                        "thought": True,
-                                        "thought_signature": "c2ln",
-                                    }
+    request = request_obj(
+        model="gemini-3-flash-preview",
+        messages=[
+            {
+                "role": "assistant",
+                "content": [
+                    {
+                        "type": "thinking",
+                        "text": "Think",
+                        "meta": {
+                            "native": {
+                                "part": {
+                                    "text": "Think",
+                                    "thought": True,
+                                    "thought_signature": "c2ln",
                                 }
-                            },
+                            }
                         },
-                        {
-                            "type": "tool_use",
-                            "id": "call_1",
-                            "name": "read",
-                            "input": {"path": "x.py"},
-                            "meta": {
-                                "native": {
-                                    "part": {
-                                        "function_call": {
-                                            "id": "call_1",
-                                            "name": "read",
-                                            "args": {"path": "x.py"},
-                                        },
-                                        "thought_signature": "c2ln",
-                                    }
+                    },
+                    {
+                        "type": "tool_use",
+                        "id": "call_1",
+                        "name": "read",
+                        "input": {"path": "x.py"},
+                        "meta": {
+                            "native": {
+                                "part": {
+                                    "function_call": {
+                                        "id": "call_1",
+                                        "name": "read",
+                                        "args": {"path": "x.py"},
+                                    },
+                                    "thought_signature": "c2ln",
                                 }
-                            },
+                            }
                         },
-                    ],
-                    "meta": {"provider": "google", "model": "gemini-3-flash-preview"},
-                },
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "tool_result",
-                            "tool_use_id": "call_1",
-                            "output": "file contents",
-                        }
-                    ],
-                },
-            ],
-        ),
+                    },
+                ],
+                "meta": {"provider": "google", "model": "gemini-3-flash-preview"},
+            },
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": "call_1",
+                        "output": "file contents",
+                    }
+                ],
+            },
+        ],
     )
 
     assert adapter._build_contents(request) == [
@@ -820,58 +768,47 @@ def test_google_gemini_replays_native_parts_for_same_provider_history() -> None:
     ]
 
 
-def test_google_gemini_build_request_config_maps_reasoning_effort() -> None:
+@pytest.mark.parametrize(
+    ("model", "expected_thinking_config"),
+    [
+        ("gemini-3.1-pro-preview", {"include_thoughts": True, "thinking_level": "LOW"}),
+        ("gemini-3-flash-preview", {"include_thoughts": True, "thinking_level": "MINIMAL"}),
+    ],
+)
+def test_google_gemini_build_request_config_maps_reasoning_effort(
+    model: str,
+    expected_thinking_config: dict[str, Any],
+) -> None:
     adapter = GoogleGeminiAdapter()
-
-    pro_request = cast(
-        Any,
-        _Obj(
-            model="gemini-3.1-pro-preview",
-            system="You are helpful.",
-            tools=[],
-            max_tokens=2048,
-            reasoning_effort="none",
-        ),
-    )
-    flash_request = cast(
-        Any,
-        _Obj(
-            model="gemini-3-flash-preview",
-            system="You are helpful.",
-            tools=[],
-            max_tokens=2048,
-            reasoning_effort="none",
-        ),
+    request = request_obj(
+        model=model,
+        system="You are helpful.",
+        max_tokens=2048,
+        reasoning_effort="none",
     )
 
-    pro_config = adapter._build_config(pro_request).model_dump(mode="json", exclude_none=True)
-    flash_config = adapter._build_config(flash_request).model_dump(mode="json", exclude_none=True)
+    config = adapter._build_config(request).model_dump(mode="json", exclude_none=True)
 
-    assert pro_config["thinking_config"] == {"include_thoughts": True, "thinking_level": "LOW"}
-    assert flash_config["thinking_config"] == {"include_thoughts": True, "thinking_level": "MINIMAL"}
+    assert config["thinking_config"] == expected_thinking_config
 
 
 def test_google_gemini_build_request_config_uses_supported_tool_settings() -> None:
     adapter = GoogleGeminiAdapter()
-    request = cast(
-        Any,
-        _Obj(
-            model="gemini-3-flash-preview",
-            system="You are helpful.",
-            tools=[
-                {
-                    "name": "read",
-                    "description": "Read a file.",
-                    "input_schema": {
-                        "type": "object",
-                        "properties": {"path": {"type": "string"}},
-                        "required": ["path"],
-                    },
-                }
-            ],
-            max_tokens=2048,
-            reasoning_effort=None,
-        ),
+    request = request_obj(
+        model="gemini-3-flash-preview",
+        system="You are helpful.",
+        tools=[
+            {
+                "name": "read",
+                "description": "Read a file.",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {"path": {"type": "string"}},
+                    "required": ["path"],
+                },
+            }
+        ],
+        max_tokens=2048,
     )
 
     config = adapter._build_config(request).model_dump(mode="json", exclude_none=True)
@@ -1141,34 +1078,30 @@ def test_repair_messages_for_replay(messages, expected) -> None:
 
 def test_provider_prepare_messages_filters_history_images_when_disabled() -> None:
     adapter = OpenAIChatAdapter()
-    request = cast(
-        Any,
-        _Obj(
-            model="test-model",
-            supports_image_input=False,
-            messages=[
-                {
-                    "role": "assistant",
-                    "content": [{"type": "tool_use", "id": "call_1", "name": "read", "input": {"path": "x.png"}}],
-                },
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "text", "text": "describe this"},
-                        {"type": "image", "data": "abc", "mime_type": "image/png"},
-                        {
-                            "type": "tool_result",
-                            "tool_use_id": "call_1",
-                            "output": "Read image file [image/png]",
-                            "content": [
-                                {"type": "text", "text": "Read image file [image/png]"},
-                                {"type": "image", "data": "abc", "mime_type": "image/png"},
-                            ],
-                        },
-                    ],
-                },
-            ],
-        ),
+    request = request_obj(
+        supports_image_input=False,
+        messages=[
+            {
+                "role": "assistant",
+                "content": [{"type": "tool_use", "id": "call_1", "name": "read", "input": {"path": "x.png"}}],
+            },
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "describe this"},
+                    {"type": "image", "data": "abc", "mime_type": "image/png"},
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": "call_1",
+                        "output": "Read image file [image/png]",
+                        "content": [
+                            {"type": "text", "text": "Read image file [image/png]"},
+                            {"type": "image", "data": "abc", "mime_type": "image/png"},
+                        ],
+                    },
+                ],
+            },
+        ],
     )
 
     assert adapter.prepare_messages(request) == [
@@ -1198,25 +1131,21 @@ def test_provider_prepare_messages_filters_history_images_when_disabled() -> Non
 
 def test_provider_prepare_messages_escapes_image_notice_attributes_when_disabled() -> None:
     adapter = OpenAIChatAdapter()
-    request = cast(
-        Any,
-        _Obj(
-            model="test-model",
-            supports_image_input=False,
-            messages=[
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "image",
-                            "data": "abc",
-                            "mime_type": 'image/"png"',
-                            "name": 'logo"<v2>.png',
-                        },
-                    ],
-                }
-            ],
-        ),
+    request = request_obj(
+        supports_image_input=False,
+        messages=[
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "image",
+                        "data": "abc",
+                        "mime_type": 'image/"png"',
+                        "name": 'logo"<v2>.png',
+                    },
+                ],
+            }
+        ],
     )
 
     assert adapter.prepare_messages(request) == [
@@ -1235,36 +1164,33 @@ def test_provider_prepare_messages_escapes_image_notice_attributes_when_disabled
 
 def test_anthropic_prepare_messages_normalizes_tool_ids() -> None:
     adapter = AnthropicAdapter()
-    request = cast(
-        Any,
-        _Obj(
-            model="claude-sonnet-4-6",
-            messages=[
-                {
-                    "role": "assistant",
-                    "content": [
-                        {"type": "tool_use", "id": "a/b", "name": "read", "input": {"path": "x.py"}},
-                        {"type": "tool_use", "id": "a|b", "name": "write", "input": {"path": "y.py"}},
-                    ],
-                    "meta": {"provider": "anthropic", "model": "claude-sonnet-4-6"},
-                },
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "tool_result",
-                            "tool_use_id": "a/b",
-                            "output": "done a",
-                        },
-                        {
-                            "type": "tool_result",
-                            "tool_use_id": "a|b",
-                            "output": "done b",
-                        },
-                    ],
-                },
-            ],
-        ),
+    request = request_obj(
+        model="claude-sonnet-4-6",
+        messages=[
+            {
+                "role": "assistant",
+                "content": [
+                    {"type": "tool_use", "id": "a/b", "name": "read", "input": {"path": "x.py"}},
+                    {"type": "tool_use", "id": "a|b", "name": "write", "input": {"path": "y.py"}},
+                ],
+                "meta": {"provider": "anthropic", "model": "claude-sonnet-4-6"},
+            },
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": "a/b",
+                        "output": "done a",
+                    },
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": "a|b",
+                        "output": "done b",
+                    },
+                ],
+            },
+        ],
     )
 
     prepared_messages = adapter.prepare_messages(request)
@@ -1306,23 +1232,17 @@ def test_openai_chat_replays_reasoning_by_default() -> None:
     adapter = OpenAIChatAdapter()
 
     payload_messages = adapter._build_request_payload(
-        cast(
-            Any,
-            _Obj(
-                model="test-model",
-                max_tokens=2048,
-                system="",
-                tools=[],
-                messages=[
-                    {
-                        "role": "assistant",
-                        "content": [
-                            {"type": "thinking", "text": "think"},
-                            {"type": "text", "text": "answer"},
-                        ],
-                    }
-                ],
-            ),
+        request_obj(
+            max_tokens=2048,
+            messages=[
+                {
+                    "role": "assistant",
+                    "content": [
+                        {"type": "thinking", "text": "think"},
+                        {"type": "text", "text": "answer"},
+                    ],
+                }
+            ],
         )
     )["messages"]
 
@@ -1333,63 +1253,51 @@ def test_deepseek_replays_reasoning_across_turns() -> None:
     adapter = DeepSeekAdapter()
 
     payload_messages = adapter._build_request_payload(
-        cast(
-            Any,
-            _Obj(
-                model="test-model",
-                max_tokens=2048,
-                system="",
-                tools=[],
-                messages=[
-                    {
-                        "role": "assistant",
-                        "content": [
-                            {
-                                "type": "thinking",
-                                "text": "think",
-                                "meta": {"native": {"reasoning_field": "reasoning_content"}},
-                            },
-                            {"type": "tool_use", "id": "call_1", "name": "read", "input": {"path": "x.py"}},
-                        ],
-                    },
-                    {
-                        "role": "user",
-                        "content": [
-                            {
-                                "type": "tool_result",
-                                "tool_use_id": "call_1",
-                                "output": "done",
-                            }
-                        ],
-                    },
-                ],
-            ),
+        request_obj(
+            max_tokens=2048,
+            messages=[
+                {
+                    "role": "assistant",
+                    "content": [
+                        {
+                            "type": "thinking",
+                            "text": "think",
+                            "meta": {"native": {"reasoning_field": "reasoning_content"}},
+                        },
+                        {"type": "tool_use", "id": "call_1", "name": "read", "input": {"path": "x.py"}},
+                    ],
+                },
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "tool_result",
+                            "tool_use_id": "call_1",
+                            "output": "done",
+                        }
+                    ],
+                },
+            ],
         )
     )["messages"]
     assert payload_messages[0]["reasoning_content"] == "think"
     payload_messages = adapter._build_request_payload(
-        cast(
-            Any,
-            _Obj(
-                model="test-model",
-                max_tokens=2048,
-                system="",
-                tools=[],
-                messages=[
-                    {
-                        "role": "assistant",
-                        "content": [
-                            {
-                                "type": "thinking",
-                                "text": "think",
-                                "meta": {"native": {"reasoning_field": "reasoning_content"}},
-                            },
-                            {"type": "text", "text": "done"},
-                        ],
-                    },
-                    {"role": "user", "content": [{"type": "text", "text": "next question"}]},
-                ],
-            ),
+        request_obj(
+            max_tokens=2048,
+            messages=[
+                {
+                    "role": "assistant",
+                    "content": [
+                        {
+                            "type": "thinking",
+                            "text": "think",
+                            "meta": {"native": {"reasoning_field": "reasoning_content"}},
+                        },
+                        {"type": "text", "text": "done"},
+                    ],
+                },
+                {"role": "user", "content": [{"type": "text", "text": "next question"}]},
+            ],
         )
     )["messages"]
     assert payload_messages[0]["reasoning_content"] == "think"
@@ -1469,17 +1377,7 @@ def test_openai_compatible_provider_payload_overrides(
     expected_zai: dict[str, Any],
     expected_openrouter: dict[str, Any],
 ) -> None:
-    request = cast(
-        Any,
-        _Obj(
-            model="test-model",
-            max_tokens=2048,
-            system="",
-            tools=[],
-            reasoning_effort=reasoning_effort,
-            messages=[],
-        ),
-    )
+    request = request_obj(max_tokens=2048, reasoning_effort=reasoning_effort)
 
     assert OpenAIResponsesAdapter().supports_reasoning_effort is True
     assert "reasoning_effort" not in OpenAIChatAdapter()._build_request_payload(request)
@@ -1530,17 +1428,7 @@ def test_anthropic_build_request_payload_maps_reasoning_config(
     expected_output_config: dict[str, Any] | None,
 ) -> None:
     adapter = AnthropicAdapter()
-    request = cast(
-        Any,
-        _Obj(
-            model=model,
-            max_tokens=8192,
-            messages=[],
-            system="",
-            tools=[],
-            reasoning_effort=reasoning_effort,
-        ),
-    )
+    request = request_obj(model=model, max_tokens=8192, reasoning_effort=reasoning_effort)
 
     payload = adapter._build_request_payload(request)
 
@@ -1552,55 +1440,54 @@ def test_anthropic_build_request_payload_maps_reasoning_config(
     assert adapter.supports_reasoning_effort is True
 
 
-def test_anthropic_like_build_request_payload_adds_cache_control() -> None:
-    adapters = [AnthropicAdapter(), MoonshotAIAdapter(), MiniMaxAdapter()]
-
-    for adapter in adapters:
-        request = cast(
-            Any,
-            _Obj(
-                model="test-model",
-                max_tokens=4096,
-                system="You are helpful.",
-                tools=[],
-                reasoning_effort=None,
-                messages=[
+@pytest.mark.parametrize(
+    "adapter",
+    [
+        pytest.param(AnthropicAdapter(), id="anthropic"),
+        pytest.param(MoonshotAIAdapter(), id="moonshotai"),
+        pytest.param(MiniMaxAdapter(), id="minimax"),
+    ],
+)
+def test_anthropic_like_build_request_payload_adds_cache_control(adapter) -> None:
+    request = request_obj(
+        max_tokens=4096,
+        system="You are helpful.",
+        messages=[
+            {
+                "role": "user",
+                "content": [{"type": "text", "text": "first user message"}],
+            },
+            {
+                "role": "assistant",
+                "content": [{"type": "text", "text": "assistant reply"}],
+            },
+            {
+                "role": "assistant",
+                "content": [{"type": "tool_use", "id": "call_1", "name": "read", "input": {"path": "x.py"}}],
+            },
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "latest user message"},
                     {
-                        "role": "user",
-                        "content": [{"type": "text", "text": "first user message"}],
-                    },
-                    {
-                        "role": "assistant",
-                        "content": [{"type": "text", "text": "assistant reply"}],
-                    },
-                    {
-                        "role": "assistant",
-                        "content": [{"type": "tool_use", "id": "call_1", "name": "read", "input": {"path": "x.py"}}],
-                    },
-                    {
-                        "role": "user",
-                        "content": [
-                            {"type": "text", "text": "latest user message"},
-                            {
-                                "type": "tool_result",
-                                "tool_use_id": "call_1",
-                                "output": "tool output",
-                                "is_error": False,
-                            },
-                        ],
+                        "type": "tool_result",
+                        "tool_use_id": "call_1",
+                        "output": "tool output",
+                        "is_error": False,
                     },
                 ],
-            ),
-        )
+            },
+        ],
+    )
 
-        payload = adapter._build_request_payload(request)
+    payload = adapter._build_request_payload(request)
 
-        assert payload["system"] == [
-            {
-                "type": "text",
-                "text": "You are helpful.",
-                "cache_control": {"type": "ephemeral"},
-            }
-        ]
-        assert "cache_control" not in payload["messages"][0]["content"][0]
-        assert payload["messages"][3]["content"][1]["cache_control"] == {"type": "ephemeral"}
+    assert payload["system"] == [
+        {
+            "type": "text",
+            "text": "You are helpful.",
+            "cache_control": {"type": "ephemeral"},
+        }
+    ]
+    assert "cache_control" not in payload["messages"][0]["content"][0]
+    assert payload["messages"][3]["content"][1]["cache_control"] == {"type": "ephemeral"}
