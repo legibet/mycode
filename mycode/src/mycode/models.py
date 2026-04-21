@@ -15,7 +15,11 @@ _MODELS_CATALOG_PATH = Path(__file__).with_name("models_catalog.json")
 
 @dataclass(frozen=True)
 class ModelMetadata:
-    """Normalized metadata used by provider resolution."""
+    """Model metadata for the requested provider/model.
+
+    ``provider`` and ``model`` keep the original query identity. Other fields
+    may come from a fallback catalog entry.
+    """
 
     provider: str
     model: str
@@ -85,84 +89,74 @@ def lookup_model_metadata(
     provider_type: str | None,
     model: str | None,
 ) -> ModelMetadata | None:
-    """Resolve metadata for one provider type and model.
+    """Return model metadata for a provider/model request.
 
-    Lookup tiers, in order:
+    Catalog lookup order:
 
-    1. Exact ``(provider_type, model)`` entry.
-    2. Canonical provider inferred from the model id prefix (``gpt-`` →
-       ``openai``, ``claude-`` → ``anthropic``, …) when the requested
-       provider had no hit.
-    3. OpenRouter suffix fallback (``provider/model`` matched by
-       ``model``), attributed to the caller's real provider — never
-       to ``openrouter``.
+    1. Requested provider and requested model.
+    2. Inferred provider and unprefixed model name.
+    3. Unique OpenRouter model whose suffix matches the model name.
     """
 
-    raw = (model or "").strip()
-    if not raw:
+    requested_model = (model or "").strip()
+    if not provider_type or not requested_model:
         return None
     catalog = load_models_catalog()
     if not catalog:
         return None
 
-    bare = raw.split("/", 1)[1].strip() if "/" in raw else raw
-    inferred = infer_provider_from_model(bare)
+    model_name = requested_model.split("/", 1)[1].strip() if "/" in requested_model else requested_model
+    catalog_entry = _get_catalog_entry(catalog, provider_type, requested_model)
 
-    if provider_type:
-        hit = _match(catalog, lookup=provider_type, model_id=raw, attributed=provider_type)
-        if hit is not None:
-            return hit
+    inferred_provider = infer_provider_from_model(model_name)
+    if catalog_entry is None and inferred_provider and inferred_provider != provider_type:
+        catalog_entry = _get_catalog_entry(catalog, inferred_provider, model_name)
 
-    if inferred and inferred != provider_type:
-        hit = _match(catalog, lookup=inferred, model_id=bare, attributed=inferred)
-        if hit is not None:
-            return hit
+    if catalog_entry is None:
+        catalog_entry = _get_openrouter_suffix_entry(catalog, model_name)
 
-    attributed = provider_type or inferred
-    if attributed is None:
+    if catalog_entry is None:
         return None
+
+    return ModelMetadata(
+        provider=provider_type,
+        model=requested_model,
+        context_window=as_int(catalog_entry.get("context_window")),
+        max_output_tokens=as_int(catalog_entry.get("max_output_tokens")),
+        supports_reasoning=as_bool(catalog_entry.get("supports_reasoning")),
+        supports_image_input=as_bool(catalog_entry.get("supports_image_input")),
+        supports_pdf_input=as_bool(catalog_entry.get("supports_pdf_input")),
+    )
+
+
+def _get_catalog_entry(
+    catalog: dict[str, Any],
+    provider: str,
+    model_id: str,
+) -> dict[str, Any] | None:
+    """Return a catalog entry for provider/model_id."""
+
+    section = catalog.get(provider)
+    if not isinstance(section, dict):
+        return None
+    catalog_entry = section.get(model_id)
+    return catalog_entry if isinstance(catalog_entry, dict) else None
+
+
+def _get_openrouter_suffix_entry(catalog: dict[str, Any], model_name: str) -> dict[str, Any] | None:
+    """Return an OpenRouter entry with a unique matching model suffix."""
 
     openrouter = catalog.get("openrouter")
     if not isinstance(openrouter, dict):
         return None
 
-    openrouter_match: str | None = None
-    for model_id in openrouter:
-        if not isinstance(model_id, str) or "/" not in model_id:
+    match: dict[str, Any] | None = None
+    for model_id, catalog_entry in openrouter.items():
+        if not isinstance(model_id, str) or "/" not in model_id or not isinstance(catalog_entry, dict):
             continue
-        if model_id.split("/", 1)[1].strip() != bare:
+        if model_id.split("/", 1)[1].strip() != model_name:
             continue
-        if openrouter_match is not None:
+        if match is not None:
             return None
-        openrouter_match = model_id
-
-    if openrouter_match is None:
-        return None
-    hit = _match(catalog, lookup="openrouter", model_id=openrouter_match, attributed=attributed)
-    return replace(hit, model=bare) if hit is not None else None
-
-
-def _match(
-    catalog: dict[str, Any],
-    *,
-    lookup: str,
-    model_id: str,
-    attributed: str,
-) -> ModelMetadata | None:
-    """Look up one model in a catalog section and build metadata if present."""
-
-    section = catalog.get(lookup)
-    if not isinstance(section, dict):
-        return None
-    raw = section.get(model_id)
-    if not isinstance(raw, dict):
-        return None
-    return ModelMetadata(
-        provider=attributed,
-        model=model_id,
-        context_window=as_int(raw.get("context_window")),
-        max_output_tokens=as_int(raw.get("max_output_tokens")),
-        supports_reasoning=as_bool(raw.get("supports_reasoning")),
-        supports_image_input=as_bool(raw.get("supports_image_input")),
-        supports_pdf_input=as_bool(raw.get("supports_pdf_input")),
-    )
+        match = catalog_entry
+    return match

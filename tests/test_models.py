@@ -34,8 +34,8 @@ def test_lookup_model_metadata_falls_back_to_canonical_provider(monkeypatch) -> 
     )
 
     assert metadata is not None
-    assert metadata.provider == "openai"
-    assert metadata.model == "gpt-5"
+    assert metadata.provider == "openai_chat"
+    assert metadata.model == "openai/gpt-5"
     assert metadata.supports_image_input is True
 
 
@@ -69,16 +69,20 @@ def test_lookup_model_metadata_openrouter_suffix_fallback_rejects_ambiguous_matc
     assert metadata is None
 
 
-def test_lookup_model_metadata_openrouter_suffix_fallback_requires_real_provider(monkeypatch) -> None:
-    """Without a caller-supplied or prefix-inferred provider, the fallback
-    refuses to attribute the bits to a fake type."""
+def test_lookup_model_metadata_requires_query_provider(monkeypatch) -> None:
+    """Without a caller-supplied provider, lookup has no metadata identity."""
 
-    fake_catalog = {"openrouter": {"some-provider/some-niche-model": {"max_output_tokens": 64_000}}}
+    fake_catalog = {
+        "openai": {"gpt-5": {"max_output_tokens": 128_000}},
+        "openrouter": {"some-provider/some-niche-model": {"max_output_tokens": 64_000}},
+    }
     monkeypatch.setattr("mycode.models.load_models_catalog", lambda: fake_catalog)
 
     metadata = lookup_model_metadata(provider_type=None, model="some-niche-model")
+    inferred_metadata = lookup_model_metadata(provider_type=None, model="gpt-5")
 
     assert metadata is None
+    assert inferred_metadata is None
 
 
 def test_lookup_model_metadata_does_not_retry_on_miss(monkeypatch) -> None:
