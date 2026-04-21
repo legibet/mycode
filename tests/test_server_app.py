@@ -5,7 +5,7 @@ from __future__ import annotations
 from starlette.routing import Mount
 from starlette.testclient import TestClient
 
-from mycode_cli.server.app import create_app
+from mycode_cli.server.app import create_api_app, create_app
 
 
 def _mount_paths(app) -> list[str]:
@@ -30,11 +30,11 @@ def test_create_app_skips_web_mount_when_static_missing(tmp_path, monkeypatch) -
     assert _mount_paths(app) == []
 
 
-def test_create_app_skips_web_mount_in_dev_mode(tmp_path, monkeypatch) -> None:
+def test_create_api_app_skips_web_mount(tmp_path, monkeypatch) -> None:
     (tmp_path / "index.html").write_text("<html></html>", encoding="utf-8")
     monkeypatch.setattr("mycode_cli.server.app.web_static_path", lambda: tmp_path)
 
-    app = create_app(serve_web=False)
+    app = create_api_app()
 
     assert _mount_paths(app) == []
 

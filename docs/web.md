@@ -5,7 +5,7 @@ React + Vite app in `web/`. Built assets are copied to `cli/src/mycode_cli/serve
 ## Serving Modes
 
 - `mycode web` — serves packaged web assets from `cli/src/mycode_cli/server/static/`
-- `mycode web --dev` — API only; no static files (pair with `pnpm --dir web dev`)
+- `mycode web --dev` — API only with backend hot reload; no static files (pair with `pnpm --dir web dev`)
 
 CORS is enabled for all origins in the FastAPI app.
 

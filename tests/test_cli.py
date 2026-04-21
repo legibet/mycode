@@ -289,6 +289,30 @@ def test_cli_rejects_non_positive_max_turns():
     assert result.exit_code != 0
 
 
+def test_web_dev_enables_backend_reload(monkeypatch, tmp_path):
+    import uvicorn
+    from typer.testing import CliRunner
+
+    import mycode_cli.main as main_module
+
+    run_args: dict[str, Any] = {}
+
+    def fake_run(app_ref: Any, **kwargs: Any) -> None:
+        run_args.update({"app_ref": app_ref, **kwargs})
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(main_module, "get_settings", lambda cwd: _settings_for(cwd))
+    monkeypatch.setattr(uvicorn, "run", fake_run)
+
+    runner = CliRunner()
+    result = runner.invoke(app, ["web", "--dev", "--port", "8765"])
+
+    assert result.exit_code == 0, result.output
+    assert run_args["app_ref"] == "mycode_cli.server.app:create_api_app"
+    assert run_args["reload"] is True
+    assert run_args["factory"] is True
+
+
 @pytest.mark.asyncio
 async def test_chat_prompt_enter_submits_selected_slash_completion():
     with create_pipe_input() as pipe_input:

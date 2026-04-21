@@ -49,4 +49,14 @@ def create_app(*, serve_web: bool = True) -> FastAPI:
     return application
 
 
+def create_web_app() -> FastAPI:
+    """Create the app with packaged web assets."""
+    return create_app(serve_web=True)
+
+
+def create_api_app() -> FastAPI:
+    """Create the API-only app."""
+    return create_app(serve_web=False)
+
+
 app = create_app()

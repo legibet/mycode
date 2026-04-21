@@ -196,7 +196,7 @@ def run(
 def web(
     hostname: Annotated[str, typer.Option(help="Hostname to listen on")] = "127.0.0.1",
     port: Annotated[int | None, typer.Option(help="Port to listen on")] = None,
-    dev: Annotated[bool, typer.Option(help="API-only backend for web UI dev workflows")] = False,
+    dev: Annotated[bool, typer.Option(help="API-only backend with hot reload for web UI dev workflows")] = False,
 ) -> None:
     """Start the web server."""
 
@@ -206,9 +206,17 @@ def web(
 
     import uvicorn
 
-    from mycode_cli.server.app import create_app
+    app_factory = "mycode_cli.server.app:create_web_app"
+    if dev:
+        app_factory = "mycode_cli.server.app:create_api_app"
 
-    uvicorn.run(create_app(serve_web=not dev), host=hostname, port=resolved_port)
+    uvicorn.run(
+        app_factory,
+        host=hostname,
+        port=resolved_port,
+        reload=dev,
+        factory=True,
+    )
 
 
 @session_app.command("list")
