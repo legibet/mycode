@@ -14,8 +14,10 @@ from uuid import uuid4
 
 from prompt_toolkit import PromptSession
 from prompt_toolkit.application import Application, get_app
+from prompt_toolkit.buffer import Buffer
 from prompt_toolkit.completion import CompleteEvent, Completer, Completion
 from prompt_toolkit.document import Document
+from prompt_toolkit.filters import has_completions
 from prompt_toolkit.formatted_text import ANSI, StyleAndTextTuples
 from prompt_toolkit.history import FileHistory
 from prompt_toolkit.key_binding import KeyBindings
@@ -63,7 +65,7 @@ _COMMAND_HELP = (
 )
 _SLASH_COMMANDS = tuple(command for command, _ in _COMMAND_HELP)
 # Only treat `@path` as a reference when it starts a standalone token.
-_AT_PATH_RE = re.compile(r"(?<!\S)@(?:(?P<quote>['\"])(?P<quoted>[^'\"]*)|(?P<plain>[^\s'\"]*))$")
+_AT_PATH_RE = re.compile(r"""(?<!\S)@(?:'(?P<single>[^']*)'?$|"(?P<double>[^"]*)"?$|(?P<plain>[^\s'"]*))$""")
 
 
 # Style for the focused row in the inline selector.
@@ -133,8 +135,13 @@ class _PromptCompleter(Completer):
         if self._cwd:
             match = _AT_PATH_RE.search(text_before_cursor)
             if match:
-                quote = str(match.group("quote") or "")
-                query = str(match.group("quoted") or match.group("plain") or "")
+                if (query := match.group("single")) is not None:
+                    quote = "'"
+                elif (query := match.group("double")) is not None:
+                    quote = '"'
+                else:
+                    quote = ""
+                    query = str(match.group("plain") or "")
                 # Complete only real paths under the current working directory.
                 if query == "~":
                     base_prefix = "~/"
@@ -155,11 +162,12 @@ class _PromptCompleter(Completer):
                         if partial and not entry.name.startswith(partial):
                             continue
                         candidate = f"{base_prefix}{entry.name}{'/' if entry.is_dir() else ''}"
-                        replacement = "@" + shlex.quote(candidate)
                         if quote:
-                            replacement = f"@{quote}{candidate}"
-                            if not entry.is_dir():
-                                replacement += quote
+                            replacement = f"@{quote}{candidate}{quote}"
+                        elif any(ch.isspace() for ch in candidate):
+                            replacement = "@" + shlex.quote(candidate)
+                        else:
+                            replacement = "@" + candidate
                         yield Completion(
                             replacement,
                             start_position=-len(match.group(0)),
@@ -193,6 +201,13 @@ def _rewrite_pasted_file_paths(text: str) -> str | None:
     return " ".join(f"@{shlex.quote(str(path))}" for path in paths)
 
 
+async def _restart_completion(buffer: Buffer) -> None:
+    """Restart completion on the next loop tick after accepting a directory."""
+
+    await asyncio.sleep(0)
+    buffer.start_completion(select_first=True)
+
+
 def _build_chat_key_bindings() -> KeyBindings:
     """Build key bindings for the main chat prompt."""
     kb = KeyBindings()
@@ -203,10 +218,21 @@ def _build_chat_key_bindings() -> KeyBindings:
     kb.add("c-l")(_clear)
 
     # In multiline mode the default Enter inserts a newline; override it to submit.
+    @kb.add("enter", filter=has_completions, eager=True)
+    def _accept_selected_completion(event: KeyPressEvent) -> None:
+        buffer = event.current_buffer
+        state = buffer.complete_state
+        if state is None or not state.completions:
+            return
+        completion = state.current_completion or state.completions[0]
+        buffer.apply_completion(completion)
+        if completion.display_meta_text == "dir":
+            get_app().create_background_task(_restart_completion(buffer))
+
     def _submit(event: KeyPressEvent) -> None:
         event.current_buffer.validate_and_handle()
 
-    kb.add("enter", eager=True)(_submit)
+    kb.add("enter", filter=~has_completions, eager=True)(_submit)
 
     # Esc+Enter (Meta+Enter) inserts a newline for multiline input.
     def _insert_newline(event: KeyPressEvent) -> None:

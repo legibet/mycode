@@ -25,7 +25,7 @@ from mycode_cli.config import ModelConfig, ProviderConfig, ResolvedProvider, Set
 from mycode_cli.main import app, run_noninteractive
 from mycode_cli.runtime import apply_resolved_provider, list_model_options, resolve_session
 from mycode_cli.tui.chat import TerminalChat, _build_chat_key_bindings, _PromptCompleter, _rewrite_pasted_file_paths
-from mycode_cli.tui.render import TerminalView
+from mycode_cli.tui.render import ReplyRenderer, TerminalView
 
 
 class _FakeStore:
@@ -83,6 +83,19 @@ class _FakeAgent:
             )
         yield Event("reasoning", {"delta": "Hidden reasoning"})
         yield Event("text", {"delta": "Streamed answer should stay hidden"})
+
+
+class _SpyLive:
+    def __init__(self) -> None:
+        self.transient = False
+        self.stopped = False
+        self.updates: list[Any] = []
+
+    def update(self, renderable: Any) -> None:
+        self.updates.append(renderable)
+
+    def stop(self) -> None:
+        self.stopped = True
 
 
 @pytest.mark.asyncio
@@ -280,6 +293,35 @@ def test_print_history_preview_renders_transcript_style():
     assert rendered.endswith("print(1)\n")
 
 
+def test_reply_renderer_finish_keeps_streamed_text_visible() -> None:
+    renderer = ReplyRenderer(Console(file=StringIO(), force_terminal=False, color_system=None), live_mode=True)
+    live = _SpyLive()
+    renderer._live = cast(Any, live)
+    renderer._text = ["final answer"]
+
+    renderer.finish()
+
+    assert live.stopped is True
+    assert live.transient is False
+    assert live.updates == []
+
+
+@pytest.mark.parametrize("finish_only", [False, True])
+def test_reply_renderer_clears_initial_reply_spinner(finish_only: bool) -> None:
+    renderer = ReplyRenderer(Console(file=StringIO(), force_terminal=False, color_system=None), live_mode=True)
+    live = _SpyLive()
+    renderer._live = cast(Any, live)
+
+    if finish_only:
+        renderer.finish()
+    else:
+        renderer.tool_start("read", {"path": "foo.py"})
+
+    assert live.stopped is True
+    assert live.transient is True
+    assert len(live.updates) == 1
+
+
 def test_cli_rejects_non_positive_max_turns():
     from typer.testing import CliRunner
 
@@ -314,7 +356,7 @@ def test_web_dev_enables_backend_reload(monkeypatch, tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_chat_prompt_enter_submits_selected_slash_completion():
+async def test_chat_prompt_enter_accepts_selected_slash_completion_before_submit():
     with create_pipe_input() as pipe_input:
         session = PromptSession(
             history=InMemoryHistory(),
@@ -333,6 +375,8 @@ async def test_chat_prompt_enter_submits_selected_slash_completion():
             pipe_input.send_text("\t")
             await asyncio.sleep(0.1)
             pipe_input.send_text("\r")
+            await asyncio.sleep(0.1)
+            pipe_input.send_text("\r")
 
         task = asyncio.create_task(drive_input())
         try:
@@ -341,6 +385,44 @@ async def test_chat_prompt_enter_submits_selected_slash_completion():
             await task
 
     assert result == "/provider"
+
+
+@pytest.mark.asyncio
+async def test_chat_prompt_enter_accepts_path_completion_before_submit(tmp_path):
+    (tmp_path / "folder").mkdir()
+    (tmp_path / "folder" / "bar.txt").write_text("x", encoding="utf-8")
+    (tmp_path / "file.txt").write_text("x", encoding="utf-8")
+
+    with create_pipe_input() as pipe_input:
+        session = PromptSession(
+            history=InMemoryHistory(),
+            completer=_PromptCompleter(cwd=str(tmp_path)),
+            key_bindings=_build_chat_key_bindings(),
+            multiline=True,
+            prompt_continuation="  ",
+            input=pipe_input,
+            output=DummyOutput(),
+        )
+
+        async def drive_input() -> None:
+            await asyncio.sleep(0.05)
+            pipe_input.send_text("@f")
+            await asyncio.sleep(0.1)
+            pipe_input.send_text("\t")
+            await asyncio.sleep(0.1)
+            pipe_input.send_text("\r")
+            await asyncio.sleep(0.1)
+            pipe_input.send_text("\r")
+            await asyncio.sleep(0.1)
+            pipe_input.send_text("\r")
+
+        task = asyncio.create_task(drive_input())
+        try:
+            result = await session.prompt_async("> ")
+        finally:
+            await task
+
+    assert result == "@folder/bar.txt"
 
 
 def test_prompt_completer_suggests_paths_for_at_references(tmp_path):
@@ -358,11 +440,16 @@ def test_prompt_completer_suggests_paths_for_at_references(tmp_path):
 
 def test_prompt_completer_keeps_quotes_for_paths_with_spaces(tmp_path):
     (tmp_path / "a b.py").write_text("print('y')\n", encoding="utf-8")
+    nested_dir = tmp_path / 'a "b"'
+    nested_dir.mkdir()
+    (nested_dir / "c.txt").write_text("print('y')\n", encoding="utf-8")
 
     completer = _PromptCompleter(cwd=str(tmp_path))
-    completions = list(completer.get_completions(Document('@"a'), CompleteEvent()))
+    file_completions = list(completer.get_completions(Document('@"a'), CompleteEvent()))
+    dir_completions = list(completer.get_completions(Document("@'a \"b\"/'"), CompleteEvent()))
 
-    assert any(item.text == '@"a b.py"' for item in completions)
+    assert any(item.text == '@"a b.py"' for item in file_completions)
+    assert any(item.text == "@'a \"b\"/c.txt'" for item in dir_completions)
 
 
 def test_rewrite_pasted_file_paths_rewrites_only_existing_files(tmp_path):

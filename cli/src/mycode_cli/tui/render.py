@@ -709,7 +709,10 @@ class ReplyRenderer:
         """Stop live rendering and clear transient buffers for the current phase."""
 
         if self._live is not None:
-            self._clear_live(self._live)
+            if self._text:
+                self._live.stop()
+            else:
+                self._clear_live(self._live)
             self._live = None
         self._stop_tool_live()
         self._reasoning.clear()
