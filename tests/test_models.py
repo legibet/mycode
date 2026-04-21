@@ -39,29 +39,41 @@ def test_lookup_model_metadata_falls_back_to_canonical_provider(monkeypatch) -> 
     assert metadata.supports_image_input is True
 
 
-def test_lookup_model_metadata_uses_aihubmix_for_capability_bits(monkeypatch) -> None:
-    """Aihubmix data may fill in capability bits, but the returned provider
-    field must always be a real registered provider — never ``aihubmix``."""
-
+def test_lookup_model_metadata_uses_openrouter_suffix_fallback(monkeypatch) -> None:
     fake_catalog = {
-        "zai": {},
-        "aihubmix": {"glm-5.1": {"max_output_tokens": 131_072, "supports_image_input": True}},
+        "moonshotai": {},
+        "openrouter": {"moonshotai/kimi-k2.6": {"max_output_tokens": 262_144, "supports_reasoning": True}},
     }
     monkeypatch.setattr("mycode.models.load_models_catalog", lambda: fake_catalog)
 
-    metadata = lookup_model_metadata(provider_type="zai", model="glm-5.1")
+    metadata = lookup_model_metadata(provider_type="moonshotai", model="kimi-k2.6")
 
     assert metadata is not None
-    assert metadata.provider == "zai"
-    assert metadata.max_output_tokens == 131_072
-    assert metadata.supports_image_input is True
+    assert metadata.provider == "moonshotai"
+    assert metadata.model == "kimi-k2.6"
+    assert metadata.max_output_tokens == 262_144
+    assert metadata.supports_reasoning is True
 
 
-def test_lookup_model_metadata_aihubmix_fallback_requires_real_provider(monkeypatch) -> None:
+def test_lookup_model_metadata_openrouter_suffix_fallback_rejects_ambiguous_matches(monkeypatch) -> None:
+    fake_catalog = {
+        "openrouter": {
+            "first/shared-model": {"max_output_tokens": 64_000},
+            "second/shared-model": {"max_output_tokens": 128_000},
+        }
+    }
+    monkeypatch.setattr("mycode.models.load_models_catalog", lambda: fake_catalog)
+
+    metadata = lookup_model_metadata(provider_type="moonshotai", model="shared-model")
+
+    assert metadata is None
+
+
+def test_lookup_model_metadata_openrouter_suffix_fallback_requires_real_provider(monkeypatch) -> None:
     """Without a caller-supplied or prefix-inferred provider, the fallback
     refuses to attribute the bits to a fake type."""
 
-    fake_catalog = {"aihubmix": {"some-niche-model": {"max_output_tokens": 64_000}}}
+    fake_catalog = {"openrouter": {"some-provider/some-niche-model": {"max_output_tokens": 64_000}}}
     monkeypatch.setattr("mycode.models.load_models_catalog", lambda: fake_catalog)
 
     metadata = lookup_model_metadata(provider_type=None, model="some-niche-model")

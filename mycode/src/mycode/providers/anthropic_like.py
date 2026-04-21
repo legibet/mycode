@@ -352,7 +352,7 @@ class AnthropicAdapter(AnthropicLikeAdapter):
 class MoonshotAIAdapter(AnthropicLikeAdapter):
     """Moonshot's Anthropic-compatible Messages endpoint.
 
-    kimi-k2.5 tool loops work through this endpoint. When thinking is enabled,
+    kimi-k2.6 tool loops work through this endpoint. When thinking is enabled,
     prior reasoning blocks must be replayed in the conversation history —
     Moonshot does not strip them on the server side.
     """
@@ -361,7 +361,7 @@ class MoonshotAIAdapter(AnthropicLikeAdapter):
     label = "Moonshot"
     default_base_url = "https://api.moonshot.ai/anthropic"
     env_api_key_names = ("MOONSHOT_API_KEY",)
-    default_models = ("kimi-k2.5",)
+    default_models = ("kimi-k2.6",)
     supports_reasoning_effort = True
 
     def thinking_config(self, request: ProviderRequest) -> dict[str, Any] | None:

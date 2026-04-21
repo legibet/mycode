@@ -57,7 +57,7 @@ class ProviderAdapter(ABC):
 - SDK: `anthropic` against Moonshot's Anthropic-compatible endpoint
 - Base URL: `https://api.moonshot.ai/anthropic`
 - API key env: `MOONSHOT_API_KEY`
-- Default models: `kimi-k2.5`
+- Default models: `kimi-k2.6`
 - `supports_reasoning_effort`: true (maps to manual `budget_tokens`)
 - Prior reasoning must be replayed on later tool-loop turns when thinking is enabled
 - Shares Anthropic-like ephemeral cache markers and tool call ID projection

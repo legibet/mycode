@@ -12,12 +12,6 @@ from mycode.utils import as_bool, as_int
 
 _MODELS_CATALOG_PATH = Path(__file__).with_name("models_catalog.json")
 
-# Catalogs consulted only for capability bits (context window, image / pdf
-# support, …) when the requested provider has no entry for the model. They
-# are NOT registered providers; the metadata returned from a fallback hit is
-# always attributed to a real provider type the caller already has in hand.
-_FALLBACK_CAPABILITY_CATALOGS: tuple[str, ...] = ("aihubmix",)
-
 
 @dataclass(frozen=True)
 class ModelMetadata:
@@ -99,9 +93,9 @@ def lookup_model_metadata(
     2. Canonical provider inferred from the model id prefix (``gpt-`` →
        ``openai``, ``claude-`` → ``anthropic``, …) when the requested
        provider had no hit.
-    3. Capability fallback from a secondary catalog (currently
-       ``aihubmix``), attributed to the caller's real provider — never
-       to the secondary catalog id.
+    3. OpenRouter suffix fallback (``provider/model`` matched by
+       ``model``), attributed to the caller's real provider — never
+       to ``openrouter``.
     """
 
     raw = (model or "").strip()
@@ -127,12 +121,25 @@ def lookup_model_metadata(
     attributed = provider_type or inferred
     if attributed is None:
         return None
-    for source in _FALLBACK_CAPABILITY_CATALOGS:
-        hit = _match(catalog, lookup=source, model_id=bare, attributed=attributed)
-        if hit is not None:
-            return hit
 
-    return None
+    openrouter = catalog.get("openrouter")
+    if not isinstance(openrouter, dict):
+        return None
+
+    openrouter_match: str | None = None
+    for model_id in openrouter:
+        if not isinstance(model_id, str) or "/" not in model_id:
+            continue
+        if model_id.split("/", 1)[1].strip() != bare:
+            continue
+        if openrouter_match is not None:
+            return None
+        openrouter_match = model_id
+
+    if openrouter_match is None:
+        return None
+    hit = _match(catalog, lookup="openrouter", model_id=openrouter_match, attributed=attributed)
+    return replace(hit, model=bare) if hit is not None else None
 
 
 def _match(

@@ -115,7 +115,7 @@ Model lookup strategy (`lookup_model_metadata`):
 
 1. Exact match on the given `provider_type` + raw model id
 2. Fallback provider mapping (e.g., `claude-*` → `anthropic`, `deepseek-*` → `deepseek`)
-3. Generic `aihubmix` catalog as last resort
+3. OpenRouter catalog suffix fallback (`provider/model` matched by `model`) as last resort
 
 The bundled catalog is updated by running:
 

@@ -529,7 +529,7 @@ class TestGetSettings:
 
         settings = get_settings(str(workspace))
 
-        assert list(settings.providers["moonshotai"].models) == ["kimi-k2.5"]
+        assert list(settings.providers["moonshotai"].models) == ["kimi-k2.6"]
 
     def test_builtin_provider_override_uses_name_as_type_when_type_is_omitted(
         self, tmp_path: Path, monkeypatch
