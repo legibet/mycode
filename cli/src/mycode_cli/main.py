@@ -13,6 +13,7 @@ import typer
 from mycode.agent import Agent
 from mycode.messages import ConversationMessage
 from mycode.session import SessionStore
+from mycode_cli import __version__
 from mycode_cli.config import ResolvedProvider, Settings, get_settings, resolve_provider, resolve_sessions_dir
 
 from .runtime import ResolvedSession, build_agent, resolve_session
@@ -22,6 +23,13 @@ from .tui.render import TerminalView
 app = typer.Typer(add_completion=False, pretty_exceptions_enable=False)
 session_app = typer.Typer(help="Session management")
 app.add_typer(session_app, name="session")
+
+
+def _show_version(value: bool) -> None:
+    if not value:
+        return
+    typer.echo(f"mycode {__version__}")
+    raise typer.Exit()
 
 
 async def run_noninteractive(agent: Agent, message: str) -> int:
@@ -130,8 +138,22 @@ def chat(
     max_turns: Annotated[int | None, typer.Option(min=1, help="Limit agent loop turns")] = None,
     session: Annotated[str | None, typer.Option(help="Resume a specific session id")] = None,
     continue_last: Annotated[bool, typer.Option("--continue", "-c", help="Resume the most recent session")] = False,
+    version: Annotated[
+        bool,
+        typer.Option(
+            "--version",
+            "-V",
+            callback=_show_version,
+            help="Show version and exit.",
+            is_eager=True,
+            is_flag=True,
+        ),
+    ] = False,
 ) -> None:
     """Interactive coding agent."""
+
+    if version:
+        return
 
     if ctx.invoked_subcommand is not None:
         return
