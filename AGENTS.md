@@ -219,6 +219,16 @@ just test                                              # run Python tests and we
 just fmt                                               # run ruff fix/format and biome check --write
 ```
 
+## Versioning
+
+Package metadata is the single source of truth for release versions:
+
+- `mycode/pyproject.toml` owns the `mycode-sdk` version.
+- `cli/pyproject.toml` owns the `mycode-cli` version and pins `mycode-sdk` to the same version.
+- `mycode.__version__` reads the installed `mycode-sdk` package metadata.
+- `mycode_cli.__version__` and `mycode --version` read the installed `mycode-cli` package metadata.
+- `scripts/release.sh` updates both package versions, refreshes the CLI dependency pin, builds both wheels, and validates that package metadata and runtime `__version__` values all match before tagging.
+
 ## Guardrails
 
 Preserve unless explicitly asked to change:
