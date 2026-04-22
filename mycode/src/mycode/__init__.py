@@ -7,6 +7,8 @@ runtime ships four built-in coding tools (``read``, ``write``, ``edit``,
 silently exposing file system and shell access.
 """
 
+from importlib import metadata
+
 from mycode.agent import Agent, Event, PersistCallback, RunResult
 from mycode.messages import (
     ContentBlock,
@@ -33,7 +35,8 @@ from mycode.tools import (
     tool,
 )
 
-__version__ = "0.4.0"
+# The package metadata in mycode/pyproject.toml is the single version source.
+__version__ = metadata.version("mycode-sdk")
 
 # Built-in tool specs exposed as module-level constants so callers can pick
 # which ones to register (``tools=[read_tool, bash_tool]``) rather than
