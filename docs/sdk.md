@@ -159,7 +159,7 @@ def tail(ctx: ToolContext, path: str) -> ToolExecutionResult:
 
 - Missing docstrings raise at decoration time — pass `description=...` when no docstring fits.
 - Async tools are dispatched via `asyncio.run` on the executor's worker thread, so each call gets its own fresh event loop.
-- A bare `str` return becomes the tool's `output` (replayed to the provider on the next turn). Any other JSON-serializable return is dumped to JSON first. Return a `ToolExecutionResult` for finer control: `output` (replayed), `content` (multimodal blocks such as images, also replayed), `metadata` (structured UI data — `edit` uses this to carry per-edit line numbers), and `is_error`.
+- A bare `str` return becomes the tool's `output` (replayed to the provider on the next turn). Any other JSON-serializable return is dumped to JSON first. Return a `ToolExecutionResult` for finer control: `output` (replayed), `content` (multimodal blocks such as images, also replayed), `metadata` (structured UI data; `edit` uses this to carry a unified patch and line stats), and `is_error`.
 
 ### `ToolContext`
 

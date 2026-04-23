@@ -103,7 +103,7 @@ def tool_result_block(
     `output` is replayed back to providers on later turns.
     `content` carries multimodal blocks (e.g. images) that providers should
     replay alongside the text. `metadata` is an optional structured payload
-    for UI consumption (e.g. edit diff line numbers).
+    for UI consumption (e.g. edit patch and line stats).
     """
 
     block: ContentBlock = {

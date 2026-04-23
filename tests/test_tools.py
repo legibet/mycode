@@ -34,30 +34,12 @@ def _ctx(cwd: str, *, tool_output_dir: Path | None = None, supports_image_input:
 
 def assert_edit_ok(
     result: ToolExecutionResult,
-    *,
-    start_line: int | list[int],
-    old_line_count: int | list[int],
-    new_line_count: int | list[int],
 ) -> None:
-    """Verify a successful edit result.
-
-    Accepts scalar values (checked against the first/only edit) or lists
-    (checked element-wise against each edit in the result).
-    """
     assert result.is_error is False
     assert result.metadata is not None
-    edits = result.metadata["edits"]
-    assert isinstance(edits, list) and len(edits) > 0
-
-    starts = [start_line] if isinstance(start_line, int) else start_line
-    olds = [old_line_count] if isinstance(old_line_count, int) else old_line_count
-    news = [new_line_count] if isinstance(new_line_count, int) else new_line_count
-    assert len(edits) == len(starts) == len(olds) == len(news)
-
-    for i, edit in enumerate(edits):
-        assert edit["start_line"] == starts[i]
-        assert edit["old_line_count"] == olds[i]
-        assert edit["new_line_count"] == news[i]
+    assert isinstance(result.metadata["patch"], str)
+    assert isinstance(result.metadata["added_lines"], int)
+    assert isinstance(result.metadata["removed_lines"], int)
 
 
 class TestTruncateText:
@@ -308,7 +290,7 @@ class TestEdit:
             test_file.write_text("Hello, World!")
 
             result = _ctx(tmpdir).edit("test.txt", [{"oldText": "World", "newText": "Universe"}])
-            assert_edit_ok(result, start_line=1, old_line_count=1, new_line_count=1)
+            assert_edit_ok(result)
             assert test_file.read_text() == "Hello, Universe!"
 
     def test_edit_not_found(self):
@@ -335,7 +317,7 @@ class TestEdit:
             test_file.write_text("Hello World")
 
             result = _ctx(tmpdir).edit("test.txt", [{"oldText": "Hello", "newText": "Hi"}])
-            assert_edit_ok(result, start_line=1, old_line_count=1, new_line_count=1)
+            assert_edit_ok(result)
             assert test_file.read_text() == "Hi World"
 
     def test_edit_nonexistent_file(self):
@@ -387,7 +369,7 @@ class TestEdit:
                     }
                 ],
             )
-            assert_edit_ok(result, start_line=1, old_line_count=2, new_line_count=2)
+            assert_edit_ok(result)
             assert test_file.read_text() == "def f():\n    return 2\n"
 
     def test_edit_fuzzy_matches_crlf(self):
@@ -399,7 +381,7 @@ class TestEdit:
                 "test.txt",
                 [{"oldText": "line1\nline2\n", "newText": "line1\nlineX\n"}],
             )
-            assert_edit_ok(result, start_line=1, old_line_count=2, new_line_count=2)
+            assert_edit_ok(result)
             assert test_file.read_bytes() == b"line1\r\nlineX\r\n"
 
     def test_edit_fuzzy_requires_unique_match(self):
@@ -426,12 +408,7 @@ class TestEdit:
                     {"oldText": "ccc", "newText": "CCC"},
                 ],
             )
-            assert_edit_ok(
-                result,
-                start_line=[1, 3],
-                old_line_count=[1, 1],
-                new_line_count=[1, 1],
-            )
+            assert_edit_ok(result)
             assert test_file.read_text() == "AAA\nbbb\nCCC\nddd\n"
 
     def test_multi_edit_overlap_rejected(self):
@@ -478,7 +455,7 @@ class TestEdit:
                 "test.py",
                 [{"oldText": "return x", "newText": "return x + 1"}],
             )
-            assert_edit_ok(result, start_line=3, old_line_count=1, new_line_count=1)
+            assert_edit_ok(result)
             content = test_file.read_text()
             assert "    x = 1    \n" in content
             assert "return x + 1" in content
@@ -496,32 +473,35 @@ class TestEdit:
                     {"oldText": "c", "newText": "C"},
                 ],
             )
-            assert_edit_ok(
-                result,
-                start_line=[1, 4],  # "c" is now line 4 because "a" expanded to 2 lines
-                old_line_count=[1, 1],
-                new_line_count=[2, 1],
-            )
+            assert_edit_ok(result)
             assert test_file.read_text() == "a1\na2\nb\nC\n"
 
+    def test_multi_edit_patch_uses_file_order(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            test_file = Path(tmpdir) / "test.txt"
+            test_file.write_text("line 1\nline 2\nline 3\nline 4\nline 5\n")
+
+            result = _ctx(tmpdir).edit(
+                "test.txt",
+                [
+                    {"oldText": "line 5", "newText": "LINE 5"},
+                    {"oldText": "line 2", "newText": "LINE 2"},
+                ],
+            )
+
+            assert_edit_ok(result)
+            assert result.metadata is not None
+            patch = result.metadata["patch"]
+            assert isinstance(patch, str)
+            assert patch.index("-line 2") < patch.index("-line 5")
+            assert test_file.read_text() == "line 1\nLINE 2\nline 3\nline 4\nLINE 5\n"
+
     def test_edit_added_removed_line_stats(self):
-        """``added_lines`` / ``removed_lines`` in metadata reflect a real diff.
-
-        These numbers drive the shared ``+N −M`` indicator in both TUI and
-        web — they must match ``difflib.SequenceMatcher`` semantics so the
-        two surfaces agree.
-        """
-
         cases = [
-            # single-line replace
             ("foo\n", "foo", "bar", 1, 1),
-            # pure insert (one line becomes three, two new)
             ("foo\n", "foo", "foo\nbar\nbaz", 2, 0),
-            # pure delete
             ("a\nb\nc\n", "a\nb\nc", "a\nc", 0, 1),
-            # multi-line replace with shared prefix/suffix
             ("x\nold1\nold2\ny\n", "old1\nold2", "new1\nnew2\nnew3", 3, 2),
-            # reorder — SequenceMatcher keeps one common line
             ("A\nB\n", "A\nB", "B\nA", 1, 1),
         ]
         for initial, old_text, new_text, expected_added, expected_removed in cases:
@@ -534,9 +514,8 @@ class TestEdit:
                 )
                 assert result.is_error is False
                 assert result.metadata is not None
-                edit = result.metadata["edits"][0]
-                assert edit["added_lines"] == expected_added, (old_text, new_text, edit)
-                assert edit["removed_lines"] == expected_removed, (old_text, new_text, edit)
+                assert result.metadata["added_lines"] == expected_added
+                assert result.metadata["removed_lines"] == expected_removed
 
 
 class TestAbsolutePath:

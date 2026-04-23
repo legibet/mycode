@@ -32,7 +32,7 @@ from base64 import b64encode
 from collections import deque
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from difflib import SequenceMatcher
+from difflib import SequenceMatcher, unified_diff
 from mimetypes import guess_type
 from pathlib import Path
 from typing import Any, Literal, TextIO, cast, get_args, get_origin, overload
@@ -67,9 +67,9 @@ class ToolExecutionResult:
     - **provider** — gets ``output`` (a text summary) and, for multimodal
       returns, ``content`` (structured blocks such as an image). ``output``
       is replayed on later turns.
-    - **UI** — reads ``metadata`` for structured rendering (e.g. edit diff
-      line numbers). When ``metadata`` is absent, the UI falls back to
-      ``output`` as a one-line summary.
+    - **UI** — reads ``metadata`` for structured rendering (e.g. edit patch
+      and stats). When ``metadata`` is absent, the UI falls back to ``output``
+      as a one-line summary.
     """
 
     output: str
@@ -637,52 +637,34 @@ def _run_edit(ctx: ToolContext, args: dict[str, Any]) -> ToolExecutionResult:
     except Exception as exc:
         return ToolExecutionResult(output=f"error: failed to write file: {exc}", is_error=True)
 
-    # Per-edit metadata for the web diff view and +N −M suffix. ``matches``
-    # is sorted by original offset; track cumulative char shift to compute
-    # correct line numbers in the updated text. ``added_lines`` /
-    # ``removed_lines`` are authoritative diff stats derived from
-    # ``SequenceMatcher`` so TUI and web display identical numbers.
-    updated_lines = updated.splitlines()
-    edit_metas: list[dict[str, Any]] = []
-    char_shift = 0
-    context_lines = 3
-
-    for start, end, new_text, _ in matches:
-        old_snippet = text[start:end]
-        new_start = start + char_shift
-        start_line = updated[:new_start].count("\n") + 1
-        old_lines_list = old_snippet.splitlines()
-        new_lines_list = new_text.splitlines()
-        old_lc = len(old_lines_list) or 1
-        new_lc = len(new_lines_list) or 1
-
-        added = 0
-        removed = 0
-        for tag, i1, i2, j1, j2 in SequenceMatcher(None, old_lines_list, new_lines_list).get_opcodes():
-            if tag in ("replace", "delete"):
-                removed += i2 - i1
-            if tag in ("replace", "insert"):
-                added += j2 - j1
-
-        si = start_line - 1
-        before = updated_lines[max(0, si - context_lines) : si]
-        after = updated_lines[si + new_lc : si + new_lc + context_lines]
-
-        edit_metas.append(
-            {
-                "start_line": start_line,
-                "old_line_count": old_lc,
-                "new_line_count": new_lc,
-                "added_lines": added,
-                "removed_lines": removed,
-                "context_before": before,
-                "context_after": after,
-            }
+    # The UI renders this standard patch directly; stats are counted from the
+    # same patch so TUI and web show the same +N/-N numbers.
+    patch_lines = list(
+        unified_diff(
+            text.splitlines(),
+            updated.splitlines(),
+            fromfile=f"a/{path}",
+            tofile=f"b/{path}",
+            n=3,
+            lineterm="",
         )
-        char_shift += len(new_text) - (end - start)
+    )
+    patch = "\n".join(patch_lines)
+    if patch:
+        patch += "\n"
+    patch_body = patch_lines[2:]
+    added_lines = sum(1 for line in patch_body if line.startswith("+"))
+    removed_lines = sum(1 for line in patch_body if line.startswith("-"))
 
     summary = f"Updated {path}" if len(edits) == 1 else f"Updated {path} ({len(edits)} edits)"
-    return ToolExecutionResult(output=summary, metadata={"edits": edit_metas})
+    return ToolExecutionResult(
+        output=summary,
+        metadata={
+            "patch": patch,
+            "added_lines": added_lines,
+            "removed_lines": removed_lines,
+        },
+    )
 
 
 def _closest_line_hint(text: str, needle: str) -> str | None:

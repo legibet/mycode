@@ -86,10 +86,10 @@ Block types: `text` · `image` · `thinking` · `tool_use` · `tool_result`
 - Tool results stored as a `user` message with `tool_result` blocks:
 
   ```json
-  {"type": "tool_result", "tool_use_id": "call_1", "output": "ok", "metadata": {"edits": [...]}, "is_error": false}
+  {"type": "tool_result", "tool_use_id": "call_1", "output": "ok", "metadata": {"patch": "...", "added_lines": 1, "removed_lines": 1}, "is_error": false}
   ```
 
-  `output` is replayed to providers on later turns; `metadata` is structured UI data (e.g. `edit` carries per-edit line numbers).
+  `output` is replayed to providers on later turns; `metadata` is structured UI data (e.g. `edit` carries a unified patch and line stats).
   `tool_result.content` may store structured `text` and `image` blocks (replayed to providers alongside `output`).
 - System prompt is runtime-only, not persisted
 
