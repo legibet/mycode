@@ -26,6 +26,7 @@ import type {
   WorkspaceState,
 } from '../types'
 import { cn } from '../utils/cn'
+import { shouldAutoFocusTextInputOnOpen } from '../utils/focus'
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
@@ -66,6 +67,7 @@ const rootLabel = (value: string): string => {
 
 interface WorkspacePickerProps {
   open: boolean
+  openedWithKeyboard: boolean
   onClose: () => void
   currentCwd?: string
   cwdHistory?: string[]
@@ -78,6 +80,7 @@ function getErrorMessage(error: unknown): string {
 
 export function WorkspacePicker({
   open,
+  openedWithKeyboard,
   onClose,
   currentCwd,
   cwdHistory = [],
@@ -95,15 +98,21 @@ export function WorkspacePicker({
   const [filter, setFilter] = useState('')
   const browseTokenRef = useRef(0)
   const inputRef = useRef<HTMLInputElement | null>(null)
+  const closeButtonRef = useRef<HTMLButtonElement | null>(null)
 
-  // Focus input on desktop only (avoid keyboard pop-up on mobile)
+  // Keep focus inside the dialog while avoiding the mobile keyboard for touch
+  // pointer opens.
   useEffect(() => {
-    if (open && window.matchMedia('(min-width: 640px)').matches) {
-      // Small delay so dialog animation can start first
-      const timer = setTimeout(() => inputRef.current?.focus(), 50)
-      return () => clearTimeout(timer)
-    }
-  }, [open])
+    if (!open) return
+    const timer = setTimeout(() => {
+      if (shouldAutoFocusTextInputOnOpen(openedWithKeyboard)) {
+        inputRef.current?.focus()
+        return
+      }
+      closeButtonRef.current?.focus()
+    }, 50)
+    return () => clearTimeout(timer)
+  }, [open, openedWithKeyboard])
 
   // Reset filter when directory changes
   const prevCurrentRef = useRef(state.current)
@@ -366,6 +375,7 @@ export function WorkspacePicker({
           </div>
 
           <button
+            ref={closeButtonRef}
             type="button"
             onClick={onClose}
             className={cn(

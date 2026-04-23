@@ -28,6 +28,7 @@ import {
   getDefaultReasoningEffort,
   isReasoningEffort,
 } from '../../utils/config'
+import { shouldAutoFocusTextInputOnOpen } from '../../utils/focus'
 
 // ─── shared ─────────────────────────────────────────────────────────────────
 
@@ -142,6 +143,7 @@ export const ModelTrigger = memo(function ModelTrigger({
   const popoverRef = useRef<HTMLDivElement | null>(null)
   const inputRef = useRef<HTMLInputElement | null>(null)
   const listRef = useRef<HTMLDivElement | null>(null)
+  const openedWithKeyboardRef = useRef(false)
 
   const allModels = useMemo<ModelItem[]>(() => {
     const providers = remoteConfig?.providers || {}
@@ -197,9 +199,12 @@ export const ModelTrigger = memo(function ModelTrigger({
   }, [filtered])
 
   const popoverStyle = useAnchoredPopover(open, anchorRef, 'start')
-  useDismiss(open, anchorRef, popoverRef, () => setOpen(false))
+  useDismiss(open, anchorRef, popoverRef, () => {
+    setOpen(false)
+    anchorRef.current?.focus()
+  })
 
-  // Reset + focus on open
+  // Focus the filter for keyboard opens and desktop-like pointer opens.
   // biome-ignore lint/correctness/useExhaustiveDependencies: trigger-only on open
   useEffect(() => {
     if (!open) return
@@ -207,8 +212,17 @@ export const ModelTrigger = memo(function ModelTrigger({
     const activeIdx = allModels.findIndex(
       (m) => m.providerKey === config.provider && m.model === config.model,
     )
-    setCursor(Math.max(0, activeIdx))
-    const t = window.setTimeout(() => inputRef.current?.focus(), 20)
+    const nextCursor = Math.max(0, activeIdx)
+    setCursor(nextCursor)
+    const t = window.setTimeout(() => {
+      if (shouldAutoFocusTextInputOnOpen(openedWithKeyboardRef.current)) {
+        inputRef.current?.focus()
+        return
+      }
+      listRef.current
+        ?.querySelector<HTMLElement>(`[data-cursor="${nextCursor}"]`)
+        ?.focus()
+    }, 20)
     return () => window.clearTimeout(t)
   }, [open])
 
@@ -239,6 +253,16 @@ export const ModelTrigger = memo(function ModelTrigger({
       reasoningEffort: '',
     })
     setOpen(false)
+    anchorRef.current?.focus()
+  }
+
+  const focusOption = (i: number) => {
+    setCursor(i)
+    window.setTimeout(() => {
+      listRef.current
+        ?.querySelector<HTMLElement>(`[data-cursor="${i}"]`)
+        ?.focus()
+    }, 0)
   }
 
   const label = config.model || 'no-model'
@@ -250,6 +274,18 @@ export const ModelTrigger = memo(function ModelTrigger({
         type="button"
         aria-haspopup="listbox"
         aria-expanded={open}
+        onPointerDown={() => {
+          openedWithKeyboardRef.current = false
+        }}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            openedWithKeyboardRef.current = true
+          } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+            e.preventDefault()
+            openedWithKeyboardRef.current = true
+            setOpen(true)
+          }
+        }}
         onClick={() => setOpen((v) => !v)}
         className={cn(TRIGGER_BTN, 'min-w-0 max-w-full')}
         title={label}
@@ -291,6 +327,10 @@ export const ModelTrigger = memo(function ModelTrigger({
                   } else if (e.key === 'Enter') {
                     e.preventDefault()
                     selectIndex(cursor)
+                  } else if (e.key === 'Escape') {
+                    e.preventDefault()
+                    setOpen(false)
+                    anchorRef.current?.focus()
                   }
                 }}
                 placeholder="Filter models…"
@@ -327,8 +367,30 @@ export const ModelTrigger = memo(function ModelTrigger({
                         role="option"
                         aria-selected={active}
                         data-cursor={i}
+                        tabIndex={selected ? 0 : -1}
                         onClick={() => selectIndex(i)}
                         onMouseEnter={() => setCursor(i)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'ArrowDown') {
+                            e.preventDefault()
+                            focusOption(
+                              Math.min(i + 1, Math.max(0, filtered.length - 1)),
+                            )
+                          } else if (e.key === 'ArrowUp') {
+                            e.preventDefault()
+                            focusOption(Math.max(i - 1, 0))
+                          } else if (e.key === 'Home') {
+                            e.preventDefault()
+                            focusOption(0)
+                          } else if (e.key === 'End') {
+                            e.preventDefault()
+                            focusOption(Math.max(0, filtered.length - 1))
+                          } else if (e.key === 'Escape') {
+                            e.preventDefault()
+                            setOpen(false)
+                            anchorRef.current?.focus()
+                          }
+                        }}
                         className={cn(
                           'flex items-center gap-2 w-full px-3 py-1.5 text-left transition-colors',
                           selected

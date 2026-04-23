@@ -9,7 +9,7 @@
  */
 
 import { Laptop, Moon, Plus, Sun, Terminal, Trash2 } from 'lucide-react'
-import { type CSSProperties, memo, useMemo, useState } from 'react'
+import { type CSSProperties, memo, useMemo, useRef, useState } from 'react'
 import type { LocalConfig, RemoteConfig, SessionSummary, Theme } from '../types'
 import { cn } from '../utils/cn'
 import {
@@ -203,6 +203,7 @@ export const Sidebar = memo(function Sidebar({
   onResizeReset,
 }: SidebarProps) {
   const [workspaceOpen, setWorkspaceOpen] = useState(false)
+  const workspaceOpenedWithKeyboardRef = useRef(false)
   const resolvedCwd = config.cwd === '.' ? remoteConfig?.cwd || '.' : config.cwd
   const wsName = basename(resolvedCwd)
   const wsPath = prettyPath(resolvedCwd)
@@ -248,6 +249,14 @@ export const Sidebar = memo(function Sidebar({
         <div className="flex items-start justify-between gap-2">
           <button
             type="button"
+            onPointerDown={() => {
+              workspaceOpenedWithKeyboardRef.current = false
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                workspaceOpenedWithKeyboardRef.current = true
+              }
+            }}
             onClick={() => setWorkspaceOpen(true)}
             title={resolvedCwd}
             aria-label={`Workspace: ${resolvedCwd}. Click to switch.`}
@@ -283,6 +292,7 @@ export const Sidebar = memo(function Sidebar({
 
       <WorkspacePicker
         open={workspaceOpen}
+        openedWithKeyboard={workspaceOpenedWithKeyboardRef.current}
         onClose={() => setWorkspaceOpen(false)}
         currentCwd={config.cwd}
         cwdHistory={cwdHistory}
