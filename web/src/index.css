@@ -29,6 +29,7 @@
     --scrollbar-thumb: hsl(var(--border) / 0.9);
     --scrollbar-thumb-hover: hsl(var(--muted-foreground) / 0.45);
     --scrollbar-track: transparent;
+    --app-height: 100vh;
 
     /* Code block */
     --code-background: 216 65% 7%; /* #06101E */
@@ -78,6 +79,12 @@
 
     /* Sidebar */
     --sidebar-bg: 216 35% 95%;
+  }
+
+  @supports (height: 100dvh) {
+    :root {
+      --app-height: 100dvh;
+    }
   }
 }
 

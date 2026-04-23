@@ -22,7 +22,6 @@ export const MessageList = memo(function MessageList({
   onRewindAndSend,
 }: MessageListProps) {
   const containerRef = useRef<HTMLDivElement | null>(null)
-  const endRef = useRef<HTMLDivElement | null>(null)
   const stickToBottom = useRef(true)
   const previousMessageCount = useRef(0)
 
@@ -37,11 +36,12 @@ export const MessageList = memo(function MessageList({
     const previousCount = previousMessageCount.current
     previousMessageCount.current = messages.length
 
-    if (!messages.length || !stickToBottom.current) return
+    const container = containerRef.current
+    if (!messages.length || !stickToBottom.current || !container) return
 
-    endRef.current?.scrollIntoView({
+    container.scrollTo({
+      top: container.scrollHeight,
       behavior: loading || previousCount === 0 ? 'auto' : 'smooth',
-      block: 'end',
     })
   }, [loading, messages])
 
@@ -82,7 +82,7 @@ export const MessageList = memo(function MessageList({
             onRewindAndSend={onRewindAndSend}
           />
         ))}
-        <div ref={endRef} className="h-4" />
+        <div className="h-4" />
       </div>
     </div>
   )
