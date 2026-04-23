@@ -413,7 +413,7 @@ export default function EditDiff({ path, edits }: EditDiffProps) {
         <table
           className="w-full border-collapse"
           style={{
-            fontFamily: '"DM Mono", "JetBrains Mono", monospace',
+            fontFamily: '"Geist Mono", ui-monospace, monospace',
             fontSize: '13px',
             lineHeight: '1.5',
           }}

@@ -51,9 +51,29 @@ export default {
         sm: 'calc(var(--radius) - 4px)',
       },
       fontFamily: {
-        sans: ['Satoshi', 'system-ui', 'sans-serif'],
-        mono: ['DM Mono', 'JetBrains Mono', 'monospace'],
-        display: ['DM Mono', 'monospace'],
+        sans: [
+          'Geist',
+          '"PingFang SC"',
+          '"Hiragino Sans GB"',
+          '"Microsoft YaHei"',
+          '"Noto Sans SC"',
+          'system-ui',
+          'sans-serif',
+        ],
+        mono: [
+          '"Geist Mono"',
+          'ui-monospace',
+          '"PingFang SC"',
+          '"Microsoft YaHei"',
+          'monospace',
+        ],
+        display: [
+          'Geist',
+          '"PingFang SC"',
+          '"Microsoft YaHei"',
+          'system-ui',
+          'sans-serif',
+        ],
       },
       fontSize: {
         '2xs': ['0.6875rem', { lineHeight: '1rem' }],

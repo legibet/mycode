@@ -44,7 +44,7 @@
     --sidebar-bg: 216 65% 7%; /* #060F1E */
   }
 
-  /* ── Light theme ── Pale frost ── */
+  /* ── Light theme ── Pale Frost ── */
   .light {
     color-scheme: light;
     --background: 216 40% 97%; /* #F3F6FA */
@@ -101,8 +101,10 @@
     @apply border-border;
   }
   body {
-    @apply bg-background text-foreground;
-    font-feature-settings: "ss01", "ss02", "cv01";
+    @apply bg-background text-foreground font-sans;
+    font-size: 15px;
+    line-height: 1.6;
+    font-feature-settings: "cv11", "ss01";
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     overscroll-behavior: none;
@@ -110,6 +112,13 @@
   .light body {
     -webkit-font-smoothing: auto;
     -moz-osx-font-smoothing: auto;
+  }
+  code,
+  pre,
+  kbd,
+  samp {
+    font-feature-settings: "calt", "liga", "zero";
+    font-variant-ligatures: contextual;
   }
 }
 
