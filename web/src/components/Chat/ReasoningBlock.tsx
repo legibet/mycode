@@ -1,11 +1,11 @@
 /**
- * Reasoning/thinking display.
- * Soft background section — visually grouped, no border.
- * Auto-collapses when streaming ends.
+ * Reasoning / thinking display.
+ * Zero container. Label is the click target — 12px Geist Sans regular,
+ * breathing during stream. Expanded body uses a 2px left rail (blockquote
+ * convention) instead of an indent.
  */
 
-import { ChevronDown } from 'lucide-react'
-import { memo, useState } from 'react'
+import { memo, useEffect, useRef, useState } from 'react'
 import { cn } from '../../utils/cn'
 
 interface ReasoningBlockProps {
@@ -13,40 +13,57 @@ interface ReasoningBlockProps {
   isStreaming?: boolean | undefined
 }
 
+function formatElapsed(ms: number): string {
+  const secs = Math.max(1, Math.round(ms / 1000))
+  if (secs < 60) return `${secs}s`
+  const mins = Math.floor(secs / 60)
+  const rem = secs % 60
+  return rem === 0 ? `${mins}m` : `${mins}m ${rem}s`
+}
+
 export const ReasoningBlock = memo(function ReasoningBlock({
   content,
   isStreaming,
 }: ReasoningBlockProps) {
   const [expandedOverride, setExpandedOverride] = useState<boolean | null>(null)
-  const expanded = expandedOverride ?? Boolean(isStreaming)
+  const [elapsedMs, setElapsedMs] = useState<number | null>(null)
+  const startedAtRef = useRef<number | null>(null)
+
+  useEffect(() => {
+    if (isStreaming) {
+      if (startedAtRef.current == null) startedAtRef.current = Date.now()
+      return
+    }
+    if (startedAtRef.current != null && elapsedMs == null) {
+      setElapsedMs(Date.now() - startedAtRef.current)
+    }
+  }, [isStreaming, elapsedMs])
 
   if (!content) return null
 
+  const expanded = expandedOverride ?? Boolean(isStreaming)
+  const label = isStreaming
+    ? 'Thinking…'
+    : elapsedMs != null
+      ? `Thought · ${formatElapsed(elapsedMs)}`
+      : 'Thought'
+
   return (
-    <div className="rounded-lg bg-secondary/20 px-3 py-2">
+    <div className="group/thinking">
       <button
         type="button"
-        className="flex w-full items-center gap-1.5 select-none cursor-pointer text-left"
+        className="block select-none cursor-pointer text-left"
         aria-expanded={expanded}
         onClick={() => setExpandedOverride(!expanded)}
       >
         <span
           className={cn(
-            'text-xs transition-colors duration-200',
-            isStreaming
-              ? 'text-accent/60 animate-thinking font-medium'
-              : 'text-muted-foreground/50',
+            'text-[12px] text-muted-foreground transition-colors duration-200 group-hover/thinking:text-foreground/80',
+            isStreaming && 'animate-thinking',
           )}
         >
-          Thinking
+          {label}
         </span>
-        <ChevronDown
-          className={cn(
-            'h-3 w-3 text-muted-foreground/25 transition-transform duration-200',
-            !expanded && '-rotate-90',
-          )}
-          aria-hidden="true"
-        />
       </button>
 
       <div
@@ -58,7 +75,7 @@ export const ReasoningBlock = memo(function ReasoningBlock({
         )}
       >
         <div className="overflow-hidden">
-          <div className="pt-2 text-[13px] text-muted-foreground/70 whitespace-pre-wrap italic leading-relaxed">
+          <div className="mt-2 border-l-2 border-border pl-3 text-[13px] text-muted-foreground whitespace-pre-wrap leading-relaxed">
             {content}
           </div>
         </div>

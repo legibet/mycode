@@ -253,7 +253,7 @@ export const MessageBubble = memo(function MessageBubble({
                 e.target.style.height = `${Math.min(e.target.scrollHeight, 300)}px`
               }}
               onKeyDown={handleEditKeyDown}
-              className="w-full resize-none rounded-2xl bg-card px-4 py-2.5 text-base md:text-sm leading-relaxed text-foreground/90 border border-border/50 focus:outline-none focus:border-accent/50 max-h-[300px]"
+              className="w-full resize-none rounded-lg bg-muted px-3.5 py-2 text-base md:text-sm leading-relaxed text-foreground border border-border/60 focus:outline-none focus:border-accent/60 max-h-[300px]"
             />
             <div className="flex justify-end gap-2">
               <button
@@ -306,7 +306,7 @@ export const MessageBubble = memo(function MessageBubble({
                   key={block.renderKey ?? i}
                   src={`data:${block.mime_type};base64,${block.data}`}
                   alt={block.name ?? 'Image'}
-                  className="max-h-64 max-w-full rounded-xl"
+                  className="max-h-64 max-w-full rounded-lg"
                 />
               ))}
             </div>
@@ -316,7 +316,7 @@ export const MessageBubble = memo(function MessageBubble({
               {documentBlocks.map((block, i) => (
                 <div
                   key={block.renderKey ?? i}
-                  className="min-w-32 max-w-xs rounded-xl border border-border/30 bg-muted/30 px-3 py-2 text-sm text-foreground/80"
+                  className="min-w-32 max-w-xs rounded-lg border border-border/40 bg-muted/50 px-3 py-2 text-sm text-foreground/80"
                 >
                   <div className="flex items-center gap-2">
                     <FileText className="h-4 w-4 shrink-0 text-accent/80" />
@@ -336,7 +336,7 @@ export const MessageBubble = memo(function MessageBubble({
                 return (
                   <div
                     key={block.renderKey ?? i}
-                    className="min-w-32 max-w-xs rounded-xl border border-border/30 bg-muted/30 px-3 py-2 text-sm text-foreground/80"
+                    className="min-w-32 max-w-xs rounded-lg border border-border/40 bg-muted/50 px-3 py-2 text-sm text-foreground/80"
                   >
                     <div className="flex items-center gap-2">
                       <FileText className="h-4 w-4 shrink-0 text-accent/80" />
@@ -351,7 +351,7 @@ export const MessageBubble = memo(function MessageBubble({
             </div>
           )}
           {textContent && (
-            <div className="rounded-2xl bg-card px-4 py-2.5 text-sm leading-relaxed text-foreground/90 whitespace-pre-wrap [overflow-wrap:anywhere]">
+            <div className="rounded-lg bg-muted px-3.5 py-2 text-sm leading-relaxed text-foreground whitespace-pre-wrap [overflow-wrap:anywhere]">
               {textContent}
             </div>
           )}

@@ -1,17 +1,12 @@
 /**
  * Tool execution display.
- * Soft background section — same visual language as ReasoningBlock.
- * Compact trigger line, expandable body with code-styled content.
+ * Zero container. Two-tier typography: tool name (sans medium, foreground)
+ * vs everything else (mono regular, muted-foreground). Click the row text
+ * to toggle. Per-tool bodies (bash / read / write / edit / generic) are
+ * preserved.
  */
 
-import {
-  Check,
-  ChevronDown,
-  FileText,
-  PenLine,
-  SquarePen,
-  Terminal,
-} from 'lucide-react'
+import { FileText, PenLine, SquarePen, Terminal } from 'lucide-react'
 import { lazy, memo, Suspense, useState } from 'react'
 import type { EditMeta } from '../../types'
 import { cn } from '../../utils/cn'
@@ -62,7 +57,6 @@ function isEditArgs(args: Record<string, unknown>): args is EditArgs {
   )
 }
 
-/** Extract per-edit metadata from the result metadata payload. */
 function getEditMetas(
   metadata: Record<string, unknown> | null | undefined,
 ): EditMeta[] | null {
@@ -112,7 +106,7 @@ interface ToolCardProps {
 }
 
 // ---------------------------------------------------------------------------
-// Shared result block — used by all tool body variants
+// Shared result block — code viewer for tool output (not a card shell)
 // ---------------------------------------------------------------------------
 
 const RESULT_BASE =
@@ -126,7 +120,7 @@ function ResultBlock({ text, isError }: { text: string; isError: boolean }) {
         RESULT_BASE,
         isError
           ? 'bg-red-500/[0.05] text-red-400/70'
-          : 'bg-code text-muted-foreground/80',
+          : 'bg-code text-muted-foreground',
       )}
     >
       {text}
@@ -159,10 +153,6 @@ function getPreview(name: string, args?: Record<string, unknown>): string {
   }
 }
 
-/**
- * Sum +N −M from metadata.edits. Numbers are computed backend-side via
- * SequenceMatcher so TUI and web agree.
- */
 function getEditStats(
   metadata: Record<string, unknown> | null | undefined,
 ): { added: number; removed: number } | null {
@@ -200,9 +190,6 @@ function getWriteHint(args?: Record<string, unknown>): string {
   return `${content.split('\n').length} lines`
 }
 
-const SUFFIX_HINT =
-  'shrink-0 ml-1.5 text-[12px] font-mono text-muted-foreground/30'
-
 function CollapsedSuffix({
   name,
   args,
@@ -216,9 +203,9 @@ function CollapsedSuffix({
     const stats = getEditStats(metadata)
     if (!stats || (stats.added === 0 && stats.removed === 0)) return null
     return (
-      <span className="shrink-0 ml-1.5 text-[12px] font-mono tabular-nums">
-        <span className="text-emerald-500/60">+{stats.added}</span>
-        <span className="text-red-400/60 ml-1">−{stats.removed}</span>
+      <span className="shrink-0 text-[12px] font-mono tabular-nums">
+        <span className="text-emerald-500/70">+{stats.added}</span>
+        <span className="text-red-400/70 ml-1">−{stats.removed}</span>
       </span>
     )
   }
@@ -230,7 +217,11 @@ function CollapsedSuffix({
         ? getWriteHint(args)
         : ''
   if (!hint) return null
-  return <span className={SUFFIX_HINT}>{hint}</span>
+  return (
+    <span className="shrink-0 text-[12px] font-mono text-muted-foreground/60">
+      {hint}
+    </span>
+  )
 }
 
 // ---------------------------------------------------------------------------
@@ -250,11 +241,11 @@ function BashBody({
   const command = typeof bashArgs?.command === 'string' ? bashArgs.command : ''
 
   return (
-    <div className="pt-2 space-y-2">
+    <div className="space-y-2">
       {command && (
         <div className="rounded-md bg-code px-3 py-2 font-mono text-[13px] leading-[1.5] overflow-x-auto scrollbar-subtle">
-          <span className="text-muted-foreground/30 select-none">$ </span>
-          <span className="text-foreground/65 whitespace-pre-wrap break-all">
+          <span className="text-muted-foreground/40 select-none">$ </span>
+          <span className="text-foreground/75 whitespace-pre-wrap break-all">
             {command}
           </span>
         </div>
@@ -264,30 +255,8 @@ function BashBody({
   )
 }
 
-function ReadBody({
-  args,
-  display,
-  isError,
-}: {
-  args: Record<string, unknown> | undefined
-  display: string
-  isError: boolean
-}) {
-  const readArgs = args as ReadArgs | undefined
-  const path = typeof readArgs?.path === 'string' ? readArgs.path : ''
-  const hint = getReadHint(args)
-
-  return (
-    <div className="pt-2 space-y-2">
-      {path && (
-        <div className="font-mono text-[13px] text-muted-foreground/40 truncate">
-          {path}
-          {hint && <span className="text-muted-foreground/30">{hint}</span>}
-        </div>
-      )}
-      <ResultBlock text={display} isError={isError} />
-    </div>
-  )
+function ReadBody({ display, isError }: { display: string; isError: boolean }) {
+  return <ResultBlock text={display} isError={isError} />
 }
 
 function WriteBody({
@@ -300,19 +269,13 @@ function WriteBody({
   isError: boolean
 }) {
   const writeArgs = args as WriteArgs | undefined
-  const path = typeof writeArgs?.path === 'string' ? writeArgs.path : ''
   const content =
     typeof writeArgs?.content === 'string' ? writeArgs.content : ''
 
   return (
-    <div className="pt-2 space-y-2">
-      {path && (
-        <div className="font-mono text-[13px] text-muted-foreground/40 truncate">
-          {path}
-        </div>
-      )}
+    <div className="space-y-2">
       {content && !isError && (
-        <div className="rounded-md bg-code px-3 py-2 font-mono text-[13px] leading-[1.5] overflow-x-auto overflow-y-auto scrollbar-subtle whitespace-pre-wrap max-h-[240px] text-foreground/65">
+        <div className="rounded-md bg-code px-3 py-2 font-mono text-[13px] leading-[1.5] overflow-x-auto overflow-y-auto scrollbar-subtle whitespace-pre-wrap max-h-[240px] text-foreground/75">
           {content}
         </div>
       )}
@@ -340,7 +303,7 @@ function EditBody({
       meta: metas?.[i] ?? null,
     }))
     return (
-      <div className="pt-2 space-y-2">
+      <div className="space-y-2">
         <Suspense fallback={<EditDiffFallback edits={args.edits} />}>
           <EditDiff path={args.path} edits={items} />
         </Suspense>
@@ -350,7 +313,7 @@ function EditBody({
   }
 
   return (
-    <div className="pt-2 space-y-2">
+    <div className="space-y-2">
       {args && Object.keys(args).length > 0 && <GenericArgs args={args} />}
       <ResultBlock text={display} isError={isError} />
     </div>
@@ -362,8 +325,8 @@ function GenericArgs({ args }: { args: Record<string, unknown> }) {
     <div className="rounded-md bg-code px-3 py-2 font-mono text-[13px] leading-relaxed overflow-x-auto scrollbar-subtle">
       {Object.entries(args).map(([key, value]) => (
         <div key={key}>
-          <span className="text-accent/50">{key}: </span>
-          <span className="text-foreground/65 break-all whitespace-pre-wrap">
+          <span className="text-accent/80">{key}: </span>
+          <span className="text-foreground/75 break-all whitespace-pre-wrap">
             {typeof value === 'object'
               ? JSON.stringify(value, null, 2)
               : String(value)}
@@ -387,8 +350,6 @@ export const ToolCard = memo(function ToolCard({
   pending,
   isError,
 }: ToolCardProps) {
-  // Prefer the final output (available once tool_done fires) over the
-  // incremental streaming output, and fall back to "" for pending tools.
   const display =
     typeof finalOutput === 'string'
       ? finalOutput
@@ -409,19 +370,29 @@ export const ToolCard = memo(function ToolCard({
   const Icon = meta.icon
   const preview = getPreview(name, args)
 
-  return (
-    <div
-      className={cn(
-        'relative rounded-lg px-3 py-2',
-        status === 'error' ? 'bg-red-500/[0.05]' : 'bg-secondary/20',
-      )}
-    >
-      {status === 'pending' && (
-        <div className="absolute top-0 left-0 right-0 h-[1px] overflow-hidden rounded-t-lg">
-          <div className="h-full w-1/3 bg-accent/30 animate-progress-line" />
-        </div>
-      )}
+  const body =
+    name === 'bash' ? (
+      <BashBody args={args} display={display} isError={resolvedIsError} />
+    ) : name === 'read' ? (
+      <ReadBody display={display} isError={resolvedIsError} />
+    ) : name === 'write' ? (
+      <WriteBody args={args} display={display} isError={resolvedIsError} />
+    ) : name === 'edit' ? (
+      <EditBody
+        args={args}
+        metadata={metadata}
+        display={display}
+        isError={resolvedIsError}
+      />
+    ) : (
+      <>
+        {args && Object.keys(args).length > 0 && <GenericArgs args={args} />}
+        <ResultBlock text={display} isError={resolvedIsError} />
+      </>
+    )
 
+  return (
+    <div className="group/tool">
       <button
         type="button"
         className="flex w-full items-center gap-1.5 select-none cursor-pointer text-left"
@@ -429,56 +400,29 @@ export const ToolCard = memo(function ToolCard({
         onClick={() => setExpandedOverride(!expanded)}
       >
         <Icon
-          className={cn(
-            'h-3.5 w-3.5 shrink-0 transition-colors duration-200',
-            status === 'error'
-              ? 'text-red-400/80'
-              : status === 'pending'
-                ? 'text-accent/50'
-                : 'text-foreground/60',
-          )}
+          className="h-3.5 w-3.5 shrink-0 text-muted-foreground"
           aria-hidden="true"
         />
 
         <span
           className={cn(
-            'text-[13px] font-medium shrink-0 transition-colors duration-200',
+            'text-[13px] shrink-0 tracking-tight transition-colors duration-200',
             status === 'error'
-              ? 'text-red-400/80'
-              : status === 'pending'
-                ? 'text-foreground/70'
-                : 'text-foreground/60',
+              ? 'text-destructive/90 group-hover/tool:text-destructive'
+              : 'text-foreground/90 group-hover/tool:text-foreground',
+            status === 'pending' && 'animate-thinking',
           )}
         >
           {name}
         </span>
 
-        {!expanded && preview && (
-          <span className="pl-1 text-[13px] text-muted-foreground/40 font-mono truncate">
+        {preview && (
+          <span className="min-w-0 text-[13px] font-mono text-muted-foreground/60 truncate">
             {preview}
           </span>
         )}
 
-        {!expanded && (
-          <CollapsedSuffix name={name} args={args} metadata={metadata} />
-        )}
-
-        <span className="flex-1" />
-
-        {status === 'success' && (
-          <Check
-            className="h-3 w-3 text-emerald-500/40 shrink-0"
-            aria-hidden="true"
-          />
-        )}
-
-        <ChevronDown
-          className={cn(
-            'h-3 w-3 text-muted-foreground/25 transition-transform duration-200 shrink-0',
-            !expanded && '-rotate-90',
-          )}
-          aria-hidden="true"
-        />
+        <CollapsedSuffix name={name} args={args} metadata={metadata} />
       </button>
 
       <div
@@ -490,31 +434,7 @@ export const ToolCard = memo(function ToolCard({
         )}
       >
         <div className="overflow-hidden">
-          {name === 'bash' ? (
-            <BashBody args={args} display={display} isError={resolvedIsError} />
-          ) : name === 'read' ? (
-            <ReadBody args={args} display={display} isError={resolvedIsError} />
-          ) : name === 'write' ? (
-            <WriteBody
-              args={args}
-              display={display}
-              isError={resolvedIsError}
-            />
-          ) : name === 'edit' ? (
-            <EditBody
-              args={args}
-              metadata={metadata}
-              display={display}
-              isError={resolvedIsError}
-            />
-          ) : (
-            <div className="pt-2 space-y-2">
-              {args && Object.keys(args).length > 0 && (
-                <GenericArgs args={args} />
-              )}
-              <ResultBlock text={display} isError={resolvedIsError} />
-            </div>
-          )}
+          <div className="mt-2 ml-5">{body}</div>
         </div>
       </div>
     </div>
