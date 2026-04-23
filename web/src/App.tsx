@@ -16,11 +16,18 @@ import { useChat } from './hooks/useChat'
 import type { AttachedFile, LocalConfig, RemoteConfig } from './types'
 import { normalizeConfigWithRemoteDefaults } from './utils/config'
 import {
+  getMaxSidebarWidth,
+  SIDEBAR_DEFAULT_WIDTH,
+  SIDEBAR_MIN_WIDTH,
+} from './utils/sidebar'
+import {
   addHistory,
   loadConfig,
   loadHistory,
+  loadSidebarWidth,
   saveConfig,
   saveHistory,
+  saveSidebarWidth,
 } from './utils/storage'
 
 async function fetchJson<T>(url: string): Promise<T> {
@@ -44,7 +51,35 @@ function AppContent() {
   const [attachments, setAttachments] = useState<AttachedFile[]>([])
   const [cwdHistory, setCwdHistory] = useState<string[]>(loadHistory)
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  // User's preferred sidebar width — only changes on explicit drag/reset.
+  const [sidebarWidth, setSidebarWidth] = useState(loadSidebarWidth)
+  // Viewport-dependent cap; recomputed on window resize and used at render time
+  // so a narrow viewport clamps the displayed width without touching user intent.
+  const [maxSidebarWidth, setMaxSidebarWidth] = useState(getMaxSidebarWidth)
   const { theme, setTheme } = useTheme()
+
+  const handleResizeSidebar = useCallback((next: number) => {
+    setSidebarWidth((prev) => {
+      if (prev === next) return prev
+      saveSidebarWidth(next)
+      return next
+    })
+  }, [])
+
+  const handleResetSidebarWidth = useCallback(() => {
+    handleResizeSidebar(SIDEBAR_DEFAULT_WIDTH)
+  }, [handleResizeSidebar])
+
+  useEffect(() => {
+    const onWindowResize = () => setMaxSidebarWidth(getMaxSidebarWidth())
+    window.addEventListener('resize', onWindowResize)
+    return () => window.removeEventListener('resize', onWindowResize)
+  }, [])
+
+  const displayedSidebarWidth = Math.max(
+    SIDEBAR_MIN_WIDTH,
+    Math.min(maxSidebarWidth, sidebarWidth),
+  )
   const configUrl = `/api/config?cwd=${encodeURIComponent(config.cwd)}`
   const { data: remoteConfig = null, error: remoteConfigError } = useSWR<
     RemoteConfig,
@@ -215,9 +250,10 @@ function AppContent() {
           />
         )}
 
-        {/* Sidebar — fixed on desktop, overlay on mobile */}
+        {/* Sidebar — resizable on desktop, overlay on mobile */}
         <div
           className={`
+            md:shrink-0
             max-md:fixed max-md:inset-y-0 max-md:left-0 max-md:z-50
             max-md:transition-transform max-md:duration-300 max-md:ease-out
             max-md:overscroll-y-contain
@@ -236,6 +272,9 @@ function AppContent() {
             onUpdateConfig={handleConfigUpdate}
             theme={theme}
             setTheme={setTheme}
+            width={displayedSidebarWidth}
+            onResize={handleResizeSidebar}
+            onResizeReset={handleResetSidebarWidth}
             className="h-full"
           />
         </div>

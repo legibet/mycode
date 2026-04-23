@@ -4,10 +4,16 @@
 
 import type { LocalConfig } from '../types'
 import { isReasoningEffort } from './config'
+import {
+  SIDEBAR_DEFAULT_WIDTH,
+  SIDEBAR_MAX_WIDTH,
+  SIDEBAR_MIN_WIDTH,
+} from './sidebar'
 
 const STORAGE_KEY = 'mycode_config'
 const HISTORY_KEY = 'mycode_cwd_history'
 const ACTIVE_SESSIONS_KEY = 'mycode_active_sessions'
+const SIDEBAR_WIDTH_KEY = 'mycode_sidebar_width'
 const SCHEMA_VERSION = 1
 
 const DEFAULT_CONFIG: LocalConfig = {
@@ -173,4 +179,29 @@ export function removeActiveSession(cwd: string): void {
   const activeSessions = loadActiveSessionMap()
   delete activeSessions[normalizeCwdKey(cwd)]
   saveActiveSessionMap(activeSessions)
+}
+
+export function loadSidebarWidth(): number {
+  try {
+    const saved = localStorage.getItem(SIDEBAR_WIDTH_KEY)
+    if (saved) {
+      const n = Number(saved)
+      if (Number.isFinite(n)) {
+        // Global bounds only — viewport-dependent clamp happens at render time
+        // so a narrow viewport never overwrites the user's preferred width.
+        return Math.max(SIDEBAR_MIN_WIDTH, Math.min(SIDEBAR_MAX_WIDTH, n))
+      }
+    }
+  } catch (e) {
+    console.error('Failed to load sidebar width:', e)
+  }
+  return SIDEBAR_DEFAULT_WIDTH
+}
+
+export function saveSidebarWidth(width: number): void {
+  try {
+    localStorage.setItem(SIDEBAR_WIDTH_KEY, String(width))
+  } catch (e) {
+    console.error('Failed to save sidebar width:', e)
+  }
 }

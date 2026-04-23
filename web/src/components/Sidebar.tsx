@@ -9,9 +9,14 @@
  */
 
 import { Laptop, Moon, Plus, Sun, Terminal, Trash2 } from 'lucide-react'
-import { memo, useMemo, useState } from 'react'
+import { type CSSProperties, memo, useMemo, useState } from 'react'
 import type { LocalConfig, RemoteConfig, SessionSummary, Theme } from '../types'
 import { cn } from '../utils/cn'
+import {
+  clampSidebarWidth,
+  getMaxSidebarWidth,
+  SIDEBAR_MIN_WIDTH,
+} from '../utils/sidebar'
 import { WorkspacePicker } from './WorkspacePicker'
 
 // ─── path helpers ───────────────────────────────────────────────────────────
@@ -96,6 +101,88 @@ interface SidebarProps {
   onUpdateConfig: (config: LocalConfig) => void
   theme: Theme
   setTheme: (theme: Theme) => void
+  width: number
+  onResize: (width: number) => void
+  onResizeReset: () => void
+}
+
+function SidebarResizer({
+  width,
+  onResize,
+  onResizeReset,
+}: {
+  width: number
+  onResize: (width: number) => void
+  onResizeReset: () => void
+}) {
+  const [dragging, setDragging] = useState(false)
+
+  const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.button !== 0) return
+    e.preventDefault()
+    const startX = e.clientX
+    const startWidth = width
+    setDragging(true)
+    document.body.style.cursor = 'col-resize'
+    document.body.style.userSelect = 'none'
+
+    const onMove = (ev: PointerEvent) => {
+      onResize(clampSidebarWidth(startWidth + (ev.clientX - startX)))
+    }
+    const onUp = () => {
+      setDragging(false)
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+    }
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+  }
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    const step = e.shiftKey ? 32 : 8
+    if (e.key === 'ArrowLeft') {
+      e.preventDefault()
+      onResize(clampSidebarWidth(width - step))
+    } else if (e.key === 'ArrowRight') {
+      e.preventDefault()
+      onResize(clampSidebarWidth(width + step))
+    } else if (e.key === 'Home') {
+      e.preventDefault()
+      onResizeReset()
+    }
+  }
+
+  return (
+    // biome-ignore lint/a11y/useSemanticElements: <hr> is not interactive; ARIA window-splitter pattern uses role="separator" on a focusable div
+    <div
+      role="separator"
+      aria-orientation="vertical"
+      aria-label="Resize sidebar"
+      aria-valuemin={SIDEBAR_MIN_WIDTH}
+      aria-valuemax={getMaxSidebarWidth()}
+      aria-valuenow={width}
+      tabIndex={0}
+      onPointerDown={handlePointerDown}
+      onDoubleClick={onResizeReset}
+      onKeyDown={handleKeyDown}
+      className={cn(
+        'group/resizer hidden md:block',
+        'absolute top-0 bottom-0 -right-[3px] w-[6px] z-20 cursor-col-resize',
+        'focus-visible:outline-none',
+      )}
+    >
+      <div
+        className={cn(
+          'absolute inset-y-0 right-[3px] w-px transition-colors',
+          dragging
+            ? 'bg-accent'
+            : 'bg-transparent group-hover/resizer:bg-accent/60 group-focus-visible/resizer:bg-accent/60',
+        )}
+      />
+    </div>
+  )
 }
 
 export const Sidebar = memo(function Sidebar({
@@ -111,6 +198,9 @@ export const Sidebar = memo(function Sidebar({
   onUpdateConfig,
   theme,
   setTheme,
+  width,
+  onResize,
+  onResizeReset,
 }: SidebarProps) {
   const [workspaceOpen, setWorkspaceOpen] = useState(false)
   const resolvedCwd = config.cwd === '.' ? remoteConfig?.cwd || '.' : config.cwd
@@ -140,9 +230,10 @@ export const Sidebar = memo(function Sidebar({
   return (
     <div
       className={cn(
-        'flex w-64 flex-col border-r border-border/50 bg-sidebar-bg',
+        'relative flex w-64 md:w-[var(--sidebar-width)] flex-col border-r border-border/50 bg-sidebar-bg',
         className,
       )}
+      style={{ '--sidebar-width': `${width}px` } as CSSProperties}
     >
       {/* Brand */}
       <div className="shrink-0 flex items-center gap-2.5 px-5 pt-5 pb-5">
@@ -302,6 +393,12 @@ export const Sidebar = memo(function Sidebar({
           )
         })}
       </div>
+
+      <SidebarResizer
+        width={width}
+        onResize={onResize}
+        onResizeReset={onResizeReset}
+      />
     </div>
   )
 })
