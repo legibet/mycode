@@ -231,9 +231,9 @@ function AppContent() {
             onCreateSession={handleCreateSession}
             onDeleteSession={handleDeleteSession}
             config={config}
-            onUpdateConfig={handleConfigUpdate}
-            cwdHistory={cwdHistory}
             remoteConfig={remoteConfig}
+            cwdHistory={cwdHistory}
+            onUpdateConfig={handleConfigUpdate}
             theme={theme}
             setTheme={setTheme}
             className="h-full"
@@ -278,6 +278,9 @@ function AppContent() {
                   files={attachments}
                   onAttachFiles={handleAttachFiles}
                   onRemoveFile={handleRemoveAttachment}
+                  config={config}
+                  remoteConfig={remoteConfig}
+                  onUpdateConfig={handleConfigUpdate}
                 />
               </div>
             </>

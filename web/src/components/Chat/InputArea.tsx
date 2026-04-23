@@ -13,8 +13,14 @@ import {
   useRef,
   useState,
 } from 'react'
-import type { AttachedFile, SetString } from '../../types'
+import type {
+  AttachedFile,
+  LocalConfig,
+  RemoteConfig,
+  SetString,
+} from '../../types'
 import { cn } from '../../utils/cn'
+import { EffortTrigger, ModelTrigger } from './InputPills'
 
 // File pickers only understand MIME types and extensions, so keep the text
 // allowlist explicit here.
@@ -96,6 +102,9 @@ interface InputAreaProps {
   files?: AttachedFile[]
   onAttachFiles?: (files: AttachedFile[]) => void
   onRemoveFile?: (index: number) => void
+  config: LocalConfig
+  remoteConfig: RemoteConfig | null
+  onUpdateConfig: (config: LocalConfig) => void
 }
 
 function readFileAsBase64(file: File): Promise<string> {
@@ -172,6 +181,9 @@ export const InputArea = memo(function InputArea({
   files = [],
   onAttachFiles,
   onRemoveFile,
+  config,
+  remoteConfig,
+  onUpdateConfig,
 }: InputAreaProps) {
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
@@ -304,70 +316,80 @@ export const InputArea = memo(function InputArea({
           onChange={handleFileChange}
         />
 
-        <div className="relative">
-          <textarea
-            ref={textareaRef}
-            rows={1}
-            name="message"
-            aria-label="Message"
-            value={input}
-            onChange={(e) => {
-              setInput(e.target.value)
-              e.target.style.height = 'auto'
-              e.target.style.height = `${Math.min(e.target.scrollHeight, 200)}px`
-            }}
-            onKeyDown={handleKeyDown}
-            placeholder="Message…"
-            className="block w-full resize-none bg-transparent py-3 max-md:py-2.5 pr-14 pl-12 max-md:pl-11 text-base md:text-sm leading-relaxed text-foreground placeholder:text-muted-foreground/40 focus-visible:outline-none max-h-[200px]"
-          />
+        <textarea
+          ref={textareaRef}
+          rows={1}
+          name="message"
+          aria-label="Message"
+          value={input}
+          onChange={(e) => {
+            setInput(e.target.value)
+            e.target.style.height = 'auto'
+            e.target.style.height = `${Math.min(e.target.scrollHeight, 200)}px`
+          }}
+          onKeyDown={handleKeyDown}
+          placeholder="Message…"
+          className="block w-full resize-none bg-transparent px-3.5 pt-3 pb-1 max-md:pt-2.5 text-base md:text-sm leading-relaxed text-foreground placeholder:text-muted-foreground/40 focus-visible:outline-none max-h-[200px]"
+        />
 
-          <div className="absolute inset-y-0 left-2.5 max-md:left-2 flex items-center">
+        {/* Bottom row: attach + model · effort + send */}
+        <div className="flex items-center gap-1 px-1.5 pb-1.5">
+          <button
+            type="button"
+            aria-label="Attach file"
+            disabled={loading}
+            onClick={() => fileInputRef.current?.click()}
+            className={cn(
+              'h-7 w-7 flex items-center justify-center rounded-md transition-colors shrink-0',
+              loading
+                ? 'text-muted-foreground/20'
+                : 'text-muted-foreground/60 hover:text-foreground hover:bg-muted/70',
+            )}
+            title="Attach file"
+          >
+            <Paperclip className="h-3.5 w-3.5" />
+          </button>
+
+          <div className="flex items-center gap-0.5 min-w-0 flex-1 overflow-hidden">
+            <ModelTrigger
+              config={config}
+              remoteConfig={remoteConfig}
+              onUpdateConfig={onUpdateConfig}
+            />
+            <EffortSeparatorAndTrigger
+              config={config}
+              remoteConfig={remoteConfig}
+              onUpdateConfig={onUpdateConfig}
+            />
+          </div>
+
+          {loading ? (
             <button
               type="button"
-              aria-label="Attach file"
-              disabled={loading}
-              onClick={() => fileInputRef.current?.click()}
-              className={cn(
-                'h-8 w-8 flex items-center justify-center rounded-lg transition duration-150',
-                loading
-                  ? 'text-muted-foreground/20'
-                  : 'text-muted-foreground/40 hover:text-muted-foreground/70 hover:bg-muted/50 active:scale-95',
-              )}
-              title="Attach file"
+              aria-label="Stop generating"
+              onClick={onCancel}
+              className="h-7 w-7 flex items-center justify-center rounded-md text-destructive/70 hover:text-destructive hover:bg-destructive/10 active:scale-95 transition shrink-0"
+              title="Stop"
             >
-              <Paperclip className="h-4 w-4" />
+              <Square className="h-3 w-3 fill-current" />
             </button>
-          </div>
-
-          <div className="absolute inset-y-0 right-2.5 max-md:right-2 flex items-center">
-            {loading ? (
-              <button
-                type="button"
-                aria-label="Stop generating"
-                onClick={onCancel}
-                className="h-8 w-8 flex items-center justify-center rounded-lg text-destructive/70 hover:text-destructive hover:bg-destructive/10 active:scale-95 transition"
-                title="Stop"
-              >
-                <Square className="h-3.5 w-3.5 fill-current" />
-              </button>
-            ) : (
-              <button
-                type="button"
-                aria-label="Send message"
-                onClick={onSend}
-                disabled={!hasInput}
-                className={cn(
-                  'h-8 w-8 flex items-center justify-center rounded-lg transition duration-150',
-                  hasInput
-                    ? 'bg-foreground text-background hover:opacity-90 active:scale-95'
-                    : 'text-muted-foreground/40',
-                )}
-                title="Send"
-              >
-                <ArrowUp className="h-4 w-4" strokeWidth={2.5} />
-              </button>
-            )}
-          </div>
+          ) : (
+            <button
+              type="button"
+              aria-label="Send message"
+              onClick={onSend}
+              disabled={!hasInput}
+              className={cn(
+                'h-7 w-7 flex items-center justify-center rounded-md transition-colors shrink-0',
+                hasInput
+                  ? 'bg-foreground text-background hover:opacity-90 active:scale-95'
+                  : 'text-muted-foreground/30 bg-muted/40',
+              )}
+              title="Send"
+            >
+              <ArrowUp className="h-3.5 w-3.5" strokeWidth={2.5} />
+            </button>
+          )}
         </div>
 
         {dragging && (
@@ -381,3 +403,28 @@ export const InputArea = memo(function InputArea({
     </div>
   )
 })
+
+function EffortSeparatorAndTrigger(props: {
+  config: LocalConfig
+  remoteConfig: RemoteConfig | null
+  onUpdateConfig: (config: LocalConfig) => void
+}) {
+  const info = props.remoteConfig?.providers?.[props.config.provider]
+  const reasoningModels = info?.reasoning_models || []
+  const supports = Boolean(
+    info?.supports_reasoning_effort &&
+      reasoningModels.includes(props.config.model),
+  )
+  if (!supports) return null
+  return (
+    <>
+      <span
+        className="text-muted-foreground/40 select-none px-1 text-[12px]"
+        aria-hidden="true"
+      >
+        ·
+      </span>
+      <EffortTrigger {...props} />
+    </>
+  )
+}
