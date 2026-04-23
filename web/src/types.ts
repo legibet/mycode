@@ -55,6 +55,8 @@ export interface SessionSummary {
   title?: string
   isDraft?: boolean
   is_running?: boolean
+  created_at?: string
+  updated_at?: string
 }
 
 export interface RunInfo {
