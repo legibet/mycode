@@ -304,21 +304,4 @@ export interface ToolMeta {
   label: string
 }
 
-export interface DiffRow {
-  key: string
-  type: 'context' | 'removed' | 'added' | 'separator'
-  ln: number | null
-  html: string
-}
-
-export interface EditMeta {
-  start_line: number
-  old_line_count: number
-  new_line_count: number
-  added_lines: number
-  removed_lines: number
-  context_before?: string[]
-  context_after?: string[]
-}
-
 export type InlineStyle = CSSProperties

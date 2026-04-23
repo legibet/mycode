@@ -8,7 +8,6 @@
 
 import { FileText, PenLine, SquarePen, Terminal } from 'lucide-react'
 import { lazy, memo, Suspense, useState } from 'react'
-import type { EditMeta } from '../../types'
 import { cn } from '../../utils/cn'
 
 let editDiffPromise: Promise<typeof import('./EditDiff')> | undefined
@@ -57,13 +56,12 @@ function isEditArgs(args: Record<string, unknown>): args is EditArgs {
   )
 }
 
-function getEditMetas(
+function getEditPatch(
   metadata: Record<string, unknown> | null | undefined,
-): EditMeta[] | null {
+): string | null {
   if (!metadata) return null
-  const edits = (metadata as { edits?: unknown }).edits
-  if (!Array.isArray(edits)) return null
-  return (edits as EditMeta[]).filter((e) => typeof e?.start_line === 'number')
+  const patch = (metadata as { patch?: unknown }).patch
+  return typeof patch === 'string' && patch ? patch : null
 }
 
 function EditDiffFallback({ edits }: { edits: EditEntry[] }) {
@@ -157,17 +155,9 @@ function getEditStats(
   metadata: Record<string, unknown> | null | undefined,
 ): { added: number; removed: number } | null {
   if (!metadata) return null
-  const edits = (metadata as { edits?: unknown }).edits
-  if (!Array.isArray(edits)) return null
-  let added = 0
-  let removed = 0
-  for (const entry of edits as Array<{
-    added_lines?: unknown
-    removed_lines?: unknown
-  }>) {
-    if (typeof entry?.added_lines === 'number') added += entry.added_lines
-    if (typeof entry?.removed_lines === 'number') removed += entry.removed_lines
-  }
+  const added = (metadata as { added_lines?: unknown }).added_lines
+  const removed = (metadata as { removed_lines?: unknown }).removed_lines
+  if (typeof added !== 'number' || typeof removed !== 'number') return null
   return { added, removed }
 }
 
@@ -296,17 +286,16 @@ function EditBody({
   isError: boolean
 }) {
   if (args && isEditArgs(args) && args.edits?.length) {
-    const metas = getEditMetas(metadata)
-    const items = args.edits.map((entry, i) => ({
-      oldText: entry.oldText,
-      newText: entry.newText,
-      meta: metas?.[i] ?? null,
-    }))
+    const patch = getEditPatch(metadata)
     return (
       <div className="space-y-2">
-        <Suspense fallback={<EditDiffFallback edits={args.edits} />}>
-          <EditDiff path={args.path} edits={items} />
-        </Suspense>
+        {patch ? (
+          <Suspense fallback={<EditDiffFallback edits={args.edits} />}>
+            <EditDiff patch={patch} />
+          </Suspense>
+        ) : (
+          <EditDiffFallback edits={args.edits} />
+        )}
         {isError && <ResultBlock text={display} isError />}
       </div>
     )

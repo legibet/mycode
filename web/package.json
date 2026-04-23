@@ -17,8 +17,8 @@
     "format": "biome format --config-path ../biome.json --write ."
   },
   "dependencies": {
+    "@pierre/diffs": "1.1.17",
     "clsx": "^2.1.1",
-    "diff": "^8.0.3",
     "katex": "^0.16.40",
     "lucide-react": "^0.562.0",
     "react": "^19.0.0",
@@ -27,7 +27,7 @@
     "rehype-katex": "^7.0.1",
     "remark-gfm": "^4.0.1",
     "remark-math": "^6.0.0",
-    "shiki": "^4.0.2",
+    "shiki": "^3.23.0",
     "swr": "^2.4.1",
     "tailwind-merge": "^3.5.0"
   },
