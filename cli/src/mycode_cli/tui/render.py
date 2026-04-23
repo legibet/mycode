@@ -562,27 +562,17 @@ class ReplyRenderer:
     ) -> Text | None:
         """Build the inline suffix shown after the tool preview on success.
 
-        Edit stats read from ``metadata.edits`` (authoritative, computed
-        backend-side) so TUI and web display identical ``+N −M`` counts.
+        Edit stats read from backend metadata so TUI and web display identical
+        ``+N −M`` counts.
         """
 
         parts = Text()
         lower = name.lower()
 
         if lower == "edit":
-            edits = (metadata or {}).get("edits")
-            if isinstance(edits, list):
-                added = 0
-                removed = 0
-                for entry in edits:
-                    if not isinstance(entry, dict):
-                        continue
-                    a = entry.get("added_lines")
-                    r = entry.get("removed_lines")
-                    if isinstance(a, int):
-                        added += a
-                    if isinstance(r, int):
-                        removed += r
+            added = (metadata or {}).get("added_lines")
+            removed = (metadata or {}).get("removed_lines")
+            if isinstance(added, int) and isinstance(removed, int):
                 parts.append(f"+{added}", style="green")
                 parts.append(f" −{removed}", style="red")
         elif lower == "read":
