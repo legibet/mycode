@@ -45,11 +45,17 @@ const POPOVER_BASE =
 
 type Align = 'start' | 'end'
 
+interface PopoverOptions {
+  preferredWidth: number
+}
+
 // Compute fixed popover position above an anchor, on the chosen horizontal side.
 function useAnchoredPopover(
   open: boolean,
   anchorRef: RefObject<HTMLElement | null>,
   align: Align,
+  popoverRef: RefObject<HTMLElement | null>,
+  { preferredWidth }: PopoverOptions,
 ): CSSProperties | null {
   const [style, setStyle] = useState<CSSProperties | null>(null)
 
@@ -64,22 +70,37 @@ function useAnchoredPopover(
       if (!el) return
       const rect = el.getBoundingClientRect()
       const gap = 6
+      const margin = 8
+      const popoverWidth = Math.min(
+        popoverRef.current?.offsetWidth || preferredWidth,
+        window.innerWidth - margin * 2,
+      )
       const next: CSSProperties = {
         position: 'fixed',
         bottom: window.innerHeight - rect.top + gap,
         maxHeight: rect.top - 16,
+        maxWidth: window.innerWidth - margin * 2,
       }
       if (align === 'start') {
-        next.left = rect.left
+        next.left = Math.max(
+          margin,
+          Math.min(rect.left, window.innerWidth - popoverWidth - margin),
+        )
       } else {
-        next.right = window.innerWidth - rect.right
+        const right = window.innerWidth - rect.right
+        next.right = Math.max(
+          margin,
+          Math.min(right, window.innerWidth - popoverWidth - margin),
+        )
       }
       setStyle(next)
     }
     recalc()
+    const frame = window.requestAnimationFrame(recalc)
     window.addEventListener('resize', recalc)
     window.addEventListener('scroll', recalc, true)
     return () => {
+      window.cancelAnimationFrame(frame)
       window.removeEventListener('resize', recalc)
       window.removeEventListener('scroll', recalc, true)
     }
@@ -198,7 +219,15 @@ export const ModelTrigger = memo(function ModelTrigger({
     return groups
   }, [filtered])
 
-  const popoverStyle = useAnchoredPopover(open, anchorRef, 'start')
+  const popoverStyle = useAnchoredPopover(
+    open,
+    anchorRef,
+    'start',
+    popoverRef,
+    {
+      preferredWidth: 320,
+    },
+  )
   useDismiss(open, anchorRef, popoverRef, () => {
     setOpen(false)
     anchorRef.current?.focus()
@@ -305,7 +334,10 @@ export const ModelTrigger = memo(function ModelTrigger({
           <div
             ref={popoverRef}
             style={popoverStyle}
-            className={cn(POPOVER_BASE, 'w-[320px] max-w-[90vw] flex flex-col')}
+            className={cn(
+              POPOVER_BASE,
+              'w-[320px] max-w-[calc(100vw-16px)] flex flex-col',
+            )}
             role="listbox"
             aria-label="Select model"
           >
@@ -447,7 +479,9 @@ export const EffortTrigger = memo(function EffortTrigger({
     getDefaultReasoningEffort(remoteConfig, config.provider, config.model) ||
     'auto'
 
-  const popoverStyle = useAnchoredPopover(open, anchorRef, 'end')
+  const popoverStyle = useAnchoredPopover(open, anchorRef, 'end', popoverRef, {
+    preferredWidth: 140,
+  })
   useDismiss(open, anchorRef, popoverRef, () => setOpen(false))
 
   if (!supportsEffort) return null
