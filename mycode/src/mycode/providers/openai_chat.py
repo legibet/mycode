@@ -319,17 +319,29 @@ class OpenAIChatAdapter(ProviderAdapter):
 class DeepSeekAdapter(OpenAIChatAdapter):
     """DeepSeek's OpenAI-compatible chat endpoint.
 
-    deepseek-reasoner always thinks — no parameter needed to enable it.
-    deepseek-chat does not think by default; send thinking: {"type": "enabled"}
-    to activate it. We rely on the model's default behavior, so no overrides here.
+    V4 supports both non-thinking and thinking modes. The shared "none" effort
+    disables thinking; other explicit efforts enable thinking and map to
+    DeepSeek's high/max effort levels.
     """
 
     provider_id = "deepseek"
     label = "DeepSeek"
     default_base_url = "https://api.deepseek.com"
     env_api_key_names = ("DEEPSEEK_API_KEY",)
-    default_models = ("deepseek-chat", "deepseek-reasoner")
+    default_models = ("deepseek-v4-pro", "deepseek-v4-flash")
     auto_discoverable = True
+    supports_reasoning_effort = True
+
+    def _build_provider_payload_overrides(self, request: ProviderRequest) -> dict[str, Any]:
+        if request.reasoning_effort == "none":
+            return {"extra_body": {"thinking": {"type": "disabled"}}}
+        if request.reasoning_effort in {"low", "medium", "high", "xhigh"}:
+            effort = "max" if request.reasoning_effort == "xhigh" else "high"
+            return {
+                "reasoning_effort": effort,
+                "extra_body": {"thinking": {"type": "enabled"}},
+            }
+        return {}
 
 
 class ZAIAdapter(OpenAIChatAdapter):

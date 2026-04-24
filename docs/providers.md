@@ -129,8 +129,8 @@ class ProviderAdapter(ABC):
 - SDK: `openai` against DeepSeek's OpenAI-compatible endpoint
 - Base URL: `https://api.deepseek.com`
 - API key env: `DEEPSEEK_API_KEY`
-- Default models: `deepseek-chat`, `deepseek-reasoner`
-- `supports_reasoning_effort`: false; DeepSeek controls thinking natively
+- Default models: `deepseek-v4-pro`, `deepseek-v4-flash`
+- `supports_reasoning_effort`: true; `none` sends `thinking: {type: "disabled"}`, `low`/`medium`/`high` map to `reasoning_effort=high`, and `xhigh` maps to `reasoning_effort=max`
 - `auto_discoverable`: true
 - Stored reasoning content replayed on later requests when the protocol supports it
 

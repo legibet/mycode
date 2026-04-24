@@ -1357,23 +1357,30 @@ def test_anthropic_like_replays_unsigned_thinking_without_signature(adapter) -> 
     [
         pytest.param(
             "high",
-            None,
+            {"reasoning_effort": "high", "extra_body": {"thinking": {"type": "enabled"}}},
             {"thinking": {"type": "enabled", "clear_thinking": False}},
             {"reasoning": {"effort": "high"}},
             id="high",
         ),
         pytest.param(
             "none",
-            None,
+            {"extra_body": {"thinking": {"type": "disabled"}}},
             {"thinking": {"type": "enabled", "clear_thinking": False}},
             {"reasoning": {"effort": "none"}},
             id="none",
+        ),
+        pytest.param(
+            "xhigh",
+            {"reasoning_effort": "max", "extra_body": {"thinking": {"type": "enabled"}}},
+            {"thinking": {"type": "enabled", "clear_thinking": False}},
+            {"reasoning": {"effort": "xhigh"}},
+            id="xhigh",
         ),
     ],
 )
 def test_openai_compatible_provider_payload_overrides(
     reasoning_effort: str,
-    expected_deepseek: dict[str, Any] | None,
+    expected_deepseek: dict[str, Any],
     expected_zai: dict[str, Any],
     expected_openrouter: dict[str, Any],
 ) -> None:
@@ -1381,12 +1388,11 @@ def test_openai_compatible_provider_payload_overrides(
 
     assert OpenAIResponsesAdapter().supports_reasoning_effort is True
     assert "reasoning_effort" not in OpenAIChatAdapter()._build_request_payload(request)
+    assert DeepSeekAdapter().supports_reasoning_effort is True
 
     deepseek_payload = DeepSeekAdapter()._build_request_payload(request)
-    if expected_deepseek is None:
-        assert "extra_body" not in deepseek_payload
-    else:
-        assert deepseek_payload["extra_body"] == expected_deepseek
+    for key, value in expected_deepseek.items():
+        assert deepseek_payload[key] == value
 
     assert ZAIAdapter()._build_request_payload(request)["extra_body"] == expected_zai
     assert OpenRouterAdapter()._build_request_payload(request)["extra_body"] == expected_openrouter

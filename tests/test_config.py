@@ -383,7 +383,7 @@ class TestResolveProvider:
 
         assert resolved.provider_name == "deepseek"
         assert resolved.provider == "deepseek"
-        assert resolved.model == "deepseek-chat"
+        assert resolved.model == "deepseek-v4-pro"
         assert resolved.api_key == "deepseek-env-key"
 
     def test_does_not_fallback_away_from_selected_default_provider(

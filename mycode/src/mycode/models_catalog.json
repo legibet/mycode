@@ -176,6 +176,13 @@
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
+    },
+    "deepseek-v4-pro": {
+      "context_window": 1000000,
+      "max_output_tokens": 384000,
+      "supports_image_input": false,
+      "supports_pdf_input": false,
+      "supports_reasoning": true
     }
   },
   "google": {
@@ -424,7 +431,7 @@
       "supports_pdf_input": false,
       "supports_reasoning": false
     },
-    "gemma-4-26b-it": {
+    "gemma-4-26b-a4b-it": {
       "context_window": 256000,
       "max_output_tokens": 8192,
       "supports_image_input": true,
@@ -771,6 +778,13 @@
       "max_output_tokens": 128000,
       "supports_image_input": true,
       "supports_pdf_input": false,
+      "supports_reasoning": true
+    },
+    "gpt-5.5": {
+      "context_window": 1050000,
+      "max_output_tokens": 130000,
+      "supports_image_input": true,
+      "supports_pdf_input": true,
       "supports_reasoning": true
     },
     "gpt-image-1": {

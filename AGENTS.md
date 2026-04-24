@@ -27,7 +27,8 @@ SDK package — `mycode/src/mycode/`:
 - `messages.py` — internal message/block format
 - `tools.py` — `ToolSpec`, `ToolExecutor`, `ToolContext`, the four built-in tools, `@tool` decorator
 - `session.py` — append-only JSONL session storage, compact/rewind events, interrupted tool repair
-- `models.py` + `models_catalog.json` — bundled model metadata lookup
+- `models.py` — bundled model metadata lookup
+- `models_catalog.json` — generated model metadata catalog; source is `scripts/update_models_catalog.py`
 - `utils.py` — small typed helpers (`as_int`, `as_bool`, `omit_none`, `parse_tool_arguments`)
 - `providers/base.py` — `ProviderAdapter` abstract interface
 - `providers/__init__.py` — adapter registry and provider lookup helpers
@@ -56,6 +57,10 @@ Web UI — `web/src/`:
 
 - `hooks/useChat.ts` — chat state, SSE streaming, tool runtime
 - `utils/messages.ts` — `buildRenderMessages()` — canonical blocks → UI messages
+
+Scripts — `scripts/`:
+
+- `update_models_catalog.py` — regenerates `mycode/src/mycode/models_catalog.json`
 
 ## Internal Message Model
 
