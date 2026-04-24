@@ -368,7 +368,7 @@ export const ModelTrigger = memo(function ModelTrigger({
                 placeholder="Filter models…"
                 spellCheck={false}
                 autoComplete="off"
-                className="flex-1 bg-transparent text-[13px] focus:outline-none placeholder:text-muted-foreground/40 caret-accent"
+                className="flex-1 bg-transparent text-base md:text-[13px] focus:outline-none placeholder:text-muted-foreground/40 caret-accent"
               />
             </div>
 

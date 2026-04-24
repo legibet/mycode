@@ -404,7 +404,7 @@ export function WorkspacePicker({
             autoComplete="off"
             autoCorrect="off"
             autoCapitalize="off"
-            className="w-full bg-transparent text-sm font-mono focus-visible:outline-none text-foreground placeholder:text-muted-foreground/30 caret-accent"
+            className="w-full bg-transparent text-base md:text-sm font-mono focus-visible:outline-none text-foreground placeholder:text-muted-foreground/30 caret-accent"
             aria-label="Filter directories or enter a path"
           />
           {filter && (
