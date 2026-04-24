@@ -10,6 +10,7 @@ silently exposing file system and shell access.
 from importlib import metadata
 
 from mycode.agent import Agent, Event, PersistCallback, RunResult
+from mycode.hooks import AfterToolHook, BeforeToolHook, HookResult, Hooks, ToolHookContext
 from mycode.messages import (
     ContentBlock,
     ConversationMessage,
@@ -49,12 +50,17 @@ __all__ = [
     "ConversationMessage",
     "DEFAULT_TOOL_SPECS",
     "Event",
+    "AfterToolHook",
+    "BeforeToolHook",
+    "HookResult",
+    "Hooks",
     "PersistCallback",
     "RunResult",
     "SessionStore",
     "ToolContext",
     "ToolExecutionResult",
     "ToolExecutor",
+    "ToolHookContext",
     "ToolSpec",
     "__version__",
     "assistant_message",

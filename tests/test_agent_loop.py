@@ -345,6 +345,61 @@ class TestCustomTools:
                 "is_error": False,
             }
 
+    @pytest.mark.asyncio
+    async def test_cancel_after_assistant_persist_still_emits_tool_start(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            agent = Agent(
+                model="gpt-5.4",
+                provider="openai",
+                cwd=tmpdir,
+                session_dir=Path(tmpdir),
+                tools=[_PING_TOOL],
+            )
+
+            async def on_persist(message: ConversationMessage) -> None:
+                if message.get("role") == "assistant":
+                    agent.cancel()
+
+            adapter = _FakeProviderAdapter(
+                [
+                    [
+                        ProviderStreamEvent(
+                            "message_done",
+                            {
+                                "message": {
+                                    "role": "assistant",
+                                    "content": [
+                                        {
+                                            "type": "tool_use",
+                                            "id": "call-1",
+                                            "name": "ping",
+                                            "input": {"text": "hello"},
+                                        }
+                                    ],
+                                }
+                            },
+                        )
+                    ]
+                ]
+            )
+
+            with patch("mycode.agent.get_provider_adapter", return_value=adapter):
+                events = [event async for event in agent.achat("hello", on_persist=on_persist)]
+
+            assert [event.type for event in events] == ["tool_start", "tool_done"]
+            assert events[0].data == {
+                "tool_call": {
+                    "id": "call-1",
+                    "name": "ping",
+                    "input": {"text": "hello"},
+                }
+            }
+            assert events[1].data == {
+                "tool_use_id": "call-1",
+                "output": "error: cancelled",
+                "is_error": True,
+            }
+
 
 class TestAgentCancel:
     @pytest.mark.asyncio

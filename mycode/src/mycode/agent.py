@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any, cast
 from uuid import uuid4
 
+from mycode.hooks import Hooks, ToolHookContext
 from mycode.messages import (
     ConversationMessage,
     build_message,
@@ -83,6 +84,7 @@ class Agent:
         supports_pdf_input: bool | None = None,
         system: str = "",
         tools: Sequence[ToolSpec] = (),
+        hooks: Hooks | None = None,
     ):
         self.model = model
         if provider is None:
@@ -109,6 +111,7 @@ class Agent:
         self.reasoning_effort = reasoning_effort
 
         self.system = system
+        self.hooks = hooks or Hooks()
         self._cancel_event = asyncio.Event()
         self._provider_event_task: asyncio.Future[ProviderStreamEvent] | None = None
 
@@ -209,10 +212,10 @@ class Agent:
         name = str(tool_use.get("name") or "")
         raw_args = tool_use.get("input")
         args = raw_args if isinstance(raw_args, dict) else {}
-
-        yield Event("tool_start", {"tool_call": {"id": tool_id, "name": name, "input": args}})
+        tool_start = Event("tool_start", {"tool_call": {"id": tool_id, "name": name, "input": args}})
 
         if self._cancel_event.is_set():
+            yield tool_start
             yield self._tool_done_event(
                 tool_id,
                 ToolExecutionResult(output="error: cancelled", is_error=True),
@@ -221,14 +224,48 @@ class Agent:
 
         spec = self.tools.get(name)
         if spec is None:
+            yield tool_start
             yield self._tool_done_event(
                 tool_id,
                 ToolExecutionResult(output=f"error: unknown tool: {name}", is_error=True),
             )
             return
 
+        hook_ctx = ToolHookContext(
+            session_id=self.session_id,
+            cwd=self.cwd,
+            provider=self.provider,
+            model=self.model,
+            tool_call_id=tool_id,
+            tool_name=name,
+            tool_input=args,
+            tool=spec,
+        )
+        try:
+            result = await self.hooks.run_before_tool(hook_ctx)
+        except Exception as exc:
+            yield tool_start
+            yield self._tool_done_event(
+                tool_id,
+                ToolExecutionResult(output=f"error: tool hook failed: {exc}", is_error=True),
+            )
+            return
+
+        yield tool_start
+
+        if result is not None:
+            yield await self._finish_tool_call(tool_id, hook_ctx, result)
+            return
+
+        if self._cancel_event.is_set():
+            yield self._tool_done_event(
+                tool_id,
+                ToolExecutionResult(output="error: cancelled", is_error=True),
+            )
+            return
+
         if spec.streams_output:
-            async for event in self._run_streaming_tool(tool_id=tool_id, name=name, args=args):
+            async for event in self._run_streaming_tool(tool_id=tool_id, name=name, args=args, hook_ctx=hook_ctx):
                 yield event
             return
 
@@ -238,7 +275,7 @@ class Agent:
         except Exception as exc:  # pragma: no cover - defensive
             result = ToolExecutionResult(output=f"error: {exc}", is_error=True)
 
-        yield self._tool_done_event(tool_id, result)
+        yield await self._finish_tool_call(tool_id, hook_ctx, result)
 
     async def _run_streaming_tool(
         self,
@@ -246,6 +283,7 @@ class Agent:
         tool_id: str,
         name: str,
         args: dict[str, Any],
+        hook_ctx: ToolHookContext,
     ) -> AsyncIterator[Event]:
         """Run one streaming tool, forwarding ``tool_output`` events live."""
 
@@ -289,13 +327,31 @@ class Agent:
             except Exception:
                 pass
             result = ToolExecutionResult(output="error: cancelled", is_error=True)
+            yield self._tool_done_event(tool_id, result)
+            return
         else:
             try:
                 result = await task
             except Exception as exc:  # pragma: no cover - defensive
                 result = ToolExecutionResult(output=f"error: {exc}", is_error=True)
 
-        yield self._tool_done_event(tool_id, result)
+        yield await self._finish_tool_call(tool_id, hook_ctx, result)
+
+    async def _finish_tool_call(
+        self,
+        tool_id: str,
+        hook_ctx: ToolHookContext,
+        result: ToolExecutionResult,
+    ) -> Event:
+        try:
+            result = await self.hooks.run_after_tool(hook_ctx, result)
+        except Exception:
+            logger.exception(
+                "after_tool hook failed for %s (call %s)",
+                hook_ctx.tool_name,
+                hook_ctx.tool_call_id,
+            )
+        return self._tool_done_event(tool_id, result)
 
     def _ctx_for_call(
         self,
@@ -530,7 +586,7 @@ class Agent:
                         )
                     )
 
-                    if output == "error: cancelled" and self._cancel_event.is_set():
+                    if self._cancel_event.is_set():
                         tool_result_message = build_message("user", tool_results)
                         self.messages.append(tool_result_message)
                         await persist(tool_result_message)

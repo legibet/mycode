@@ -170,6 +170,39 @@ Annotate the first parameter of a custom tool as `ToolContext` to have the runti
 
 `ctx.tool_output_dir` is always a valid `Path`: `<session_dir>/<session_id>/tool-output/` when the agent has a session, or a tempdir-scoped fallback otherwise. The built-in `bash` tool spills large outputs there lazily; custom tools can treat it as their own scratch area.
 
+### Tool hooks
+
+`Hooks` lets SDK callers observe or replace model-requested tool executions without changing the provider protocol or message format:
+
+```python
+from mycode import Agent, Hooks, ToolExecutionResult, bash_tool
+
+hooks = Hooks()
+
+
+@hooks.before_tool
+async def block_dangerous_bash(ctx):
+    if ctx.tool_name == "bash" and "rm -rf" in str(ctx.tool_input.get("command") or ""):
+        return ToolExecutionResult(output="error: blocked by hook", is_error=True)
+    return None
+
+
+@hooks.after_tool
+async def audit(_ctx, _result):
+    return None
+
+
+agent = Agent(model="...", api_key="...", tools=[bash_tool], hooks=hooks)
+```
+
+- `before_tool(ctx)` hooks run in registration order. Returning `None` continues; returning a `ToolExecutionResult` skips the real tool and uses that result.
+- `after_tool(ctx, result)` hooks run in registration order for both real and skipped results. Returning `None` keeps the current result; returning a `ToolExecutionResult` replaces it for later hooks and the final `tool_done` event.
+- `ctx.tool_input` is a read-only snapshot. Hooks cannot mutate the tool input that the UI shows or the tool receives.
+- `before_tool` exceptions become `ToolExecutionResult(output="error: tool hook failed: ...", is_error=True)`, the real tool is not run, and later `before_tool` hooks are skipped.
+- `after_tool` exceptions are logged and the existing tool result is forwarded unchanged. Later `after_tool` hooks are skipped. Hooks that need to fail closed (e.g. redaction) must catch internally and return an explicit error result.
+- Cancellation is controlled by the runtime. Cancelled tool results do not run `after_tool` hooks and cannot be replaced.
+- Streaming tools still stream `tool_output` during real execution. If a `before_tool` hook skips the tool, no live `tool_output` events are emitted.
+
 ### `cancel_all_tools()`
 
 Terminates every bash subprocess started by any `ToolExecutor` in the process. `agent.cancel()` already covers its own executor; use this for signal handlers or shutdown hooks that don't hold an agent reference.
