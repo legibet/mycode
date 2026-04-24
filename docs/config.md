@@ -23,6 +23,10 @@ Config resolution: `get_settings(cwd)` → returns `Settings` dataclass.
     "reasoning_effort": "auto",
     "compact_threshold": 0.8
   },
+  "permission": {
+    "level": "safe",
+    "mode": "ask"
+  },
   "providers": {
     "<name>": {
       "type": "<adapter-id>",
@@ -50,6 +54,9 @@ Config resolution: `get_settings(cwd)` → returns `Settings` dataclass.
 - `default.model` — model name used when no per-provider model is set
 - `default.reasoning_effort` — global default; `null`/`"auto"`/`"default"` all resolve to "no override"
 - `default.compact_threshold` — fraction of context window that triggers compaction; `false` or `0` disables; range `[0, 1]`; default `0.8`
+- `permission` — CLI tool execution permissions. String shorthand (`"safe"`) sets the level and keeps the current/default mode; object form accepts `level` and `mode`
+- `permission.level` — how much the agent may run automatically: `readonly` · `safe` · `standard` · `yolo`; default `safe`
+- `permission.mode` — what to do outside the selected level: `ask` or `deny`; default `ask`. Non-interactive `mycode run` treats `ask` as `deny`
 - `providers.<name>.type` — internal adapter id (see AGENTS.md provider table). Required for custom aliases. Built-in providers can omit `type` when the key matches their adapter id.
 - `providers.<name>.models` — model map. Keys are model ids shown in UI. Values can override the bundled model metadata for that exact model.
 - `providers.<name>.models.<model>.context_window` — override the model context window
@@ -99,6 +106,26 @@ Options: `auto` (default) · `none` · `low` · `medium` · `high` · `xhigh`
 - Config-derived effort is applied only when `adapter.supports_reasoning_effort` AND `model_metadata.supports_reasoning` (from the bundled catalog) are both true
 - CLI `/effort` command and web sidebar allow per-request overrides without changing config
 - See `docs/providers.md` for per-adapter mapping details
+
+## Tool Permissions
+
+CLI and web server agents use SDK tool hooks to classify tool calls before execution. The interactive TUI can prompt for approval; non-interactive `mycode run` and the current web API reject calls that would require review and return that denial to the model as the tool result.
+
+Levels:
+
+- `readonly` — automatically allow clear read-only actions: workspace `read`, discovered skill reads, and simple read-only shell commands (`ls`, `rg`, `git status`, `git diff`, etc.)
+- `safe` — `readonly` plus workspace-local `write`/`edit`. Shell commands remain limited to clear read-only commands.
+- `standard` — `safe` plus ordinary single shell commands, unless they match dangerous or compound-command checks
+- `yolo` — automatically allow all tool calls
+
+Mode:
+
+- `ask` — prompt in the TUI with `Deny` / `Allow`
+- `deny` — reject without prompting
+
+Automatic denials do not stop the run; the model receives the denied tool result and can reply with next steps. In the TUI, an explicit user `Deny` cancels the current run.
+
+The shell checks are intentionally simple and conservative. Project commands such as tests, builds, formatters, package scripts, and task runners are `standard` because they execute project-defined code. Compound commands (`&&`, `||`, `;`, pipes, redirection, command substitution) and obvious destructive commands (`rm`, `sudo`, `chmod`, `git reset`, `git clean`, `git push --force`, etc.) fall outside `readonly`/`safe`/`standard` and require `yolo` or `mode: "ask"` approval.
 
 ## Model Metadata
 

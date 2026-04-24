@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import os
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Annotated
 
 import typer
@@ -14,7 +14,15 @@ from mycode.agent import Agent
 from mycode.messages import ConversationMessage
 from mycode.session import SessionStore
 from mycode_cli import __version__
-from mycode_cli.config import ResolvedProvider, Settings, get_settings, resolve_provider, resolve_sessions_dir
+from mycode_cli.config import (
+    ResolvedProvider,
+    Settings,
+    get_settings,
+    parse_permission,
+    resolve_provider,
+    resolve_sessions_dir,
+)
+from mycode_cli.permissions import PERMISSION_DENIED_BY_USER_OUTPUT, PERMISSION_DENIED_OUTPUT
 
 from .runtime import ResolvedSession, build_agent, resolve_session
 from .tui.chat import TerminalChat
@@ -46,10 +54,10 @@ async def run_noninteractive(agent: Agent, message: str) -> int:
     async for event in agent.achat(message, on_persist=track):
         if event.type == "error":
             error_message = str(event.data.get("message") or "agent error")
-
-    if error_message:
-        print(error_message, file=sys.stderr)
-        return 1
+        elif event.type == "tool_done" and event.data.get("is_error"):
+            output = str(event.data.get("output") or "")
+            if output in {PERMISSION_DENIED_OUTPUT, PERMISSION_DENIED_BY_USER_OUTPUT}:
+                error_message = output
 
     reply = ""
     if latest_assistant:
@@ -63,6 +71,12 @@ async def run_noninteractive(agent: Agent, message: str) -> int:
         sys.stdout.write(reply)
         if not reply.endswith("\n"):
             sys.stdout.write("\n")
+
+    if error_message:
+        if not reply:
+            print(error_message, file=sys.stderr)
+        return 1
+
     return 0
 
 
@@ -83,6 +97,7 @@ def _bootstrap(
     session: str | None,
     continue_last: bool,
     max_turns: int | None,
+    permission: str | None,
 ) -> _BootstrapContext:
     """Shared setup for the chat and run commands."""
 
@@ -92,9 +107,10 @@ def _bootstrap(
     cwd = os.path.abspath(os.getcwd())
     store = SessionStore(data_dir=resolve_sessions_dir())
     view = TerminalView()
-    settings = get_settings(cwd)
-
     try:
+        settings = get_settings(cwd)
+        if permission is not None:
+            settings = replace(settings, permission=parse_permission(permission, settings.permission))
         resolved_provider = resolve_provider(settings, provider_name=provider, model=model)
         resolved_session = asyncio.run(
             resolve_session(
@@ -136,6 +152,10 @@ def chat(
     provider: Annotated[str | None, typer.Option(help="Provider id or configured alias")] = None,
     model: Annotated[str | None, typer.Option(help="Model name (overrides default)")] = None,
     max_turns: Annotated[int | None, typer.Option(min=1, help="Limit agent loop turns")] = None,
+    permission: Annotated[
+        str | None,
+        typer.Option("--permission", help="Permission level: readonly, safe, standard, yolo"),
+    ] = None,
     session: Annotated[str | None, typer.Option(help="Resume a specific session id")] = None,
     continue_last: Annotated[bool, typer.Option("--continue", "-c", help="Resume the most recent session")] = False,
     version: Annotated[
@@ -146,7 +166,6 @@ def chat(
             callback=_show_version,
             help="Show version and exit.",
             is_eager=True,
-            is_flag=True,
         ),
     ] = False,
 ) -> None:
@@ -164,6 +183,7 @@ def chat(
         session=session,
         continue_last=continue_last,
         max_turns=max_turns,
+        permission=permission,
     )
 
     setup.view.print_header(
@@ -197,6 +217,10 @@ def run(
     provider: Annotated[str | None, typer.Option(help="Provider id or configured alias")] = None,
     model: Annotated[str | None, typer.Option(help="Model name (overrides default)")] = None,
     max_turns: Annotated[int | None, typer.Option(min=1, help="Limit agent loop turns")] = None,
+    permission: Annotated[
+        str | None,
+        typer.Option("--permission", help="Permission level: readonly, safe, standard, yolo"),
+    ] = None,
     session: Annotated[str | None, typer.Option(help="Resume a specific session id")] = None,
     continue_last: Annotated[bool, typer.Option("--continue", "-c", help="Resume the most recent session")] = False,
 ) -> None:
@@ -208,6 +232,7 @@ def run(
         session=session,
         continue_last=continue_last,
         max_turns=max_turns,
+        permission=permission,
     )
 
     code = asyncio.run(run_noninteractive(setup.agent, " ".join(message).strip()))

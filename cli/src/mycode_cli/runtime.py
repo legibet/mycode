@@ -16,6 +16,7 @@ from mycode.providers import (
 from mycode.session import SessionStore
 from mycode.tools import DEFAULT_TOOL_SPECS
 from mycode_cli.config import ModelConfig, ResolvedProvider, Settings, provider_has_api_key
+from mycode_cli.permissions import build_permission_hooks
 from mycode_cli.system_prompt import build_system_prompt
 
 
@@ -59,7 +60,7 @@ def build_agent(
     """
 
     model_config = model_config_for(settings, resolved_provider)
-    return Agent(
+    agent = Agent(
         model=resolved_provider.model,
         provider=resolved_provider.provider,
         cwd=cwd,
@@ -78,6 +79,8 @@ def build_agent(
         system=build_system_prompt(cwd, settings),
         tools=DEFAULT_TOOL_SPECS,
     )
+    agent.hooks = build_permission_hooks(settings, on_user_denied=agent.cancel)
+    return agent
 
 
 def model_config_for(settings: Settings, resolved: ResolvedProvider) -> ModelConfig | None:
@@ -113,6 +116,7 @@ def clone_agent(agent: Agent, *, store: SessionStore, session_id: str) -> Agent:
         supports_pdf_input=agent.supports_pdf_input,
         system=agent.system,
         tools=DEFAULT_TOOL_SPECS,
+        hooks=agent.hooks,
     )
 
 

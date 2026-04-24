@@ -39,6 +39,7 @@ from mycode_cli.config import (
     resolve_mycode_home,
     resolve_provider,
 )
+from mycode_cli.permissions import ToolReviewDecision, ToolReviewRequest, build_permission_hooks
 from mycode_cli.runtime import (
     apply_resolved_provider,
     clone_agent,
@@ -49,7 +50,7 @@ from mycode_cli.runtime import (
 )
 
 from .render import ReplyRenderer, TerminalView, format_local_timestamp
-from .theme import MUTED, PROMPT_CHAR, TERMINAL_THEME, TOOL_MARKER
+from .theme import MUTED, PROMPT_CHAR, TERMINAL_THEME, TOOL_MARKER, WARNING
 
 _PROMPT = ANSI(f"\033[1m\033[34m{PROMPT_CHAR}\033[0m ")
 
@@ -273,6 +274,7 @@ class TerminalChat:
         self.store = store
         self.session_id = session_id
         self.view = view or TerminalView()
+        self._current_renderer: ReplyRenderer | None = None
         self.prompt_session: PromptSession[str] = PromptSession(
             history=FileHistory(history_file_path()),
             completer=_PromptCompleter(cwd=self.agent.cwd),
@@ -280,6 +282,30 @@ class TerminalChat:
             multiline=True,
             prompt_continuation="  ",
         )
+        # Hooks don't depend on provider/model and the review callback reads
+        # self.* lazily, so installing once here survives clone_agent and
+        # provider/model swaps.
+        self.agent.hooks = build_permission_hooks(
+            self.settings,
+            review=self._review_tool_call,
+            on_user_denied=self.agent.cancel,
+        )
+
+    async def _review_tool_call(self, request: ToolReviewRequest) -> ToolReviewDecision:
+        if self._current_renderer is not None:
+            self._current_renderer.prepare_interaction()
+        self.view.console.print()
+        title = Text()
+        title.append(f"{TOOL_MARKER} Review", style=WARNING)
+        title.append(f"  {request.tool_name.capitalize()}")
+        self.view.console.print(title)
+        if request.preview:
+            preview = request.preview.replace("\n", " ")
+            if len(preview) > 120:
+                preview = preview[:119] + "…"
+            self.view.console.print(Text(f"  {preview}", style=MUTED))
+        selected = await choose([("deny", "Deny"), ("allow", "Allow")], default="deny")
+        return "allow" if selected == "allow" else "deny"
 
     async def run(self) -> None:
         """Run the interactive chat loop until the user exits the terminal UI."""
@@ -315,6 +341,7 @@ class TerminalChat:
 
             self.view.console.print()
             renderer = ReplyRenderer(self.view.console)
+            self._current_renderer = renderer
             user_message = self._build_user_message(user_input)
             try:
                 await renderer.render(self.agent, user_message)
@@ -328,6 +355,8 @@ class TerminalChat:
                         task.uncancel()
                     except AttributeError:
                         pass  # Python < 3.11
+            finally:
+                self._current_renderer = None
 
     def _build_user_message(self, text: str) -> dict[str, Any]:
         """Build one user message with the raw prompt first, then resolved attachments.

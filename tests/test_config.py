@@ -209,6 +209,27 @@ class TestGetSettings:
         with pytest.raises(ValueError, match="unsupported reasoning_effort 'minimal'"):
             get_settings(str(workspace.resolve()))
 
+    def test_loads_permission_config(self, workspace: Path, config_home: Path) -> None:
+        write_json(
+            config_home / "config.json",
+            {"permission": {"level": "readonly", "mode": "deny"}},
+        )
+        write_json(
+            workspace / ".mycode" / "config.json",
+            {"permission": "standard"},
+        )
+
+        settings = get_settings(str(workspace.resolve()))
+
+        assert settings.permission.level == "standard"
+        assert settings.permission.mode == "deny"
+
+    def test_rejects_invalid_permission_value(self, workspace: Path, config_home: Path) -> None:
+        write_json(config_home / "config.json", {"permission": {"level": "careless"}})
+
+        with pytest.raises(ValueError, match="unsupported permission level 'careless'"):
+            get_settings(str(workspace.resolve()))
+
 
 class TestResolveProvider:
     @pytest.mark.parametrize(

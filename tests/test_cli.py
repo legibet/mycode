@@ -22,6 +22,7 @@ from mycode.session import SessionStore
 from mycode.tools import DEFAULT_TOOL_SPECS, ToolContext, ToolExecutor
 from mycode_cli.config import ResolvedProvider, Settings
 from mycode_cli.main import app, run_noninteractive
+from mycode_cli.permissions import PERMISSION_DENIED_BY_USER_OUTPUT, PERMISSION_DENIED_OUTPUT
 from mycode_cli.runtime import apply_resolved_provider, resolve_session
 from mycode_cli.tui.chat import TerminalChat, _build_chat_key_bindings, _PromptCompleter
 from mycode_cli.tui.render import ReplyRenderer, TerminalView
@@ -59,6 +60,9 @@ class _AttachmentAgent:
             supports_image_input=supports_image_input,
         )
 
+    def cancel(self) -> None:
+        return None
+
 
 class _FakeAgent:
     provider = "anthropic"
@@ -82,6 +86,26 @@ class _FakeAgent:
 class _ErrorAgent:
     async def achat(self, message: str, *, on_persist=None):
         yield Event("error", {"message": "provider error"})
+
+
+class _PermissionDeniedAgent:
+    def __init__(self, output: str) -> None:
+        self.output = output
+
+    async def achat(self, message: str, *, on_persist=None):
+        yield Event("tool_done", {"tool_use_id": "call-1", "output": self.output, "is_error": True})
+
+
+class _PermissionDeniedThenReplyAgent:
+    async def achat(self, message: str, *, on_persist=None):
+        yield Event("tool_done", {"tool_use_id": "call-1", "output": PERMISSION_DENIED_OUTPUT, "is_error": True})
+        if on_persist:
+            await on_persist(
+                {
+                    "role": "assistant",
+                    "content": [{"type": "text", "text": "Permission was denied. Use --permission standard."}],
+                }
+            )
 
 
 class _SpyLive:
@@ -141,6 +165,24 @@ class TestRunNoninteractive:
         assert code == 1
         assert captured.out == ""
         assert captured.err == "provider error\n"
+
+    @pytest.mark.parametrize("output", [PERMISSION_DENIED_OUTPUT, PERMISSION_DENIED_BY_USER_OUTPUT])
+    async def test_prints_permission_denials_to_stderr(self, output: str, capsys: pytest.CaptureFixture[str]) -> None:
+        code = await run_noninteractive(cast(Any, _PermissionDeniedAgent(output)), "hello")
+
+        captured = capsys.readouterr()
+        assert code == 1
+        assert captured.out == ""
+        assert captured.err == f"{output}\n"
+
+    @pytest.mark.asyncio
+    async def test_prints_final_reply_after_permission_denial(self, capsys: pytest.CaptureFixture[str]) -> None:
+        code = await run_noninteractive(cast(Any, _PermissionDeniedThenReplyAgent()), "hello")
+
+        captured = capsys.readouterr()
+        assert code == 1
+        assert captured.out == "Permission was denied. Use --permission standard.\n"
+        assert captured.err == ""
 
 
 @pytest.mark.asyncio

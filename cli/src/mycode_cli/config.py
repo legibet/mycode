@@ -8,7 +8,7 @@ import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from mycode.models import resolve_model_metadata
 from mycode.providers import (
@@ -42,8 +42,13 @@ _API_KEY_ENV_REF_RE = re.compile(r"^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$")
 # Full set of user-facing choices. "auto" means "do not send an explicit effort
 # to the provider" and is represented internally as `None` after normalization.
 REASONING_EFFORT_OPTIONS = ("auto", "none", "low", "medium", "high", "xhigh")
+PERMISSION_LEVEL_OPTIONS = ("readonly", "safe", "standard", "yolo")
+PERMISSION_MODE_OPTIONS = ("ask", "deny")
 _EFFORT_AUTO_ALIASES = frozenset({"", "auto", "default"})
 _EFFORT_OFF_ALIASES = frozenset({"off", "disabled"})
+
+PermissionLevel = Literal["readonly", "safe", "standard", "yolo"]
+PermissionMode = Literal["ask", "deny"]
 
 
 @dataclass(frozen=True)
@@ -67,6 +72,12 @@ class ProviderConfig:
 
 
 @dataclass(frozen=True)
+class PermissionConfig:
+    level: PermissionLevel = "safe"
+    mode: PermissionMode = "ask"
+
+
+@dataclass(frozen=True)
 class Settings:
     providers: dict[str, ProviderConfig]
     default_provider: str | None
@@ -76,6 +87,7 @@ class Settings:
     workspace_root: str
     default_reasoning_effort: str | None = None
     compact_threshold: float | None = None
+    permission: PermissionConfig = field(default_factory=PermissionConfig)
     config_paths: list[str] = field(default_factory=list)
 
 
@@ -197,6 +209,39 @@ def normalize_reasoning_effort(value: Any) -> str | None:
     raise ValueError(f"unsupported reasoning_effort {value!r}; supported: {supported}")
 
 
+def normalize_permission_level(value: Any) -> PermissionLevel:
+    if not isinstance(value, str):
+        raise ValueError(f"permission level must be a string, got {type(value).__name__}")
+    level = value.strip().lower()
+    if level in PERMISSION_LEVEL_OPTIONS:
+        return level
+    supported = ", ".join(PERMISSION_LEVEL_OPTIONS)
+    raise ValueError(f"unsupported permission level {value!r}; supported: {supported}")
+
+
+def normalize_permission_mode(value: Any) -> PermissionMode:
+    if not isinstance(value, str):
+        raise ValueError(f"permission mode must be a string, got {type(value).__name__}")
+    mode = value.strip().lower()
+    if mode in PERMISSION_MODE_OPTIONS:
+        return mode
+    supported = ", ".join(PERMISSION_MODE_OPTIONS)
+    raise ValueError(f"unsupported permission mode {value!r}; supported: {supported}")
+
+
+def parse_permission(value: Any, current: PermissionConfig | None = None) -> PermissionConfig:
+    base = current or PermissionConfig()
+    if value is None:
+        return base
+    if isinstance(value, str):
+        return PermissionConfig(level=normalize_permission_level(value), mode=base.mode)
+    if isinstance(value, dict):
+        level = normalize_permission_level(value.get("level")) if "level" in value else base.level
+        mode = normalize_permission_mode(value.get("mode")) if "mode" in value else base.mode
+        return PermissionConfig(level=level, mode=mode)
+    raise ValueError(f"permission must be a string or object, got {type(value).__name__}")
+
+
 def _config_api_key_from_env_var(provider: ProviderConfig, *, require: bool = False) -> str | None:
     env_name = provider.api_key_env_var
     if not env_name:
@@ -267,6 +312,7 @@ def get_settings(cwd: str | None = None) -> Settings:
     default_model: str | None = None
     default_reasoning_effort: str | None = None
     compact_threshold: float | None = None
+    permission = PermissionConfig()
     config_paths: list[str] = []
 
     for path in _candidate_config_paths(resolved_cwd):
@@ -315,12 +361,16 @@ def get_settings(cwd: str | None = None) -> Settings:
                 if parsed_threshold is not None:
                     compact_threshold = parsed_threshold
 
+        if "permission" in data:
+            permission = parse_permission(data.get("permission"), permission)
+
     return Settings(
         providers=_build_providers(raw_providers),
         default_provider=default_provider,
         default_model=default_model,
         default_reasoning_effort=normalize_reasoning_effort(default_reasoning_effort),
         compact_threshold=compact_threshold,
+        permission=permission,
         port=int(os.environ.get("PORT", "8000")),
         cwd=resolved_cwd,
         workspace_root=str(workspace_root),

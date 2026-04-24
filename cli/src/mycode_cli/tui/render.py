@@ -621,6 +621,12 @@ class ReplyRenderer:
         self._reset_stream_state()
         self._console.print(Text("cancelled", style=MUTED))
 
+    def prepare_interaction(self) -> None:
+        """Pause live rendering before handing the terminal to prompt-toolkit."""
+
+        self._finalize_reasoning_phase()
+        self._reset_stream_state()
+
     def finish(self) -> None:
         """Flush the current turn and print timing or token statistics."""
 
