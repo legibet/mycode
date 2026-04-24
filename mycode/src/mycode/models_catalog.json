@@ -177,6 +177,13 @@
       "supports_pdf_input": false,
       "supports_reasoning": true
     },
+    "deepseek-v4-flash": {
+      "context_window": 1000000,
+      "max_output_tokens": 384000,
+      "supports_image_input": false,
+      "supports_pdf_input": false,
+      "supports_reasoning": true
+    },
     "deepseek-v4-pro": {
       "context_window": 1000000,
       "max_output_tokens": 384000,
