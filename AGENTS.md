@@ -187,7 +187,6 @@ Scopes:
 - `web` — changes under `web/` only
 - `sdk` — SDK package (`mycode/`) only
 - `cli` — CLI/server package (`cli/`) only
-- no scope — cross-cutting changes (e.g. SSE contract changes that touch both sides — document what changed in both in the commit body)
 
 Examples:
 
@@ -199,7 +198,7 @@ refactor(cli): unify provider switcher
 docs: update SSE contract in AGENTS.md
 ```
 
-When a feature requires both web and CLI changes, make two commits.
+When a feature requires both web and CLI/SDK changes, make two commits.
 
 ## Dev Workflow
 
