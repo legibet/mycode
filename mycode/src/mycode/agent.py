@@ -212,10 +212,12 @@ class Agent:
         name = str(tool_use.get("name") or "")
         raw_args = tool_use.get("input")
         args = raw_args if isinstance(raw_args, dict) else {}
-        tool_start = Event("tool_start", {"tool_call": {"id": tool_id, "name": name, "input": args}})
+
+        # Surface the tool to the UI before running hooks so the call is
+        # always visible — even when a hook is awaiting a permission decision.
+        yield Event("tool_start", {"tool_call": {"id": tool_id, "name": name, "input": args}})
 
         if self._cancel_event.is_set():
-            yield tool_start
             yield self._tool_done_event(
                 tool_id,
                 ToolExecutionResult(output="error: cancelled", is_error=True),
@@ -224,7 +226,6 @@ class Agent:
 
         spec = self.tools.get(name)
         if spec is None:
-            yield tool_start
             yield self._tool_done_event(
                 tool_id,
                 ToolExecutionResult(output=f"error: unknown tool: {name}", is_error=True),
@@ -244,14 +245,11 @@ class Agent:
         try:
             result = await self.hooks.run_before_tool(hook_ctx)
         except Exception as exc:
-            yield tool_start
             yield self._tool_done_event(
                 tool_id,
                 ToolExecutionResult(output=f"error: tool hook failed: {exc}", is_error=True),
             )
             return
-
-        yield tool_start
 
         if result is not None:
             yield await self._finish_tool_call(tool_id, hook_ctx, result)
