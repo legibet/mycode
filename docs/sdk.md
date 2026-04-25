@@ -110,7 +110,7 @@ When a turn completes the agent checks the last assistant message's `usage.input
 
 If compaction itself fails — provider error, cancellation, empty summary — the agent logs a warning and continues with the uncompacted history. The turn that triggered it does not fail.
 
-See `docs/sessions.md` for the on-disk record format and the replay rules (`compact` → `rewind` → interrupted-tool repair) applied by `SessionStore.load_session`.
+See `docs/sessions.md` for the on-disk record format and the replay rules (`compact` → `rewind`) applied by `SessionStore.load_session`. The loader is a pure reader; provider adapters close orphan `tool_use` blocks at replay time.
 
 ## Tools
 
@@ -195,9 +195,11 @@ async def audit(_ctx, _result):
 agent = Agent(model="...", api_key="...", tools=[bash_tool], hooks=hooks)
 ```
 
+`ToolHookContext` carries `session_id`, `cwd`, `provider`, `model`, `tool_call_id`, `tool_name`, `tool_input`, and `tool` (the `ToolSpec`). `tool_input` is recursively frozen — nested dicts become `MappingProxyType`, lists become tuples — so hooks cannot mutate what the UI shows or the tool receives.
+
 - `before_tool(ctx)` hooks run in registration order. Returning `None` continues; returning a `ToolExecutionResult` skips the real tool and uses that result.
 - `after_tool(ctx, result)` hooks run in registration order for both real and skipped results. Returning `None` keeps the current result; returning a `ToolExecutionResult` replaces it for later hooks and the final `tool_done` event.
-- `ctx.tool_input` is a read-only snapshot. Hooks cannot mutate the tool input that the UI shows or the tool receives.
+- `tool_start` is emitted before `before_tool` runs, so a hook that blocks (e.g. waiting on an external review) keeps the call visible in the event stream while it waits.
 - `before_tool` exceptions become `ToolExecutionResult(output="error: tool hook failed: ...", is_error=True)`, the real tool is not run, and later `before_tool` hooks are skipped.
 - `after_tool` exceptions are logged and the existing tool result is forwarded unchanged. Later `after_tool` hooks are skipped. Hooks that need to fail closed (e.g. redaction) must catch internally and return an explicit error result.
 - Cancellation is controlled by the runtime. Cancelled tool results do not run `after_tool` hooks and cannot be replaced.

@@ -72,7 +72,8 @@ When `SessionStore.load_session` runs:
 1. Read all JSONL lines into a raw list
 2. `apply_compact()` — find the last `role: "compact"` record, replace everything before it with a synthetic user summary + assistant ack, keep messages after
 3. `apply_rewind()` — scan sequentially; when a rewind record is found, truncate the accumulated list to `meta.rewind_to` and continue
-4. `_repair_interrupted_tool_loop()` — if the latest assistant tool loop has unmatched `tool_use` blocks, append one synthetic error `tool_result` message
+
+`load_session` is a pure reader. Orphan `tool_use` blocks left by an interrupted run are closed by the provider adapter when the messages are replayed, not by the loader.
 
 ## Context Compaction
 
