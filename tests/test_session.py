@@ -86,7 +86,9 @@ async def test_load_session_restores_persisted_messages(store: SessionStore) -> 
     ]
 
 
-async def test_load_session_repairs_interrupted_tool_loop(store: SessionStore) -> None:
+async def test_load_session_preserves_orphan_tool_use(store: SessionStore) -> None:
+    """SessionStore is a pure reader; closing orphan tool_use blocks is the provider's job."""
+
     await store.create_session("s1", cwd="/tmp")
     await store.append_message(
         "s1",
@@ -96,6 +98,9 @@ async def test_load_session_repairs_interrupted_tool_loop(store: SessionStore) -
         },
     )
 
+    log_path = store.messages_path("s1")
+    log_before = log_path.read_text(encoding="utf-8")
+
     loaded = await store.load_session("s1")
     loaded_again = await store.load_session("s1")
 
@@ -104,23 +109,13 @@ async def test_load_session_repairs_interrupted_tool_loop(store: SessionStore) -
             "role": "assistant",
             "content": [{"type": "tool_use", "id": "call_1", "name": "read", "input": {"path": "x.py"}}],
         },
-        {
-            "role": "user",
-            "content": [
-                {
-                    "type": "tool_result",
-                    "tool_use_id": "call_1",
-                    "output": "error: tool call was interrupted",
-                    "is_error": True,
-                }
-            ],
-        },
     ]
 
     assert loaded is not None
     assert loaded["messages"] == expected_messages
     assert loaded_again is not None
     assert loaded_again["messages"] == expected_messages
+    assert log_path.read_text(encoding="utf-8") == log_before
 
 
 async def test_load_session_derives_title_from_first_user_message(store: SessionStore) -> None:

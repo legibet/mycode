@@ -18,7 +18,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, TypedDict, cast
 
-from mycode.messages import ConversationMessage, build_message, flatten_message_text, text_block, tool_result_block
+from mycode.messages import ConversationMessage, build_message, flatten_message_text, text_block
 
 # ---------------------------------------------------------------------
 # Session format and compacting defaults
@@ -315,10 +315,10 @@ class SessionStore:
         # Replay order defines the visible conversation state.
         # 1) compact rewrites older history into one summary view
         # 2) rewind truncates that visible list by message index
-        # 3) interrupted tool repair patches the final visible state
+        # Orphan tool_use blocks (e.g. left open by a server crash) are
+        # closed by the provider adapter at replay time, not here.
         visible_messages = apply_compact(raw_messages)
         visible_messages = apply_rewind(visible_messages)
-        self._repair_interrupted_tool_loop(session_id, meta, visible_messages)
 
         return {"session": self._summary(session_id, meta), "messages": visible_messages}
 
@@ -387,94 +387,3 @@ class SessionStore:
         """Return meta augmented with the session id for API responses."""
 
         return {"id": session_id, **meta}
-
-    # ---------------------------------------------------------------------
-    # Interrupted tool repair
-    # ---------------------------------------------------------------------
-
-    def _repair_interrupted_tool_loop(
-        self,
-        session_id: str,
-        meta: SessionMetaDict,
-        messages: list[ConversationMessage],
-    ) -> None:
-        """Append a synthetic tool result when the latest tool loop was interrupted.
-
-        The runtime persists sessions as append-only JSONL. If a previous run was
-        interrupted after an assistant emitted `tool_use` blocks but before a
-        matching `tool_result` user message was written, repair the session by
-        appending one synthetic error result message. ``meta`` is mutated in
-        place so the caller's view stays consistent with the updated file.
-        """
-
-        pending_tool_use_ids: list[str] = []
-        pending_tool_call_index: int | None = None
-
-        # Find the latest assistant message that started a tool loop.
-        for index in range(len(messages) - 1, -1, -1):
-            message = messages[index]
-            if message.get("role") != "assistant":
-                continue
-
-            blocks = message.get("content")
-            if not isinstance(blocks, list):
-                continue
-
-            tool_use_ids = [
-                str(block.get("id") or "")
-                for block in blocks
-                if isinstance(block, dict) and block.get("type") == "tool_use" and block.get("id")
-            ]
-            if not tool_use_ids:
-                continue
-
-            pending_tool_use_ids = tool_use_ids
-            pending_tool_call_index = index
-            break
-
-        if pending_tool_call_index is None:
-            return
-
-        # Collect tool results that were recorded after the assistant message.
-        completed_tool_use_ids: set[str] = set()
-        for message in messages[pending_tool_call_index + 1 :]:
-            if message.get("role") != "user":
-                continue
-
-            blocks = message.get("content")
-            if not isinstance(blocks, list):
-                continue
-
-            for block in blocks:
-                if not isinstance(block, dict) or block.get("type") != "tool_result":
-                    continue
-                tool_use_id = str(block.get("tool_use_id") or "")
-                if tool_use_id:
-                    completed_tool_use_ids.add(tool_use_id)
-
-        missing_tool_use_ids = [
-            tool_use_id for tool_use_id in pending_tool_use_ids if tool_use_id not in completed_tool_use_ids
-        ]
-        if not missing_tool_use_ids:
-            return
-
-        repair_message = build_message(
-            "user",
-            [
-                tool_result_block(
-                    tool_use_id=tool_use_id,
-                    output="error: tool call was interrupted",
-                    is_error=True,
-                )
-                for tool_use_id in missing_tool_use_ids
-            ],
-        )
-
-        with self.messages_path(session_id).open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps(repair_message, ensure_ascii=False))
-            handle.write("\n")
-
-        meta["updated_at"] = _now()
-        self._write_meta(session_id, meta)
-
-        messages.append(repair_message)

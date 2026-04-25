@@ -192,8 +192,8 @@ class TestSessionRewind:
         assert "summary of a+b+e+f" in messages[0]["content"][0]["text"]
 
     @pytest.mark.asyncio
-    async def test_rewind_with_interrupted_tool_loop(self, temp_store):
-        """Rewind past an interrupted tool loop should not trigger repair."""
+    async def test_rewind_drops_orphan_tool_use(self, temp_store):
+        """Rewind past an open tool_use must remove it from the visible history."""
         await temp_store.create_session("s1", cwd="/tmp")
         sid = "s1"
 
