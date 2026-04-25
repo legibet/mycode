@@ -114,4 +114,32 @@ def summarize_file(ctx: ToolContext, path: str) -> str:
     return result.output.splitlines()[0] if result.output else ""
 ```
 
+## Tool hooks
+
+Inspect or replace tool calls before they run. Return `None` from `before_tool` to let the tool execute, or a `ToolExecutionResult` to skip it:
+
+```python
+from mycode import Agent, Hooks, ToolExecutionResult, bash_tool
+
+hooks = Hooks()
+
+
+@hooks.before_tool
+async def block_rm(ctx):
+    cmd = str(ctx.tool_input.get("command") or "")
+    if ctx.tool_name == "bash" and "rm -rf" in cmd:
+        return ToolExecutionResult(output="error: blocked", is_error=True)
+    return None
+
+
+agent = Agent(
+    model="claude-sonnet-4-6",
+    api_key="...",
+    tools=[bash_tool],
+    hooks=hooks,
+)
+```
+
+`@hooks.after_tool` runs after the tool and can replace the result (audit, redact, etc.).
+
 See [docs/sdk.md](../docs/sdk.md) for the event stream, cancellation, sessions, and the full `Agent` / `@tool` reference.
