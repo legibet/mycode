@@ -11,6 +11,7 @@ import asyncio
 import logging
 import os
 import tempfile
+import time
 from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -493,6 +494,8 @@ class Agent:
                 return
 
             assistant_message: ConversationMessage | None = None
+            thinking_started_at: float | None = None
+            thinking_duration_ms: int | None = None
             request = ProviderRequest(
                 provider=self.provider,
                 model=self.model,
@@ -518,12 +521,17 @@ class Agent:
                     if provider_event.type == "thinking_delta":
                         delta_text = str(provider_event.data.get("text") or "")
                         if delta_text:
+                            if thinking_started_at is None:
+                                thinking_started_at = time.monotonic()
                             yield Event("reasoning", {"delta": delta_text})
                         continue
 
                     if provider_event.type == "text_delta":
                         delta_text = str(provider_event.data.get("text") or "")
                         if delta_text:
+                            if thinking_started_at is not None and thinking_duration_ms is None:
+                                thinking_duration_ms = max(0, int((time.monotonic() - thinking_started_at) * 1000))
+                                yield Event("reasoning_done", {"duration_ms": thinking_duration_ms})
                             yield Event("text", {"delta": delta_text})
                         continue
 
@@ -532,6 +540,10 @@ class Agent:
 
                     if provider_event.type != "message_done":
                         continue
+
+                    if thinking_started_at is not None and thinking_duration_ms is None:
+                        thinking_duration_ms = max(0, int((time.monotonic() - thinking_started_at) * 1000))
+                        yield Event("reasoning_done", {"duration_ms": thinking_duration_ms})
 
                     message = provider_event.data.get("message")
                     if isinstance(message, dict):
@@ -548,6 +560,15 @@ class Agent:
             if not assistant_message:
                 yield Event("error", {"message": "provider produced no assistant message"})
                 return
+
+            if thinking_duration_ms is not None:
+                for block in reversed(assistant_message.get("content") or []):
+                    if not isinstance(block, dict) or block.get("type") != "thinking":
+                        continue
+                    raw_meta = block.get("meta")
+                    meta = cast(dict[str, Any], raw_meta) if isinstance(raw_meta, dict) else {}
+                    block["meta"] = {**meta, "duration_ms": thinking_duration_ms}
+                    break
 
             self.messages.append(assistant_message)
             await persist(assistant_message)

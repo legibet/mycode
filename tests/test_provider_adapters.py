@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import json
 from typing import Any, cast
 
 import pytest
@@ -1247,6 +1248,36 @@ def test_openai_chat_replays_reasoning_by_default() -> None:
     )["messages"]
 
     assert payload_messages[0]["reasoning_content"] == "think"
+
+
+def test_thinking_duration_metadata_is_not_sent_to_providers() -> None:
+    message = {
+        "role": "assistant",
+        "content": [
+            {
+                "type": "thinking",
+                "text": "think",
+                "meta": {
+                    "duration_ms": 1234,
+                    "native": {
+                        "signature": "sig_1",
+                        "reasoning_field": "reasoning_content",
+                        "part": {"text": "think", "thought": True, "thought_signature": "sig_1"},
+                    },
+                },
+            },
+            {"type": "text", "text": "answer"},
+        ],
+    }
+    payloads = [
+        AnthropicAdapter()._serialize_message(message),
+        OpenAIChatAdapter()._build_request_payload(request_obj(messages=[message]))["messages"],
+        GoogleGeminiAdapter()._build_contents(request_obj(messages=[message])),
+        OpenAIResponsesAdapter()._build_request_payload(request_obj(messages=[message]))["input"],
+    ]
+
+    for payload in payloads:
+        assert "duration_ms" not in json.dumps(payload)
 
 
 def test_deepseek_replays_reasoning_across_turns() -> None:

@@ -132,9 +132,10 @@ def test_agent_run_collects_stream_events(tmp_path: Path) -> None:
 
     assert result.text == "hello"
     assert result.error is None
-    assert [event.type for event in result.events] == ["reasoning", "text"]
+    assert [event.type for event in result.events] == ["reasoning", "reasoning_done", "text"]
     assert result.events[0].data == {"delta": "plan "}
-    assert result.events[1].data == {"delta": "hello"}
+    assert isinstance(result.events[1].data.get("duration_ms"), int)
+    assert result.events[2].data == {"delta": "hello"}
 
 
 def test_agent_run_rejects_non_user_messages(tmp_path: Path) -> None:

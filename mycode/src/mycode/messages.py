@@ -15,6 +15,8 @@ Metadata contract:
   `provider`, `model`, `provider_message_id`, `stop_reason`, `usage`
 - provider-specific assistant message extras live under `meta.native`
 - provider-specific block replay hints live under `block.meta.native`
+- local display metadata, such as `block.meta.duration_ms`, is never sent
+  upstream; provider adapters must explicitly project only supported fields
 """
 
 from __future__ import annotations

@@ -93,12 +93,14 @@ class TestAgentReasoningPersistence:
             with patch("mycode.agent.get_provider_adapter", return_value=adapter):
                 events = [event async for event in agent.achat("hello", on_persist=on_persist)]
 
-            assert [event.type for event in events] == ["reasoning", "text"]
+            assert [event.type for event in events] == ["reasoning", "reasoning_done", "text"]
             assert events[0].data == {"delta": "hidden "}
-            assert events[1].data == {"delta": "Visible answer"}
+            duration_ms = events[1].data.get("duration_ms")
+            assert isinstance(duration_ms, int)
+            assert events[2].data == {"delta": "Visible answer"}
             assistant_messages = [m for m in persisted if m.get("role") == "assistant"]
             assert assistant_messages[0]["content"] == [
-                {"type": "thinking", "text": "hidden "},
+                {"type": "thinking", "text": "hidden ", "meta": {"duration_ms": duration_ms}},
                 {"type": "text", "text": "Visible answer"},
             ]
 
