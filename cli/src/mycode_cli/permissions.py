@@ -34,15 +34,23 @@ _DANGEROUS_PROGRAMS = {
 }  # fmt: skip
 _DANGEROUS_GIT_SUBCOMMANDS = {"reset", "clean", "checkout", "restore"}
 
+# awk/sed are excluded: both can write files and shell out, and statically
+# parsing their scripts isn't worth it.
 _READONLY_PROGRAMS = {
     "pwd", "ls", "dir", "tree", "rg", "grep", "cat", "head", "tail",
     "wc", "stat", "file", "du", "df", "which", "env", "printenv",
     "date", "uname", "whoami", "id", "hostname", "ps", "uptime",
     "realpath", "dirname", "basename",
-    "sort", "uniq", "cut", "tr", "awk", "sed",
+    "sort", "uniq", "cut", "tr",
 }  # fmt: skip
 _READONLY_GIT_SUBCOMMANDS = {"status", "diff", "log", "show", "rev-parse", "ls-files", "grep", "blame", "describe"}
 _READONLY_BRANCH_FLAGS = {"-a", "-r", "-v", "-vv", "--all", "--remotes", "--verbose", "--show-current"}
+
+# find flags that write files or execute commands.
+_FIND_DANGEROUS_FLAGS = {
+    "-delete", "-exec", "-execdir", "-ok", "-okdir",
+    "-fprint", "-fprint0", "-fprintf", "-fls",
+}  # fmt: skip
 
 
 class PermissionCheck(NamedTuple):
@@ -161,7 +169,7 @@ def _is_dangerous(program: str, words: list[str]) -> bool:
         return True
     if program == "sed" and any(w == "-i" or w.startswith("-i") for w in words[1:]):
         return True
-    if program == "find" and any(w in {"-delete", "-exec", "-execdir"} for w in words[1:]):
+    if program == "find" and any(w in _FIND_DANGEROUS_FLAGS for w in words[1:]):
         return True
     if program != "git":
         return False

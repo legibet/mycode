@@ -134,6 +134,9 @@ def test_classifies_common_readonly_bash(command: str, tmp_path: Path) -> None:
         "just check",
         "uv sync --dev",
         "pnpm install",
+        # awk/sed are scripting languages and must not be auto-readonly.
+        "awk '{print $1}' file.txt",
+        "sed 's/foo/bar/' file.txt",
     ],
 )
 def test_classifies_single_non_dangerous_bash_as_standard(command: str, tmp_path: Path) -> None:
@@ -155,6 +158,16 @@ def test_classifies_single_non_dangerous_bash_as_standard(command: str, tmp_path
         "grep foo a.txt | wc -l",
         "echo hi > out.txt",
         "echo hi 2>&1",
+        "sed -i 's/a/b/' file.txt",
+        "find . -name x -delete",
+        "find . -name x -exec rm {} ;",
+        "find . -name x -execdir touch out ;",
+        "find . -name x -ok rm {} ;",
+        "find . -name x -okdir rm {} ;",
+        "find . -fprint /tmp/out",
+        "find . -fprint0 /tmp/out",
+        "find . -fprintf /tmp/out %p\\n",
+        "find . -fls /tmp/out",
     ],
 )
 def test_classifies_dangerous_or_compound_bash_as_yolo(command: str, tmp_path: Path) -> None:
