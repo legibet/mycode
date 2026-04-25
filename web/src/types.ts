@@ -46,6 +46,7 @@ export interface RemoteConfig {
   default_reasoning_effort?: ReasoningEffort | null
   reasoning_effort_options?: ReasoningEffort[]
   cwd?: string
+  project?: string
   config_paths?: string[]
 }
 
