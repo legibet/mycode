@@ -54,6 +54,7 @@ class StreamEvent(BaseModel):
     seq: int | None = None
     type: str
     delta: str | None = None  # text/reasoning
+    duration_ms: int | None = None  # reasoning_done
     tool_call: ToolCallPayload | None = None  # tool_start
     tool_use_id: str | None = None
     output: str | None = None  # tool_output + tool_done

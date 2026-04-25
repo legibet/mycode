@@ -343,13 +343,12 @@ class ReplyRenderer:
         self._text: list[str] = []
         self._text_started = False
         self._printed_static_reasoning = False
-        # Timing & stats
-        self._response_start_time: float | None = None
+        # Reasoning & stats
         self._thinking_start_time: float | None = None
+        self._thinking_duration_ms: int | None = None
         self._thinking_collapsed = False
         self._had_prior_output = False
         self._tool_output_count = 0
-        self._tool_start_time: float | None = None
         self._tool_name: str = ""
         self._tool_args: dict[str, Any] = {}
         self._tool_buffered = False
@@ -367,7 +366,6 @@ class ReplyRenderer:
         """Stream one assistant turn to the terminal and return its exit code."""
 
         exit_code = 0
-        self._response_start_time = time.monotonic()
 
         async def _tracking_persist(msg: dict[str, Any]) -> None:
             if msg.get("role") == "assistant":
@@ -385,6 +383,10 @@ class ReplyRenderer:
             match event.type:
                 case "reasoning":
                     self.reasoning(event.data.get("delta", ""))
+                case "reasoning_done":
+                    duration_ms = event.data.get("duration_ms")
+                    if isinstance(duration_ms, int):
+                        self._thinking_duration_ms = duration_ms
                 case "text":
                     self.text(event.data.get("delta", ""))
                 case "tool_start":
@@ -443,7 +445,6 @@ class ReplyRenderer:
         if not self._live_mode:
             self._console.print()
 
-        self._tool_start_time = time.monotonic()
         self._tool_output_count = 0
         self._tool_name = name
         self._tool_args = args
@@ -490,12 +491,6 @@ class ReplyRenderer:
         """Render the final tool result."""
         shown_text = output
 
-        elapsed = 0.0
-        if self._tool_start_time is not None:
-            elapsed = time.monotonic() - self._tool_start_time
-            self._tool_start_time = None
-        duration = f"{elapsed:.1f}s" if elapsed >= 0.5 else ""
-
         if self._tool_buffered:
             self._stop_tool_live()
             self._tool_buffered = False
@@ -505,7 +500,7 @@ class ReplyRenderer:
                 first_line = shown_text.split("\n", 1)[0][:100]
                 self._console.print(Text(f"    {first_line}", style=ERROR))
             else:
-                suffix = self._format_tool_suffix(self._tool_name, self._tool_args, duration, metadata)
+                suffix = self._format_tool_suffix(self._tool_name, self._tool_args, metadata)
                 self._print_tool_header(self._tool_name, self._tool_args, suffix=suffix)
                 self._tool_header_printed = True
         else:
@@ -523,8 +518,6 @@ class ReplyRenderer:
                 truncated = self._tool_output_count - _TOOL_OUTPUT_MAX_LINES
                 if truncated > 0:
                     parts.append(f"+{truncated} lines")
-                if duration:
-                    parts.append(duration)
                 if parts:
                     self._console.print(Text(f"    {' · '.join(parts)}", style=MUTED))
 
@@ -570,7 +563,6 @@ class ReplyRenderer:
     def _format_tool_suffix(
         name: str,
         args: dict[str, Any],
-        duration: str,
         metadata: dict[str, Any] | None = None,
     ) -> Text | None:
         """Build the inline suffix shown after the tool preview on success.
@@ -602,11 +594,6 @@ class ReplyRenderer:
             if isinstance(content, str):
                 lines = content.count("\n") + 1
                 parts.append(f"({lines} lines)", style=MUTED)
-
-        if duration:
-            if parts.plain:
-                parts.append(" · ", style=MUTED)
-            parts.append(duration, style=MUTED)
 
         return parts if parts.plain else None
 
@@ -641,15 +628,12 @@ class ReplyRenderer:
         self._reset_stream_state()
 
     def finish(self) -> None:
-        """Flush the current turn and print timing or token statistics."""
+        """Flush the current turn and print token statistics."""
 
         self._finalize_reasoning_phase()
         self._reset_stream_state()
 
         parts: list[str] = []
-        if self._response_start_time is not None:
-            elapsed = time.monotonic() - self._response_start_time
-            parts.append(f"{elapsed:.1f}s")
         if self._usage:
             token_str = _format_usage(self._usage)
             if token_str:
@@ -681,12 +665,7 @@ class ReplyRenderer:
             self._clear_live(self._live)
             self._live = None
 
-        duration = ""
-        if self._thinking_start_time is not None:
-            elapsed = time.monotonic() - self._thinking_start_time
-            duration = f" · {elapsed:.1f}s"
-
-        self._console.print(Text(f"{THINKING_SYMBOL} thought{duration}", style=THINKING))
+        self._console.print(Text(f"{THINKING_SYMBOL} thought{self._thinking_duration_label()}", style=THINKING))
         self._had_prior_output = True
         self._reasoning.clear()
 
@@ -695,12 +674,7 @@ class ReplyRenderer:
         if self._live_mode or self._printed_static_reasoning or not self._reasoning:
             return
 
-        duration = ""
-        if self._thinking_start_time is not None:
-            elapsed = time.monotonic() - self._thinking_start_time
-            duration = f" · {elapsed:.1f}s"
-
-        self._console.print(Text(f"{THINKING_SYMBOL} thinking{duration}", style=THINKING))
+        self._console.print(Text(f"{THINKING_SYMBOL} thinking{self._thinking_duration_label()}", style=THINKING))
         self._console.print("".join(self._reasoning), style="dim")
         self._printed_static_reasoning = True
         self._had_prior_output = True
@@ -729,6 +703,13 @@ class ReplyRenderer:
         self._printed_static_reasoning = False
         self._thinking_collapsed = False
         self._thinking_start_time = None
+        self._thinking_duration_ms = None
+
+    def _thinking_duration_label(self) -> str:
+        duration_ms = self._thinking_duration_ms
+        if duration_ms is None and self._thinking_start_time is not None:
+            duration_ms = int((time.monotonic() - self._thinking_start_time) * 1000)
+        return f" · {duration_ms / 1000:.1f}s" if duration_ms is not None else ""
 
     @staticmethod
     def _clear_live(live: Live) -> None:
