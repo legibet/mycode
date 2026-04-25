@@ -8,6 +8,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import useSWR from 'swr'
 import { InputArea } from './components/Chat/InputArea'
 import { MessageList } from './components/Chat/MessageList'
+import { PermissionPrompt } from './components/Chat/PermissionPrompt'
 import { Layout } from './components/Layout'
 import { MobileHeader } from './components/MobileHeader'
 import { Sidebar } from './components/Sidebar'
@@ -96,9 +97,11 @@ function AppContent() {
     loading,
     sessions,
     activeSession,
+    pendingPermission,
     send,
     rewindAndSend,
     cancel,
+    decidePermission,
     createSession,
     selectSession,
     deleteSession,
@@ -306,6 +309,12 @@ function AppContent() {
               <div className="pointer-events-none absolute bottom-0 left-0 right-0 h-24 bg-gradient-to-t from-background via-background/80 to-transparent" />
 
               <div className="shrink-0 relative z-10 pb-4 max-md:pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-1">
+                {pendingPermission && (
+                  <PermissionPrompt
+                    request={pendingPermission}
+                    onDecide={decidePermission}
+                  />
+                )}
                 <InputArea
                   input={input}
                   setInput={setInput}

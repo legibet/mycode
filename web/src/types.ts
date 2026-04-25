@@ -226,6 +226,20 @@ export interface CompactEvent extends StreamEventBase {
   compacted_count?: number
 }
 
+export interface PermissionRequestEvent extends StreamEventBase {
+  type: 'permission_request'
+  request_id: string
+  tool_use_id: string
+  tool_name: string
+  preview: string
+}
+
+export interface PermissionResolvedEvent extends StreamEventBase {
+  type: 'permission_resolved'
+  request_id: string
+  decision: 'allow' | 'deny'
+}
+
 export type StreamEvent =
   | ReasoningEvent
   | TextEvent
@@ -234,6 +248,15 @@ export type StreamEvent =
   | ToolDoneEvent
   | ErrorEvent
   | CompactEvent
+  | PermissionRequestEvent
+  | PermissionResolvedEvent
+
+export interface PermissionRequest {
+  request_id: string
+  tool_use_id: string
+  tool_name: string
+  preview: string
+}
 
 export interface SessionsResponse {
   sessions?: SessionSummary[]

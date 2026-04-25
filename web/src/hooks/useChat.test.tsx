@@ -308,6 +308,76 @@ describe('useChat', () => {
     expect(loadActiveSession('/workspace/a')).toBe('session-1')
   })
 
+  it('replays pending permission requests and clears them on decide', async () => {
+    globalThis.localStorage.setItem(
+      'mycode.activeSessions',
+      JSON.stringify({ '/workspace/a': 'session-3' }),
+    )
+    const decideCalls: string[] = []
+    const encoder = new TextEncoder()
+    let streamController!: ReadableStreamDefaultController<Uint8Array>
+    const liveStream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        streamController = controller
+      },
+    })
+    mockFetch({
+      '/api/sessions?cwd=': createJsonResponse({
+        sessions: [{ id: 'session-3', title: 'Awaiting' }],
+      }),
+      '/api/sessions/session-3': createJsonResponse({
+        session: { id: 'session-3', title: 'Awaiting' },
+        messages: [],
+        active_run: {
+          id: 'run-3',
+          session_id: 'session-3',
+          status: 'running',
+          last_seq: 0,
+        },
+        pending_events: [],
+      }),
+      '/api/runs/run-3/stream?after=0': new Response(liveStream, {
+        status: 200,
+        headers: { 'Content-Type': 'text/event-stream' },
+      }),
+      '/api/runs/run-3/decide': (init?: RequestInit) => {
+        decideCalls.push(String(init?.body ?? ''))
+        return new Response(JSON.stringify({ status: 'ok' }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      },
+    })
+
+    const { result } = renderChatHook()
+
+    await waitFor(() => {
+      expect(result.current.activeSession.id).toBe('session-3')
+    })
+
+    streamController.enqueue(
+      encoder.encode(
+        'data: {"type":"permission_request","seq":1,"request_id":"req-1","tool_use_id":"call-1","tool_name":"bash","preview":"pnpm install"}\n\n',
+      ),
+    )
+
+    await waitFor(() => {
+      expect(result.current.pendingPermission?.request_id).toBe('req-1')
+    })
+    expect(result.current.pendingPermission?.preview).toBe('pnpm install')
+
+    await result.current.decidePermission('allow')
+
+    await waitFor(() => {
+      expect(result.current.pendingPermission).toBeNull()
+    })
+    expect(decideCalls).toEqual([
+      JSON.stringify({ request_id: 'req-1', decision: 'allow' }),
+    ])
+
+    streamController.close()
+  })
+
   it('deletes the last active session and falls back to a draft', async () => {
     saveActiveSession('/workspace/a', 'session-1')
 

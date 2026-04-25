@@ -304,7 +304,7 @@ class TerminalChat:
             if len(preview) > 120:
                 preview = preview[:119] + "…"
             self.view.console.print(Text(f"  {preview}", style=MUTED))
-        selected = await choose([("deny", "Deny"), ("allow", "Allow")], default="deny")
+        selected = await choose([("allow", "Allow"), ("deny", "Deny")], default="allow")
         return "allow" if selected == "allow" else "deny"
 
     async def run(self) -> None:

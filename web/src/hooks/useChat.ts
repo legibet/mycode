@@ -11,6 +11,7 @@ import type {
   ChatResponse,
   ChatStatus,
   LocalConfig,
+  PermissionRequest,
   RunInfo,
   SessionResponse,
   SessionSummary,
@@ -297,6 +298,9 @@ export function useChat(config: LocalConfig) {
   const [connectionState, setConnectionState] = useState<
     'idle' | 'ready' | 'error'
   >('idle')
+  const [pendingPermissions, setPendingPermissions] = useState<
+    PermissionRequest[]
+  >([])
   const initRef = useRef(false)
   const cwdRef = useRef(config.cwd)
   const activeSessionRef = useRef(activeSession)
@@ -376,6 +380,7 @@ export function useChat(config: LocalConfig) {
     activeRunRef.current = null
     setLoading(false)
     setConnectionState('ready')
+    setPendingPermissions([])
   }, [])
 
   const streamRun = useCallback(
@@ -455,6 +460,27 @@ export function useChat(config: LocalConfig) {
               ) {
                 continue
               }
+              if (event.type === 'permission_request') {
+                const next: PermissionRequest = {
+                  request_id: event.request_id,
+                  tool_use_id: event.tool_use_id,
+                  tool_name: event.tool_name,
+                  preview: event.preview,
+                }
+                setPendingPermissions((prev) =>
+                  prev.some((p) => p.request_id === next.request_id)
+                    ? prev
+                    : [...prev, next],
+                )
+                continue
+              }
+              if (event.type === 'permission_resolved') {
+                const requestId = event.request_id
+                setPendingPermissions((prev) =>
+                  prev.filter((p) => p.request_id !== requestId),
+                )
+                continue
+              }
               dispatch({ type: 'apply_event', event })
             } catch (e) {
               console.error('Parse error:', e)
@@ -531,13 +557,35 @@ export function useChat(config: LocalConfig) {
       setActiveSession(data.session)
       saveActiveSession(requestCwd, data.session.id)
       dispatch({ type: 'set_messages', messages: data.messages || [] })
+      setPendingPermissions([])
 
       const pendingEvents = Array.isArray(data.pending_events)
         ? data.pending_events
         : []
+      const replayedPermissions: PermissionRequest[] = []
       for (const event of pendingEvents) {
         if (event?.type === 'compact') continue
+        if (event?.type === 'permission_request') {
+          replayedPermissions.push({
+            request_id: event.request_id,
+            tool_use_id: event.tool_use_id,
+            tool_name: event.tool_name,
+            preview: event.preview,
+          })
+          continue
+        }
+        if (event?.type === 'permission_resolved') {
+          const requestId = event.request_id
+          const index = replayedPermissions.findIndex(
+            (p) => p.request_id === requestId,
+          )
+          if (index >= 0) replayedPermissions.splice(index, 1)
+          continue
+        }
         dispatch({ type: 'apply_event', event })
+      }
+      if (replayedPermissions.length) {
+        setPendingPermissions(replayedPermissions)
       }
 
       const run = data.active_run || null
@@ -826,6 +874,33 @@ export function useChat(config: LocalConfig) {
     void cancelRun(runId)
   }, [cancelRun, stopStreaming])
 
+  const decidePermission = useCallback(
+    async (decision: 'allow' | 'deny') => {
+      const head = pendingPermissions[0]
+      const runId = activeRunRef.current?.id
+      if (!head || !runId) return
+
+      // Optimistic clear; permission_resolved from the server is the source of truth.
+      setPendingPermissions((prev) =>
+        prev.filter((p) => p.request_id !== head.request_id),
+      )
+
+      try {
+        await fetch(`/api/runs/${encodeURIComponent(runId)}/decide`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            request_id: head.request_id,
+            decision,
+          }),
+        })
+      } catch (e) {
+        console.error('Failed to send decision:', e)
+      }
+    },
+    [pendingPermissions],
+  )
+
   const createSession = useCallback(() => {
     if (sessionLoading) return
 
@@ -1043,10 +1118,12 @@ export function useChat(config: LocalConfig) {
     sessions,
     activeSession,
     sessionLoading,
+    pendingPermission: pendingPermissions[0] ?? null,
     send,
     rewindAndSend,
     clear,
     cancel,
+    decidePermission,
     createSession,
     selectSession,
     deleteSession,
