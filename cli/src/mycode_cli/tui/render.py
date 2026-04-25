@@ -353,6 +353,7 @@ class ReplyRenderer:
         self._tool_name: str = ""
         self._tool_args: dict[str, Any] = {}
         self._tool_buffered = False
+        self._tool_header_printed = False
         self._tool_live: Live | None = None
         self._usage: dict[str, Any] | None = None
 
@@ -446,10 +447,12 @@ class ReplyRenderer:
         self._tool_output_count = 0
         self._tool_name = name
         self._tool_args = args
+        self._tool_header_printed = False
 
         if name.lower() == "bash":
-            # Bash streams output — print header immediately.
-            self._print_tool_header(name, args)
+            # Bash streams output. Defer the header until the first output line
+            # actually arrives so a hook (e.g. permission review) can interject
+            # without leaving an orphan header above the prompt.
             self._tool_buffered = False
         else:
             # Other tools are fast — show spinner until tool_done.
@@ -468,6 +471,9 @@ class ReplyRenderer:
 
         if not line:
             return
+        if not self._tool_header_printed:
+            self._print_tool_header(self._tool_name, self._tool_args)
+            self._tool_header_printed = True
         self._tool_output_count += 1
         if self._tool_output_count <= _TOOL_OUTPUT_MAX_LINES:
             text = Text("    ", style=MUTED)
@@ -495,13 +501,20 @@ class ReplyRenderer:
             self._tool_buffered = False
             if is_error:
                 self._print_tool_header(self._tool_name, self._tool_args)
+                self._tool_header_printed = True
                 first_line = shown_text.split("\n", 1)[0][:100]
                 self._console.print(Text(f"    {first_line}", style=ERROR))
             else:
                 suffix = self._format_tool_suffix(self._tool_name, self._tool_args, duration, metadata)
                 self._print_tool_header(self._tool_name, self._tool_args, suffix=suffix)
+                self._tool_header_printed = True
         else:
-            # Bash: streaming tool
+            # Bash: streaming. Print the deferred header now if no output ever
+            # arrived (e.g. instant deny, instant exit).
+            if not self._tool_header_printed:
+                self._print_tool_header(self._tool_name, self._tool_args)
+                self._tool_header_printed = True
+
             if is_error and self._tool_output_count == 0:
                 first_line = shown_text.split("\n", 1)[0][:100]
                 self._console.print(Text(f"    {first_line}", style=ERROR))
