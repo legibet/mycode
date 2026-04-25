@@ -358,5 +358,6 @@ async def get_config(cwd: str | None = None):
         "default_reasoning_effort": settings.default_reasoning_effort,
         "reasoning_effort_options": REASONING_EFFORT_OPTIONS,
         "cwd": resolved_cwd,
+        "project": settings.project,
         "config_paths": settings.config_paths,
     }

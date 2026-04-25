@@ -133,7 +133,30 @@ class TestDiscoverSkills:
         assert skills[0].description == "Native project."
         assert skills[0].source == "project"
 
-    def test_does_not_load_parent_skill_roots_from_nested_cwd(self, tmp_path: Path, skill_home: Path) -> None:
+    def test_loads_project_skill_roots_from_project_to_cwd(self, tmp_path: Path, skill_home: Path) -> None:
+        project = tmp_path / "project"
+        nested_cwd = project / "apps" / "api"
+        nested_cwd.mkdir(parents=True)
+        (project / ".git").mkdir()
+        write_file(
+            project / ".agents" / "skills" / "parent" / "SKILL.md",
+            skill_text(name="parent", description="Compat parent project skill."),
+        )
+        write_file(
+            project / ".mycode" / "skills" / "shared" / "SKILL.md",
+            skill_text(name="shared", description="Parent project skill."),
+        )
+        write_file(
+            nested_cwd / ".mycode" / "skills" / "shared" / "SKILL.md",
+            skill_text(name="shared", description="Nearest project skill."),
+        )
+
+        skills = discover_skills(str(nested_cwd))
+
+        assert {skill.name for skill in skills} == {"parent", "shared"}
+        assert [skill for skill in skills if skill.name == "shared"][0].description == "Nearest project skill."
+
+    def test_does_not_load_parent_skill_roots_when_no_git_is_found(self, tmp_path: Path, skill_home: Path) -> None:
         project = tmp_path / "project"
         nested_cwd = project / "apps" / "api"
         nested_cwd.mkdir(parents=True)

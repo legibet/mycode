@@ -7,7 +7,9 @@ Source: `cli/src/mycode_cli/config.py`
 Loaded in order (later values override earlier):
 
 1. `~/.mycode/config.json` — global
-2. `{cwd}/.mycode/config.json` — current-directory project config
+2. `.mycode/config.json` files from `project` to `cwd`
+
+`project` is the nearest parent directory containing `.git`. When no `.git` is found, `project` is `cwd`.
 
 Explicit request args (CLI flags, API params) override both.
 
@@ -113,8 +115,8 @@ CLI and web server agents use SDK tool hooks to classify tool calls before execu
 
 Levels:
 
-- `readonly` — automatically allow clear read-only actions under `cwd`, discovered skill reads, and simple read-only shell commands (`ls`, `rg`, `git status`, `git diff`, etc.)
-- `safe` — `readonly` plus `cwd`-local `write`/`edit`. Shell commands remain limited to clear read-only commands.
+- `readonly` — automatically allow clear read-only actions under `project`, discovered skill reads, and simple read-only shell commands (`ls`, `rg`, `git status`, `git diff`, etc.)
+- `safe` — `readonly` plus `project`-local `write`/`edit`. Shell commands remain limited to clear read-only commands.
 - `standard` — `safe` plus ordinary single shell commands, unless they match dangerous or compound-command checks
 - `yolo` — automatically allow all tool calls
 
@@ -158,8 +160,8 @@ Scan roots (lowest to highest priority):
 
 1. `~/.agents/skills/` — compatibility global root
 2. `~/.mycode/skills/` — global root
-3. `{cwd}/.agents/skills/` — compatibility project root
-4. `{cwd}/.mycode/skills/` — project root
+3. `.agents/skills/` from `project` to `cwd` — compatibility project roots
+4. `.mycode/skills/` from `project` to `cwd` — project roots
 
 Each `SKILL.md` requires YAML frontmatter with `name` and `description`. Later roots override earlier ones by skill name. Max scan depth: 3 directory levels, max 200 directories per root.
 
@@ -167,16 +169,18 @@ The model uses the `read` tool to load full skill content on demand from the ski
 
 ## Instructions Discovery
 
-`cli/src/mycode_cli/system_prompt.py` reads `AGENTS.md` files and injects them as `<workspace_instructions>` into the system prompt. Files checked:
+`cli/src/mycode_cli/system_prompt.py` reads `AGENTS.md` files and injects them as `<project_instructions>` into the system prompt. Files checked:
 
 1. `~/.mycode/AGENTS.md` (fallback: `~/.agents/AGENTS.md`)
-2. `{cwd}/AGENTS.md`
+2. all `AGENTS.md` files from `project` to `cwd`
 
 Later files are more specific and take precedence.
 
-## Current Directory Boundary
+## Project Boundary
 
-`cwd` is the only project boundary used by config, instructions, skills, and tool permissions. `mycode` does not walk up to Git roots.
+`cwd` is the current working directory. `project` is the nearest parent directory containing `.git`; when no `.git` is found, `project` is `cwd`.
+
+Config, instructions, and skill discovery walk from `project` to `cwd`, so nearer files have higher priority. Tool permissions treat paths inside `project` as project-local and require approval for paths outside `project`.
 
 ## Sessions Directory
 

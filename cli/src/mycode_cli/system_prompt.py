@@ -18,7 +18,7 @@ from pathlib import Path
 
 import yaml
 
-from mycode_cli.config import Settings, get_settings, resolve_mycode_home
+from mycode_cli.config import Settings, get_settings, project_dirs, resolve_mycode_home, resolve_project
 
 logger = logging.getLogger(__name__)
 
@@ -72,10 +72,10 @@ def build_system_prompt(cwd: str, settings: Settings | None = None) -> str:
 
 
 def discover_instruction_files(cwd: str, settings: Settings | None = None) -> list[Path]:
-    """Discover AGENTS.md files from global config and the current directory."""
+    """Discover global AGENTS.md and project AGENTS.md files."""
 
     resolved_cwd = settings.cwd if settings else cwd
-    local_dir = Path(resolved_cwd).expanduser().resolve(strict=False)
+    project = settings.project if settings else str(resolve_project(resolved_cwd))
     home = Path.home().resolve(strict=False)
     mycode_home = resolve_mycode_home()
     files: list[Path] = []
@@ -87,9 +87,10 @@ def discover_instruction_files(cwd: str, settings: Settings | None = None) -> li
     elif compat_global_candidate.is_file():
         files.append(compat_global_candidate)
 
-    local_candidate = local_dir / "AGENTS.md"
-    if local_candidate.is_file():
-        files.append(local_candidate)
+    for directory in project_dirs(resolved_cwd, project):
+        local_candidate = directory / "AGENTS.md"
+        if local_candidate.is_file():
+            files.append(local_candidate)
 
     return files
 
@@ -115,11 +116,11 @@ def load_instructions_prompt(cwd: str, settings: Settings | None = None) -> str:
 
     return "\n".join(
         [
-            "<workspace_instructions>",
-            "Ordered from global to project; later instructions take precedence.",
+            "<project_instructions>",
+            "Ordered from global to project to cwd; later instructions take precedence.",
             "",
             "\n\n".join(sections),
-            "</workspace_instructions>",
+            "</project_instructions>",
         ]
     )
 
@@ -269,20 +270,20 @@ def _scan_skill_root(root: Path, source: str) -> list[Skill]:
 
 
 def discover_skills(cwd: str) -> list[Skill]:
-    """Discover skills from global and current-directory config roots."""
+    """Discover skills from global and project config roots."""
 
     home = Path.home()
     mycode_home = resolve_mycode_home()
-    cwd_path = Path(cwd).expanduser().resolve(strict=False)
 
     # Later roots win, so native mycode paths override compat paths and
-    # current-cwd config overrides global config with the same skill name.
+    # nearer project config overrides global and parent project config.
     roots: list[tuple[Path, str]] = [
         (home / ".agents" / "skills", "global"),
         (mycode_home / "skills", "global"),
-        (cwd_path / ".agents" / "skills", "project"),
-        (cwd_path / ".mycode" / "skills", "project"),
     ]
+    for directory in project_dirs(cwd):
+        roots.append((directory / ".agents" / "skills", "project"))
+        roots.append((directory / ".mycode" / "skills", "project"))
 
     skills_by_name: dict[str, Skill] = {}
     seen_paths: set[str] = set()

@@ -129,6 +129,7 @@ Response:
   "default_reasoning_effort": "auto",
   "reasoning_effort_options": ["auto", "none", "low", "medium", "high", "xhigh"],
   "cwd": "...",
+  "project": "...",
   "config_paths": [...]
 }
 ```

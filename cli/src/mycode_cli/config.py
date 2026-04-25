@@ -84,6 +84,7 @@ class Settings:
     default_model: str | None
     port: int
     cwd: str
+    project: str
     default_reasoning_effort: str | None = None
     compact_threshold: float | None = None
     permission: PermissionConfig = field(default_factory=PermissionConfig)
@@ -110,6 +111,32 @@ def _load_json(path: Path) -> dict[str, Any] | None:
     except Exception:
         return None
     return data if isinstance(data, dict) else None
+
+
+def resolve_project(cwd: str) -> Path:
+    """Return the nearest Git project root, or cwd when no .git is found."""
+
+    cwd_path = Path(cwd).expanduser().resolve(strict=False)
+    for path in (cwd_path, *cwd_path.parents):
+        if (path / ".git").exists():
+            return path
+    return cwd_path
+
+
+def project_dirs(cwd: str, project: str | Path | None = None) -> list[Path]:
+    """Return directories from project to cwd, inclusive."""
+
+    cwd_path = Path(cwd).expanduser().resolve(strict=False)
+    project_path = Path(project).expanduser().resolve(strict=False) if project is not None else resolve_project(cwd)
+
+    dirs = [cwd_path]
+    while dirs[-1] != project_path:
+        parent = dirs[-1].parent
+        if parent == dirs[-1]:
+            break
+        dirs.append(parent)
+
+    return list(reversed(dirs))
 
 
 def _normalize_models(value: Any) -> dict[str, ModelConfig]:
@@ -253,12 +280,10 @@ def provider_has_api_key(provider: ProviderConfig) -> bool:
     return bool(provider.api_key or provider_api_key_from_env(provider.type))
 
 
-def _candidate_config_paths(cwd: str) -> list[Path]:
-    cwd_path = Path(cwd).expanduser().resolve(strict=False)
-    return [
-        resolve_mycode_home() / "config.json",
-        cwd_path / ".mycode" / "config.json",
-    ]
+def _candidate_config_paths(cwd: str, project: str | Path) -> list[Path]:
+    paths = [resolve_mycode_home() / "config.json"]
+    paths.extend(path / ".mycode" / "config.json" for path in project_dirs(cwd, project))
+    return paths
 
 
 def _build_providers(raw_providers: dict[str, dict[str, Any]]) -> dict[str, ProviderConfig]:
@@ -291,9 +316,10 @@ def _build_providers(raw_providers: dict[str, dict[str, Any]]) -> dict[str, Prov
 
 
 def get_settings(cwd: str | None = None) -> Settings:
-    """Load settings from global and current-directory config files."""
+    """Load settings from global and project config files."""
 
     resolved_cwd = str(Path(cwd or os.getcwd()).expanduser().resolve(strict=False))
+    resolved_project = str(resolve_project(resolved_cwd))
 
     raw_providers: dict[str, dict[str, Any]] = {}
     default_provider: str | None = None
@@ -303,7 +329,7 @@ def get_settings(cwd: str | None = None) -> Settings:
     permission = PermissionConfig()
     config_paths: list[str] = []
 
-    for path in _candidate_config_paths(resolved_cwd):
+    for path in _candidate_config_paths(resolved_cwd, resolved_project):
         data = _load_json(path)
         if data is None:
             continue
@@ -361,6 +387,7 @@ def get_settings(cwd: str | None = None) -> Settings:
         permission=permission,
         port=int(os.environ.get("PORT", "8000")),
         cwd=resolved_cwd,
+        project=resolved_project,
         config_paths=config_paths,
     )
 
@@ -405,7 +432,7 @@ def resolve_provider(
     checked = ", ".join(env_names) or "<api key env>"
     raise ValueError(
         "no available providers found; set one of the supported API key env vars "
-        + f"({checked}) or configure a provider in ~/.mycode/config.json or <cwd>/.mycode/config.json"
+        + f"({checked}) or configure a provider in ~/.mycode/config.json or a project .mycode/config.json"
     )
 
 

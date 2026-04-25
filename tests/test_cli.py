@@ -35,6 +35,7 @@ def settings_for(cwd: str) -> Settings:
         default_model=None,
         port=8000,
         cwd=cwd,
+        project=cwd,
         config_paths=[],
     )
 

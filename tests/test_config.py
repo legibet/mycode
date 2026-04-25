@@ -61,12 +61,15 @@ def workspace(tmp_path: Path, config_home: Path) -> Path:
 
 
 class TestGetSettings:
-    def test_merges_global_and_current_directory_configs(self, tmp_path: Path, config_home: Path) -> None:
+    def test_merges_global_and_project_configs_from_project_to_cwd(self, tmp_path: Path, config_home: Path) -> None:
+        project = tmp_path / "project"
         cwd = tmp_path / "project" / "apps" / "api"
         cwd.mkdir(parents=True)
+        (project / ".git").mkdir()
 
         global_config = config_home / "config.json"
-        project_config = cwd / ".mycode" / "config.json"
+        project_config = project / ".mycode" / "config.json"
+        cwd_config = cwd / ".mycode" / "config.json"
         write_json(
             global_config,
             {
@@ -83,10 +86,19 @@ class TestGetSettings:
         write_json(
             project_config,
             {
-                "default": {"provider": "shared", "model": "gpt-5.4"},
                 "providers": {
                     "shared": {
                         "base_url": "https://root.example/v1",
+                    }
+                },
+            },
+        )
+        write_json(
+            cwd_config,
+            {
+                "default": {"provider": "shared", "model": "gpt-5.4"},
+                "providers": {
+                    "shared": {
                         "models": {"gpt-5.4": {}},
                     }
                 },
@@ -96,6 +108,7 @@ class TestGetSettings:
         settings = get_settings(str(cwd.resolve()))
 
         assert settings.cwd == str(cwd.resolve())
+        assert settings.project == str(project.resolve())
         assert settings.default_provider == "shared"
         assert settings.default_model == "gpt-5.4"
         assert settings.providers["shared"].api_key == "global-key"
@@ -104,7 +117,21 @@ class TestGetSettings:
         assert settings.config_paths == [
             str(global_config.resolve()),
             str(project_config.resolve()),
+            str(cwd_config.resolve()),
         ]
+
+    def test_uses_cwd_as_project_when_no_git_is_found(self, tmp_path: Path, config_home: Path) -> None:
+        project = tmp_path / "project"
+        cwd = project / "apps" / "api"
+        cwd.mkdir(parents=True)
+        write_json(project / ".mycode" / "config.json", {"default": {"provider": "parent"}})
+        write_json(cwd / ".mycode" / "config.json", {"default": {"provider": "local"}})
+
+        settings = get_settings(str(cwd.resolve()))
+
+        assert settings.project == str(cwd.resolve())
+        assert settings.default_provider == "local"
+        assert settings.config_paths == [str((cwd / ".mycode" / "config.json").resolve())]
 
     def test_ignores_legacy_env_without_config(
         self, workspace: Path, monkeypatch: pytest.MonkeyPatch, config_home: Path

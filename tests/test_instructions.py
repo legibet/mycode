@@ -46,7 +46,28 @@ def test_prefers_native_global_agents_and_current_cwd_agents(tmp_path: Path, hom
     assert "Global compat" not in prompt
 
 
-def test_does_not_load_parent_agents_from_nested_cwd(tmp_path: Path, home: Path) -> None:
+def test_loads_project_agents_from_project_to_cwd(tmp_path: Path, home: Path) -> None:
+    project = tmp_path / "project"
+    cwd = project / "apps" / "api"
+    cwd.mkdir(parents=True)
+    (project / ".git").mkdir()
+    write_file(project / "AGENTS.md", "Parent project")
+    write_file(cwd.parent / "AGENTS.md", "Nested project")
+    write_file(cwd / "AGENTS.md", "Current cwd")
+
+    with patch("mycode_cli.system_prompt.Path.home", return_value=home):
+        files = discover_instruction_files(str(cwd))
+        prompt = load_instructions_prompt(str(cwd))
+
+    assert [str(path.resolve()) for path in files] == [
+        str((project / "AGENTS.md").resolve()),
+        str((cwd.parent / "AGENTS.md").resolve()),
+        str((cwd / "AGENTS.md").resolve()),
+    ]
+    assert prompt.index("Parent project") < prompt.index("Nested project") < prompt.index("Current cwd")
+
+
+def test_does_not_load_parent_agents_when_no_git_is_found(tmp_path: Path, home: Path) -> None:
     project = tmp_path / "project"
     cwd = project / "apps" / "api"
     cwd.mkdir(parents=True)

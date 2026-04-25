@@ -80,7 +80,7 @@ def build_permission_hooks(
 
     @hooks.before_tool
     async def check_permission(ctx: ToolHookContext) -> ToolExecutionResult | None:
-        check = classify_tool(ctx, cwd=settings.cwd, skill_roots=skill_roots)
+        check = classify_tool(ctx, cwd=settings.cwd, project=settings.project, skill_roots=skill_roots)
         decision = permission_decision(settings.permission, check.tier)
         if decision == "allow":
             return None
@@ -117,6 +117,7 @@ def classify_tool(
     ctx: ToolHookContext,
     *,
     cwd: str,
+    project: str,
     skill_roots: list[Path],
 ) -> PermissionCheck:
     name = ctx.tool_name.lower()
@@ -128,11 +129,11 @@ def classify_tool(
     if name in {"read", "write", "edit"}:
         raw = str(ctx.tool_input.get("path") or "")
         path = Path(resolve_path(raw, cwd=cwd)).resolve(strict=False)
-        cwd_path = Path(cwd).resolve(strict=False)
+        project_path = Path(project).resolve(strict=False)
         preview = raw or str(path)
         if name == "read" and any(path.is_relative_to(root) for root in skill_roots):
             return PermissionCheck("readonly", preview)
-        if not path.is_relative_to(cwd_path):
+        if not path.is_relative_to(project_path):
             return PermissionCheck("yolo", preview)
         return PermissionCheck("readonly" if name == "read" else "safe", preview)
 

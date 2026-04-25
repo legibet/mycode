@@ -47,6 +47,7 @@ def _settings(tmp_path: Path, *, permission: PermissionConfig | None = None) -> 
         default_model=None,
         port=8000,
         cwd=str(tmp_path),
+        project=str(tmp_path),
         permission=permission or PermissionConfig(),
         config_paths=[],
     )
@@ -68,6 +69,7 @@ def test_classifies_structured_tools_by_cwd_and_skill_paths(tmp_path: Path) -> N
         classify_tool(
             _ctx("read", {"path": "src/app.py"}),
             cwd=str(tmp_path),
+            project=str(tmp_path),
             skill_roots=[skill_dir],
         ).tier
         == "readonly"
@@ -76,6 +78,7 @@ def test_classifies_structured_tools_by_cwd_and_skill_paths(tmp_path: Path) -> N
         classify_tool(
             _ctx("write", {"path": "src/app.py"}),
             cwd=str(tmp_path),
+            project=str(tmp_path),
             skill_roots=[skill_dir],
         ).tier
         == "safe"
@@ -84,6 +87,7 @@ def test_classifies_structured_tools_by_cwd_and_skill_paths(tmp_path: Path) -> N
         classify_tool(
             _ctx("read", {"path": str(skill_dir / "SKILL.md")}),
             cwd=str(tmp_path),
+            project=str(tmp_path),
             skill_roots=[skill_dir],
         ).tier
         == "readonly"
@@ -92,10 +96,26 @@ def test_classifies_structured_tools_by_cwd_and_skill_paths(tmp_path: Path) -> N
         classify_tool(
             _ctx("edit", {"path": str(tmp_path.parent / "outside.py")}),
             cwd=str(tmp_path),
+            project=str(tmp_path),
             skill_roots=[skill_dir],
         ).tier
         == "yolo"
     )
+
+
+def test_classifies_structured_tools_inside_project_as_local(tmp_path: Path) -> None:
+    project = tmp_path / "repo"
+    cwd = project / "apps" / "api"
+    cwd.mkdir(parents=True)
+
+    check = classify_tool(
+        _ctx("edit", {"path": str(project / "README.md")}),
+        cwd=str(cwd),
+        project=str(project),
+        skill_roots=[],
+    )
+
+    assert check.tier == "safe"
 
 
 @pytest.mark.parametrize(
@@ -110,7 +130,7 @@ def test_classifies_structured_tools_by_cwd_and_skill_paths(tmp_path: Path) -> N
     ],
 )
 def test_classifies_common_readonly_bash(command: str, tmp_path: Path) -> None:
-    check = classify_tool(_ctx("bash", {"command": command}), cwd=str(tmp_path), skill_roots=[])
+    check = classify_tool(_ctx("bash", {"command": command}), cwd=str(tmp_path), project=str(tmp_path), skill_roots=[])
     assert check.tier == "readonly"
 
 
@@ -133,7 +153,7 @@ def test_classifies_common_readonly_bash(command: str, tmp_path: Path) -> None:
     ],
 )
 def test_classifies_single_non_dangerous_bash_as_standard(command: str, tmp_path: Path) -> None:
-    check = classify_tool(_ctx("bash", {"command": command}), cwd=str(tmp_path), skill_roots=[])
+    check = classify_tool(_ctx("bash", {"command": command}), cwd=str(tmp_path), project=str(tmp_path), skill_roots=[])
     assert check.tier == "standard"
 
 
@@ -162,7 +182,7 @@ def test_classifies_single_non_dangerous_bash_as_standard(command: str, tmp_path
     ],
 )
 def test_classifies_dangerous_or_compound_bash_as_yolo(command: str, tmp_path: Path) -> None:
-    check = classify_tool(_ctx("bash", {"command": command}), cwd=str(tmp_path), skill_roots=[])
+    check = classify_tool(_ctx("bash", {"command": command}), cwd=str(tmp_path), project=str(tmp_path), skill_roots=[])
     assert check.tier == "yolo"
 
 
