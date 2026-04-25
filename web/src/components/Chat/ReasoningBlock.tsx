@@ -5,47 +5,38 @@
  * convention) instead of an indent.
  */
 
-import { memo, useEffect, useRef, useState } from 'react'
+import { memo, useState } from 'react'
 import { cn } from '../../utils/cn'
 
 interface ReasoningBlockProps {
   content: string
   isStreaming?: boolean | undefined
+  durationMs?: number | undefined
 }
 
 function formatElapsed(ms: number): string {
-  const secs = Math.max(1, Math.round(ms / 1000))
-  if (secs < 60) return `${secs}s`
-  const mins = Math.floor(secs / 60)
-  const rem = secs % 60
+  const secs = Math.max(0.1, ms / 1000)
+  if (secs < 60) return `${secs.toFixed(1)}s`
+  const roundedSecs = Math.round(secs)
+  const mins = Math.floor(roundedSecs / 60)
+  const rem = roundedSecs % 60
   return rem === 0 ? `${mins}m` : `${mins}m ${rem}s`
 }
 
 export const ReasoningBlock = memo(function ReasoningBlock({
   content,
   isStreaming,
+  durationMs,
 }: ReasoningBlockProps) {
   const [expandedOverride, setExpandedOverride] = useState<boolean | null>(null)
-  const [elapsedMs, setElapsedMs] = useState<number | null>(null)
-  const startedAtRef = useRef<number | null>(null)
-
-  useEffect(() => {
-    if (isStreaming) {
-      if (startedAtRef.current == null) startedAtRef.current = Date.now()
-      return
-    }
-    if (startedAtRef.current != null && elapsedMs == null) {
-      setElapsedMs(Date.now() - startedAtRef.current)
-    }
-  }, [isStreaming, elapsedMs])
 
   if (!content) return null
 
   const expanded = expandedOverride ?? Boolean(isStreaming)
   const label = isStreaming
     ? 'Thinking…'
-    : elapsedMs != null
-      ? `Thought · ${formatElapsed(elapsedMs)}`
+    : durationMs != null
+      ? `Thought for ${formatElapsed(durationMs)}`
       : 'Thought'
 
   return (

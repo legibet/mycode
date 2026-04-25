@@ -187,6 +187,11 @@ export interface ReasoningEvent extends StreamEventBase {
   delta?: string
 }
 
+export interface ReasoningDoneEvent extends StreamEventBase {
+  type: 'reasoning_done'
+  duration_ms?: number
+}
+
 export interface TextEvent extends StreamEventBase {
   type: 'text'
   delta?: string
@@ -242,6 +247,7 @@ export interface PermissionResolvedEvent extends StreamEventBase {
 
 export type StreamEvent =
   | ReasoningEvent
+  | ReasoningDoneEvent
   | TextEvent
   | ToolStartEvent
   | ToolOutputEvent

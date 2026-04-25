@@ -6,6 +6,7 @@ import {
   buildRenderMessages,
   createRenderAssistantMessage,
   createUserMessage,
+  updateLatestThinkingDuration,
   updateRenderToolRuntime,
 } from './messages'
 
@@ -181,6 +182,31 @@ describe('messages', () => {
       finalOutput: 'file.txt',
       metadata: null,
       isError: false,
+    })
+  })
+
+  it('updates the latest thinking block duration', () => {
+    const initial = buildRenderMessages([
+      {
+        role: 'assistant',
+        content: [
+          {
+            type: 'thinking',
+            text: 'plan',
+            meta: { native: { signature: 'sig' } },
+          },
+          { type: 'text', text: 'answer' },
+        ],
+      },
+    ])
+
+    const updated = updateLatestThinkingDuration(initial, 1200)
+
+    expect(updated[0]?.content[0]).toEqual({
+      type: 'thinking',
+      text: 'plan',
+      meta: { native: { signature: 'sig' }, duration_ms: 1200 },
+      renderKey: 'assistant:0:0',
     })
   })
 

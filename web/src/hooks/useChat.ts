@@ -32,6 +32,7 @@ import {
   createUserMessage,
   createUserTextMessage,
   findLatestAssistantIndex,
+  updateLatestThinkingDuration,
   updateRenderToolRuntime,
 } from '../utils/messages'
 import {
@@ -155,6 +156,12 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
           event.delta || '',
           sourceIndex,
         )
+      } else if (event.type === 'reasoning_done') {
+        const durationMs = event.duration_ms
+        if (typeof durationMs === 'number') {
+          rawMessages = updateLatestThinkingDuration(rawMessages, durationMs)
+          messages = updateLatestThinkingDuration(messages, durationMs)
+        }
       } else if (event.type === 'text') {
         rawMessages = appendAssistantDelta(
           rawMessages,

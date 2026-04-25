@@ -452,6 +452,40 @@ export function appendRenderAssistantDelta(
   return next
 }
 
+export function updateLatestThinkingDuration(
+  messages: ChatMessage[],
+  durationMs: number,
+): ChatMessage[] {
+  for (
+    let messageIndex = messages.length - 1;
+    messageIndex >= 0;
+    messageIndex--
+  ) {
+    const message = messages[messageIndex]
+    if (message?.role !== 'assistant') continue
+
+    const content = getBlocks(message)
+    for (let blockIndex = content.length - 1; blockIndex >= 0; blockIndex--) {
+      const block = content[blockIndex]
+      if (block?.type !== 'thinking') continue
+
+      const next = [...messages]
+      const nextContent = [...content]
+      nextContent[blockIndex] = {
+        ...block,
+        meta: {
+          ...(isObject(block.meta) ? block.meta : {}),
+          duration_ms: durationMs,
+        },
+      }
+      next[messageIndex] = { ...message, content: nextContent }
+      return next
+    }
+  }
+
+  return messages
+}
+
 export function appendRenderToolUse(
   messages: ChatMessage[],
   toolCall: ToolCall,

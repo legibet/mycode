@@ -366,19 +366,28 @@ export const MessageBubble = memo(function MessageBubble({
       style={{ animationDelay: `${Math.min(index * 30, 150)}ms` }}
     >
       <div className="flex flex-col gap-3 text-foreground/90 leading-relaxed text-sm">
-        {blocks.map((block) => {
+        {blocks.map((block, blockIndex) => {
           if (block.type === 'thinking') {
             const renderKey =
               block.renderKey || `thinking:${block.text || 'block'}`
+            const meta = block.meta as { duration_ms?: unknown } | undefined
+            const durationValue = meta?.duration_ms
+            const durationMs =
+              typeof durationValue === 'number' ? durationValue : undefined
             return (
               <RenderErrorBoundary
                 key={renderKey}
                 fallback={renderErrorFallback}
-                resetKey={`${renderKey}:${block.text}`}
+                resetKey={`${renderKey}:${block.text}:${durationMs ?? ''}`}
               >
                 <ReasoningBlock
                   content={block.text}
-                  isStreaming={isStreaming}
+                  durationMs={durationMs}
+                  isStreaming={
+                    isStreaming &&
+                    durationMs == null &&
+                    blockIndex === blocks.length - 1
+                  }
                 />
               </RenderErrorBoundary>
             )
