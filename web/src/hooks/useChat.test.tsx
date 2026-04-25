@@ -342,6 +342,11 @@ describe('useChat', () => {
       }),
       '/api/runs/run-3/decide': (init?: RequestInit) => {
         decideCalls.push(String(init?.body ?? ''))
+        streamController.enqueue(
+          encoder.encode(
+            'data: {"type":"permission_resolved","seq":2,"request_id":"req-1","decision":"allow"}\n\n',
+          ),
+        )
         return new Response(JSON.stringify({ status: 'ok' }), {
           status: 200,
           headers: { 'Content-Type': 'application/json' },
@@ -374,6 +379,63 @@ describe('useChat', () => {
     expect(decideCalls).toEqual([
       JSON.stringify({ request_id: 'req-1', decision: 'allow' }),
     ])
+
+    streamController.close()
+  })
+
+  it('keeps the permission prompt visible when decide POST fails', async () => {
+    globalThis.localStorage.setItem(
+      'mycode.activeSessions',
+      JSON.stringify({ '/workspace/a': 'session-4' }),
+    )
+    const encoder = new TextEncoder()
+    let streamController!: ReadableStreamDefaultController<Uint8Array>
+    const liveStream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        streamController = controller
+      },
+    })
+    mockFetch({
+      '/api/sessions?cwd=': createJsonResponse({
+        sessions: [{ id: 'session-4', title: 'Awaiting' }],
+      }),
+      '/api/sessions/session-4': createJsonResponse({
+        session: { id: 'session-4', title: 'Awaiting' },
+        messages: [],
+        active_run: {
+          id: 'run-4',
+          session_id: 'session-4',
+          status: 'running',
+          last_seq: 0,
+        },
+        pending_events: [],
+      }),
+      '/api/runs/run-4/stream?after=0': new Response(liveStream, {
+        status: 200,
+        headers: { 'Content-Type': 'text/event-stream' },
+      }),
+      '/api/runs/run-4/decide': new Response('boom', { status: 500 }),
+    })
+
+    const { result } = renderChatHook()
+
+    await waitFor(() => {
+      expect(result.current.activeSession.id).toBe('session-4')
+    })
+
+    streamController.enqueue(
+      encoder.encode(
+        'data: {"type":"permission_request","seq":1,"request_id":"req-1","tool_use_id":"call-1","tool_name":"bash","preview":"pnpm install"}\n\n',
+      ),
+    )
+
+    await waitFor(() => {
+      expect(result.current.pendingPermission?.request_id).toBe('req-1')
+    })
+
+    await result.current.decidePermission('allow')
+
+    expect(result.current.pendingPermission?.request_id).toBe('req-1')
 
     streamController.close()
   })

@@ -880,20 +880,23 @@ export function useChat(config: LocalConfig) {
       const runId = activeRunRef.current?.id
       if (!head || !runId) return
 
-      // Optimistic clear; permission_resolved from the server is the source of truth.
-      setPendingPermissions((prev) =>
-        prev.filter((p) => p.request_id !== head.request_id),
-      )
-
+      // permission_resolved drives the clear; pre-clearing here would strand
+      // the prompt if this POST fails while the server-side wait is still pending.
       try {
-        await fetch(`/api/runs/${encodeURIComponent(runId)}/decide`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            request_id: head.request_id,
-            decision,
-          }),
-        })
+        const res = await fetch(
+          `/api/runs/${encodeURIComponent(runId)}/decide`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              request_id: head.request_id,
+              decision,
+            }),
+          },
+        )
+        if (!res.ok) {
+          console.error(`Decide POST failed: ${res.status}`)
+        }
       } catch (e) {
         console.error('Failed to send decision:', e)
       }
