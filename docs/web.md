@@ -74,7 +74,7 @@ Key design decisions:
 
 Rendering rules:
 
-- `thinking` blocks → `ReasoningBlock` (expanded while streaming, auto-collapses after)
+- `thinking` blocks → `ReasoningBlock` (expanded while streaming, uses `meta.duration_ms` when present)
 - `tool_use` blocks → `ToolCard` (with matching `tool_result` and live runtime folded in)
 - `text` blocks → `MarkdownBlock`
 - `image` blocks → inline image preview in `MessageBubble`

@@ -44,7 +44,7 @@ Standard `user` or `assistant` message in the internal block format.
 
 ```json
 {"role": "user", "content": [{"type": "text", "text": "..."}], "meta": {...}}
-{"role": "assistant", "content": [{"type": "thinking", "text": "..."}, {"type": "text", "text": "..."}, {"type": "tool_use", "id": "...", "name": "...", "input": {...}}], "meta": {"provider": "...", "model": "...", "stop_reason": "...", "usage": {...}}}
+{"role": "assistant", "content": [{"type": "thinking", "text": "...", "meta": {"duration_ms": 1200}}, {"type": "text", "text": "..."}, {"type": "tool_use", "id": "...", "name": "...", "input": {...}}], "meta": {"provider": "...", "model": "...", "stop_reason": "...", "usage": {...}}}
 ```
 
 `tool_result.content` may store `text` and `image` blocks.

@@ -58,15 +58,16 @@ async for _ in agent.achat("follow-up that references the earlier answer"):
 
 `achat()` yields `Event(type, data)`:
 
-| `type`        | `data`                                                                   |
-| ------------- | ------------------------------------------------------------------------ |
-| `reasoning`   | `{"delta": str}`                                                         |
-| `text`        | `{"delta": str}`                                                         |
-| `tool_start`  | `{"tool_call": {"id", "name", "input"}}`                                 |
-| `tool_output` | `{"tool_use_id", "output"}` — only for tools with `streams_output=True`  |
-| `tool_done`   | `{"tool_use_id", "output", "is_error", "metadata"?, "content"?}`         |
-| `compact`     | `{"message", "compacted_count"}`                                         |
-| `error`       | `{"message"}` — fatal for the turn; the iterator stops after emitting it |
+| `type`           | `data`                                                                   |
+| ---------------- | ------------------------------------------------------------------------ |
+| `reasoning`      | `{"delta": str}`                                                         |
+| `reasoning_done` | `{"duration_ms": int}`                                                   |
+| `text`           | `{"delta": str}`                                                         |
+| `tool_start`     | `{"tool_call": {"id", "name", "input"}}`                                 |
+| `tool_output`    | `{"tool_use_id", "output"}` — only for tools with `streams_output=True`  |
+| `tool_done`      | `{"tool_use_id", "output", "is_error", "metadata"?, "content"?}`         |
+| `compact`        | `{"message", "compacted_count"}`                                         |
+| `error`          | `{"message"}` — fatal for the turn; the iterator stops after emitting it |
 
 ## Sessions
 

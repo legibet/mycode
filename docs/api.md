@@ -224,6 +224,7 @@ Response: `{cwd: "...", exists: true}`
 | event                 | payload fields                                                               |
 | --------------------- | ---------------------------------------------------------------------------- |
 | `reasoning`           | `delta: str`                                                                 |
+| `reasoning_done`      | `duration_ms: int`                                                           |
 | `text`                | `delta: str`                                                                 |
 | `tool_start`          | `tool_call: {id, name, input}`                                               |
 | `tool_output`         | `tool_use_id: str`, `output: str`                                            |

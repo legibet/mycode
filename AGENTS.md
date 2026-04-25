@@ -137,6 +137,7 @@ All adapters implement `ProviderAdapter.stream_turn()`. Message projection to pr
 | event                 | payload                                                                 |
 | --------------------- | ----------------------------------------------------------------------- |
 | `reasoning`           | `delta`                                                                 |
+| `reasoning_done`      | `duration_ms`                                                           |
 | `text`                | `delta`                                                                 |
 | `tool_start`          | `tool_call: {id, name, input}`                                          |
 | `tool_output`         | `tool_use_id`, `output`                                                 |

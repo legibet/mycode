@@ -173,7 +173,7 @@ Config-resolved `reasoning_effort` is only applied when both `adapter.supports_r
 
 1. Skip assistant messages with `stop_reason` in `{error, aborted, cancelled}`
 2. Project tool call IDs to provider-safe format (only Anthropic-like adapters override this)
-3. Preserve `block.meta.native` for provider-specific replay data (signatures, output items, part metadata)
+3. Preserve `block.meta.native` for provider-specific replay data (signatures, output items, part metadata); local metadata such as `duration_ms` is not sent upstream
 4. Replace replay images with a short text notice when `request.supports_image_input` is false
 5. Replace replay PDFs with a short text notice when `request.supports_pdf_input` is false
 6. Insert synthetic error tool results when pending tool calls would otherwise make replay invalid
