@@ -109,7 +109,7 @@ Options: `auto` (default) · `none` · `low` · `medium` · `high` · `xhigh`
 
 ## Tool Permissions
 
-CLI and web server agents use SDK tool hooks to classify tool calls before execution. The interactive TUI can prompt for approval; non-interactive `mycode run` and the current web API reject calls that would require review and return that denial to the model as the tool result.
+CLI and web server agents use SDK tool hooks to classify tool calls before execution. Both interactive surfaces (TUI and web) prompt the user for approval when `mode: "ask"` and the call falls outside the configured `level`. Non-interactive `mycode run` has no prompt, so it treats `ask` as `deny` and returns the denial to the model as the tool result.
 
 Levels:
 
@@ -120,10 +120,10 @@ Levels:
 
 Mode:
 
-- `ask` — prompt in the TUI with `Deny` / `Allow`
+- `ask` — prompt for approval (TUI inline picker or web prompt panel above the input area)
 - `deny` — reject without prompting
 
-Automatic denials do not stop the run; the model receives the denied tool result and can reply with next steps. In the TUI, an explicit user `Deny` cancels the current run.
+Automatic denials do not stop the run; the model receives the denied tool result and can reply with next steps. An explicit user `Deny` cancels the current run in both TUI and web.
 
 The shell checks are intentionally simple and conservative. Project commands such as tests, builds, formatters, package scripts, and task runners are `standard` because they execute project-defined code. Compound commands (`&&`, `||`, `;`, pipes, redirection, command substitution) and obvious destructive commands (`rm`, `sudo`, `chmod`, `git reset`, `git clean`, `git push --force`, etc.) fall outside `readonly`/`safe`/`standard` and require `yolo` or `mode: "ask"` approval.
 

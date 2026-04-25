@@ -82,6 +82,24 @@ Stream events for a run as SSE (`text/event-stream`).
 
 Cancel a running agent run. Returns `{status: "ok", run: {...}}`.
 
+### `POST /api/runs/{run_id}/decide`
+
+Resolve a pending tool permission request. The agent's `before_tool` hook blocks until this is called or the run is cancelled.
+
+Request body (`DecideRequest`, `cli/src/mycode_cli/server/schemas.py`):
+
+```json
+{
+  "request_id": "...",
+  "decision": "allow"
+}
+```
+
+- `decision` — `"allow"` or `"deny"`; `deny` cancels the active run.
+- `request_id` — from the matching `permission_request` SSE event.
+
+Returns `{status: "ok"}` on success, `404` if the run or `request_id` is unknown.
+
 ### `GET /api/config?cwd=...`
 
 Returns current provider configuration for the web UI.
@@ -203,15 +221,19 @@ Response: `{cwd: "...", exists: true}`
 
 **Do not change event names or payload shapes without updating server, CLI, and web UI.**
 
-| event         | payload fields                                                               |
-| ------------- | ---------------------------------------------------------------------------- |
-| `reasoning`   | `delta: str`                                                                 |
-| `text`        | `delta: str`                                                                 |
-| `tool_start`  | `tool_call: {id, name, input}`                                               |
-| `tool_output` | `tool_use_id: str`, `output: str`                                            |
-| `tool_done`   | `tool_use_id: str`, `output: str`, `is_error: bool`, `metadata?`, `content?` |
-| `compact`     | `message: str`                                                               |
-| `error`       | `message: str`                                                               |
+| event                 | payload fields                                                               |
+| --------------------- | ---------------------------------------------------------------------------- |
+| `reasoning`           | `delta: str`                                                                 |
+| `text`                | `delta: str`                                                                 |
+| `tool_start`          | `tool_call: {id, name, input}`                                               |
+| `tool_output`         | `tool_use_id: str`, `output: str`                                            |
+| `tool_done`           | `tool_use_id: str`, `output: str`, `is_error: bool`, `metadata?`, `content?` |
+| `compact`             | `message: str`                                                               |
+| `error`               | `message: str`                                                               |
+| `permission_request`  | `request_id: str`, `tool_use_id: str`, `tool_name: str`, `preview: str`      |
+| `permission_resolved` | `request_id: str`, `decision: "allow" \| "deny"`                             |
+
+`permission_request` and `permission_resolved` bracket a wait inside the agent's `before_tool` hook. Clients respond via `POST /api/runs/{run_id}/decide`; `permission_resolved` lets reconnecting or second-tab clients dismiss the prompt.
 
 Every event also carries `seq: int` for reconnect support. The web UI uses `after` parameter to resume from a specific seq number.
 
