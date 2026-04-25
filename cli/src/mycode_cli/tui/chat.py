@@ -282,14 +282,16 @@ class TerminalChat:
             multiline=True,
             prompt_continuation="  ",
         )
-        # Hooks don't depend on provider/model and the review callback reads
-        # self.* lazily, so installing once here survives clone_agent and
-        # provider/model swaps.
+        # Both callbacks read self.agent at call time, so the same Hooks
+        # object survives clone_agent (/new, /resume, /provider, /model).
         self.agent.hooks = build_permission_hooks(
             self.settings,
             review=self._review_tool_call,
-            on_user_denied=self.agent.cancel,
+            on_user_denied=self._cancel_active_agent,
         )
+
+    def _cancel_active_agent(self) -> None:
+        self.agent.cancel()
 
     async def _review_tool_call(self, request: ToolReviewRequest) -> ToolReviewDecision:
         if self._current_renderer is not None:
