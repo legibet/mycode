@@ -131,6 +131,144 @@ async def test_cancel_only_marks_target_run_cancelled() -> None:
     await updated_second.task
 
 
+class ReviewAgent:
+    """Fake agent that requests one permission decision mid-stream."""
+
+    def __init__(self, manager: RunManager, session_id: str) -> None:
+        self.manager = manager
+        self.session_id = session_id
+        self.cancelled = False
+        self.decision: str | None = None
+
+    def cancel(self) -> None:
+        self.cancelled = True
+
+    async def achat(self, user_input):
+        del user_input
+        yield Event("text", {"delta": "before"})
+        self.decision = await self.manager.request_decision(
+            session_id=self.session_id,
+            tool_call_id="call-1",
+            tool_name="bash",
+            preview="ls",
+        )
+        yield Event("text", {"delta": f"after:{self.decision}"})
+
+
+async def _wait_for_event(manager: RunManager, run_id: str, event_type: str) -> dict[str, object]:
+    for _ in range(200):
+        state = await manager.get_run(run_id)
+        assert state is not None
+        for event in state.events:
+            if event.get("type") == event_type:
+                return event
+        await asyncio.sleep(0.01)
+    raise AssertionError(f"{event_type!r} never emitted")
+
+
+async def test_request_decision_allow_resumes_agent() -> None:
+    manager = RunManager()
+    agent = ReviewAgent(manager, "session-1")
+
+    run = await manager.start_run(
+        session_id="session-1",
+        user_message={"role": "user", "content": [{"type": "text", "text": "hi"}]},
+        base_messages=[],
+        agent=agent,
+    )
+
+    request = await _wait_for_event(manager, run["id"], "permission_request")
+    assert request["tool_use_id"] == "call-1"
+    assert request["tool_name"] == "bash"
+    assert request["preview"] == "ls"
+
+    resolved = await manager.resolve_decision(run["id"], str(request["request_id"]), "allow")
+    assert resolved is True
+
+    state = await manager.get_run(run["id"])
+    assert state is not None and state.task is not None
+    await state.task
+
+    assert agent.decision == "allow"
+    types = [event["type"] for event in state.events]
+    assert types == ["text", "permission_request", "permission_resolved", "text"]
+    resolved_event = next(event for event in state.events if event["type"] == "permission_resolved")
+    assert resolved_event["decision"] == "allow"
+    assert resolved_event["request_id"] == request["request_id"]
+    assert state.pending_decisions == {}
+
+
+async def test_request_decision_deny_returns_deny() -> None:
+    manager = RunManager()
+    agent = ReviewAgent(manager, "session-1")
+
+    run = await manager.start_run(
+        session_id="session-1",
+        user_message={"role": "user", "content": [{"type": "text", "text": "hi"}]},
+        base_messages=[],
+        agent=agent,
+    )
+
+    request = await _wait_for_event(manager, run["id"], "permission_request")
+    assert await manager.resolve_decision(run["id"], str(request["request_id"]), "deny") is True
+
+    state = await manager.get_run(run["id"])
+    assert state is not None and state.task is not None
+    await state.task
+
+    assert agent.decision == "deny"
+    resolved_event = next(event for event in state.events if event["type"] == "permission_resolved")
+    assert resolved_event["decision"] == "deny"
+
+
+async def test_cancel_run_unblocks_pending_decision_as_deny() -> None:
+    manager = RunManager()
+    agent = ReviewAgent(manager, "session-1")
+
+    run = await manager.start_run(
+        session_id="session-1",
+        user_message={"role": "user", "content": [{"type": "text", "text": "hi"}]},
+        base_messages=[],
+        agent=agent,
+    )
+
+    await _wait_for_event(manager, run["id"], "permission_request")
+    await manager.cancel_run(run["id"])
+
+    state = await manager.get_run(run["id"])
+    assert state is not None and state.task is not None
+    await state.task
+
+    assert agent.cancelled is True
+    assert agent.decision == "deny"
+    resolved_event = next(event for event in state.events if event["type"] == "permission_resolved")
+    assert resolved_event["decision"] == "deny"
+    assert state.pending_decisions == {}
+
+
+async def test_resolve_decision_returns_false_for_unknown_request() -> None:
+    manager = RunManager()
+    agent = ReviewAgent(manager, "session-1")
+
+    run = await manager.start_run(
+        session_id="session-1",
+        user_message={"role": "user", "content": [{"type": "text", "text": "hi"}]},
+        base_messages=[],
+        agent=agent,
+    )
+
+    await _wait_for_event(manager, run["id"], "permission_request")
+    assert await manager.resolve_decision(run["id"], "missing-id", "allow") is False
+    assert await manager.resolve_decision("missing-run", "any", "allow") is False
+
+    # Resolve the real one so the run can finish cleanly.
+    state = await manager.get_run(run["id"])
+    assert state is not None and state.task is not None
+    request = next(event for event in state.events if event["type"] == "permission_request")
+    await manager.resolve_decision(run["id"], str(request["request_id"]), "allow")
+    await state.task
+
+
 async def test_finished_run_stays_available_for_reconnect_window() -> None:
     manager = RunManager()
 

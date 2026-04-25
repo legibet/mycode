@@ -30,10 +30,11 @@ from mycode_cli.config import (
     resolve_provider,
     resolve_provider_choices,
 )
+from mycode_cli.permissions import ToolReviewDecision, ToolReviewRequest
 from mycode_cli.runtime import build_agent, model_config_for
 from mycode_cli.server.deps import RunManagerDep, StoreDep
-from mycode_cli.server.run_manager import ActiveRunError, RunState
-from mycode_cli.server.schemas import ChatRequest, StreamEvent
+from mycode_cli.server.run_manager import ActiveRunError, RunManager, RunState
+from mycode_cli.server.schemas import ChatRequest, DecideRequest, StreamEvent
 
 router = APIRouter()
 
@@ -224,6 +225,7 @@ async def chat(chat: ChatRequest, store: StoreDep, runs: RunManagerDep):
         resolved_provider=resolved,
         session_id=session_id,
         reasoning_effort=reasoning_effort,
+        review=_make_review(runs, session_id),
     )
 
     try:
@@ -262,6 +264,28 @@ async def cancel_run(run_id: str, runs: RunManagerDep):
     if not run:
         raise HTTPException(status_code=404, detail="run not found")
     return {"status": "ok", "run": run}
+
+
+@router.post("/runs/{run_id}/decide")
+async def decide_run(run_id: str, body: DecideRequest, runs: RunManagerDep):
+    resolved = await runs.resolve_decision(run_id, body.request_id, body.decision)
+    if not resolved:
+        raise HTTPException(status_code=404, detail="permission request not found")
+    return {"status": "ok"}
+
+
+def _make_review(runs: RunManager, session_id: str):
+    """Bridge before_tool review waits to SSE events on the active run."""
+
+    async def review(request: ToolReviewRequest) -> ToolReviewDecision:
+        return await runs.request_decision(
+            session_id=session_id,
+            tool_call_id=request.tool_call_id,
+            tool_name=request.tool_name,
+            preview=request.preview,
+        )
+
+    return review
 
 
 @router.get("/config")

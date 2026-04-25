@@ -60,3 +60,14 @@ class StreamEvent(BaseModel):
     metadata: dict[str, Any] | None = None  # tool_done
     is_error: bool | None = None  # tool_done
     message: str | None = None  # error
+    request_id: str | None = None  # permission_request + permission_resolved
+    tool_name: str | None = None  # permission_request
+    preview: str | None = None  # permission_request
+    decision: str | None = None  # permission_resolved
+
+
+class DecideRequest(BaseModel):
+    """Request body for /runs/{run_id}/decide."""
+
+    request_id: str
+    decision: Literal["allow", "deny"]

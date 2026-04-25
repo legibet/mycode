@@ -52,6 +52,7 @@ class PermissionCheck(NamedTuple):
 
 @dataclass(frozen=True)
 class ToolReviewRequest:
+    tool_call_id: str
     tool_name: str
     preview: str
     permission: PermissionConfig
@@ -79,7 +80,12 @@ def build_permission_hooks(
 
         if decision == "ask" and review is not None:
             review_decision = await review(
-                ToolReviewRequest(tool_name=ctx.tool_name, preview=check.preview, permission=settings.permission)
+                ToolReviewRequest(
+                    tool_call_id=ctx.tool_call_id,
+                    tool_name=ctx.tool_name,
+                    preview=check.preview,
+                    permission=settings.permission,
+                )
             )
             if review_decision == "allow":
                 return None

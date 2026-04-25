@@ -16,7 +16,7 @@ from mycode.providers import (
 from mycode.session import SessionStore
 from mycode.tools import DEFAULT_TOOL_SPECS
 from mycode_cli.config import ModelConfig, ResolvedProvider, Settings, provider_has_api_key
-from mycode_cli.permissions import build_permission_hooks
+from mycode_cli.permissions import ToolReviewCallback, build_permission_hooks
 from mycode_cli.system_prompt import build_system_prompt
 
 
@@ -52,6 +52,7 @@ def build_agent(
     session_id: str,
     max_turns: int | None = None,
     reasoning_effort: str | None = None,
+    review: ToolReviewCallback | None = None,
 ) -> Agent:
     """Build an agent from the resolved provider, honoring model config overrides.
 
@@ -79,7 +80,7 @@ def build_agent(
         system=build_system_prompt(cwd, settings),
         tools=DEFAULT_TOOL_SPECS,
     )
-    agent.hooks = build_permission_hooks(settings, on_user_denied=agent.cancel)
+    agent.hooks = build_permission_hooks(settings, review=review, on_user_denied=agent.cancel)
     return agent
 
 

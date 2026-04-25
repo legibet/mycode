@@ -12,6 +12,7 @@ from uuid import uuid4
 
 from mycode.agent import Event
 from mycode.messages import ConversationMessage
+from mycode_cli.permissions import ToolReviewDecision
 
 RunStatus = Literal["running", "completed", "failed", "cancelled"]
 FINISHED_RUN_TTL_SECONDS = 300
@@ -47,6 +48,7 @@ class RunState:
     task: asyncio.Task[None] | None = None
     finished_at: float | None = None
     condition: asyncio.Condition = field(default_factory=asyncio.Condition)
+    pending_decisions: dict[str, asyncio.Future[ToolReviewDecision]] = field(default_factory=dict)
 
     def info(self) -> dict[str, Any]:
         """Return the public run payload."""
@@ -125,11 +127,81 @@ class RunManager:
         if not state:
             return None
         state.agent.cancel()
+        for fut in state.pending_decisions.values():
+            if not fut.done():
+                fut.cancel()
         return state.info()
 
     async def has_active_run(self, session_id: str) -> bool:
         async with self._lock:
             return session_id in self._active_by_session
+
+    async def request_decision(
+        self,
+        *,
+        session_id: str,
+        tool_call_id: str,
+        tool_name: str,
+        preview: str,
+    ) -> ToolReviewDecision:
+        """Emit permission_request, await the user's decision, then emit permission_resolved."""
+
+        async with self._lock:
+            state = self._active_by_session.get(session_id)
+        if state is None:
+            raise RuntimeError(f"no active run for session {session_id!r}")
+
+        loop = asyncio.get_running_loop()
+        request_id = uuid4().hex
+        future: asyncio.Future[ToolReviewDecision] = loop.create_future()
+        state.pending_decisions[request_id] = future
+
+        await self._append_event(
+            state,
+            Event(
+                "permission_request",
+                {
+                    "request_id": request_id,
+                    "tool_use_id": tool_call_id,
+                    "tool_name": tool_name,
+                    "preview": preview,
+                },
+            ),
+        )
+
+        decision: ToolReviewDecision = "deny"
+        try:
+            decision = await future
+            return decision
+        except asyncio.CancelledError:
+            # Treat cancellation as deny so the agent loop unwinds via its own cancel check.
+            return decision
+        finally:
+            state.pending_decisions.pop(request_id, None)
+            await self._append_event(
+                state,
+                Event(
+                    "permission_resolved",
+                    {"request_id": request_id, "decision": decision},
+                ),
+            )
+
+    async def resolve_decision(
+        self,
+        run_id: str,
+        request_id: str,
+        decision: ToolReviewDecision,
+    ) -> bool:
+        """Resolve a pending permission_request future. Returns whether resolved."""
+
+        state = await self.get_run(run_id)
+        if state is None:
+            return False
+        future = state.pending_decisions.get(request_id)
+        if future is None or future.done():
+            return False
+        future.set_result(decision)
+        return True
 
     async def _run(self, state: RunState) -> None:
         """Run the agent and store streamed events."""
@@ -163,6 +235,9 @@ class RunManager:
             state.condition.notify_all()
 
     async def _finish_run(self, state: RunState, *, status: RunStatus, error: str | None = None) -> None:
+        for fut in state.pending_decisions.values():
+            if not fut.done():
+                fut.cancel()
         async with state.condition:
             state.status = status
             state.error = error
