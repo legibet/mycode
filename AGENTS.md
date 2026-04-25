@@ -26,7 +26,8 @@ SDK package — `mycode/src/mycode/`:
 - `agent.py` — agent loop (`Agent`)
 - `messages.py` — internal message/block format
 - `tools.py` — `ToolSpec`, `ToolExecutor`, `ToolContext`, the four built-in tools, `@tool` decorator
-- `session.py` — append-only JSONL session storage, compact/rewind events, interrupted tool repair
+- `hooks.py` — `Hooks`, `ToolHookContext` for `before_tool` / `after_tool` callbacks
+- `session.py` — append-only JSONL session storage, compact/rewind events
 - `models.py` — bundled model metadata lookup
 - `models_catalog.json` — generated model metadata catalog; source is `scripts/update_models_catalog.py`
 - `utils.py` — small typed helpers (`as_int`, `as_bool`, `omit_none`, `parse_tool_arguments`)
@@ -45,9 +46,10 @@ CLI package — `cli/src/mycode_cli/`:
 - `tui/theme.py` — terminal theme detection and color tokens
 - `runtime.py` — `build_agent()`, `resolve_session()`
 - `config.py` — layered JSON config loading, provider resolution, and CLI-owned path helpers (`resolve_mycode_home` / `resolve_sessions_dir`)
+- `permissions.py` — tool permission policy: classify tier, build `before_tool` hooks, optional interactive review
 - `system_prompt.py` — runtime system prompt assembly: inlined base prompt + AGENTS.md + skills discovery
 - `server/app.py` — FastAPI factory, static mount
-- `server/routers/chat.py` — POST /api/chat, GET /api/runs/{id}/stream, POST /api/runs/{id}/cancel, GET /api/config
+- `server/routers/chat.py` — POST /api/chat, GET /api/runs/{id}/stream, POST /api/runs/{id}/cancel, POST /api/runs/{id}/decide, GET /api/config
 - `server/routers/sessions.py` — session CRUD
 - `server/routers/workspaces.py` — directory browser
 - `server/run_manager.py` — concurrent run management
@@ -132,15 +134,17 @@ All adapters implement `ProviderAdapter.stream_turn()`. Message projection to pr
 
 **Do not change event names or payload shapes without updating server, CLI, and web UI.**
 
-| event         | payload                                                      |
-| ------------- | ------------------------------------------------------------ |
-| `reasoning`   | `delta`                                                      |
-| `text`        | `delta`                                                      |
-| `tool_start`  | `tool_call: {id, name, input}`                               |
-| `tool_output` | `tool_use_id`, `output`                                      |
-| `tool_done`   | `tool_use_id`, `output`, `is_error`, `metadata?`, `content?` |
-| `compact`     | `message`                                                    |
-| `error`       | `message`                                                    |
+| event                 | payload                                                                 |
+| --------------------- | ----------------------------------------------------------------------- |
+| `reasoning`           | `delta`                                                                 |
+| `text`                | `delta`                                                                 |
+| `tool_start`          | `tool_call: {id, name, input}`                                          |
+| `tool_output`         | `tool_use_id`, `output`                                                 |
+| `tool_done`           | `tool_use_id`, `output`, `is_error`, `metadata?`, `content?`            |
+| `compact`             | `message`                                                               |
+| `error`               | `message`                                                               |
+| `permission_request`  | `request_id`, `tool_use_id`, `tool_name`, `preview`                     |
+| `permission_resolved` | `request_id`, `decision` (`"allow"` or `"deny"`)                        |
 
 ## Detailed Docs
 
@@ -150,7 +154,7 @@ Always read relevant docs before making changes:
 - `docs/config.md` — Config files, schema, API key resolution, reasoning effort, skills/instructions discovery
 - `docs/providers.md` — Per-adapter details: SDK, base URL, env vars, reasoning effort mapping, quirks
 - `docs/sdk.md` — Public SDK surface, `Agent`, `@tool`, `SessionStore`
-- `docs/sessions.md` — Storage layout, JSONL record types, compact/rewind/repair, format version
+- `docs/sessions.md` — Storage layout, JSONL record types, compact/rewind, format version
 - `docs/web.md` — Component structure, message state model, build process
 
 ## Interfaces
@@ -169,6 +173,7 @@ Always read relevant docs before making changes:
 - `POST /api/chat` — start a run from `message` or `input`; returns `{run, session}` JSON immediately
 - `GET /api/runs/{run_id}/stream` — SSE stream for a run
 - `POST /api/runs/{run_id}/cancel` — cancel a run
+- `POST /api/runs/{run_id}/decide` — resolve a pending tool permission request
 - `GET /api/config` — provider, reasoning, and image-input metadata for the web UI
 - Session CRUD at `/api/sessions`
 - Workspace browser at `/api/workspaces`
