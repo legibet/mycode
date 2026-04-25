@@ -61,14 +61,12 @@ def workspace(tmp_path: Path, config_home: Path) -> Path:
 
 
 class TestGetSettings:
-    def test_merges_global_and_project_configs(self, tmp_path: Path, config_home: Path) -> None:
-        project = tmp_path / "project"
-        cwd = project / "apps" / "api"
+    def test_merges_global_and_current_directory_configs(self, tmp_path: Path, config_home: Path) -> None:
+        cwd = tmp_path / "project" / "apps" / "api"
         cwd.mkdir(parents=True)
-        (project / ".git").mkdir()
 
         global_config = config_home / "config.json"
-        project_config = project / ".mycode" / "config.json"
+        project_config = cwd / ".mycode" / "config.json"
         write_json(
             global_config,
             {
@@ -98,7 +96,6 @@ class TestGetSettings:
         settings = get_settings(str(cwd.resolve()))
 
         assert settings.cwd == str(cwd.resolve())
-        assert settings.workspace_root == str(project.resolve())
         assert settings.default_provider == "shared"
         assert settings.default_model == "gpt-5.4"
         assert settings.providers["shared"].api_key == "global-key"

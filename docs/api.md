@@ -129,7 +129,6 @@ Response:
   "default_reasoning_effort": "auto",
   "reasoning_effort_options": ["auto", "none", "low", "medium", "high", "xhigh"],
   "cwd": "...",
-  "workspace_root": "...",
   "config_paths": [...]
 }
 ```

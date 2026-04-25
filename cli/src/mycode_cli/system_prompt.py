@@ -3,7 +3,7 @@
 This module owns the full runtime system prompt:
 
 - base prompt text (inlined below as _BASE_PROMPT)
-- workspace instructions from AGENTS.md
+- project instructions from AGENTS.md
 - available skills from SKILL.md files
 """
 
@@ -47,7 +47,7 @@ You have four tools: read, write, edit, bash.
 
 
 def build_system_prompt(cwd: str, settings: Settings | None = None) -> str:
-    """Build the full runtime system prompt for the current workspace."""
+    """Build the full runtime system prompt for the current directory."""
 
     resolved_cwd = str(Path(cwd).resolve(strict=False))
     resolved_settings = settings or get_settings(resolved_cwd)
@@ -67,12 +67,12 @@ def build_system_prompt(cwd: str, settings: Settings | None = None) -> str:
 
 
 # ---------------------------------------------------------------------
-# Workspace instructions from AGENTS.md
+# Project instructions from AGENTS.md
 # ---------------------------------------------------------------------
 
 
 def discover_instruction_files(cwd: str, settings: Settings | None = None) -> list[Path]:
-    """Discover standard AGENTS.md files from global scope to current cwd."""
+    """Discover AGENTS.md files from global config and the current directory."""
 
     resolved_cwd = settings.cwd if settings else cwd
     local_dir = Path(resolved_cwd).expanduser().resolve(strict=False)
@@ -81,11 +81,11 @@ def discover_instruction_files(cwd: str, settings: Settings | None = None) -> li
     files: list[Path] = []
 
     global_candidate = mycode_home / "AGENTS.md"
-    compat_candidate = home / ".agents" / "AGENTS.md"
+    compat_global_candidate = home / ".agents" / "AGENTS.md"
     if global_candidate.is_file():
         files.append(global_candidate)
-    elif compat_candidate.is_file():
-        files.append(compat_candidate)
+    elif compat_global_candidate.is_file():
+        files.append(compat_global_candidate)
 
     local_candidate = local_dir / "AGENTS.md"
     if local_candidate.is_file():
@@ -269,14 +269,14 @@ def _scan_skill_root(root: Path, source: str) -> list[Skill]:
 
 
 def discover_skills(cwd: str) -> list[Skill]:
-    """Discover skills from global and current-cwd roots. Later roots override earlier ones."""
+    """Discover skills from global and current-directory config roots."""
 
     home = Path.home()
     mycode_home = resolve_mycode_home()
     cwd_path = Path(cwd).expanduser().resolve(strict=False)
 
-    # Later roots win. This lets native mycode paths override compat paths, and
-    # current-cwd config override global config with the same skill name.
+    # Later roots win, so native mycode paths override compat paths and
+    # current-cwd config overrides global config with the same skill name.
     roots: list[tuple[Path, str]] = [
         (home / ".agents" / "skills", "global"),
         (mycode_home / "skills", "global"),

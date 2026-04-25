@@ -47,7 +47,6 @@ def _settings(tmp_path: Path, *, permission: PermissionConfig | None = None) -> 
         default_model=None,
         port=8000,
         cwd=str(tmp_path),
-        workspace_root=str(tmp_path),
         permission=permission or PermissionConfig(),
         config_paths=[],
     )
@@ -61,7 +60,7 @@ def test_permission_decision_uses_level_then_mode() -> None:
     assert permission_decision(PermissionConfig(level="yolo", mode="deny"), "yolo") == "allow"
 
 
-def test_classifies_structured_tools_by_workspace_and_skill_paths(tmp_path: Path) -> None:
+def test_classifies_structured_tools_by_cwd_and_skill_paths(tmp_path: Path) -> None:
     skill_dir = tmp_path.parent / "skills" / "demo"
     skill_dir.mkdir(parents=True)
 
@@ -69,7 +68,6 @@ def test_classifies_structured_tools_by_workspace_and_skill_paths(tmp_path: Path
         classify_tool(
             _ctx("read", {"path": "src/app.py"}),
             cwd=str(tmp_path),
-            workspace_root=tmp_path,
             skill_roots=[skill_dir],
         ).tier
         == "readonly"
@@ -78,7 +76,6 @@ def test_classifies_structured_tools_by_workspace_and_skill_paths(tmp_path: Path
         classify_tool(
             _ctx("write", {"path": "src/app.py"}),
             cwd=str(tmp_path),
-            workspace_root=tmp_path,
             skill_roots=[skill_dir],
         ).tier
         == "safe"
@@ -87,7 +84,6 @@ def test_classifies_structured_tools_by_workspace_and_skill_paths(tmp_path: Path
         classify_tool(
             _ctx("read", {"path": str(skill_dir / "SKILL.md")}),
             cwd=str(tmp_path),
-            workspace_root=tmp_path,
             skill_roots=[skill_dir],
         ).tier
         == "readonly"
@@ -96,7 +92,6 @@ def test_classifies_structured_tools_by_workspace_and_skill_paths(tmp_path: Path
         classify_tool(
             _ctx("edit", {"path": str(tmp_path.parent / "outside.py")}),
             cwd=str(tmp_path),
-            workspace_root=tmp_path,
             skill_roots=[skill_dir],
         ).tier
         == "yolo"
@@ -115,9 +110,7 @@ def test_classifies_structured_tools_by_workspace_and_skill_paths(tmp_path: Path
     ],
 )
 def test_classifies_common_readonly_bash(command: str, tmp_path: Path) -> None:
-    check = classify_tool(
-        _ctx("bash", {"command": command}), cwd=str(tmp_path), workspace_root=tmp_path, skill_roots=[]
-    )
+    check = classify_tool(_ctx("bash", {"command": command}), cwd=str(tmp_path), skill_roots=[])
     assert check.tier == "readonly"
 
 
@@ -140,9 +133,7 @@ def test_classifies_common_readonly_bash(command: str, tmp_path: Path) -> None:
     ],
 )
 def test_classifies_single_non_dangerous_bash_as_standard(command: str, tmp_path: Path) -> None:
-    check = classify_tool(
-        _ctx("bash", {"command": command}), cwd=str(tmp_path), workspace_root=tmp_path, skill_roots=[]
-    )
+    check = classify_tool(_ctx("bash", {"command": command}), cwd=str(tmp_path), skill_roots=[])
     assert check.tier == "standard"
 
 
@@ -171,9 +162,7 @@ def test_classifies_single_non_dangerous_bash_as_standard(command: str, tmp_path
     ],
 )
 def test_classifies_dangerous_or_compound_bash_as_yolo(command: str, tmp_path: Path) -> None:
-    check = classify_tool(
-        _ctx("bash", {"command": command}), cwd=str(tmp_path), workspace_root=tmp_path, skill_roots=[]
-    )
+    check = classify_tool(_ctx("bash", {"command": command}), cwd=str(tmp_path), skill_roots=[])
     assert check.tier == "yolo"
 
 

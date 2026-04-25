@@ -84,7 +84,6 @@ class Settings:
     default_model: str | None
     port: int
     cwd: str
-    workspace_root: str
     default_reasoning_effort: str | None = None
     compact_threshold: float | None = None
     permission: PermissionConfig = field(default_factory=PermissionConfig)
@@ -101,16 +100,6 @@ class ResolvedProvider:
     api_base: str | None
     reasoning_effort: str | None
     provider_name: str | None = None
-
-
-def find_workspace_root(cwd: str) -> Path:
-    """Resolve the project/workspace root for the current cwd."""
-
-    current = Path(cwd).expanduser().resolve(strict=False)
-    for parent in [current, *current.parents]:
-        if (parent / ".git").exists():
-            return parent
-    return current
 
 
 def _load_json(path: Path) -> dict[str, Any] | None:
@@ -265,10 +254,10 @@ def provider_has_api_key(provider: ProviderConfig) -> bool:
 
 
 def _candidate_config_paths(cwd: str) -> list[Path]:
-    workspace_root = find_workspace_root(cwd)
+    cwd_path = Path(cwd).expanduser().resolve(strict=False)
     return [
         resolve_mycode_home() / "config.json",
-        workspace_root / ".mycode" / "config.json",
+        cwd_path / ".mycode" / "config.json",
     ]
 
 
@@ -302,10 +291,9 @@ def _build_providers(raw_providers: dict[str, dict[str, Any]]) -> dict[str, Prov
 
 
 def get_settings(cwd: str | None = None) -> Settings:
-    """Load settings from global and workspace config files."""
+    """Load settings from global and current-directory config files."""
 
     resolved_cwd = str(Path(cwd or os.getcwd()).expanduser().resolve(strict=False))
-    workspace_root = find_workspace_root(resolved_cwd)
 
     raw_providers: dict[str, dict[str, Any]] = {}
     default_provider: str | None = None
@@ -373,7 +361,6 @@ def get_settings(cwd: str | None = None) -> Settings:
         permission=permission,
         port=int(os.environ.get("PORT", "8000")),
         cwd=resolved_cwd,
-        workspace_root=str(workspace_root),
         config_paths=config_paths,
     )
 
@@ -418,7 +405,7 @@ def resolve_provider(
     checked = ", ".join(env_names) or "<api key env>"
     raise ValueError(
         "no available providers found; set one of the supported API key env vars "
-        + f"({checked}) or configure a provider in ~/.mycode/config.json or <workspace>/.mycode/config.json"
+        + f"({checked}) or configure a provider in ~/.mycode/config.json or <cwd>/.mycode/config.json"
     )
 
 

@@ -7,7 +7,7 @@ Source: `cli/src/mycode_cli/config.py`
 Loaded in order (later values override earlier):
 
 1. `~/.mycode/config.json` — global
-2. `<workspace>/.mycode/config.json` — project-specific (found by walking up from cwd to `.git` root)
+2. `{cwd}/.mycode/config.json` — current-directory project config
 
 Explicit request args (CLI flags, API params) override both.
 
@@ -113,8 +113,8 @@ CLI and web server agents use SDK tool hooks to classify tool calls before execu
 
 Levels:
 
-- `readonly` — automatically allow clear read-only actions: workspace `read`, discovered skill reads, and simple read-only shell commands (`ls`, `rg`, `git status`, `git diff`, etc.)
-- `safe` — `readonly` plus workspace-local `write`/`edit`. Shell commands remain limited to clear read-only commands.
+- `readonly` — automatically allow clear read-only actions under `cwd`, discovered skill reads, and simple read-only shell commands (`ls`, `rg`, `git status`, `git diff`, etc.)
+- `safe` — `readonly` plus `cwd`-local `write`/`edit`. Shell commands remain limited to clear read-only commands.
 - `standard` — `safe` plus ordinary single shell commands, unless they match dangerous or compound-command checks
 - `yolo` — automatically allow all tool calls
 
@@ -156,10 +156,10 @@ uv run python scripts/update_models_catalog.py
 
 Scan roots (lowest to highest priority):
 
-1. `~/.agents/skills/`
-2. `~/.mycode/skills/`
-3. `{cwd}/.agents/skills/`
-4. `{cwd}/.mycode/skills/`
+1. `~/.agents/skills/` — compatibility global root
+2. `~/.mycode/skills/` — global root
+3. `{cwd}/.agents/skills/` — compatibility project root
+4. `{cwd}/.mycode/skills/` — project root
 
 Each `SKILL.md` requires YAML frontmatter with `name` and `description`. Later roots override earlier ones by skill name. Max scan depth: 3 directory levels, max 200 directories per root.
 
@@ -174,9 +174,9 @@ The model uses the `read` tool to load full skill content on demand from the ski
 
 Later files are more specific and take precedence.
 
-## Workspace Root
+## Current Directory Boundary
 
-`find_workspace_root(cwd)` walks up from cwd to find a `.git` directory. Falls back to cwd itself. Used to locate `<workspace>/.mycode/config.json`.
+`cwd` is the only project boundary used by config, instructions, skills, and tool permissions. `mycode` does not walk up to Git roots.
 
 ## Sessions Directory
 

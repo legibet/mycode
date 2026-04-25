@@ -57,7 +57,7 @@ Run `/model` in tui to see the available models.
 
 A config file is optional — API keys from the environment are usually sufficient.
 
-Create `~/.mycode/config.json` (global) or `<workspace>/.mycode/config.json` (project, takes precedence) to:
+Create `~/.mycode/config.json` (global) or `{cwd}/.mycode/config.json` (project, takes precedence) to:
 
 - set a default provider, model, and reasoning effort
 - expose additional models on an existing provider (e.g. OpenRouter's catalog)
