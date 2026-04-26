@@ -913,6 +913,21 @@ def test_google_gemini_keeps_signature_only_stream_chunk() -> None:
             {"reasoning_field": "reasoning_content"},
         ),
         (
+            _Obj(model_extra={"reasoning": "step alias"}),
+            "step alias",
+            {"reasoning_field": "reasoning"},
+        ),
+        (
+            _Obj(model_extra={"reasoning_content": None}),
+            "",
+            {"reasoning_field": "reasoning_content"},
+        ),
+        (
+            _Obj(model_extra={"reasoning_content": ""}),
+            "",
+            {"reasoning_field": "reasoning_content"},
+        ),
+        (
             _Obj(
                 model_extra={
                     "reasoning_details": [
@@ -1280,6 +1295,27 @@ def test_thinking_duration_metadata_is_not_sent_to_providers() -> None:
         assert "duration_ms" not in json.dumps(payload)
 
 
+def test_replay_preserves_empty_native_reasoning_blocks() -> None:
+    messages = [
+        {
+            "role": "assistant",
+            "content": [
+                {"type": "thinking", "text": "", "meta": {"native": {"reasoning_field": "reasoning_content"}}},
+                {"type": "text", "text": "done"},
+            ],
+        },
+        {"role": "user", "content": [{"type": "text", "text": "next question"}]},
+    ]
+
+    repaired = repair_messages_for_replay(messages, supports_image_input=True, supports_pdf_input=True)
+
+    assert repaired[0]["content"][0] == {
+        "type": "thinking",
+        "text": "",
+        "meta": {"native": {"reasoning_field": "reasoning_content"}},
+    }
+
+
 def test_deepseek_replays_reasoning_across_turns() -> None:
     adapter = DeepSeekAdapter()
 
@@ -1332,6 +1368,82 @@ def test_deepseek_replays_reasoning_across_turns() -> None:
         )
     )["messages"]
     assert payload_messages[0]["reasoning_content"] == "think"
+
+
+@pytest.mark.parametrize(
+    ("reasoning_field", "thinking_text", "expected_value"),
+    [
+        ("reasoning_content", "", None),
+        ("reasoning", "think", "think"),
+    ],
+)
+def test_openai_chat_replays_native_reasoning_field(
+    reasoning_field: str,
+    thinking_text: str,
+    expected_value: str | None,
+) -> None:
+    adapter = OpenAIChatAdapter()
+
+    payload_messages = adapter._build_request_payload(
+        request_obj(
+            max_tokens=2048,
+            messages=[
+                {
+                    "role": "assistant",
+                    "content": [
+                        {
+                            "type": "thinking",
+                            "text": thinking_text,
+                            "meta": {"native": {"reasoning_field": reasoning_field}},
+                        },
+                        {"type": "text", "text": "done"},
+                    ],
+                },
+                {"role": "user", "content": [{"type": "text", "text": "next question"}]},
+            ],
+        )
+    )["messages"]
+
+    assert payload_messages[0][reasoning_field] == expected_value
+
+
+def test_deepseek_replays_empty_reasoning_content_after_tool_turn() -> None:
+    adapter = DeepSeekAdapter()
+
+    payload_messages = adapter._build_request_payload(
+        request_obj(
+            max_tokens=2048,
+            messages=[
+                {
+                    "role": "assistant",
+                    "content": [
+                        {
+                            "type": "thinking",
+                            "text": "Need to run tests.",
+                            "meta": {"native": {"reasoning_field": "reasoning_content"}},
+                        },
+                        {"type": "tool_use", "id": "call_1", "name": "bash", "input": {"command": "pytest"}},
+                    ],
+                },
+                {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "call_1", "output": "ok"}]},
+                {
+                    "role": "assistant",
+                    "content": [
+                        {
+                            "type": "thinking",
+                            "text": "",
+                            "meta": {"native": {"reasoning_field": "reasoning_content"}},
+                        },
+                        {"type": "text", "text": "All tests passed."},
+                    ],
+                },
+                {"role": "user", "content": [{"type": "text", "text": "continue"}]},
+            ],
+        )
+    )["messages"]
+
+    assert payload_messages[0]["reasoning_content"] == "Need to run tests."
+    assert payload_messages[2]["reasoning_content"] is None
 
 
 def test_anthropic_replays_native_block_metadata() -> None:

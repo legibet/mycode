@@ -79,9 +79,10 @@ class OpenAIChatAdapter(ProviderAdapter):
 
                 delta = choice.delta
                 reasoning_delta, reasoning_meta_update = self._extract_reasoning_delta(delta)
+                if reasoning_meta_update:
+                    thinking_native_meta.update(reasoning_meta_update)
                 if reasoning_delta:
                     thinking_parts.append(reasoning_delta)
-                    thinking_native_meta.update(reasoning_meta_update)
                     yield ProviderStreamEvent("thinking_delta", {"text": reasoning_delta})
 
                 if delta.content:
@@ -104,7 +105,7 @@ class OpenAIChatAdapter(ProviderAdapter):
             raise ValueError(str(exc)) from exc
 
         blocks = []
-        if thinking_parts:
+        if thinking_parts or thinking_native_meta:
             blocks.append(
                 thinking_block(
                     "".join(thinking_parts),
@@ -286,32 +287,52 @@ class OpenAIChatAdapter(ProviderAdapter):
         reasoning_field = str(native_meta.get("reasoning_field") or "")
         if reasoning_field == "reasoning_details":
             return {"reasoning_details": native_meta.get("reasoning_details") or []}
+        if reasoning_field == "reasoning":
+            return {"reasoning": thinking_text or None}
+        if reasoning_field == "reasoning_content":
+            return {"reasoning_content": thinking_text or None}
         return {"reasoning_content": thinking_text} if thinking_text else {}
 
     def _extract_reasoning_delta(self, delta: Any) -> tuple[str, dict[str, Any]]:
         # Third-party providers surface reasoning through non-standard extras.
         # We check both the delta root and model_extra to cover both patterns.
-        # Known fields: reasoning_content (Moonshot/MiniMax chat), reasoning_details (some others).
+        # Known fields: reasoning, reasoning_content, reasoning_details.
         for source in (delta, getattr(delta, "model_extra", None) or {}):
             if isinstance(source, dict):
+                has_reasoning = "reasoning" in source
+                reasoning = source.get("reasoning")
+                has_reasoning_content = "reasoning_content" in source
                 reasoning_content = source.get("reasoning_content")
+                has_reasoning_details = "reasoning_details" in source
                 reasoning_details = source.get("reasoning_details")
             else:
+                has_reasoning = hasattr(source, "reasoning")
+                reasoning = getattr(source, "reasoning", None)
+                has_reasoning_content = hasattr(source, "reasoning_content")
                 reasoning_content = getattr(source, "reasoning_content", None)
+                has_reasoning_details = hasattr(source, "reasoning_details")
                 reasoning_details = getattr(source, "reasoning_details", None)
 
-            if isinstance(reasoning_content, str) and reasoning_content:
-                return reasoning_content, {"reasoning_field": "reasoning_content"}
+            if has_reasoning:
+                return (
+                    reasoning if isinstance(reasoning, str) else "",
+                    {"reasoning_field": "reasoning"},
+                )
 
-            if isinstance(reasoning_details, list) and reasoning_details:
+            if has_reasoning_content:
+                return (
+                    reasoning_content if isinstance(reasoning_content, str) else "",
+                    {"reasoning_field": "reasoning_content"},
+                )
+
+            if has_reasoning_details and isinstance(reasoning_details, list):
                 reasoning_text = "".join(
                     str(item.get("text") or "") for item in reasoning_details if isinstance(item, dict)
                 )
-                if reasoning_text:
-                    return reasoning_text, {
-                        "reasoning_field": "reasoning_details",
-                        "reasoning_details": reasoning_details,
-                    }
+                return reasoning_text, {
+                    "reasoning_field": "reasoning_details",
+                    "reasoning_details": reasoning_details,
+                }
 
         return "", {}
 

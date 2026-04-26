@@ -205,7 +205,7 @@ def repair_messages_for_replay(
                 block_type = raw_block.get("type")
                 if block_type in {"text", "thinking"}:
                     text = str(raw_block.get("text") or "")
-                    if text:
+                    if text or get_native_meta(raw_block):
                         content.append(dict(raw_block))
                     continue
 

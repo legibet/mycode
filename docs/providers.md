@@ -119,7 +119,11 @@ class ProviderAdapter(ABC):
 - `supports_reasoning_effort`: false
 - `auto_discoverable`: false (base class only, not used directly)
 - Intended for third-party OpenAI-compatible providers when Responses API is unavailable
-- Preserves third-party reasoning extensions (`reasoning_content`, `reasoning_details`) from SDK extras
+- Preserves third-party reasoning extensions from SDK extras:
+  - `reasoning` replays as `reasoning`
+  - `reasoning_content` replays as `reasoning_content`, including empty field markers
+  - `reasoning_details` replays as `reasoning_details`
+- Empty provider-native reasoning blocks are retained for replay even when no reasoning text was shown to the user
 - Sends `stream_options: {include_usage: true}`
 - Images serialize as `image_url` parts with data URLs
 - PDFs serialize as `file` parts with base64 data URLs
@@ -132,7 +136,7 @@ class ProviderAdapter(ABC):
 - Default models: `deepseek-v4-pro`, `deepseek-v4-flash`
 - `supports_reasoning_effort`: true; `none` sends `thinking: {type: "disabled"}`, `low`/`medium`/`high` map to `reasoning_effort=high`, and `xhigh` maps to `reasoning_effort=max`
 - `auto_discoverable`: true
-- Stored reasoning content replayed on later requests when the protocol supports it
+- Stored `reasoning_content` is replayed on later requests, including empty markers after tool turns
 
 ### `zai` — `openai_chat.py`
 
@@ -142,7 +146,7 @@ class ProviderAdapter(ABC):
 - Default models: `glm-5.1`, `glm-5-turbo`
 - `supports_reasoning_effort`: false; thinking enabled by default via `thinking: {type: "enabled", clear_thinking: false}`
 - `auto_discoverable`: true
-- `clear_thinking: false` preserves reasoning across multi-turn tool loops
+- `clear_thinking: false` preserves reasoning across multi-turn tool loops; historical `reasoning_content` must be replayed unmodified
 
 ### `openrouter` — `openai_chat.py`
 
@@ -152,6 +156,7 @@ class ProviderAdapter(ABC):
 - Default models: `openrouter/auto`
 - `supports_reasoning_effort`: true (forwarded through `extra_body.reasoning.effort`)
 - `auto_discoverable`: true
+- Supports OpenRouter reasoning replay shapes: `reasoning`, `reasoning_content` alias, and `reasoning_details`
 - Same image format as `openai_chat`
 - Same PDF format as `openai_chat`
 
@@ -179,3 +184,11 @@ Config-resolved `reasoning_effort` is only applied when both `adapter.supports_r
 6. Insert synthetic error tool results when pending tool calls would otherwise make replay invalid
 
 Provider-specific replay logic lives inside each adapter's serialization methods (e.g., Gemini's `_build_contents` replays native `Part` metadata, OpenAI's `_native_output_items` replays stored output items). These run after `prepare_messages()` produces the canonical replay transcript.
+
+For OpenAI-compatible chat providers, empty `thinking` blocks with `block.meta.native` are intentionally preserved. Some providers require a reasoning field to be returned even when its value is empty or null.
+
+Upstream behavior references:
+
+- OpenAI Chat/SDK: additive response fields are allowed by the [API compatibility policy](https://developers.openai.com/api/reference/overview#backwards-compatibility), and the official Python SDK exposes undocumented response properties through [`model_extra`](https://github.com/openai/openai-python#undocumented-request-params).
+- OpenRouter: [reasoning tokens](https://openrouter.ai/docs/guides/best-practices/reasoning-tokens#preserving-reasoning) can be returned and replayed as `reasoning`, `reasoning_content`, or structured `reasoning_details`; `reasoning_details` must be preserved unmodified.
+- Z.AI: [preserved/interleaved thinking](https://docs.z.ai/guides/capabilities/thinking-mode#preserved-thinking) requires returning historical `reasoning_content` unmodified when `clear_thinking: false` is used.
