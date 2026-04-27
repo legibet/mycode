@@ -99,7 +99,7 @@ def read_back(context: ToolContext, path: str) -> str:
 
 
 def _new_agent(tmp_path: Path, **overrides) -> Agent:
-    overrides.setdefault("model", "gpt-5.4")
+    overrides.setdefault("model", "gpt-5.5")
     overrides.setdefault("cwd", str(tmp_path))
     overrides.setdefault("session_dir", tmp_path)
     overrides.setdefault("session_id", "session")

@@ -32,7 +32,7 @@ def _ctx(name: str, tool_input: dict[str, object]) -> ToolHookContext:
         session_id="s",
         cwd="/tmp",
         provider="openai",
-        model="gpt-5.4",
+        model="gpt-5.5",
         tool_call_id="call-1",
         tool_name=name,
         tool_input=tool_input,

@@ -96,10 +96,10 @@ class TestGetSettings:
         write_json(
             cwd_config,
             {
-                "default": {"provider": "shared", "model": "gpt-5.4"},
+                "default": {"provider": "shared", "model": "gpt-5.5"},
                 "providers": {
                     "shared": {
-                        "models": {"gpt-5.4": {}},
+                        "models": {"gpt-5.5": {}},
                     }
                 },
             },
@@ -110,10 +110,10 @@ class TestGetSettings:
         assert settings.cwd == str(cwd.resolve())
         assert settings.project == str(project.resolve())
         assert settings.default_provider == "shared"
-        assert settings.default_model == "gpt-5.4"
+        assert settings.default_model == "gpt-5.5"
         assert settings.providers["shared"].api_key == "global-key"
         assert settings.providers["shared"].base_url == "https://root.example/v1"
-        assert list(settings.providers["shared"].models) == ["gpt-5.4"]
+        assert list(settings.providers["shared"].models) == ["gpt-5.5"]
         assert settings.config_paths == [
             str(global_config.resolve()),
             str(project_config.resolve()),
@@ -154,7 +154,7 @@ class TestGetSettings:
                 "providers": {
                     "compat": {
                         "type": "openai",
-                        "models": {"gpt-5.4": {}},
+                        "models": {"gpt-5.5": {}},
                     }
                 },
             },
@@ -391,7 +391,7 @@ class TestResolveProvider:
 
         assert resolved.provider_name == "openai"
         assert resolved.provider == "openai"
-        assert resolved.model == "gpt-5.4"
+        assert resolved.model == "gpt-5.5"
         assert resolved.api_key == "openai-env-key"
 
     def test_auto_discovery_prefers_configured_provider_with_credentials(
@@ -474,7 +474,7 @@ class TestResolveProvider:
         agent = build_test_agent(tmp_path, workspace, settings, resolved)
 
         assert resolved.provider == "openai"
-        assert resolved.model == "gpt-5.4"
+        assert resolved.model == "gpt-5.5"
         assert agent.max_tokens == 16_384
         assert agent.context_window == 128_000
 
@@ -528,7 +528,7 @@ class TestAgentCapabilities:
             monkeypatch,
             ModelMetadata(
                 provider="openai",
-                model="gpt-5.4",
+                model="gpt-5.5",
                 context_window=400_000,
                 max_output_tokens=128_000,
                 supports_reasoning=True,
@@ -586,7 +586,7 @@ class TestAgentCapabilities:
             monkeypatch,
             ModelMetadata(
                 provider="openai",
-                model="gpt-5.4",
+                model="gpt-5.5",
                 context_window=400_000,
                 max_output_tokens=128_000,
                 supports_reasoning=True,
@@ -600,7 +600,7 @@ class TestAgentCapabilities:
                 "providers": {
                     "openai": {
                         "models": {
-                            "gpt-5.4": {
+                            "gpt-5.5": {
                                 "context_window": 500_000,
                                 "max_output_tokens": 64_000,
                                 "supports_reasoning": False,

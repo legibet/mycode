@@ -50,7 +50,7 @@ class _ToolUseAdapter:
 
 def _agent(tmp_path: Path, *, tool: ToolSpec, hooks: Hooks) -> Agent:
     return Agent(
-        model="gpt-5.4",
+        model="gpt-5.5",
         provider="openai",
         cwd=str(tmp_path),
         session_dir=tmp_path,

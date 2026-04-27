@@ -60,7 +60,7 @@ class TestAgentReasoningPersistence:
             persisted: list[ConversationMessage] = []
 
             agent = Agent(
-                model="gpt-5.4",
+                model="gpt-5.5",
                 provider="openai",
                 cwd=tmpdir,
                 session_dir=Path(tmpdir),
@@ -110,7 +110,7 @@ class TestAgentReasoningPersistence:
             persisted: list[ConversationMessage] = []
 
             agent = Agent(
-                model="gpt-5.4",
+                model="gpt-5.5",
                 provider="openai",
                 cwd=tmpdir,
                 session_dir=Path(tmpdir),
@@ -182,7 +182,7 @@ class TestAgentTurnLimits:
     async def test_achat_has_no_default_turn_limit(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             agent = Agent(
-                model="gpt-5.4",
+                model="gpt-5.5",
                 provider="openai",
                 cwd=tmpdir,
                 session_dir=Path(tmpdir),
@@ -235,7 +235,7 @@ class TestAgentTurnLimits:
     async def test_achat_respects_explicit_turn_limit(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             agent = Agent(
-                model="gpt-5.4",
+                model="gpt-5.5",
                 provider="openai",
                 cwd=tmpdir,
                 session_dir=Path(tmpdir),
@@ -296,7 +296,7 @@ class TestCustomTools:
         with tempfile.TemporaryDirectory() as tmpdir:
             session_dir = Path(tmpdir)
             agent = Agent(
-                model="gpt-5.4",
+                model="gpt-5.5",
                 provider="openai",
                 cwd=tmpdir,
                 session_dir=session_dir,
@@ -351,7 +351,7 @@ class TestCustomTools:
     async def test_cancel_after_assistant_persist_still_emits_tool_start(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             agent = Agent(
-                model="gpt-5.4",
+                model="gpt-5.5",
                 provider="openai",
                 cwd=tmpdir,
                 session_dir=Path(tmpdir),
@@ -408,7 +408,7 @@ class TestAgentCancel:
     async def test_cancel_stops_inflight_provider_stream(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             agent = Agent(
-                model="gpt-5.4",
+                model="gpt-5.5",
                 provider="openai",
                 cwd=tmpdir,
                 session_dir=Path(tmpdir),

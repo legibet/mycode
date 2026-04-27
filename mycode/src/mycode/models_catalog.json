@@ -789,7 +789,7 @@
     },
     "gpt-5.5": {
       "context_window": 1050000,
-      "max_output_tokens": 130000,
+      "max_output_tokens": 128000,
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -1179,6 +1179,13 @@
       "max_output_tokens": 66000,
       "supports_image_input": true,
       "supports_pdf_input": true,
+      "supports_reasoning": true
+    },
+    "google/gemini-3.1-flash-image-preview": {
+      "context_window": 65536,
+      "max_output_tokens": 65536,
+      "supports_image_input": true,
+      "supports_pdf_input": false,
       "supports_reasoning": true
     },
     "google/gemini-3.1-flash-lite-preview": {
@@ -1743,7 +1750,7 @@
     },
     "openai/gpt-5.5": {
       "context_window": 1050000,
-      "max_output_tokens": 130000,
+      "max_output_tokens": 128000,
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -1808,6 +1815,13 @@
       "context_window": 200000,
       "max_output_tokens": 8000,
       "supports_image_input": true,
+      "supports_pdf_input": false,
+      "supports_reasoning": true
+    },
+    "openrouter/pareto-code": {
+      "context_window": 200000,
+      "max_output_tokens": 200000,
+      "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
     },
@@ -2054,6 +2068,20 @@
       "max_output_tokens": 65536,
       "supports_image_input": false,
       "supports_pdf_input": false,
+      "supports_reasoning": true
+    },
+    "xiaomi/mimo-v2.5": {
+      "context_window": 1048576,
+      "max_output_tokens": 131072,
+      "supports_image_input": false,
+      "supports_pdf_input": false,
+      "supports_reasoning": true
+    },
+    "xiaomi/mimo-v2.5-pro": {
+      "context_window": 1048576,
+      "max_output_tokens": 131072,
+      "supports_image_input": true,
+      "supports_pdf_input": true,
       "supports_reasoning": true
     },
     "z-ai/glm-4.5": {

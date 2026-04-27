@@ -42,7 +42,7 @@ PING_TOOL = ToolSpec(
 async def capture_request(tmp_path: Path, **agent_kwargs):
     adapter = _CaptureAdapter()
     agent = Agent(
-        model="gpt-5.4",
+        model="gpt-5.5",
         provider="openai",
         cwd=str(tmp_path),
         session_dir=tmp_path / "session",
