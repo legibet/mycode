@@ -19,11 +19,11 @@ import {
   useState,
 } from 'react'
 import { createPortal } from 'react-dom'
+import useSWR from 'swr'
 import type {
   WorkspaceBrowseResponse,
   WorkspaceEntry,
   WorkspaceRootsResponse,
-  WorkspaceState,
 } from '../types'
 import { cn } from '../utils/cn'
 import { shouldAutoFocusTextInputOnOpen } from '../utils/focus'
@@ -65,6 +65,44 @@ const rootLabel = (value: string): string => {
   return parts[parts.length - 1] || value
 }
 
+// ─── data fetching ──────────────────────────────────────────────────────────
+
+// Roots and per-directory listings are cached by SWR. Re-opening the picker on
+// an already-visited path returns the cached entries instantly while SWR
+// silently revalidates in the background, so the dialog no longer flashes
+// through an empty/loading state on every open.
+
+async function rootsFetcher(url: string): Promise<string[]> {
+  const res = await fetch(url)
+  if (!res.ok) throw new Error('Failed to load roots')
+  const data = (await res.json()) as WorkspaceRootsResponse
+  return data.roots ?? []
+}
+
+async function browseFetcher(url: string): Promise<WorkspaceBrowseResponse> {
+  const res = await fetch(url)
+  if (!res.ok) throw new Error('Failed to browse directory')
+  const data = (await res.json()) as WorkspaceBrowseResponse
+  if (data.error) throw new Error(data.error)
+  return data
+}
+
+const ROOTS_OPTS = { revalidateOnFocus: false } as const
+const BROWSE_OPTS = { revalidateOnFocus: false } as const
+
+function buildBrowseKey(
+  target: { root: string; path: string } | null,
+): string | null {
+  if (!target?.root) return null
+  const params = new URLSearchParams({ root: target.root })
+  if (target.path) params.set('path', target.path)
+  return `/api/workspaces/browse?${params.toString()}`
+}
+
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : 'Unknown error'
+}
+
 // ─── component ──────────────────────────────────────────────────────────────
 
 interface WorkspacePickerProps {
@@ -76,10 +114,6 @@ interface WorkspacePickerProps {
   onSelect: (cwd: string) => void
 }
 
-function getErrorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : 'Unknown error'
-}
-
 export function WorkspacePicker({
   open,
   openedWithKeyboard,
@@ -88,22 +122,63 @@ export function WorkspacePicker({
   cwdHistory = EMPTY_HISTORY,
   onSelect,
 }: WorkspacePickerProps) {
-  const [state, setState] = useState<WorkspaceState>({
-    roots: [],
-    root: '',
-    path: '',
-    current: '',
-    entries: [],
-    loading: false,
-    error: '',
-  })
+  const {
+    data: roots = [],
+    error: rootsError,
+    isLoading: rootsLoading,
+  } = useSWR<string[]>('/api/workspaces/roots', rootsFetcher, ROOTS_OPTS)
+
+  const [target, setTarget] = useState<{ root: string; path: string } | null>(
+    null,
+  )
+  const [uiError, setUiError] = useState('')
   const [filter, setFilter] = useState('')
-  const browseTokenRef = useRef(0)
+
   const inputRef = useRef<HTMLInputElement | null>(null)
   const closeButtonRef = useRef<HTMLButtonElement | null>(null)
 
-  // Keep focus inside the dialog while avoiding the mobile keyboard for touch
-  // pointer opens.
+  const browseKey = buildBrowseKey(target)
+  const { data: browseData, error: browseError } =
+    useSWR<WorkspaceBrowseResponse>(browseKey, browseFetcher, BROWSE_OPTS)
+
+  // Sync target with currentCwd whenever the picker opens or the host's cwd
+  // changes. setState short-circuits when the target is already correct so a
+  // re-open on the same cwd doesn't invalidate SWR caches.
+  useEffect(() => {
+    if (!open || roots.length === 0) return
+    const desiredRoot = currentCwd ? matchRoot(roots, currentCwd) : roots[0]
+    if (!desiredRoot) return
+    const desiredPath = currentCwd
+      ? toRelativePath(desiredRoot, currentCwd)
+      : ''
+    setTarget((prev) =>
+      prev?.root === desiredRoot && prev.path === desiredPath
+        ? prev
+        : { root: desiredRoot, path: desiredPath },
+    )
+  }, [open, roots, currentCwd])
+
+  // Reset transient state on each open.
+  useEffect(() => {
+    if (!open) return
+    setFilter('')
+    setUiError('')
+  }, [open])
+
+  // The backend may normalize the requested path (strip trailing slashes,
+  // collapse `..`, etc). Realign target so subsequent navigation uses the
+  // canonical form.
+  useEffect(() => {
+    if (!browseData) return
+    setTarget((prev) =>
+      prev?.root === browseData.root && prev.path === browseData.path
+        ? prev
+        : { root: browseData.root, path: browseData.path },
+    )
+  }, [browseData])
+
+  // Focus management — match original behavior (input on keyboard opens, close
+  // button otherwise to avoid the mobile keyboard).
   useEffect(() => {
     if (!open) return
     const timer = setTimeout(() => {
@@ -116,158 +191,99 @@ export function WorkspacePicker({
     return () => clearTimeout(timer)
   }, [open, openedWithKeyboard])
 
-  // Reset filter when directory changes
-  const prevCurrentRef = useRef(state.current)
-  if (prevCurrentRef.current !== state.current) {
-    prevCurrentRef.current = state.current
+  // ── derived ──────────────────────────────────────────────────────────────
+
+  const root = target?.root ?? ''
+  const path = target?.path ?? ''
+  const entries = browseData?.entries ?? []
+  const current = browseData?.current ?? ''
+
+  // Show the centered loader only when there's nothing to display yet. Once
+  // SWR has cached data for this key, subsequent opens skip the spinner
+  // entirely.
+  const loading =
+    rootsLoading || (Boolean(browseKey) && !browseData && !browseError)
+
+  const errorMessage =
+    uiError ||
+    (browseError ? getErrorMessage(browseError) : '') ||
+    (rootsError ? getErrorMessage(rootsError) : '') ||
+    (!rootsLoading && roots.length === 0
+      ? 'No workspace roots configured.'
+      : '')
+
+  // Reset filter when arriving at a new directory.
+  const prevCurrentRef = useRef(current)
+  if (prevCurrentRef.current !== current) {
+    prevCurrentRef.current = current
     if (filter) setFilter('')
   }
 
-  // ── data ────────────────────────────────────────────────────────────────
-
-  const loadRoots = useCallback(async (): Promise<string[]> => {
-    const res = await fetch('/api/workspaces/roots')
-    if (!res.ok) throw new Error('Failed to load roots')
-    const data = (await res.json()) as WorkspaceRootsResponse
-    return data.roots || []
-  }, [])
-
-  const browsePath = useCallback(async (root: string, path = '') => {
-    const token = ++browseTokenRef.current
-    setState((prev) => ({ ...prev, loading: true, error: '' }))
-    try {
-      const params = new URLSearchParams({ root })
-      if (path) params.set('path', path)
-      const res = await fetch(`/api/workspaces/browse?${params.toString()}`)
-      if (!res.ok) throw new Error('Failed to browse directory')
-      const data = (await res.json()) as WorkspaceBrowseResponse
-      if (data.error) throw new Error(data.error)
-      if (browseTokenRef.current !== token) return
-      setState((prev) => ({
-        ...prev,
-        root: data.root,
-        path: data.path,
-        current: data.current,
-        entries: data.entries || [],
-        loading: false,
-        error: '',
-      }))
-    } catch (e) {
-      if (browseTokenRef.current !== token) return
-      setState((prev) => ({
-        ...prev,
-        loading: false,
-        error: getErrorMessage(e),
-      }))
-    }
-  }, [])
-
-  useEffect(() => {
-    if (!open) return
-    let active = true
-    const init = async () => {
-      try {
-        const roots = await loadRoots()
-        if (!active) return
-        if (!roots.length) {
-          setState((prev) => ({
-            ...prev,
-            roots: [],
-            loading: false,
-            error: 'No workspace roots configured.',
-          }))
-          return
-        }
-        setState((prev) => ({ ...prev, roots }))
-        setFilter('')
-        if (currentCwd) {
-          const root = matchRoot(roots, currentCwd)
-          if (root) {
-            await browsePath(root, toRelativePath(root, currentCwd))
-          }
-        } else {
-          const firstRoot = roots[0]
-          if (firstRoot) {
-            await browsePath(firstRoot, '')
-          }
-        }
-      } catch (e) {
-        if (active) {
-          setState((prev) => ({
-            ...prev,
-            loading: false,
-            error: getErrorMessage(e),
-          }))
-        }
-      }
-    }
-    init()
-    return () => {
-      active = false
-    }
-  }, [open, browsePath, currentCwd, loadRoots])
-
-  // ── filtering & navigation ─────────────────────────────────────────────
-
   const filteredEntries = useMemo(() => {
     const trimmed = filter.trim().toLowerCase()
-    if (!trimmed) return state.entries
-    return state.entries.filter((e: WorkspaceEntry) =>
+    if (!trimmed) return entries
+    return entries.filter((e: WorkspaceEntry) =>
       e.name.toLowerCase().includes(trimmed),
     )
-  }, [filter, state.entries])
+  }, [filter, entries])
+
+  // ── navigation ───────────────────────────────────────────────────────────
+
+  const browseTo = useCallback((nextRoot: string, nextPath: string) => {
+    setUiError('')
+    setTarget((prev) =>
+      prev?.root === nextRoot && prev.path === nextPath
+        ? prev
+        : { root: nextRoot, path: nextPath },
+    )
+  }, [])
 
   const navigateToPath = useCallback(
-    async (value: string) => {
+    (value: string) => {
       const trimmed = value.trim()
-      if (!trimmed || !state.roots.length) return
+      if (!trimmed || roots.length === 0) return
       if (isAbsolutePath(trimmed)) {
-        const root = matchRoot(state.roots, trimmed)
-        if (!root) {
-          setState((prev) => ({
-            ...prev,
-            error: 'Path is outside any configured workspace root.',
-          }))
+        const matched = matchRoot(roots, trimmed)
+        if (!matched) {
+          setUiError('Path is outside any configured workspace root.')
           return
         }
-        await browsePath(root, toRelativePath(root, trimmed))
-      } else {
-        // Treat as relative path from current directory
-        const base = state.path ? `${state.path}/${trimmed}` : trimmed
-        await browsePath(state.root, base)
+        browseTo(matched, toRelativePath(matched, trimmed))
+      } else if (target) {
+        const base = target.path ? `${target.path}/${trimmed}` : trimmed
+        browseTo(target.root, base)
       }
     },
-    [state.roots, state.root, state.path, browsePath],
+    [roots, target, browseTo],
   )
 
   const handleGoParent = useCallback(() => {
-    if (!state.root || !state.path) return
-    const segments = state.path.split('/')
-    void browsePath(state.root, segments.slice(0, -1).join('/'))
-  }, [state.root, state.path, browsePath])
+    if (!target?.root || !target.path) return
+    const segments = target.path.split('/')
+    browseTo(target.root, segments.slice(0, -1).join('/'))
+  }, [target, browseTo])
 
   const handleSelect = useCallback(() => {
-    if (state.current) {
-      onSelect(state.current)
+    if (current) {
+      onSelect(current)
       onClose()
     }
-  }, [state.current, onSelect, onClose])
+  }, [current, onSelect, onClose])
 
   const handleInputKeyDown = useCallback(
     (e: KeyboardEvent<HTMLInputElement>) => {
       if (e.key === 'Enter') {
-        // If filter matches exactly one entry, enter it; otherwise navigate to typed path
         const singleMatch =
           filteredEntries.length === 1 ? filteredEntries[0] : null
-        if (singleMatch) {
-          void browsePath(state.root, singleMatch.path)
+        if (singleMatch && root) {
+          browseTo(root, singleMatch.path)
         } else if (filter.trim()) {
-          void navigateToPath(filter)
+          navigateToPath(filter)
         }
       } else if (e.key === 'Tab') {
         e.preventDefault()
         const firstEntry = filteredEntries[0]
-        if (firstEntry) void browsePath(state.root, firstEntry.path)
+        if (firstEntry && root) browseTo(root, firstEntry.path)
       } else if (e.key === 'Escape') {
         if (filter) {
           setFilter('')
@@ -275,25 +291,24 @@ export function WorkspacePicker({
           onClose()
         }
       } else if (e.key === 'Backspace' && !filter) {
-        // Backspace on empty filter goes up one level
         handleGoParent()
       }
     },
     [
       filter,
       filteredEntries,
-      state.root,
-      browsePath,
+      root,
+      browseTo,
       navigateToPath,
       onClose,
       handleGoParent,
     ],
   )
 
-  // ── derived ─────────────────────────────────────────────────────────────
+  // ── derived (rendering) ──────────────────────────────────────────────────
 
-  const pathSegments = state.path ? state.path.split('/') : []
-  const recentPaths = cwdHistory.filter((p) => p !== state.current)
+  const pathSegments = path ? path.split('/') : []
+  const recentPaths = cwdHistory.filter((p) => p !== current)
   const showRecent = recentPaths.length > 0 && !filter.trim()
 
   // ── render ───────────────────────────────────────────────────────────────
@@ -337,7 +352,7 @@ export function WorkspacePicker({
           <div className="flex-1 flex items-center overflow-x-auto scrollbar-none min-w-0 gap-0.5">
             <button
               type="button"
-              onClick={() => state.root && void browsePath(state.root, '')}
+              onClick={() => root && browseTo(root, '')}
               className={cn(
                 'shrink-0 px-1.5 py-0.5 rounded text-xs font-mono cursor-pointer',
                 'transition-colors hover:bg-muted/60 hover:text-foreground',
@@ -346,7 +361,7 @@ export function WorkspacePicker({
                   : 'text-muted-foreground',
               )}
             >
-              {rootLabel(state.root) || '~'}
+              {rootLabel(root) || '~'}
             </button>
             {pathSegments.map((segment, index) => {
               const crumbPath = pathSegments.slice(0, index + 1).join('/')
@@ -360,7 +375,7 @@ export function WorkspacePicker({
                   </span>
                   <button
                     type="button"
-                    onClick={() => void browsePath(state.root, crumbPath)}
+                    onClick={() => browseTo(root, crumbPath)}
                     className={cn(
                       'px-1.5 py-0.5 rounded text-xs font-mono cursor-pointer whitespace-nowrap',
                       'transition-colors hover:bg-muted/60 hover:text-foreground',
@@ -423,7 +438,7 @@ export function WorkspacePicker({
 
         {/* Content */}
         <div className="flex-1 overflow-y-auto overscroll-contain">
-          {state.loading && (
+          {loading && (
             <div className="flex items-center justify-center h-36">
               <div className="flex items-end gap-1">
                 {[0, 1, 2].map((i) => (
@@ -440,15 +455,15 @@ export function WorkspacePicker({
             </div>
           )}
 
-          {!state.loading && state.error && (
+          {!loading && errorMessage && (
             <div className="flex items-center justify-center h-36 px-6 text-center">
               <p className="text-xs text-destructive leading-relaxed">
-                {state.error}
+                {errorMessage}
               </p>
             </div>
           )}
 
-          {!state.loading && !state.error && (
+          {!loading && !errorMessage && (
             <div className="py-1">
               {/* Recent */}
               {showRecent && (
@@ -458,19 +473,19 @@ export function WorkspacePicker({
                       Recent
                     </span>
                   </div>
-                  {recentPaths.map((path) => (
+                  {recentPaths.map((p) => (
                     <button
                       type="button"
-                      key={path}
+                      key={p}
                       onClick={() => {
-                        onSelect(path)
+                        onSelect(p)
                         onClose()
                       }}
                       className="group flex items-center gap-3 w-full min-h-[44px] px-4 py-2 text-left cursor-pointer transition-colors hover:bg-muted/50 active:bg-muted/70 focus-visible:outline-none focus-visible:bg-muted/50"
                     >
                       <Clock className="h-3.5 w-3.5 shrink-0 text-muted-foreground/35 group-hover:text-accent/60 transition-colors" />
                       <span className="truncate text-xs font-mono text-muted-foreground group-hover:text-foreground/80 transition-colors">
-                        {path}
+                        {p}
                       </span>
                     </button>
                   ))}
@@ -493,7 +508,7 @@ export function WorkspacePicker({
                 <button
                   type="button"
                   key={entry.path}
-                  onClick={() => void browsePath(state.root, entry.path)}
+                  onClick={() => browseTo(root, entry.path)}
                   className="group flex items-center gap-3 w-full min-h-[44px] px-4 py-2 text-left cursor-pointer transition-colors hover:bg-muted/50 active:bg-muted/70 focus-visible:outline-none focus-visible:bg-muted/50"
                 >
                   <Folder className="h-3.5 w-3.5 shrink-0 text-accent/40 group-hover:text-accent/70 transition-colors" />
@@ -511,14 +526,14 @@ export function WorkspacePicker({
           <FolderOpen className="h-3.5 w-3.5 shrink-0 text-muted-foreground/30" />
           <span
             className="flex-1 min-w-0 truncate text-xs font-mono text-muted-foreground/60"
-            title={state.current}
+            title={current}
           >
-            {state.current || '—'}
+            {current || '—'}
           </span>
           <button
             type="button"
             onClick={handleSelect}
-            disabled={!state.current}
+            disabled={!current}
             className={cn(
               'shrink-0 px-3.5 h-7 rounded-md text-xs font-semibold cursor-pointer',
               'transition-colors',

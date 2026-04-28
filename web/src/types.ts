@@ -304,16 +304,6 @@ export interface WorkspaceBrowseResponse {
   error: string
 }
 
-export interface WorkspaceState {
-  roots: string[]
-  root: string
-  path: string
-  current: string
-  entries: WorkspaceEntry[]
-  loading: boolean
-  error: string
-}
-
 export type PermissionLevel = 'readonly' | 'safe' | 'standard' | 'yolo'
 export type PermissionMode = 'ask' | 'deny'
 
