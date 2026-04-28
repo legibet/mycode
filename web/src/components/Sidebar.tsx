@@ -1,16 +1,16 @@
 /**
- * Sidebar — brand, workspace, session history, theme.
+ * Sidebar — brand, workspace, session history, settings.
  *
  * Top: mycode wordmark on its own line.
  * Below: workspace block (basename + full path, both clickable) with a
  *   `+` new-chat button to the right.
  * Sessions grouped by time bucket. Active session marked by a left accent bar.
- * Footer: theme cycle only.
+ * Footer: single gear icon opening the settings panel (theme + global config).
  */
 
-import { Laptop, Moon, Plus, Sun, Terminal, Trash2 } from 'lucide-react'
+import { Plus, Settings as SettingsIcon, Terminal, Trash2 } from 'lucide-react'
 import { type CSSProperties, memo, useMemo, useRef, useState } from 'react'
-import type { LocalConfig, RemoteConfig, SessionSummary, Theme } from '../types'
+import type { LocalConfig, RemoteConfig, SessionSummary } from '../types'
 import { cn } from '../utils/cn'
 import {
   clampSidebarWidth,
@@ -72,20 +72,6 @@ function formatOlder(date: Date): string {
   })
 }
 
-// ─── theme cycle ────────────────────────────────────────────────────────────
-
-const THEME_ORDER: Theme[] = ['light', 'dark', 'system']
-const THEME_ICON: Record<Theme, typeof Sun> = {
-  system: Laptop,
-  light: Sun,
-  dark: Moon,
-}
-const THEME_LABEL: Record<Theme, string> = {
-  system: 'system',
-  light: 'light',
-  dark: 'dark',
-}
-
 // ─── component ──────────────────────────────────────────────────────────────
 
 interface SidebarProps {
@@ -99,8 +85,7 @@ interface SidebarProps {
   remoteConfig: RemoteConfig | null
   cwdHistory: string[]
   onUpdateConfig: (config: LocalConfig) => void
-  theme: Theme
-  setTheme: (theme: Theme) => void
+  onOpenSettings: () => void
   width: number
   onResize: (width: number) => void
   onResizeReset: () => void
@@ -196,8 +181,7 @@ export const Sidebar = memo(function Sidebar({
   remoteConfig,
   cwdHistory,
   onUpdateConfig,
-  theme,
-  setTheme,
+  onOpenSettings,
   width,
   onResize,
   onResizeReset,
@@ -377,31 +361,21 @@ export const Sidebar = memo(function Sidebar({
         )}
       </div>
 
-      {/* Footer — theme: light · dark · system, left-aligned */}
-      <div className="shrink-0 px-3 py-3 flex items-center gap-1">
-        {THEME_ORDER.map((t) => {
-          const Icon = THEME_ICON[t]
-          const active = theme === t
-          return (
-            <button
-              key={t}
-              type="button"
-              onClick={() => setTheme(t)}
-              aria-label={`Theme: ${THEME_LABEL[t]}`}
-              aria-pressed={active}
-              title={THEME_LABEL[t]}
-              className={cn(
-                'h-7 w-7 flex items-center justify-center rounded-md transition-colors',
-                'focus-visible:outline-none',
-                active
-                  ? 'text-foreground bg-muted'
-                  : 'text-muted-foreground hover:text-foreground hover:bg-muted/50',
-              )}
-            >
-              <Icon className="h-3.5 w-3.5" />
-            </button>
-          )
-        })}
+      {/* Footer — single settings entry */}
+      <div className="shrink-0 px-3 py-3 flex items-center">
+        <button
+          type="button"
+          onClick={onOpenSettings}
+          aria-label="Open settings"
+          title="Settings"
+          className={cn(
+            'h-7 w-7 flex items-center justify-center rounded-md transition-colors',
+            'text-muted-foreground hover:text-foreground hover:bg-muted/50',
+            'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
+          )}
+        >
+          <SettingsIcon className="h-3.5 w-3.5" />
+        </button>
       </div>
 
       <SidebarResizer

@@ -11,8 +11,9 @@ import { MessageList } from './components/Chat/MessageList'
 import { PermissionPrompt } from './components/Chat/PermissionPrompt'
 import { Layout } from './components/Layout'
 import { MobileHeader } from './components/MobileHeader'
+import { SettingsPanel } from './components/Settings/SettingsPanel'
 import { Sidebar } from './components/Sidebar'
-import { ThemeProvider, useTheme } from './components/ThemeProvider'
+import { ThemeProvider } from './components/ThemeProvider'
 import { useChat } from './hooks/useChat'
 import type { AttachedFile, LocalConfig, RemoteConfig } from './types'
 import { normalizeConfigWithRemoteDefaults } from './utils/config'
@@ -57,7 +58,7 @@ function AppContent() {
   // Viewport-dependent cap; recomputed on window resize and used at render time
   // so a narrow viewport clamps the displayed width without touching user intent.
   const [maxSidebarWidth, setMaxSidebarWidth] = useState(getMaxSidebarWidth)
-  const { theme, setTheme } = useTheme()
+  const [settingsOpen, setSettingsOpen] = useState(false)
 
   const handleResizeSidebar = useCallback((next: number) => {
     setSidebarWidth((prev) => {
@@ -82,10 +83,11 @@ function AppContent() {
     Math.min(maxSidebarWidth, sidebarWidth),
   )
   const configUrl = `/api/config?cwd=${encodeURIComponent(config.cwd)}`
-  const { data: remoteConfig = null, error: remoteConfigError } = useSWR<
-    RemoteConfig,
-    Error
-  >(configUrl, fetchJson<RemoteConfig>, {
+  const {
+    data: remoteConfig = null,
+    error: remoteConfigError,
+    mutate: mutateRemoteConfig,
+  } = useSWR<RemoteConfig, Error>(configUrl, fetchJson<RemoteConfig>, {
     keepPreviousData: true,
     onError: (error) => {
       console.error('Failed to load config:', error)
@@ -273,8 +275,7 @@ function AppContent() {
             remoteConfig={remoteConfig}
             cwdHistory={cwdHistory}
             onUpdateConfig={handleConfigUpdate}
-            theme={theme}
-            setTheme={setTheme}
+            onOpenSettings={() => setSettingsOpen(true)}
             width={displayedSidebarWidth}
             onResize={handleResizeSidebar}
             onResizeReset={handleResetSidebarWidth}
@@ -335,6 +336,15 @@ function AppContent() {
           )}
         </main>
       </div>
+
+      <SettingsPanel
+        open={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        onSaved={() => {
+          void mutateRemoteConfig()
+        }}
+        projectConfigPaths={remoteConfig?.config_paths}
+      />
     </Layout>
   )
 }
