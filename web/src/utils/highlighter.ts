@@ -9,7 +9,7 @@ import {
 import { createJavaScriptRegexEngine } from 'shiki/engine/javascript'
 
 export type AppHighlighter = HighlighterGeneric<BundledLanguage, BundledTheme>
-export type ResolvedLanguage = BundledLanguage | 'text'
+type ResolvedLanguage = BundledLanguage | 'text'
 
 let highlighterInstance: AppHighlighter | null = null
 
@@ -28,7 +28,7 @@ const LANGUAGE_ALIASES: Record<string, string> = {
   yml: 'yaml',
 }
 
-export const highlighterPromise = createHighlighter({
+const highlighterPromise = createHighlighter({
   themes: ['dark-plus', 'light-plus'],
   langs: [
     'javascript',

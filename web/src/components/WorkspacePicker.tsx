@@ -54,6 +54,8 @@ const toRelativePath = (root: string, absolutePath: string): string => {
   return rel.replace(/^\/+/, '')
 }
 
+const EMPTY_HISTORY: string[] = []
+
 const rootLabel = (value: string): string => {
   if (!value || value === '/' || value === '\\') return '/'
   const normalized = value.replace(/[\\/]+$/, '')
@@ -83,7 +85,7 @@ export function WorkspacePicker({
   openedWithKeyboard,
   onClose,
   currentCwd,
-  cwdHistory = [],
+  cwdHistory = EMPTY_HISTORY,
   onSelect,
 }: WorkspacePickerProps) {
   const [state, setState] = useState<WorkspaceState>({
