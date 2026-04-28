@@ -120,40 +120,33 @@ export const MessageBubble = memo(function MessageBubble({
   const editRef = useRef<HTMLTextAreaElement | null>(null)
   const resetCopiedTimeoutRef = useRef<number | null>(null)
 
-  const visibleTextBlocks = useMemo(
-    () =>
-      blocks.filter(
-        (block): block is TextBlock =>
-          block?.type === 'text' && !getAttachmentMeta(block)?.attachment,
-      ),
-    [blocks],
-  )
-  const textContent = useMemo(
-    () => visibleTextBlocks.map((block) => block.text).join('\n\n'),
-    [visibleTextBlocks],
-  )
-  const textAttachmentBlocks = useMemo(
-    () =>
-      blocks.filter(
-        (block): block is TextBlock =>
-          block?.type === 'text' &&
-          Boolean(getAttachmentMeta(block)?.attachment),
-      ),
-    [blocks],
-  )
-
-  const imageBlocks = useMemo(
-    () =>
-      blocks.filter((block): block is ImageBlock => block?.type === 'image'),
-    [blocks],
-  )
-  const documentBlocks = useMemo(
-    () =>
-      blocks.filter(
-        (block): block is DocumentBlock => block?.type === 'document',
-      ),
-    [blocks],
-  )
+  const { textContent, textAttachmentBlocks, imageBlocks, documentBlocks } =
+    useMemo(() => {
+      const visibleText: string[] = []
+      const textAttachmentBlocks: TextBlock[] = []
+      const imageBlocks: ImageBlock[] = []
+      const documentBlocks: DocumentBlock[] = []
+      for (const block of blocks) {
+        if (!block) continue
+        if (block.type === 'text') {
+          if (getAttachmentMeta(block)?.attachment) {
+            textAttachmentBlocks.push(block)
+          } else {
+            visibleText.push(block.text)
+          }
+        } else if (block.type === 'image') {
+          imageBlocks.push(block)
+        } else if (block.type === 'document') {
+          documentBlocks.push(block)
+        }
+      }
+      return {
+        textContent: visibleText.join('\n\n'),
+        textAttachmentBlocks,
+        imageBlocks,
+        documentBlocks,
+      }
+    }, [blocks])
 
   useEffect(() => {
     return () => {

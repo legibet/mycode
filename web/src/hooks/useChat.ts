@@ -340,8 +340,6 @@ export function useChat(config: LocalConfig) {
     | null
   >(null)
 
-  const messages = chatState.messages
-
   const cancelRun = useCallback(async (runId: string) => {
     if (!runId) return
 
@@ -1083,7 +1081,7 @@ export function useChat(config: LocalConfig) {
   }, [stopStreaming])
 
   return {
-    messages,
+    messages: chatState.messages,
     loading,
     sessions,
     activeSession,
