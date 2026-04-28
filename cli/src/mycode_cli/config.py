@@ -178,7 +178,7 @@ def _parse_config_api_key(value: Any) -> tuple[str | None, str | None]:
     return cleaned, None
 
 
-def _parse_compact_threshold(value: Any) -> float | None:
+def parse_compact_threshold(value: Any) -> float | None:
     """Parse compact_threshold from config.
 
     Returns ``None`` when the key should keep the current/default value, ``0.0``
@@ -371,7 +371,7 @@ def get_settings(cwd: str | None = None) -> Settings:
                 v = default.get("reasoning_effort")
                 default_reasoning_effort = v if isinstance(v, str) else None
             if "compact_threshold" in default:
-                parsed_threshold = _parse_compact_threshold(default.get("compact_threshold"))
+                parsed_threshold = parse_compact_threshold(default.get("compact_threshold"))
                 if parsed_threshold is not None:
                     compact_threshold = parsed_threshold
 
@@ -563,6 +563,175 @@ def _resolve_provider_runtime(
         api_base=resolved_api_base,
         reasoning_effort=reasoning_effort,
     )
+
+
+def is_api_key_env_ref(value: str) -> str | None:
+    """Return the env var name when ``value`` is a ``${NAME}`` reference."""
+
+    match = _API_KEY_ENV_REF_RE.fullmatch(value.strip())
+    return match.group(1) if match else None
+
+
+_MODEL_OVERRIDE_KEYS = (
+    "context_window",
+    "max_output_tokens",
+    "supports_reasoning",
+    "supports_image_input",
+    "supports_pdf_input",
+)
+
+
+def _optional_string(raw: dict[str, Any], key: str, label: str) -> str | None:
+    """Read an optional string field. Returns the trimmed value, or ``None`` when
+    absent / null / empty so callers can simply skip the key."""
+
+    if key not in raw:
+        return None
+    value = raw[key]
+    if value is None or value == "":
+        return None
+    if not isinstance(value, str):
+        raise ValueError(f"{label} must be a string")
+    return value.strip() or None
+
+
+def _validate_default(raw: Any) -> dict[str, Any]:
+    if not isinstance(raw, dict):
+        raise ValueError("default must be an object")
+
+    out: dict[str, Any] = {}
+    for key in ("provider", "model"):
+        value = _optional_string(raw, key, f"default.{key}")
+        if value:
+            out[key] = value
+
+    effort = raw.get("reasoning_effort")
+    if effort not in (None, ""):
+        normalize_reasoning_effort(effort)
+        out["reasoning_effort"] = effort
+
+    ct = raw.get("compact_threshold")
+    if ct is False:
+        out["compact_threshold"] = False
+    elif ct is not None:
+        if isinstance(ct, bool) or not isinstance(ct, int | float) or not 0 <= ct <= 1:
+            raise ValueError("default.compact_threshold must be a number in [0, 1] or false")
+        out["compact_threshold"] = float(ct)
+
+    return out
+
+
+def _validate_permission(raw: Any) -> Any:
+    if isinstance(raw, str):
+        return normalize_permission_level(raw)
+    if not isinstance(raw, dict):
+        raise ValueError("permission must be a string or object")
+
+    out: dict[str, Any] = {}
+    if "level" in raw:
+        out["level"] = normalize_permission_level(raw.get("level"))
+    if "mode" in raw:
+        out["mode"] = normalize_permission_mode(raw.get("mode"))
+    return out
+
+
+def _validate_provider(name: str, raw: Any) -> dict[str, Any]:
+    if not isinstance(raw, dict):
+        raise ValueError(f"provider {name!r} must be an object")
+
+    out: dict[str, Any] = {}
+
+    raw_type = raw.get("type")
+    if raw_type in (None, ""):
+        # Built-in name → type fallback; otherwise the user must spell it out.
+        if not is_supported_provider(name):
+            raise ValueError(f"provider {name!r} must set 'type'")
+    elif not isinstance(raw_type, str):
+        raise ValueError(f"provider {name!r}: type must be a string")
+    elif not is_supported_provider(raw_type):
+        supported = ", ".join(list_supported_providers())
+        raise ValueError(f"provider {name!r}: unsupported type {raw_type!r}; supported: {supported}")
+    else:
+        out["type"] = raw_type
+
+    for key in ("api_key", "base_url"):
+        value = _optional_string(raw, key, f"provider {name!r}: {key}")
+        if value:
+            out[key] = value
+
+    effort = raw.get("reasoning_effort")
+    if effort not in (None, ""):
+        normalize_reasoning_effort(effort)
+        out["reasoning_effort"] = effort
+
+    raw_models = raw.get("models")
+    if raw_models is not None:
+        models = _validate_models(name, raw_models)
+        if models:
+            out["models"] = models
+
+    return out
+
+
+def _validate_models(name: str, raw: Any) -> dict[str, dict[str, Any]]:
+    # Both list (ids only) and dict (id → metadata overrides) are accepted; we
+    # always normalise to the dict form for storage.
+    if isinstance(raw, list):
+        items: list[tuple[Any, Any]] = [(m, None) for m in raw]
+    elif isinstance(raw, dict):
+        items = list(raw.items())
+    else:
+        raise ValueError(f"provider {name!r}: models must be a list or object")
+
+    out: dict[str, dict[str, Any]] = {}
+    for model_id, overrides in items:
+        if not isinstance(model_id, str) or not model_id.strip():
+            raise ValueError(f"provider {name!r}: model id must be a non-empty string")
+        key = model_id.strip()
+        if overrides is None:
+            out[key] = {}
+        elif isinstance(overrides, dict):
+            out[key] = {k: v for k, v in overrides.items() if k in _MODEL_OVERRIDE_KEYS and v is not None}
+        else:
+            raise ValueError(f"provider {name!r}: model {key!r} config must be an object")
+    return out
+
+
+def validate_global_config(data: Any) -> dict[str, Any]:
+    """Validate a raw global config payload. Returns a cleaned dict ready to persist.
+
+    Empty / null fields are dropped. Raises ``ValueError`` on invalid input.
+    """
+
+    if data is None:
+        return {}
+    if not isinstance(data, dict):
+        raise ValueError("config must be an object")
+
+    out: dict[str, Any] = {}
+
+    if data.get("default") is not None:
+        default = _validate_default(data["default"])
+        if default:
+            out["default"] = default
+
+    if data.get("permission") is not None:
+        out["permission"] = _validate_permission(data["permission"])
+
+    raw_providers = data.get("providers")
+    if raw_providers is not None:
+        if not isinstance(raw_providers, dict):
+            raise ValueError("providers must be an object")
+        providers: dict[str, dict[str, Any]] = {}
+        for name, raw in raw_providers.items():
+            if not isinstance(name, str) or not name.strip():
+                raise ValueError("provider name must be a non-empty string")
+            cleaned = name.strip()
+            providers[cleaned] = _validate_provider(cleaned, raw)
+        if providers:
+            out["providers"] = providers
+
+    return out
 
 
 def setup_logging() -> None:

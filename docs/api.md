@@ -136,6 +136,80 @@ Response:
 
 `reasoning_models` is returned only when `supports_reasoning_effort` is true. `image_input_models` lists models with `supports_image_input=true`. `pdf_input_models` lists models with `supports_pdf_input=true`.
 
+## Settings
+
+Read and write the **global** config file (`~/.mycode/config.json`). Project-level
+`.mycode/config.json` files are not modified by these endpoints; they continue to
+override the global file at runtime.
+
+### `GET /api/settings`
+
+Returns the global config plus options for the editor UI.
+
+```json
+{
+  "path": "/Users/.../.mycode/config.json",
+  "exists": true,
+  "config": {
+    "default": {"provider": "anthropic", "model": "claude-sonnet-4-6"},
+    "permission": {"level": "safe", "mode": "ask"},
+    "providers": {
+      "anthropic": {
+        "type": "anthropic",
+        "models": ["claude-sonnet-4-6"],
+        "api_key": null,
+        "api_key_saved": true,
+        "base_url": "",
+        "reasoning_effort": null
+      }
+    }
+  },
+  "options": {
+    "provider_types": ["anthropic", "openai", "..."],
+    "permission_levels": ["readonly", "safe", "standard", "yolo"],
+    "permission_modes": ["ask", "deny"],
+    "reasoning_efforts": ["auto", "none", "low", "medium", "high", "xhigh"]
+  },
+  "env": {"ANTHROPIC_API_KEY": true, "OPENAI_API_KEY": false},
+  "provider_type_env_vars": {"anthropic": ["ANTHROPIC_API_KEY"]}
+}
+```
+
+- `config.providers.<name>.api_key` is `"${VAR}"` for env references and `null` for both literal secrets and unset values
+- `config.providers.<name>.api_key_saved` is `true` only when a literal secret is stored on disk; the secret value itself is never echoed
+- `env` reports whether each referenced env var is currently set (built-in env names per provider type plus any `${VAR}` referenced in the config)
+- `models` is normalised to a list of model ids; per-model metadata overrides come back under `model_overrides` if present
+
+### `PUT /api/settings`
+
+Replace the global config file. Validates input via `validate_global_config` and writes atomically.
+
+```json
+{
+  "config": {
+    "default": {"provider": "anthropic", "model": "claude-sonnet-4-6"},
+    "permission": {"level": "safe", "mode": "ask"},
+    "providers": {
+      "anthropic": {
+        "type": "anthropic",
+        "models": ["claude-sonnet-4-6"],
+        "api_key": "sk-...",
+        "base_url": "",
+        "reasoning_effort": "auto"
+      }
+    }
+  }
+}
+```
+
+Per-provider `api_key` is three-state:
+
+- `null` (or omitted) — keep the existing value on disk; required when the UI never sees the literal secret
+- `""` — clear the field; runtime falls back to the provider type's env discovery
+- non-empty string — write verbatim. `${VAR}` syntax is preserved; anything else is stored as a literal secret
+
+Returns the same shape as `GET /api/settings` reflecting the freshly-saved file. Returns `400` with `{"detail": "..."}` for unsupported provider types, invalid reasoning effort, out-of-range compact threshold, etc.
+
 ## Sessions
 
 All session endpoints are in `cli/src/mycode_cli/server/routers/sessions.py`.

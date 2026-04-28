@@ -15,6 +15,10 @@ Explicit request args (CLI flags, API params) override both.
 
 Config resolution: `get_settings(cwd)` → returns `Settings` dataclass.
 
+The web UI's settings panel edits **only the global file**; project-level files
+must be edited by hand and continue to override it. See `GET /api/settings` and
+`PUT /api/settings` in `docs/api.md`.
+
 ## Schema
 
 ```json

@@ -72,3 +72,9 @@ class DecideRequest(BaseModel):
 
     request_id: str
     decision: Literal["allow", "deny"]
+
+
+class SettingsRequest(BaseModel):
+    """Request body for PUT /settings — full replacement of global config."""
+
+    config: dict[str, Any] | None = None

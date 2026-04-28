@@ -8,7 +8,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from mycode_cli.config import setup_logging
-from mycode_cli.server.routers import chat_router, sessions_router, workspaces_router
+from mycode_cli.server.routers import (
+    chat_router,
+    sessions_router,
+    settings_router,
+    workspaces_router,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +39,7 @@ def create_app(*, serve_web: bool = True) -> FastAPI:
     # Mount API routers
     application.include_router(chat_router, prefix="/api")
     application.include_router(sessions_router, prefix="/api")
+    application.include_router(settings_router, prefix="/api")
     application.include_router(workspaces_router, prefix="/api")
 
     if not serve_web:
