@@ -3,80 +3,80 @@
 @tailwind utilities;
 
 @layer base {
-  /* ── Dark theme (default) ── Deep Ocean ── */
+  /* ── Dark theme (default) ── Quiet Blue ── */
   :root {
     color-scheme: dark;
-    --background: 216 60% 10%; /* #0A1628 — deep navy */
-    --foreground: 210 25% 87%; /* #D4DEE8 — cool silver */
-    --card: 216 55% 11%; /* #0D1A2C */
-    --card-foreground: 210 25% 87%;
-    --popover: 216 55% 11%;
-    --popover-foreground: 210 25% 87%;
-    --primary: 210 25% 87%;
-    --primary-foreground: 216 60% 10%;
-    --secondary: 216 50% 13%; /* #111E30 */
-    --secondary-foreground: 210 20% 80%;
-    --muted: 216 45% 15%; /* #152236 */
-    --muted-foreground: 210 18% 50%; /* #6B8299 */
-    --accent: 204 50% 58%; /* #5BA4CF — ice blue */
-    --accent-foreground: 216 60% 8%;
-    --destructive: 0 60% 50%;
+    --background: 220 16% 10%; /* near-black, faint cool tilt */
+    --foreground: 220 15% 92%;
+    --card: 220 14% 13%;
+    --card-foreground: 220 15% 92%;
+    --popover: 220 14% 13%;
+    --popover-foreground: 220 15% 92%;
+    --primary: 220 15% 92%;
+    --primary-foreground: 220 16% 10%;
+    --secondary: 220 12% 14%;
+    --secondary-foreground: 220 14% 85%;
+    --muted: 220 12% 17%;
+    --muted-foreground: 220 10% 62%;
+    --accent: 215 65% 70%; /* soft sky, used only on functional elements */
+    --accent-foreground: 220 16% 10%;
+    --destructive: 0 60% 60%;
     --destructive-foreground: 0 0% 98%;
-    --border: 216 40% 18%; /* #1A2A40 */
-    --input: 216 40% 18%;
-    --ring: 204 50% 58%;
+    --border: 220 10% 22%;
+    --input: 220 10% 22%;
+    --ring: 215 65% 70%;
     --radius: 0.5rem;
     --scrollbar-thumb: hsl(var(--border) / 0.9);
     --scrollbar-thumb-hover: hsl(var(--muted-foreground) / 0.45);
     --scrollbar-track: transparent;
     /* Code block */
-    --code-background: 216 65% 7%; /* #06101E */
+    --code-background: 220 18% 7%;
 
     /* Diff */
-    --diff-removed-bg: rgba(248, 81, 73, 0.1);
-    --diff-added-bg: rgba(63, 185, 80, 0.1);
-    --diff-removed-indicator: rgba(248, 81, 73, 0.5);
-    --diff-added-indicator: rgba(63, 185, 80, 0.5);
+    --diff-removed-bg: rgba(232, 110, 110, 0.1);
+    --diff-added-bg: rgba(110, 200, 140, 0.1);
+    --diff-removed-indicator: rgba(232, 110, 110, 0.55);
+    --diff-added-indicator: rgba(110, 200, 140, 0.55);
 
-    /* Sidebar */
-    --sidebar-bg: 216 65% 7%; /* #060F1E */
+    /* Sidebar — slight darker step than bg */
+    --sidebar-bg: 220 18% 8%;
   }
 
-  /* ── Light theme ── Pale Frost ── */
+  /* ── Light theme ── Quiet Blue ── */
   .light {
     color-scheme: light;
-    --background: 216 40% 97%; /* #F3F6FA */
-    --foreground: 216 55% 13%; /* #0F1E33 */
-    --card: 216 35% 95%; /* #EDF1F6 */
-    --card-foreground: 216 55% 13%;
-    --popover: 216 35% 95%;
-    --popover-foreground: 216 55% 13%;
-    --primary: 216 55% 13%;
-    --primary-foreground: 216 40% 97%;
-    --secondary: 216 30% 92%; /* #E2E8F0 */
-    --secondary-foreground: 216 40% 20%;
-    --muted: 216 28% 93%; /* #E6EBF2 */
-    --muted-foreground: 210 15% 48%; /* #697D8F */
-    --accent: 204 60% 40%; /* #297AB0 — deeper blue for contrast */
-    --accent-foreground: 216 40% 97%;
-    --destructive: 0 70% 50%;
+    --background: 220 25% 99%; /* near white, faint cool tilt */
+    --foreground: 222 25% 18%;
+    --card: 220 18% 96%;
+    --card-foreground: 222 25% 18%;
+    --popover: 220 18% 96%;
+    --popover-foreground: 222 25% 18%;
+    --primary: 222 25% 18%;
+    --primary-foreground: 220 25% 99%;
+    --secondary: 220 16% 93%;
+    --secondary-foreground: 222 22% 22%;
+    --muted: 220 16% 94%;
+    --muted-foreground: 220 12% 48%;
+    --accent: 215 70% 50%; /* deeper blue for light contrast */
+    --accent-foreground: 220 25% 99%;
+    --destructive: 0 65% 50%;
     --destructive-foreground: 0 0% 98%;
-    --border: 216 25% 86%; /* #CDD6E1 */
-    --input: 216 25% 86%;
-    --ring: 204 60% 40%;
+    --border: 220 14% 89%;
+    --input: 220 14% 89%;
+    --ring: 215 70% 50%;
     --radius: 0.5rem;
 
     /* Code block */
-    --code-background: 220 14% 94%;
+    --code-background: 220 16% 95%;
 
     /* Diff */
-    --diff-removed-bg: rgba(255, 99, 71, 0.08);
-    --diff-added-bg: rgba(46, 160, 67, 0.08);
-    --diff-removed-indicator: rgba(208, 58, 40, 0.55);
-    --diff-added-indicator: rgba(36, 134, 54, 0.55);
+    --diff-removed-bg: rgba(200, 70, 70, 0.07);
+    --diff-added-bg: rgba(40, 140, 70, 0.07);
+    --diff-removed-indicator: rgba(190, 50, 50, 0.55);
+    --diff-added-indicator: rgba(36, 130, 60, 0.55);
 
-    /* Sidebar */
-    --sidebar-bg: 216 35% 95%;
+    /* Sidebar — slight darker step than bg, like macOS sidebar */
+    --sidebar-bg: 220 20% 96%;
   }
 }
 
@@ -95,7 +95,7 @@
   body {
     @apply bg-background text-foreground font-sans;
     font-size: 15px;
-    line-height: 1.6;
+    line-height: 1.55;
     font-feature-settings: "cv11", "ss01";
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
@@ -199,7 +199,7 @@
   overflow-wrap: anywhere;
 }
 .prose blockquote {
-  @apply mt-4 border-l-2 border-accent/40 pl-4 italic text-muted-foreground;
+  @apply mt-4 border-l-2 border-border pl-4 italic text-muted-foreground;
   overflow-wrap: anywhere;
 }
 .prose ul {

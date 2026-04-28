@@ -270,7 +270,7 @@ export const MessageBubble = memo(function MessageBubble({
                 className={cn(
                   'px-3 py-1 text-xs rounded-lg transition-colors',
                   editText.trim()
-                    ? 'bg-foreground text-background hover:opacity-90'
+                    ? 'bg-accent text-accent-foreground hover:opacity-90'
                     : 'text-muted-foreground/40',
                 )}
               >
@@ -292,7 +292,7 @@ export const MessageBubble = memo(function MessageBubble({
             type="button"
             aria-label="Edit message"
             onClick={startEdit}
-            className="self-end mr-2 mb-0.5 opacity-0 group-hover/user:opacity-100 max-md:opacity-60 transition-opacity duration-150 h-6 w-6 flex items-center justify-center rounded text-muted-foreground/40 hover:text-muted-foreground/70"
+            className="self-end mr-2 mb-0.5 opacity-0 group-hover/user:opacity-100 max-md:opacity-60 transition-opacity duration-150 h-6 w-6 flex items-center justify-center rounded text-muted-foreground/50 hover:text-foreground"
             title="Edit & resend"
           >
             <Pencil className="h-3 w-3" />
@@ -430,7 +430,7 @@ export const MessageBubble = memo(function MessageBubble({
         })}
 
         {isStreaming && (
-          <span className="inline-block w-[1.5px] h-4 bg-accent/50 animate-cursor-blink ml-0.5 align-middle" />
+          <span className="inline-block w-[1.5px] h-4 bg-foreground/40 animate-cursor-blink ml-0.5 align-middle" />
         )}
       </div>
 
@@ -444,7 +444,7 @@ export const MessageBubble = memo(function MessageBubble({
               'flex items-center justify-center h-6 w-6 rounded transition-colors duration-150',
               copied
                 ? 'text-emerald-400'
-                : 'text-muted-foreground/40 hover:text-muted-foreground/70',
+                : 'text-muted-foreground/50 hover:text-foreground',
             )}
             title="Copy"
           >

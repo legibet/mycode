@@ -1,6 +1,6 @@
 /**
  * Reasoning / thinking display.
- * Zero container. Label is the click target — 12px Geist Sans regular,
+ * Zero container. Label is the click target — 12px sans regular,
  * breathing during stream. Expanded body uses a 2px left rail (blockquote
  * convention) instead of an indent.
  */

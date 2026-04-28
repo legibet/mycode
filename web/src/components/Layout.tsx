@@ -15,7 +15,7 @@ export function Layout({ children }: LayoutProps) {
     <div
       className={cn(
         'flex h-screen min-h-0 w-full flex-col overflow-hidden supports-[height:100dvh]:h-dvh bg-background font-sans text-foreground antialiased',
-        'transition-colors duration-500',
+        'transition-colors duration-150',
       )}
     >
       {children}

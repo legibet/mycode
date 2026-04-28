@@ -12,8 +12,8 @@ const DIFF_THEMES = {
 } as const
 
 const baseDiffStyle = {
-  '--diffs-font-family': '"Geist Mono", ui-monospace, monospace',
-  '--diffs-header-font-family': '"Geist Mono", ui-monospace, monospace',
+  '--diffs-font-family': '"JetBrains Mono", ui-monospace, monospace',
+  '--diffs-header-font-family': '"JetBrains Mono", ui-monospace, monospace',
   '--diffs-font-size': '13px',
   '--diffs-line-height': '1.5',
   '--diffs-light-bg': 'hsl(var(--code-background))',

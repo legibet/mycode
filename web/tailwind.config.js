@@ -52,23 +52,25 @@ export default {
       },
       fontFamily: {
         sans: [
-          'Geist',
+          'Inter',
           '"PingFang SC"',
           '"Hiragino Sans GB"',
+          '"Source Han Sans CN"',
           '"Microsoft YaHei"',
           '"Noto Sans SC"',
           'system-ui',
           'sans-serif',
         ],
         mono: [
-          '"Geist Mono"',
+          '"JetBrains Mono"',
           'ui-monospace',
           '"PingFang SC"',
+          '"Microsoft Han Sans"',
           '"Microsoft YaHei"',
           'monospace',
         ],
         display: [
-          'Geist',
+          'Inter',
           '"PingFang SC"',
           '"Microsoft YaHei"',
           'system-ui',

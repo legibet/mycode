@@ -16,7 +16,7 @@ import {
 const MONO_STYLE = {
   margin: 0,
   padding: 0,
-  fontFamily: '"Geist Mono", ui-monospace, monospace',
+  fontFamily: '"JetBrains Mono", ui-monospace, monospace',
   fontSize: '13px',
   lineHeight: '1.5',
   fontWeight: 400,

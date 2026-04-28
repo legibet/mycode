@@ -261,9 +261,9 @@ export const InputArea = memo(function InputArea({
       <div
         role="presentation"
         className={cn(
-          'relative rounded-xl bg-card border shadow-sm transition duration-200',
-          'focus-within:shadow-md focus-within:border-border/50',
-          dragging ? 'border-accent/50 bg-accent/5' : 'border-border/25',
+          'relative rounded-lg bg-card border shadow-sm transition duration-200',
+          'focus-within:shadow-md focus-within:border-accent/40',
+          dragging ? 'border-accent/50 bg-accent/5' : 'border-border',
         )}
         onDragEnter={handleDragEnter}
         onDragLeave={handleDragLeave}
@@ -382,7 +382,7 @@ export const InputArea = memo(function InputArea({
               className={cn(
                 'h-7 w-7 flex items-center justify-center rounded-md transition-colors shrink-0',
                 hasInput
-                  ? 'bg-foreground text-background hover:opacity-90 active:scale-95'
+                  ? 'bg-accent text-accent-foreground hover:opacity-90 active:scale-95'
                   : 'text-muted-foreground/30 bg-muted/40',
               )}
               title="Send"
@@ -393,7 +393,7 @@ export const InputArea = memo(function InputArea({
         </div>
 
         {dragging && (
-          <div className="absolute inset-0 flex items-center justify-center rounded-xl bg-accent/5 pointer-events-none z-10">
+          <div className="absolute inset-0 flex items-center justify-center rounded-lg bg-accent/5 pointer-events-none z-10">
             <span className="text-sm text-accent font-medium">
               Drop file here
             </span>

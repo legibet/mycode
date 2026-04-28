@@ -238,7 +238,7 @@ export const Sidebar = memo(function Sidebar({
     >
       {/* Brand */}
       <div className="shrink-0 flex items-center gap-2.5 px-5 pt-5 pb-5">
-        <Terminal className="h-4 w-4 text-accent" aria-hidden="true" />
+        <Terminal className="h-4 w-4 text-foreground" aria-hidden="true" />
         <span className="font-display text-[15px] leading-none tracking-tight text-foreground font-medium">
           mycode
         </span>
@@ -332,8 +332,8 @@ export const Sidebar = memo(function Sidebar({
                       className={cn(
                         'flex w-full items-center gap-2 pl-5 pr-9 py-1.5 text-[13px] text-left transition-colors',
                         isActive
-                          ? 'text-foreground bg-muted/40'
-                          : 'text-muted-foreground hover:text-foreground hover:bg-muted/25',
+                          ? 'text-foreground bg-accent/10'
+                          : 'text-muted-foreground hover:text-foreground hover:bg-muted/40',
                       )}
                       onClick={() => onSelectSession(session.id)}
                     >
@@ -394,8 +394,8 @@ export const Sidebar = memo(function Sidebar({
                 'h-7 w-7 flex items-center justify-center rounded-md transition-colors',
                 'focus-visible:outline-none',
                 active
-                  ? 'text-accent bg-secondary/40'
-                  : 'text-muted-foreground hover:text-foreground hover:bg-secondary/20',
+                  ? 'text-foreground bg-muted'
+                  : 'text-muted-foreground hover:text-foreground hover:bg-muted/50',
               )}
             >
               <Icon className="h-3.5 w-3.5" />
