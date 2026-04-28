@@ -338,7 +338,7 @@ def test_web_dev_enables_backend_reload(monkeypatch: pytest.MonkeyPatch, tmp_pat
 
 @pytest.mark.asyncio
 class TestPromptInput:
-    async def test_enter_accepts_selected_slash_completion(self) -> None:
+    async def test_enter_submits_unique_slash_completion(self) -> None:
         with create_pipe_input() as pipe_input:
             session = PromptSession(
                 history=InMemoryHistory(),
@@ -357,6 +357,34 @@ class TestPromptInput:
                 pipe_input.send_text("\t")
                 await asyncio.sleep(0.1)
                 pipe_input.send_text("\r")
+
+            task = asyncio.create_task(drive_input())
+            try:
+                result = await session.prompt_async("> ")
+            finally:
+                await task
+
+        assert result == "/provider"
+
+    async def test_enter_accepts_ambiguous_slash_completion_before_submit(self) -> None:
+        with create_pipe_input() as pipe_input:
+            session = PromptSession(
+                history=InMemoryHistory(),
+                completer=_PromptCompleter(),
+                key_bindings=_build_chat_key_bindings(),
+                multiline=True,
+                prompt_continuation="  ",
+                input=pipe_input,
+                output=DummyOutput(),
+            )
+
+            async def drive_input() -> None:
+                await asyncio.sleep(0.05)
+                pipe_input.send_text("/r")
+                await asyncio.sleep(0.1)
+                pipe_input.send_text("\t")
+                await asyncio.sleep(0.1)
+                pipe_input.send_text("\r")
                 await asyncio.sleep(0.1)
                 pipe_input.send_text("\r")
 
@@ -366,7 +394,7 @@ class TestPromptInput:
             finally:
                 await task
 
-        assert result == "/provider"
+        assert result == "/resume"
 
     async def test_enter_accepts_path_completion(self, tmp_path: Path) -> None:
         (tmp_path / "folder").mkdir()

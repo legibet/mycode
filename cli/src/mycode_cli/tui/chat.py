@@ -17,7 +17,6 @@ from prompt_toolkit.application import Application, get_app
 from prompt_toolkit.buffer import Buffer
 from prompt_toolkit.completion import CompleteEvent, Completer, Completion
 from prompt_toolkit.document import Document
-from prompt_toolkit.filters import has_completions
 from prompt_toolkit.formatted_text import ANSI, StyleAndTextTuples
 from prompt_toolkit.history import FileHistory
 from prompt_toolkit.key_binding import KeyBindings
@@ -209,6 +208,37 @@ async def _restart_completion(buffer: Buffer) -> None:
     buffer.start_completion(select_first=True)
 
 
+def _matched_slash_command(text_before_cursor: str) -> tuple[str, str] | None:
+    text = text_before_cursor.lstrip()
+    if not text.startswith("/"):
+        return None
+
+    command, _, _argument = text.partition(" ")
+    if command in _SLASH_COMMANDS:
+        return command, command
+
+    matches = [candidate for candidate in _SLASH_COMMANDS if candidate.startswith(command)]
+    if len(matches) == 1:
+        return command, matches[0]
+    return None
+
+
+def _replace_slash_command(buffer: Buffer, command: str, replacement: str) -> None:
+    if command == replacement:
+        return
+
+    before_cursor = buffer.document.text_before_cursor
+    stripped = before_cursor.lstrip()
+    command_start = len(before_cursor) - len(stripped)
+    command_end = command_start + len(command)
+    original_cursor = buffer.cursor_position
+
+    buffer.cursor_position = command_end
+    buffer.delete_before_cursor(len(command))
+    buffer.insert_text(replacement)
+    buffer.cursor_position = original_cursor + len(replacement) - len(command)
+
+
 def _build_chat_key_bindings() -> KeyBindings:
     """Build key bindings for the main chat prompt."""
     kb = KeyBindings()
@@ -219,21 +249,23 @@ def _build_chat_key_bindings() -> KeyBindings:
     kb.add("c-l")(_clear)
 
     # In multiline mode the default Enter inserts a newline; override it to submit.
-    @kb.add("enter", filter=has_completions, eager=True)
-    def _accept_selected_completion(event: KeyPressEvent) -> None:
+    @kb.add("enter", eager=True)
+    def _submit_or_complete(event: KeyPressEvent) -> None:
         buffer = event.current_buffer
         state = buffer.complete_state
         if state is None or not state.completions:
+            buffer.validate_and_handle()
             return
+
+        if slash_command := _matched_slash_command(buffer.document.text_before_cursor):
+            _replace_slash_command(buffer, *slash_command)
+            buffer.validate_and_handle()
+            return
+
         completion = state.current_completion or state.completions[0]
         buffer.apply_completion(completion)
         if completion.display_meta_text == "dir":
             get_app().create_background_task(_restart_completion(buffer))
-
-    def _submit(event: KeyPressEvent) -> None:
-        event.current_buffer.validate_and_handle()
-
-    kb.add("enter", filter=~has_completions, eager=True)(_submit)
 
     # Esc+Enter (Meta+Enter) inserts a newline for multiline input.
     def _insert_newline(event: KeyPressEvent) -> None:
