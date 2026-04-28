@@ -32,8 +32,9 @@ interface SettingsPanelProps {
   onSaved?: (() => void) | undefined
   /** Project-level config files in effect, used for the override-warning banner. */
   projectConfigPaths?: string[] | undefined
-  globalConfigPath?: string | undefined
 }
+
+const FALLBACK_CONFIG_PATH = '~/.mycode/config.json'
 
 interface DraftState {
   default_provider: string
@@ -185,7 +186,6 @@ export function SettingsPanel({
   onClose,
   onSaved,
   projectConfigPaths,
-  globalConfigPath,
 }: SettingsPanelProps) {
   const { theme, setTheme } = useTheme()
   const [response, setResponse] = useState<SettingsResponse | null>(null)
@@ -359,7 +359,7 @@ export function SettingsPanel({
 
   // ── render ──────────────────────────────────────────────────────────────
   const projectOverrides = (projectConfigPaths ?? []).filter(
-    (path) => path !== globalConfigPath && path !== response?.path,
+    (path) => path !== response?.path,
   )
 
   return createPortal(
@@ -466,7 +466,10 @@ export function SettingsPanel({
                     <NativeSelect
                       value={effectiveDefaultProvider}
                       onChange={(e) =>
-                        setDraft({ ...draft, default_provider: e.target.value })
+                        setDraft((prev) => ({
+                          ...prev,
+                          default_provider: e.target.value,
+                        }))
                       }
                     >
                       {providerOptions.map((name) => (
@@ -481,11 +484,11 @@ export function SettingsPanel({
                   <NativeSelect
                     value={draft.default_reasoning_effort || 'auto'}
                     onChange={(e) =>
-                      setDraft({
-                        ...draft,
+                      setDraft((prev) => ({
+                        ...prev,
                         default_reasoning_effort: e.target
                           .value as ReasoningEffort,
-                      })
+                      }))
                     }
                   >
                     {effortOptions.map((effort) => (
@@ -517,10 +520,10 @@ export function SettingsPanel({
                       placeholder="0.8"
                       disabled={draft.compact_threshold === 'disabled'}
                       onChange={(e) =>
-                        setDraft({
-                          ...draft,
+                        setDraft((prev) => ({
+                          ...prev,
                           compact_threshold: e.target.value,
-                        })
+                        }))
                       }
                       className="flex-1"
                     />
@@ -533,12 +536,12 @@ export function SettingsPanel({
                         type="checkbox"
                         checked={draft.compact_threshold === 'disabled'}
                         onChange={(e) =>
-                          setDraft({
-                            ...draft,
+                          setDraft((prev) => ({
+                            ...prev,
                             compact_threshold: e.target.checked
                               ? 'disabled'
                               : '',
-                          })
+                          }))
                         }
                         className="h-3 w-3 accent-accent"
                       />
@@ -553,7 +556,7 @@ export function SettingsPanel({
                   <Segmented<PermissionLevel>
                     value={draft.permission_level}
                     onChange={(value) =>
-                      setDraft({ ...draft, permission_level: value })
+                      setDraft((prev) => ({ ...prev, permission_level: value }))
                     }
                     options={[
                       { value: 'readonly', label: 'readonly' },
@@ -569,7 +572,7 @@ export function SettingsPanel({
                   <Segmented<PermissionMode>
                     value={draft.permission_mode}
                     onChange={(value) =>
-                      setDraft({ ...draft, permission_mode: value })
+                      setDraft((prev) => ({ ...prev, permission_mode: value }))
                     }
                     options={[
                       { value: 'ask', label: 'ask' },
@@ -629,7 +632,7 @@ export function SettingsPanel({
             {error ? (
               <span className="text-destructive/90">{error}</span>
             ) : (
-              `Edits ${prettifyPath(response?.path ?? globalConfigPath ?? '~/.mycode/config.json')}`
+              `Edits ${prettifyPath(response?.path ?? FALLBACK_CONFIG_PATH)}`
             )}
           </div>
           <div className="flex items-center gap-2 shrink-0">

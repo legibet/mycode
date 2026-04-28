@@ -9,7 +9,6 @@ import type {
   ChatErrorResponse,
   ChatMessage,
   ChatResponse,
-  ChatStatus,
   LocalConfig,
   PermissionRequest,
   RunInfo,
@@ -52,6 +51,9 @@ interface ChatState {
   rawMessages: ChatMessage[]
   messages: ChatMessage[]
   toolRuntimeById: Record<string, ToolRuntime>
+  /** Snapshot of rawMessages taken before the latest optimistic turn.
+   * Used by 'rollback' to restore state when the request fails. */
+  preTurnRawMessages: ChatMessage[] | null
 }
 
 type ChatAction =
@@ -59,6 +61,7 @@ type ChatAction =
   | { type: 'start_turn'; content: string; attachments?: AttachedFile[] }
   | { type: 'rewind_and_start_turn'; rewindTo: number; content: string }
   | { type: 'apply_event'; event: StreamEvent }
+  | { type: 'rollback' }
 
 function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'Unknown error'
@@ -101,6 +104,7 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
         rawMessages,
         messages: buildRenderMessages(rawMessages),
         toolRuntimeById: {},
+        preTurnRawMessages: null,
       }
     }
 
@@ -121,6 +125,7 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
           createRenderUserMessage(sourceIndex, content, undefined, attachments),
           createRenderAssistantMessage(sourceIndex + 1),
         ],
+        preTurnRawMessages: state.rawMessages,
       }
     }
 
@@ -134,6 +139,18 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
         rawMessages,
         messages: buildRenderMessages(rawMessages),
         toolRuntimeById: {},
+        preTurnRawMessages: state.rawMessages,
+      }
+    }
+
+    case 'rollback': {
+      const snapshot = state.preTurnRawMessages
+      if (!snapshot) return state
+      return {
+        rawMessages: snapshot,
+        messages: buildRenderMessages(snapshot),
+        toolRuntimeById: {},
+        preTurnRawMessages: null,
       }
     }
 
@@ -285,7 +302,7 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
         )
       }
 
-      return { rawMessages, messages, toolRuntimeById }
+      return { ...state, rawMessages, messages, toolRuntimeById }
     }
     default:
       return state
@@ -297,14 +314,12 @@ export function useChat(config: LocalConfig) {
     rawMessages: [],
     messages: [],
     toolRuntimeById: {},
+    preTurnRawMessages: null,
   })
   const [sessions, setSessions] = useState<SessionSummary[]>([])
   const [activeSession, setActiveSession] = useState(createDraftSession)
   const [loading, setLoading] = useState(false)
   const [sessionLoading, setSessionLoading] = useState(false)
-  const [connectionState, setConnectionState] = useState<
-    'idle' | 'ready' | 'error'
-  >('idle')
   const [pendingPermissions, setPendingPermissions] = useState<
     PermissionRequest[]
   >([])
@@ -318,18 +333,14 @@ export function useChat(config: LocalConfig) {
   const streamTokenRef = useRef(0)
   const activeRunRef = useRef<RunInfo | null>(null)
   const loadSessionRef = useRef<
-    ((sessionId: string) => Promise<SessionResponse | null>) | null
+    | ((
+        sessionId: string,
+        options?: { requestCwd?: string; requestToken?: number },
+      ) => Promise<SessionResponse | null>)
+    | null
   >(null)
 
   const messages = chatState.messages
-
-  const status: ChatStatus = loading
-    ? 'generating'
-    : connectionState === 'error'
-      ? 'offline'
-      : connectionState === 'ready'
-        ? 'ready'
-        : 'idle'
 
   const cancelRun = useCallback(async (runId: string) => {
     if (!runId) return
@@ -386,7 +397,6 @@ export function useChat(config: LocalConfig) {
     streamAbortRef.current = null
     activeRunRef.current = null
     setLoading(false)
-    setConnectionState('ready')
     setPendingPermissions([])
   }, [])
 
@@ -403,7 +413,6 @@ export function useChat(config: LocalConfig) {
       streamAbortRef.current = controller
       activeRunRef.current = run
       setLoading(true)
-      setConnectionState('ready')
 
       const recoverSession = async () => {
         if (
@@ -509,7 +518,6 @@ export function useChat(config: LocalConfig) {
             streamTokenRef.current === token &&
             activeSessionRef.current.id === sessionId
           ) {
-            setConnectionState('error')
             dispatch({
               type: 'apply_event',
               event: {
@@ -559,7 +567,6 @@ export function useChat(config: LocalConfig) {
       }
       if (!data.session) return null
 
-      setConnectionState('ready')
       activeSessionRef.current = data.session
       setActiveSession(data.session)
       saveActiveSession(requestCwd, data.session.id)
@@ -621,7 +628,6 @@ export function useChat(config: LocalConfig) {
 
       const sessionId = activeSession.id
       const requestCwd = config.cwd
-      const previousMessages = chatState.rawMessages
       const requestToken = requestTokenRef.current + 1
 
       requestTokenRef.current = requestToken
@@ -633,7 +639,6 @@ export function useChat(config: LocalConfig) {
         ...(attachments?.length ? { attachments } : {}),
       })
       setLoading(true)
-      setConnectionState('ready')
 
       const commonFields = {
         session_id: sessionId,
@@ -694,7 +699,7 @@ export function useChat(config: LocalConfig) {
           if (res.status === 409 && existingRun?.id) {
             if (isCurrentRequest) {
               pendingRequestTokenRef.current = 0
-              dispatch({ type: 'set_messages', messages: previousMessages })
+              dispatch({ type: 'rollback' })
               streamRun(existingRun, sessionId, existingRun.last_seq || 0)
             }
             return
@@ -729,7 +734,6 @@ export function useChat(config: LocalConfig) {
         ) {
           pendingRequestTokenRef.current = 0
           setLoading(false)
-          setConnectionState('error')
           dispatch({
             type: 'apply_event',
             event: { type: 'error', message: getErrorMessage(e) },
@@ -737,14 +741,7 @@ export function useChat(config: LocalConfig) {
         }
       }
     },
-    [
-      activeSession.id,
-      chatState.rawMessages,
-      config,
-      fetchSessions,
-      loading,
-      streamRun,
-    ],
+    [activeSession.id, config, fetchSessions, loading, streamRun],
   )
 
   const rewindAndSend = useCallback(
@@ -754,7 +751,6 @@ export function useChat(config: LocalConfig) {
 
       const sessionId = activeSession.id
       const requestCwd = config.cwd
-      const previousMessages = chatState.rawMessages
       const requestToken = requestTokenRef.current + 1
 
       requestTokenRef.current = requestToken
@@ -762,7 +758,6 @@ export function useChat(config: LocalConfig) {
 
       dispatch({ type: 'rewind_and_start_turn', rewindTo, content })
       setLoading(true)
-      setConnectionState('ready')
 
       try {
         const res = await fetch('/api/chat', {
@@ -796,7 +791,7 @@ export function useChat(config: LocalConfig) {
           // Restore original messages on failure (rewind was optimistic).
           if (isCurrentRequest) {
             pendingRequestTokenRef.current = 0
-            dispatch({ type: 'set_messages', messages: previousMessages })
+            dispatch({ type: 'rollback' })
 
             // If 409 (active run), attach to the existing run.
             const detail = getErrorDetail(data)
@@ -807,7 +802,6 @@ export function useChat(config: LocalConfig) {
             }
 
             setLoading(false)
-            setConnectionState('error')
             dispatch({
               type: 'apply_event',
               event: {
@@ -840,9 +834,8 @@ export function useChat(config: LocalConfig) {
           activeSessionRef.current.id === sessionId
         ) {
           pendingRequestTokenRef.current = 0
-          dispatch({ type: 'set_messages', messages: previousMessages })
+          dispatch({ type: 'rollback' })
           setLoading(false)
-          setConnectionState('error')
           dispatch({
             type: 'apply_event',
             event: { type: 'error', message: getErrorMessage(e) },
@@ -850,28 +843,8 @@ export function useChat(config: LocalConfig) {
         }
       }
     },
-    [
-      activeSession.id,
-      chatState.rawMessages,
-      config,
-      fetchSessions,
-      loading,
-      streamRun,
-    ],
+    [activeSession.id, config, fetchSessions, loading, streamRun],
   )
-
-  const clear = useCallback(async () => {
-    try {
-      const res = await fetch(
-        `/api/sessions/${encodeURIComponent(activeSession.id)}/clear`,
-        { method: 'POST' },
-      )
-      if (!res.ok) throw new Error('Failed to clear session')
-      dispatch({ type: 'set_messages', messages: [] })
-    } catch (e) {
-      console.error('Failed to clear:', e)
-    }
-  }, [activeSession.id])
 
   const cancel = useCallback(() => {
     const runId = activeRunRef.current?.id
@@ -1013,7 +986,6 @@ export function useChat(config: LocalConfig) {
         setActiveSession(draft)
         setSessions([draft])
         setLoading(false)
-        setConnectionState('ready')
       } catch (e) {
         console.error('Failed to delete session:', e)
       } finally {
@@ -1023,97 +995,86 @@ export function useChat(config: LocalConfig) {
     [activeSession.id, config.cwd, loadSession, sessions, stopStreaming],
   )
 
-  const initializeSessions = useCallback(async () => {
-    if (initRef.current) return
+  useEffect(() => {
+    activeSessionRef.current = activeSession
+  }, [activeSession])
 
+  // Single source of init: first mount and any cwd change reset state and
+  // reload the workspace's sessions. `loadSession` is read through
+  // `loadSessionRef` so this effect doesn't need to re-fire when its identity
+  // changes (which would happen on every cwd change).
+  useEffect(() => {
+    const cwdChanged = cwdRef.current !== config.cwd
+    if (cwdChanged) {
+      stopStreaming()
+      cwdRef.current = config.cwd
+      initRef.current = false
+      dispatch({ type: 'set_messages', messages: [] })
+      setSessions([])
+      const draft = createDraftSession()
+      activeSessionRef.current = draft
+      setActiveSession(draft)
+    }
+    if (initRef.current) return
     initRef.current = true
+
     const requestCwd = config.cwd
     const requestToken = sessionRequestTokenRef.current + 1
     sessionRequestTokenRef.current = requestToken
     setSessionLoading(true)
 
-    try {
-      const preferredSessionId = loadActiveSession(requestCwd)
-      const res = await fetch(
-        `/api/sessions?cwd=${encodeURIComponent(requestCwd)}`,
-      )
-      if (!res.ok) throw new Error('Failed to load sessions')
-      const data = (await res.json()) as SessionsResponse
-      if (
-        !isCurrentWorkspaceRequest({
-          pendingRequestToken: sessionRequestTokenRef.current,
-          requestToken,
-          activeCwd: cwdRef.current,
-          requestCwd,
-        })
-      ) {
-        return
-      }
-      const savedSessions = data.sessions || []
-      setSessions(savedSessions)
-      const initialSessionId = resolveInitialSessionId(
-        savedSessions,
-        preferredSessionId,
-      )
+    const isStillCurrent = () =>
+      isCurrentWorkspaceRequest({
+        pendingRequestToken: sessionRequestTokenRef.current,
+        requestToken,
+        activeCwd: cwdRef.current,
+        requestCwd,
+      })
 
-      if (initialSessionId) {
-        const summary = savedSessions.find(
-          (session) => session.id === initialSessionId,
+    void (async () => {
+      try {
+        const preferredSessionId = loadActiveSession(requestCwd)
+        const res = await fetch(
+          `/api/sessions?cwd=${encodeURIComponent(requestCwd)}`,
         )
-        if (summary) {
-          activeSessionRef.current = summary
-          setActiveSession(summary)
+        if (!res.ok) throw new Error('Failed to load sessions')
+        const data = (await res.json()) as SessionsResponse
+        if (!isStillCurrent()) return
+
+        const savedSessions = data.sessions || []
+        setSessions(savedSessions)
+        const initialSessionId = resolveInitialSessionId(
+          savedSessions,
+          preferredSessionId,
+        )
+
+        if (initialSessionId) {
+          const summary = savedSessions.find(
+            (session) => session.id === initialSessionId,
+          )
+          if (summary) {
+            activeSessionRef.current = summary
+            setActiveSession(summary)
+          }
+          await loadSessionRef.current?.(initialSessionId, {
+            requestCwd,
+            requestToken,
+          })
+        } else {
+          const draft = createDraftSession()
+          activeSessionRef.current = draft
+          setActiveSession(draft)
+          setSessions([draft])
+          dispatch({ type: 'set_messages', messages: [] })
+          setLoading(false)
         }
-        await loadSession(initialSessionId, {
-          requestCwd,
-          requestToken,
-        })
-      } else {
-        const draft = createDraftSession()
-        activeSessionRef.current = draft
-        setActiveSession(draft)
-        setSessions([draft])
-        dispatch({ type: 'set_messages', messages: [] })
-        setLoading(false)
+      } catch (e) {
+        console.error('Failed to initialize sessions:', e)
+      } finally {
+        if (isStillCurrent()) setSessionLoading(false)
       }
-    } catch (e) {
-      console.error('Failed to initialize sessions:', e)
-    } finally {
-      if (
-        isCurrentWorkspaceRequest({
-          pendingRequestToken: sessionRequestTokenRef.current,
-          requestToken,
-          activeCwd: cwdRef.current,
-          requestCwd,
-        })
-      ) {
-        setSessionLoading(false)
-      }
-    }
-  }, [config.cwd, loadSession])
-
-  useEffect(() => {
-    activeSessionRef.current = activeSession
-  }, [activeSession])
-
-  useEffect(() => {
-    initializeSessions()
-  }, [initializeSessions])
-
-  useEffect(() => {
-    if (cwdRef.current === config.cwd) return
-
-    stopStreaming()
-    sessionRequestTokenRef.current += 1
-    cwdRef.current = config.cwd
-    initRef.current = false
-    dispatch({ type: 'set_messages', messages: [] })
-    setSessions([])
-    const session = createDraftSession()
-    setActiveSession(session)
-    activeSessionRef.current = session
-    initializeSessions()
-  }, [config.cwd, initializeSessions, stopStreaming])
+    })()
+  }, [config.cwd, stopStreaming])
 
   useEffect(() => {
     return () => {
@@ -1124,14 +1085,12 @@ export function useChat(config: LocalConfig) {
   return {
     messages,
     loading,
-    status,
     sessions,
     activeSession,
     sessionLoading,
     pendingPermission: pendingPermissions[0] ?? null,
     send,
     rewindAndSend,
-    clear,
     cancel,
     decidePermission,
     createSession,

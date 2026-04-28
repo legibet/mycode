@@ -4,7 +4,7 @@
  * Mobile: sidebar as overlay, top header bar.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import useSWR from 'swr'
 import { InputArea } from './components/Chat/InputArea'
 import { MessageList } from './components/Chat/MessageList'
@@ -45,6 +45,42 @@ async function fetchJson<T>(url: string): Promise<T> {
     throw new Error(message)
   }
   return response.json() as Promise<T>
+}
+
+function modelSupports(
+  remoteConfig: RemoteConfig | null,
+  providerKey: string,
+  model: string,
+): { image: boolean; pdf: boolean } {
+  const key = providerKey || remoteConfig?.default?.provider || ''
+  const info = remoteConfig?.providers?.[key]
+  const m = model || remoteConfig?.default?.model || ''
+  return {
+    image: Boolean(
+      info?.supports_image_input && info.image_input_models?.includes(m),
+    ),
+    pdf: Boolean(
+      info?.supports_pdf_input && info.pdf_input_models?.includes(m),
+    ),
+  }
+}
+
+function pruneAttachments(
+  prev: AttachedFile[],
+  supportsImage: boolean,
+  supportsPdf: boolean,
+): AttachedFile[] {
+  const next = prev.filter(
+    (a) =>
+      a.kind === 'text' ||
+      (a.kind === 'image' && supportsImage) ||
+      (a.kind === 'document' && supportsPdf),
+  )
+  if (next.length === prev.length) return prev
+  for (const a of prev) {
+    if (a.kind === 'image' && !next.includes(a)) URL.revokeObjectURL(a.preview)
+  }
+  return next
 }
 
 function AppContent() {
@@ -139,11 +175,6 @@ function AppContent() {
     [config.cwd, cwdHistory],
   )
 
-  const inputRef = useRef(input)
-  inputRef.current = input
-  const attachmentsRef = useRef(attachments)
-  attachmentsRef.current = attachments
-
   const clearAttachments = useCallback(() => {
     setAttachments((prev) => {
       for (const attachment of prev) {
@@ -154,14 +185,10 @@ function AppContent() {
   }, [])
 
   const handleSend = useCallback(() => {
-    const currentAttachments = attachmentsRef.current
-    send(
-      inputRef.current,
-      currentAttachments.length ? currentAttachments : undefined,
-    )
+    send(input, attachments.length ? attachments : undefined)
     setInput('')
     clearAttachments()
-  }, [send, clearAttachments])
+  }, [attachments, clearAttachments, input, send])
 
   const handleAttachFiles = useCallback((newFiles: AttachedFile[]) => {
     setAttachments((prev) => [...prev, ...newFiles])
@@ -176,43 +203,20 @@ function AppContent() {
     })
   }, [])
 
-  const activeProviderKey =
-    config.provider || remoteConfig?.default?.provider || ''
-  const activeProviderInfo = remoteConfig?.providers?.[activeProviderKey]
-  const activeModel = config.model || remoteConfig?.default?.model || ''
-  const supportsImageInput = useMemo(
-    () =>
-      Boolean(
-        activeProviderInfo?.supports_image_input &&
-          activeProviderInfo.image_input_models?.includes(activeModel),
-      ),
-    [activeProviderInfo, activeModel],
-  )
-  const supportsPdfInput = useMemo(
-    () =>
-      Boolean(
-        activeProviderInfo?.supports_pdf_input &&
-          activeProviderInfo.pdf_input_models?.includes(activeModel),
-      ),
-    [activeProviderInfo, activeModel],
+  const { image: supportsImageInput, pdf: supportsPdfInput } = useMemo(
+    () => modelSupports(remoteConfig, config.provider, config.model),
+    [config.model, config.provider, remoteConfig],
   )
 
-  // Drop attachments the current model can no longer accept.
+  // Side effect (not derived state): drop already-attached files the active
+  // model can no longer accept and revoke their object URLs. Listening on the
+  // capability flags catches both user-initiated model swaps and indirect
+  // changes (cwd switch refetching /api/config, normalizeConfigWithRemoteDefaults
+  // bumping us to a different default model, etc.).
   useEffect(() => {
-    setAttachments((prev) => {
-      const next = prev.filter(
-        (attachment) =>
-          attachment.kind === 'text' ||
-          (attachment.kind === 'image' && supportsImageInput) ||
-          (attachment.kind === 'document' && supportsPdfInput),
-      )
-      if (next.length === prev.length) return prev
-      for (const attachment of prev) {
-        if (attachment.kind !== 'image') continue
-        if (!next.includes(attachment)) URL.revokeObjectURL(attachment.preview)
-      }
-      return next
-    })
+    setAttachments((prev) =>
+      pruneAttachments(prev, supportsImageInput, supportsPdfInput),
+    )
   }, [supportsImageInput, supportsPdfInput])
 
   const handleSelectSession = useCallback(

@@ -1,8 +1,6 @@
-import type { CSSProperties, Dispatch, ReactNode, SetStateAction } from 'react'
+import type { CSSProperties, Dispatch, SetStateAction } from 'react'
 
 export type Theme = 'light' | 'dark' | 'system'
-export type ConnectionState = 'idle' | 'ready' | 'error'
-export type ChatStatus = 'idle' | 'ready' | 'offline' | 'generating'
 export type ReasoningEffort =
   | ''
   | 'auto'
@@ -367,15 +365,6 @@ export interface ThemeContextValue {
   setTheme: (theme: Theme) => void
 }
 
-export interface AppContentFetchError {
-  message: string
-}
-
 export type SetString = Dispatch<SetStateAction<string>>
-
-export interface ToolMeta {
-  icon: (props: { className?: string; 'aria-hidden'?: boolean }) => ReactNode
-  label: string
-}
 
 export type InlineStyle = CSSProperties

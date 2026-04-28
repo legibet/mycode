@@ -23,45 +23,59 @@ interface EditEntry {
   newText: string
 }
 
+// Tool inputs/outputs are JSON from the model; treat fields as `unknown` and
+// type-check at the read site instead of trusting the shape with `as`.
+type Args = Record<string, unknown> | undefined
+type Meta = Record<string, unknown> | null | undefined
+
 interface BashArgs {
-  command?: string
-  [key: string]: unknown
+  command?: unknown
 }
-
 interface PathArgs {
-  path?: string
-  [key: string]: unknown
+  path?: unknown
 }
-
-interface ReadArgs extends PathArgs {
-  offset?: number
-  limit?: number
+interface ReadArgs {
+  offset?: unknown
+  limit?: unknown
 }
-
-interface WriteArgs extends PathArgs {
-  content?: string
+interface WriteArgs {
+  content?: unknown
 }
-
 interface EditArgs {
-  path?: string
-  edits?: EditEntry[]
-  [key: string]: unknown
+  edits?: unknown
+}
+interface EditMeta {
+  patch?: unknown
+  added_lines?: unknown
+  removed_lines?: unknown
 }
 
-function isEditArgs(args: Record<string, unknown>): args is EditArgs {
-  const editArgs = args as EditArgs
-  return (
-    (editArgs.path === undefined || typeof editArgs.path === 'string') &&
-    Array.isArray(editArgs.edits)
-  )
+function asString(value: unknown): string {
+  return typeof value === 'string' ? value : ''
 }
 
-function getEditPatch(
-  metadata: Record<string, unknown> | null | undefined,
-): string | null {
-  if (!metadata) return null
-  const patch = (metadata as { patch?: unknown }).patch
+function asNumber(value: unknown): number | null {
+  return typeof value === 'number' ? value : null
+}
+
+function getEdits(args: Args): EditEntry[] | null {
+  const edits = (args as EditArgs | undefined)?.edits
+  return Array.isArray(edits) ? (edits as EditEntry[]) : null
+}
+
+function getEditPatch(metadata: Meta): string | null {
+  const patch = (metadata as EditMeta | null | undefined)?.patch
   return typeof patch === 'string' && patch ? patch : null
+}
+
+function getEditStats(
+  metadata: Meta,
+): { added: number; removed: number } | null {
+  const meta = metadata as EditMeta | null | undefined
+  const added = asNumber(meta?.added_lines)
+  const removed = asNumber(meta?.removed_lines)
+  if (added == null || removed == null) return null
+  return { added, removed }
 }
 
 function EditDiffFallback({ edits }: { edits: EditEntry[] }) {
@@ -130,19 +144,15 @@ function ResultBlock({ text, isError }: { text: string; isError: boolean }) {
 // Helpers for trigger-line previews and collapsed suffixes
 // ---------------------------------------------------------------------------
 
-function getPreview(name: string, args?: Record<string, unknown>): string {
+function getPreview(name: string, args: Args): string {
   if (!args) return ''
   switch (name) {
-    case 'bash': {
-      const bashArgs = args as BashArgs
-      return typeof bashArgs.command === 'string' ? bashArgs.command : ''
-    }
+    case 'bash':
+      return asString((args as BashArgs).command)
     case 'read':
     case 'write':
-    case 'edit': {
-      const pathArgs = args as PathArgs
-      return typeof pathArgs.path === 'string' ? pathArgs.path : ''
-    }
+    case 'edit':
+      return asString((args as PathArgs).path)
     default:
       return Object.entries(args)
         .filter(([k]) => k !== 'content' && k !== 'prompt')
@@ -151,32 +161,19 @@ function getPreview(name: string, args?: Record<string, unknown>): string {
   }
 }
 
-function getEditStats(
-  metadata: Record<string, unknown> | null | undefined,
-): { added: number; removed: number } | null {
-  if (!metadata) return null
-  const added = (metadata as { added_lines?: unknown }).added_lines
-  const removed = (metadata as { removed_lines?: unknown }).removed_lines
-  if (typeof added !== 'number' || typeof removed !== 'number') return null
-  return { added, removed }
-}
-
-function getReadHint(args?: Record<string, unknown>): string {
-  if (!args) return ''
-  const readArgs = args as ReadArgs
-  const offset = typeof readArgs.offset === 'number' ? readArgs.offset : null
-  const limit = typeof readArgs.limit === 'number' ? readArgs.limit : null
+function getReadHint(args: Args): string {
+  const a = args as ReadArgs | undefined
+  const offset = asNumber(a?.offset)
+  const limit = asNumber(a?.limit)
   if (offset != null && limit != null) return `:${offset}-${offset + limit}`
   if (offset != null) return `:${offset}`
   if (limit != null) return `:1-${limit}`
   return ''
 }
 
-function getWriteHint(args?: Record<string, unknown>): string {
-  if (!args) return ''
-  const writeArgs = args as WriteArgs
-  const content = writeArgs.content
-  if (typeof content !== 'string') return ''
+function getWriteHint(args: Args): string {
+  const content = asString((args as WriteArgs | undefined)?.content)
+  if (!content) return ''
   return `${content.split('\n').length} lines`
 }
 
@@ -186,8 +183,8 @@ function CollapsedSuffix({
   metadata,
 }: {
   name: string
-  args: Record<string, unknown> | undefined
-  metadata: Record<string, unknown> | null | undefined
+  args: Args
+  metadata: Meta
 }) {
   if (name === 'edit') {
     const stats = getEditStats(metadata)
@@ -223,12 +220,11 @@ function BashBody({
   display,
   isError,
 }: {
-  args: Record<string, unknown> | undefined
+  args: Args
   display: string
   isError: boolean
 }) {
-  const bashArgs = args as BashArgs | undefined
-  const command = typeof bashArgs?.command === 'string' ? bashArgs.command : ''
+  const command = asString((args as BashArgs | undefined)?.command)
 
   return (
     <div className="space-y-2">
@@ -254,13 +250,11 @@ function WriteBody({
   display,
   isError,
 }: {
-  args: Record<string, unknown> | undefined
+  args: Args
   display: string
   isError: boolean
 }) {
-  const writeArgs = args as WriteArgs | undefined
-  const content =
-    typeof writeArgs?.content === 'string' ? writeArgs.content : ''
+  const content = asString((args as WriteArgs | undefined)?.content)
 
   return (
     <div className="space-y-2">
@@ -280,21 +274,22 @@ function EditBody({
   display,
   isError,
 }: {
-  args: Record<string, unknown> | undefined
-  metadata: Record<string, unknown> | null | undefined
+  args: Args
+  metadata: Meta
   display: string
   isError: boolean
 }) {
-  if (args && isEditArgs(args) && args.edits?.length) {
+  const edits = getEdits(args)
+  if (edits?.length) {
     const patch = getEditPatch(metadata)
     return (
       <div className="space-y-2">
         {patch ? (
-          <Suspense fallback={<EditDiffFallback edits={args.edits} />}>
+          <Suspense fallback={<EditDiffFallback edits={edits} />}>
             <EditDiff patch={patch} />
           </Suspense>
         ) : (
-          <EditDiffFallback edits={args.edits} />
+          <EditDiffFallback edits={edits} />
         )}
         {isError && <ResultBlock text={display} isError />}
       </div>
