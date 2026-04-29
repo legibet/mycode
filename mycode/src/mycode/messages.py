@@ -12,7 +12,8 @@ details.
 Metadata contract:
 
 - assistant message `meta` keeps normalized top-level fields only:
-  `provider`, `model`, `provider_message_id`, `stop_reason`, `usage`
+  `provider`, `model`, `provider_message_id`, `stop_reason`, `total_tokens`,
+  `context_window` (see docs/sessions.md for `total_tokens` semantics)
 - provider-specific assistant message extras live under `meta.native`
 - provider-specific block replay hints live under `block.meta.native`
 - local display metadata, such as `block.meta.duration_ms`, is never sent
@@ -146,7 +147,7 @@ def assistant_message(
     model: str | None = None,
     provider_message_id: str | None = None,
     stop_reason: str | None = None,
-    usage: Any = None,
+    total_tokens: int | None = None,
     native_meta: dict[str, Any] | None = None,
 ) -> ConversationMessage:
     """Build a normalized assistant message with shared metadata fields."""
@@ -160,8 +161,8 @@ def assistant_message(
         meta["provider_message_id"] = provider_message_id
     if stop_reason:
         meta["stop_reason"] = stop_reason
-    if usage is not None:
-        meta["usage"] = usage
+    if total_tokens is not None:
+        meta["total_tokens"] = total_tokens
     if native_meta:
         native = omit_none(native_meta)
         if native:

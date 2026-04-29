@@ -92,6 +92,9 @@ class GoogleGeminiAdapter(ProviderAdapter):
             except Exception:
                 pass
 
+        raw_usage = usage or {}
+        total_tokens = raw_usage.get("total_token_count") or None
+
         yield ProviderStreamEvent(
             "message_done",
             {
@@ -101,7 +104,7 @@ class GoogleGeminiAdapter(ProviderAdapter):
                     model=response_model or request.model,
                     provider_message_id=response_id,
                     stop_reason=str(finish_reason) if finish_reason else None,
-                    usage=usage,
+                    total_tokens=total_tokens,
                     native_meta={"finish_message": str(finish_message)} if finish_message else None,
                 )
             },

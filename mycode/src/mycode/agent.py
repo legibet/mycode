@@ -570,61 +570,84 @@ class Agent:
                     block["meta"] = {**meta, "duration_ms": thinking_duration_ms}
                     break
 
+            # Stamp context_window onto the persisted assistant message so
+            # rewinds and refreshed clients can render token-usage % without
+            # re-resolving model metadata.
+            meta = cast(dict[str, Any], assistant_message.setdefault("meta", {}))
+            if self.context_window:
+                meta["context_window"] = self.context_window
+
             self.messages.append(assistant_message)
             await persist(assistant_message)
 
-            # Phase 2: if the assistant requested tools, execute them locally and
-            # append one user-side tool_result message before continuing.
+            total_tokens = meta.get("total_tokens")
+            if total_tokens:
+                payload: dict[str, Any] = {
+                    "total_tokens": total_tokens,
+                    "model": self.model,
+                    "provider": self.provider,
+                }
+                if self.context_window:
+                    payload["context_window"] = self.context_window
+                yield Event("usage", payload)
+
             tool_calls = [
                 block
                 for block in assistant_message.get("content") or []
                 if isinstance(block, dict) and block.get("type") == "tool_use"
             ]
-            if not tool_calls:
-                break
+            if tool_calls:
+                tool_results: list[dict[str, Any]] = []
+                for tool_call in tool_calls:
+                    async for event in self._run_tool_call(tool_call):
+                        yield event
 
-            tool_results: list[dict[str, Any]] = []
-            for tool_call in tool_calls:
-                async for event in self._run_tool_call(tool_call):
-                    yield event
+                        if event.type != "tool_done":
+                            continue
 
-                    if event.type != "tool_done":
-                        continue
-
-                    d = event.data
-                    output = str(d.get("output") or "")
-                    metadata = d.get("metadata") if isinstance(d.get("metadata"), dict) else None
-                    content = d.get("content")
-                    tool_results.append(
-                        tool_result_block(
-                            tool_use_id=str(d.get("tool_use_id") or ""),
-                            output=output,
-                            metadata=metadata,
-                            is_error=bool(d.get("is_error")),
-                            content=content if isinstance(content, list) else None,
+                        d = event.data
+                        output = str(d.get("output") or "")
+                        metadata = d.get("metadata") if isinstance(d.get("metadata"), dict) else None
+                        content = d.get("content")
+                        tool_results.append(
+                            tool_result_block(
+                                tool_use_id=str(d.get("tool_use_id") or ""),
+                                output=output,
+                                metadata=metadata,
+                                is_error=bool(d.get("is_error")),
+                                content=content if isinstance(content, list) else None,
+                            )
                         )
+
+                        if self._cancel_event.is_set():
+                            tool_result_message = build_message("user", tool_results)
+                            self.messages.append(tool_result_message)
+                            await persist(tool_result_message)
+                            return
+
+                tool_result_message = build_message("user", tool_results)
+                self.messages.append(tool_result_message)
+                await persist(tool_result_message)
+
+            if self._cancel_event.is_set():
+                return
+            if should_compact(total_tokens, self.context_window, self.compact_threshold):
+                try:
+                    async for event in self._compact(adapter, persist):
+                        yield event
+                except (Exception, asyncio.CancelledError):
+                    logger.warning(
+                        "Context compaction failed, continuing without compaction",
+                        exc_info=True,
                     )
 
-                    if self._cancel_event.is_set():
-                        tool_result_message = build_message("user", tool_results)
-                        self.messages.append(tool_result_message)
-                        await persist(tool_result_message)
-                        return
-
-            tool_result_message = build_message("user", tool_results)
-            self.messages.append(tool_result_message)
-            await persist(tool_result_message)
+            if not tool_calls:
+                break
 
         else:
             # while loop exhausted max_turns without breaking
             yield Event("error", {"message": "max_turns reached"})
             return
-
-        # Turn completed normally (assistant stopped calling tools).
-        # Check whether context compaction is needed.
-        if not self._cancel_event.is_set():
-            async for event in self._compact_if_needed(adapter, persist):
-                yield event
 
     def run(
         self,
@@ -656,28 +679,6 @@ class Agent:
     # ------------------------------------------------------------------
     # Context compaction
     # ------------------------------------------------------------------
-
-    async def _compact_if_needed(
-        self,
-        adapter: ProviderAdapter,
-        persist: PersistCallback,
-    ) -> AsyncIterator[Event]:
-        """Check token usage and run compaction if above threshold."""
-
-        usage: dict[str, Any] | None = None
-        for message in reversed(self.messages):
-            if message.get("role") == "assistant":
-                usage = (message.get("meta") or {}).get("usage")
-                break
-
-        if not should_compact(usage, self.context_window, self.compact_threshold):
-            return
-
-        try:
-            async for event in self._compact(adapter, persist):
-                yield event
-        except (Exception, asyncio.CancelledError):
-            logger.warning("Context compaction failed, continuing without compaction", exc_info=True)
 
     async def _compact(
         self,
@@ -720,13 +721,13 @@ class Agent:
             logger.warning("Compaction produced empty summary")
             return
 
-        summary_usage = (summary_message.get("meta") or {}).get("usage")
+        summary_total_tokens = (summary_message.get("meta") or {}).get("total_tokens")
         compact_event = build_compact_event(
             summary_text,
             provider=self.provider,
             model=self.model,
             compacted_count=compacted_count,
-            usage=summary_usage,
+            total_tokens=summary_total_tokens,
         )
 
         # Persist the compact event (append-only — original messages stay in JSONL).

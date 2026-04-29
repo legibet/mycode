@@ -361,12 +361,15 @@ class OpenAIResponsesAdapter(ProviderAdapter):
                     )
                 )
 
+        raw_usage = dump_model(getattr(response, "usage", None)) or {}
+        total_tokens = raw_usage.get("total_tokens") or None
+
         return assistant_message(
             blocks,
             provider=self.provider_id,
             model=getattr(response, "model", None),
             provider_message_id=getattr(response, "id", None),
             stop_reason=getattr(response, "status", None),
-            usage=dump_model(getattr(response, "usage", None)),
+            total_tokens=total_tokens,
             native_meta={"output_items": dumped_output_items} if dumped_output_items else None,
         )

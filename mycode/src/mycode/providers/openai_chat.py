@@ -135,13 +135,16 @@ class OpenAIChatAdapter(ProviderAdapter):
                 )
             )
 
+        raw_usage = dump_model(usage) or {}
+        total_tokens = raw_usage.get("total_tokens") or None
+
         final_message = assistant_message(
             blocks,
             provider=self.provider_id,
             model=response_model or request.model,
             provider_message_id=response_id,
             stop_reason=finish_reason,
-            usage=dump_model(usage),
+            total_tokens=total_tokens,
         )
         yield ProviderStreamEvent("message_done", {"message": final_message})
 

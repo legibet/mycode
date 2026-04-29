@@ -42,15 +42,12 @@ def test_workspace_config_overrides_global_compact_threshold(tmp_path: Path, mon
     assert settings.compact_threshold == 0.9
 
 
-@pytest.mark.parametrize("usage", [{"input_tokens": 5000}, {"prompt_tokens": 7000}, {"prompt_token_count": 3000}])
-def test_should_compact_accepts_provider_specific_usage_shapes(usage: dict[str, int]) -> None:
-    assert should_compact(usage, 10_000, 0.3) is True
-
-
 def test_should_compact_respects_threshold_boundaries() -> None:
-    assert should_compact({"input_tokens": 80_000}, 100_000, 0.8) is True
-    assert should_compact({"input_tokens": 79_999}, 100_000, 0.8) is False
-    assert should_compact({"input_tokens": 99_999}, 100_000, 0.0) is False
+    assert should_compact(80_000, 100_000, 0.8) is True
+    assert should_compact(79_999, 100_000, 0.8) is False
+    assert should_compact(99_999, 100_000, 0.0) is False
+    assert should_compact(None, 100_000, 0.8) is False
+    assert should_compact(50_000, None, 0.8) is False
 
 
 @pytest.mark.asyncio

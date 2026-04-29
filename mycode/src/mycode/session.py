@@ -67,20 +67,20 @@ def _now() -> str:
 
 
 def should_compact(
-    last_usage: dict[str, Any] | None,
+    last_total_tokens: int | None,
     context_window: int | None,
     threshold: float,
 ) -> bool:
-    """Return True when the last response input tokens exceed the threshold."""
+    """True when the latest call's `total_tokens` ≥ `context_window × threshold`.
 
-    if not last_usage or not context_window or threshold <= 0:
+    `total_tokens` already covers the next API call's prompt floor, so it is
+    the right input here. The `(1 - threshold)` headroom is reserved for the
+    compact LLM call itself (see docs/sessions.md).
+    """
+
+    if not last_total_tokens or not context_window or threshold <= 0:
         return False
-
-    # Providers report prompt/input usage under slightly different field names.
-    input_tokens = int(
-        last_usage.get("input_tokens") or last_usage.get("prompt_tokens") or last_usage.get("prompt_token_count") or 0
-    )
-    return input_tokens >= context_window * threshold
+    return last_total_tokens >= context_window * threshold
 
 
 def build_compact_event(
@@ -89,7 +89,7 @@ def build_compact_event(
     provider: str,
     model: str,
     compacted_count: int,
-    usage: dict[str, Any] | None = None,
+    total_tokens: int | None = None,
 ) -> ConversationMessage:
     """Build the compact event stored in session JSONL."""
 
@@ -98,8 +98,8 @@ def build_compact_event(
         "model": model,
         "compacted_count": compacted_count,
     }
-    if usage is not None:
-        meta["usage"] = usage
+    if total_tokens is not None:
+        meta["total_tokens"] = total_tokens
     return build_message("compact", [text_block(summary_text)], meta=meta)
 
 

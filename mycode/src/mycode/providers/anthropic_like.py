@@ -219,13 +219,24 @@ class AnthropicLikeAdapter(ProviderAdapter):
             native_meta["stop_sequence"] = stop_sequence
         if service_tier := getattr(message, "service_tier", None):
             native_meta["service_tier"] = service_tier
+
+        # No `total_tokens` field — compute it from input + cache + output parts.
+        raw_usage = dump_model(getattr(message, "usage", None)) or {}
+        prompt_tokens = (
+            (raw_usage.get("input_tokens") or 0)
+            + (raw_usage.get("cache_creation_input_tokens") or 0)
+            + (raw_usage.get("cache_read_input_tokens") or 0)
+        )
+        output_tokens = raw_usage.get("output_tokens") or 0
+        total_tokens = prompt_tokens + output_tokens or None
+
         return assistant_message(
             blocks,
             provider=self.provider_id,
             model=getattr(message, "model", None),
             provider_message_id=getattr(message, "id", None),
             stop_reason=getattr(message, "stop_reason", None),
-            usage=dump_model(getattr(message, "usage", None)),
+            total_tokens=total_tokens,
             native_meta=native_meta,
         )
 
