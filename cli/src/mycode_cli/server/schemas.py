@@ -65,6 +65,10 @@ class StreamEvent(BaseModel):
     tool_name: str | None = None  # permission_request
     preview: str | None = None  # permission_request
     decision: str | None = None  # permission_resolved
+    total_tokens: int | None = None  # usage
+    context_window: int | None = None  # usage
+    model: str | None = None  # usage
+    provider: str | None = None  # usage
 
 
 class DecideRequest(BaseModel):

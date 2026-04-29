@@ -130,16 +130,6 @@ def format_local_timestamp(value: str, display_format: str) -> str:
         return value[:16].replace("T", " ")
 
 
-def _format_usage(usage: dict[str, Any]) -> str:
-    """Format token usage into a compact string."""
-    input_t = usage.get("input_tokens") or usage.get("prompt_tokens") or 0
-    output_t = usage.get("output_tokens") or usage.get("completion_tokens") or 0
-    total = input_t + output_t
-    if total:
-        return f"{total:,} tokens"
-    return ""
-
-
 class TerminalView:
     """Print static CLI output such as headers, previews, and session lists."""
 
@@ -354,7 +344,8 @@ class ReplyRenderer:
         self._tool_buffered = False
         self._tool_header_printed = False
         self._tool_live: Live | None = None
-        self._usage: dict[str, Any] | None = None
+        # Stats reported by the agent's `usage` event for the latest turn.
+        self._stats: dict[str, Any] = {}
 
     async def render(
         self,
@@ -366,20 +357,12 @@ class ReplyRenderer:
         """Stream one assistant turn to the terminal and return its exit code."""
 
         exit_code = 0
-
-        async def _tracking_persist(msg: dict[str, Any]) -> None:
-            if msg.get("role") == "assistant":
-                meta = msg.get("meta") or {}
-                usage = meta.get("usage")
-                if usage:
-                    self._usage = usage
-            if on_persist:
-                await on_persist(msg)
+        self._stats = {}
 
         if self._live_mode:
             self._ensure_live()
 
-        async for event in agent.achat(message, on_persist=_tracking_persist):
+        async for event in agent.achat(message, on_persist=on_persist):
             match event.type:
                 case "reasoning":
                     self.reasoning(event.data.get("delta", ""))
@@ -402,6 +385,8 @@ class ReplyRenderer:
                     self.tool_done(output, is_error=is_error, metadata=metadata)
                     if is_error:
                         exit_code = 1
+                case "usage":
+                    self._stats = dict(event.data)
                 case "compact":
                     self.compact(event.data.get("message", ""))
                 case "error":
@@ -628,19 +613,18 @@ class ReplyRenderer:
         self._reset_stream_state()
 
     def finish(self) -> None:
-        """Flush the current turn and print token statistics."""
+        """Flush the current turn and print the post-turn stats line."""
 
         self._finalize_reasoning_phase()
         self._reset_stream_state()
 
-        parts: list[str] = []
-        if self._usage:
-            token_str = _format_usage(self._usage)
-            if token_str:
-                parts.append(token_str)
-
-        if parts:
-            self._console.print(Text("  " + " · ".join(parts), style=STATS))
+        total_tokens = self._stats.get("total_tokens")
+        model = self._stats.get("model")
+        if total_tokens and model:
+            parts = [f"{total_tokens:,} tokens"]
+            if context_window := self._stats.get("context_window"):
+                parts.append(f"{round(total_tokens * 100 / context_window)}%")
+            self._console.print(Text(f"  {model}  {' · '.join(parts)}", style=STATS))
 
         if not self._live_mode:
             self._console.print()
