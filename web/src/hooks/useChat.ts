@@ -10,6 +10,7 @@ import type {
   ChatMessage,
   ChatResponse,
   LocalConfig,
+  MessageMeta,
   PermissionRequest,
   RunInfo,
   SessionResponse,
@@ -31,6 +32,7 @@ import {
   createUserMessage,
   createUserTextMessage,
   findLatestAssistantIndex,
+  updateLatestAssistantMeta,
   updateLatestThinkingDuration,
   updateRenderToolRuntime,
 } from '../utils/messages'
@@ -300,6 +302,20 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
           `\n\n**Error:** ${event.message || 'Unknown'}`,
           sourceIndex,
         )
+      } else if (event.type === 'usage') {
+        const patch: Partial<MessageMeta> = {}
+        if (typeof event.total_tokens === 'number') {
+          patch.total_tokens = event.total_tokens
+        }
+        if (typeof event.context_window === 'number') {
+          patch.context_window = event.context_window
+        }
+        if (event.model) patch.model = event.model
+        if (event.provider) patch.provider = event.provider
+        if (Object.keys(patch).length > 0) {
+          rawMessages = updateLatestAssistantMeta(rawMessages, patch)
+          messages = updateLatestAssistantMeta(messages, patch)
+        }
       }
 
       return { ...state, rawMessages, messages, toolRuntimeById }

@@ -164,6 +164,10 @@ export type AttachedFile =
 
 export interface MessageMeta {
   synthetic?: boolean
+  total_tokens?: number
+  model?: string
+  provider?: string
+  context_window?: number
   [key: string]: unknown
 }
 
@@ -243,6 +247,14 @@ export interface PermissionResolvedEvent extends StreamEventBase {
   decision: 'allow' | 'deny'
 }
 
+export interface UsageEvent extends StreamEventBase {
+  type: 'usage'
+  total_tokens?: number
+  context_window?: number
+  model?: string
+  provider?: string
+}
+
 export type StreamEvent =
   | ReasoningEvent
   | ReasoningDoneEvent
@@ -254,6 +266,7 @@ export type StreamEvent =
   | CompactEvent
   | PermissionRequestEvent
   | PermissionResolvedEvent
+  | UsageEvent
 
 export interface PermissionRequest {
   request_id: string

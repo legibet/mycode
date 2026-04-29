@@ -79,6 +79,9 @@ export const MessageList = memo(function MessageList({
             }
             isLoading={loading}
             index={index}
+            totalTokens={message.meta?.total_tokens}
+            model={message.meta?.model}
+            contextWindow={message.meta?.context_window}
             onRewindAndSend={onRewindAndSend}
           />
         ))}

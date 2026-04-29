@@ -486,6 +486,23 @@ export function updateLatestThinkingDuration(
   return messages
 }
 
+export function updateLatestAssistantMeta(
+  messages: ChatMessage[],
+  patch: Partial<MessageMeta>,
+): ChatMessage[] {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const message = messages[i]
+    if (message?.role !== 'assistant') continue
+    const next = [...messages]
+    next[i] = {
+      ...message,
+      meta: { ...(message.meta ?? {}), ...patch },
+    }
+    return next
+  }
+  return messages
+}
+
 export function appendRenderToolUse(
   messages: ChatMessage[],
   toolCall: ToolCall,
@@ -688,8 +705,21 @@ export function buildRenderMessages(
       }
     }
 
-    currentAssistant = { ...assistantMessage, content: assistantContent }
-    result[messageIndex] = currentAssistant
+    // Tool loops collapse multiple raw assistants into one render message;
+    // overwrite (or clear) meta from the latest raw call so the bubble
+    // never shows stale per-turn fields from earlier iterations.
+    const merged: ChatMessage = {
+      ...assistantMessage,
+      content: assistantContent,
+    }
+    const rawMeta = message?.meta as MessageMeta | undefined
+    if (rawMeta) {
+      merged.meta = { ...rawMeta }
+    } else {
+      delete merged.meta
+    }
+    currentAssistant = merged
+    result[messageIndex] = merged
   }
 
   return result.filter(

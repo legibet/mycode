@@ -38,6 +38,9 @@ interface MessageBubbleProps {
   isStreaming?: boolean | undefined
   isLoading: boolean
   index: number
+  totalTokens?: number | undefined
+  model?: string | undefined
+  contextWindow?: number | undefined
   onRewindAndSend?:
     | ((rewindTo: number, input: string) => Promise<void>)
     | undefined
@@ -103,6 +106,44 @@ class RenderErrorBoundary extends Component<
   }
 }
 
+function ContextStats({
+  model,
+  totalTokens,
+  contextWindow,
+}: {
+  model?: string | undefined
+  totalTokens?: number | undefined
+  contextWindow?: number | undefined
+}) {
+  const pct =
+    totalTokens && contextWindow
+      ? Math.round((totalTokens / contextWindow) * 100)
+      : null
+  const visible = [model, pct != null ? `${pct}%` : null]
+    .filter(Boolean)
+    .join(' · ')
+  if (!visible) return null
+
+  const detail =
+    totalTokens && contextWindow
+      ? `${totalTokens.toLocaleString()} / ${contextWindow.toLocaleString()} tokens`
+      : null
+
+  return (
+    <span className="group/stats relative cursor-default text-xs text-muted-foreground/60">
+      {visible}
+      {detail && (
+        <span
+          role="tooltip"
+          className="pointer-events-none absolute bottom-full left-0 z-10 mb-2 whitespace-nowrap rounded-md border border-border/40 bg-popover px-2.5 py-1 text-xs tabular-nums text-popover-foreground opacity-0 shadow-md transition-opacity delay-200 duration-150 group-hover/stats:opacity-100"
+        >
+          {detail}
+        </span>
+      )}
+    </span>
+  )
+}
+
 export const MessageBubble = memo(function MessageBubble({
   role,
   blocks,
@@ -111,6 +152,9 @@ export const MessageBubble = memo(function MessageBubble({
   isStreaming,
   isLoading,
   index,
+  totalTokens,
+  model,
+  contextWindow,
   onRewindAndSend,
 }: MessageBubbleProps) {
   const isUser = role === 'user'
@@ -428,7 +472,7 @@ export const MessageBubble = memo(function MessageBubble({
       </div>
 
       {!isUser && textContent && !isStreaming && (
-        <div className="mt-2 max-md:opacity-60 opacity-0 group-hover/msg:opacity-100 transition-opacity duration-150">
+        <div className="mt-2 flex items-center gap-2 max-md:opacity-60 opacity-0 group-hover/msg:opacity-100 transition-opacity duration-150">
           <button
             type="button"
             aria-label="Copy to clipboard"
@@ -447,6 +491,13 @@ export const MessageBubble = memo(function MessageBubble({
               <Copy className="h-3.5 w-3.5" />
             )}
           </button>
+          {(model || totalTokens) && (
+            <ContextStats
+              model={model}
+              totalTokens={totalTokens}
+              contextWindow={contextWindow}
+            />
+          )}
         </div>
       )}
     </div>
