@@ -44,10 +44,23 @@ Standard `user` or `assistant` message in the internal block format.
 
 ```json
 {"role": "user", "content": [{"type": "text", "text": "..."}], "meta": {...}}
-{"role": "assistant", "content": [{"type": "thinking", "text": "...", "meta": {"duration_ms": 1200}}, {"type": "text", "text": "..."}, {"type": "tool_use", "id": "...", "name": "...", "input": {...}}], "meta": {"provider": "...", "model": "...", "stop_reason": "...", "usage": {...}}}
+{"role": "assistant", "content": [{"type": "thinking", "text": "...", "meta": {"duration_ms": 1200}}, {"type": "text", "text": "..."}, {"type": "tool_use", "id": "...", "name": "...", "input": {...}}], "meta": {"provider": "...", "model": "...", "stop_reason": "...", "total_tokens": 1456, "context_window": 200000}}
 ```
 
 `tool_result.content` may store `text` and `image` blocks.
+
+`assistant.meta.total_tokens` is the canonical token count for the call: prompt plus everything the model produced this turn (text, tool calls, reasoning). It also equals the prompt floor of the next API call (history accumulated up to and including this turn), which is what `should_compact` and the consumed-context UI both compare against `context_window`.
+
+`assistant.meta.context_window` is the model's full context window for the call, resolved from the catalog at runtime. Stamped onto the message so clients can render the consumed-context percentage without re-deriving model metadata. Absent when unavailable.
+
+Adapter normalization for `total_tokens`:
+
+| provider       | source                                                  |
+| -------------- | ------------------------------------------------------- |
+| `anthropic*`   | `input_tokens + cache_* + output_tokens` (no `total`)   |
+| `openai`       | `total_tokens`                                          |
+| `openai_chat*` | `total_tokens`                                          |
+| `google`       | `total_token_count` (includes thoughts and tool prompt) |
 
 ### Compact event
 
@@ -77,16 +90,21 @@ When `SessionStore.load_session` runs:
 
 ## Context Compaction
 
-Triggered in `Agent._compact_if_needed()` after a completed turn:
+Checked after every completed assistant turn (with or without tools), always at
+a full `assistant`/`tool_result` boundary.
 
-1. `should_compact()` — true when last assistant message's `usage.input_tokens` ≥ `context_window × compact_threshold` (default `0.8`)
+1. `should_compact()` — true when the latest assistant message's `total_tokens` ≥ `context_window × compact_threshold` (default `0.8`). Tool outputs appended this turn aren't reflected in that figure until the next API call's usage; the `(1 - threshold)` headroom absorbs them.
 2. Ask the same provider for a summary (no tools, text only, max 8192 tokens)
 3. Build a compact event with the summary text and `compacted_count`
 4. Persist the compact event (append-only — original messages stay in JSONL)
 5. Apply `apply_compact()` in memory to rebuild the message list
 6. Emit the `compact` event to the caller
 
-`should_compact()` accepts `input_tokens`, `prompt_tokens`, and `prompt_token_count` field names.
+The headroom `(1 - compact_threshold) × context_window` is reserved for the
+compact call itself: that call sends the full current history as input plus a
+summary capped at the agent's max output tokens. Lowering `compact_threshold`
+just triggers earlier; raising it is bounded by how much headroom the compact
+call needs to fit.
 
 ## Rewind
 

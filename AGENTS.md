@@ -80,7 +80,8 @@ Block-based JSON — single format used at runtime and persisted to sessions:
     "provider": "anthropic",
     "model": "claude-sonnet-4-6",
     "stop_reason": "tool_use",
-    "usage": {},
+    "total_tokens": 1456,
+    "context_window": 200000,
     "native": {}
   }
 }
@@ -134,18 +135,19 @@ All adapters implement `ProviderAdapter.stream_turn()`. Message projection to pr
 
 **Do not change event names or payload shapes without updating server, CLI, and web UI.**
 
-| event                 | payload                                                                 |
-| --------------------- | ----------------------------------------------------------------------- |
-| `reasoning`           | `delta`                                                                 |
-| `reasoning_done`      | `duration_ms`                                                           |
-| `text`                | `delta`                                                                 |
-| `tool_start`          | `tool_call: {id, name, input}`                                          |
-| `tool_output`         | `tool_use_id`, `output`                                                 |
-| `tool_done`           | `tool_use_id`, `output`, `is_error`, `metadata?`, `content?`            |
-| `compact`             | `message`                                                               |
-| `error`               | `message`                                                               |
-| `permission_request`  | `request_id`, `tool_use_id`, `tool_name`, `preview`                     |
-| `permission_resolved` | `request_id`, `decision` (`"allow"` or `"deny"`)                        |
+| event                 | payload                                                      |
+| --------------------- | ------------------------------------------------------------ |
+| `reasoning`           | `delta`                                                      |
+| `reasoning_done`      | `duration_ms`                                                |
+| `text`                | `delta`                                                      |
+| `tool_start`          | `tool_call: {id, name, input}`                               |
+| `tool_output`         | `tool_use_id`, `output`                                      |
+| `tool_done`           | `tool_use_id`, `output`, `is_error`, `metadata?`, `content?` |
+| `compact`             | `message`                                                    |
+| `error`               | `message`                                                    |
+| `permission_request`  | `request_id`, `tool_use_id`, `tool_name`, `preview`          |
+| `permission_resolved` | `request_id`, `decision` (`"allow"` or `"deny"`)             |
+| `usage`               | `total_tokens`, `model?`, `provider?`, `context_window?`     |
 
 ## Detailed Docs
 

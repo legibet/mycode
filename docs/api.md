@@ -307,6 +307,7 @@ Response: `{cwd: "...", exists: true}`
 | `error`               | `message: str`                                                               |
 | `permission_request`  | `request_id: str`, `tool_use_id: str`, `tool_name: str`, `preview: str`      |
 | `permission_resolved` | `request_id: str`, `decision: "allow" \| "deny"`                             |
+| `usage`               | `total_tokens`, `model?`, `provider?`, `context_window?`                     |
 
 `permission_request` and `permission_resolved` bracket a wait inside the agent's `before_tool` hook. Clients respond via `POST /api/runs/{run_id}/decide`; `permission_resolved` lets reconnecting or second-tab clients dismiss the prompt.
 
