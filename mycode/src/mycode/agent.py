@@ -183,7 +183,7 @@ class Agent:
             supports_pdf_input=supports_pdf_input,
         )
         self.max_tokens: int = meta.max_output_tokens or 16_384
-        self.context_window: int | None = meta.context_window or 128_000
+        self.context_window: int = meta.context_window or 128_000
         self.supports_reasoning: bool | None = meta.supports_reasoning
         self.supports_image_input: bool = bool(meta.supports_image_input)
         self.supports_pdf_input: bool = bool(meta.supports_pdf_input)
@@ -574,8 +574,7 @@ class Agent:
             # rewinds and refreshed clients can render token-usage % without
             # re-resolving model metadata.
             meta = cast(dict[str, Any], assistant_message.setdefault("meta", {}))
-            if self.context_window:
-                meta["context_window"] = self.context_window
+            meta["context_window"] = self.context_window
 
             self.messages.append(assistant_message)
             await persist(assistant_message)
@@ -584,11 +583,10 @@ class Agent:
             if total_tokens:
                 payload: dict[str, Any] = {
                     "total_tokens": total_tokens,
-                    "model": self.model,
-                    "provider": self.provider,
+                    "model": meta.get("model") or self.model,
+                    "provider": meta.get("provider") or self.provider,
+                    "context_window": meta["context_window"],
                 }
-                if self.context_window:
-                    payload["context_window"] = self.context_window
                 yield Event("usage", payload)
 
             tool_calls = [
