@@ -1,6 +1,6 @@
 /**
  * Chat state management hook.
- * Stores canonical raw messages and derives render messages from them.
+ * Keeps large document payloads out of React state; the request body still sends them.
  */
 
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react'
@@ -113,18 +113,29 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
     case 'start_turn': {
       const sourceIndex = state.rawMessages.length
       const { content, attachments } = action
+      // PDFs can be large enough to freeze history rendering after a failed send.
+      const uiAttachments = attachments?.map((attachment) =>
+        attachment.kind === 'document'
+          ? { ...attachment, data: '' }
+          : attachment,
+      )
       return {
         ...state,
         rawMessages: [
           ...state.rawMessages,
-          attachments?.length
-            ? createUserMessage(content, attachments)
+          uiAttachments?.length
+            ? createUserMessage(content, uiAttachments)
             : createUserTextMessage(content),
           createAssistantMessage([]),
         ],
         messages: [
           ...state.messages,
-          createRenderUserMessage(sourceIndex, content, undefined, attachments),
+          createRenderUserMessage(
+            sourceIndex,
+            content,
+            undefined,
+            uiAttachments,
+          ),
           createRenderAssistantMessage(sourceIndex + 1),
         ],
         preTurnRawMessages: state.rawMessages,

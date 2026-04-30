@@ -141,6 +141,64 @@ describe('useChat', () => {
     })
   })
 
+  it('sends document data without keeping it in UI messages', async () => {
+    const fetchMock = mockFetch({
+      '/api/sessions?cwd=': createJsonResponse({ sessions: [] }),
+      '/api/chat': createJsonResponse({
+        run: {
+          id: 'run-1',
+          session_id: 'draft-1',
+          status: 'running',
+          last_seq: 0,
+        },
+        session: { id: 'draft-1', title: 'Draft' },
+      }),
+      '/api/runs/run-1/stream?after=0': new Response('data: [DONE]\n\n', {
+        status: 200,
+        headers: { 'Content-Type': 'text/event-stream' },
+      }),
+    })
+
+    const { result } = renderChatHook({
+      provider: 'xiaomi',
+      model: 'mimo-v2.5-pro',
+    })
+
+    await waitFor(() => {
+      expect(result.current.sessionLoading).toBe(false)
+    })
+
+    await result.current.send('summarize', [
+      {
+        kind: 'document',
+        name: 'report.pdf',
+        mime_type: 'application/pdf',
+        data: 'large-pdf-base64',
+      },
+    ])
+
+    const chatCall = fetchMock.mock.calls.find(([url]) => url === '/api/chat')
+    expect(JSON.parse(String(chatCall?.[1]?.body)).input[1]).toEqual({
+      type: 'document',
+      data: 'large-pdf-base64',
+      mime_type: 'application/pdf',
+      name: 'report.pdf',
+    })
+
+    await waitFor(() => {
+      const userMessage = result.current.messages.find(
+        (message) => message.role === 'user',
+      )
+      expect(userMessage?.content[1]).toEqual({
+        type: 'document',
+        data: '',
+        mime_type: 'application/pdf',
+        name: 'report.pdf',
+        renderKey: 'user:0:att:0',
+      })
+    })
+  })
+
   it('keeps assistant replies when loading a persisted session with text attachments', async () => {
     globalThis.localStorage.setItem(
       'mycode.activeSessions',
