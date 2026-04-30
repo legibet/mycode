@@ -794,6 +794,13 @@
       "supports_pdf_input": true,
       "supports_reasoning": true
     },
+    "gpt-5.5-pro": {
+      "context_window": 1050000,
+      "max_output_tokens": 128000,
+      "supports_image_input": true,
+      "supports_pdf_input": true,
+      "supports_reasoning": true
+    },
     "gpt-image-1": {
       "context_window": 0,
       "max_output_tokens": 0,
@@ -1545,6 +1552,13 @@
       "supports_pdf_input": false,
       "supports_reasoning": true
     },
+    "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free": {
+      "context_window": 256000,
+      "max_output_tokens": 65536,
+      "supports_image_input": true,
+      "supports_pdf_input": false,
+      "supports_reasoning": true
+    },
     "nvidia/nemotron-3-super-120b-a12b": {
       "context_window": 262144,
       "max_output_tokens": 262144,
@@ -1749,6 +1763,13 @@
       "supports_reasoning": true
     },
     "openai/gpt-5.5": {
+      "context_window": 1050000,
+      "max_output_tokens": 128000,
+      "supports_image_input": true,
+      "supports_pdf_input": true,
+      "supports_reasoning": true
+    },
+    "openai/gpt-5.5-pro": {
       "context_window": 1050000,
       "max_output_tokens": 128000,
       "supports_image_input": true,
