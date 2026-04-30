@@ -329,7 +329,7 @@ export const InputArea = memo(function InputArea({
           }}
           onKeyDown={handleKeyDown}
           placeholder="Message…"
-          className="block w-full resize-none bg-transparent px-3.5 pt-3 pb-1 max-md:pt-2.5 text-base md:text-sm leading-relaxed text-foreground placeholder:text-muted-foreground/40 focus-visible:outline-none max-h-[200px]"
+          className="block w-full resize-none bg-transparent px-3.5 pt-4 pb-1.5 max-md:pt-3.5 text-base md:text-sm leading-relaxed text-foreground placeholder:text-muted-foreground/40 focus-visible:outline-none max-h-[200px]"
         />
 
         {/* Bottom row: attach + model · effort + send */}
@@ -356,7 +356,7 @@ export const InputArea = memo(function InputArea({
               remoteConfig={remoteConfig}
               onUpdateConfig={onUpdateConfig}
             />
-            <EffortSeparatorAndTrigger
+            <EffortTriggerIfSupported
               config={config}
               remoteConfig={remoteConfig}
               onUpdateConfig={onUpdateConfig}
@@ -404,7 +404,7 @@ export const InputArea = memo(function InputArea({
   )
 })
 
-function EffortSeparatorAndTrigger(props: {
+function EffortTriggerIfSupported(props: {
   config: LocalConfig
   remoteConfig: RemoteConfig | null
   onUpdateConfig: (config: LocalConfig) => void
@@ -416,15 +416,5 @@ function EffortSeparatorAndTrigger(props: {
       reasoningModels.includes(props.config.model),
   )
   if (!supports) return null
-  return (
-    <>
-      <span
-        className="text-muted-foreground/40 select-none px-1 text-[12px]"
-        aria-hidden="true"
-      >
-        ·
-      </span>
-      <EffortTrigger {...props} />
-    </>
-  )
+  return <EffortTrigger {...props} />
 }
