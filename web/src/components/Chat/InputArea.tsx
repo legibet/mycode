@@ -5,6 +5,7 @@
 import { ArrowUp, FileText, Paperclip, Square, X } from 'lucide-react'
 import {
   type ChangeEvent,
+  type ClipboardEvent,
   type DragEvent,
   type KeyboardEvent,
   memo,
@@ -220,6 +221,13 @@ export const InputArea = memo(function InputArea({
     await attachFiles(files)
   }
 
+  const handlePaste = async (e: ClipboardEvent<HTMLTextAreaElement>) => {
+    const files = Array.from(e.clipboardData.files)
+    if (files.length === 0) return
+    e.preventDefault()
+    await attachFiles(files)
+  }
+
   const handleDragEnter = (e: DragEvent) => {
     e.preventDefault()
     e.stopPropagation()
@@ -328,6 +336,7 @@ export const InputArea = memo(function InputArea({
             e.target.style.height = `${Math.min(e.target.scrollHeight, 200)}px`
           }}
           onKeyDown={handleKeyDown}
+          onPaste={handlePaste}
           placeholder="Message…"
           className="block w-full resize-none bg-transparent px-3.5 pt-4 pb-1.5 max-md:pt-3.5 text-base md:text-sm leading-relaxed text-foreground placeholder:text-muted-foreground/40 focus-visible:outline-none max-h-[200px]"
         />
