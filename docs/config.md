@@ -140,9 +140,10 @@ The shell checks are intentionally simple and conservative. Project commands suc
 - `supports_reasoning` — whether the model supports extended thinking
 - `supports_image_input` — whether the model accepts image input
 - `supports_pdf_input` — whether the model accepts PDF input
-- `context_window` — used for compact threshold calculation
+- `context_window` — used for compact threshold calculation; defaults to `128000` when not available
 - `max_output_tokens` — passed to the provider as the output limit; defaults to `16384` when not available
-- `context_window` — defaults to `128000` when the bundled catalog does not provide one
+
+When the catalog has no match and config does not override the capability, media and reasoning support stay disabled: image/PDF input is rejected, and `reasoning_effort` is only sent when `supports_reasoning` is explicitly `true` and the provider adapter supports it.
 
 Model lookup strategy (`lookup_model_metadata`):
 

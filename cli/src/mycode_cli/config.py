@@ -60,6 +60,15 @@ class ModelConfig:
     supports_pdf_input: bool | None = None
 
 
+_MODEL_OVERRIDE_KEYS = (
+    "context_window",
+    "max_output_tokens",
+    "supports_reasoning",
+    "supports_image_input",
+    "supports_pdf_input",
+)
+
+
 @dataclass(frozen=True)
 class ProviderConfig:
     name: str
@@ -570,15 +579,6 @@ def is_api_key_env_ref(value: str) -> str | None:
 
     match = _API_KEY_ENV_REF_RE.fullmatch(value.strip())
     return match.group(1) if match else None
-
-
-_MODEL_OVERRIDE_KEYS = (
-    "context_window",
-    "max_output_tokens",
-    "supports_reasoning",
-    "supports_image_input",
-    "supports_pdf_input",
-)
 
 
 def _optional_string(raw: dict[str, Any], key: str, label: str) -> str | None:

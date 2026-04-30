@@ -31,7 +31,7 @@ from mycode_cli.config import (
     resolve_provider_choices,
 )
 from mycode_cli.permissions import ToolReviewDecision, ToolReviewRequest
-from mycode_cli.runtime import build_agent, model_config_for
+from mycode_cli.runtime import build_agent
 from mycode_cli.server.deps import RunManagerDep, StoreDep
 from mycode_cli.server.run_manager import ActiveRunError, RunManager, RunState
 from mycode_cli.server.schemas import ChatRequest, DecideRequest, StreamEvent
@@ -88,7 +88,6 @@ async def chat(chat: ChatRequest, store: StoreDep, runs: RunManagerDep):
         request_effort = normalize_reasoning_effort(chat.reasoning_effort)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    reasoning_effort = request_effort if request_effort is not None else resolved.reasoning_effort
     session_id = chat.session_id or "default"
 
     if chat.message and chat.input:
@@ -196,18 +195,28 @@ async def chat(chat: ChatRequest, store: StoreDep, runs: RunManagerDep):
 
     # Capability check before any disk mutation — a failed check must not
     # leave an empty session on disk or land a premature rewind marker.
-    model_config = model_config_for(settings, resolved)
-    caps = resolve_model_metadata(
+    provider_config = settings.providers.get(resolved.provider_name or "")
+    model_config = provider_config.models.get(resolved.model) if provider_config else None
+    model_meta = resolve_model_metadata(
         provider=resolved.provider,
         model=resolved.model,
+        supports_reasoning=model_config.supports_reasoning if model_config else None,
         supports_image_input=model_config.supports_image_input if model_config else None,
         supports_pdf_input=model_config.supports_pdf_input if model_config else None,
     )
     content_types = {b.get("type") for b in (user_message.get("content") or []) if isinstance(b, dict)}
-    if "image" in content_types and not caps.supports_image_input:
+    if "image" in content_types and not model_meta.supports_image_input:
         raise HTTPException(status_code=400, detail="current model does not support image input")
-    if "document" in content_types and not caps.supports_pdf_input:
+    if "document" in content_types and not model_meta.supports_pdf_input:
         raise HTTPException(status_code=400, detail="current model does not support PDF input")
+
+    adapter = get_provider_adapter(resolved.provider)
+    configured_effort = request_effort if request_effort is not None else resolved.reasoning_effort
+    reasoning_effort = (
+        configured_effort
+        if configured_effort is not None and model_meta.supports_reasoning is True and adapter.supports_reasoning_effort
+        else None
+    )
 
     # All validation passed. Land the rewind marker (if any) and create the
     # session so the response payload has a meta dict and the agent's
@@ -323,18 +332,18 @@ async def get_config(cwd: str | None = None):
         adapter = get_provider_adapter(provider.provider)
         for model in models:
             model_config = provider_config.models.get(model) if provider_config else None
-            caps = resolve_model_metadata(
+            model_meta = resolve_model_metadata(
                 provider=provider.provider,
                 model=model,
                 supports_reasoning=model_config.supports_reasoning if model_config else None,
                 supports_image_input=model_config.supports_image_input if model_config else None,
                 supports_pdf_input=model_config.supports_pdf_input if model_config else None,
             )
-            if caps.supports_reasoning is True:
+            if model_meta.supports_reasoning is True:
                 reasoning_models.append(model)
-            if caps.supports_image_input:
+            if model_meta.supports_image_input:
                 image_models.append(model)
-            if caps.supports_pdf_input:
+            if model_meta.supports_pdf_input:
                 pdf_models.append(model)
 
         if adapter.supports_reasoning_effort:

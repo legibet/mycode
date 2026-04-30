@@ -15,7 +15,7 @@ from mycode.providers import (
 )
 from mycode.session import SessionStore
 from mycode.tools import DEFAULT_TOOL_SPECS
-from mycode_cli.config import ModelConfig, ResolvedProvider, Settings, provider_has_api_key
+from mycode_cli.config import ResolvedProvider, Settings, provider_has_api_key
 from mycode_cli.permissions import ToolReviewCallback, build_permission_hooks
 from mycode_cli.system_prompt import build_system_prompt
 
@@ -60,7 +60,8 @@ def build_agent(
     the store; callers never pass messages explicitly.
     """
 
-    model_config = model_config_for(settings, resolved_provider)
+    provider_config = settings.providers.get(resolved_provider.provider_name or "")
+    model_config = provider_config.models.get(resolved_provider.model) if provider_config else None
     agent = Agent(
         model=resolved_provider.model,
         provider=resolved_provider.provider,
@@ -82,15 +83,6 @@ def build_agent(
     )
     agent.hooks = build_permission_hooks(settings, review=review, on_user_denied=agent.cancel)
     return agent
-
-
-def model_config_for(settings: Settings, resolved: ResolvedProvider) -> ModelConfig | None:
-    """Return the user-configured overrides for the resolved provider+model, if any."""
-
-    provider_config = settings.providers.get(resolved.provider_name or "")
-    if provider_config is None:
-        return None
-    return provider_config.models.get(resolved.model)
 
 
 def clone_agent(agent: Agent, *, store: SessionStore, session_id: str) -> Agent:
@@ -240,7 +232,8 @@ def apply_resolved_provider(agent: Agent, resolved: ResolvedProvider, settings: 
     agent.reasoning_effort = resolved.reasoning_effort
 
     if runtime_changed:
-        model_config = model_config_for(settings, resolved)
+        provider_config = settings.providers.get(resolved.provider_name or "")
+        model_config = provider_config.models.get(resolved.model) if provider_config else None
         agent.refresh_capabilities(
             max_tokens=model_config.max_output_tokens if model_config else None,
             context_window=model_config.context_window if model_config else None,
