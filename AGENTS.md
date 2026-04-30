@@ -143,7 +143,7 @@ All adapters implement `ProviderAdapter.stream_turn()`. Message projection to pr
 | `tool_start`          | `tool_call: {id, name, input}`                               |
 | `tool_output`         | `tool_use_id`, `output`                                      |
 | `tool_done`           | `tool_use_id`, `output`, `is_error`, `metadata?`, `content?` |
-| `compact`             | `message`                                                    |
+| `compact`             | `message`, `compacted_count`                                 |
 | `error`               | `message`                                                    |
 | `permission_request`  | `request_id`, `tool_use_id`, `tool_name`, `preview`          |
 | `permission_resolved` | `request_id`, `decision` (`"allow"` or `"deny"`)             |

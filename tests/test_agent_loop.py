@@ -405,6 +405,46 @@ class TestCustomTools:
 
 class TestAgentCancel:
     @pytest.mark.asyncio
+    async def test_cancelled_compaction_propagates(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            agent = Agent(
+                model="gpt-5.5",
+                provider="openai",
+                cwd=tmpdir,
+                session_dir=Path(tmpdir),
+                context_window=100,
+                compact_threshold=0.8,
+            )
+
+            adapter = _FakeProviderAdapter(
+                [
+                    [
+                        ProviderStreamEvent(
+                            "message_done",
+                            {
+                                "message": {
+                                    "role": "assistant",
+                                    "content": [{"type": "text", "text": "done"}],
+                                    "meta": {"total_tokens": 90},
+                                }
+                            },
+                        )
+                    ]
+                ]
+            )
+
+            async def cancelled_compact(*_args, **_kwargs):
+                raise asyncio.CancelledError
+                yield
+
+            with (
+                patch("mycode.agent.get_provider_adapter", return_value=adapter),
+                patch.object(agent, "_compact", cancelled_compact),
+                pytest.raises(asyncio.CancelledError),
+            ):
+                [event async for event in agent.achat("hello")]
+
+    @pytest.mark.asyncio
     async def test_cancel_stops_inflight_provider_stream(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             agent = Agent(

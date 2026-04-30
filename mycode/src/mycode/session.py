@@ -35,26 +35,38 @@ capture everything needed to continue the work seamlessly.
 
 Include:
 
-1. **User Requests**: Every distinct request or instruction the user gave, \
+1. **Task and Intent**: Describe the user's overall goal — what is being \
+built, fixed, or investigated, and why.
+2. **Decisions and Constraints**: List the decisions made, constraints \
+discovered, and approaches chosen or rejected, with the reasoning behind \
+each.
+3. **User Requests**: Every distinct request or instruction the user gave, \
 in chronological order. Preserve the user's original wording for ambiguous \
 or nuanced requests.
-2. **Completed Work**: What was accomplished — files created, modified, or \
-deleted; bugs fixed; features added. Include file paths and function names.
-3. **Current State**: The exact state of the work right now — what is working, \
-what is broken, what is partially done.
-4. **Key Decisions**: Important decisions made, constraints discovered, \
-approaches chosen or rejected, and why.
-5. **Next Steps**: What remains to be done, any work that was in progress \
-when this summary was generated.
+4. **Files and Changes**: Enumerate every file read, modified, or created \
+— paths, what changed, and any code snippets the next turn will need to \
+reason about, quoted verbatim.
+5. **Errors and Fixes**: List errors encountered with the original message \
+verbatim, the cause if known, and the resolution — or that it remains open.
+6. **Current State**: What is verified working, what is known broken, what \
+is in progress.
+7. **Next Step**: The next step to take, with a direct quote from the most \
+recent conversation showing where the work left off.
 
 Rules:
-- Be specific: include file paths, function names, error messages, and \
-concrete details.
+- Be specific: reproduce file paths, function names, error messages, and \
+other identifiers verbatim — never paraphrase them.
 - Do not add suggestions or opinions — only summarize what happened.
 - Keep it concise but complete.\
 """
 
-_COMPACT_ACK = "Understood. I have the context from the conversation summary and will continue the work."
+_CONTINUATION_HEADER = "This session is being continued from a previous conversation that was compacted to fit the context window. The summary below covers the earlier portion of the conversation."
+
+_TRANSCRIPT_HINT = "For verbatim details not captured in this summary (exact code snippets, error messages, or earlier output), read the original conversation log at: {path}"
+
+_CONTINUATION_FOOTER = 'Resume directly from where the work left off. Do not acknowledge this summary, do not recap, and do not preface with "I\'ll continue" or similar.'
+
+_COMPACT_ACK = "Acknowledged."
 
 
 # ---------------------------------------------------------------------
@@ -103,8 +115,17 @@ def build_compact_event(
     return build_message("compact", [text_block(summary_text)], meta=meta)
 
 
-def apply_compact(messages: list[ConversationMessage]) -> list[ConversationMessage]:
-    """Replace the latest compact event with a summary + synthetic ack."""
+def apply_compact(
+    messages: list[ConversationMessage],
+    *,
+    transcript_path: str | None = None,
+    continue_now: bool | None = None,
+) -> list[ConversationMessage]:
+    """Replace the latest compact event with a synthetic summary view.
+
+    ``continue_now`` omits the ack and leaves a user instruction last so the
+    agent loop can immediately request the next assistant response.
+    """
 
     # Only the newest compact event matters. Older history before it is no
     # longer visible once the summary replaces that earlier conversation.
@@ -122,15 +143,23 @@ def apply_compact(messages: list[ConversationMessage]) -> list[ConversationMessa
             summary_text = str(block.get("text") or "")
             break
 
-    return [
-        build_message(
-            "user",
-            [text_block(f"[Conversation Summary]\n\n{summary_text}")],
-            meta={"synthetic": True},
-        ),
-        build_message("assistant", [text_block(_COMPACT_ACK)], meta={"synthetic": True}),
-        *messages[last_compact_index + 1 :],
-    ]
+    tail = messages[last_compact_index + 1 :]
+    if continue_now is None:
+        # During live tool-loop compaction the next persisted message is the
+        # assistant continuation. Waiting compaction has no tail yet.
+        continue_now = bool(tail and tail[0].get("role") == "assistant")
+
+    parts = [_CONTINUATION_HEADER, summary_text]
+    if transcript_path:
+        parts.append(_TRANSCRIPT_HINT.format(path=transcript_path))
+    if continue_now:
+        parts.append(_CONTINUATION_FOOTER)
+
+    result = [build_message("user", [text_block("\n\n".join(parts))], meta={"synthetic": True})]
+    if not continue_now:
+        result.append(build_message("assistant", [text_block(_COMPACT_ACK)], meta={"synthetic": True}))
+    result.extend(tail)
+    return result
 
 
 def build_rewind_event(rewind_to: int) -> ConversationMessage:
@@ -317,7 +346,10 @@ class SessionStore:
         # 2) rewind truncates that visible list by message index
         # Orphan tool_use blocks (e.g. left open by a server crash) are
         # closed by the provider adapter at replay time, not here.
-        visible_messages = apply_compact(raw_messages)
+        visible_messages = apply_compact(
+            raw_messages,
+            transcript_path=str(self.messages_path(session_id)),
+        )
         visible_messages = apply_rewind(visible_messages)
 
         return {"session": self._summary(session_id, meta), "messages": visible_messages}

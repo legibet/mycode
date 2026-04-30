@@ -631,9 +631,11 @@ class Agent:
                 return
             if should_compact(total_tokens, self.context_window, self.compact_threshold):
                 try:
-                    async for event in self._compact(adapter, persist):
+                    async for event in self._compact(adapter, persist, continue_now=bool(tool_calls)):
                         yield event
-                except (Exception, asyncio.CancelledError):
+                except asyncio.CancelledError:
+                    raise
+                except Exception:
                     logger.warning(
                         "Context compaction failed, continuing without compaction",
                         exc_info=True,
@@ -682,6 +684,8 @@ class Agent:
         self,
         adapter: ProviderAdapter,
         persist: PersistCallback,
+        *,
+        continue_now: bool,
     ) -> AsyncIterator[Event]:
         """Generate a conversation summary and replace in-memory messages."""
 
@@ -711,13 +715,11 @@ class Agent:
                     summary_message = msg
 
         if not summary_message:
-            logger.warning("Compaction produced no response")
-            return
+            raise ValueError("compaction produced no response")
 
         summary_text = flatten_message_text(summary_message, include_thinking=False)
         if not summary_text:
-            logger.warning("Compaction produced empty summary")
-            return
+            raise ValueError("compaction produced empty summary")
 
         summary_total_tokens = (summary_message.get("meta") or {}).get("total_tokens")
         compact_event = build_compact_event(
@@ -731,9 +733,12 @@ class Agent:
         # Persist the compact event (append-only — original messages stay in JSONL).
         await persist(compact_event)
 
-        # Rebuild in-memory messages from the compact event.
         self.messages.append(compact_event)
-        self.messages = apply_compact(self.messages)
+        self.messages = apply_compact(
+            self.messages,
+            transcript_path=str(self._store.messages_path(self.session_id)) if self._store else None,
+            continue_now=continue_now,
+        )
 
         yield Event(
             "compact",

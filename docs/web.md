@@ -88,6 +88,8 @@ Rendering rules:
 5. On disconnect: attempt session reload recovery via `GET /api/sessions/{id}`
 6. 409 conflict: attach to the existing run's stream
 
+`compact` events are ignored by the reducer during live streaming. The server has already persisted the compact record, so a later session reload receives the compacted visible history from `GET /api/sessions/{id}`.
+
 Streaming state tracking:
 
 - `streamTokenRef` — incremented to invalidate stale streams

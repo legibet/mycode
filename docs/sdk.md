@@ -107,9 +107,11 @@ Resuming across processes is therefore implicit: construct an `Agent` with the s
 
 ### Compaction
 
-When a turn completes the agent checks the last assistant message's `usage.input_tokens` (as reported by the provider). If that count has reached `context_window * compact_threshold`, it asks the same provider for a summary, appends a `compact` event to the log, and rebuilds `agent.messages` from the summary so the next turn sees a shorter history. The default threshold is `0.8`; pass `compact_threshold=0` to disable.
+When a turn reaches a full assistant/tool-result boundary, the agent checks the latest assistant message's `meta.total_tokens` against `context_window * compact_threshold`. `total_tokens` is normalized by the provider adapter and includes the prompt plus the model output for that call. The default threshold is `0.8`; pass `compact_threshold=0` to disable.
 
-If compaction itself fails — provider error, cancellation, empty summary — the agent logs a warning and continues with the uncompacted history. The turn that triggered it does not fail.
+When the threshold is reached, the agent asks the same provider/model for a text-only summary with tools disabled and `max_tokens` capped at `8192`. It then appends a `compact` event to the log and rebuilds `agent.messages` from a synthetic user summary. If the current turn is complete, the summary is followed by a short synthetic assistant acknowledgement; if the agent must continue a tool loop immediately, the summary ends with a resume instruction and no acknowledgement.
+
+If compaction itself fails — provider error, cancellation, empty summary — the agent logs a warning and continues with the uncompacted history. The turn that triggered it does not fail. Tool outputs appended during the current loop may not be reflected in `total_tokens` until the following provider call, so the threshold should leave enough headroom for both those outputs and the summary request.
 
 See `docs/sessions.md` for the on-disk record format and the replay rules (`compact` → `rewind`) applied by `SessionStore.load_session`. The loader is a pure reader; provider adapters close orphan `tool_use` blocks at replay time.
 

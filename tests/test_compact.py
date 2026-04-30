@@ -67,24 +67,18 @@ async def test_load_session_applies_latest_compact_summary(store: SessionStore) 
     loaded = await store.load_session("s1")
 
     assert loaded is not None
-    assert loaded["messages"] == [
-        {
-            "role": "user",
-            "content": [{"type": "text", "text": "[Conversation Summary]\n\nnew summary"}],
-            "meta": {"synthetic": True},
-        },
-        {
-            "role": "assistant",
-            "content": [
-                {
-                    "type": "text",
-                    "text": "Understood. I have the context from the conversation summary and will continue the work.",
-                }
-            ],
-            "meta": {"synthetic": True},
-        },
-        {"role": "assistant", "content": [{"type": "text", "text": "latest reply"}]},
-    ]
+    messages = loaded["messages"]
+    assert len(messages) == 2
+
+    user_text = messages[0]["content"][0]["text"]
+    assert messages[0]["role"] == "user"
+    assert messages[0]["meta"] == {"synthetic": True}
+    assert "new summary" in user_text
+    assert "old summary" not in user_text
+    assert str(store.messages_path("s1")) in user_text
+    assert "Resume directly" in user_text
+
+    assert messages[1] == {"role": "assistant", "content": [{"type": "text", "text": "latest reply"}]}
 
 
 @pytest.mark.asyncio
@@ -104,17 +98,35 @@ async def test_compact_event_remains_in_raw_jsonl(store: SessionStore) -> None:
     assert json.loads(raw_lines[2])["role"] == "compact"
 
 
-def test_apply_compact_marks_synthetic_messages() -> None:
-    messages = [
+def test_apply_compact_builds_waiting_and_continue_views() -> None:
+    base_messages = [
         {"role": "user", "content": [{"type": "text", "text": "hello"}]},
         {"role": "assistant", "content": [{"type": "text", "text": "hi"}]},
         build_compact_event("summary", provider="p", model="m", compacted_count=2),
     ]
 
-    result = apply_compact(messages)
+    waiting = apply_compact(base_messages)
 
-    assert result[0]["meta"]["synthetic"] is True
-    assert result[1]["meta"]["synthetic"] is True
+    assert [message["role"] for message in waiting] == ["user", "assistant"]
+    assert waiting[0]["meta"]["synthetic"] is True
+    assert waiting[1]["meta"]["synthetic"] is True
+    assert "summary" in waiting[0]["content"][0]["text"]
+    assert "Resume directly" not in waiting[0]["content"][0]["text"]
+    assert waiting[1]["content"][0]["text"] == "Acknowledged."
+
+    continuing = apply_compact(base_messages, continue_now=True)
+
+    assert len(continuing) == 1
+    assert continuing[0]["role"] == "user"
+    assert "Resume directly" in continuing[0]["content"][0]["text"]
+
+    replayed = apply_compact(
+        [*base_messages, {"role": "assistant", "content": [{"type": "text", "text": "continued"}]}]
+    )
+
+    assert [message["role"] for message in replayed] == ["user", "assistant"]
+    assert "Resume directly" in replayed[0]["content"][0]["text"]
+    assert replayed[1]["content"][0]["text"] == "continued"
 
 
 def test_agent_uses_default_compact_threshold(tmp_path: Path) -> None:
