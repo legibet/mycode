@@ -7,10 +7,25 @@ from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException
 
+from mycode.messages import ConversationMessage
 from mycode_cli.server.deps import RunManagerDep, StoreDep
 from mycode_cli.server.schemas import SessionCreateRequest
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
+
+
+def _redact_document_data(messages: list[ConversationMessage]) -> list[ConversationMessage]:
+    redacted: list[ConversationMessage] = []
+    for message in messages:
+        content = []
+        for block in message.get("content") or []:
+            if not isinstance(block, dict):
+                continue
+            if block.get("type") == "document" and block.get("data"):
+                block = {**block, "data": ""}
+            content.append(block)
+        redacted.append({**message, "content": content})
+    return redacted
 
 
 @router.post("")
@@ -39,7 +54,7 @@ async def load_session(session_id: str, store: StoreDep, runs: RunManagerDep):
     if active:
         return {
             "session": session,
-            "messages": active["messages"],
+            "messages": _redact_document_data(active["messages"]),
             "active_run": active["run"],
             "pending_events": active["pending_events"],
         }
@@ -49,7 +64,7 @@ async def load_session(session_id: str, store: StoreDep, runs: RunManagerDep):
 
     return {
         "session": session,
-        "messages": data.get("messages") or [],
+        "messages": _redact_document_data(data.get("messages") or []),
         "active_run": None,
         "pending_events": [],
     }
