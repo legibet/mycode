@@ -112,15 +112,15 @@ export const ProviderCard = memo(function ProviderCard({
         onClick={() => onRemove(draft.id)}
         aria-label={`Remove provider ${draft.name || 'untitled'}`}
         className={cn(
-          'absolute right-2.5 top-2.5 h-6 w-6 inline-flex items-center justify-center rounded',
-          'text-muted-foreground/40 hover:text-destructive hover:bg-destructive/10 transition-colors',
+          'absolute right-2 top-2 inline-flex items-center justify-center rounded h-7 w-7',
+          'text-muted-foreground/50 hover:text-destructive hover:bg-destructive/10 transition-colors',
           'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-destructive/60',
         )}
       >
         <X className="h-3.5 w-3.5" />
       </button>
 
-      <div className="flex flex-col gap-2.5">
+      <div className="flex flex-col gap-2.5 pr-8">
         <Field
           label="Name"
           hint={renderNameHint(draft, usedTypesByOthers, duplicateName)}
@@ -135,7 +135,7 @@ export const ProviderCard = memo(function ProviderCard({
             invalid={duplicateName || !draft.name.trim()}
           />
           {duplicateName && (
-            <span className="text-[11px] text-destructive/80 font-mono">
+            <span className="text-[12px] text-destructive/80">
               duplicate name
             </span>
           )}
@@ -165,8 +165,8 @@ export const ProviderCard = memo(function ProviderCard({
           />
         </Field>
 
-        <Field label="API key" hint={apiKeyHint.message}>
-          <div className="relative flex items-center">
+        <Field label="API key" hint={apiKeyHint}>
+          <div className="flex items-center gap-2">
             <TextInput
               id={inputId}
               value={draft.api_key_input}
@@ -191,7 +191,11 @@ export const ProviderCard = memo(function ProviderCard({
                 onClick={() =>
                   update({ api_key_input: '', api_key_dirty: true })
                 }
-                className="ml-2 shrink-0 text-[11px] text-muted-foreground/60 hover:text-destructive transition-colors"
+                className={cn(
+                  'shrink-0 text-[12px]',
+                  'text-muted-foreground/70 hover:text-destructive transition-colors',
+                  'h-9 px-2',
+                )}
                 aria-label="Clear saved API key"
               >
                 clear
@@ -202,34 +206,40 @@ export const ProviderCard = memo(function ProviderCard({
 
         <Field
           label="Models"
-          stacked
           hint={
             draft.models.length === 0
               ? renderDefaultModelsHint(providerTypeDefaultModels[draft.type])
               : undefined
           }
         >
-          <div className="flex flex-wrap gap-1.5">
-            {draft.models.map((model) => (
-              <span
-                key={model}
-                className={cn(
-                  'group inline-flex items-center gap-1 h-6 pl-2 pr-1 rounded',
-                  'bg-muted/50 text-foreground/85 text-[12px] font-mono',
-                )}
-              >
-                {model}
-                <button
-                  type="button"
-                  onClick={() => removeModel(model)}
-                  className="inline-flex h-4 w-4 items-center justify-center rounded text-muted-foreground/50 hover:text-destructive transition-colors"
-                  aria-label={`Remove model ${model}`}
-                >
-                  <X className="h-3 w-3" />
-                </button>
-              </span>
-            ))}
-            <span className="inline-flex items-center gap-1">
+          <div className="flex flex-col gap-2.5">
+            {draft.models.length > 0 && (
+              <div className="flex flex-wrap gap-1.5">
+                {draft.models.map((model) => (
+                  <span
+                    key={model}
+                    className={cn(
+                      'group inline-flex items-center gap-1 rounded h-7 pl-2.5 pr-1',
+                      'bg-muted/60 text-foreground/90 text-[12px] font-mono',
+                    )}
+                  >
+                    {model}
+                    <button
+                      type="button"
+                      onClick={() => removeModel(model)}
+                      className={cn(
+                        'inline-flex items-center justify-center rounded h-5 w-5',
+                        'text-muted-foreground/60 hover:text-destructive transition-colors',
+                      )}
+                      aria-label={`Remove model ${model}`}
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
+            <div className="flex items-center gap-2">
               <input
                 value={modelInput}
                 onChange={(e) => setModelInput(e.target.value)}
@@ -241,22 +251,28 @@ export const ProviderCard = memo(function ProviderCard({
                 autoCorrect="off"
                 autoCapitalize="off"
                 className={cn(
-                  'h-6 min-w-[140px] flex-1 bg-transparent px-1 text-[12px] font-mono',
-                  'border-b border-transparent hover:border-border/60 focus:border-accent transition-colors',
-                  'placeholder:text-muted-foreground/40 focus:outline-none',
+                  'flex-1 min-w-0 bg-transparent h-9 px-2',
+                  'text-[13px] font-mono',
+                  'border-b border-border/60',
+                  'transition-colors',
+                  'placeholder:text-muted-foreground/50',
+                  'hover:border-border focus:border-accent focus:outline-none',
                 )}
               />
               {modelInput && (
                 <button
                   type="button"
                   onClick={addModel}
-                  className="inline-flex h-5 w-5 items-center justify-center rounded text-muted-foreground/60 hover:text-foreground hover:bg-muted/50 transition-colors"
+                  className={cn(
+                    'shrink-0 inline-flex items-center justify-center rounded h-9 w-9',
+                    'text-muted-foreground/70 hover:text-foreground hover:bg-muted/50 transition-colors',
+                  )}
                   aria-label="Add model"
                 >
-                  <Plus className="h-3 w-3" />
+                  <Plus className="h-4 w-4" />
                 </button>
               )}
-            </span>
+            </div>
           </div>
         </Field>
       </div>
@@ -268,56 +284,51 @@ function computeApiKeyHint(
   draft: ProviderDraft,
   envByName: Record<string, boolean>,
   providerTypeEnvVars: Record<string, string[]>,
-): { message: React.ReactNode } {
+): React.ReactNode {
   const renamed =
     draft.original_name !== '' && draft.original_name !== draft.name.trim()
   if (renamed && draft.api_key_saved && !draft.api_key_dirty) {
-    return {
-      message: (
-        <span className="text-destructive/80">
-          renamed from <code>{draft.original_name}</code> — saved key won't
-          carry over, paste it again
-        </span>
-      ),
-    }
+    return (
+      <span className="text-destructive/80">
+        renamed from <code className="font-mono">{draft.original_name}</code> —
+        saved key won't carry over, paste it again
+      </span>
+    )
   }
 
   const refMatch = draft.api_key_input.trim().match(ENV_REF_RE)
   if (refMatch) {
     const envName = refMatch[1] as string
     const set = envByName[envName] ?? false
-    return {
-      message: set ? (
-        <>
-          env <code>{envName}</code> is set
-        </>
-      ) : (
-        <span className="text-destructive/80">
-          env <code>{envName}</code> is not set
-        </span>
-      ),
-    }
+    return set ? (
+      <>
+        env <code className="font-mono">{envName}</code> is set
+      </>
+    ) : (
+      <span className="text-destructive/80">
+        env <code className="font-mono">{envName}</code> is not set
+      </span>
+    )
   }
 
   if (!draft.api_key_input.trim() && !draft.api_key_saved) {
     const builtins = providerTypeEnvVars[draft.type] || []
-    if (builtins.length === 0) return { message: undefined }
+    if (builtins.length === 0) return undefined
     const primary = builtins[0] as string
     const set = envByName[primary] ?? false
-    return {
-      message: set ? (
-        <>
-          using env <code>{primary}</code>
-        </>
-      ) : (
-        <span className="text-destructive/80">
-          env <code>{primary}</code> not set — paste a key or set the env
-        </span>
-      ),
-    }
+    return set ? (
+      <>
+        using env <code className="font-mono">{primary}</code>
+      </>
+    ) : (
+      <span className="text-destructive/80">
+        env <code className="font-mono">{primary}</code> not set — paste a key
+        or set the env
+      </span>
+    )
   }
 
-  return { message: undefined }
+  return undefined
 }
 
 function renderNameHint(
@@ -331,7 +342,8 @@ function renderNameHint(
     if (usedTypesByOthers.has(draft.type)) {
       return (
         <>
-          type <code>{draft.type}</code> already used — pick an alias name
+          type <code className="font-mono">{draft.type}</code> already used —
+          pick an alias name
         </>
       )
     }
@@ -340,7 +352,7 @@ function renderNameHint(
   if (trimmed === draft.type) {
     return (
       <>
-        overrides built-in <code>{draft.type}</code>
+        overrides built-in <code className="font-mono">{draft.type}</code>
       </>
     )
   }
@@ -358,7 +370,7 @@ function renderDefaultModelsHint(
       uses built-in:{' '}
       {defaults.map((m, i) => (
         <span key={m}>
-          <code>{m}</code>
+          <code className="font-mono">{m}</code>
           {i < defaults.length - 1 ? ', ' : ''}
         </span>
       ))}

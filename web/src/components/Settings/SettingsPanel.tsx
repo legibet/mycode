@@ -8,7 +8,7 @@
  */
 
 import { Laptop, Loader2, Moon, Plus, Sun, X } from 'lucide-react'
-import { useCallback, useEffect, useId, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type {
   GlobalConfig,
@@ -58,6 +58,34 @@ const INITIAL_DRAFT: DraftState = {
   permission_mode: 'ask',
   providers: [],
 }
+
+const PERMISSION_LEVEL_OPTIONS: { value: PermissionLevel; label: string }[] = [
+  { value: 'readonly', label: 'readonly' },
+  { value: 'safe', label: 'safe' },
+  { value: 'standard', label: 'standard' },
+  { value: 'yolo', label: 'yolo' },
+]
+
+const PERMISSION_MODE_OPTIONS: { value: PermissionMode; label: string }[] = [
+  { value: 'ask', label: 'ask' },
+  { value: 'deny', label: 'deny' },
+]
+
+// Footer buttons share the same skin across mobile/desktop; layout (height,
+// width, side padding) is the only thing that differs and is supplied at the
+// call site.
+const CANCEL_BTN_CLASS = cn(
+  'inline-flex items-center justify-center rounded-md text-[13px]',
+  'text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors',
+  'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
+)
+
+const SAVE_BTN_CLASS = cn(
+  'inline-flex items-center justify-center gap-1.5 rounded-md text-[13px] font-medium',
+  'bg-accent text-accent-foreground hover:bg-accent/90 transition-colors',
+  'disabled:opacity-40 disabled:pointer-events-none',
+  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50',
+)
 
 const THEME_OPTIONS: { value: Theme; label: string; icon: React.ReactNode }[] =
   [
@@ -194,8 +222,6 @@ export function SettingsPanel({
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const compactDisabledId = useId()
-
   // ── data ────────────────────────────────────────────────────────────────
   const reload = useCallback(async () => {
     setLoading(true)
@@ -284,6 +310,8 @@ export function SettingsPanel({
     duplicateNames.size > 0 ||
     draft.providers.some((p) => !p.name.trim() || !p.type)
 
+  const compactDisabled = draft.compact_threshold === 'disabled'
+
   // ── handlers ────────────────────────────────────────────────────────────
   // Stable callbacks so memoized ProviderCard children don't re-render when
   // unrelated parts of the panel state change.
@@ -362,9 +390,11 @@ export function SettingsPanel({
     (path) => path !== response?.path,
   )
 
+  const editsPath = `Edits ${prettifyPath(response?.path ?? FALLBACK_CONFIG_PATH)}`
+
   return createPortal(
     <div
-      className="fixed inset-0 z-[100] flex items-end sm:items-center sm:justify-center"
+      className="fixed inset-0 z-[100] flex items-end md:items-center md:justify-center"
       role="dialog"
       aria-modal="true"
       aria-label="Settings"
@@ -379,66 +409,64 @@ export function SettingsPanel({
 
       <div
         className={cn(
-          'relative flex flex-col overflow-hidden',
-          'bg-background border border-border/40 shadow-2xl',
-          'w-full rounded-t-2xl max-h-[88vh]',
-          'animate-sheet-in',
-          'sm:rounded-xl sm:w-[640px] sm:max-h-[82vh]',
-          'sm:animate-dialog-in',
+          'relative flex flex-col overflow-hidden bg-background shadow-2xl',
+          // Mobile: fullscreen.
+          'w-full h-[100dvh] animate-sheet-in',
+          // Desktop: centered dialog, fixed width, rounded.
+          'md:h-auto md:max-h-[82vh] md:w-[640px] md:rounded-xl md:border md:border-border/40 md:animate-dialog-in',
         )}
       >
-        {/* Mobile drag handle */}
-        <div className="sm:hidden flex justify-center pt-2.5 pb-1 shrink-0">
-          <div className="w-10 h-[3px] rounded-full bg-border/60" />
-        </div>
-
         {/* Header */}
-        <div className="flex items-center justify-between px-5 sm:px-6 py-3.5 border-b border-border/30 shrink-0">
-          <div className="flex items-baseline gap-3 min-w-0">
-            <h2 className="text-[14px] font-medium text-foreground">
-              Settings
-            </h2>
-            {response?.path && (
-              <span className="hidden sm:inline truncate text-[11px] font-mono text-muted-foreground/55">
-                {prettifyPath(response.path)}
-              </span>
-            )}
-          </div>
+        <div
+          className={cn(
+            'flex items-center justify-between shrink-0',
+            'border-b border-border/30',
+            'px-4 md:px-6 h-12 md:h-14',
+            'max-md:pt-[env(safe-area-inset-top)]',
+            'max-md:h-[calc(3rem+env(safe-area-inset-top))]',
+          )}
+        >
+          <h2 className="text-[14px] font-semibold text-foreground">
+            Settings
+          </h2>
           <button
             type="button"
             onClick={onClose}
             aria-label="Close"
             className={cn(
-              'h-7 w-7 inline-flex items-center justify-center rounded',
-              'text-muted-foreground/50 hover:text-foreground hover:bg-muted/60 transition-colors',
+              'inline-flex items-center justify-center rounded -mr-1',
+              'h-8 w-8',
+              'text-muted-foreground/70 hover:text-foreground hover:bg-muted/60 transition-colors',
               'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
             )}
           >
-            <X className="h-3.5 w-3.5" />
+            <X className="h-4 w-4" />
           </button>
         </div>
 
         {/* Body */}
         <div className="flex-1 overflow-y-auto overscroll-contain scrollbar-subtle">
           {loading && !response ? (
-            <div className="flex items-center justify-center h-48 text-muted-foreground/40">
+            <div className="flex items-center justify-center h-48 text-muted-foreground/50">
               <Loader2 className="h-4 w-4 animate-spin" />
             </div>
           ) : (
-            <div className="px-5 sm:px-6 py-5 flex flex-col gap-7">
+            <div className="px-4 md:px-6 py-6 flex flex-col gap-7">
               {projectOverrides.length > 0 && (
-                <div className="rounded border border-border/40 bg-muted/20 px-3 py-2 text-[11px] text-muted-foreground leading-relaxed font-mono">
-                  Project-level config in effect:
-                  <ul className="mt-1 ml-3 list-disc marker:text-muted-foreground/40">
+                <div className="rounded-md border border-border/40 bg-muted/20 px-3.5 py-2.5 text-[12px] leading-relaxed">
+                  <div className="text-foreground/80">
+                    Project-level config in effect:
+                  </div>
+                  <ul className="mt-1.5 ml-4 list-disc text-muted-foreground/80 marker:text-muted-foreground/40 space-y-0.5">
                     {projectOverrides.map((p) => (
-                      <li key={p} className="truncate">
+                      <li key={p} className="truncate font-mono">
                         {prettifyPath(p)}
                       </li>
                     ))}
                   </ul>
-                  <span className="block mt-1 text-muted-foreground/65">
+                  <div className="mt-1.5 text-muted-foreground/70">
                     These continue to override settings saved here.
-                  </span>
+                  </div>
                 </div>
               )}
 
@@ -455,7 +483,7 @@ export function SettingsPanel({
 
               <Section title="Defaults">
                 {providerOptions.length === 0 ? (
-                  <div className="rounded border border-dashed border-border/50 px-3 py-2 text-[12px] text-muted-foreground/70">
+                  <div className="rounded-md border border-dashed border-border/50 px-3.5 py-2.5 text-[12px] text-muted-foreground/70">
                     Add a provider below to configure defaults.
                   </div>
                 ) : (
@@ -501,72 +529,94 @@ export function SettingsPanel({
                 <Field
                   label="Compact"
                   hint={
-                    draft.compact_threshold === 'disabled'
-                      ? 'Auto-compaction disabled'
-                      : 'Trigger compaction at this fraction of context window (default 0.8)'
+                    compactDisabled ? (
+                      <>
+                        Auto-compaction disabled.{' '}
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setDraft((prev) => ({
+                              ...prev,
+                              compact_threshold: '',
+                            }))
+                          }
+                          className="text-accent hover:underline focus-visible:outline-none focus-visible:underline"
+                        >
+                          Enable
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        Trigger compaction at this fraction of context window
+                        (default 0.8).{' '}
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setDraft((prev) => ({
+                              ...prev,
+                              compact_threshold: 'disabled',
+                            }))
+                          }
+                          className="text-accent hover:underline focus-visible:outline-none focus-visible:underline"
+                        >
+                          Disable
+                        </button>
+                      </>
+                    )
                   }
                 >
-                  <div className="flex items-center gap-3">
-                    <TextInput
-                      type="number"
-                      min={0}
-                      max={1}
-                      step={0.05}
-                      value={
-                        draft.compact_threshold === 'disabled'
-                          ? ''
-                          : draft.compact_threshold
-                      }
-                      placeholder="0.8"
-                      disabled={draft.compact_threshold === 'disabled'}
-                      onChange={(e) =>
-                        setDraft((prev) => ({
-                          ...prev,
-                          compact_threshold: e.target.value,
-                        }))
-                      }
-                      className="flex-1"
-                    />
-                    <label
-                      htmlFor={compactDisabledId}
-                      className="shrink-0 inline-flex items-center gap-1.5 text-[11px] text-muted-foreground select-none cursor-pointer"
-                    >
-                      <input
-                        id={compactDisabledId}
-                        type="checkbox"
-                        checked={draft.compact_threshold === 'disabled'}
-                        onChange={(e) =>
-                          setDraft((prev) => ({
-                            ...prev,
-                            compact_threshold: e.target.checked
-                              ? 'disabled'
-                              : '',
-                          }))
-                        }
-                        className="h-3 w-3 accent-accent"
-                      />
-                      disable
-                    </label>
-                  </div>
+                  <TextInput
+                    type="number"
+                    min={0}
+                    max={1}
+                    step={0.05}
+                    value={compactDisabled ? '' : draft.compact_threshold}
+                    placeholder="0.8"
+                    disabled={compactDisabled}
+                    onChange={(e) =>
+                      setDraft((prev) => ({
+                        ...prev,
+                        compact_threshold: e.target.value,
+                      }))
+                    }
+                  />
                 </Field>
               </Section>
 
               <Section title="Permissions">
                 <Field label="Level">
-                  <Segmented<PermissionLevel>
-                    value={draft.permission_level}
-                    onChange={(value) =>
-                      setDraft((prev) => ({ ...prev, permission_level: value }))
-                    }
-                    options={[
-                      { value: 'readonly', label: 'readonly' },
-                      { value: 'safe', label: 'safe' },
-                      { value: 'standard', label: 'standard' },
-                      { value: 'yolo', label: 'yolo' },
-                    ]}
-                    ariaLabel="Permission level"
-                    size="sm"
-                  />
+                  {/* Mobile: 4 options compress to a select; desktop: segmented */}
+                  <div className="md:hidden">
+                    <NativeSelect
+                      value={draft.permission_level}
+                      onChange={(e) =>
+                        setDraft((prev) => ({
+                          ...prev,
+                          permission_level: e.target.value as PermissionLevel,
+                        }))
+                      }
+                    >
+                      {PERMISSION_LEVEL_OPTIONS.map((opt) => (
+                        <option key={opt.value} value={opt.value}>
+                          {opt.label}
+                        </option>
+                      ))}
+                    </NativeSelect>
+                  </div>
+                  <div className="max-md:hidden">
+                    <Segmented<PermissionLevel>
+                      value={draft.permission_level}
+                      onChange={(value) =>
+                        setDraft((prev) => ({
+                          ...prev,
+                          permission_level: value,
+                        }))
+                      }
+                      options={PERMISSION_LEVEL_OPTIONS}
+                      ariaLabel="Permission level"
+                      size="sm"
+                    />
+                  </div>
                 </Field>
                 <Field label="Mode">
                   <Segmented<PermissionMode>
@@ -574,10 +624,7 @@ export function SettingsPanel({
                     onChange={(value) =>
                       setDraft((prev) => ({ ...prev, permission_mode: value }))
                     }
-                    options={[
-                      { value: 'ask', label: 'ask' },
-                      { value: 'deny', label: 'deny' },
-                    ]}
+                    options={PERMISSION_MODE_OPTIONS}
                     ariaLabel="Permission mode"
                     size="sm"
                   />
@@ -606,13 +653,13 @@ export function SettingsPanel({
                     type="button"
                     onClick={addProvider}
                     className={cn(
-                      'inline-flex items-center justify-center gap-1.5 h-9 rounded-lg',
-                      'border border-dashed border-border/50 text-muted-foreground/70',
+                      'inline-flex items-center justify-center gap-1.5 rounded-lg h-9',
+                      'border border-dashed border-border/50 text-muted-foreground/80',
                       'hover:border-border hover:text-foreground hover:bg-muted/30 transition-colors',
-                      'text-[12px]',
+                      'text-[13px]',
                     )}
                   >
-                    <Plus className="h-3.5 w-3.5" />
+                    <Plus className="h-4 w-4" />
                     Add provider
                   </button>
                 </div>
@@ -624,43 +671,64 @@ export function SettingsPanel({
         {/* Footer */}
         <div
           className={cn(
-            'flex items-center justify-between gap-3 px-5 sm:px-6 py-3 border-t border-border/30 shrink-0',
-            'max-md:pb-[max(0.75rem,env(safe-area-inset-bottom))]',
+            'shrink-0 border-t border-border/30',
+            'max-md:pb-[env(safe-area-inset-bottom)]',
           )}
         >
-          <div className="text-[11px] text-muted-foreground/70 font-mono truncate min-w-0 flex-1">
-            {error ? (
-              <span className="text-destructive/90">{error}</span>
-            ) : (
-              `Edits ${prettifyPath(response?.path ?? FALLBACK_CONFIG_PATH)}`
+          {/* Mobile: error stacked above buttons; no path (would truncate uselessly) */}
+          <div className="md:hidden flex flex-col gap-2 px-4 py-3">
+            {error && (
+              <div className="text-[12px] text-destructive/90 leading-relaxed">
+                {error}
+              </div>
             )}
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={onClose}
+                className={cn(CANCEL_BTN_CLASS, 'flex-1 h-9')}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleSave()}
+                disabled={saving || hasInvalidProvider}
+                className={cn(SAVE_BTN_CLASS, 'flex-[2] h-9')}
+              >
+                {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                Save
+              </button>
+            </div>
           </div>
-          <div className="flex items-center gap-2 shrink-0">
-            <button
-              type="button"
-              onClick={onClose}
-              className={cn(
-                'h-8 px-3 rounded text-[12px] text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors',
-                'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
+
+          {/* Desktop: path on the left, buttons on the right */}
+          <div className="max-md:hidden flex items-center justify-between gap-3 px-6 py-3">
+            <div className="text-[12px] text-muted-foreground/70 truncate min-w-0 flex-1">
+              {error ? (
+                <span className="text-destructive/90">{error}</span>
+              ) : (
+                editsPath
               )}
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              onClick={() => void handleSave()}
-              disabled={saving || hasInvalidProvider}
-              className={cn(
-                'inline-flex items-center gap-1.5 h-8 px-3.5 rounded text-[12px] font-medium',
-                'border border-accent/30 bg-accent/10 text-accent',
-                'hover:bg-accent/20 hover:border-accent/50 transition-colors',
-                'disabled:opacity-40 disabled:pointer-events-none',
-                'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent/60',
-              )}
-            >
-              {saving && <Loader2 className="h-3 w-3 animate-spin" />}
-              Save
-            </button>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={onClose}
+                className={cn(CANCEL_BTN_CLASS, 'h-8 px-3.5')}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleSave()}
+                disabled={saving || hasInvalidProvider}
+                className={cn(SAVE_BTN_CLASS, 'h-8 px-4')}
+              >
+                {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                Save
+              </button>
+            </div>
           </div>
         </div>
       </div>

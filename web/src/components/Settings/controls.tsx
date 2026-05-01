@@ -2,9 +2,10 @@
  * Small primitives shared across the settings panel.
  *
  * Visual rules (kept in sync with the rest of the app):
- *   • monospace where the value is structured (provider/model ids, env vars)
- *   • controls are borderless by default; show a hairline only on hover/focus
- *   • accent color is reserved for active state; everything else uses muted tokens
+ *   • borderless inputs — hairline only on bottom; deepens on hover/focus
+ *   • mono only for structured values (ids, env vars); labels and hints stay sans
+ *   • accent reserved for active state and the primary action
+ *   • three font sizes (14 section / 13 control / 12 label·hint), three opacities (/100 /70 /50)
  */
 
 import type { ReactNode, SelectHTMLAttributes } from 'react'
@@ -14,33 +15,26 @@ interface FieldProps {
   label: string
   hint?: ReactNode
   children: ReactNode
-  /** Stack label above the control instead of side-by-side. */
-  stacked?: boolean
 }
 
-export function Field({ label, hint, children, stacked }: FieldProps) {
-  // Stacked uses the same label typography as inline so labels look uniform
-  // across the panel — only the geometry differs (label-on-top vs side-by-side).
-  if (stacked) {
-    return (
-      <div className="flex flex-col gap-1.5">
-        <div className="text-[12px] text-muted-foreground/80">{label}</div>
-        {children}
-        {hint && (
-          <div className="text-[11px] text-muted-foreground/60 leading-relaxed font-mono">
-            {hint}
-          </div>
-        )}
-      </div>
-    )
-  }
+export function Field({ label, hint, children }: FieldProps) {
+  // Desktop: 110px label column on the left, control + hint stacked on the right.
+  // Mobile: everything stacked top-to-bottom because there's no horizontal room
+  // for a label column on a 375px screen.
   return (
-    <div className="grid grid-cols-[110px_1fr] items-start gap-3 min-h-[32px]">
-      <div className="text-[12px] text-muted-foreground/80 pt-1.5">{label}</div>
-      <div className="flex flex-col gap-1 min-w-0">
+    <div
+      className={cn(
+        'flex flex-col gap-1.5',
+        'md:grid md:grid-cols-[110px_1fr] md:gap-x-3 md:gap-y-0 md:items-start',
+      )}
+    >
+      <div className="text-[12px] text-muted-foreground/80 select-none md:pt-2">
+        {label}
+      </div>
+      <div className="flex flex-col gap-1.5 min-w-0">
         {children}
         {hint && (
-          <div className="text-[11px] text-muted-foreground/60 leading-relaxed font-mono">
+          <div className="text-[12px] text-muted-foreground/70 leading-relaxed">
             {hint}
           </div>
         )}
@@ -55,12 +49,9 @@ interface SectionProps {
 }
 
 export function Section({ title, children }: SectionProps) {
-  // Section heading is dark + medium weight in title-case so it doesn't compete
-  // with the muted, lower-case entry labels below it. Hairline rule reinforces
-  // the boundary without adding noise.
   return (
-    <section className="flex flex-col">
-      <h3 className="text-[13px] font-semibold text-foreground select-none pb-2 mb-3 border-b border-border/30">
+    <section className="flex flex-col gap-3.5">
+      <h3 className="text-[14px] font-semibold text-foreground select-none">
         {title}
       </h3>
       <div className="flex flex-col gap-2.5">{children}</div>
@@ -87,10 +78,7 @@ export function Segmented<T extends string>({
     <div
       role="radiogroup"
       aria-label={ariaLabel}
-      className={cn(
-        'inline-flex items-center rounded-md border border-border/40 bg-muted/30 p-0.5',
-        size === 'sm' && 'p-[2px]',
-      )}
+      className="inline-flex items-center rounded-md border border-border/50 bg-muted/30 p-0.5"
     >
       {options.map((opt) => {
         const active = opt.value === value
@@ -104,10 +92,10 @@ export function Segmented<T extends string>({
             onClick={() => onChange(opt.value)}
             className={cn(
               'inline-flex items-center justify-center gap-1.5 rounded font-medium transition-colors',
-              size === 'sm' ? 'h-6 px-2.5 text-[11px]' : 'h-7 px-3 text-[12px]',
+              size === 'sm' ? 'h-7 px-2.5 text-[12px]' : 'h-7 px-3 text-[12px]',
               active
-                ? 'bg-background text-foreground shadow-[0_1px_0_rgba(0,0,0,0.04)]'
-                : 'text-muted-foreground hover:text-foreground',
+                ? 'bg-background text-foreground'
+                : 'text-muted-foreground/80 hover:text-foreground',
               'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent/60',
             )}
           >
@@ -129,13 +117,15 @@ export function TextInput({ className, invalid, ...props }: TextInputProps) {
     <input
       {...props}
       className={cn(
-        'h-8 w-full bg-transparent px-2 text-[13px] font-mono',
-        'border-b border-border/40',
+        'h-9 w-full bg-transparent px-2',
+        'text-[13px] font-mono',
+        'border-b border-border/60',
         'transition-colors',
-        'placeholder:text-muted-foreground/40',
-        'hover:border-border/80',
+        'placeholder:text-muted-foreground/50',
+        'hover:border-border',
         'focus:border-accent focus:outline-none',
-        invalid && 'border-destructive/60 focus:border-destructive',
+        'disabled:opacity-50 disabled:hover:border-border/60',
+        invalid && 'border-destructive/70 focus:border-destructive',
         className,
       )}
     />
@@ -152,10 +142,11 @@ export function NativeSelect({
       <select
         {...props}
         className={cn(
-          'appearance-none w-full h-8 pl-2 pr-7 text-[13px] font-mono bg-transparent',
-          'border-b border-border/40',
+          'appearance-none w-full h-9 pl-2 pr-7',
+          'text-[13px] font-mono bg-transparent',
+          'border-b border-border/60',
           'transition-colors',
-          'hover:border-border/80',
+          'hover:border-border',
           'focus:border-accent focus:outline-none',
           className,
         )}
@@ -164,7 +155,7 @@ export function NativeSelect({
       </select>
       <span
         aria-hidden="true"
-        className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground/50"
+        className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground/60"
       >
         ▾
       </span>
