@@ -5,13 +5,15 @@
  */
 
 import { memo, useCallback, useLayoutEffect, useRef } from 'react'
-import type { ChatMessage } from '../../types'
+import type { RenderMessage } from '../../types'
+import { isCompactMarker } from '../../types'
+import { CompactMarker } from './CompactMarker'
 import { MessageBubble } from './MessageBubble'
 
 const SCROLL_THRESHOLD = 120
 
 interface MessageListProps {
-  messages: ChatMessage[]
+  messages: RenderMessage[]
   loading: boolean
   onRewindAndSend: (rewindTo: number, input: string) => Promise<void>
 }
@@ -65,26 +67,30 @@ export const MessageList = memo(function MessageList({
       className="flex-1 overflow-y-auto pb-4 pt-6"
     >
       <div className="mx-auto max-w-4xl max-md:max-w-none flex flex-col gap-6 max-md:gap-5">
-        {messages.map((message, index) => (
-          <MessageBubble
-            key={message.renderKey || `msg-${index}`}
-            role={message.role}
-            blocks={message.content}
-            sourceIndex={message.sourceIndex}
-            synthetic={message.meta?.synthetic}
-            isStreaming={
-              loading &&
-              index === messages.length - 1 &&
-              message.role === 'assistant'
-            }
-            isLoading={loading}
-            index={index}
-            totalTokens={message.meta?.total_tokens}
-            model={message.meta?.model}
-            contextWindow={message.meta?.context_window}
-            onRewindAndSend={onRewindAndSend}
-          />
-        ))}
+        {messages.map((message, index) => {
+          if (isCompactMarker(message)) {
+            return <CompactMarker key={message.renderKey} />
+          }
+          return (
+            <MessageBubble
+              key={message.renderKey || `msg-${index}`}
+              role={message.role}
+              blocks={message.content}
+              sourceIndex={message.sourceIndex}
+              isStreaming={
+                loading &&
+                index === messages.length - 1 &&
+                message.role === 'assistant'
+              }
+              isLoading={loading}
+              index={index}
+              totalTokens={message.meta?.total_tokens}
+              model={message.meta?.model}
+              contextWindow={message.meta?.context_window}
+              onRewindAndSend={onRewindAndSend}
+            />
+          )
+        })}
         <div className="h-4" />
       </div>
     </div>

@@ -34,7 +34,6 @@ interface MessageBubbleProps {
   role: ChatMessage['role']
   blocks: MessageBlock[]
   sourceIndex?: number | undefined
-  synthetic?: boolean | undefined
   isStreaming?: boolean | undefined
   isLoading: boolean
   index: number
@@ -148,7 +147,6 @@ export const MessageBubble = memo(function MessageBubble({
   role,
   blocks,
   sourceIndex,
-  synthetic,
   isStreaming,
   isLoading,
   index,
@@ -224,7 +222,6 @@ export const MessageBubble = memo(function MessageBubble({
     documentBlocks.length === 0 &&
     textAttachmentBlocks.length === 0 &&
     typeof sourceIndex === 'number' &&
-    !synthetic &&
     !isLoading &&
     onRewindAndSend
 

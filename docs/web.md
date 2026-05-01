@@ -21,6 +21,7 @@ web/src/
     Chat/
       MessageList.tsx      # scrollable message history
       MessageBubble.tsx    # single message, role-based styling
+      CompactMarker.tsx    # inline divider rendered for `compact` markers
       InputArea.tsx        # user input, image attachment, submit
       ToolCard.tsx         # tool execution block (start/output/done)
       ReasoningBlock.tsx   # thinking block — expanded while streaming, collapses after
@@ -53,9 +54,11 @@ web/src/
 
 `useChat.ts` stores three related pieces of state:
 
-- `rawMessages` — canonical block messages
-- `messages` — render-ready messages
+- `rawMessages: ChatMessage[]` — canonical block messages (mirrors the JSONL timeline; includes `role: "compact"` markers)
+- `messages: RenderMessage[]` — render-ready entries; `RenderMessage = ChatMessage | CompactMarkerMessage`
 - `toolRuntimeById` — ephemeral tool runtime state
+
+`CompactMarkerMessage` (`{kind: "compact-marker", sourceIndex, renderKey}`) carries no content of its own — it just tells `MessageList` to render `CompactMarker` instead of `MessageBubble`. Use the `isCompactMarker(msg)` type guard from `types.ts` to narrow when iterating.
 
 State is managed via `useReducer` with actions:
 
@@ -63,14 +66,15 @@ State is managed via `useReducer` with actions:
 - `start_turn` — optimistic user message + empty assistant
 - `rewind_and_start_turn` — rewind + optimistic new turn
 - `apply_event` — apply one SSE event to state
+- `rollback` — restore the snapshot taken before an optimistic turn
 
-`buildRenderMessages()` in `utils/messages.ts` is used when loading or rebuilding from canonical messages. During streaming, the reducer updates both `rawMessages` and `messages` incrementally.
+`buildRenderMessages()` in `utils/messages.ts` is used when loading or rebuilding from canonical messages; it emits a `CompactMarkerMessage` for every `role: "compact"` entry it sees. During streaming the reducer updates both `rawMessages` and `messages` incrementally, and a live `compact` SSE event appends a `{role: "compact"}` entry to `rawMessages` plus the matching marker to `messages`.
 
 Key design decisions:
 
 - Tool results persisted as `user` messages with `tool_result` blocks are visually folded into the preceding assistant message during rendering
 - Each render message and block gets a stable `renderKey` for React reconciliation
-- `sourceIndex` tracks the original message position for scroll targeting
+- `sourceIndex` tracks the original message position; rewind uses this index against the visible list, so rewinding to a real user message before a `compact` marker slices the marker away too
 
 Rendering rules:
 
@@ -78,6 +82,7 @@ Rendering rules:
 - `tool_use` blocks → `ToolCard` (with matching `tool_result` and live runtime folded in)
 - `text` blocks → `MarkdownBlock`
 - `image` blocks → inline image preview in `MessageBubble`
+- `compact-marker` entries → `CompactMarker` (a thin labelled divider, no interactivity)
 
 ## Streaming
 
@@ -88,7 +93,7 @@ Rendering rules:
 5. On disconnect: attempt session reload recovery via `GET /api/sessions/{id}`
 6. 409 conflict: attach to the existing run's stream
 
-`compact` events are ignored by the reducer during live streaming. The server has already persisted the compact record, so a later session reload receives the compacted visible history from `GET /api/sessions/{id}`.
+A live `compact` SSE event is consumed by the reducer at the position it arrives — the marker lands between whatever just streamed and whatever streams next, mirroring where the agent emitted it (e.g. between two tool calls of the same turn). The server has already persisted the `compact` JSONL record at the same point, so a later session reload renders the same marker without any extra round-trip.
 
 Streaming state tracking:
 

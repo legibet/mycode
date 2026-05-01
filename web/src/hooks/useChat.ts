@@ -12,6 +12,7 @@ import type {
   LocalConfig,
   MessageMeta,
   PermissionRequest,
+  RenderMessage,
   RunInfo,
   SessionResponse,
   SessionSummary,
@@ -51,7 +52,7 @@ const DEFAULT_SESSION_TITLE = 'New chat'
 
 interface ChatState {
   rawMessages: ChatMessage[]
-  messages: ChatMessage[]
+  messages: RenderMessage[]
   toolRuntimeById: Record<string, ToolRuntime>
   /** Snapshot of rawMessages taken before the latest optimistic turn.
    * Used by 'rollback' to restore state when the request fails. */
@@ -327,6 +328,17 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
           rawMessages = updateLatestAssistantMeta(rawMessages, patch)
           messages = updateLatestAssistantMeta(messages, patch)
         }
+      } else if (event.type === 'compact') {
+        const sourceIndex = rawMessages.length
+        rawMessages = [...rawMessages, { role: 'compact', content: [] }]
+        messages = [
+          ...messages,
+          {
+            kind: 'compact-marker',
+            sourceIndex,
+            renderKey: `compact:${sourceIndex}`,
+          },
+        ]
       }
 
       return { ...state, rawMessages, messages, toolRuntimeById }
@@ -492,9 +504,6 @@ export function useChat(config: LocalConfig) {
 
             try {
               const event = JSON.parse(data) as StreamEvent
-              if (event.type === 'compact') {
-                continue
-              }
               if (
                 streamTokenRef.current !== token ||
                 activeSessionRef.current.id !== sessionId
@@ -603,7 +612,6 @@ export function useChat(config: LocalConfig) {
         : []
       const replayedPermissions: PermissionRequest[] = []
       for (const event of pendingEvents) {
-        if (event?.type === 'compact') continue
         if (event?.type === 'permission_request') {
           replayedPermissions.push({
             request_id: event.request_id,

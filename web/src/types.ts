@@ -163,7 +163,6 @@ export type AttachedFile =
   | AttachedTextFile
 
 export interface MessageMeta {
-  synthetic?: boolean
   total_tokens?: number
   model?: string
   provider?: string
@@ -172,11 +171,25 @@ export interface MessageMeta {
 }
 
 export interface ChatMessage {
-  role: 'user' | 'assistant' | 'system'
+  role: 'user' | 'assistant' | 'system' | 'compact'
   content: MessageBlock[]
   meta?: MessageMeta
   renderKey?: string
   sourceIndex?: number
+}
+
+export interface CompactMarkerMessage {
+  kind: 'compact-marker'
+  sourceIndex: number
+  renderKey: string
+}
+
+export type RenderMessage = ChatMessage | CompactMarkerMessage
+
+export function isCompactMarker(
+  message: RenderMessage,
+): message is CompactMarkerMessage {
+  return 'kind' in message && message.kind === 'compact-marker'
 }
 
 export interface StreamEventBase {
@@ -229,8 +242,6 @@ export interface ErrorEvent extends StreamEventBase {
 
 export interface CompactEvent extends StreamEventBase {
   type: 'compact'
-  message?: string
-  compacted_count?: number
 }
 
 export interface PermissionRequestEvent extends StreamEventBase {

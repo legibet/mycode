@@ -1,7 +1,16 @@
 import { renderHook, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import type { ChatMessage, RenderMessage } from '../types'
+import { isCompactMarker } from '../types'
 import { loadActiveSession, saveActiveSession } from '../utils/storage'
 import { useChat } from './useChat'
+
+function expectChat(message: RenderMessage | undefined): ChatMessage {
+  if (!message || isCompactMarker(message)) {
+    throw new Error('expected a ChatMessage, got compact marker or undefined')
+  }
+  return message
+}
 
 function createLocalStorage() {
   const store = new Map<string, string>()
@@ -187,7 +196,8 @@ describe('useChat', () => {
 
     await waitFor(() => {
       const userMessage = result.current.messages.find(
-        (message) => message.role === 'user',
+        (message): message is ChatMessage =>
+          !isCompactMarker(message) && message.role === 'user',
       )
       expect(userMessage?.content[1]).toEqual({
         type: 'document',
@@ -297,7 +307,7 @@ describe('useChat', () => {
       expect(result.current.messages).toHaveLength(2)
     })
 
-    expect(result.current.messages[1]?.content[0]).toEqual({
+    expect(expectChat(result.current.messages[1]).content[0]).toEqual({
       type: 'text',
       text: 'looks good',
       renderKey: 'assistant:1:0',
@@ -356,7 +366,7 @@ describe('useChat', () => {
       expect(result.current.sessions.map((session) => session.id)).toEqual([
         'session-1',
       ])
-      expect(result.current.messages[0]?.content[0]).toEqual({
+      expect(expectChat(result.current.messages[0]).content[0]).toEqual({
         type: 'text',
         text: 'first session',
         renderKey: 'assistant:0:0',

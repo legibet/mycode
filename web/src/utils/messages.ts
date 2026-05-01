@@ -6,9 +6,11 @@
 import type {
   AttachedFile,
   ChatMessage,
+  CompactMarkerMessage,
   DocumentBlock,
   MessageBlock,
   MessageMeta,
+  RenderMessage,
   TextBlock,
   ThinkingBlock,
   ToolInput,
@@ -16,6 +18,7 @@ import type {
   ToolRuntime,
   ToolUseBlock,
 } from '../types'
+import { isCompactMarker } from '../types'
 
 interface ToolCall {
   id?: string
@@ -34,6 +37,19 @@ function isObject(value: unknown): value is Record<string, unknown> {
 
 function getBlocks(message?: ChatMessage | null): MessageBlock[] {
   return Array.isArray(message?.content) ? message.content : []
+}
+
+function asChatMessage(message: RenderMessage | undefined): ChatMessage | null {
+  if (!message || isCompactMarker(message)) return null
+  return message
+}
+
+function createCompactMarker(sourceIndex: number): CompactMarkerMessage {
+  return {
+    kind: 'compact-marker',
+    sourceIndex,
+    renderKey: `compact:${sourceIndex}`,
+  }
 }
 
 function cloneBlock(
@@ -260,14 +276,10 @@ export function appendToolUse(
   messages: ChatMessage[],
   toolCall: ToolCall,
 ): ChatMessage[] {
-  const next = [...messages]
-  let index = findLatestAssistantIndex(next)
-
-  if (index === -1) {
-    next.push(createAssistantMessage([]))
-    index = next.length - 1
-  }
-
+  // Tail-aware: matches appendAssistantDelta. A backward scan would attach the
+  // new tool to the previous turn's assistant when the tail is a tool-result
+  // user message or a compact marker.
+  const { messages: next, index } = ensureTailAssistant(messages)
   const assistant = next[index]
   if (!assistant) {
     return next
@@ -344,12 +356,12 @@ function buildToolRuntime(
 }
 
 function updateRenderToolMessage(
-  result: ChatMessage[],
+  result: RenderMessage[],
   entry: ToolIndexEntry,
   runtime: ToolRuntime | undefined,
   toolResultBlock: ToolResultBlock | null,
 ): ChatMessage | null {
-  const targetMessage = result[entry.messageIndex]
+  const targetMessage = asChatMessage(result[entry.messageIndex])
   if (!targetMessage) {
     return null
   }
@@ -370,20 +382,21 @@ function updateRenderToolMessage(
 }
 
 function ensureTailRenderAssistant(
-  messages: ChatMessage[],
+  messages: RenderMessage[],
   sourceIndex: number,
 ): {
-  messages: ChatMessage[]
+  messages: RenderMessage[]
   index: number
 } {
   const next = [...messages]
   const lastIndex = next.length - 1
+  const last = asChatMessage(next[lastIndex])
 
   // Reuse the last assistant render message if it exists, regardless of
   // sourceIndex.  During multi-turn tool loops the raw sourceIndex changes
   // every round, but visually they belong to the same assistant turn — this
   // matches the merge behavior of buildRenderMessages on reload.
-  if (lastIndex >= 0 && next[lastIndex]?.role === 'assistant') {
+  if (last?.role === 'assistant') {
     return { messages: next, index: lastIndex }
   }
 
@@ -392,7 +405,7 @@ function ensureTailRenderAssistant(
 }
 
 function findRenderToolEntry(
-  messages: ChatMessage[],
+  messages: RenderMessage[],
   toolUseId: string,
 ): ToolIndexEntry | null {
   if (!toolUseId) return null
@@ -402,7 +415,7 @@ function findRenderToolEntry(
     messageIndex >= 0;
     messageIndex--
   ) {
-    const message = messages[messageIndex]
+    const message = asChatMessage(messages[messageIndex])
     if (message?.role !== 'assistant') continue
 
     const content = getBlocks(message)
@@ -418,18 +431,19 @@ function findRenderToolEntry(
 }
 
 export function appendRenderAssistantDelta(
-  messages: ChatMessage[],
+  messages: RenderMessage[],
   blockType: 'thinking' | 'text',
   delta: string,
   sourceIndex: number,
-): ChatMessage[] {
+): RenderMessage[] {
   if (!delta || sourceIndex < 0) return messages
 
   const { messages: next, index } = ensureTailRenderAssistant(
     messages,
     sourceIndex,
   )
-  const assistant = next[index] ?? createRenderAssistantMessage(sourceIndex)
+  const assistant =
+    asChatMessage(next[index]) ?? createRenderAssistantMessage(sourceIndex)
   const content = [...getBlocks(assistant)]
   const lastBlock = content[content.length - 1]
 
@@ -452,16 +466,16 @@ export function appendRenderAssistantDelta(
   return next
 }
 
-export function updateLatestThinkingDuration(
-  messages: ChatMessage[],
+export function updateLatestThinkingDuration<T extends RenderMessage>(
+  messages: T[],
   durationMs: number,
-): ChatMessage[] {
+): T[] {
   for (
     let messageIndex = messages.length - 1;
     messageIndex >= 0;
     messageIndex--
   ) {
-    const message = messages[messageIndex]
+    const message = asChatMessage(messages[messageIndex])
     if (message?.role !== 'assistant') continue
 
     const content = getBlocks(message)
@@ -478,7 +492,7 @@ export function updateLatestThinkingDuration(
           duration_ms: durationMs,
         },
       }
-      next[messageIndex] = { ...message, content: nextContent }
+      next[messageIndex] = { ...message, content: nextContent } as T
       return next
     }
   }
@@ -486,36 +500,37 @@ export function updateLatestThinkingDuration(
   return messages
 }
 
-export function updateLatestAssistantMeta(
-  messages: ChatMessage[],
+export function updateLatestAssistantMeta<T extends RenderMessage>(
+  messages: T[],
   patch: Partial<MessageMeta>,
-): ChatMessage[] {
+): T[] {
   for (let i = messages.length - 1; i >= 0; i--) {
-    const message = messages[i]
+    const message = asChatMessage(messages[i])
     if (message?.role !== 'assistant') continue
     const next = [...messages]
     next[i] = {
       ...message,
       meta: { ...(message.meta ?? {}), ...patch },
-    }
+    } as T
     return next
   }
   return messages
 }
 
 export function appendRenderToolUse(
-  messages: ChatMessage[],
+  messages: RenderMessage[],
   toolCall: ToolCall,
   sourceIndex: number,
   runtime?: ToolRuntime,
-): ChatMessage[] {
+): RenderMessage[] {
   if (sourceIndex < 0) return messages
 
   const { messages: next, index } = ensureTailRenderAssistant(
     messages,
     sourceIndex,
   )
-  const assistant = next[index] ?? createRenderAssistantMessage(sourceIndex)
+  const assistant =
+    asChatMessage(next[index]) ?? createRenderAssistantMessage(sourceIndex)
   const content = [...getBlocks(assistant)]
   const renderBlock = createToolUseBlock(toolCall)
   renderBlock.renderKey =
@@ -530,12 +545,12 @@ export function appendRenderToolUse(
 }
 
 export function updateRenderToolRuntime(
-  messages: ChatMessage[],
+  messages: RenderMessage[],
   toolUseId: string,
   runtime: ToolRuntime | undefined,
   sourceIndex: number,
   toolResultBlock: ToolResultBlock | null = null,
-): ChatMessage[] {
+): RenderMessage[] {
   if (!toolUseId || sourceIndex < 0) return messages
 
   const entry = findRenderToolEntry(messages, toolUseId)
@@ -544,7 +559,8 @@ export function updateRenderToolRuntime(
       messages,
       sourceIndex,
     )
-    const assistant = next[index] ?? createRenderAssistantMessage(sourceIndex)
+    const assistant =
+      asChatMessage(next[index]) ?? createRenderAssistantMessage(sourceIndex)
     const content = [...getBlocks(assistant)]
     const renderBlock: ToolUseBlock = {
       type: 'tool_use',
@@ -570,10 +586,10 @@ export function updateRenderToolRuntime(
 export function buildRenderMessages(
   messages: ChatMessage[],
   toolRuntimeById: Record<string, ToolRuntime> = {},
-): ChatMessage[] {
+): RenderMessage[] {
   if (!Array.isArray(messages)) return []
 
-  const result: ChatMessage[] = []
+  const result: RenderMessage[] = []
   const toolIndex: Record<string, ToolIndexEntry> = {}
   let currentAssistant: ChatMessage | null = null
 
@@ -587,6 +603,12 @@ export function buildRenderMessages(
   for (const [sourceIndex, message] of messages.entries()) {
     const role = message?.role
     const blocks = getBlocks(message)
+
+    if (role === 'compact') {
+      result.push(createCompactMarker(sourceIndex))
+      currentAssistant = null
+      continue
+    }
 
     if (role === 'user') {
       const userBlocks = blocks
@@ -722,9 +744,11 @@ export function buildRenderMessages(
     result[messageIndex] = merged
   }
 
-  return result.filter(
-    (message, index) =>
+  return result.filter((message, index) => {
+    if (isCompactMarker(message)) return true
+    return (
       (Array.isArray(message.content) && message.content.length > 0) ||
-      (index === result.length - 1 && message.role === 'assistant'),
-  )
+      (index === result.length - 1 && message.role === 'assistant')
+    )
+  })
 }
