@@ -184,10 +184,10 @@ async def chat(chat: ChatRequest, store: StoreDep, runs: RunManagerDep):
             for block in blocks
         )
 
-        # Rewind only makes sense for real user prompts. Synthetic compact
-        # summaries, assistant messages, and tool-result-only user messages are
-        # not valid targets.
-        if target.get("role") != "user" or (target.get("meta") or {}).get("synthetic") or not has_user_content:
+        # Rewind only makes sense for real user prompts. Assistant messages,
+        # compact markers, and tool-result-only user messages are not valid
+        # targets.
+        if target.get("role") != "user" or not has_user_content:
             raise HTTPException(
                 status_code=400,
                 detail="rewind_to must reference a real user message",

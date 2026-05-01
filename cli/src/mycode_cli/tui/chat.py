@@ -572,13 +572,10 @@ class TerminalChat:
             self.view.console.print("[dim]nothing to rewind[/dim]")
             return None
 
-        # Collect real user text messages (skip synthetic compact summaries
-        # and tool-result-only user messages).
+        # Collect real user text messages (skip tool-result-only user messages).
         user_turns: dict[int, str] = {}  # message_index -> text
         for i, msg in enumerate(messages):
             if msg.get("role") != "user":
-                continue
-            if (msg.get("meta") or {}).get("synthetic"):
                 continue
             for b in msg.get("content") or []:
                 if isinstance(b, dict) and b.get("type") == "text" and b.get("text"):

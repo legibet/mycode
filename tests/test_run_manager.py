@@ -131,6 +131,44 @@ async def test_cancel_only_marks_target_run_cancelled() -> None:
     await updated_second.task
 
 
+class CancelledAchatAgent:
+    """Agent whose achat raises ``CancelledError`` mid-stream.
+
+    Mirrors the historical ``_compact`` cancellation path that used to leak
+    past ``except Exception`` and leave ``_finish_run`` uncalled.
+    """
+
+    def cancel(self) -> None:
+        return None
+
+    async def achat(self, user_input):
+        del user_input
+        yield Event("text", {"delta": "partial"})
+        raise asyncio.CancelledError
+
+
+async def test_cancelled_error_in_agent_still_finalizes_run() -> None:
+    manager = RunManager()
+    agent = CancelledAchatAgent()
+
+    run = await manager.start_run(
+        session_id="session-1",
+        user_message={"role": "user", "content": [{"type": "text", "text": "go"}]},
+        base_messages=[],
+        agent=agent,
+    )
+
+    state = await manager.get_run(run["id"])
+    assert state is not None and state.task is not None
+    await state.task
+
+    final = await manager.get_run(run["id"])
+    assert final is not None
+    assert final.status == "cancelled"
+    # Active-session lock must be released so the next /api/chat does not 409.
+    assert not await manager.has_active_run("session-1")
+
+
 class ReviewAgent:
     """Fake agent that requests one permission decision mid-stream."""
 

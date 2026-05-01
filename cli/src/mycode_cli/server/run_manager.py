@@ -213,6 +213,11 @@ class RunManager:
                 if event.type == "error":
                     last_error = str(event.data.get("message") or "unknown error")
                 await self._append_event(state, event)
+        except asyncio.CancelledError:
+            # BaseException, not caught by ``except Exception`` — without this
+            # branch ``_finish_run`` never runs and the active-session lock
+            # leaks (next /api/chat returns 409).
+            last_error = "cancelled"
         except Exception as exc:  # pragma: no cover - defensive
             last_error = str(exc)
             await self._append_event(state, Event("error", {"message": last_error}))

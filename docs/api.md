@@ -303,7 +303,7 @@ Response: `{cwd: "...", exists: true}`
 | `tool_start`          | `tool_call: {id, name, input}`                                               |
 | `tool_output`         | `tool_use_id: str`, `output: str`                                            |
 | `tool_done`           | `tool_use_id: str`, `output: str`, `is_error: bool`, `metadata?`, `content?` |
-| `compact`             | `message: str`, `compacted_count: int`                                       |
+| `compact`             | _empty payload_                                                              |
 | `error`               | `message: str`                                                               |
 | `permission_request`  | `request_id: str`, `tool_use_id: str`, `tool_name: str`, `preview: str`      |
 | `permission_resolved` | `request_id: str`, `decision: "allow" \| "deny"`                             |

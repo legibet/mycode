@@ -130,6 +130,14 @@ def format_local_timestamp(value: str, display_format: str) -> str:
         return value[:16].replace("T", " ")
 
 
+def _compact_marker_text(width: int) -> Text:
+    """Build the inline ``compacted`` divider used in stream and history views."""
+
+    label = " compacted "
+    bar = max(1, (max(width, len(label) + 4) - len(label)) // 2)
+    return Text(f"{'─' * bar}{label}{'─' * bar}", style=MUTED)
+
+
 class TerminalView:
     """Print static CLI output such as headers, previews, and session lists."""
 
@@ -199,6 +207,8 @@ class TerminalView:
                         self.console.print(Text(f"  {line}"))
                 elif kind == "text":
                     self.console.print(_LeftMarkdown(str(content), code_theme=CODE_THEME))
+                elif kind == "compact":
+                    self.console.print(_compact_marker_text(self.console.size.width))
                 else:
                     name, args = content
                     preview = _tool_preview(name, args if isinstance(args, dict) else {})
@@ -271,9 +281,11 @@ class TerminalView:
             role = message.get("role")
             content = message.get("content")
 
+            if role == "compact":
+                turns.append([("compact", None)])
+                continue
+
             if role == "user":
-                if (message.get("meta") or {}).get("synthetic"):
-                    continue
                 # Use the shared flattener so attached file payload blocks stay out
                 # of the readable history preview.
                 text = flatten_message_text(message, include_thinking=False)
@@ -388,7 +400,7 @@ class ReplyRenderer:
                 case "usage":
                     self._stats = dict(event.data)
                 case "compact":
-                    self.compact(event.data.get("message", ""))
+                    self.compact()
                 case "error":
                     exit_code = 1
                     self.error(event.data.get("message", ""))
@@ -582,13 +594,12 @@ class ReplyRenderer:
 
         return parts if parts.plain else None
 
-    def compact(self, message: str) -> None:
-        """Render a context compaction notification."""
+    def compact(self) -> None:
+        """Render an inline ``compacted`` divider during streaming."""
 
         self._finalize_reasoning_phase()
         self._reset_stream_state()
-        text = Text(f"⟳ {message}", style=MUTED)
-        self._console.print(text)
+        self._console.print(_compact_marker_text(self._console.size.width))
 
     def error(self, message: str) -> None:
         """Render a terminal-visible error message for the current turn."""
