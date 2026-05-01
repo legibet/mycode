@@ -10,13 +10,7 @@ import { FileText, PenLine, SquarePen, Terminal } from 'lucide-react'
 import { lazy, memo, Suspense, useState } from 'react'
 import { cn } from '../../utils/cn'
 
-let editDiffPromise: Promise<typeof import('./EditDiff')> | undefined
-
-function loadEditDiff() {
-  if (!editDiffPromise) editDiffPromise = import('./EditDiff')
-  return editDiffPromise
-}
-const EditDiff = lazy(loadEditDiff)
+const EditDiff = lazy(() => import('./EditDiff'))
 
 interface EditEntry {
   oldText: string

@@ -21,30 +21,7 @@ interface ThemeProviderProps {
 
 const ThemeProviderContext = createContext<ThemeContextValue | null>(null)
 
-function resolveTheme(theme: Theme): ThemeContextValue['resolvedTheme'] {
-  if (theme !== 'system') return theme
-
-  return window.matchMedia('(prefers-color-scheme: dark)').matches
-    ? 'dark'
-    : 'light'
-}
-
-function applyTheme(theme: Theme): ThemeContextValue['resolvedTheme'] {
-  const root = window.document.documentElement
-  const resolvedTheme = resolveTheme(theme)
-
-  root.classList.remove('light', 'dark')
-
-  if (resolvedTheme === 'light') {
-    root.classList.add('light')
-  } else {
-    root.classList.add('dark')
-  }
-
-  root.style.colorScheme = resolvedTheme
-
-  return resolvedTheme
-}
+const DARK_QUERY = '(prefers-color-scheme: dark)'
 
 export function ThemeProvider({
   children,
@@ -59,25 +36,26 @@ export function ThemeProvider({
       ? savedTheme
       : defaultTheme
   })
-  const [resolvedTheme, setResolvedTheme] = useState<
-    ThemeContextValue['resolvedTheme']
-  >(() => resolveTheme(theme))
+  const [systemDark, setSystemDark] = useState(
+    () => window.matchMedia(DARK_QUERY).matches,
+  )
 
   useEffect(() => {
-    setResolvedTheme(applyTheme(theme))
-  }, [theme])
+    const mq = window.matchMedia(DARK_QUERY)
+    const onChange = () => setSystemDark(mq.matches)
+    mq.addEventListener('change', onChange)
+    return () => mq.removeEventListener('change', onChange)
+  }, [])
+
+  const resolvedTheme: ThemeContextValue['resolvedTheme'] =
+    theme === 'system' ? (systemDark ? 'dark' : 'light') : theme
 
   useEffect(() => {
-    if (theme !== 'system') return
-
-    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)')
-    const handleChange = () => {
-      setResolvedTheme(applyTheme('system'))
-    }
-
-    mediaQuery.addEventListener('change', handleChange)
-    return () => mediaQuery.removeEventListener('change', handleChange)
-  }, [theme])
+    const root = document.documentElement
+    root.classList.remove('light', 'dark')
+    root.classList.add(resolvedTheme)
+    root.style.colorScheme = resolvedTheme
+  }, [resolvedTheme])
 
   const setTheme = useCallback(
     (nextTheme: Theme) => {
@@ -92,11 +70,7 @@ export function ThemeProvider({
     [theme, resolvedTheme, setTheme],
   )
 
-  return (
-    <ThemeProviderContext.Provider value={value}>
-      {children}
-    </ThemeProviderContext.Provider>
-  )
+  return <ThemeProviderContext value={value}>{children}</ThemeProviderContext>
 }
 
 export const useTheme = () => {

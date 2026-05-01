@@ -20,8 +20,6 @@ const DEFAULT_CONFIG: LocalConfig = {
   provider: '', // configured alias or raw provider id; empty = use server default
   model: '',
   cwd: '.',
-  apiKey: '',
-  apiBase: '',
   reasoningEffort: '', // empty = use server/config default
 }
 
@@ -45,8 +43,6 @@ function normalizeStoredConfig(record: Record<string, unknown>): LocalConfig {
     provider: getString(record, 'provider', DEFAULT_CONFIG.provider),
     model: getString(record, 'model', DEFAULT_CONFIG.model),
     cwd: getString(record, 'cwd', DEFAULT_CONFIG.cwd),
-    apiKey: DEFAULT_CONFIG.apiKey,
-    apiBase: DEFAULT_CONFIG.apiBase,
     reasoningEffort: isReasoningEffort(reasoningEffort)
       ? reasoningEffort
       : DEFAULT_CONFIG.reasoningEffort,
@@ -62,8 +58,6 @@ export function loadConfig(): LocalConfig {
       if (!isRecord(parsed) || parsed['_v'] !== SCHEMA_VERSION) {
         return DEFAULT_CONFIG
       }
-      // The web UI no longer exposes per-request auth/base overrides.
-      // Drop any stale browser-side values so they cannot shadow backend config.
       return normalizeStoredConfig(parsed)
     }
   } catch (e) {
@@ -74,11 +68,9 @@ export function loadConfig(): LocalConfig {
 
 export function saveConfig(config: LocalConfig): void {
   try {
-    // Keep browser config aligned with the visible settings only.
-    const { apiKey, apiBase, ...rest } = config
     localStorage.setItem(
       STORAGE_KEY,
-      JSON.stringify({ ...rest, _v: SCHEMA_VERSION }),
+      JSON.stringify({ ...config, _v: SCHEMA_VERSION }),
     )
   } catch (e) {
     console.error('Failed to save config:', e)

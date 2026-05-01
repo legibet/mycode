@@ -101,9 +101,8 @@ function createDraftSession(): SessionSummary {
 function chatReducer(state: ChatState, action: ChatAction): ChatState {
   switch (action.type) {
     case 'set_messages': {
-      const rawMessages = Array.isArray(action.messages) ? action.messages : []
       return {
-        rawMessages,
+        rawMessages: action.messages,
         toolRuntimeById: {},
         preTurnRawMessages: null,
       }
@@ -154,7 +153,7 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
     }
 
     case 'apply_event': {
-      const event = action.event || {}
+      const { event } = action
       let rawMessages = state.rawMessages
       const toolRuntimeById = { ...state.toolRuntimeById }
 
@@ -559,7 +558,7 @@ export function useChat(config: LocalConfig) {
       activeRunRef.current = run
 
       if (run?.id) {
-        const lastSeq = pendingEvents.at(-1)?.seq || 0
+        const lastSeq = pendingEvents.at(-1)?.seq ?? 0
         streamRun(run, data.session.id, lastSeq)
       } else {
         setLoading(false)

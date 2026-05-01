@@ -154,10 +154,16 @@ function AppContent() {
       ) {
         return prev
       }
-      saveConfig(updated)
       return updated
     })
   }, [remoteConfig])
+
+  // Persist config on every change. Initial save (from loadConfig) is
+  // idempotent; subsequent ones cover both user edits and remote-defaults
+  // normalization above.
+  useEffect(() => {
+    saveConfig(config)
+  }, [config])
 
   const handleConfigUpdate = useCallback(
     (newConfig: LocalConfig) => {
@@ -167,7 +173,6 @@ function AppContent() {
         saveHistory(nextHistory)
       }
       setConfig(newConfig)
-      saveConfig(newConfig)
     },
     [config.cwd, cwdHistory],
   )

@@ -59,7 +59,9 @@ function useAnchoredPopover(
 ): CSSProperties | null {
   const [style, setStyle] = useState<CSSProperties | null>(null)
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: trigger-only on open/align
+  // anchorRef and popoverRef are stable refs; preferredWidth is in deps so
+  // future non-constant call sites work correctly.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: refs are stable
   useLayoutEffect(() => {
     if (!open) {
       setStyle(null)
@@ -104,7 +106,7 @@ function useAnchoredPopover(
       window.removeEventListener('resize', recalc)
       window.removeEventListener('scroll', recalc, true)
     }
-  }, [open, align])
+  }, [open, align, preferredWidth])
 
   return style
 }
@@ -272,13 +274,10 @@ export const ModelTrigger = memo(function ModelTrigger({
   const selectIndex = (i: number) => {
     const item = filtered[i]
     if (!item) return
-    const providerChanged = item.providerKey !== config.provider
     onUpdateConfig({
       ...config,
       provider: item.providerKey,
       model: item.model,
-      apiBase: providerChanged ? '' : config.apiBase,
-      apiKey: providerChanged ? '' : config.apiKey,
       reasoningEffort: '',
     })
     setOpen(false)

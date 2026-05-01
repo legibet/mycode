@@ -50,8 +50,6 @@ function renderChatHook(overrides?: Partial<Parameters<typeof useChat>[0]>) {
       provider: '',
       model: '',
       cwd: '/workspace/a',
-      apiKey: '',
-      apiBase: '',
       reasoningEffort: '',
       ...overrides,
     }),

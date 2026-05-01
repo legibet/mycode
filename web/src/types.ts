@@ -14,8 +14,6 @@ export interface LocalConfig {
   provider: string
   model: string
   cwd: string
-  apiKey: string
-  apiBase: string
   reasoningEffort: ReasoningEffort
 }
 

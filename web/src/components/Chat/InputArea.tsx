@@ -365,7 +365,7 @@ export const InputArea = memo(function InputArea({
               remoteConfig={remoteConfig}
               onUpdateConfig={onUpdateConfig}
             />
-            <EffortTriggerIfSupported
+            <EffortTrigger
               config={config}
               remoteConfig={remoteConfig}
               onUpdateConfig={onUpdateConfig}
@@ -412,18 +412,3 @@ export const InputArea = memo(function InputArea({
     </div>
   )
 })
-
-function EffortTriggerIfSupported(props: {
-  config: LocalConfig
-  remoteConfig: RemoteConfig | null
-  onUpdateConfig: (config: LocalConfig) => void
-}) {
-  const info = props.remoteConfig?.providers?.[props.config.provider]
-  const reasoningModels = info?.reasoning_models || []
-  const supports = Boolean(
-    info?.supports_reasoning_effort &&
-      reasoningModels.includes(props.config.model),
-  )
-  if (!supports) return null
-  return <EffortTrigger {...props} />
-}
