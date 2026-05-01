@@ -28,7 +28,7 @@ const LANGUAGE_ALIASES: Record<string, string> = {
   yml: 'yaml',
 }
 
-const highlighterPromise = createHighlighter({
+void createHighlighter({
   themes: ['dark-plus', 'light-plus'],
   langs: [
     'javascript',
@@ -44,12 +44,7 @@ const highlighterPromise = createHighlighter({
   engine: createJavaScriptRegexEngine(),
 }).then((highlighter) => {
   highlighterInstance = highlighter
-  return highlighter
 })
-
-export function preloadHighlighter(): Promise<AppHighlighter> {
-  return highlighterPromise
-}
 
 export function getHighlighter(): AppHighlighter | null {
   return highlighterInstance
