@@ -89,6 +89,8 @@ Block-based JSON — single format used at runtime and persisted to sessions:
 
 Block types: `text` · `image` · `thinking` · `tool_use` · `tool_result`
 
+Message roles persisted to JSONL: `user` · `assistant` · `compact` · `rewind`. `compact` and `rewind` records act as inline timeline markers — `compact` carries the summary text and stays visible to UIs; `rewind` carries an index into the visible list and is consumed at load time by `apply_rewind`.
+
 - `thinking` blocks are first-class session data — persisted and shown in UI
 - Provider-specific extras: `meta.native` on messages, `block.meta.native` on blocks
 - Tool results stored as a `user` message with `tool_result` blocks:
@@ -100,6 +102,7 @@ Block types: `text` · `image` · `thinking` · `tool_use` · `tool_result`
   `output` is replayed to providers on later turns; `metadata` is structured UI data (e.g. `edit` carries a unified patch and line stats).
   `tool_result.content` may store structured `text` and `image` blocks (replayed to providers alongside `output`).
 - System prompt is runtime-only, not persisted
+- Compact substitution (replacing pre-compact history with a summary continuation) happens lazily inside `Agent._project_for_provider` per request; visible state and JSONL keep the real history.
 
 ## Agent Loop
 
@@ -143,7 +146,7 @@ All adapters implement `ProviderAdapter.stream_turn()`. Message projection to pr
 | `tool_start`          | `tool_call: {id, name, input}`                               |
 | `tool_output`         | `tool_use_id`, `output`                                      |
 | `tool_done`           | `tool_use_id`, `output`, `is_error`, `metadata?`, `content?` |
-| `compact`             | `message`, `compacted_count`                                 |
+| `compact`             | _empty_                                                      |
 | `error`               | `message`                                                    |
 | `permission_request`  | `request_id`, `tool_use_id`, `tool_name`, `preview`          |
 | `permission_resolved` | `request_id`, `decision` (`"allow"` or `"deny"`)             |

@@ -24,7 +24,7 @@ from mycode.messages import ConversationMessage, build_message, flatten_message_
 # Session format and compacting defaults
 # ---------------------------------------------------------------------
 
-MESSAGE_FORMAT_VERSION = 6
+MESSAGE_FORMAT_VERSION = 7
 DEFAULT_COMPACT_THRESHOLD = 0.8
 DEFAULT_SESSION_TITLE = "New chat"
 
@@ -60,13 +60,13 @@ other identifiers verbatim — never paraphrase them.
 - Keep it concise but complete.\
 """
 
-_CONTINUATION_HEADER = "This session is being continued from a previous conversation that was compacted to fit the context window. The summary below covers the earlier portion of the conversation."
+CONTINUATION_HEADER = "This session is being continued from a previous conversation that was compacted to fit the context window. The summary below covers the earlier portion of the conversation."
 
-_TRANSCRIPT_HINT = "For verbatim details not captured in this summary (exact code snippets, error messages, or earlier output), read the original conversation log at: {path}"
+TRANSCRIPT_HINT = "For verbatim details not captured in this summary (exact code snippets, error messages, or earlier output), read the original conversation log at: {path}"
 
-_CONTINUATION_FOOTER = 'Resume directly from where the work left off. Do not acknowledge this summary, do not recap, and do not preface with "I\'ll continue" or similar.'
+CONTINUATION_FOOTER = 'Resume directly from where the work left off. Do not acknowledge this summary, do not recap, and do not preface with "I\'ll continue" or similar.'
 
-_COMPACT_ACK = "Acknowledged."
+COMPACT_ACK = "Acknowledged."
 
 
 # ---------------------------------------------------------------------
@@ -100,7 +100,6 @@ def build_compact_event(
     *,
     provider: str,
     model: str,
-    compacted_count: int,
     total_tokens: int | None = None,
 ) -> ConversationMessage:
     """Build the compact event stored in session JSONL."""
@@ -108,58 +107,10 @@ def build_compact_event(
     meta: dict[str, Any] = {
         "provider": provider,
         "model": model,
-        "compacted_count": compacted_count,
     }
     if total_tokens is not None:
         meta["total_tokens"] = total_tokens
     return build_message("compact", [text_block(summary_text)], meta=meta)
-
-
-def apply_compact(
-    messages: list[ConversationMessage],
-    *,
-    transcript_path: str | None = None,
-    continue_now: bool | None = None,
-) -> list[ConversationMessage]:
-    """Replace the latest compact event with a synthetic summary view.
-
-    ``continue_now`` omits the ack and leaves a user instruction last so the
-    agent loop can immediately request the next assistant response.
-    """
-
-    # Only the newest compact event matters. Older history before it is no
-    # longer visible once the summary replaces that earlier conversation.
-    last_compact_index: int | None = None
-    for index, message in enumerate(messages):
-        if message.get("role") == "compact":
-            last_compact_index = index
-
-    if last_compact_index is None:
-        return messages
-
-    summary_text = ""
-    for block in messages[last_compact_index].get("content") or []:
-        if isinstance(block, dict) and block.get("type") == "text":
-            summary_text = str(block.get("text") or "")
-            break
-
-    tail = messages[last_compact_index + 1 :]
-    if continue_now is None:
-        # During live tool-loop compaction the next persisted message is the
-        # assistant continuation. Waiting compaction has no tail yet.
-        continue_now = bool(tail and tail[0].get("role") == "assistant")
-
-    parts = [_CONTINUATION_HEADER, summary_text]
-    if transcript_path:
-        parts.append(_TRANSCRIPT_HINT.format(path=transcript_path))
-    if continue_now:
-        parts.append(_CONTINUATION_FOOTER)
-
-    result = [build_message("user", [text_block("\n\n".join(parts))], meta={"synthetic": True})]
-    if not continue_now:
-        result.append(build_message("assistant", [text_block(_COMPACT_ACK)], meta={"synthetic": True}))
-    result.extend(tail)
-    return result
 
 
 def build_rewind_event(rewind_to: int) -> ConversationMessage:
@@ -341,16 +292,11 @@ class SessionStore:
         except FileNotFoundError:
             pass
 
-        # Replay order defines the visible conversation state.
-        # 1) compact rewrites older history into one summary view
-        # 2) rewind truncates that visible list by message index
+        # Visible state = raw JSONL minus rewound tails. `compact` markers
+        # stay inline; the agent substitutes them when calling the provider.
         # Orphan tool_use blocks (e.g. left open by a server crash) are
         # closed by the provider adapter at replay time, not here.
-        visible_messages = apply_compact(
-            raw_messages,
-            transcript_path=str(self.messages_path(session_id)),
-        )
-        visible_messages = apply_rewind(visible_messages)
+        visible_messages = apply_rewind(raw_messages)
 
         return {"session": self._summary(session_id, meta), "messages": visible_messages}
 

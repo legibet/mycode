@@ -23,14 +23,14 @@ Source: `mycode/src/mycode/session.py`
   "title": "...",
   "created_at": "...",
   "updated_at": "...",
-  "message_format_version": 6
+  "message_format_version": 7
 }
 ```
 
 - `cwd` — workspace path recorded at session creation; used by `list_sessions(cwd=...)` for filtering
 - `title` — defaults to `"New chat"`; promoted to the first user message text (truncated to 48 chars) on the first `append_message` carrying readable user text
 - `updated_at` — bumped on every `append_message`
-- `message_format_version` — written as `6`, not validated on load
+- `message_format_version` — written as `7`, not validated on load. v7 keeps `compact` events as inline visible markers (instead of replacing pre-compact history at load time); v6 sessions are not migrated.
 
 Per-turn state (`provider` / `model` / `api_base`) intentionally lives only on each `ConversationMessage.meta`; caching a "current" value at the session level would drift after `/model` switches.
 
@@ -65,10 +65,10 @@ Adapter normalization for `total_tokens`:
 ### Compact event
 
 ```json
-{"role": "compact", "content": [{"type": "text", "text": "<summary>"}], "meta": {"provider": "...", "model": "...", "compacted_count": 12, "total_tokens": 48000}}
+{"role": "compact", "content": [{"type": "text", "text": "<summary>"}], "meta": {"provider": "...", "model": "...", "total_tokens": 48000}}
 ```
 
-Marks a context compaction point. Written when token usage ≥ `compact_threshold × context_window`. `meta.total_tokens` is the summary call's usage when the provider reports it; older compact events may omit it. See "Context Compaction" below.
+Inline marker written when token usage ≥ `compact_threshold × context_window`. The summary text is persisted in the marker; UIs render it as a divider in the visible history. `meta.total_tokens` is the summary call's usage when the provider reports it. See "Context Compaction" below.
 
 ### Rewind event
 
@@ -83,20 +83,9 @@ Marks an undo point. See "Rewind" below.
 When `SessionStore.load_session` runs:
 
 1. Read all JSONL lines into a raw list
-2. `apply_compact()` — find the last `role: "compact"` record, replace everything before it with a synthetic user summary view, keep messages after
-3. `apply_rewind()` — scan sequentially; when a rewind record is found, truncate the accumulated list to `meta.rewind_to` and continue
+2. `apply_rewind()` — scan sequentially; when a rewind record is found, truncate the accumulated list to `meta.rewind_to` and continue
 
-`load_session` is a pure reader. Orphan `tool_use` blocks left by an interrupted run are closed by the provider adapter when the messages are replayed, not by the loader.
-
-After compaction, the visible history starts with a synthetic user message that frames the continuation, embeds the summary text, and points the resumed agent at the original JSONL log for verbatim detail.
-
-When compaction happens after a final assistant response, the synthetic user summary is followed by a short synthetic assistant ack (`Acknowledged.`) so the next real user message preserves user/assistant alternation.
-
-When compaction happens inside a tool loop, the synthetic user summary instead ends with a resume instruction and no ack. The agent loop immediately asks the provider for the next assistant response, so the provider sees a user message as the last input.
-
-On session load, `apply_compact()` infers the shape from the post-compact tail: if the first message after the compact event is an assistant message, it uses the tool-loop continuation shape; otherwise it uses the ack shape. Synthetic compact messages are tagged `meta.synthetic: true`.
-
-The original pre-compact messages remain in `messages.jsonl`; they are just hidden from the replayed conversation view, and the synthetic user message includes that file path so the agent can read it for details the summary may have dropped.
+`load_session` returns the raw timeline (minus rewound tails) as the visible history. `compact` records stay in place as inline markers — UIs render them as dividers, and `Agent` substitutes the summary into provider context lazily on each request via `_project_for_provider`. Orphan `tool_use` blocks left by an interrupted run are closed by the provider adapter when the messages are replayed, not by the loader.
 
 ## Context Compaction
 
@@ -104,11 +93,10 @@ Checked after every completed assistant turn (with or without tools), always at
 a full `assistant`/`tool_result` boundary.
 
 1. `should_compact()` — true when the latest assistant message's `total_tokens` ≥ `context_window × compact_threshold` (default `0.8`). Tool outputs appended this turn aren't reflected in that figure until the next API call's usage; the `(1 - threshold)` headroom absorbs them.
-2. Ask the same provider/model for a summary with the normal system prompt, current visible messages, no tools, text only, and `max_tokens = min(agent.max_tokens, 8192)`
-3. Build a compact event with the summary text, `compacted_count`, and the summary call's `total_tokens` when available
-4. Persist the compact event (append-only — original messages stay in JSONL)
-5. Apply `apply_compact()` in memory to rebuild the message list
-6. Emit the `compact` stream event to the caller: `{"message": "...", "compacted_count": N}`
+2. Ask the same provider/model for a summary with the normal system prompt, the current provider-projected messages (`_project_for_provider`), no tools, text only, and `max_tokens = min(agent.max_tokens, 8192)`
+3. Build a compact event with the summary text and the summary call's `total_tokens` when available
+4. Persist the compact event and append it to `agent.messages` (append-only — original messages stay in JSONL and in the visible list)
+5. Emit the `compact` stream event to the caller (empty payload — clients use it as the cue to insert their inline divider)
 
 The headroom `(1 - compact_threshold) × context_window` is reserved for the
 compact call itself: that call sends the full current history as input plus a
@@ -116,7 +104,20 @@ summary capped at `min(agent.max_tokens, 8192)`. Lowering
 `compact_threshold` just triggers earlier; raising it is bounded by how much
 headroom the compact call needs to fit.
 
-If the summary request fails or returns no text, the agent logs a warning and keeps the full in-memory history. No `compact` record is persisted in that case, and the next threshold check will try compaction again. External cancellation still propagates normally.
+If the summary request fails or returns no text, the agent logs a warning and keeps the full in-memory history. No `compact` record is persisted in that case, and the next threshold check will try compaction again — compaction is best-effort and never aborts the turn. A user-initiated cancel inside compaction is the one exception: it ends the turn immediately by emitting an `error` event with message `"cancelled"`, mirroring how phase 1 handles cancellation.
+
+### Provider projection
+
+Visible state preserves pre-compact history and `compact` markers. Before each provider request, `Agent._project_for_provider` rebuilds a provider-facing view:
+
+- finds the last `compact` marker in `self.messages`
+- replaces everything up to and including that marker with one synthetic `user` message that frames the continuation, embeds the summary text, and points at the original JSONL transcript
+- drops any earlier `compact` markers from the tail
+- shape of the synthetic head depends on the tail:
+  - tail empty or starts with `assistant` → no ack; the summary `user` message ends with a resume instruction so the LLM continues directly
+  - tail starts with `user` (a real follow-up prompt) → a short synthetic `assistant` ack (`Acknowledged.`) is inserted between the summary and the tail to preserve user/assistant alternation
+
+The visible list seen by UIs and used by rewind never contains these synthetic substitutes — they exist only inside `ProviderRequest.messages`.
 
 ## Rewind
 
@@ -126,7 +127,7 @@ Triggered by `POST /api/chat` with `rewind_to`:
 2. Server calls `append_rewind(session_id, rewind_to)` — appends a rewind marker to JSONL
 3. Agent auto-resumes; `apply_rewind()` produces the truncated visible history
 
-Rewind indices refer to the visible history after compaction. Synthetic compact summary messages are not valid rewind targets, so UI rewind cannot jump back to pre-compact turns even though the raw JSONL still contains them.
+Rewind indices refer to the visible history, which now includes pre-compact turns and inline `compact` markers. Rewinding to a real user message before a `compact` marker slices the marker away along with the rest of the tail — the next provider request will then see the full pre-compact history again. The marker itself is never a valid rewind target.
 
 ## tool-output/ Spill
 

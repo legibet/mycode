@@ -66,7 +66,7 @@ async for _ in agent.achat("follow-up that references the earlier answer"):
 | `tool_start`     | `{"tool_call": {"id", "name", "input"}}`                                 |
 | `tool_output`    | `{"tool_use_id", "output"}` — only for tools with `streams_output=True`  |
 | `tool_done`      | `{"tool_use_id", "output", "is_error", "metadata"?, "content"?}`         |
-| `compact`        | `{"message", "compacted_count"}`                                         |
+| `compact`        | `{}` — emitted right after a compact marker is appended                  |
 | `error`          | `{"message"}` — fatal for the turn; the iterator stops after emitting it |
 
 ## Sessions
@@ -84,7 +84,7 @@ agent = Agent(
 
 ### What gets persisted
 
-Every message emitted during a turn — the user input, the assistant response (including `thinking` blocks), each `tool_result`, and any `compact` event — is appended as one JSONL line to `<session_dir>/<session_id>/messages.jsonl`. The SDK never rewrites or deletes past lines; compaction records a new event instead of mutating history.
+Every message emitted during a turn — the user input, the assistant response (including `thinking` blocks), each `tool_result`, plus inline `compact` and `rewind` markers — is appended as one JSONL line to `<session_dir>/<session_id>/messages.jsonl`. The SDK never rewrites or deletes past lines.
 
 Runtime-only fields are **not** persisted: the `system` prompt, `api_key`, `api_base`, the registered `tools`, and per-turn `provider` / `model` (those travel as `meta` on the individual assistant message).
 
@@ -107,13 +107,11 @@ Resuming across processes is therefore implicit: construct an `Agent` with the s
 
 ### Compaction
 
-When a turn reaches a full assistant/tool-result boundary, the agent checks the latest assistant message's `meta.total_tokens` against `context_window * compact_threshold`. `total_tokens` is normalized by the provider adapter and includes the prompt plus the model output for that call. The default threshold is `0.8`; pass `compact_threshold=0` to disable.
+When a turn reaches a full assistant/tool-result boundary the agent compares the latest assistant message's `meta.total_tokens` against `context_window * compact_threshold` (default `0.8`; pass `0` to disable). If over, it asks the same provider/model for a text-only summary capped at `max_tokens=8192`, persists a `compact` marker, and appends it inline to `agent.messages`. The pre-compact messages stay in place; only the next provider request sees the summary substitution.
 
-When the threshold is reached, the agent asks the same provider/model for a text-only summary with tools disabled and `max_tokens` capped at `8192`. It then appends a `compact` event to the log and rebuilds `agent.messages` from a synthetic user summary. If the current turn is complete, the summary is followed by a short synthetic assistant acknowledgement; if the agent must continue a tool loop immediately, the summary ends with a resume instruction and no acknowledgement.
+Compaction is best-effort: a failed summary call is logged and the turn continues with the uncompacted history. The exception is a user-initiated cancel inside the summary call, which ends the turn with `error` `message="cancelled"`.
 
-If compaction itself fails — provider error, cancellation, empty summary — the agent logs a warning and continues with the uncompacted history. The turn that triggered it does not fail. Tool outputs appended during the current loop may not be reflected in `total_tokens` until the following provider call, so the threshold should leave enough headroom for both those outputs and the summary request.
-
-See `docs/sessions.md` for the on-disk record format and the replay rules (`compact` → `rewind`) applied by `SessionStore.load_session`. The loader is a pure reader; provider adapters close orphan `tool_use` blocks at replay time.
+See `docs/sessions.md` for the on-disk record format, the projection rule that builds the provider-facing view, and the replay rules applied by `SessionStore.load_session`.
 
 ## Tools
 

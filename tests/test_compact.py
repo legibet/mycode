@@ -7,10 +7,10 @@ from pathlib import Path
 
 import pytest
 
+from mycode.agent import Agent
 from mycode.session import (
     DEFAULT_COMPACT_THRESHOLD,
     SessionStore,
-    apply_compact,
     build_compact_event,
     should_compact,
 )
@@ -25,6 +25,10 @@ def write_file(path: Path, content: str) -> None:
 @pytest.fixture
 def store(tmp_path: Path) -> SessionStore:
     return SessionStore(data_dir=tmp_path / "sessions")
+
+
+def make_agent(tmp_path: Path) -> Agent:
+    return Agent(model="m", provider="anthropic", cwd="/tmp", session_dir=tmp_path)
 
 
 def test_workspace_config_overrides_global_compact_threshold(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -51,34 +55,35 @@ def test_should_compact_respects_threshold_boundaries() -> None:
 
 
 @pytest.mark.asyncio
-async def test_load_session_applies_latest_compact_summary(store: SessionStore) -> None:
+async def test_load_session_keeps_compact_marker_inline(store: SessionStore) -> None:
     await store.create_session("s1", cwd="/tmp")
 
-    for message in [
+    raw_messages = [
         {"role": "user", "content": [{"type": "text", "text": "hello"}]},
         {"role": "assistant", "content": [{"type": "text", "text": "hi"}]},
-        build_compact_event("old summary", provider="p", model="m", compacted_count=2),
+        build_compact_event("old summary", provider="p", model="m"),
         {"role": "user", "content": [{"type": "text", "text": "next"}]},
-        build_compact_event("new summary", provider="p", model="m", compacted_count=4),
+        build_compact_event("new summary", provider="p", model="m"),
         {"role": "assistant", "content": [{"type": "text", "text": "latest reply"}]},
-    ]:
+    ]
+    for message in raw_messages:
         await store.append_message("s1", message)
 
     loaded = await store.load_session("s1")
 
     assert loaded is not None
     messages = loaded["messages"]
-    assert len(messages) == 2
 
-    user_text = messages[0]["content"][0]["text"]
-    assert messages[0]["role"] == "user"
-    assert messages[0]["meta"] == {"synthetic": True}
-    assert "new summary" in user_text
-    assert "old summary" not in user_text
-    assert str(store.messages_path("s1")) in user_text
-    assert "Resume directly" in user_text
-
-    assert messages[1] == {"role": "assistant", "content": [{"type": "text", "text": "latest reply"}]}
+    # Visible state is the raw JSONL (no rewind events here): pre-compact
+    # history stays intact, compact events remain inline as markers.
+    assert [m.get("role") for m in messages] == [
+        "user",
+        "assistant",
+        "compact",
+        "user",
+        "compact",
+        "assistant",
+    ]
 
 
 @pytest.mark.asyncio
@@ -88,7 +93,7 @@ async def test_compact_event_remains_in_raw_jsonl(store: SessionStore) -> None:
     for message in [
         {"role": "user", "content": [{"type": "text", "text": "hello"}]},
         {"role": "assistant", "content": [{"type": "text", "text": "hi"}]},
-        build_compact_event("summary", provider="p", model="m", compacted_count=2),
+        build_compact_event("summary", provider="p", model="m"),
     ]:
         await store.append_message("s1", message)
 
@@ -98,40 +103,83 @@ async def test_compact_event_remains_in_raw_jsonl(store: SessionStore) -> None:
     assert json.loads(raw_lines[2])["role"] == "compact"
 
 
-def test_apply_compact_builds_waiting_and_continue_views() -> None:
-    base_messages = [
-        {"role": "user", "content": [{"type": "text", "text": "hello"}]},
-        {"role": "assistant", "content": [{"type": "text", "text": "hi"}]},
-        build_compact_event("summary", provider="p", model="m", compacted_count=2),
+def test_project_for_provider_is_identity_without_compact(tmp_path: Path) -> None:
+    agent = make_agent(tmp_path)
+    messages = [
+        {"role": "user", "content": [{"type": "text", "text": "hi"}]},
+        {"role": "assistant", "content": [{"type": "text", "text": "hello"}]},
     ]
 
-    waiting = apply_compact(base_messages)
+    assert agent._project_for_provider(messages) is messages
 
-    assert [message["role"] for message in waiting] == ["user", "assistant"]
-    assert waiting[0]["meta"]["synthetic"] is True
-    assert waiting[1]["meta"]["synthetic"] is True
-    assert "summary" in waiting[0]["content"][0]["text"]
-    assert "Resume directly" not in waiting[0]["content"][0]["text"]
-    assert waiting[1]["content"][0]["text"] == "Acknowledged."
 
-    continuing = apply_compact(base_messages, continue_now=True)
+def test_project_for_provider_continues_when_tail_is_empty(tmp_path: Path) -> None:
+    agent = make_agent(tmp_path)
+    messages = [
+        {"role": "user", "content": [{"type": "text", "text": "early"}]},
+        {"role": "assistant", "content": [{"type": "text", "text": "ok"}]},
+        build_compact_event("summary", provider="p", model="m"),
+    ]
 
-    assert len(continuing) == 1
-    assert continuing[0]["role"] == "user"
-    assert "Resume directly" in continuing[0]["content"][0]["text"]
+    projected = agent._project_for_provider(messages)
 
-    replayed = apply_compact(
-        [*base_messages, {"role": "assistant", "content": [{"type": "text", "text": "continued"}]}]
-    )
+    assert [m["role"] for m in projected] == ["user"]
+    text = projected[0]["content"][0]["text"]
+    assert "summary" in text
+    assert "Resume directly" in text
 
-    assert [message["role"] for message in replayed] == ["user", "assistant"]
-    assert "Resume directly" in replayed[0]["content"][0]["text"]
-    assert replayed[1]["content"][0]["text"] == "continued"
+
+def test_project_for_provider_continues_when_tail_starts_with_assistant(tmp_path: Path) -> None:
+    agent = make_agent(tmp_path)
+    messages = [
+        {"role": "user", "content": [{"type": "text", "text": "early"}]},
+        {"role": "assistant", "content": [{"type": "text", "text": "ok"}]},
+        build_compact_event("summary", provider="p", model="m"),
+        {"role": "assistant", "content": [{"type": "text", "text": "tail"}]},
+    ]
+
+    projected = agent._project_for_provider(messages)
+
+    assert [m["role"] for m in projected] == ["user", "assistant"]
+    assert "Resume directly" in projected[0]["content"][0]["text"]
+    assert projected[1]["content"][0]["text"] == "tail"
+
+
+def test_project_for_provider_inserts_ack_when_tail_starts_with_user(tmp_path: Path) -> None:
+    agent = make_agent(tmp_path)
+    messages = [
+        {"role": "user", "content": [{"type": "text", "text": "early"}]},
+        {"role": "assistant", "content": [{"type": "text", "text": "ok"}]},
+        build_compact_event("summary", provider="p", model="m"),
+        {"role": "user", "content": [{"type": "text", "text": "follow-up"}]},
+    ]
+
+    projected = agent._project_for_provider(messages)
+
+    assert [m["role"] for m in projected] == ["user", "assistant", "user"]
+    assert "Resume directly" not in projected[0]["content"][0]["text"]
+    assert projected[1]["content"][0]["text"] == "Acknowledged."
+    assert projected[2]["content"][0]["text"] == "follow-up"
+
+
+def test_project_for_provider_uses_latest_compact_and_drops_earlier_markers(tmp_path: Path) -> None:
+    agent = make_agent(tmp_path)
+    messages = [
+        {"role": "user", "content": [{"type": "text", "text": "very old"}]},
+        build_compact_event("EARLIER_SUMMARY", provider="p", model="m"),
+        {"role": "assistant", "content": [{"type": "text", "text": "mid"}]},
+        build_compact_event("LATEST_SUMMARY", provider="p", model="m"),
+        {"role": "assistant", "content": [{"type": "text", "text": "tail"}]},
+    ]
+
+    projected = agent._project_for_provider(messages)
+
+    assert [m["role"] for m in projected] == ["user", "assistant"]
+    summary_user_text = projected[0]["content"][0]["text"]
+    assert "LATEST_SUMMARY" in summary_user_text
+    assert "EARLIER_SUMMARY" not in summary_user_text
 
 
 def test_agent_uses_default_compact_threshold(tmp_path: Path) -> None:
-    from mycode.agent import Agent
-
-    agent = Agent(model="m", provider="anthropic", cwd="/tmp", session_dir=tmp_path)
-
+    agent = make_agent(tmp_path)
     assert agent.compact_threshold == DEFAULT_COMPACT_THRESHOLD

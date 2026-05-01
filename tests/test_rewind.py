@@ -93,7 +93,7 @@ class TestApplyRewind:
         messages = [
             {"role": "user", "content": [{"type": "text", "text": "a"}]},
             {"role": "assistant", "content": [{"type": "text", "text": "b"}]},
-            build_compact_event("summary", provider="p", model="m", compacted_count=2),
+            build_compact_event("summary", provider="p", model="m"),
             build_rewind_event(0),
             {"role": "user", "content": [{"type": "text", "text": "new start"}]},
         ]
@@ -158,7 +158,7 @@ class TestSessionRewind:
 
     @pytest.mark.asyncio
     async def test_rewind_then_compact_works(self, temp_store):
-        """Rewind followed by compact should work correctly."""
+        """Rewind followed by compact should keep the compact marker inline."""
         await temp_store.create_session("s1", cwd="/tmp")
         sid = "s1"
 
@@ -180,16 +180,14 @@ class TestSessionRewind:
         ]:
             await temp_store.append_message(sid, msg)
 
-        # Compact should operate on the post-rewind messages
-        compact = build_compact_event("summary of a+b+e+f", provider="p", model="m", compacted_count=4)
+        # Compact emitted after the new turn lands inline as a marker.
+        compact = build_compact_event("summary", provider="p", model="m")
         await temp_store.append_message(sid, compact)
 
         loaded = await temp_store.load_session(sid)
         messages = loaded["messages"]
-        # After compact: summary_user + summary_ack (no messages after the compact event)
-        assert len(messages) == 2
-        assert messages[0]["role"] == "user"
-        assert "summary of a+b+e+f" in messages[0]["content"][0]["text"]
+        assert [m["role"] for m in messages] == ["user", "assistant", "user", "assistant", "compact"]
+        assert messages[-1]["content"][0]["text"] == "summary"
 
     @pytest.mark.asyncio
     async def test_rewind_drops_orphan_tool_use(self, temp_store):
@@ -217,29 +215,61 @@ class TestSessionRewind:
         assert messages[1]["content"][0]["text"] == "hi"
 
     @pytest.mark.asyncio
-    async def test_rewind_after_compact_preserves_summary(self, temp_store):
-        """Rewind on a compacted session should use post-compact indices,
-        preserving the summary rather than falling back to raw JSONL indices."""
+    async def test_rewind_to_pre_compact_user_drops_marker(self, temp_store):
+        """Rewinding to a real user message before the compact marker drops it."""
         await temp_store.create_session("s1", cwd="/tmp")
         sid = "s1"
 
-        # Original conversation + compact
         for msg in [
             {"role": "user", "content": [{"type": "text", "text": "hello"}]},
             {"role": "assistant", "content": [{"type": "text", "text": "hi"}]},
-            build_compact_event("summary of hello+hi", provider="p", model="m", compacted_count=2),
+            build_compact_event("summary", provider="p", model="m"),
             {"role": "user", "content": [{"type": "text", "text": "explain X"}]},
             {"role": "assistant", "content": [{"type": "text", "text": "X is..."}]},
         ]:
             await temp_store.append_message(sid, msg)
 
-        # After loading, messages are:
-        # [0] summary_user, [1] summary_ack, [2] user "explain X", [3] asst "X is..."
+        # Visible: [user_hello, asst_hi, compact, user_X, asst_X_is]
         loaded = await temp_store.load_session(sid)
-        assert len(loaded["messages"]) == 4
+        assert [m["role"] for m in loaded["messages"]] == [
+            "user",
+            "assistant",
+            "compact",
+            "user",
+            "assistant",
+        ]
 
-        # Rewind to index 2 — keep summary but remove the "explain X" turn.
-        await temp_store.append_rewind(sid, 2)
+        # Rewind to user_hello. The compact marker and post-compact history are
+        # all sliced away — we are back to the pre-compact state.
+        await temp_store.append_rewind(sid, 0)
+        await temp_store.append_message(
+            sid,
+            {"role": "user", "content": [{"type": "text", "text": "fresh start"}]},
+        )
+
+        reloaded = await temp_store.load_session(sid)
+        messages = reloaded["messages"]
+        assert len(messages) == 1
+        assert messages[0]["content"][0]["text"] == "fresh start"
+
+    @pytest.mark.asyncio
+    async def test_rewind_after_compact_keeps_marker(self, temp_store):
+        """Rewind to a target after the compact marker keeps the marker."""
+        await temp_store.create_session("s1", cwd="/tmp")
+        sid = "s1"
+
+        for msg in [
+            {"role": "user", "content": [{"type": "text", "text": "hello"}]},
+            {"role": "assistant", "content": [{"type": "text", "text": "hi"}]},
+            build_compact_event("summary", provider="p", model="m"),
+            {"role": "user", "content": [{"type": "text", "text": "explain X"}]},
+            {"role": "assistant", "content": [{"type": "text", "text": "X is..."}]},
+        ]:
+            await temp_store.append_message(sid, msg)
+
+        # Rewind to the post-compact user message (index 3) — the compact
+        # marker stays, the latest assistant turn is dropped.
+        await temp_store.append_rewind(sid, 3)
         await temp_store.append_message(
             sid,
             {"role": "user", "content": [{"type": "text", "text": "explain Y instead"}]},
@@ -247,17 +277,12 @@ class TestSessionRewind:
 
         reloaded = await temp_store.load_session(sid)
         messages = reloaded["messages"]
-
-        # Summary must still be present (not lost to raw JSONL index confusion).
-        assert len(messages) == 3
-        assert messages[0]["role"] == "user"
-        assert "summary of hello+hi" in messages[0]["content"][0]["text"]
-        assert messages[0]["meta"]["synthetic"] is True  # marked as synthetic
-        assert messages[1]["role"] == "assistant"  # summary ack
-        assert messages[2]["content"][0]["text"] == "explain Y instead"
+        assert [m["role"] for m in messages] == ["user", "assistant", "compact", "user"]
+        assert messages[2]["content"][0]["text"] == "summary"
+        assert messages[3]["content"][0]["text"] == "explain Y instead"
 
 
-def test_chat_rejects_rewind_to_compact_summary(tmp_path: Path, monkeypatch) -> None:
+def test_chat_rejects_rewind_to_compact_marker(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
 
     store = SessionStore(data_dir=tmp_path / "sessions")
@@ -267,7 +292,7 @@ def test_chat_rejects_rewind_to_compact_summary(tmp_path: Path, monkeypatch) -> 
     for message in [
         {"role": "user", "content": [{"type": "text", "text": "hello"}]},
         {"role": "assistant", "content": [{"type": "text", "text": "hi"}]},
-        build_compact_event("summary of hello+hi", provider="p", model="m", compacted_count=2),
+        build_compact_event("summary", provider="p", model="m"),
         {"role": "user", "content": [{"type": "text", "text": "explain X"}]},
     ]:
         asyncio.run(store.append_message(sid, message))
@@ -277,12 +302,14 @@ def test_chat_rejects_rewind_to_compact_summary(tmp_path: Path, monkeypatch) -> 
     app.dependency_overrides[get_run_manager] = lambda: RunManager()
 
     with TestClient(app) as client:
+        # Visible list: [user, assistant, compact, user_X]. Rewinding to the
+        # compact marker (index 2) is invalid — it is not a real user message.
         response = client.post(
             "/api/chat",
             json={
                 "session_id": sid,
                 "message": "retry",
-                "rewind_to": 0,
+                "rewind_to": 2,
                 "provider": "anthropic",
                 "model": "claude-sonnet-4-6",
                 "cwd": "/tmp",

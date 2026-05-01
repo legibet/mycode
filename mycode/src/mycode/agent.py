@@ -23,6 +23,7 @@ from mycode.messages import (
     ConversationMessage,
     build_message,
     flatten_message_text,
+    text_block,
     tool_result_block,
     user_text_message,
 )
@@ -30,10 +31,13 @@ from mycode.models import infer_provider_from_model, resolve_model_metadata
 from mycode.providers import get_provider_adapter
 from mycode.providers.base import ProviderAdapter, ProviderRequest, ProviderStreamEvent
 from mycode.session import (
+    COMPACT_ACK,
     COMPACT_SUMMARY_PROMPT,
+    CONTINUATION_FOOTER,
+    CONTINUATION_HEADER,
     DEFAULT_COMPACT_THRESHOLD,
+    TRANSCRIPT_HINT,
     SessionStore,
-    apply_compact,
     build_compact_event,
     should_compact,
 )
@@ -500,7 +504,7 @@ class Agent:
                 provider=self.provider,
                 model=self.model,
                 session_id=self.session_id,
-                messages=self.messages,
+                messages=self._project_for_provider(self.messages),
                 system=self.system,
                 tools=self.tools.definitions,
                 max_tokens=self.max_tokens,
@@ -631,11 +635,14 @@ class Agent:
                 return
             if should_compact(total_tokens, self.context_window, self.compact_threshold):
                 try:
-                    async for event in self._compact(adapter, persist, continue_now=bool(tool_calls)):
+                    async for event in self._compact(adapter, persist):
                         yield event
                 except asyncio.CancelledError:
-                    raise
+                    yield Event("error", {"message": "cancelled"})
+                    return
                 except Exception:
+                    # Best-effort: transient failures retry next threshold check;
+                    # persistent ones surface from phase 1 of the next turn.
                     logger.warning(
                         "Context compaction failed, continuing without compaction",
                         exc_info=True,
@@ -680,19 +687,52 @@ class Agent:
     # Context compaction
     # ------------------------------------------------------------------
 
+    def _project_for_provider(
+        self,
+        messages: list[ConversationMessage],
+    ) -> list[ConversationMessage]:
+        """Replace pre-compact history with a summary continuation."""
+
+        last_compact = -1
+        for i, message in enumerate(messages):
+            if message.get("role") == "compact":
+                last_compact = i
+
+        if last_compact < 0:
+            return messages
+
+        summary_text = ""
+        for block in messages[last_compact].get("content") or []:
+            if isinstance(block, dict) and block.get("type") == "text":
+                summary_text = str(block.get("text") or "")
+                break
+
+        tail = [m for m in messages[last_compact + 1 :] if m.get("role") != "compact"]
+        # No tail or assistant-led tail = mid-loop; append a resume instruction
+        # and skip the ack. A user-led tail needs the ack to keep alternation.
+        continue_now = not tail or tail[0].get("role") == "assistant"
+
+        parts = [CONTINUATION_HEADER, summary_text]
+        if self._store and self.session_id:
+            parts.append(TRANSCRIPT_HINT.format(path=self._store.messages_path(self.session_id)))
+        if continue_now:
+            parts.append(CONTINUATION_FOOTER)
+
+        projected = [build_message("user", [text_block("\n\n".join(parts))])]
+        if not continue_now:
+            projected.append(build_message("assistant", [text_block(COMPACT_ACK)]))
+        projected.extend(tail)
+        return projected
+
     async def _compact(
         self,
         adapter: ProviderAdapter,
         persist: PersistCallback,
-        *,
-        continue_now: bool,
     ) -> AsyncIterator[Event]:
-        """Generate a conversation summary and replace in-memory messages."""
-
-        compacted_count = len(self.messages)
+        """Generate a conversation summary and append a compact marker."""
 
         # Ask the same provider for a summary — no tools, just text generation.
-        compact_messages = list(self.messages) + [user_text_message(COMPACT_SUMMARY_PROMPT)]
+        compact_messages = self._project_for_provider(self.messages) + [user_text_message(COMPACT_SUMMARY_PROMPT)]
         request = ProviderRequest(
             provider=self.provider,
             model=self.model,
@@ -726,24 +766,11 @@ class Agent:
             summary_text,
             provider=self.provider,
             model=self.model,
-            compacted_count=compacted_count,
             total_tokens=summary_total_tokens,
         )
 
         # Persist the compact event (append-only — original messages stay in JSONL).
         await persist(compact_event)
-
         self.messages.append(compact_event)
-        self.messages = apply_compact(
-            self.messages,
-            transcript_path=str(self._store.messages_path(self.session_id)) if self._store else None,
-            continue_now=continue_now,
-        )
 
-        yield Event(
-            "compact",
-            {
-                "message": f"Context compacted ({compacted_count} messages → summary)",
-                "compacted_count": compacted_count,
-            },
-        )
+        yield Event("compact", {})

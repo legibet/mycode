@@ -405,7 +405,12 @@ class TestCustomTools:
 
 class TestAgentCancel:
     @pytest.mark.asyncio
-    async def test_cancelled_compaction_propagates(self):
+    async def test_cancelled_compaction_emits_error(self):
+        """A cancellation inside _compact must surface as an error event, not
+        propagate CancelledError out of achat — otherwise the run manager's
+        ``except Exception`` would not catch it and the run would never reach
+        ``_finish_run`` (leaving the session locked behind a 409 forever)."""
+
         with tempfile.TemporaryDirectory() as tmpdir:
             agent = Agent(
                 model="gpt-5.5",
@@ -440,9 +445,12 @@ class TestAgentCancel:
             with (
                 patch("mycode.agent.get_provider_adapter", return_value=adapter),
                 patch.object(agent, "_compact", cancelled_compact),
-                pytest.raises(asyncio.CancelledError),
             ):
-                [event async for event in agent.achat("hello")]
+                events = [event async for event in agent.achat("hello")]
+
+            error_events = [e for e in events if e.type == "error"]
+            assert error_events
+            assert error_events[-1].data.get("message") == "cancelled"
 
     @pytest.mark.asyncio
     async def test_cancel_stops_inflight_provider_stream(self):
