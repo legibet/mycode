@@ -125,9 +125,6 @@ function AppContent() {
     mutate: mutateRemoteConfig,
   } = useSWR<RemoteConfig, Error>(configUrl, fetchJson<RemoteConfig>, {
     keepPreviousData: true,
-    onError: (error) => {
-      console.error('Failed to load config:', error)
-    },
   })
 
   const {

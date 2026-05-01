@@ -3,13 +3,9 @@ import { describe, expect, it } from 'vitest'
 import type { ChatMessage, RenderMessage } from '../types'
 import { isCompactMarker } from '../types'
 import {
-  appendRenderAssistantDelta,
-  appendRenderToolUse,
   buildRenderMessages,
-  createRenderAssistantMessage,
   createUserMessage,
   updateLatestThinkingDuration,
-  updateRenderToolRuntime,
 } from './messages'
 
 function expectChat(message: RenderMessage | undefined): ChatMessage {
@@ -136,92 +132,8 @@ describe('messages', () => {
     })
   })
 
-  it('preserves earlier render message references when appending assistant delta', () => {
-    const initial = buildRenderMessages([
-      {
-        role: 'user',
-        content: [{ type: 'text', text: 'hello' }],
-      },
-      {
-        role: 'assistant',
-        content: [{ type: 'text', text: 'world' }],
-      },
-    ])
-
-    const firstUser = initial[0]
-    const updated = appendRenderAssistantDelta(initial, 'text', '!', 1)
-
-    expect(updated[0]).toBe(firstUser)
-    expect(updated[1]).not.toBe(initial[1])
-    expect(expectChat(updated[1]).content).toEqual([
-      {
-        type: 'text',
-        text: 'world!',
-        renderKey: 'assistant:1:0',
-      },
-    ])
-  })
-
-  it('updates only the matching tool block', () => {
-    const initial = appendRenderToolUse(
-      buildRenderMessages([
-        {
-          role: 'user',
-          content: [{ type: 'text', text: 'run ls' }],
-        },
-        {
-          role: 'assistant',
-          content: [{ type: 'text', text: 'running' }],
-        },
-      ]),
-      {
-        id: 'tool-1',
-        name: 'bash',
-        input: { command: 'ls' },
-      },
-      1,
-      {
-        pending: true,
-        output: '',
-        finalOutput: null,
-        metadata: null,
-        isError: false,
-      },
-    )
-
-    const firstUser = initial[0]
-    const updated = updateRenderToolRuntime(
-      initial,
-      'tool-1',
-      {
-        pending: false,
-        output: 'file.txt',
-        finalOutput: 'file.txt',
-        metadata: null,
-        isError: false,
-      },
-      1,
-    )
-
-    expect(updated[0]).toBe(firstUser)
-    expect(updated[1]).not.toBe(initial[1])
-
-    const toolBlock = expectChat(updated[1]).content[1]
-    expect(toolBlock?.type).toBe('tool_use')
-    if (toolBlock?.type !== 'tool_use') {
-      throw new Error('Expected tool block')
-    }
-    expect(toolBlock.runtime).toEqual({
-      pending: false,
-      output: 'file.txt',
-      finalOutput: 'file.txt',
-      metadata: null,
-      isError: false,
-    })
-  })
-
   it('updates the latest thinking block duration', () => {
-    const initial = buildRenderMessages([
+    const initial: ChatMessage[] = [
       {
         role: 'assistant',
         content: [
@@ -233,104 +145,14 @@ describe('messages', () => {
           { type: 'text', text: 'answer' },
         ],
       },
-    ])
+    ]
 
     const updated = updateLatestThinkingDuration(initial, 1200)
 
-    expect(expectChat(updated[0]).content[0]).toEqual({
+    expect(updated[0]?.content[0]).toEqual({
       type: 'thinking',
       text: 'plan',
       meta: { native: { signature: 'sig' }, duration_ms: 1200 },
-      renderKey: 'assistant:0:0',
     })
-  })
-
-  it('keeps incremental assistant keys aligned with canonical source indices', () => {
-    const previousMessages = buildRenderMessages([
-      {
-        role: 'user',
-        content: [{ type: 'text', text: 'run ls' }],
-      },
-      {
-        role: 'assistant',
-        content: [
-          { type: 'text', text: 'Running now.' },
-          {
-            type: 'tool_use',
-            id: 'tool-1',
-            name: 'bash',
-            input: { command: 'ls' },
-          },
-        ],
-      },
-      {
-        role: 'user',
-        content: [
-          {
-            type: 'tool_result',
-            tool_use_id: 'tool-1',
-            output: 'file.txt',
-            metadata: null,
-            is_error: false,
-          },
-        ],
-      },
-      {
-        role: 'user',
-        content: [{ type: 'text', text: 'what changed?' }],
-      },
-    ])
-
-    const incremental = appendRenderAssistantDelta(
-      [...previousMessages, createRenderAssistantMessage(4)],
-      'text',
-      'Nothing else changed.',
-      4,
-    )
-
-    const canonical = buildRenderMessages([
-      {
-        role: 'user',
-        content: [{ type: 'text', text: 'run ls' }],
-      },
-      {
-        role: 'assistant',
-        content: [
-          { type: 'text', text: 'Running now.' },
-          {
-            type: 'tool_use',
-            id: 'tool-1',
-            name: 'bash',
-            input: { command: 'ls' },
-          },
-        ],
-      },
-      {
-        role: 'user',
-        content: [
-          {
-            type: 'tool_result',
-            tool_use_id: 'tool-1',
-            output: 'file.txt',
-            metadata: null,
-            is_error: false,
-          },
-        ],
-      },
-      {
-        role: 'user',
-        content: [{ type: 'text', text: 'what changed?' }],
-      },
-      {
-        role: 'assistant',
-        content: [{ type: 'text', text: 'Nothing else changed.' }],
-      },
-    ])
-
-    expect(incremental[3]?.renderKey).toBe(canonical[3]?.renderKey)
-    expect(incremental[3]?.sourceIndex).toBe(canonical[3]?.sourceIndex)
-    expect(expectChat(incremental[3]).content).toEqual(
-      expectChat(canonical[3]).content,
-    )
   })
 })

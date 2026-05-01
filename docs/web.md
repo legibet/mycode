@@ -42,7 +42,7 @@ web/src/
   test/
     setup.ts               # Vitest + Testing Library setup
   utils/
-    messages.ts            # buildRenderMessages() + streaming message builders
+    messages.ts            # block helpers + buildRenderMessages() projection
     highlighter.ts         # code syntax highlighting (shiki)
     storage.ts             # localStorage helpers
     config.ts              # reasoning effort defaults + provider normalization with remote config
@@ -52,11 +52,12 @@ web/src/
 
 ## Message State Model
 
-`useChat.ts` stores three related pieces of state:
+`useChat.ts` keeps two pieces of reducer state:
 
 - `rawMessages: ChatMessage[]` — canonical block messages (mirrors the JSONL timeline; includes `role: "compact"` markers)
-- `messages: RenderMessage[]` — render-ready entries; `RenderMessage = ChatMessage | CompactMarkerMessage`
-- `toolRuntimeById` — ephemeral tool runtime state
+- `toolRuntimeById` — ephemeral tool runtime state (streaming output, pending flags, final result)
+
+The render-ready list `messages: RenderMessage[]` (where `RenderMessage = ChatMessage | CompactMarkerMessage`) is derived via `useMemo(buildRenderMessages(rawMessages, toolRuntimeById))`. There is no second copy of state to keep in sync — every reducer transition produces a new `rawMessages` and/or `toolRuntimeById` reference and the projection is recomputed.
 
 `CompactMarkerMessage` (`{kind: "compact-marker", sourceIndex, renderKey}`) carries no content of its own — it just tells `MessageList` to render `CompactMarker` instead of `MessageBubble`. Use the `isCompactMarker(msg)` type guard from `types.ts` to narrow when iterating.
 
@@ -65,10 +66,10 @@ State is managed via `useReducer` with actions:
 - `set_messages` — load session history from server
 - `start_turn` — optimistic user message + empty assistant
 - `rewind_and_start_turn` — rewind + optimistic new turn
-- `apply_event` — apply one SSE event to state
+- `apply_event` — apply one SSE event to `rawMessages` / `toolRuntimeById`
 - `rollback` — restore the snapshot taken before an optimistic turn
 
-`buildRenderMessages()` in `utils/messages.ts` is used when loading or rebuilding from canonical messages; it emits a `CompactMarkerMessage` for every `role: "compact"` entry it sees. During streaming the reducer updates both `rawMessages` and `messages` incrementally, and a live `compact` SSE event appends a `{role: "compact"}` entry to `rawMessages` plus the matching marker to `messages`.
+`buildRenderMessages()` in `utils/messages.ts` is the single projection used by both initial load and live streaming: tool results visually attach to their `tool_use`, multiple assistant turns of a tool loop merge into one bubble, and every `role: "compact"` entry surfaces as a `CompactMarkerMessage`. A live `compact` SSE event appends a `{role: "compact"}` entry to `rawMessages`; the marker appears on the next render.
 
 Key design decisions:
 

@@ -204,7 +204,7 @@ describe('useChat', () => {
         data: '',
         mime_type: 'application/pdf',
         name: 'report.pdf',
-        renderKey: 'user:0:att:0',
+        renderKey: 'user:0:1',
       })
     })
   })

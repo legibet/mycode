@@ -48,12 +48,10 @@ interface MessageBubbleProps {
 interface RenderErrorBoundaryProps {
   children: ReactNode
   fallback: ReactNode
-  resetKey: string
 }
 
 interface RenderErrorBoundaryState {
   hasError: boolean
-  resetKey: string
 }
 
 interface AttachmentMeta {
@@ -69,26 +67,9 @@ class RenderErrorBoundary extends Component<
   RenderErrorBoundaryProps,
   RenderErrorBoundaryState
 > {
-  state: RenderErrorBoundaryState = {
-    hasError: false,
-    resetKey: this.props.resetKey,
-  }
+  state: RenderErrorBoundaryState = { hasError: false }
 
-  static getDerivedStateFromProps(
-    props: RenderErrorBoundaryProps,
-    state: RenderErrorBoundaryState,
-  ): RenderErrorBoundaryState | null {
-    if (props.resetKey === state.resetKey) {
-      return null
-    }
-
-    return {
-      hasError: false,
-      resetKey: props.resetKey,
-    }
-  }
-
-  static getDerivedStateFromError(): Partial<RenderErrorBoundaryState> {
+  static getDerivedStateFromError(): RenderErrorBoundaryState {
     return { hasError: true }
   }
 
@@ -97,11 +78,7 @@ class RenderErrorBoundary extends Component<
   }
 
   render() {
-    if (this.state.hasError) {
-      return this.props.fallback
-    }
-
-    return this.props.children
+    return this.state.hasError ? this.props.fallback : this.props.children
   }
 }
 
@@ -412,7 +389,6 @@ export const MessageBubble = memo(function MessageBubble({
               <RenderErrorBoundary
                 key={renderKey}
                 fallback={renderErrorFallback}
-                resetKey={`${renderKey}:${block.text}:${durationMs ?? ''}`}
               >
                 <ReasoningBlock
                   content={block.text}
@@ -432,7 +408,6 @@ export const MessageBubble = memo(function MessageBubble({
               <RenderErrorBoundary
                 key={renderKey}
                 fallback={renderErrorFallback}
-                resetKey={`${renderKey}:${block.text}`}
               >
                 <MarkdownBlock content={block.text} />
               </RenderErrorBoundary>
@@ -441,12 +416,10 @@ export const MessageBubble = memo(function MessageBubble({
           if (block.type === 'tool_use') {
             const renderKey =
               block.renderKey || block.id || `tool:${block.name || 'tool'}`
-            const resetKey = `${renderKey}:${JSON.stringify(block.input)}:${block.runtime?.pending ? '1' : '0'}:${block.runtime?.isError ? '1' : '0'}:${block.runtime?.output ?? ''}:${block.runtime?.finalOutput ?? ''}`
             return (
               <RenderErrorBoundary
                 key={renderKey}
                 fallback={renderErrorFallback}
-                resetKey={resetKey}
               >
                 <ToolCard
                   name={block.name}

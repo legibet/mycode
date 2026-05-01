@@ -1,7 +1,4 @@
-/**
- * Canonical message helpers shared by history hydration and live streaming.
- * Web UI state stays close to the backend block-based conversation model.
- */
+/** Message block helpers and the render-message projection. */
 
 import type {
   AttachedFile,
@@ -39,19 +36,6 @@ function getBlocks(message?: ChatMessage | null): MessageBlock[] {
   return Array.isArray(message?.content) ? message.content : []
 }
 
-function asChatMessage(message: RenderMessage | undefined): ChatMessage | null {
-  if (!message || isCompactMarker(message)) return null
-  return message
-}
-
-function createCompactMarker(sourceIndex: number): CompactMarkerMessage {
-  return {
-    kind: 'compact-marker',
-    sourceIndex,
-    renderKey: `compact:${sourceIndex}`,
-  }
-}
-
 function cloneBlock(
   block: MessageBlock,
   renderKey: string | null = null,
@@ -65,11 +49,8 @@ function cloneBlock(
 function createMessage(
   role: ChatMessage['role'],
   content: MessageBlock[] = [],
-  renderKey: string | null = null,
 ): ChatMessage {
-  const message: ChatMessage = { role, content }
-  if (renderKey) message.renderKey = renderKey
-  return message
+  return { role, content }
 }
 
 function createTextBlock(text: string): TextBlock {
@@ -84,18 +65,12 @@ function escapeHtmlAttribute(value: string): string {
     .replaceAll('>', '&gt;')
 }
 
-function createAttachedTextBlock(
-  text: string,
-  name: string,
-  renderKey?: string,
-): TextBlock {
-  const block: TextBlock = {
+function createAttachedTextBlock(text: string, name: string): TextBlock {
+  return {
     type: 'text',
     text: `<file name="${escapeHtmlAttribute(name)}">\n${text}\n</file>`,
     meta: { attachment: true, path: name },
   }
-  if (renderKey) block.renderKey = renderKey
-  return block
 }
 
 function createThinkingBlock(text: string): ThinkingBlock {
@@ -126,19 +101,13 @@ function createToolResultBlock(
   }
 }
 
-export function createUserTextMessage(text: string): ChatMessage {
-  return createMessage('user', text ? [createTextBlock(text)] : [])
-}
-
 function createImageBlock(
   data: string,
   mimeType: string,
   name?: string,
-  renderKey?: string,
 ): MessageBlock {
   const block: MessageBlock = { type: 'image', data, mime_type: mimeType }
   if (name) block.name = name
-  if (renderKey) block.renderKey = renderKey
   return block
 }
 
@@ -146,24 +115,18 @@ function createDocumentBlock(
   data: string,
   mimeType: string,
   name?: string,
-  renderKey?: string,
 ): DocumentBlock {
   const block: DocumentBlock = { type: 'document', data, mime_type: mimeType }
   if (name) block.name = name
-  if (renderKey) block.renderKey = renderKey
   return block
 }
 
-function createAttachmentBlock(
-  attachment: AttachedFile,
-  renderKey?: string,
-): MessageBlock {
+function createAttachmentBlock(attachment: AttachedFile): MessageBlock {
   if (attachment.kind === 'image') {
     return createImageBlock(
       attachment.data,
       attachment.mime_type,
       attachment.name,
-      renderKey,
     )
   }
   if (attachment.kind === 'document') {
@@ -171,10 +134,13 @@ function createAttachmentBlock(
       attachment.data,
       attachment.mime_type,
       attachment.name,
-      renderKey,
     )
   }
-  return createAttachedTextBlock(attachment.text, attachment.name, renderKey)
+  return createAttachedTextBlock(attachment.text, attachment.name)
+}
+
+export function createUserTextMessage(text: string): ChatMessage {
+  return createMessage('user', text ? [createTextBlock(text)] : [])
 }
 
 export function createUserMessage(
@@ -195,33 +161,6 @@ export function createAssistantMessage(
   return createMessage('assistant', content)
 }
 
-export function createRenderUserMessage(
-  sourceIndex: number,
-  text: string,
-  meta?: MessageMeta,
-  attachments?: AttachedFile[],
-): ChatMessage {
-  const blocks: MessageBlock[] = []
-  if (text) blocks.push(createTextBlock(text))
-  if (attachments?.length) {
-    for (const [i, attachment] of attachments.entries()) {
-      blocks.push(
-        createAttachmentBlock(attachment, `user:${sourceIndex}:att:${i}`),
-      )
-    }
-  }
-  const message = createMessage('user', blocks, `user:${sourceIndex}`)
-  message.sourceIndex = sourceIndex
-  if (meta) message.meta = { ...meta }
-  return message
-}
-
-export function createRenderAssistantMessage(sourceIndex: number): ChatMessage {
-  const message = createMessage('assistant', [], `assistant:${sourceIndex}`)
-  message.sourceIndex = sourceIndex
-  return message
-}
-
 function ensureTailAssistant(messages: ChatMessage[]): {
   messages: ChatMessage[]
   index: number
@@ -231,16 +170,8 @@ function ensureTailAssistant(messages: ChatMessage[]): {
   if (lastIndex >= 0 && next[lastIndex]?.role === 'assistant') {
     return { messages: next, index: lastIndex }
   }
-
   next.push(createAssistantMessage([]))
   return { messages: next, index: next.length - 1 }
-}
-
-export function findLatestAssistantIndex(messages: ChatMessage[]): number {
-  for (let index = messages.length - 1; index >= 0; index--) {
-    if (messages[index]?.role === 'assistant') return index
-  }
-  return -1
 }
 
 export function appendAssistantDelta(
@@ -276,14 +207,11 @@ export function appendToolUse(
   messages: ChatMessage[],
   toolCall: ToolCall,
 ): ChatMessage[] {
-  // Tail-aware: matches appendAssistantDelta. A backward scan would attach the
-  // new tool to the previous turn's assistant when the tail is a tool-result
-  // user message or a compact marker.
+  // Tail-aware: a backward scan would attach the new tool to the previous
+  // turn's assistant when the tail is a tool-result user message or compact.
   const { messages: next, index } = ensureTailAssistant(messages)
   const assistant = next[index]
-  if (!assistant) {
-    return next
-  }
+  if (!assistant) return next
   next[index] = {
     ...assistant,
     content: [...getBlocks(assistant), createToolUseBlock(toolCall)],
@@ -325,6 +253,54 @@ export function appendToolResult(
   return next
 }
 
+export function updateLatestThinkingDuration(
+  messages: ChatMessage[],
+  durationMs: number,
+): ChatMessage[] {
+  for (
+    let messageIndex = messages.length - 1;
+    messageIndex >= 0;
+    messageIndex--
+  ) {
+    const message = messages[messageIndex]
+    if (message?.role !== 'assistant') continue
+
+    const content = getBlocks(message)
+    for (let blockIndex = content.length - 1; blockIndex >= 0; blockIndex--) {
+      const block = content[blockIndex]
+      if (block?.type !== 'thinking') continue
+
+      const next = [...messages]
+      const nextContent = [...content]
+      nextContent[blockIndex] = {
+        ...block,
+        meta: {
+          ...(isObject(block.meta) ? block.meta : {}),
+          duration_ms: durationMs,
+        },
+      }
+      next[messageIndex] = { ...message, content: nextContent }
+      return next
+    }
+  }
+
+  return messages
+}
+
+export function updateLatestAssistantMeta(
+  messages: ChatMessage[],
+  patch: Partial<MessageMeta>,
+): ChatMessage[] {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const message = messages[i]
+    if (message?.role !== 'assistant') continue
+    const next = [...messages]
+    next[i] = { ...message, meta: { ...(message.meta ?? {}), ...patch } }
+    return next
+  }
+  return messages
+}
+
 function buildToolRuntime(
   runtime: ToolRuntime | undefined,
   toolResultBlock: ToolResultBlock | null,
@@ -355,233 +331,25 @@ function buildToolRuntime(
   }
 }
 
-function updateRenderToolMessage(
-  result: RenderMessage[],
-  entry: ToolIndexEntry,
-  runtime: ToolRuntime | undefined,
-  toolResultBlock: ToolResultBlock | null,
-): ChatMessage | null {
-  const targetMessage = asChatMessage(result[entry.messageIndex])
-  if (!targetMessage) {
-    return null
-  }
-  const content = [...getBlocks(targetMessage)]
-  const targetBlock = content[entry.blockIndex]
-  if (targetBlock?.type !== 'tool_use') {
-    return targetMessage
-  }
-
-  content[entry.blockIndex] = {
-    ...targetBlock,
-    runtime: buildToolRuntime(runtime, toolResultBlock),
-  }
-
-  const updatedMessage = { ...targetMessage, content }
-  result[entry.messageIndex] = updatedMessage
-  return updatedMessage
-}
-
-function ensureTailRenderAssistant(
-  messages: RenderMessage[],
-  sourceIndex: number,
-): {
-  messages: RenderMessage[]
-  index: number
-} {
-  const next = [...messages]
-  const lastIndex = next.length - 1
-  const last = asChatMessage(next[lastIndex])
-
-  // Reuse the last assistant render message if it exists, regardless of
-  // sourceIndex.  During multi-turn tool loops the raw sourceIndex changes
-  // every round, but visually they belong to the same assistant turn — this
-  // matches the merge behavior of buildRenderMessages on reload.
-  if (last?.role === 'assistant') {
-    return { messages: next, index: lastIndex }
-  }
-
-  next.push(createRenderAssistantMessage(sourceIndex))
-  return { messages: next, index: next.length - 1 }
-}
-
-function findRenderToolEntry(
-  messages: RenderMessage[],
-  toolUseId: string,
-): ToolIndexEntry | null {
-  if (!toolUseId) return null
-
-  for (
-    let messageIndex = messages.length - 1;
-    messageIndex >= 0;
-    messageIndex--
-  ) {
-    const message = asChatMessage(messages[messageIndex])
-    if (message?.role !== 'assistant') continue
-
-    const content = getBlocks(message)
-    for (let blockIndex = content.length - 1; blockIndex >= 0; blockIndex--) {
-      const block = content[blockIndex]
-      if (block?.type === 'tool_use' && block.id === toolUseId) {
-        return { messageIndex, blockIndex }
-      }
-    }
-  }
-
-  return null
-}
-
-export function appendRenderAssistantDelta(
-  messages: RenderMessage[],
-  blockType: 'thinking' | 'text',
-  delta: string,
-  sourceIndex: number,
-): RenderMessage[] {
-  if (!delta || sourceIndex < 0) return messages
-
-  const { messages: next, index } = ensureTailRenderAssistant(
-    messages,
+function createCompactMarker(sourceIndex: number): CompactMarkerMessage {
+  return {
+    kind: 'compact-marker',
     sourceIndex,
-  )
-  const assistant =
-    asChatMessage(next[index]) ?? createRenderAssistantMessage(sourceIndex)
-  const content = [...getBlocks(assistant)]
-  const lastBlock = content[content.length - 1]
-
-  if (lastBlock?.type === blockType) {
-    content[content.length - 1] = {
-      ...lastBlock,
-      text: `${lastBlock.text || ''}${delta}`,
-    }
-  } else {
-    const renderKey = `assistant:${sourceIndex}:${content.length}`
-    const block =
-      blockType === 'thinking'
-        ? createThinkingBlock(delta)
-        : createTextBlock(delta)
-    block.renderKey = renderKey
-    content.push(block)
+    renderKey: `compact:${sourceIndex}`,
   }
-
-  next[index] = { ...assistant, content }
-  return next
 }
 
-export function updateLatestThinkingDuration<T extends RenderMessage>(
-  messages: T[],
-  durationMs: number,
-): T[] {
-  for (
-    let messageIndex = messages.length - 1;
-    messageIndex >= 0;
-    messageIndex--
-  ) {
-    const message = asChatMessage(messages[messageIndex])
-    if (message?.role !== 'assistant') continue
-
-    const content = getBlocks(message)
-    for (let blockIndex = content.length - 1; blockIndex >= 0; blockIndex--) {
-      const block = content[blockIndex]
-      if (block?.type !== 'thinking') continue
-
-      const next = [...messages]
-      const nextContent = [...content]
-      nextContent[blockIndex] = {
-        ...block,
-        meta: {
-          ...(isObject(block.meta) ? block.meta : {}),
-          duration_ms: durationMs,
-        },
-      }
-      next[messageIndex] = { ...message, content: nextContent } as T
-      return next
-    }
-  }
-
-  return messages
-}
-
-export function updateLatestAssistantMeta<T extends RenderMessage>(
-  messages: T[],
-  patch: Partial<MessageMeta>,
-): T[] {
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const message = asChatMessage(messages[i])
-    if (message?.role !== 'assistant') continue
-    const next = [...messages]
-    next[i] = {
-      ...message,
-      meta: { ...(message.meta ?? {}), ...patch },
-    } as T
-    return next
-  }
-  return messages
-}
-
-export function appendRenderToolUse(
-  messages: RenderMessage[],
-  toolCall: ToolCall,
-  sourceIndex: number,
-  runtime?: ToolRuntime,
-): RenderMessage[] {
-  if (sourceIndex < 0) return messages
-
-  const { messages: next, index } = ensureTailRenderAssistant(
-    messages,
+function createRenderAssistantMessage(sourceIndex: number): ChatMessage {
+  return {
+    role: 'assistant',
+    content: [],
+    renderKey: `assistant:${sourceIndex}`,
     sourceIndex,
-  )
-  const assistant =
-    asChatMessage(next[index]) ?? createRenderAssistantMessage(sourceIndex)
-  const content = [...getBlocks(assistant)]
-  const renderBlock = createToolUseBlock(toolCall)
-  renderBlock.renderKey =
-    renderBlock.id || `assistant:${sourceIndex}:${content.length}`
-  renderBlock.runtime = buildToolRuntime(runtime, null)
-
-  next[index] = {
-    ...assistant,
-    content: [...content, renderBlock],
   }
-  return next
-}
-
-export function updateRenderToolRuntime(
-  messages: RenderMessage[],
-  toolUseId: string,
-  runtime: ToolRuntime | undefined,
-  sourceIndex: number,
-  toolResultBlock: ToolResultBlock | null = null,
-): RenderMessage[] {
-  if (!toolUseId || sourceIndex < 0) return messages
-
-  const entry = findRenderToolEntry(messages, toolUseId)
-  if (!entry) {
-    const { messages: next, index } = ensureTailRenderAssistant(
-      messages,
-      sourceIndex,
-    )
-    const assistant =
-      asChatMessage(next[index]) ?? createRenderAssistantMessage(sourceIndex)
-    const content = [...getBlocks(assistant)]
-    const renderBlock: ToolUseBlock = {
-      type: 'tool_use',
-      id: toolUseId,
-      name: 'tool',
-      input: {},
-      runtime: buildToolRuntime(runtime, toolResultBlock),
-      renderKey: toolUseId,
-    }
-    next[index] = { ...assistant, content: [...content, renderBlock] }
-    return next
-  }
-
-  const next = [...messages]
-  updateRenderToolMessage(next, entry, runtime, toolResultBlock)
-  return next
 }
 
 /**
- * Derive renderable chat messages from canonical persisted messages plus
- * ephemeral tool runtime state.
+ * Project rawMessages + toolRuntimeById into the shape the UI consumes.
  */
 export function buildRenderMessages(
   messages: ChatMessage[],
@@ -623,10 +391,14 @@ export function buildRenderMessages(
         )
 
       if (userBlocks.length > 0) {
-        const userMsg = createMessage('user', userBlocks, `user:${sourceIndex}`)
+        const userMsg: ChatMessage = {
+          role: 'user',
+          content: userBlocks,
+          renderKey: `user:${sourceIndex}`,
+          sourceIndex,
+        }
         if (isObject(message?.meta))
           userMsg.meta = { ...(message.meta as MessageMeta) }
-        userMsg.sourceIndex = sourceIndex
         result.push(userMsg)
         currentAssistant = null
       }
@@ -645,21 +417,31 @@ export function buildRenderMessages(
         const entry = toolUseId ? toolIndex[toolUseId] : undefined
 
         if (entry) {
-          const updatedMessage = updateRenderToolMessage(
-            result,
-            entry,
-            runtime,
-            block,
-          )
-          if (updatedMessage && entry.messageIndex === result.length - 1) {
-            currentAssistant = updatedMessage
-            assistantContent = [...getBlocks(updatedMessage)]
+          // Tool result for a tool_use we already projected — splice the
+          // runtime/result back onto that tool_use block.
+          const target = result[entry.messageIndex]
+          if (target && !isCompactMarker(target)) {
+            const targetContent = [...getBlocks(target)]
+            const targetBlock = targetContent[entry.blockIndex]
+            if (targetBlock?.type === 'tool_use') {
+              targetContent[entry.blockIndex] = {
+                ...targetBlock,
+                runtime: buildToolRuntime(runtime, block),
+              }
+              const updatedMessage = { ...target, content: targetContent }
+              result[entry.messageIndex] = updatedMessage
+              if (entry.messageIndex === result.length - 1) {
+                currentAssistant = updatedMessage
+                assistantContent = targetContent
+              }
+            }
           }
           continue
         }
 
-        // Keep tool results visually attached to the assistant tool block even
-        // though they are persisted as a separate user message.
+        // Orphan tool_result (no matching tool_use seen) — surface it as a
+        // synthetic tool_use block on the current assistant so the UI still
+        // shows it instead of silently dropping.
         const nextBlock: ToolUseBlock = {
           type: 'tool_use',
           id: toolUseId || '',
@@ -728,8 +510,8 @@ export function buildRenderMessages(
     }
 
     // Tool loops collapse multiple raw assistants into one render message;
-    // overwrite (or clear) meta from the latest raw call so the bubble
-    // never shows stale per-turn fields from earlier iterations.
+    // overwrite (or clear) meta from the latest raw call so the bubble never
+    // shows stale per-turn fields from earlier iterations.
     const merged: ChatMessage = {
       ...assistantMessage,
       content: assistantContent,
