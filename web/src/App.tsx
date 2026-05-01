@@ -15,7 +15,12 @@ import { SettingsPanel } from './components/Settings/SettingsPanel'
 import { Sidebar } from './components/Sidebar'
 import { ThemeProvider } from './components/ThemeProvider'
 import { useChat } from './hooks/useChat'
-import type { AttachedFile, LocalConfig, RemoteConfig } from './types'
+import type {
+  AttachedFile,
+  LocalConfig,
+  RemoteConfig,
+  SettingsResponse,
+} from './types'
 import { normalizeConfigWithRemoteDefaults } from './utils/config'
 import {
   getMaxSidebarWidth,
@@ -126,6 +131,14 @@ function AppContent() {
   } = useSWR<RemoteConfig, Error>(configUrl, fetchJson<RemoteConfig>, {
     keepPreviousData: true,
   })
+  const {
+    data: settingsResponse = null,
+    error: settingsError,
+    mutate: mutateSettings,
+  } = useSWR<SettingsResponse, Error>(
+    '/api/settings',
+    fetchJson<SettingsResponse>,
+  )
 
   const {
     messages,
@@ -346,7 +359,10 @@ function AppContent() {
       <SettingsPanel
         open={settingsOpen}
         onClose={() => setSettingsOpen(false)}
-        onSaved={() => {
+        settings={settingsResponse}
+        loadError={settingsError?.message}
+        onSettingsSaved={(settings) => {
+          void mutateSettings(settings, { revalidate: false })
           void mutateRemoteConfig()
         }}
         projectConfigPaths={remoteConfig?.config_paths}

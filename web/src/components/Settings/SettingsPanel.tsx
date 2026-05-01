@@ -28,8 +28,10 @@ import { ProviderCard, type ProviderDraft } from './ProviderCard'
 interface SettingsPanelProps {
   open: boolean
   onClose: () => void
-  /** Notified after a successful save so callers can revalidate /api/config. */
-  onSaved?: (() => void) | undefined
+  settings: SettingsResponse | null
+  loadError?: string | undefined
+  /** Notified after a successful save so callers can update cached settings. */
+  onSettingsSaved?: ((settings: SettingsResponse) => void) | undefined
   /** Project-level config files in effect, used for the override-warning banner. */
   projectConfigPaths?: string[] | undefined
 }
@@ -212,37 +214,21 @@ function buildPayload(draft: DraftState): GlobalConfig {
 export function SettingsPanel({
   open,
   onClose,
-  onSaved,
+  settings,
+  loadError,
+  onSettingsSaved,
   projectConfigPaths,
 }: SettingsPanelProps) {
   const { theme, setTheme } = useTheme()
-  const [response, setResponse] = useState<SettingsResponse | null>(null)
   const [draft, setDraft] = useState<DraftState>(INITIAL_DRAFT)
-  const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  // ── data ────────────────────────────────────────────────────────────────
-  const reload = useCallback(async () => {
-    setLoading(true)
-    setError(null)
-    try {
-      const res = await fetch('/api/settings')
-      if (!res.ok) throw new Error(`Request failed (${res.status})`)
-      const data = (await res.json()) as SettingsResponse
-      setResponse(data)
-      setDraft(buildDraft(data))
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to load settings')
-    } finally {
-      setLoading(false)
-    }
-  }, [])
-
   useEffect(() => {
-    if (!open) return
-    void reload()
-  }, [open, reload])
+    if (!open || !settings) return
+    setDraft(buildDraft(settings))
+    setError(null)
+  }, [open, settings])
 
   // ── escape closes ───────────────────────────────────────────────────────
   useEffect(() => {
@@ -255,11 +241,11 @@ export function SettingsPanel({
   }, [open, onClose])
 
   // ── derived ─────────────────────────────────────────────────────────────
-  const providerTypes = response?.options.provider_types ?? []
-  const effortOptions = response?.options.reasoning_efforts ?? []
-  const envByName = response?.env ?? {}
-  const providerTypeEnvVars = response?.provider_type_env_vars ?? {}
-  const providerTypeDefaultModels = response?.provider_type_default_models ?? {}
+  const providerTypes = settings?.options.provider_types ?? []
+  const effortOptions = settings?.options.reasoning_efforts ?? []
+  const envByName = settings?.env ?? {}
+  const providerTypeEnvVars = settings?.provider_type_env_vars ?? {}
+  const providerTypeDefaultModels = settings?.provider_type_default_models ?? {}
 
   // For each card, set of types already in use by *other* cards. Drives the
   // auto-sync rule (changing Type updates Name when the new type is free) and
@@ -354,7 +340,7 @@ export function SettingsPanel({
   }, [providerTypes])
 
   const handleSave = async () => {
-    if (hasInvalidProvider || saving) return
+    if (!settings || hasInvalidProvider || saving) return
     setSaving(true)
     setError(null)
     try {
@@ -372,9 +358,8 @@ export function SettingsPanel({
         throw new Error(message)
       }
       const updated = (await res.json()) as SettingsResponse
-      setResponse(updated)
       setDraft(buildDraft(updated))
-      onSaved?.()
+      onSettingsSaved?.(updated)
       onClose()
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to save settings')
@@ -383,14 +368,14 @@ export function SettingsPanel({
     }
   }
 
-  if (!open) return null
+  if (!open || (!settings && !loadError)) return null
 
   // ── render ──────────────────────────────────────────────────────────────
   const projectOverrides = (projectConfigPaths ?? []).filter(
-    (path) => path !== response?.path,
+    (path) => path !== settings?.path,
   )
 
-  const editsPath = `Edits ${prettifyPath(response?.path ?? FALLBACK_CONFIG_PATH)}`
+  const editsPath = `Edits ${prettifyPath(settings?.path ?? FALLBACK_CONFIG_PATH)}`
 
   return createPortal(
     <div
@@ -446,9 +431,9 @@ export function SettingsPanel({
 
         {/* Body */}
         <div className="flex-1 overflow-y-auto overscroll-contain scrollbar-subtle">
-          {loading && !response ? (
-            <div className="flex items-center justify-center h-48 text-muted-foreground/50">
-              <Loader2 className="h-4 w-4 animate-spin" />
+          {!settings ? (
+            <div className="flex items-center justify-center h-48 px-6 text-center text-[12px] text-muted-foreground/60">
+              {loadError ? <span>{loadError}</span> : null}
             </div>
           ) : (
             <div className="px-4 md:px-6 py-6 flex flex-col gap-7">
@@ -693,7 +678,7 @@ export function SettingsPanel({
               <button
                 type="button"
                 onClick={() => void handleSave()}
-                disabled={saving || hasInvalidProvider}
+                disabled={!settings || saving || hasInvalidProvider}
                 className={cn(SAVE_BTN_CLASS, 'flex-[2] h-9')}
               >
                 {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
@@ -722,7 +707,7 @@ export function SettingsPanel({
               <button
                 type="button"
                 onClick={() => void handleSave()}
-                disabled={saving || hasInvalidProvider}
+                disabled={!settings || saving || hasInvalidProvider}
                 className={cn(SAVE_BTN_CLASS, 'h-8 px-4')}
               >
                 {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
