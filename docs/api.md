@@ -66,6 +66,7 @@ Response:
 Error responses:
 
 - `400` — invalid `rewind_to`; body is `{"detail": "..."}`
+- `400` — missing or invalid `cwd`; body is `{"detail": "Working directory does not exist: ..."}`
 - `409` — session already has a running task; body is `{"detail": {"message": "...", "run": {...}}}`
 - `500` — provider resolution errors currently bubble up as internal server error in this route
 
@@ -129,6 +130,7 @@ Response:
   "default_reasoning_effort": "auto",
   "reasoning_effort_options": ["auto", "none", "low", "medium", "high", "xhigh"],
   "cwd": "...",
+  "cwd_exists": true,
   "project": "...",
   "config_paths": [...]
 }

@@ -31,6 +31,8 @@ def _redact_document_data(messages: list[ConversationMessage]) -> list[Conversat
 @router.post("")
 async def create_session(req: SessionCreateRequest, store: StoreDep):
     cwd = os.path.abspath(req.cwd or os.getcwd())
+    if not os.path.isdir(cwd):
+        raise HTTPException(status_code=400, detail=f"Working directory does not exist: {cwd}")
     session_id = uuid4().hex
     return await store.create_session(session_id, cwd=cwd)
 

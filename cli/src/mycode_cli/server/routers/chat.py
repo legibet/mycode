@@ -76,6 +76,8 @@ async def _stream_run(req: Request, state: RunState, after: int) -> AsyncIterato
 @router.post("/chat")
 async def chat(chat: ChatRequest, store: StoreDep, runs: RunManagerDep):
     cwd = os.path.abspath(chat.cwd or os.getcwd())
+    if not os.path.isdir(cwd):
+        raise HTTPException(status_code=400, detail=f"Working directory does not exist: {cwd}")
     settings = get_settings(cwd)
     resolved = resolve_provider(
         settings,
@@ -367,6 +369,7 @@ async def get_config(cwd: str | None = None):
         "default_reasoning_effort": settings.default_reasoning_effort,
         "reasoning_effort_options": REASONING_EFFORT_OPTIONS,
         "cwd": resolved_cwd,
+        "cwd_exists": os.path.isdir(resolved_cwd),
         "project": settings.project,
         "config_paths": settings.config_paths,
     }
