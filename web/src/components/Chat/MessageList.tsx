@@ -15,7 +15,9 @@ const SCROLL_THRESHOLD = 120
 interface MessageListProps {
   messages: RenderMessage[]
   loading: boolean
-  onRewindAndSend: (rewindTo: number, input: string) => Promise<void>
+  onRewindAndSend?:
+    | ((rewindTo: number, input: string) => Promise<void>)
+    | undefined
 }
 
 export const MessageList = memo(function MessageList({

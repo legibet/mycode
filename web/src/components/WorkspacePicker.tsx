@@ -33,14 +33,18 @@ import { shouldAutoFocusTextInputOnOpen } from '../utils/focus'
 const normalizeSlashes = (v: string): string => v.replace(/\\/g, '/')
 const isAbsolutePath = (v: string): boolean => /^([a-zA-Z]:[\\/]|\/)/.test(v)
 
-const matchRoot = (roots: string[], value: string): string | undefined => {
+const matchRoot = (
+  roots: string[],
+  value: string,
+  fallback = true,
+): string | undefined => {
   const normalized = normalizeSlashes(value)
   const sorted = [...roots].sort((a, b) => b.length - a.length)
   return (
     sorted.find((root) => {
       const normRoot = normalizeSlashes(root).replace(/\/+$/, '')
       return normalized === normRoot || normalized.startsWith(`${normRoot}/`)
-    }) || roots[0]
+    }) || (fallback ? roots[0] : undefined)
   )
 }
 
@@ -112,6 +116,7 @@ interface WorkspacePickerProps {
   currentCwd?: string
   cwdHistory?: string[]
   onSelect: (cwd: string) => void
+  onMissingHistory?: (cwd: string) => void
 }
 
 export function WorkspacePicker({
@@ -121,6 +126,7 @@ export function WorkspacePicker({
   currentCwd,
   cwdHistory = EMPTY_HISTORY,
   onSelect,
+  onMissingHistory,
 }: WorkspacePickerProps) {
   const {
     data: roots = [],
@@ -204,14 +210,6 @@ export function WorkspacePicker({
   const loading =
     rootsLoading || (Boolean(browseKey) && !browseData && !browseError)
 
-  const errorMessage =
-    uiError ||
-    (browseError ? getErrorMessage(browseError) : '') ||
-    (rootsError ? getErrorMessage(rootsError) : '') ||
-    (!rootsLoading && roots.length === 0
-      ? 'No workspace roots configured.'
-      : '')
-
   // Reset filter when arriving at a new directory.
   const prevCurrentRef = useRef(current)
   if (prevCurrentRef.current !== current) {
@@ -243,7 +241,7 @@ export function WorkspacePicker({
       const trimmed = value.trim()
       if (!trimmed || roots.length === 0) return
       if (isAbsolutePath(trimmed)) {
-        const matched = matchRoot(roots, trimmed)
+        const matched = matchRoot(roots, trimmed, false)
         if (!matched) {
           setUiError('Path is outside any configured workspace root.')
           return
@@ -269,6 +267,40 @@ export function WorkspacePicker({
       onClose()
     }
   }, [current, onSelect, onClose])
+
+  const checkWorkspace = useCallback(
+    async (cwd: string): Promise<boolean> => {
+      try {
+        const matched = matchRoot(roots, cwd, false)
+        if (!matched) return false
+        const key = buildBrowseKey({
+          root: matched,
+          path: toRelativePath(matched, cwd),
+        })
+        if (!key) return false
+        const res = await fetch(key)
+        if (!res.ok) return false
+        const data = (await res.json()) as WorkspaceBrowseResponse
+        return Boolean(data.current && !data.error)
+      } catch {
+        return false
+      }
+    },
+    [roots],
+  )
+
+  const handleSelectRecent = useCallback(
+    async (cwd: string) => {
+      if (!(await checkWorkspace(cwd))) {
+        setUiError('Workspace no longer exists.')
+        onMissingHistory?.(cwd)
+        return
+      }
+      onSelect(cwd)
+      onClose()
+    },
+    [checkWorkspace, onMissingHistory, onSelect, onClose],
+  )
 
   const handleInputKeyDown = useCallback(
     (e: KeyboardEvent<HTMLInputElement>) => {
@@ -308,8 +340,18 @@ export function WorkspacePicker({
   // ── derived (rendering) ──────────────────────────────────────────────────
 
   const pathSegments = path ? path.split('/') : []
-  const recentPaths = cwdHistory.filter((p) => p !== current)
+  const currentPath = current || currentCwd || ''
+  const recentPaths = cwdHistory.filter((p) => p !== currentPath)
   const showRecent = recentPaths.length > 0 && !filter.trim()
+  const noticeMessage =
+    uiError ||
+    (browseError ? 'Workspace no longer exists. Choose another workspace.' : '')
+  const blockingErrorMessage =
+    (rootsError ? getErrorMessage(rootsError) : '') ||
+    (!rootsLoading && roots.length === 0
+      ? 'No workspace roots configured.'
+      : '')
+  const showRoots = Boolean(browseError) && roots.length > 0 && !filter.trim()
 
   // ── render ───────────────────────────────────────────────────────────────
 
@@ -455,16 +497,22 @@ export function WorkspacePicker({
             </div>
           )}
 
-          {!loading && errorMessage && (
+          {!loading && blockingErrorMessage && (
             <div className="flex items-center justify-center h-36 px-6 text-center">
               <p className="text-xs text-destructive leading-relaxed">
-                {errorMessage}
+                {blockingErrorMessage}
               </p>
             </div>
           )}
 
-          {!loading && !errorMessage && (
+          {!loading && !blockingErrorMessage && (
             <div className="py-1">
+              {noticeMessage && (
+                <div className="mx-4 my-2 rounded-md border border-border/30 bg-muted/20 px-3 py-2 text-[11px] leading-relaxed text-muted-foreground">
+                  {noticeMessage}
+                </div>
+              )}
+
               {/* Recent */}
               {showRecent && (
                 <>
@@ -477,15 +525,38 @@ export function WorkspacePicker({
                     <button
                       type="button"
                       key={p}
-                      onClick={() => {
-                        onSelect(p)
-                        onClose()
-                      }}
+                      onClick={() => void handleSelectRecent(p)}
                       className="group flex items-center gap-3 w-full min-h-[44px] px-4 py-2 text-left cursor-pointer transition-colors hover:bg-muted/50 active:bg-muted/70 focus-visible:outline-none focus-visible:bg-muted/50"
                     >
                       <Clock className="h-3.5 w-3.5 shrink-0 text-muted-foreground/35 group-hover:text-accent/60 transition-colors" />
                       <span className="truncate text-xs font-mono text-muted-foreground group-hover:text-foreground/80 transition-colors">
                         {p}
+                      </span>
+                    </button>
+                  ))}
+                  {(filteredEntries.length > 0 || showRoots) && (
+                    <div className="mx-4 mt-1 mb-1 border-b border-border/20" />
+                  )}
+                </>
+              )}
+
+              {showRoots && (
+                <>
+                  <div className="px-4 pt-3 pb-1.5">
+                    <span className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/40 select-none">
+                      Roots
+                    </span>
+                  </div>
+                  {roots.map((workspaceRoot) => (
+                    <button
+                      type="button"
+                      key={workspaceRoot}
+                      onClick={() => browseTo(workspaceRoot, '')}
+                      className="group flex items-center gap-3 w-full min-h-[44px] px-4 py-2 text-left cursor-pointer transition-colors hover:bg-muted/50 active:bg-muted/70 focus-visible:outline-none focus-visible:bg-muted/50"
+                    >
+                      <FolderOpen className="h-3.5 w-3.5 shrink-0 text-muted-foreground/35 group-hover:text-accent/60 transition-colors" />
+                      <span className="truncate text-xs font-mono text-muted-foreground group-hover:text-foreground/80 transition-colors">
+                        {workspaceRoot}
                       </span>
                     </button>
                   ))}
@@ -496,7 +567,7 @@ export function WorkspacePicker({
               )}
 
               {/* Entries */}
-              {filteredEntries.length === 0 && !showRecent && (
+              {filteredEntries.length === 0 && !showRecent && !showRoots && (
                 <div className="flex flex-col items-center justify-center gap-3 h-36 text-muted-foreground/30">
                   <Folder className="h-10 w-10" strokeWidth={1} />
                   <p className="text-xs">

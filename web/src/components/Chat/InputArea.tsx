@@ -106,6 +106,7 @@ interface InputAreaProps {
   config: LocalConfig
   remoteConfig: RemoteConfig | null
   onUpdateConfig: (config: LocalConfig) => void
+  disabledReason?: string | undefined
 }
 
 function readFileAsBase64(file: File): Promise<string> {
@@ -185,6 +186,7 @@ export const InputArea = memo(function InputArea({
   config,
   remoteConfig,
   onUpdateConfig,
+  disabledReason,
 }: InputAreaProps) {
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
@@ -197,22 +199,25 @@ export const InputArea = memo(function InputArea({
     }
   }, [input])
 
+  const disabled = Boolean(disabledReason)
+
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
-      if (!loading) onSend()
+      if (!loading && !disabled) onSend()
     }
   }
 
   const attachFiles = useCallback(
     async (files: File[]) => {
+      if (disabled) return
       const nextFiles = await processFiles(files, {
         supportsImages,
         supportsDocuments,
       })
       if (nextFiles.length) onAttachFiles?.(nextFiles)
     },
-    [onAttachFiles, supportsDocuments, supportsImages],
+    [disabled, onAttachFiles, supportsDocuments, supportsImages],
   )
 
   const handleFileChange = async (e: ChangeEvent<HTMLInputElement>) => {
@@ -278,6 +283,12 @@ export const InputArea = memo(function InputArea({
         onDragOver={handleDragOver}
         onDrop={handleDrop}
       >
+        {disabledReason && (
+          <div className="border-b border-border/30 px-3.5 py-2 text-[11px] leading-relaxed text-muted-foreground">
+            {disabledReason}
+          </div>
+        )}
+
         {files.length > 0 && (
           <div className="flex flex-wrap gap-1.5 px-3 pt-2.5 pb-1">
             {files.map((file, i) => (
@@ -337,8 +348,12 @@ export const InputArea = memo(function InputArea({
           }}
           onKeyDown={handleKeyDown}
           onPaste={handlePaste}
-          placeholder="Message…"
-          className="block w-full resize-none bg-transparent px-3.5 pt-4 pb-1.5 max-md:pt-3.5 text-base md:text-sm leading-relaxed text-foreground placeholder:text-muted-foreground/40 focus-visible:outline-none max-h-[200px]"
+          placeholder={disabledReason || 'Message…'}
+          disabled={disabled}
+          className={cn(
+            'block w-full resize-none bg-transparent px-3.5 pt-4 pb-1.5 max-md:pt-3.5 text-base md:text-sm leading-relaxed placeholder:text-muted-foreground/40 focus-visible:outline-none max-h-[200px]',
+            disabled ? 'text-muted-foreground/50' : 'text-foreground',
+          )}
         />
 
         {/* Bottom row: attach + model · effort + send */}
@@ -346,11 +361,11 @@ export const InputArea = memo(function InputArea({
           <button
             type="button"
             aria-label="Attach file"
-            disabled={loading}
+            disabled={loading || disabled}
             onClick={() => fileInputRef.current?.click()}
             className={cn(
               'h-7 w-7 flex items-center justify-center rounded-md transition-colors shrink-0',
-              loading
+              loading || disabled
                 ? 'text-muted-foreground/20'
                 : 'text-muted-foreground/60 hover:text-foreground hover:bg-muted/70',
             )}
@@ -387,10 +402,10 @@ export const InputArea = memo(function InputArea({
               type="button"
               aria-label="Send message"
               onClick={onSend}
-              disabled={!hasInput}
+              disabled={!hasInput || disabled}
               className={cn(
                 'h-7 w-7 flex items-center justify-center rounded-md transition-colors shrink-0',
-                hasInput
+                hasInput && !disabled
                   ? 'bg-accent text-accent-foreground hover:opacity-90 active:scale-95'
                   : 'text-muted-foreground/30 bg-muted/40',
               )}

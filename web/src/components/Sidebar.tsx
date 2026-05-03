@@ -85,7 +85,9 @@ interface SidebarProps {
   remoteConfig: RemoteConfig | null
   cwdHistory: string[]
   onUpdateConfig: (config: LocalConfig) => void
+  onRemoveHistory: (cwd: string) => void
   onOpenSettings: () => void
+  workspaceMissing?: boolean
   width: number
   onResize: (width: number) => void
   onResizeReset: () => void
@@ -181,7 +183,9 @@ export const Sidebar = memo(function Sidebar({
   remoteConfig,
   cwdHistory,
   onUpdateConfig,
+  onRemoveHistory,
   onOpenSettings,
+  workspaceMissing = false,
   width,
   onResize,
   onResizeReset,
@@ -257,6 +261,11 @@ export const Sidebar = memo(function Sidebar({
                 {wsPath}
               </span>
             )}
+            {workspaceMissing && (
+              <span className="font-mono text-[10px] leading-snug text-muted-foreground/55">
+                missing
+              </span>
+            )}
           </button>
           <button
             type="button"
@@ -281,6 +290,7 @@ export const Sidebar = memo(function Sidebar({
         currentCwd={config.cwd}
         cwdHistory={cwdHistory}
         onSelect={(cwd) => onUpdateConfig({ ...config, cwd })}
+        onMissingHistory={onRemoveHistory}
       />
 
       {/* Session list */}

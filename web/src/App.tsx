@@ -190,6 +190,15 @@ function AppContent() {
     [config.cwd, cwdHistory],
   )
 
+  const handleRemoveHistory = useCallback((cwd: string) => {
+    setCwdHistory((prev) => {
+      if (!prev.includes(cwd)) return prev
+      const next = prev.filter((item) => item !== cwd)
+      saveHistory(next)
+      return next
+    })
+  }, [])
+
   const clearAttachments = useCallback(() => {
     setAttachments((prev) => {
       for (const attachment of prev) {
@@ -222,6 +231,10 @@ function AppContent() {
     () => modelSupports(remoteConfig, config.provider, config.model),
     [config.model, config.provider, remoteConfig],
   )
+  const workspaceMissing = remoteConfig?.cwd_exists === false
+  const workspaceDisabledReason = workspaceMissing
+    ? 'Workspace no longer exists. Choose another workspace.'
+    : undefined
 
   // Side effect (not derived state): drop already-attached files the active
   // model can no longer accept and revoke their object URLs. Listening on the
@@ -294,7 +307,9 @@ function AppContent() {
             remoteConfig={remoteConfig}
             cwdHistory={cwdHistory}
             onUpdateConfig={handleConfigUpdate}
+            onRemoveHistory={handleRemoveHistory}
             onOpenSettings={() => setSettingsOpen(true)}
+            workspaceMissing={workspaceMissing}
             width={displayedSidebarWidth}
             onResize={handleResizeSidebar}
             onResizeReset={handleResetSidebarWidth}
@@ -322,7 +337,7 @@ function AppContent() {
               <MessageList
                 messages={messages}
                 loading={loading}
-                onRewindAndSend={rewindAndSend}
+                onRewindAndSend={workspaceMissing ? undefined : rewindAndSend}
               />
 
               {/* Gradient fade above input */}
@@ -349,6 +364,7 @@ function AppContent() {
                   config={config}
                   remoteConfig={remoteConfig}
                   onUpdateConfig={handleConfigUpdate}
+                  disabledReason={workspaceDisabledReason}
                 />
               </div>
             </>
