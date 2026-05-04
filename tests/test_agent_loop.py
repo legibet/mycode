@@ -440,7 +440,6 @@ class TestAgentCancel:
 
             async def cancelled_compact(*_args, **_kwargs):
                 raise asyncio.CancelledError
-                yield
 
             with (
                 patch("mycode.agent.get_provider_adapter", return_value=adapter),

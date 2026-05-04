@@ -16,101 +16,25 @@ import shutil
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, TypedDict, cast
+from typing import TypedDict, cast
 
-from mycode.messages import ConversationMessage, build_message, flatten_message_text, text_block
+from mycode.messages import ConversationMessage, flatten_message_text
 
 # ---------------------------------------------------------------------
-# Session format and compacting defaults
+# Session format defaults
 # ---------------------------------------------------------------------
 
 MESSAGE_FORMAT_VERSION = 7
-DEFAULT_COMPACT_THRESHOLD = 0.8
 DEFAULT_SESSION_TITLE = "New chat"
-
-COMPACT_SUMMARY_PROMPT = """\
-Summarize this conversation to create a continuation document. \
-This summary will replace the full conversation history, so it must \
-capture everything needed to continue the work seamlessly.
-
-Include:
-
-1. **Task and Intent**: Describe the user's overall goal — what is being \
-built, fixed, or investigated, and why.
-2. **Decisions and Constraints**: List the decisions made, constraints \
-discovered, and approaches chosen or rejected, with the reasoning behind \
-each.
-3. **User Requests**: Every distinct request or instruction the user gave, \
-in chronological order. Preserve the user's original wording for ambiguous \
-or nuanced requests.
-4. **Files and Changes**: Enumerate every file read, modified, or created \
-— paths, what changed, and any code snippets the next turn will need to \
-reason about, quoted verbatim.
-5. **Errors and Fixes**: List errors encountered with the original message \
-verbatim, the cause if known, and the resolution — or that it remains open.
-6. **Current State**: What is verified working, what is known broken, what \
-is in progress.
-7. **Next Step**: The next step to take, with a direct quote from the most \
-recent conversation showing where the work left off.
-
-Rules:
-- Be specific: reproduce file paths, function names, error messages, and \
-other identifiers verbatim — never paraphrase them.
-- Do not add suggestions or opinions — only summarize what happened.
-- Keep it concise but complete.\
-"""
-
-CONTINUATION_HEADER = "This session is being continued from a previous conversation that was compacted to fit the context window. The summary below covers the earlier portion of the conversation."
-
-TRANSCRIPT_HINT = "For verbatim details not captured in this summary (exact code snippets, error messages, or earlier output), read the original conversation log at: {path}"
-
-CONTINUATION_FOOTER = 'Resume directly from where the work left off. Do not acknowledge this summary, do not recap, and do not preface with "I\'ll continue" or similar.'
-
-COMPACT_ACK = "Acknowledged."
 
 
 # ---------------------------------------------------------------------
-# Compact and rewind session events
+# Rewind session events
 # ---------------------------------------------------------------------
 
 
 def _now() -> str:
     return datetime.now(UTC).isoformat()
-
-
-def should_compact(
-    last_total_tokens: int | None,
-    context_window: int | None,
-    threshold: float,
-) -> bool:
-    """True when the latest call's `total_tokens` ≥ `context_window × threshold`.
-
-    `total_tokens` already covers the next API call's prompt floor, so it is
-    the right input here. The `(1 - threshold)` headroom is reserved for the
-    compact LLM call itself (see docs/sessions.md).
-    """
-
-    if not last_total_tokens or not context_window or threshold <= 0:
-        return False
-    return last_total_tokens >= context_window * threshold
-
-
-def build_compact_event(
-    summary_text: str,
-    *,
-    provider: str,
-    model: str,
-    total_tokens: int | None = None,
-) -> ConversationMessage:
-    """Build the compact event stored in session JSONL."""
-
-    meta: dict[str, Any] = {
-        "provider": provider,
-        "model": model,
-    }
-    if total_tokens is not None:
-        meta["total_tokens"] = total_tokens
-    return build_message("compact", [text_block(summary_text)], meta=meta)
 
 
 def build_rewind_event(rewind_to: int) -> ConversationMessage:

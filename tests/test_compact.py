@@ -8,12 +8,13 @@ from pathlib import Path
 import pytest
 
 from mycode.agent import Agent
-from mycode.session import (
+from mycode.compact import (
     DEFAULT_COMPACT_THRESHOLD,
-    SessionStore,
+    apply_compact_replay,
     build_compact_event,
     should_compact,
 )
+from mycode.session import SessionStore
 from mycode_cli.config import get_settings
 
 
@@ -103,25 +104,23 @@ async def test_compact_event_remains_in_raw_jsonl(store: SessionStore) -> None:
     assert json.loads(raw_lines[2])["role"] == "compact"
 
 
-def test_project_for_provider_is_identity_without_compact(tmp_path: Path) -> None:
-    agent = make_agent(tmp_path)
+def test_apply_compact_replay_is_identity_without_compact() -> None:
     messages = [
         {"role": "user", "content": [{"type": "text", "text": "hi"}]},
         {"role": "assistant", "content": [{"type": "text", "text": "hello"}]},
     ]
 
-    assert agent._project_for_provider(messages) is messages
+    assert apply_compact_replay(messages) is messages
 
 
-def test_project_for_provider_continues_when_tail_is_empty(tmp_path: Path) -> None:
-    agent = make_agent(tmp_path)
+def test_apply_compact_replay_continues_when_tail_is_empty() -> None:
     messages = [
         {"role": "user", "content": [{"type": "text", "text": "early"}]},
         {"role": "assistant", "content": [{"type": "text", "text": "ok"}]},
         build_compact_event("summary", provider="p", model="m"),
     ]
 
-    projected = agent._project_for_provider(messages)
+    projected = apply_compact_replay(messages)
 
     assert [m["role"] for m in projected] == ["user"]
     text = projected[0]["content"][0]["text"]
@@ -129,8 +128,7 @@ def test_project_for_provider_continues_when_tail_is_empty(tmp_path: Path) -> No
     assert "Resume directly" in text
 
 
-def test_project_for_provider_continues_when_tail_starts_with_assistant(tmp_path: Path) -> None:
-    agent = make_agent(tmp_path)
+def test_apply_compact_replay_continues_when_tail_starts_with_assistant() -> None:
     messages = [
         {"role": "user", "content": [{"type": "text", "text": "early"}]},
         {"role": "assistant", "content": [{"type": "text", "text": "ok"}]},
@@ -138,15 +136,14 @@ def test_project_for_provider_continues_when_tail_starts_with_assistant(tmp_path
         {"role": "assistant", "content": [{"type": "text", "text": "tail"}]},
     ]
 
-    projected = agent._project_for_provider(messages)
+    projected = apply_compact_replay(messages)
 
     assert [m["role"] for m in projected] == ["user", "assistant"]
     assert "Resume directly" in projected[0]["content"][0]["text"]
     assert projected[1]["content"][0]["text"] == "tail"
 
 
-def test_project_for_provider_inserts_ack_when_tail_starts_with_user(tmp_path: Path) -> None:
-    agent = make_agent(tmp_path)
+def test_apply_compact_replay_inserts_ack_when_tail_starts_with_user() -> None:
     messages = [
         {"role": "user", "content": [{"type": "text", "text": "early"}]},
         {"role": "assistant", "content": [{"type": "text", "text": "ok"}]},
@@ -154,7 +151,7 @@ def test_project_for_provider_inserts_ack_when_tail_starts_with_user(tmp_path: P
         {"role": "user", "content": [{"type": "text", "text": "follow-up"}]},
     ]
 
-    projected = agent._project_for_provider(messages)
+    projected = apply_compact_replay(messages)
 
     assert [m["role"] for m in projected] == ["user", "assistant", "user"]
     assert "Resume directly" not in projected[0]["content"][0]["text"]
@@ -162,8 +159,7 @@ def test_project_for_provider_inserts_ack_when_tail_starts_with_user(tmp_path: P
     assert projected[2]["content"][0]["text"] == "follow-up"
 
 
-def test_project_for_provider_uses_latest_compact_and_drops_earlier_markers(tmp_path: Path) -> None:
-    agent = make_agent(tmp_path)
+def test_apply_compact_replay_uses_latest_compact_and_drops_earlier_markers() -> None:
     messages = [
         {"role": "user", "content": [{"type": "text", "text": "very old"}]},
         build_compact_event("EARLIER_SUMMARY", provider="p", model="m"),
@@ -172,12 +168,23 @@ def test_project_for_provider_uses_latest_compact_and_drops_earlier_markers(tmp_
         {"role": "assistant", "content": [{"type": "text", "text": "tail"}]},
     ]
 
-    projected = agent._project_for_provider(messages)
+    projected = apply_compact_replay(messages)
 
     assert [m["role"] for m in projected] == ["user", "assistant"]
     summary_user_text = projected[0]["content"][0]["text"]
     assert "LATEST_SUMMARY" in summary_user_text
     assert "EARLIER_SUMMARY" not in summary_user_text
+
+
+def test_apply_compact_replay_threads_transcript_path() -> None:
+    messages = [
+        {"role": "user", "content": [{"type": "text", "text": "early"}]},
+        build_compact_event("summary", provider="p", model="m"),
+    ]
+
+    projected = apply_compact_replay(messages, transcript_path="/sessions/s1/messages.jsonl")
+
+    assert "/sessions/s1/messages.jsonl" in projected[0]["content"][0]["text"]
 
 
 def test_agent_uses_default_compact_threshold(tmp_path: Path) -> None:
