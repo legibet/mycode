@@ -374,6 +374,70 @@ describe('useChat', () => {
     expect(loadActiveSession('/workspace/a')).toBe('session-1')
   })
 
+  it('deletes the oldest active session and loads the nearest newer session', async () => {
+    saveActiveSession('/workspace/a', 'session-1')
+
+    mockFetch({
+      '/api/sessions?cwd=': createJsonResponse({
+        sessions: [
+          { id: 'session-3', title: 'Third' },
+          { id: 'session-2', title: 'Second' },
+          { id: 'session-1', title: 'First' },
+        ],
+      }),
+      '/api/sessions/session-1': (init?: RequestInit) =>
+        init?.method === 'DELETE'
+          ? new Response(null, { status: 200 })
+          : createJsonResponse({
+              session: { id: 'session-1', title: 'First' },
+              messages: [
+                {
+                  role: 'assistant',
+                  content: [{ type: 'text', text: 'first session' }],
+                },
+              ],
+              active_run: null,
+              pending_events: [],
+            }),
+      '/api/sessions/session-2': createJsonResponse({
+        session: { id: 'session-2', title: 'Second' },
+        messages: [
+          {
+            role: 'assistant',
+            content: [{ type: 'text', text: 'second session' }],
+          },
+        ],
+        active_run: null,
+        pending_events: [],
+      }),
+    })
+
+    const { result } = renderChatHook()
+
+    await waitFor(() => {
+      expect(result.current.sessionLoading).toBe(false)
+      expect(result.current.activeSession.id).toBe('session-1')
+    })
+
+    await result.current.deleteSession('session-1')
+
+    await waitFor(() => {
+      expect(result.current.sessionLoading).toBe(false)
+      expect(result.current.activeSession.id).toBe('session-2')
+      expect(result.current.sessions.map((session) => session.id)).toEqual([
+        'session-3',
+        'session-2',
+      ])
+      expect(expectChat(result.current.messages[0]).content[0]).toEqual({
+        type: 'text',
+        text: 'second session',
+        renderKey: 'assistant:0:0',
+      })
+    })
+
+    expect(loadActiveSession('/workspace/a')).toBe('session-2')
+  })
+
   it('replays pending permission requests and clears them on decide', async () => {
     globalThis.localStorage.setItem(
       'mycode.activeSessions',

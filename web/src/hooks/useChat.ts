@@ -897,7 +897,11 @@ export function useChat(config: LocalConfig) {
         (session) => session.id !== sessionId,
       )
       const fallbackSession =
-        deletedIndex >= 0 ? remainingSessions[deletedIndex] || null : null
+        deletedIndex >= 0
+          ? remainingSessions[deletedIndex] ||
+            remainingSessions[deletedIndex - 1] ||
+            null
+          : null
 
       setSessionLoading(true)
       try {
