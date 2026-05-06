@@ -119,7 +119,7 @@ class OpenAIChatAdapter(ProviderAdapter):
             state = tool_calls[index]
             raw_arguments = state.arguments_text
             parsed_arguments = parse_tool_arguments(raw_arguments)
-            if isinstance(parsed_arguments, str):
+            if parsed_arguments is None:
                 tool_input = {}
                 meta = {"native": {"raw_arguments": raw_arguments}}
             else:
@@ -301,41 +301,23 @@ class OpenAIChatAdapter(ProviderAdapter):
         # We check both the delta root and model_extra to cover both patterns.
         # Known fields: reasoning, reasoning_content, reasoning_details.
         for source in (delta, getattr(delta, "model_extra", None) or {}):
-            if isinstance(source, dict):
-                has_reasoning = "reasoning" in source
-                reasoning = source.get("reasoning")
-                has_reasoning_content = "reasoning_content" in source
-                reasoning_content = source.get("reasoning_content")
-                has_reasoning_details = "reasoning_details" in source
-                reasoning_details = source.get("reasoning_details")
-            else:
-                has_reasoning = hasattr(source, "reasoning")
-                reasoning = getattr(source, "reasoning", None)
-                has_reasoning_content = hasattr(source, "reasoning_content")
-                reasoning_content = getattr(source, "reasoning_content", None)
-                has_reasoning_details = hasattr(source, "reasoning_details")
-                reasoning_details = getattr(source, "reasoning_details", None)
+            for field in ("reasoning", "reasoning_content", "reasoning_details"):
+                if isinstance(source, dict):
+                    if field not in source:
+                        continue
+                    value = source[field]
+                elif hasattr(source, field):
+                    value = getattr(source, field, None)
+                else:
+                    continue
 
-            if has_reasoning:
-                return (
-                    reasoning if isinstance(reasoning, str) else "",
-                    {"reasoning_field": "reasoning"},
-                )
+                if field == "reasoning_details":
+                    if not isinstance(value, list):
+                        continue
+                    text = "".join(str(item.get("text") or "") for item in value if isinstance(item, dict))
+                    return text, {"reasoning_field": "reasoning_details", "reasoning_details": value}
 
-            if has_reasoning_content:
-                return (
-                    reasoning_content if isinstance(reasoning_content, str) else "",
-                    {"reasoning_field": "reasoning_content"},
-                )
-
-            if has_reasoning_details and isinstance(reasoning_details, list):
-                reasoning_text = "".join(
-                    str(item.get("text") or "") for item in reasoning_details if isinstance(item, dict)
-                )
-                return reasoning_text, {
-                    "reasoning_field": "reasoning_details",
-                    "reasoning_details": reasoning_details,
-                }
+                return (value if isinstance(value, str) else "", {"reasoning_field": field})
 
         return "", {}
 

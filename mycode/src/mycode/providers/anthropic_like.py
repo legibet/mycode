@@ -214,11 +214,11 @@ class AnthropicLikeAdapter(ProviderAdapter):
                 )
                 continue
 
-        native_meta: dict[str, Any] = {}
+        message_native_meta: dict[str, Any] = {}
         if stop_sequence := getattr(message, "stop_sequence", None):
-            native_meta["stop_sequence"] = stop_sequence
+            message_native_meta["stop_sequence"] = stop_sequence
         if service_tier := getattr(message, "service_tier", None):
-            native_meta["service_tier"] = service_tier
+            message_native_meta["service_tier"] = service_tier
 
         # No `total_tokens` field — compute it from input + cache + output parts.
         raw_usage = dump_model(getattr(message, "usage", None)) or {}
@@ -237,7 +237,7 @@ class AnthropicLikeAdapter(ProviderAdapter):
             provider_message_id=getattr(message, "id", None),
             stop_reason=getattr(message, "stop_reason", None),
             total_tokens=total_tokens,
-            native_meta=native_meta,
+            native_meta=message_native_meta,
         )
 
     def _serialize_tool(self, tool: dict[str, Any]) -> dict[str, Any]:

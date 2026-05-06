@@ -452,32 +452,29 @@ class Agent:
             await self._store.append_message(self.session_id, message)
 
         self._cancel_event.clear()
-        supports_image_input = self.supports_image_input
-        supports_pdf_input = self.supports_pdf_input
-        self.tool_ctx.supports_image_input = supports_image_input
 
         if isinstance(user_input, str):
-            user_message = user_text_message(user_input)
+            user_message: ConversationMessage = user_text_message(user_input)
         else:
-            user_message: ConversationMessage = {
-                "role": str(user_input.get("role") or "user"),
+            if (user_input.get("role") or "user") != "user":
+                yield Event("error", {"message": "user input must be a user message"})
+                return
+            user_message = {
+                "role": "user",
                 "content": [dict(b) for b in user_input.get("content") or [] if isinstance(b, dict)],
             }
             raw_meta = user_input.get("meta")
             if isinstance(raw_meta, dict):
                 user_message["meta"] = {str(k): v for k, v in raw_meta.items()}
 
-        if user_message.get("role") != "user":
-            yield Event("error", {"message": "user input must be a user message"})
-            return
-
-        if not supports_image_input and any(
-            isinstance(block, dict) and block.get("type") == "image" for block in user_message.get("content") or []
+        content_blocks = user_message.get("content") or []
+        if not self.supports_image_input and any(
+            isinstance(block, dict) and block.get("type") == "image" for block in content_blocks
         ):
             yield Event("error", {"message": "current model does not support image input"})
             return
-        if not supports_pdf_input and any(
-            isinstance(block, dict) and block.get("type") == "document" for block in user_message.get("content") or []
+        if not self.supports_pdf_input and any(
+            isinstance(block, dict) and block.get("type") == "document" for block in content_blocks
         ):
             yield Event("error", {"message": "current model does not support PDF input"})
             return
@@ -508,8 +505,8 @@ class Agent:
                 api_key=self.api_key,
                 api_base=self.api_base,
                 reasoning_effort=self.reasoning_effort,
-                supports_image_input=supports_image_input,
-                supports_pdf_input=supports_pdf_input,
+                supports_image_input=self.supports_image_input,
+                supports_pdf_input=self.supports_pdf_input,
             )
 
             try:

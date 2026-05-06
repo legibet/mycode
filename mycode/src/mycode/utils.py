@@ -21,10 +21,10 @@ def omit_none(d: dict[str, Any]) -> dict[str, Any]:
     return {k: v for k, v in d.items() if v is not None}
 
 
-def parse_tool_arguments(raw: str | None) -> dict[str, Any] | str:
+def parse_tool_arguments(raw: str | None) -> dict[str, Any] | None:
     """Parse a JSON tool-arguments string.
 
-    Returns the parsed dict, or an error string if the input is invalid.
+    Returns the parsed dict, or None when the input is missing/invalid/non-object.
     Empty / None input is treated as an empty argument set.
     """
     if not raw or not raw.strip():
@@ -32,7 +32,5 @@ def parse_tool_arguments(raw: str | None) -> dict[str, Any] | str:
     try:
         parsed = json.loads(raw)
     except json.JSONDecodeError:
-        return "error: invalid JSON arguments"
-    if not isinstance(parsed, dict):
-        return "error: tool arguments must decode to a JSON object"
-    return parsed
+        return None
+    return parsed if isinstance(parsed, dict) else None

@@ -339,7 +339,7 @@ class OpenAIResponsesAdapter(ProviderAdapter):
             if item_type == "function_call":
                 raw_arguments = getattr(item, "arguments", "") or ""
                 parsed_arguments = parse_tool_arguments(raw_arguments)
-                if isinstance(parsed_arguments, str):
+                if parsed_arguments is None:
                     tool_input = {}
                     raw_args_entry: dict[str, Any] = {"raw_arguments": raw_arguments}
                 else:

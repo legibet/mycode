@@ -127,14 +127,10 @@ class TestParseToolArguments:
         assert result == {}
 
     def test_invalid_json(self):
-        result = parse_tool_arguments("not json")
-        assert isinstance(result, str)
-        assert "invalid" in result.lower()
+        assert parse_tool_arguments("not json") is None
 
     def test_non_object_json(self):
-        result = parse_tool_arguments("[1, 2, 3]")
-        assert isinstance(result, str)
-        assert "object" in result.lower()
+        assert parse_tool_arguments("[1, 2, 3]") is None
 
 
 class TestRead:
