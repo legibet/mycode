@@ -211,9 +211,14 @@ export const Sidebar = memo(function Sidebar({
       const b = d ? bucketOf(d, now) : 'older'
       buckets[b].push(s)
     }
-    return (['today', 'yesterday', 'week', 'older'] as Bucket[])
-      .map((b) => ({ bucket: b, sessions: buckets[b] }))
-      .filter((g) => g.sessions.length > 0)
+    const groups: { bucket: Bucket; sessions: SessionSummary[] }[] = []
+    for (const bucket of ['today', 'yesterday', 'week', 'older'] as Bucket[]) {
+      const bucketSessions = buckets[bucket]
+      if (bucketSessions.length > 0) {
+        groups.push({ bucket, sessions: bucketSessions })
+      }
+    }
+    return groups
   }, [sessions])
 
   return (

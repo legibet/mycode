@@ -113,6 +113,7 @@ describe('messages', () => {
   it('wraps text attachments like CLI file references', () => {
     const message = createUserMessage('review this', [
       {
+        id: 'file-1',
         kind: 'text',
         name: 'main <"v2">.py',
         text: 'print("ok")',

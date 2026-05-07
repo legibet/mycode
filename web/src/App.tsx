@@ -224,12 +224,12 @@ function AppContent() {
     setAttachments((prev) => [...prev, ...newFiles])
   }, [])
 
-  const handleRemoveAttachment = useCallback((index: number) => {
+  const handleRemoveAttachment = useCallback((id: string) => {
     setAttachments((prev) => {
-      const next = [...prev]
-      const removed = next.splice(index, 1)
-      if (removed[0]?.kind === 'image') URL.revokeObjectURL(removed[0].preview)
-      return next
+      const removed = prev.find((attachment) => attachment.id === id)
+      if (!removed) return prev
+      if (removed.kind === 'image') URL.revokeObjectURL(removed.preview)
+      return prev.filter((attachment) => attachment.id !== id)
     })
   }, [])
 

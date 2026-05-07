@@ -253,9 +253,10 @@ export function SettingsPanel({
   const usedTypesByOthersMap = useMemo(() => {
     const map = new Map<string, Set<string>>()
     for (const p of draft.providers) {
-      const others = new Set(
-        draft.providers.filter((o) => o.id !== p.id).map((o) => o.type),
-      )
+      const others = new Set<string>()
+      for (const other of draft.providers) {
+        if (other.id !== p.id) others.add(other.type)
+      }
       map.set(p.id, others)
     }
     return map
@@ -268,20 +269,21 @@ export function SettingsPanel({
       if (!key) continue
       seen.set(key, (seen.get(key) ?? 0) + 1)
     }
-    return new Set(
-      [...seen.entries()]
-        .filter(([, count]) => count > 1)
-        .map(([name]) => name),
-    )
+    const duplicates = new Set<string>()
+    for (const [name, count] of seen) {
+      if (count > 1) duplicates.add(name)
+    }
+    return duplicates
   }, [draft.providers])
 
-  const providerOptions = useMemo(
-    () =>
-      draft.providers
-        .map((p) => p.name.trim())
-        .filter((name) => name.length > 0),
-    [draft.providers],
-  )
+  const providerOptions = useMemo(() => {
+    const options: string[] = []
+    for (const p of draft.providers) {
+      const name = p.name.trim()
+      if (name) options.push(name)
+    }
+    return options
+  }, [draft.providers])
 
   // Always resolve to a name that's actually in the providers list. This drops
   // the awkward "(auto)" empty option: when default_provider is empty or stale

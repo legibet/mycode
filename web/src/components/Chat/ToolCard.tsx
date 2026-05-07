@@ -147,11 +147,14 @@ function getPreview(name: string, args: Args): string {
     case 'write':
     case 'edit':
       return asString((args as PathArgs).path)
-    default:
-      return Object.entries(args)
-        .filter(([k]) => k !== 'content' && k !== 'prompt')
-        .map(([, v]) => (typeof v === 'object' ? '…' : String(v)))
-        .join(' ')
+    default: {
+      const values: string[] = []
+      for (const [key, value] of Object.entries(args)) {
+        if (key === 'content' || key === 'prompt') continue
+        values.push(typeof value === 'object' ? '…' : String(value))
+      }
+      return values.join(' ')
+    }
   }
 }
 

@@ -135,6 +135,7 @@ export type MessageBlock =
   | DocumentBlock
 
 export interface AttachedImageFile {
+  id: string
   kind: 'image'
   data: string
   mime_type: string
@@ -143,6 +144,7 @@ export interface AttachedImageFile {
 }
 
 export interface AttachedDocumentFile {
+  id: string
   kind: 'document'
   data: string
   mime_type: 'application/pdf'
@@ -150,6 +152,7 @@ export interface AttachedDocumentFile {
 }
 
 export interface AttachedTextFile {
+  id: string
   kind: 'text'
   text: string
   name: string

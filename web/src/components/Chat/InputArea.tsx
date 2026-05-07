@@ -102,7 +102,7 @@ interface InputAreaProps {
   supportsDocuments?: boolean
   files?: AttachedFile[]
   onAttachFiles?: (files: AttachedFile[]) => void
-  onRemoveFile?: (index: number) => void
+  onRemoveFile?: (id: string) => void
   config: LocalConfig
   remoteConfig: RemoteConfig | null
   onUpdateConfig: (config: LocalConfig) => void
@@ -143,6 +143,7 @@ async function processFiles(
       if (file.type.startsWith('image/')) {
         if (!supportsImages) return null
         return {
+          id: crypto.randomUUID(),
           kind: 'image' as const,
           data: await readFileAsBase64(file),
           mime_type: file.type,
@@ -157,6 +158,7 @@ async function processFiles(
       if (isPdfFile) {
         if (!supportsDocuments) return null
         return {
+          id: crypto.randomUUID(),
           kind: 'document' as const,
           data: await readFileAsBase64(file),
           mime_type: 'application/pdf' as const,
@@ -166,7 +168,12 @@ async function processFiles(
 
       const text = await readFileAsUtf8(file)
       if (text === null) return null
-      return { kind: 'text' as const, text, name: file.name }
+      return {
+        id: crypto.randomUUID(),
+        kind: 'text' as const,
+        text,
+        name: file.name,
+      }
     }),
   )
   return attachedFiles.filter((file) => file !== null)
@@ -291,11 +298,8 @@ export const InputArea = memo(function InputArea({
 
         {files.length > 0 && (
           <div className="flex flex-wrap gap-1.5 px-3 pt-2.5 pb-1">
-            {files.map((file, i) => (
-              <div
-                key={`${file.kind}:${file.name}:${i}`}
-                className="relative group/thumb flex-shrink-0"
-              >
+            {files.map((file) => (
+              <div key={file.id} className="relative group/thumb flex-shrink-0">
                 {file.kind === 'image' ? (
                   <img
                     src={file.preview}
@@ -315,7 +319,7 @@ export const InputArea = memo(function InputArea({
                 )}
                 <button
                   type="button"
-                  onClick={() => onRemoveFile?.(i)}
+                  onClick={() => onRemoveFile?.(file.id)}
                   aria-label={`Remove ${file.name}`}
                   className="absolute -top-1 -right-1 h-4 w-4 bg-foreground text-background rounded-full flex items-center justify-center opacity-0 group-hover/thumb:opacity-100 max-md:opacity-100 transition-opacity"
                 >

@@ -129,7 +129,7 @@ describe('useChat', () => {
     })
 
     await result.current.send('check this', [
-      { kind: 'text', name: 'main.py', text: 'print("ok")' },
+      { id: 'file-1', kind: 'text', name: 'main.py', text: 'print("ok")' },
     ])
 
     const chatCall = fetchMock.mock.calls.find(([url]) => url === '/api/chat')
@@ -180,6 +180,7 @@ describe('useChat', () => {
 
     await result.current.send('summarize', [
       {
+        id: 'file-1',
         kind: 'document',
         name: 'report.pdf',
         mime_type: 'application/pdf',
