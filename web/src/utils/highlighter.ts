@@ -12,8 +12,8 @@ type AppHighlighter = HighlighterGeneric<BundledLanguage, AppTheme>
 type ResolvedLanguage = BundledLanguage | 'text'
 
 const themes = {
-  'dark-plus': () => import('shiki/dist/themes/dark-plus.mjs'),
-  'light-plus': () => import('shiki/dist/themes/light-plus.mjs'),
+  'dark-plus': () => import('@shikijs/themes/dark-plus'),
+  'light-plus': () => import('@shikijs/themes/light-plus'),
 } satisfies Record<AppTheme, ThemeInput>
 
 const createHighlighter = createBundledHighlighter<BundledLanguage, AppTheme>({
@@ -30,7 +30,6 @@ const LANGUAGE_ALIASES: Record<string, string> = {
   objectivec: 'objective-c',
   'objective-c++': 'objective-cpp',
   plaintext: 'text',
-  text: 'text',
   vuejs: 'vue',
 }
 
@@ -43,6 +42,9 @@ function getHighlighter(): Promise<AppHighlighter> {
   }
   return highlighterPromise
 }
+
+// Pre-warm so the first highlight only waits on language load.
+void getHighlighter()
 
 export function resolveLanguage(lang: string): ResolvedLanguage {
   const normalized = String(lang || '')

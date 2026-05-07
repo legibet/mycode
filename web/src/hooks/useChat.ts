@@ -967,6 +967,11 @@ export function useChat(config: LocalConfig) {
           setSessions(remainingSessions)
           activeSessionRef.current = fallbackSession
           setActiveSession(fallbackSession)
+          dispatch({
+            type: 'set_messages',
+            messages: [],
+            sessionId: fallbackSession.id,
+          })
           await loadSession(fallbackSession.id, {
             requestCwd: config.cwd,
             requestToken,

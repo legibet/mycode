@@ -5,6 +5,9 @@ import type { InlineStyle } from '../../types'
 // producing only <pre>/<code>/<span> elements with inline styles.
 // It does not pass through raw user input, so the output is safe.
 
+// Start the shiki chunk download at module-eval, not on first effect.
+const highlighterModulePromise = import('../../utils/highlighter')
+
 const MONO_STYLE = {
   margin: 0,
   padding: 0,
@@ -36,7 +39,7 @@ export default function HighlightedCode({
     }
 
     let cancelled = false
-    void import('../../utils/highlighter')
+    void highlighterModulePromise
       .then(({ highlightCode }) => highlightCode(code, language))
       .then((html) => {
         if (cancelled) return

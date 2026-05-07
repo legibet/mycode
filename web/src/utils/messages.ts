@@ -28,7 +28,8 @@ interface ToolIndexEntry {
   blockIndex: number
 }
 
-const EMPTY_TOOL_INPUT: ToolInput = {}
+// Shared frozen ref so memo equality holds across tool_use blocks.
+const EMPTY_TOOL_INPUT: ToolInput = Object.freeze({}) as ToolInput
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value)

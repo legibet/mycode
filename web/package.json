@@ -18,6 +18,7 @@
   },
   "dependencies": {
     "@pierre/diffs": "1.1.17",
+    "@shikijs/themes": "^3.23.0",
     "clsx": "^2.1.1",
     "katex": "^0.16.40",
     "lucide-react": "^0.562.0",
