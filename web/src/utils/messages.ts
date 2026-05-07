@@ -28,6 +28,8 @@ interface ToolIndexEntry {
   blockIndex: number
 }
 
+const EMPTY_TOOL_INPUT: ToolInput = {}
+
 function isObject(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
 }
@@ -82,7 +84,7 @@ function createToolUseBlock(toolCall: ToolCall): ToolUseBlock {
     type: 'tool_use',
     id: toolCall?.id || '',
     name: toolCall?.name || 'tool',
-    input: isObject(toolCall?.input) ? { ...toolCall.input } : {},
+    input: isObject(toolCall?.input) ? toolCall.input : EMPTY_TOOL_INPUT,
   }
 }
 
@@ -379,16 +381,22 @@ export function buildRenderMessages(
     }
 
     if (role === 'user') {
-      const userBlocks = blocks
-        .filter(
-          (block) =>
-            (block?.type === 'text' && block.text) ||
-            block?.type === 'image' ||
-            block?.type === 'document',
-        )
-        .map((block, blockIndex) =>
-          cloneBlock(block, `user:${sourceIndex}:${blockIndex}`),
-        )
+      const userBlocks: MessageBlock[] = []
+      const toolResults: ToolResultBlock[] = []
+
+      for (const [blockIndex, block] of blocks.entries()) {
+        if (
+          (block?.type === 'text' && block.text) ||
+          block?.type === 'image' ||
+          block?.type === 'document'
+        ) {
+          userBlocks.push(
+            cloneBlock(block, `user:${sourceIndex}:${blockIndex}`),
+          )
+        } else if (block?.type === 'tool_result') {
+          toolResults.push(block)
+        }
+      }
 
       if (userBlocks.length > 0) {
         const userMsg: ChatMessage = {
@@ -403,9 +411,6 @@ export function buildRenderMessages(
         currentAssistant = null
       }
 
-      const toolResults = blocks.filter(
-        (block) => block?.type === 'tool_result',
-      )
       if (toolResults.length === 0) continue
 
       const assistantMessage = ensureAssistantRenderMessage(sourceIndex)
@@ -446,7 +451,7 @@ export function buildRenderMessages(
           type: 'tool_use',
           id: toolUseId || '',
           name: 'tool',
-          input: {},
+          input: EMPTY_TOOL_INPUT,
           runtime: buildToolRuntime(runtime, block),
         }
         const blockIndex = assistantContent.length
@@ -490,7 +495,7 @@ export function buildRenderMessages(
         type: 'tool_use',
         id: block.id,
         name: block.name,
-        input: isObject(block.input) ? { ...block.input } : {},
+        input: isObject(block.input) ? block.input : EMPTY_TOOL_INPUT,
         runtime: buildToolRuntime(
           block.id ? toolRuntimeById[block.id] : undefined,
           null,

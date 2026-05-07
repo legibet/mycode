@@ -1,13 +1,5 @@
 import { startTransition, useEffect, useState } from 'react'
 import type { InlineStyle } from '../../types'
-import {
-  type AppHighlighter,
-  codeToHtmlSafely,
-  getHighlighter,
-  loadLang,
-  resolveLanguage,
-  SHIKI_OPTIONS,
-} from '../../utils/highlighter'
 
 // Safety note: shiki codeToHtml generates HTML from a tokenized AST,
 // producing only <pre>/<code>/<span> elements with inline styles.
@@ -31,65 +23,40 @@ export default function HighlightedCode({
   code,
   language,
 }: HighlightedCodeProps) {
-  const highlighter = getHighlighter()
-  const targetLanguage = resolveLanguage(language)
-  const loadedLanguages = highlighter?.getLoadedLanguages()
-  const immediateLanguage = loadedLanguages?.includes(targetLanguage)
-    ? targetLanguage
-    : 'text'
-  const [resolvedLanguage, setResolvedLanguage] =
-    useState<string>(immediateLanguage)
+  const [highlight, setHighlight] = useState<{
+    code: string
+    language: string
+    html: string
+  } | null>(null)
 
   useEffect(() => {
-    if (!highlighter) return
-
-    const nextLanguage = highlighter
-      .getLoadedLanguages()
-      .includes(targetLanguage)
-      ? targetLanguage
-      : 'text'
-
-    setResolvedLanguage((current) =>
-      current === nextLanguage ? current : nextLanguage,
-    )
-
-    if (nextLanguage !== 'text' || targetLanguage === 'text') {
+    if (!language.trim()) {
+      setHighlight(null)
       return
     }
 
     let cancelled = false
-
-    void loadLang(highlighter as AppHighlighter, targetLanguage).then(
-      (loadedLanguage) => {
-        if (cancelled || loadedLanguage === 'text') {
-          return
-        }
-
+    void import('../../utils/highlighter')
+      .then(({ highlightCode }) => highlightCode(code, language))
+      .then((html) => {
+        if (cancelled) return
         startTransition(() => {
-          setResolvedLanguage((current) =>
-            current === loadedLanguage ? current : loadedLanguage,
-          )
+          setHighlight(html ? { code, language, html } : null)
         })
-      },
-    )
+      })
+      .catch(() => {
+        if (!cancelled) setHighlight(null)
+      })
 
     return () => {
       cancelled = true
     }
-  }, [highlighter, targetLanguage])
+  }, [code, language])
 
-  if (!highlighter) {
-    return (
-      <pre style={MONO_STYLE}>
-        <code>{code}</code>
-      </pre>
-    )
-  }
-
-  const html = codeToHtmlSafely(highlighter, code, {
-    lang: resolvedLanguage,
-    ...SHIKI_OPTIONS,
-  })
+  const html =
+    highlight?.code === code && highlight.language === language
+      ? highlight.html
+      : null
 
   if (!html) {
     return (

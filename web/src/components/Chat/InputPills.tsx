@@ -150,8 +150,12 @@ interface ModelTriggerProps {
 interface ModelItem {
   providerKey: string
   providerName: string
-  providerType: string
   model: string
+}
+
+interface IndexedModelItem {
+  item: ModelItem
+  index: number
 }
 
 export const ModelTrigger = memo(function ModelTrigger({
@@ -179,7 +183,6 @@ export const ModelTrigger = memo(function ModelTrigger({
         out.push({
           providerKey,
           providerName: info.name,
-          providerType: info.type,
           model,
         })
       }
@@ -202,10 +205,10 @@ export const ModelTrigger = memo(function ModelTrigger({
     const groups: Array<{
       providerKey: string
       providerName: string
-      items: ModelItem[]
+      items: IndexedModelItem[]
     }> = []
     const index = new Map<string, number>()
-    for (const item of filtered) {
+    for (const [itemIndex, item] of filtered.entries()) {
       let i = index.get(item.providerKey)
       if (i === undefined) {
         i = groups.length
@@ -216,7 +219,7 @@ export const ModelTrigger = memo(function ModelTrigger({
           items: [],
         })
       }
-      groups[i]?.items.push(item)
+      groups[i]?.items.push({ item, index: itemIndex })
     }
     return groups
   }, [filtered])
@@ -385,8 +388,7 @@ export const ModelTrigger = memo(function ModelTrigger({
                   <div className="px-3 pt-2 pb-1 text-[10px] font-mono uppercase tracking-wider text-muted-foreground/50">
                     {group.providerName}
                   </div>
-                  {group.items.map((item) => {
-                    const i = filtered.indexOf(item)
+                  {group.items.map(({ item, index: i }) => {
                     const selected = i === cursor
                     const active =
                       item.providerKey === config.provider &&

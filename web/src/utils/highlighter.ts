@@ -1,56 +1,48 @@
 import {
-  type BundledLanguage,
-  type BundledTheme,
-  bundledLanguages,
   type CodeToHastOptions,
-  createHighlighter,
+  createBundledHighlighter,
   type HighlighterGeneric,
-} from 'shiki'
+  type ThemeInput,
+} from 'shiki/core'
 import { createJavaScriptRegexEngine } from 'shiki/engine/javascript'
+import { type BundledLanguage, bundledLanguages } from 'shiki/langs'
 
-export type AppHighlighter = HighlighterGeneric<BundledLanguage, BundledTheme>
+type AppTheme = 'dark-plus' | 'light-plus'
+type AppHighlighter = HighlighterGeneric<BundledLanguage, AppTheme>
 type ResolvedLanguage = BundledLanguage | 'text'
 
-let highlighterInstance: AppHighlighter | null = null
+const themes = {
+  'dark-plus': () => import('shiki/dist/themes/dark-plus.mjs'),
+  'light-plus': () => import('shiki/dist/themes/light-plus.mjs'),
+} satisfies Record<AppTheme, ThemeInput>
 
-const LANGUAGE_ALIASES: Record<string, string> = {
-  'c#': 'csharp',
-  'c++': 'cpp',
-  golang: 'go',
-  md: 'markdown',
-  plaintext: 'text',
-  py: 'python',
-  rb: 'ruby',
-  rs: 'rust',
-  sh: 'bash',
-  text: 'text',
-  ts: 'typescript',
-  yml: 'yaml',
-}
-
-void createHighlighter({
-  themes: ['dark-plus', 'light-plus'],
-  langs: [
-    'javascript',
-    'typescript',
-    'python',
-    'json',
-    'bash',
-    'html',
-    'css',
-    'jsx',
-    'tsx',
-  ],
-  engine: createJavaScriptRegexEngine(),
-}).then((highlighter) => {
-  highlighterInstance = highlighter
+const createHighlighter = createBundledHighlighter<BundledLanguage, AppTheme>({
+  langs: bundledLanguages,
+  themes,
+  engine: () => createJavaScriptRegexEngine(),
 })
 
-export function getHighlighter(): AppHighlighter | null {
-  return highlighterInstance
+let highlighterPromise: Promise<AppHighlighter> | null = null
+const langLoadCache = new Map<ResolvedLanguage, Promise<ResolvedLanguage>>()
+
+const LANGUAGE_ALIASES: Record<string, string> = {
+  golang: 'go',
+  objectivec: 'objective-c',
+  'objective-c++': 'objective-cpp',
+  plaintext: 'text',
+  text: 'text',
+  vuejs: 'vue',
 }
 
-const langLoadCache = new Map<ResolvedLanguage, Promise<ResolvedLanguage>>()
+function getHighlighter(): Promise<AppHighlighter> {
+  if (!highlighterPromise) {
+    highlighterPromise = createHighlighter({
+      themes: ['dark-plus', 'light-plus'],
+      langs: [],
+    })
+  }
+  return highlighterPromise
+}
 
 export function resolveLanguage(lang: string): ResolvedLanguage {
   const normalized = String(lang || '')
@@ -65,28 +57,22 @@ export function resolveLanguage(lang: string): ResolvedLanguage {
     : 'text'
 }
 
-export function loadLang(
+function loadLang(
   highlighter: AppHighlighter,
-  lang: string,
+  lang: BundledLanguage,
 ): Promise<ResolvedLanguage> {
-  const resolved = resolveLanguage(lang)
-
-  if (resolved === 'text') {
-    return Promise.resolve('text')
+  if (highlighter.getLoadedLanguages().includes(lang)) {
+    return Promise.resolve(lang)
   }
 
-  if (highlighter.getLoadedLanguages().includes(resolved)) {
-    return Promise.resolve(resolved)
-  }
-
-  if (!langLoadCache.has(resolved)) {
+  if (!langLoadCache.has(lang)) {
     try {
       langLoadCache.set(
-        resolved,
-        Promise.resolve(highlighter.loadLanguage(resolved as BundledLanguage))
-          .then(() => resolved)
+        lang,
+        Promise.resolve(highlighter.loadLanguage(lang))
+          .then(() => lang)
           .catch(() => {
-            langLoadCache.delete(resolved)
+            langLoadCache.delete(lang)
             return 'text'
           }),
       )
@@ -95,13 +81,13 @@ export function loadLang(
     }
   }
 
-  return langLoadCache.get(resolved) ?? Promise.resolve('text')
+  return langLoadCache.get(lang) ?? Promise.resolve('text')
 }
 
-export function codeToHtmlSafely(
+function codeToHtmlSafely(
   highlighter: AppHighlighter,
   code: string,
-  options: CodeToHastOptions<ResolvedLanguage, BundledTheme>,
+  options: CodeToHastOptions<string, AppTheme>,
 ): string | null {
   try {
     return highlighter.codeToHtml(code, options)
@@ -110,7 +96,24 @@ export function codeToHtmlSafely(
   }
 }
 
-export const SHIKI_OPTIONS = {
+const SHIKI_OPTIONS = {
   themes: { dark: 'dark-plus', light: 'light-plus' },
   defaultColor: false,
 } as const
+
+export async function highlightCode(
+  code: string,
+  language: string,
+): Promise<string | null> {
+  const resolvedLanguage = resolveLanguage(language)
+  if (resolvedLanguage === 'text') return null
+
+  const highlighter = await getHighlighter()
+  const loadedLanguage = await loadLang(highlighter, resolvedLanguage)
+  if (loadedLanguage === 'text') return null
+
+  return codeToHtmlSafely(highlighter, code, {
+    lang: loadedLanguage,
+    ...SHIKI_OPTIONS,
+  })
+}

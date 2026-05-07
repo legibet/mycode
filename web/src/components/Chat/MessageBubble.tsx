@@ -58,8 +58,112 @@ interface AttachmentMeta {
   path?: string
 }
 
+function getDurationMs(block: MessageBlock): number | undefined {
+  // biome-ignore lint/complexity/useLiteralKeys: index signature requires bracket access
+  const durationMs = block.meta?.['duration_ms']
+  return typeof durationMs === 'number' ? durationMs : undefined
+}
+
 function getAttachmentMeta(block: MessageBlock): AttachmentMeta | undefined {
   return block.meta as AttachmentMeta | undefined
+}
+
+function blocksEqual(prev: MessageBlock, next: MessageBlock): boolean {
+  if (prev === next) return true
+  if (prev.type !== next.type) return false
+
+  if (prev.type === 'text' && next.type === 'text') {
+    return (
+      prev.text === next.text &&
+      getAttachmentMeta(prev)?.attachment ===
+        getAttachmentMeta(next)?.attachment &&
+      getAttachmentMeta(prev)?.path === getAttachmentMeta(next)?.path
+    )
+  }
+
+  if (prev.type === 'thinking' && next.type === 'thinking') {
+    return (
+      prev.text === next.text && getDurationMs(prev) === getDurationMs(next)
+    )
+  }
+
+  if (prev.type === 'tool_use' && next.type === 'tool_use') {
+    const prevRuntime = prev.runtime
+    const nextRuntime = next.runtime
+    return (
+      prev.id === next.id &&
+      prev.name === next.name &&
+      prev.input === next.input &&
+      prevRuntime?.pending === nextRuntime?.pending &&
+      prevRuntime?.output === nextRuntime?.output &&
+      prevRuntime?.finalOutput === nextRuntime?.finalOutput &&
+      prevRuntime?.metadata === nextRuntime?.metadata &&
+      prevRuntime?.isError === nextRuntime?.isError
+    )
+  }
+
+  if (prev.type === 'image' && next.type === 'image') {
+    return (
+      prev.data === next.data &&
+      prev.mime_type === next.mime_type &&
+      prev.name === next.name
+    )
+  }
+
+  if (prev.type === 'document' && next.type === 'document') {
+    return (
+      prev.data === next.data &&
+      prev.mime_type === next.mime_type &&
+      prev.name === next.name
+    )
+  }
+
+  if (prev.type === 'tool_result' && next.type === 'tool_result') {
+    return (
+      prev.tool_use_id === next.tool_use_id &&
+      prev.output === next.output &&
+      prev.metadata === next.metadata &&
+      prev.is_error === next.is_error
+    )
+  }
+
+  return false
+}
+
+function blockListsEqual(prev: MessageBlock[], next: MessageBlock[]): boolean {
+  if (prev === next) return true
+  if (prev.length !== next.length) return false
+  for (let i = 0; i < prev.length; i++) {
+    const prevBlock = prev[i]
+    const nextBlock = next[i]
+    if (!prevBlock || !nextBlock || !blocksEqual(prevBlock, nextBlock)) {
+      return false
+    }
+  }
+  return true
+}
+
+function messageBubblePropsEqual(
+  prev: MessageBubbleProps,
+  next: MessageBubbleProps,
+): boolean {
+  if (
+    prev.role !== next.role ||
+    prev.sourceIndex !== next.sourceIndex ||
+    prev.isStreaming !== next.isStreaming ||
+    prev.totalTokens !== next.totalTokens ||
+    prev.model !== next.model ||
+    prev.contextWindow !== next.contextWindow ||
+    prev.onRewindAndSend !== next.onRewindAndSend
+  ) {
+    return false
+  }
+
+  if (prev.role === 'user' && prev.isLoading !== next.isLoading) {
+    return false
+  }
+
+  return blockListsEqual(prev.blocks, next.blocks)
 }
 
 class RenderErrorBoundary extends Component<
@@ -461,4 +565,4 @@ export const MessageBubble = memo(function MessageBubble({
       )}
     </div>
   )
-})
+}, messageBubblePropsEqual)

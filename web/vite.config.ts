@@ -3,6 +3,18 @@ import { defineConfig } from 'vite'
 
 export default defineConfig({
   plugins: [react()],
+  optimizeDeps: {
+    exclude: [
+      '@shikijs/core',
+      '@shikijs/engine-javascript',
+      '@shikijs/langs',
+      '@shikijs/themes',
+      'shiki',
+      'shiki/core',
+      'shiki/engine/javascript',
+      'shiki/langs',
+    ],
+  },
   server: {
     proxy: {
       '/api': 'http://localhost:8000',

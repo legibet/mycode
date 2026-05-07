@@ -101,6 +101,10 @@ function AppContent() {
   const [maxSidebarWidth, setMaxSidebarWidth] = useState(getMaxSidebarWidth)
   const [settingsOpen, setSettingsOpen] = useState(false)
 
+  const handleOpenSettings = useCallback(() => {
+    setSettingsOpen(true)
+  }, [])
+
   const handleResizeSidebar = useCallback((next: number) => {
     setSidebarWidth((prev) => {
       if (prev === next) return prev
@@ -310,7 +314,7 @@ function AppContent() {
             cwdHistory={cwdHistory}
             onUpdateConfig={handleConfigUpdate}
             onRemoveHistory={handleRemoveHistory}
-            onOpenSettings={() => setSettingsOpen(true)}
+            onOpenSettings={handleOpenSettings}
             workspaceMissing={workspaceMissing}
             width={displayedSidebarWidth}
             onResize={handleResizeSidebar}
