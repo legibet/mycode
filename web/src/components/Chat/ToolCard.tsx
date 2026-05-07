@@ -7,7 +7,7 @@
  */
 
 import { FileText, PenLine, SquarePen, Terminal } from 'lucide-react'
-import { lazy, memo, Suspense, useState } from 'react'
+import { lazy, memo, type ReactNode, Suspense, useState } from 'react'
 import { cn } from '../../utils/cn'
 
 const EditDiff = lazy(() => import('./EditDiff'))
@@ -348,26 +348,36 @@ export const ToolCard = memo(function ToolCard({
   const Icon = meta.icon
   const preview = getPreview(name, args)
 
-  const body =
-    name === 'bash' ? (
-      <BashBody args={args} display={display} isError={resolvedIsError} />
-    ) : name === 'read' ? (
-      <ReadBody display={display} isError={resolvedIsError} />
-    ) : name === 'write' ? (
-      <WriteBody args={args} display={display} isError={resolvedIsError} />
-    ) : name === 'edit' ? (
-      <EditBody
-        args={args}
-        metadata={metadata}
-        display={display}
-        isError={resolvedIsError}
-      />
-    ) : (
-      <>
-        {args && Object.keys(args).length > 0 && <GenericArgs args={args} />}
-        <ResultBlock text={display} isError={resolvedIsError} />
-      </>
-    )
+  let body: ReactNode = null
+  if (expanded) {
+    if (name === 'bash') {
+      body = (
+        <BashBody args={args} display={display} isError={resolvedIsError} />
+      )
+    } else if (name === 'read') {
+      body = <ReadBody display={display} isError={resolvedIsError} />
+    } else if (name === 'write') {
+      body = (
+        <WriteBody args={args} display={display} isError={resolvedIsError} />
+      )
+    } else if (name === 'edit') {
+      body = (
+        <EditBody
+          args={args}
+          metadata={metadata}
+          display={display}
+          isError={resolvedIsError}
+        />
+      )
+    } else {
+      body = (
+        <>
+          {args && Object.keys(args).length > 0 && <GenericArgs args={args} />}
+          <ResultBlock text={display} isError={resolvedIsError} />
+        </>
+      )
+    }
+  }
 
   return (
     <div className="group/tool">
@@ -403,18 +413,13 @@ export const ToolCard = memo(function ToolCard({
         <CollapsedSuffix name={name} args={args} metadata={metadata} />
       </button>
 
-      <div
-        className={cn(
-          'grid transition-[grid-template-rows,opacity] duration-250 ease-out',
-          expanded
-            ? 'grid-rows-[1fr] opacity-100'
-            : 'grid-rows-[0fr] opacity-0',
-        )}
-      >
-        <div className="overflow-hidden">
-          <div className="mt-2 ml-5">{body}</div>
+      {body && (
+        <div className="grid grid-rows-[1fr] opacity-100">
+          <div className="overflow-hidden">
+            <div className="mt-2 ml-5">{body}</div>
+          </div>
         </div>
-      </div>
+      )}
     </div>
   )
 })

@@ -36,7 +36,6 @@ interface MessageBubbleProps {
   sourceIndex?: number | undefined
   isStreaming?: boolean | undefined
   isLoading: boolean
-  index: number
   totalTokens?: number | undefined
   model?: string | undefined
   contextWindow?: number | undefined
@@ -126,7 +125,6 @@ export const MessageBubble = memo(function MessageBubble({
   sourceIndex,
   isStreaming,
   isLoading,
-  index,
   totalTokens,
   model,
   contextWindow,
@@ -248,10 +246,7 @@ export const MessageBubble = memo(function MessageBubble({
   if (isUser) {
     if (editing) {
       return (
-        <div
-          className="flex justify-end px-5 max-md:px-4 animate-fade-in-up"
-          style={{ animationDelay: `${Math.min(index * 30, 150)}ms` }}
-        >
+        <div className="flex justify-end px-5 max-md:px-4">
           <div className="max-w-[85%] w-full flex flex-col gap-2">
             <textarea
               ref={editRef}
@@ -294,10 +289,7 @@ export const MessageBubble = memo(function MessageBubble({
     }
 
     return (
-      <div
-        className="group/user flex justify-end px-5 max-md:px-4 animate-fade-in-up"
-        style={{ animationDelay: `${Math.min(index * 30, 150)}ms` }}
-      >
+      <div className="group/user flex justify-end px-5 max-md:px-4">
         {canEdit && (
           <button
             type="button"
@@ -372,10 +364,7 @@ export const MessageBubble = memo(function MessageBubble({
   }
 
   return (
-    <div
-      className="group/msg relative px-5 max-md:px-4 animate-fade-in-up"
-      style={{ animationDelay: `${Math.min(index * 30, 150)}ms` }}
-    >
+    <div className="group/msg relative px-5 max-md:px-4">
       <div className="flex flex-col gap-3 text-foreground/90 leading-relaxed text-sm">
         {blocks.map((block, blockIndex) => {
           if (block.type === 'thinking') {

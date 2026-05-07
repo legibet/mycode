@@ -51,6 +51,7 @@ import {
 const DEFAULT_SESSION_TITLE = 'New chat'
 
 interface ChatState {
+  messageSessionId: string | null
   rawMessages: ChatMessage[]
   toolRuntimeById: Record<string, ToolRuntime>
   /** Snapshot of rawMessages taken before the latest optimistic turn.
@@ -59,7 +60,7 @@ interface ChatState {
 }
 
 type ChatAction =
-  | { type: 'set_messages'; messages: ChatMessage[] }
+  | { type: 'set_messages'; messages: ChatMessage[]; sessionId?: string | null }
   | { type: 'start_turn'; content: string; attachments?: AttachedFile[] }
   | { type: 'rewind_and_start_turn'; rewindTo: number; content: string }
   | { type: 'apply_event'; event: StreamEvent }
@@ -102,6 +103,7 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
   switch (action.type) {
     case 'set_messages': {
       return {
+        messageSessionId: action.sessionId ?? state.messageSessionId,
         rawMessages: action.messages,
         toolRuntimeById: {},
         preTurnRawMessages: null,
@@ -147,6 +149,7 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
       if (!snapshot) return state
       return {
         rawMessages: snapshot,
+        messageSessionId: state.messageSessionId,
         toolRuntimeById: {},
         preTurnRawMessages: null,
       }
@@ -270,6 +273,7 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
 
 export function useChat(config: LocalConfig) {
   const [chatState, dispatch] = useReducer(chatReducer, {
+    messageSessionId: null,
     rawMessages: [],
     toolRuntimeById: {},
     preTurnRawMessages: null,
@@ -523,13 +527,14 @@ export function useChat(config: LocalConfig) {
       activeSessionRef.current = data.session
       setActiveSession(data.session)
       saveActiveSession(requestCwd, data.session.id)
-      dispatch({ type: 'set_messages', messages: data.messages || [] })
       setPendingPermissions([])
+      const run = data.active_run || null
 
       const pendingEvents = Array.isArray(data.pending_events)
         ? data.pending_events
         : []
       const replayedPermissions: PermissionRequest[] = []
+      const replayEvents: StreamEvent[] = []
       for (const event of pendingEvents) {
         if (event?.type === 'permission_request') {
           replayedPermissions.push({
@@ -548,13 +553,20 @@ export function useChat(config: LocalConfig) {
           if (index >= 0) replayedPermissions.splice(index, 1)
           continue
         }
+        replayEvents.push(event)
+      }
+      dispatch({
+        type: 'set_messages',
+        messages: data.messages || [],
+        sessionId: data.session?.id ?? sessionId,
+      })
+      for (const event of replayEvents) {
         dispatch({ type: 'apply_event', event })
       }
       if (replayedPermissions.length) {
         setPendingPermissions(replayedPermissions)
       }
 
-      const run = data.active_run || null
       activeRunRef.current = run
 
       if (run?.id) {
@@ -846,7 +858,7 @@ export function useChat(config: LocalConfig) {
 
     activeSessionRef.current = session
     setActiveSession(session)
-    dispatch({ type: 'set_messages', messages: [] })
+    dispatch({ type: 'set_messages', messages: [], sessionId: session.id })
     // Refresh from server to get accurate is_running, then prepend the new draft
     fetchSessions()
   }, [fetchSessions, sessionLoading, stopStreaming])
@@ -861,6 +873,14 @@ export function useChat(config: LocalConfig) {
       sessionRequestTokenRef.current = requestToken
       setSessionLoading(true)
 
+      const previousSession = activeSessionRef.current
+      const summary = sessions.find((session) => session.id === sessionId)
+      if (summary) {
+        activeSessionRef.current = summary
+        setActiveSession(summary)
+      }
+      setPendingPermissions([])
+
       try {
         await loadSession(sessionId, {
           requestCwd: config.cwd,
@@ -869,6 +889,17 @@ export function useChat(config: LocalConfig) {
         fetchSessions()
       } catch (e) {
         console.error('Failed to load session:', e)
+        if (
+          isCurrentWorkspaceRequest({
+            pendingRequestToken: sessionRequestTokenRef.current,
+            requestToken,
+            activeCwd: cwdRef.current,
+            requestCwd: config.cwd,
+          })
+        ) {
+          activeSessionRef.current = previousSession
+          setActiveSession(previousSession)
+        }
       } finally {
         if (
           isCurrentWorkspaceRequest({
@@ -882,7 +913,14 @@ export function useChat(config: LocalConfig) {
         }
       }
     },
-    [activeSession.id, config.cwd, fetchSessions, loadSession, stopStreaming],
+    [
+      activeSession.id,
+      config.cwd,
+      fetchSessions,
+      loadSession,
+      sessions,
+      stopStreaming,
+    ],
   )
 
   const deleteSession = useCallback(
@@ -924,7 +962,6 @@ export function useChat(config: LocalConfig) {
         const requestToken = sessionRequestTokenRef.current
 
         removeActiveSession(config.cwd)
-        dispatch({ type: 'set_messages', messages: [] })
 
         if (fallbackSession && !fallbackSession.isDraft) {
           setSessions(remainingSessions)
@@ -941,6 +978,7 @@ export function useChat(config: LocalConfig) {
         activeSessionRef.current = draft
         setActiveSession(draft)
         setSessions([draft])
+        dispatch({ type: 'set_messages', messages: [], sessionId: draft.id })
         setLoading(false)
       } catch (e) {
         console.error('Failed to delete session:', e)
@@ -965,11 +1003,11 @@ export function useChat(config: LocalConfig) {
       stopStreaming()
       cwdRef.current = config.cwd
       initRef.current = false
-      dispatch({ type: 'set_messages', messages: [] })
       setSessions([])
       const draft = createDraftSession()
       activeSessionRef.current = draft
       setActiveSession(draft)
+      dispatch({ type: 'set_messages', messages: [], sessionId: draft.id })
     }
     if (initRef.current) return
     initRef.current = true
@@ -1021,7 +1059,7 @@ export function useChat(config: LocalConfig) {
           activeSessionRef.current = draft
           setActiveSession(draft)
           setSessions([draft])
-          dispatch({ type: 'set_messages', messages: [] })
+          dispatch({ type: 'set_messages', messages: [], sessionId: draft.id })
           setLoading(false)
         }
       } catch (e) {
@@ -1045,6 +1083,7 @@ export function useChat(config: LocalConfig) {
 
   return {
     messages,
+    messageSessionId: chatState.messageSessionId,
     loading,
     sessions,
     activeSession,

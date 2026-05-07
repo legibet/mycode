@@ -142,9 +142,11 @@ function AppContent() {
 
   const {
     messages,
+    messageSessionId,
     loading,
     sessions,
     activeSession,
+    sessionLoading,
     pendingPermission,
     send,
     rewindAndSend,
@@ -335,8 +337,10 @@ function AppContent() {
           ) : (
             <>
               <MessageList
+                sessionId={messageSessionId ?? activeSession?.id}
                 messages={messages}
                 loading={loading}
+                sessionLoading={sessionLoading}
                 onRewindAndSend={workspaceMissing ? undefined : rewindAndSend}
               />
 

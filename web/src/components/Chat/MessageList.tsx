@@ -11,45 +11,97 @@ import { CompactMarker } from './CompactMarker'
 import { MessageBubble } from './MessageBubble'
 
 const SCROLL_THRESHOLD = 120
+const DRAFT_SESSION_KEY = '__draft__'
 
 interface MessageListProps {
+  sessionId?: string | undefined
   messages: RenderMessage[]
   loading: boolean
+  sessionLoading: boolean
   onRewindAndSend?:
     | ((rewindTo: number, input: string) => Promise<void>)
     | undefined
 }
 
+function getSessionKey(sessionId: string | undefined): string {
+  return sessionId || DRAFT_SESSION_KEY
+}
+
+function getBottomScrollTop(container: HTMLDivElement): number {
+  return Math.max(0, container.scrollHeight - container.clientHeight)
+}
+
 export const MessageList = memo(function MessageList({
+  sessionId,
   messages,
   loading,
+  sessionLoading,
   onRewindAndSend,
 }: MessageListProps) {
   const containerRef = useRef<HTMLDivElement | null>(null)
+  const scrollPositionsRef = useRef(new Map<string, number>())
+  const activeSessionKeyRef = useRef(getSessionKey(sessionId))
   const stickToBottom = useRef(true)
   const previousMessageCount = useRef(0)
 
-  const handleScroll = useCallback(() => {
+  const sessionKey = getSessionKey(sessionId)
+
+  const saveScrollPosition = useCallback((sessionKey: string) => {
     const el = containerRef.current
     if (!el) return
+    scrollPositionsRef.current.set(sessionKey, el.scrollTop)
     stickToBottom.current =
       el.scrollHeight - el.scrollTop - el.clientHeight < SCROLL_THRESHOLD
   }, [])
 
+  const handleScroll = useCallback(() => {
+    saveScrollPosition(activeSessionKeyRef.current)
+  }, [saveScrollPosition])
+
   useLayoutEffect(() => {
+    const sessionChanged = activeSessionKeyRef.current !== sessionKey
     const previousCount = previousMessageCount.current
     previousMessageCount.current = messages.length
 
     const container = containerRef.current
-    if (!messages.length || !stickToBottom.current || !container) return
+    if (!messages.length || !container) return
 
-    container.scrollTo({
-      top: container.scrollHeight,
-      behavior: loading || previousCount === 0 ? 'auto' : 'smooth',
-    })
-  }, [loading, messages])
+    if (sessionChanged) {
+      activeSessionKeyRef.current = sessionKey
+      const savedTop = scrollPositionsRef.current.get(sessionKey)
+      const bottomTop = getBottomScrollTop(container)
+      container.scrollTop =
+        typeof savedTop === 'number' ? Math.min(savedTop, bottomTop) : bottomTop
+      stickToBottom.current =
+        container.scrollHeight - container.scrollTop - container.clientHeight <
+        SCROLL_THRESHOLD
+      return
+    }
+
+    if (!stickToBottom.current) return
+
+    const bottomTop = getBottomScrollTop(container)
+    if (loading || previousCount === 0) {
+      container.scrollTop = bottomTop
+    } else if (typeof container.scrollTo === 'function') {
+      container.scrollTo({ top: bottomTop, behavior: 'smooth' })
+    } else {
+      container.scrollTop = bottomTop
+    }
+    saveScrollPosition(sessionKey)
+  }, [loading, messages, saveScrollPosition, sessionKey])
 
   if (messages.length === 0) {
+    if (sessionLoading) {
+      return (
+        <div className="flex flex-1 flex-col items-center justify-center p-8">
+          <div className="font-mono text-xs text-muted-foreground/60">
+            loading session
+          </div>
+        </div>
+      )
+    }
+
     return (
       <div className="flex flex-1 flex-col items-center justify-center p-8">
         <div className="text-center">
@@ -66,7 +118,7 @@ export const MessageList = memo(function MessageList({
     <div
       ref={containerRef}
       onScroll={handleScroll}
-      className="flex-1 overflow-y-auto pb-4 pt-6"
+      className="flex-1 overflow-y-auto pb-4 pt-6 [overflow-anchor:none]"
     >
       <div className="mx-auto max-w-4xl max-md:max-w-none flex flex-col gap-6 max-md:gap-5">
         {messages.map((message, index) => {
@@ -85,7 +137,6 @@ export const MessageList = memo(function MessageList({
                 message.role === 'assistant'
               }
               isLoading={loading}
-              index={index}
               totalTokens={message.meta?.total_tokens}
               model={message.meta?.model}
               contextWindow={message.meta?.context_window}

@@ -1,4 +1,4 @@
-import { renderHook, waitFor } from '@testing-library/react'
+import { act, renderHook, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ChatMessage, RenderMessage } from '../types'
 import { isCompactMarker } from '../types'
@@ -57,7 +57,10 @@ function renderChatHook(overrides?: Partial<Parameters<typeof useChat>[0]>) {
 }
 
 function mockFetch(
-  routes: Record<string, Response | ((init?: RequestInit) => Response)>,
+  routes: Record<
+    string,
+    Response | ((init?: RequestInit) => Promise<Response> | Response)
+  >,
 ) {
   const fetchMock = vi.fn(
     async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -309,6 +312,85 @@ describe('useChat', () => {
       type: 'text',
       text: 'looks good',
       renderKey: 'assistant:1:0',
+    })
+  })
+
+  it('updates the active session immediately while loading selected history', async () => {
+    saveActiveSession('/workspace/a', 'session-1')
+
+    let resolveSession2!: (response: Response) => void
+    const session2Response = new Promise<Response>((resolve) => {
+      resolveSession2 = resolve
+    })
+
+    mockFetch({
+      '/api/sessions?cwd=': createJsonResponse({
+        sessions: [
+          { id: 'session-2', title: 'Second' },
+          { id: 'session-1', title: 'First' },
+        ],
+      }),
+      '/api/sessions/session-1': createJsonResponse({
+        session: { id: 'session-1', title: 'First' },
+        messages: [
+          {
+            role: 'assistant',
+            content: [{ type: 'text', text: 'first session' }],
+          },
+        ],
+        active_run: null,
+        pending_events: [],
+      }),
+      '/api/sessions/session-2': () => session2Response,
+    })
+
+    const { result } = renderChatHook()
+
+    await waitFor(() => {
+      expect(result.current.sessionLoading).toBe(false)
+      expect(result.current.activeSession.id).toBe('session-1')
+    })
+
+    let selectPromise!: Promise<void>
+    act(() => {
+      selectPromise = result.current.selectSession('session-2')
+    })
+
+    expect(result.current.activeSession.id).toBe('session-2')
+    expect(result.current.sessionLoading).toBe(true)
+    expect(expectChat(result.current.messages[0]).content[0]).toEqual({
+      type: 'text',
+      text: 'first session',
+      renderKey: 'assistant:0:0',
+    })
+    expect(result.current.messageSessionId).toBe('session-1')
+
+    await act(async () => {
+      resolveSession2(
+        createJsonResponse({
+          session: { id: 'session-2', title: 'Second' },
+          messages: [
+            {
+              role: 'assistant',
+              content: [{ type: 'text', text: 'second session' }],
+            },
+          ],
+          active_run: null,
+          pending_events: [],
+        }),
+      )
+      await selectPromise
+    })
+
+    await waitFor(() => {
+      expect(result.current.sessionLoading).toBe(false)
+      expect(result.current.messages).toHaveLength(1)
+      expect(result.current.messageSessionId).toBe('session-2')
+    })
+    expect(expectChat(result.current.messages[0]).content[0]).toEqual({
+      type: 'text',
+      text: 'second session',
+      renderKey: 'assistant:0:0',
     })
   })
 
