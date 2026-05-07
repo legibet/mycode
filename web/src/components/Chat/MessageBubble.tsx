@@ -185,6 +185,12 @@ class RenderErrorBoundary extends Component<
   }
 }
 
+const renderErrorFallback = (
+  <div className="rounded-lg bg-destructive/10 px-3 py-2 text-xs text-destructive/80">
+    Failed to render this block.
+  </div>
+)
+
 function ContextStats({
   model,
   totalTokens,
@@ -341,12 +347,6 @@ export const MessageBubble = memo(function MessageBubble({
     [submitEdit, cancelEdit],
   )
 
-  const renderErrorFallback = (
-    <div className="rounded-lg bg-destructive/10 px-3 py-2 text-xs text-destructive/80">
-      Failed to render this block.
-    </div>
-  )
-
   if (isUser) {
     if (editing) {
       return (
@@ -474,10 +474,7 @@ export const MessageBubble = memo(function MessageBubble({
           if (block.type === 'thinking') {
             const renderKey =
               block.renderKey || `thinking:${block.text || 'block'}`
-            const meta = block.meta as { duration_ms?: unknown } | undefined
-            const durationValue = meta?.duration_ms
-            const durationMs =
-              typeof durationValue === 'number' ? durationValue : undefined
+            const durationMs = getDurationMs(block)
             return (
               <RenderErrorBoundary
                 key={renderKey}

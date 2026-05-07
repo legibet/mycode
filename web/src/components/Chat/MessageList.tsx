@@ -23,10 +23,6 @@ interface MessageListProps {
     | undefined
 }
 
-function getSessionKey(sessionId: string | undefined): string {
-  return sessionId || DRAFT_SESSION_KEY
-}
-
 function getBottomScrollTop(container: HTMLDivElement): number {
   return Math.max(0, container.scrollHeight - container.clientHeight)
 }
@@ -38,13 +34,12 @@ export const MessageList = memo(function MessageList({
   sessionLoading,
   onRewindAndSend,
 }: MessageListProps) {
+  const sessionKey = sessionId || DRAFT_SESSION_KEY
   const containerRef = useRef<HTMLDivElement | null>(null)
   const scrollPositionsRef = useRef(new Map<string, number>())
-  const activeSessionKeyRef = useRef(getSessionKey(sessionId))
+  const activeSessionKeyRef = useRef(sessionKey)
   const stickToBottom = useRef(true)
   const previousMessageCount = useRef(0)
-
-  const sessionKey = getSessionKey(sessionId)
 
   const saveScrollPosition = useCallback((sessionKey: string) => {
     const el = containerRef.current
@@ -80,36 +75,28 @@ export const MessageList = memo(function MessageList({
 
     if (!stickToBottom.current) return
 
-    const bottomTop = getBottomScrollTop(container)
-    if (loading || previousCount === 0) {
-      container.scrollTop = bottomTop
-    } else if (typeof container.scrollTo === 'function') {
-      container.scrollTo({ top: bottomTop, behavior: 'smooth' })
-    } else {
-      container.scrollTop = bottomTop
-    }
+    container.scrollTo({
+      top: getBottomScrollTop(container),
+      behavior: loading || previousCount === 0 ? 'auto' : 'smooth',
+    })
     saveScrollPosition(sessionKey)
   }, [loading, messages, saveScrollPosition, sessionKey])
 
   if (messages.length === 0) {
-    if (sessionLoading) {
-      return (
-        <div className="flex flex-1 flex-col items-center justify-center p-8">
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center p-8">
+        {sessionLoading ? (
           <div className="font-mono text-xs text-muted-foreground/60">
             loading session
           </div>
-        </div>
-      )
-    }
-
-    return (
-      <div className="flex flex-1 flex-col items-center justify-center p-8">
-        <div className="text-center">
-          <h1 className="font-display text-2xl tracking-tighter text-foreground/70">
-            mycode
-            <span className="inline-block w-[2px] h-5 bg-accent/60 ml-0.5 align-middle animate-cursor-blink" />
-          </h1>
-        </div>
+        ) : (
+          <div className="text-center">
+            <h1 className="font-display text-2xl tracking-tighter text-foreground/70">
+              mycode
+              <span className="inline-block w-[2px] h-5 bg-accent/60 ml-0.5 align-middle animate-cursor-blink" />
+            </h1>
+          </div>
+        )}
       </div>
     )
   }

@@ -881,6 +881,14 @@ export function useChat(config: LocalConfig) {
       }
       setPendingPermissions([])
 
+      const isStillCurrent = () =>
+        isCurrentWorkspaceRequest({
+          pendingRequestToken: sessionRequestTokenRef.current,
+          requestToken,
+          activeCwd: cwdRef.current,
+          requestCwd: config.cwd,
+        })
+
       try {
         await loadSession(sessionId, {
           requestCwd: config.cwd,
@@ -889,26 +897,12 @@ export function useChat(config: LocalConfig) {
         fetchSessions()
       } catch (e) {
         console.error('Failed to load session:', e)
-        if (
-          isCurrentWorkspaceRequest({
-            pendingRequestToken: sessionRequestTokenRef.current,
-            requestToken,
-            activeCwd: cwdRef.current,
-            requestCwd: config.cwd,
-          })
-        ) {
+        if (isStillCurrent()) {
           activeSessionRef.current = previousSession
           setActiveSession(previousSession)
         }
       } finally {
-        if (
-          isCurrentWorkspaceRequest({
-            pendingRequestToken: sessionRequestTokenRef.current,
-            requestToken,
-            activeCwd: cwdRef.current,
-            requestCwd: config.cwd,
-          })
-        ) {
+        if (isStillCurrent()) {
           setSessionLoading(false)
         }
       }
