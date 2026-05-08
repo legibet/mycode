@@ -21,10 +21,14 @@ from mycode.agent import Event
 from mycode.session import SessionStore
 from mycode.tools import DEFAULT_TOOL_SPECS, ToolContext, ToolExecutor
 from mycode_cli.config import ResolvedProvider, Settings
-from mycode_cli.main import app, run_noninteractive
+from mycode_cli.main import app, resolve_session, run_noninteractive
 from mycode_cli.permissions import PERMISSION_DENIED_BY_USER_OUTPUT, PERMISSION_DENIED_OUTPUT
-from mycode_cli.runtime import apply_resolved_provider, resolve_session
-from mycode_cli.tui.chat import TerminalChat, _build_chat_key_bindings, _PromptCompleter
+from mycode_cli.tui.chat import (
+    TerminalChat,
+    _build_chat_key_bindings,
+    _PromptCompleter,
+    apply_resolved_provider,
+)
 from mycode_cli.tui.render import ReplyRenderer, TerminalView
 
 
@@ -282,7 +286,7 @@ def test_print_history_preview_renders_recent_turns() -> None:
 
 class TestReplyRenderer:
     def test_finish_keeps_streamed_text_visible(self) -> None:
-        renderer = ReplyRenderer(Console(file=StringIO(), force_terminal=False, color_system=None), live_mode=True)
+        renderer = ReplyRenderer(Console(file=StringIO(), force_terminal=False, color_system=None))
         live = _SpyLive()
         renderer._live = cast(Any, live)
         renderer._text = ["final answer"]
@@ -294,7 +298,7 @@ class TestReplyRenderer:
         assert live.updates == []
 
     def test_finish_clears_initial_spinner(self) -> None:
-        renderer = ReplyRenderer(Console(file=StringIO(), force_terminal=False, color_system=None), live_mode=True)
+        renderer = ReplyRenderer(Console(file=StringIO(), force_terminal=False, color_system=None))
         live = _SpyLive()
         renderer._live = cast(Any, live)
 
@@ -600,7 +604,7 @@ def test_apply_resolved_provider_updates_agent_runtime(tmp_path: Path) -> None:
         reasoning_effort="medium",
     )
 
-    changed = apply_resolved_provider(cast(Any, agent), resolved, settings_for(str(tmp_path)))
+    changed = apply_resolved_provider(cast(Any, agent), resolved)
 
     assert changed is True
     assert agent.provider == "openai"

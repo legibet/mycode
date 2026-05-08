@@ -6,7 +6,8 @@ import asyncio
 import os
 import sys
 from dataclasses import dataclass, replace
-from typing import Annotated
+from typing import Annotated, Any
+from uuid import uuid4
 
 import typer
 
@@ -24,13 +25,65 @@ from mycode_cli.config import (
 )
 from mycode_cli.permissions import PERMISSION_DENIED_BY_USER_OUTPUT, PERMISSION_DENIED_OUTPUT
 
-from .runtime import ResolvedSession, build_agent, resolve_session
+from .runtime import build_agent
 from .tui.chat import TerminalChat
 from .tui.render import TerminalView
 
 app = typer.Typer(add_completion=False, pretty_exceptions_enable=False)
 session_app = typer.Typer(help="Session management")
 app.add_typer(session_app, name="session")
+
+
+@dataclass
+class ResolvedSession:
+    """The session selected for the current CLI run.
+
+    `mode` is either `"new"` or `"resumed"`.
+    """
+
+    session_id: str
+    session: dict[str, Any]
+    messages: list[dict[str, Any]]
+    mode: str
+
+
+async def resolve_session(
+    *,
+    store: SessionStore,
+    cwd: str,
+    requested_session_id: str | None,
+    continue_last: bool,
+) -> ResolvedSession:
+    """Resolve which session the CLI should load before starting."""
+
+    if requested_session_id:
+        data = await store.load_session(requested_session_id)
+        if not data or not data.get("session"):
+            raise ValueError(f"Unknown session: {requested_session_id}")
+        return ResolvedSession(
+            requested_session_id,
+            data.get("session") or {},
+            data.get("messages") or [],
+            "resumed",
+        )
+
+    if continue_last:
+        latest = await store.latest_session(cwd=cwd)
+        if latest and latest.get("id"):
+            session_id = str(latest["id"])
+            data = await store.load_session(session_id)
+            if not data:
+                raise ValueError(f"Unknown session: {session_id}")
+            return ResolvedSession(
+                session_id,
+                data.get("session") or latest,
+                data.get("messages") or [],
+                "resumed",
+            )
+
+    # New sessions: the id is allocated here; the on-disk session is created
+    # lazily by Agent.achat on the first persist.
+    return ResolvedSession(uuid4().hex, {}, [], "new")
 
 
 def _show_version(value: bool) -> None:

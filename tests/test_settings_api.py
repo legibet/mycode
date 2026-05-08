@@ -15,8 +15,8 @@ import pytest
 from starlette.testclient import TestClient
 
 from mycode.providers import list_env_discoverable_providers, provider_env_api_key_names
-from mycode_cli.config import validate_global_config
 from mycode_cli.server.app import create_api_app
+from mycode_cli.server.routers.settings import validate_global_config
 
 
 @pytest.fixture(autouse=True)

@@ -40,17 +40,18 @@ SDK package — `mycode/src/mycode/`:
 
 CLI package — `cli/src/mycode_cli/`:
 
-- `main.py` — Typer entrypoint (commands: default, run, web, session)
-- `tui/chat.py` — TerminalChat interactive loop
-- `tui/render.py` — TerminalView rich rendering
-- `tui/theme.py` — terminal theme detection and color tokens
-- `runtime.py` — `build_agent()`, `resolve_session()`
+- `main.py` — Typer entrypoint (commands: default, run, web, session) and CLI session resolution (`resolve_session`)
+- `runtime.py` — `build_agent()` (shared by TUI startup and the web server)
 - `config.py` — layered JSON config loading, provider resolution, and CLI-owned path helpers (`resolve_mycode_home` / `resolve_sessions_dir`)
 - `permissions.py` — tool permission policy: classify tier, build `before_tool` hooks, optional interactive review
 - `system_prompt.py` — runtime system prompt assembly: inlined base prompt + AGENTS.md + skills discovery
+- `tui/chat.py` — TerminalChat interactive loop, plus TUI-only runtime helpers (`clone_agent`, provider/model picker, `apply_resolved_provider`)
+- `tui/render.py` — TerminalView rich rendering
+- `tui/theme.py` — terminal theme detection and color tokens
 - `server/app.py` — FastAPI factory, static mount
 - `server/routers/chat.py` — POST /api/chat, GET /api/runs/{id}/stream, POST /api/runs/{id}/cancel, POST /api/runs/{id}/decide, GET /api/config
 - `server/routers/sessions.py` — session CRUD
+- `server/routers/settings.py` — global config GET/PUT, plus the validators that own the JSON write schema
 - `server/routers/workspaces.py` — directory browser
 - `server/run_manager.py` — concurrent run management
 - `server/schemas.py` — Pydantic request/response models

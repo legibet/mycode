@@ -7,13 +7,10 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from mycode_cli.config import setup_logging
-from mycode_cli.server.routers import (
-    chat_router,
-    sessions_router,
-    settings_router,
-    workspaces_router,
-)
+from mycode_cli.server.routers.chat import router as chat_router
+from mycode_cli.server.routers.sessions import router as sessions_router
+from mycode_cli.server.routers.settings import router as settings_router
+from mycode_cli.server.routers.workspaces import router as workspaces_router
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +23,7 @@ def web_static_path() -> Path:
 
 def create_app(*, serve_web: bool = True) -> FastAPI:
     """Create the FastAPI app."""
-    setup_logging()
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
     application = FastAPI(title="mycode")
 
     application.add_middleware(

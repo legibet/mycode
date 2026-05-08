@@ -95,7 +95,12 @@ async def chat(chat: ChatRequest, store: StoreDep, runs: RunManagerDep):
     if chat.message and chat.input:
         raise HTTPException(status_code=400, detail="message and input are mutually exclusive")
 
-    if chat.input:
+    if not chat.input:
+        message_text = str(chat.message or "").strip()
+        if not message_text:
+            raise HTTPException(status_code=400, detail="message or input is required")
+        user_message = build_message("user", [text_block(message_text)])
+    else:
         blocks: list[dict[str, Any]] = []
         for block in chat.input:
             if block.type == "text":
@@ -110,59 +115,45 @@ async def chat(chat: ChatRequest, store: StoreDep, runs: RunManagerDep):
                     )
                 elif text:
                     blocks.append(text_block(text))
-                continue
 
-            if block.type == "document":
+            elif block.type == "document":
                 if block.data:
                     mime_type = block.mime_type or "application/pdf"
                     if mime_type != "application/pdf":
                         raise HTTPException(status_code=400, detail="unsupported document mime_type")
                     blocks.append(document_block(block.data, mime_type=mime_type, name=block.name or "document.pdf"))
-                    continue
+                else:
+                    if not block.path:
+                        raise HTTPException(status_code=400, detail="document input requires path or data")
+                    path = Path(resolve_path(block.path, cwd=cwd))
+                    if not path.is_file():
+                        raise HTTPException(status_code=400, detail=f"document file not found: {block.path}")
+                    mime_type = block.mime_type or detect_document_mime_type(path)
+                    if mime_type != "application/pdf":
+                        raise HTTPException(status_code=400, detail=f"unsupported document file: {block.path}")
+                    data = b64encode(path.read_bytes()).decode("utf-8")
+                    blocks.append(document_block(data, mime_type=mime_type, name=block.name or path.name))
 
-                if not block.path:
-                    raise HTTPException(status_code=400, detail="document input requires path or data")
-                document_path = Path(resolve_path(block.path, cwd=cwd))
-                if not document_path.is_file():
-                    raise HTTPException(status_code=400, detail=f"document file not found: {block.path}")
-                mime_type = block.mime_type or detect_document_mime_type(document_path)
-                if mime_type != "application/pdf":
-                    raise HTTPException(status_code=400, detail=f"unsupported document file: {block.path}")
-                document_data = b64encode(document_path.read_bytes()).decode("utf-8")
-                blocks.append(
-                    document_block(
-                        document_data,
-                        mime_type=mime_type,
-                        name=block.name or document_path.name,
-                    )
-                )
-                continue
-
-            if block.data:
-                if not block.mime_type:
-                    raise HTTPException(status_code=400, detail="image data requires mime_type")
-                blocks.append(image_block(block.data, mime_type=block.mime_type, name=block.name or "image"))
-                continue
-
-            if not block.path:
-                raise HTTPException(status_code=400, detail="image input requires path or data")
-            image_path = Path(resolve_path(block.path, cwd=cwd))
-            if not image_path.is_file():
-                raise HTTPException(status_code=400, detail=f"image file not found: {block.path}")
-            mime_type = block.mime_type or detect_image_mime_type(image_path)
-            if not mime_type:
-                raise HTTPException(status_code=400, detail=f"unsupported image file: {block.path}")
-            image_data = b64encode(image_path.read_bytes()).decode("utf-8")
-            blocks.append(image_block(image_data, mime_type=mime_type, name=block.name or image_path.name))
+            else:  # image
+                if block.data:
+                    if not block.mime_type:
+                        raise HTTPException(status_code=400, detail="image data requires mime_type")
+                    blocks.append(image_block(block.data, mime_type=block.mime_type, name=block.name or "image"))
+                else:
+                    if not block.path:
+                        raise HTTPException(status_code=400, detail="image input requires path or data")
+                    path = Path(resolve_path(block.path, cwd=cwd))
+                    if not path.is_file():
+                        raise HTTPException(status_code=400, detail=f"image file not found: {block.path}")
+                    mime_type = block.mime_type or detect_image_mime_type(path)
+                    if not mime_type:
+                        raise HTTPException(status_code=400, detail=f"unsupported image file: {block.path}")
+                    data = b64encode(path.read_bytes()).decode("utf-8")
+                    blocks.append(image_block(data, mime_type=mime_type, name=block.name or path.name))
 
         if not blocks:
             raise HTTPException(status_code=400, detail="input must include at least one non-empty block")
         user_message = build_message("user", blocks)
-    else:
-        message_text = str(chat.message or "").strip()
-        if not message_text:
-            raise HTTPException(status_code=400, detail="message or input is required")
-        user_message = build_message("user", [text_block(message_text)])
 
     data = await store.load_session(session_id)
     session = (data or {}).get("session")
@@ -197,8 +188,7 @@ async def chat(chat: ChatRequest, store: StoreDep, runs: RunManagerDep):
 
     # Capability check before any disk mutation — a failed check must not
     # leave an empty session on disk or land a premature rewind marker.
-    provider_config = settings.providers.get(resolved.provider_name or "")
-    model_config = provider_config.models.get(resolved.model) if provider_config else None
+    model_config = resolved.model_config
     model_meta = resolve_model_metadata(
         provider=resolved.provider,
         model=resolved.model,

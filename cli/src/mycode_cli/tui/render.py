@@ -337,14 +337,12 @@ class TerminalView:
 class ReplyRenderer:
     """Render one assistant reply, including thinking and tool output."""
 
-    def __init__(self, output: Console | None = None, *, live_mode: bool = True) -> None:
+    def __init__(self, output: Console | None = None) -> None:
         self._console = output or console
-        self._live_mode = live_mode
         self._live: Live | None = None
         self._reasoning: list[str] = []
         self._text: list[str] = []
         self._text_started = False
-        self._printed_static_reasoning = False
         # Reasoning & stats
         self._thinking_start_time: float | None = None
         self._thinking_duration_ms: int | None = None
@@ -371,8 +369,7 @@ class ReplyRenderer:
         exit_code = 0
         self._stats = {}
 
-        if self._live_mode:
-            self._ensure_live()
+        self._ensure_live()
 
         async for event in agent.achat(message, on_persist=on_persist):
             match event.type:
@@ -416,9 +413,8 @@ class ReplyRenderer:
         if self._thinking_start_time is None:
             self._thinking_start_time = time.monotonic()
         self._reasoning.append(chunk)
-        if self._live_mode:
-            self._ensure_live()
-            self._update()
+        self._ensure_live()
+        self._update()
 
     def text(self, chunk: str) -> None:
         """Handle one streamed assistant text chunk."""
@@ -427,20 +423,15 @@ class ReplyRenderer:
         if not self._text_started and self._had_prior_output:
             self._console.print()
             self._text_started = True
-        if self._live_mode:
-            self._text.append(chunk)
-            self._ensure_live()
-            self._update()
-        elif chunk:
-            self._console.print(chunk, end="", markup=False, highlight=False)
+        self._text.append(chunk)
+        self._ensure_live()
+        self._update()
 
     def tool_start(self, name: str, args: dict[str, Any]) -> None:
         """Render the start of a tool call."""
 
         self._finalize_reasoning_phase()
         self._reset_stream_state()
-        if not self._live_mode:
-            self._console.print()
 
         self._tool_output_count = 0
         self._tool_name = name
@@ -452,17 +443,17 @@ class ReplyRenderer:
             # actually arrives so a hook (e.g. permission review) can interject
             # without leaving an orphan header above the prompt.
             self._tool_buffered = False
-        else:
-            # Other tools are fast — show spinner until tool_done.
-            self._tool_buffered = True
-            if self._live_mode:
-                self._tool_live = Live(
-                    self._build_tool_spinner(name, args),
-                    console=self._console,
-                    refresh_per_second=12,
-                    transient=True,
-                )
-                self._tool_live.start()
+            return
+
+        # Other tools are fast — show spinner until tool_done.
+        self._tool_buffered = True
+        self._tool_live = Live(
+            self._build_tool_spinner(name, args),
+            console=self._console,
+            refresh_per_second=12,
+            transient=True,
+        )
+        self._tool_live.start()
 
     def tool_output(self, line: str) -> None:
         """Render one streamed output line from a running tool."""
@@ -637,21 +628,11 @@ class ReplyRenderer:
                 parts.append(f"{round(total_tokens * 100 / context_window)}%")
             self._console.print(Text(f"  {model}  {' · '.join(parts)}", style=STATS))
 
-        if not self._live_mode:
-            self._console.print()
-
     # -- Internal helpers ----------------------------------------------------
 
     def _finalize_reasoning_phase(self) -> None:
-        """Finish the reasoning phase before text, tools, or final output."""
+        """Stop the thinking spinner and print a one-line summary, if any."""
 
-        if self._live_mode:
-            self._collapse_thinking()
-        else:
-            self._print_static_reasoning()
-
-    def _collapse_thinking(self) -> None:
-        """In live mode: stop the spinner and print a one-line summary."""
         if self._thinking_collapsed or not self._reasoning:
             return
         self._thinking_collapsed = True
@@ -663,16 +644,6 @@ class ReplyRenderer:
         self._console.print(Text(f"{THINKING_SYMBOL} thought{self._thinking_duration_label()}", style=THINKING))
         self._had_prior_output = True
         self._reasoning.clear()
-
-    def _print_static_reasoning(self) -> None:
-        """Non-live mode: print full reasoning content."""
-        if self._live_mode or self._printed_static_reasoning or not self._reasoning:
-            return
-
-        self._console.print(Text(f"{THINKING_SYMBOL} thinking{self._thinking_duration_label()}", style=THINKING))
-        self._console.print("".join(self._reasoning), style="dim")
-        self._printed_static_reasoning = True
-        self._had_prior_output = True
 
     def _ensure_live(self) -> None:
         if self._live is None:
@@ -695,7 +666,6 @@ class ReplyRenderer:
         self._stop_tool_live()
         self._reasoning.clear()
         self._text.clear()
-        self._printed_static_reasoning = False
         self._thinking_collapsed = False
         self._thinking_start_time = None
         self._thinking_duration_ms = None
