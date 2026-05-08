@@ -5,11 +5,23 @@
  * .mycode/config.json files continue to override the global file at runtime
  * — the banner makes that explicit when the app is running inside a workspace
  * that has one.
+ *
+ * Renders as a centered Dialog on desktop and a fullscreen bottom Sheet on
+ * mobile (the canonical shadcn responsive-dialog pattern, with Sheet standing
+ * in for Drawer).
  */
 
 import { Laptop, Loader2, Moon, Plus, Sun, X } from 'lucide-react'
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import { createPortal } from 'react-dom'
+import {
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from 'react'
+import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
+import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet'
+import { useMediaQuery } from '@/hooks/useMediaQuery'
 import type {
   GlobalConfig,
   GlobalProviderEntry,
@@ -73,9 +85,6 @@ const PERMISSION_MODE_OPTIONS: { value: PermissionMode; label: string }[] = [
   { value: 'deny', label: 'deny' },
 ]
 
-// Footer buttons share the same skin across mobile/desktop; layout (height,
-// width, side padding) is the only thing that differs and is supplied at the
-// call site.
 const CANCEL_BTN_CLASS = cn(
   'inline-flex items-center justify-center rounded-md text-[13px]',
   'text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors',
@@ -150,10 +159,6 @@ function buildPayload(draft: DraftState): GlobalConfig {
   const config: GlobalConfig = {}
 
   const defaultSection: NonNullable<GlobalConfig['default']> = {}
-  // We persist whatever the user explicitly picked. When the dropdown's
-  // "effective" fallback (first-available) showed without the user touching it,
-  // draft.default_provider is still empty — leave it empty on disk so this
-  // stays a soft default rather than hard-coding into the file.
   if (draft.default_provider.trim())
     defaultSection.provider = draft.default_provider.trim()
   if (draft.default_model.trim())
@@ -181,8 +186,6 @@ function buildPayload(draft: DraftState): GlobalConfig {
     const entry: GlobalProviderEntry = {}
     if (p.type) entry.type = p.type
     if (p.models.length) {
-      // Re-attach known per-model overrides so saving doesn't drop them. Sending
-      // the dict form when any override survives; otherwise the simpler list.
       const overrides: Record<string, Record<string, unknown>> = {}
       for (const id of p.models) {
         const o = p.model_overrides[id]
@@ -219,6 +222,7 @@ export function SettingsPanel({
   onSettingsSaved,
   projectConfigPaths,
 }: SettingsPanelProps) {
+  const isDesktop = useMediaQuery('(min-width: 768px)')
   const { theme, setTheme } = useTheme()
   const [draft, setDraft] = useState<DraftState>(INITIAL_DRAFT)
   const [saving, setSaving] = useState(false)
@@ -230,26 +234,12 @@ export function SettingsPanel({
     setError(null)
   }, [open, settings])
 
-  // ── escape closes ───────────────────────────────────────────────────────
-  useEffect(() => {
-    if (!open) return
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [open, onClose])
-
-  // ── derived ─────────────────────────────────────────────────────────────
   const providerTypes = settings?.options.provider_types ?? []
   const effortOptions = settings?.options.reasoning_efforts ?? []
   const envByName = settings?.env ?? {}
   const providerTypeEnvVars = settings?.provider_type_env_vars ?? {}
   const providerTypeDefaultModels = settings?.provider_type_default_models ?? {}
 
-  // For each card, set of types already in use by *other* cards. Drives the
-  // auto-sync rule (changing Type updates Name when the new type is free) and
-  // the "alias required" hint.
   const usedTypesByOthersMap = useMemo(() => {
     const map = new Map<string, Set<string>>()
     for (const p of draft.providers) {
@@ -285,9 +275,6 @@ export function SettingsPanel({
     return options
   }, [draft.providers])
 
-  // Always resolve to a name that's actually in the providers list. This drops
-  // the awkward "(auto)" empty option: when default_provider is empty or stale
-  // (e.g. user just deleted that provider), fall back to the first available.
   const effectiveDefaultProvider = providerOptions.includes(
     draft.default_provider,
   )
@@ -300,9 +287,6 @@ export function SettingsPanel({
 
   const compactDisabled = draft.compact_threshold === 'disabled'
 
-  // ── handlers ────────────────────────────────────────────────────────────
-  // Stable callbacks so memoized ProviderCard children don't re-render when
-  // unrelated parts of the panel state change.
   const updateProvider = useCallback((next: ProviderDraft) => {
     setDraft((prev) => ({
       ...prev,
@@ -319,9 +303,6 @@ export function SettingsPanel({
 
   const addProvider = useCallback(() => {
     setDraft((prev) => {
-      // Default new card to the first listed type. Auto-bind name = type when
-      // that type is free; otherwise leave it blank so the user must alias.
-      // (ProviderCard re-applies this rule when Type changes later.)
       const type = providerTypes[0] ?? ''
       const taken = prev.providers.some((p) => p.type === type)
       const next: ProviderDraft = {
@@ -370,357 +351,360 @@ export function SettingsPanel({
     }
   }
 
-  if (!open || (!settings && !loadError)) return null
-
-  // ── render ──────────────────────────────────────────────────────────────
   const projectOverrides = (projectConfigPaths ?? []).filter(
     (path) => path !== settings?.path,
   )
 
   const editsPath = `Edits ${prettifyPath(settings?.path ?? FALLBACK_CONFIG_PATH)}`
 
-  return createPortal(
-    <div
-      className="fixed inset-0 z-[100] flex items-end md:items-center md:justify-center"
-      role="dialog"
-      aria-modal="true"
-      aria-label="Settings"
-    >
-      <button
-        type="button"
-        aria-label="Close settings"
-        tabIndex={-1}
-        className="absolute inset-0 bg-black/50 backdrop-blur-[3px] animate-backdrop-in cursor-default"
-        onClick={onClose}
-      />
-
+  // Body shared between Dialog (desktop) and Sheet (mobile).
+  const body: ReactNode = (
+    <>
+      {/* Header */}
       <div
         className={cn(
-          'relative flex flex-col overflow-hidden bg-background shadow-2xl',
-          // Mobile: fullscreen.
-          'w-full h-[100dvh] animate-sheet-in',
-          // Desktop: centered dialog, fixed width, rounded.
-          'md:h-auto md:max-h-[82vh] md:w-[640px] md:rounded-xl md:border md:border-border/40 md:animate-dialog-in',
+          'flex items-center justify-between shrink-0',
+          'border-b border-border/30',
+          'px-4 md:px-6 h-12 md:h-14',
+          'max-md:pt-[env(safe-area-inset-top)]',
+          'max-md:h-[calc(3rem+env(safe-area-inset-top))]',
         )}
       >
-        {/* Header */}
-        <div
+        <h2 className="text-[14px] font-semibold text-foreground">Settings</h2>
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Close"
           className={cn(
-            'flex items-center justify-between shrink-0',
-            'border-b border-border/30',
-            'px-4 md:px-6 h-12 md:h-14',
-            'max-md:pt-[env(safe-area-inset-top)]',
-            'max-md:h-[calc(3rem+env(safe-area-inset-top))]',
+            'inline-flex items-center justify-center rounded -mr-1',
+            'h-8 w-8',
+            'text-muted-foreground/70 hover:text-foreground hover:bg-muted/60 transition-colors',
+            'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
           )}
         >
-          <h2 className="text-[14px] font-semibold text-foreground">
-            Settings
-          </h2>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close"
-            className={cn(
-              'inline-flex items-center justify-center rounded -mr-1',
-              'h-8 w-8',
-              'text-muted-foreground/70 hover:text-foreground hover:bg-muted/60 transition-colors',
-              'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
-            )}
-          >
-            <X className="h-4 w-4" />
-          </button>
-        </div>
+          <X className="h-4 w-4" />
+        </button>
+      </div>
 
-        {/* Body */}
-        <div className="flex-1 overflow-y-auto overscroll-contain scrollbar-subtle">
-          {!settings ? (
-            <div className="flex items-center justify-center h-48 px-6 text-center text-[12px] text-muted-foreground/60">
-              {loadError ? <span>{loadError}</span> : null}
-            </div>
-          ) : (
-            <div className="px-4 md:px-6 py-6 flex flex-col gap-7">
-              {projectOverrides.length > 0 && (
-                <div className="rounded-md border border-border/40 bg-muted/20 px-3.5 py-2.5 text-[12px] leading-relaxed">
-                  <div className="text-foreground/80">
-                    Project-level config in effect:
-                  </div>
-                  <ul className="mt-1.5 ml-4 list-disc text-muted-foreground/80 marker:text-muted-foreground/40 space-y-0.5">
-                    {projectOverrides.map((p) => (
-                      <li key={p} className="truncate font-mono">
-                        {prettifyPath(p)}
-                      </li>
-                    ))}
-                  </ul>
-                  <div className="mt-1.5 text-muted-foreground/70">
-                    These continue to override settings saved here.
-                  </div>
+      {/* Body */}
+      <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain scrollbar-subtle">
+        {!settings ? (
+          <div className="flex items-center justify-center h-48 px-6 text-center text-[12px] text-muted-foreground/60">
+            {loadError ? <span>{loadError}</span> : null}
+          </div>
+        ) : (
+          <div className="px-4 md:px-6 py-6 flex flex-col gap-7">
+            {projectOverrides.length > 0 && (
+              <div className="rounded-md border border-border/40 bg-muted/20 px-3.5 py-2.5 text-[12px] leading-relaxed">
+                <div className="text-foreground/80">
+                  Project-level config in effect:
                 </div>
-              )}
+                <ul className="mt-1.5 ml-4 list-disc text-muted-foreground/80 marker:text-muted-foreground/40 space-y-0.5">
+                  {projectOverrides.map((p) => (
+                    <li key={p} className="truncate font-mono">
+                      {prettifyPath(p)}
+                    </li>
+                  ))}
+                </ul>
+                <div className="mt-1.5 text-muted-foreground/70">
+                  These continue to override settings saved here.
+                </div>
+              </div>
+            )}
 
-              <Section title="Appearance">
-                <Field label="Theme">
-                  <Segmented<Theme>
-                    value={theme}
-                    options={THEME_OPTIONS}
-                    onChange={setTheme}
-                    ariaLabel="Theme"
-                  />
-                </Field>
-              </Section>
+            <Section title="Appearance">
+              <Field label="Theme">
+                <Segmented<Theme>
+                  value={theme}
+                  options={THEME_OPTIONS}
+                  onChange={setTheme}
+                  ariaLabel="Theme"
+                />
+              </Field>
+            </Section>
 
-              <Section title="Defaults">
-                {providerOptions.length === 0 ? (
-                  <div className="rounded-md border border-dashed border-border/50 px-3.5 py-2.5 text-[12px] text-muted-foreground/70">
-                    Add a provider below to configure defaults.
-                  </div>
-                ) : (
-                  <Field
-                    label="Provider"
-                    hint="Default model is the provider's first listed entry — reorder the chips below to change it."
-                  >
-                    <NativeSelect
-                      value={effectiveDefaultProvider}
-                      onChange={(e) =>
-                        setDraft((prev) => ({
-                          ...prev,
-                          default_provider: e.target.value,
-                        }))
-                      }
-                    >
-                      {providerOptions.map((name) => (
-                        <option key={name} value={name}>
-                          {name}
-                        </option>
-                      ))}
-                    </NativeSelect>
-                  </Field>
-                )}
-                <Field label="Reasoning">
+            <Section title="Defaults">
+              {providerOptions.length === 0 ? (
+                <div className="rounded-md border border-dashed border-border/50 px-3.5 py-2.5 text-[12px] text-muted-foreground/70">
+                  Add a provider below to configure defaults.
+                </div>
+              ) : (
+                <Field
+                  label="Provider"
+                  hint="Default model is the provider's first listed entry — reorder the chips below to change it."
+                >
                   <NativeSelect
-                    value={draft.default_reasoning_effort || 'auto'}
+                    value={effectiveDefaultProvider}
                     onChange={(e) =>
                       setDraft((prev) => ({
                         ...prev,
-                        default_reasoning_effort: e.target
-                          .value as ReasoningEffort,
+                        default_provider: e.target.value,
                       }))
                     }
                   >
-                    {effortOptions.map((effort) => (
-                      <option key={effort} value={effort}>
-                        {effort}
+                    {providerOptions.map((name) => (
+                      <option key={name} value={name}>
+                        {name}
                       </option>
                     ))}
                   </NativeSelect>
                 </Field>
-                <Field
-                  label="Compact"
-                  hint={
-                    compactDisabled ? (
-                      <>
-                        Auto-compaction disabled.{' '}
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setDraft((prev) => ({
-                              ...prev,
-                              compact_threshold: '',
-                            }))
-                          }
-                          className="text-accent hover:underline focus-visible:outline-none focus-visible:underline"
-                        >
-                          Enable
-                        </button>
-                      </>
-                    ) : (
-                      <>
-                        Trigger compaction at this fraction of context window
-                        (default 0.8).{' '}
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setDraft((prev) => ({
-                              ...prev,
-                              compact_threshold: 'disabled',
-                            }))
-                          }
-                          className="text-accent hover:underline focus-visible:outline-none focus-visible:underline"
-                        >
-                          Disable
-                        </button>
-                      </>
-                    )
+              )}
+              <Field label="Reasoning">
+                <NativeSelect
+                  value={draft.default_reasoning_effort || 'auto'}
+                  onChange={(e) =>
+                    setDraft((prev) => ({
+                      ...prev,
+                      default_reasoning_effort: e.target
+                        .value as ReasoningEffort,
+                    }))
                   }
                 >
-                  <TextInput
-                    type="number"
-                    min={0}
-                    max={1}
-                    step={0.05}
-                    value={compactDisabled ? '' : draft.compact_threshold}
-                    placeholder="0.8"
-                    disabled={compactDisabled}
+                  {effortOptions.map((effort) => (
+                    <option key={effort} value={effort}>
+                      {effort}
+                    </option>
+                  ))}
+                </NativeSelect>
+              </Field>
+              <Field
+                label="Compact"
+                hint={
+                  compactDisabled ? (
+                    <>
+                      Auto-compaction disabled.{' '}
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setDraft((prev) => ({
+                            ...prev,
+                            compact_threshold: '',
+                          }))
+                        }
+                        className="text-accent hover:underline focus-visible:outline-none focus-visible:underline"
+                      >
+                        Enable
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      Trigger compaction at this fraction of context window
+                      (default 0.8).{' '}
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setDraft((prev) => ({
+                            ...prev,
+                            compact_threshold: 'disabled',
+                          }))
+                        }
+                        className="text-accent hover:underline focus-visible:outline-none focus-visible:underline"
+                      >
+                        Disable
+                      </button>
+                    </>
+                  )
+                }
+              >
+                <TextInput
+                  type="number"
+                  min={0}
+                  max={1}
+                  step={0.05}
+                  value={compactDisabled ? '' : draft.compact_threshold}
+                  placeholder="0.8"
+                  disabled={compactDisabled}
+                  onChange={(e) =>
+                    setDraft((prev) => ({
+                      ...prev,
+                      compact_threshold: e.target.value,
+                    }))
+                  }
+                />
+              </Field>
+            </Section>
+
+            <Section title="Permissions">
+              <Field label="Level">
+                {/* Mobile: 4 options compress to a select; desktop: segmented */}
+                <div className="md:hidden">
+                  <NativeSelect
+                    value={draft.permission_level}
                     onChange={(e) =>
                       setDraft((prev) => ({
                         ...prev,
-                        compact_threshold: e.target.value,
+                        permission_level: e.target.value as PermissionLevel,
                       }))
                     }
-                  />
-                </Field>
-              </Section>
-
-              <Section title="Permissions">
-                <Field label="Level">
-                  {/* Mobile: 4 options compress to a select; desktop: segmented */}
-                  <div className="md:hidden">
-                    <NativeSelect
-                      value={draft.permission_level}
-                      onChange={(e) =>
-                        setDraft((prev) => ({
-                          ...prev,
-                          permission_level: e.target.value as PermissionLevel,
-                        }))
-                      }
-                    >
-                      {PERMISSION_LEVEL_OPTIONS.map((opt) => (
-                        <option key={opt.value} value={opt.value}>
-                          {opt.label}
-                        </option>
-                      ))}
-                    </NativeSelect>
-                  </div>
-                  <div className="max-md:hidden">
-                    <Segmented<PermissionLevel>
-                      value={draft.permission_level}
-                      onChange={(value) =>
-                        setDraft((prev) => ({
-                          ...prev,
-                          permission_level: value,
-                        }))
-                      }
-                      options={PERMISSION_LEVEL_OPTIONS}
-                      ariaLabel="Permission level"
-                      size="sm"
-                    />
-                  </div>
-                </Field>
-                <Field label="Mode">
-                  <Segmented<PermissionMode>
-                    value={draft.permission_mode}
+                  >
+                    {PERMISSION_LEVEL_OPTIONS.map((opt) => (
+                      <option key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </option>
+                    ))}
+                  </NativeSelect>
+                </div>
+                <div className="max-md:hidden">
+                  <Segmented<PermissionLevel>
+                    value={draft.permission_level}
                     onChange={(value) =>
-                      setDraft((prev) => ({ ...prev, permission_mode: value }))
+                      setDraft((prev) => ({
+                        ...prev,
+                        permission_level: value,
+                      }))
                     }
-                    options={PERMISSION_MODE_OPTIONS}
-                    ariaLabel="Permission mode"
+                    options={PERMISSION_LEVEL_OPTIONS}
+                    ariaLabel="Permission level"
                     size="sm"
                   />
-                </Field>
-              </Section>
-
-              <Section title="Providers">
-                <div className="flex flex-col gap-3">
-                  {draft.providers.map((p) => (
-                    <ProviderCard
-                      key={p.id}
-                      draft={p}
-                      providerTypes={providerTypes}
-                      envByName={envByName}
-                      providerTypeEnvVars={providerTypeEnvVars}
-                      providerTypeDefaultModels={providerTypeDefaultModels}
-                      usedTypesByOthers={
-                        usedTypesByOthersMap.get(p.id) ?? new Set()
-                      }
-                      duplicateName={duplicateNames.has(p.name.trim())}
-                      onChange={updateProvider}
-                      onRemove={removeProvider}
-                    />
-                  ))}
-                  <button
-                    type="button"
-                    onClick={addProvider}
-                    className={cn(
-                      'inline-flex items-center justify-center gap-1.5 rounded-lg h-9',
-                      'border border-dashed border-border/50 text-muted-foreground/80',
-                      'hover:border-border hover:text-foreground hover:bg-muted/30 transition-colors',
-                      'text-[13px]',
-                    )}
-                  >
-                    <Plus className="h-4 w-4" />
-                    Add provider
-                  </button>
                 </div>
-              </Section>
+              </Field>
+              <Field label="Mode">
+                <Segmented<PermissionMode>
+                  value={draft.permission_mode}
+                  onChange={(value) =>
+                    setDraft((prev) => ({ ...prev, permission_mode: value }))
+                  }
+                  options={PERMISSION_MODE_OPTIONS}
+                  ariaLabel="Permission mode"
+                  size="sm"
+                />
+              </Field>
+            </Section>
+
+            <Section title="Providers">
+              <div className="flex flex-col gap-3">
+                {draft.providers.map((p) => (
+                  <ProviderCard
+                    key={p.id}
+                    draft={p}
+                    providerTypes={providerTypes}
+                    envByName={envByName}
+                    providerTypeEnvVars={providerTypeEnvVars}
+                    providerTypeDefaultModels={providerTypeDefaultModels}
+                    usedTypesByOthers={
+                      usedTypesByOthersMap.get(p.id) ?? new Set()
+                    }
+                    duplicateName={duplicateNames.has(p.name.trim())}
+                    onChange={updateProvider}
+                    onRemove={removeProvider}
+                  />
+                ))}
+                <button
+                  type="button"
+                  onClick={addProvider}
+                  className={cn(
+                    'inline-flex items-center justify-center gap-1.5 rounded-lg h-9',
+                    'border border-dashed border-border/50 text-muted-foreground/80',
+                    'hover:border-border hover:text-foreground hover:bg-muted/30 transition-colors',
+                    'text-[13px]',
+                  )}
+                >
+                  <Plus className="h-4 w-4" />
+                  Add provider
+                </button>
+              </div>
+            </Section>
+          </div>
+        )}
+      </div>
+
+      {/* Footer */}
+      <div
+        className={cn(
+          'shrink-0 border-t border-border/30',
+          'max-md:pb-[env(safe-area-inset-bottom)]',
+        )}
+      >
+        {/* Mobile: error stacked above buttons; no path (would truncate uselessly) */}
+        <div className="md:hidden flex flex-col gap-2 px-4 py-3">
+          {error && (
+            <div className="text-[12px] text-destructive/90 leading-relaxed">
+              {error}
             </div>
           )}
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className={cn(CANCEL_BTN_CLASS, 'flex-1 h-9')}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleSave()}
+              disabled={!settings || saving || hasInvalidProvider}
+              className={cn(SAVE_BTN_CLASS, 'flex-[2] h-9')}
+            >
+              {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+              Save
+            </button>
+          </div>
         </div>
 
-        {/* Footer */}
-        <div
-          className={cn(
-            'shrink-0 border-t border-border/30',
-            'max-md:pb-[env(safe-area-inset-bottom)]',
-          )}
-        >
-          {/* Mobile: error stacked above buttons; no path (would truncate uselessly) */}
-          <div className="md:hidden flex flex-col gap-2 px-4 py-3">
-            {error && (
-              <div className="text-[12px] text-destructive/90 leading-relaxed">
-                {error}
-              </div>
+        {/* Desktop: path on the left, buttons on the right */}
+        <div className="max-md:hidden flex items-center justify-between gap-3 px-6 py-3">
+          <div className="text-[12px] text-muted-foreground/70 truncate min-w-0 flex-1">
+            {error ? (
+              <span className="text-destructive/90">{error}</span>
+            ) : (
+              editsPath
             )}
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={onClose}
-                className={cn(CANCEL_BTN_CLASS, 'flex-1 h-9')}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={() => void handleSave()}
-                disabled={!settings || saving || hasInvalidProvider}
-                className={cn(SAVE_BTN_CLASS, 'flex-[2] h-9')}
-              >
-                {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-                Save
-              </button>
-            </div>
           </div>
-
-          {/* Desktop: path on the left, buttons on the right */}
-          <div className="max-md:hidden flex items-center justify-between gap-3 px-6 py-3">
-            <div className="text-[12px] text-muted-foreground/70 truncate min-w-0 flex-1">
-              {error ? (
-                <span className="text-destructive/90">{error}</span>
-              ) : (
-                editsPath
-              )}
-            </div>
-            <div className="flex items-center gap-2 shrink-0">
-              <button
-                type="button"
-                onClick={onClose}
-                className={cn(CANCEL_BTN_CLASS, 'h-8 px-3.5')}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={() => void handleSave()}
-                disabled={!settings || saving || hasInvalidProvider}
-                className={cn(SAVE_BTN_CLASS, 'h-8 px-4')}
-              >
-                {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-                Save
-              </button>
-            </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={onClose}
+              className={cn(CANCEL_BTN_CLASS, 'h-8 px-3.5')}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleSave()}
+              disabled={!settings || saving || hasInvalidProvider}
+              className={cn(SAVE_BTN_CLASS, 'h-8 px-4')}
+            >
+              {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+              Save
+            </button>
           </div>
         </div>
       </div>
-    </div>,
-    document.body,
+    </>
+  )
+
+  const handleOpenChange = (next: boolean) => {
+    if (!next) onClose()
+  }
+
+  if (isDesktop) {
+    return (
+      <Dialog open={open} onOpenChange={handleOpenChange}>
+        <DialogContent
+          showCloseButton={false}
+          className="flex flex-col gap-0 p-0 w-[640px] max-w-[calc(100vw-2rem)] max-h-[82vh] sm:max-w-[calc(100vw-2rem)]"
+        >
+          <DialogTitle className="sr-only">Settings</DialogTitle>
+          {body}
+        </DialogContent>
+      </Dialog>
+    )
+  }
+
+  return (
+    <Sheet open={open} onOpenChange={handleOpenChange}>
+      <SheetContent
+        side="bottom"
+        showCloseButton={false}
+        className="flex flex-col gap-0 p-0 h-[100dvh] rounded-none"
+      >
+        <SheetTitle className="sr-only">Settings</SheetTitle>
+        {body}
+      </SheetContent>
+    </Sheet>
   )
 }
 

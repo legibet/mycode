@@ -122,7 +122,7 @@ export const MarkdownBlock = memo(function MarkdownBlock({
   content: string
 }) {
   return (
-    <div className="prose prose-sm max-w-none dark:prose-invert">
+    <div className="prose max-w-none">
       <ReactMarkdown
         remarkPlugins={REMARK_PLUGINS}
         rehypePlugins={REHYPE_PLUGINS}

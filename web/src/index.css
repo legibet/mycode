@@ -1,12 +1,61 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme inline {
+  --color-border: hsl(var(--border));
+  --color-input: hsl(var(--input));
+  --color-ring: hsl(var(--ring));
+  --color-background: hsl(var(--background));
+  --color-foreground: hsl(var(--foreground));
+
+  --color-primary: hsl(var(--primary));
+  --color-primary-foreground: hsl(var(--primary-foreground));
+  --color-secondary: hsl(var(--secondary));
+  --color-secondary-foreground: hsl(var(--secondary-foreground));
+  --color-destructive: hsl(var(--destructive));
+  --color-destructive-foreground: hsl(var(--destructive-foreground));
+  --color-muted: hsl(var(--muted));
+  --color-muted-foreground: hsl(var(--muted-foreground));
+  --color-accent: hsl(var(--accent));
+  --color-accent-foreground: hsl(var(--accent-foreground));
+  --color-popover: hsl(var(--popover));
+  --color-popover-foreground: hsl(var(--popover-foreground));
+  --color-card: hsl(var(--card));
+  --color-card-foreground: hsl(var(--card-foreground));
+
+  --color-code: hsl(var(--code-background));
+  --color-sidebar-bg: hsl(var(--sidebar-bg));
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+
+  --font-sans:
+    "Inter", "PingFang SC", "Hiragino Sans GB", "Source Han Sans CN",
+    "Microsoft YaHei", "Noto Sans SC", system-ui, sans-serif;
+  --font-mono:
+    "JetBrains Mono", ui-monospace, "PingFang SC", "Microsoft Han Sans",
+    "Microsoft YaHei", monospace;
+  --font-display:
+    "Inter", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+
+  --text-2xs: 0.6875rem;
+  --text-2xs--line-height: 1rem;
+
+  --animate-cursor-blink: cursor-blink 1s step-end infinite;
+  --animate-fade-in-up: fade-in-up 0.2s ease-out both;
+  --animate-breathing: breathing 2s ease-in-out infinite;
+  --animate-thinking: thinking 2.5s ease-in-out infinite;
+}
 
 @layer base {
   /* ── Dark theme (default) ── Quiet Blue ── */
   :root {
     color-scheme: dark;
-    --background: 220 16% 10%; /* near-black, faint cool tilt */
+    --background: 220 16% 10%;
     --foreground: 220 15% 92%;
     --card: 220 14% 13%;
     --card-foreground: 220 15% 92%;
@@ -18,7 +67,7 @@
     --secondary-foreground: 220 14% 85%;
     --muted: 220 12% 17%;
     --muted-foreground: 220 10% 62%;
-    --accent: 215 65% 70%; /* soft sky, used only on functional elements */
+    --accent: 215 65% 70%;
     --accent-foreground: 220 16% 10%;
     --destructive: 0 60% 60%;
     --destructive-foreground: 0 0% 98%;
@@ -26,26 +75,24 @@
     --input: 220 10% 22%;
     --ring: 215 65% 70%;
     --radius: 0.5rem;
+
+    --code-background: 220 18% 7%;
+    --sidebar-bg: 220 18% 8%;
+
     --scrollbar-thumb: hsl(var(--border) / 0.9);
     --scrollbar-thumb-hover: hsl(var(--muted-foreground) / 0.45);
     --scrollbar-track: transparent;
-    /* Code block */
-    --code-background: 220 18% 7%;
 
-    /* Diff */
     --diff-removed-bg: rgba(232, 110, 110, 0.1);
     --diff-added-bg: rgba(110, 200, 140, 0.1);
     --diff-removed-indicator: rgba(232, 110, 110, 0.55);
     --diff-added-indicator: rgba(110, 200, 140, 0.55);
-
-    /* Sidebar — slight darker step than bg */
-    --sidebar-bg: 220 18% 8%;
   }
 
   /* ── Light theme ── Quiet Blue ── */
   .light {
     color-scheme: light;
-    --background: 220 25% 99%; /* near white, faint cool tilt */
+    --background: 220 25% 99%;
     --foreground: 222 25% 18%;
     --card: 220 18% 96%;
     --card-foreground: 222 25% 18%;
@@ -57,30 +104,23 @@
     --secondary-foreground: 222 22% 22%;
     --muted: 220 16% 94%;
     --muted-foreground: 220 12% 48%;
-    --accent: 215 70% 50%; /* deeper blue for light contrast */
+    --accent: 215 70% 50%;
     --accent-foreground: 220 25% 99%;
     --destructive: 0 65% 50%;
     --destructive-foreground: 0 0% 98%;
     --border: 220 14% 89%;
     --input: 220 14% 89%;
     --ring: 215 70% 50%;
-    --radius: 0.5rem;
 
-    /* Code block */
     --code-background: 220 16% 95%;
+    --sidebar-bg: 220 20% 96%;
 
-    /* Diff */
     --diff-removed-bg: rgba(200, 70, 70, 0.07);
     --diff-added-bg: rgba(40, 140, 70, 0.07);
     --diff-removed-indicator: rgba(190, 50, 50, 0.55);
     --diff-added-indicator: rgba(36, 130, 60, 0.55);
-
-    /* Sidebar — slight darker step than bg, like macOS sidebar */
-    --sidebar-bg: 220 20% 96%;
   }
-}
 
-@layer base {
   html,
   body,
   #root {
@@ -111,6 +151,13 @@
   samp {
     font-feature-settings: "calt", "liga", "zero";
     font-variant-ligatures: contextual;
+  }
+
+  /* Restore Tailwind v3 button cursor — v4 preflight matches the browser
+     default (cursor: default), but our UI relies on the pointer affordance. */
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
+    cursor: pointer;
   }
 }
 
@@ -304,7 +351,7 @@
   color: var(--diff-added-indicator);
 }
 
-/* ── Animations ── */
+/* ── Project animations ── */
 @keyframes cursor-blink {
   0%,
   100% {
@@ -324,51 +371,6 @@
     transform: translateY(0);
   }
 }
-
-@keyframes sheet-slide-up {
-  from {
-    transform: translateY(100%);
-  }
-  to {
-    transform: translateY(0);
-  }
-}
-@keyframes dialog-enter {
-  from {
-    opacity: 0;
-    transform: scale(0.96) translateY(6px);
-  }
-  to {
-    opacity: 1;
-    transform: scale(1) translateY(0);
-  }
-}
-@keyframes dialog-exit {
-  from {
-    opacity: 1;
-    transform: scale(1) translateY(0);
-  }
-  to {
-    opacity: 0;
-    transform: scale(0.96) translateY(6px);
-  }
-}
-@keyframes backdrop-in {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
-}
-@keyframes backdrop-out {
-  from {
-    opacity: 1;
-  }
-  to {
-    opacity: 0;
-  }
-}
 @keyframes breathing {
   0%,
   100% {
@@ -386,30 +388,6 @@
   50% {
     opacity: 0.55;
   }
-}
-@keyframes progress-line {
-  0% {
-    transform: translateX(-100%);
-  }
-  100% {
-    transform: translateX(100%);
-  }
-}
-
-.animate-cursor-blink {
-  animation: cursor-blink 1s step-end infinite;
-}
-.animate-fade-in-up {
-  animation: fade-in-up 0.2s ease-out both;
-}
-.animate-progress-line {
-  animation: progress-line 1.5s ease-in-out infinite;
-}
-.animate-breathing {
-  animation: breathing 2s ease-in-out infinite;
-}
-.animate-thinking {
-  animation: thinking 2.5s ease-in-out infinite;
 }
 
 @media (prefers-reduced-motion: reduce) {

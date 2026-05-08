@@ -6,6 +6,8 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import useSWR from 'swr'
+import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet'
+import { useMediaQuery } from '@/hooks/useMediaQuery'
 import { InputArea } from './components/Chat/InputArea'
 import { MessageList } from './components/Chat/MessageList'
 import { PermissionPrompt } from './components/Chat/PermissionPrompt'
@@ -122,6 +124,8 @@ function AppContent() {
     window.addEventListener('resize', onWindowResize)
     return () => window.removeEventListener('resize', onWindowResize)
   }, [])
+
+  const isDesktop = useMediaQuery('(min-width: 768px)')
 
   const displayedSidebarWidth = Math.max(
     SIDEBAR_MIN_WIDTH,
@@ -282,27 +286,8 @@ function AppContent() {
   return (
     <Layout>
       <div className="relative flex h-full min-h-0 overflow-hidden">
-        {/* Mobile overlay backdrop */}
-        {sidebarOpen && (
-          <button
-            type="button"
-            aria-label="Close sidebar"
-            tabIndex={-1}
-            className="fixed inset-0 z-40 bg-background/60 backdrop-blur-sm md:hidden cursor-default"
-            onClick={() => setSidebarOpen(false)}
-          />
-        )}
-
-        {/* Sidebar — resizable on desktop, overlay on mobile */}
-        <div
-          className={`
-            md:shrink-0
-            max-md:fixed max-md:inset-y-0 max-md:left-0 max-md:z-50
-            max-md:transition-transform max-md:duration-300 max-md:ease-out
-            max-md:overscroll-y-contain
-            ${sidebarOpen ? 'max-md:translate-x-0' : 'max-md:-translate-x-full'}
-          `}
-        >
+        {/* Desktop sidebar — inline, resizable */}
+        <div className="hidden md:block md:shrink-0">
           <Sidebar
             sessions={sessions}
             activeSession={activeSession}
@@ -322,6 +307,35 @@ function AppContent() {
             className="h-full"
           />
         </div>
+
+        {/* Mobile sidebar — slide-in sheet (only mounted on mobile) */}
+        {!isDesktop && (
+          <Sheet open={sidebarOpen} onOpenChange={setSidebarOpen}>
+            <SheetContent
+              side="left"
+              showCloseButton={false}
+              className="p-0 gap-0 w-[260px] bg-sidebar-bg"
+            >
+              <SheetTitle className="sr-only">Navigation</SheetTitle>
+              <Sidebar
+                sessions={sessions}
+                activeSession={activeSession}
+                onSelectSession={handleSelectSession}
+                onCreateSession={handleCreateSession}
+                onDeleteSession={handleDeleteSession}
+                config={config}
+                remoteConfig={remoteConfig}
+                cwdHistory={cwdHistory}
+                onUpdateConfig={handleConfigUpdate}
+                onRemoveHistory={handleRemoveHistory}
+                onOpenSettings={handleOpenSettings}
+                workspaceMissing={workspaceMissing}
+                width={260}
+                className="h-full"
+              />
+            </SheetContent>
+          </Sheet>
+        )}
 
         {/* Main content */}
         <main className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background">

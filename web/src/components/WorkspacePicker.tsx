@@ -1,25 +1,29 @@
 /**
  * Workspace folder picker.
  *
- * Mobile  : bottom sheet with slide-up entrance.
- * Desktop : compact centered dialog with scale+fade entrance.
+ * Renders as a centered Dialog on desktop and a bottom Sheet on mobile (the
+ * canonical shadcn responsive-dialog pattern, with Sheet standing in for
+ * Drawer).
  *
- * Path input acts as a filter when typing partial names,
- * or navigates directly when an absolute path is entered.
- * Tab auto-completes and enters the first matching folder.
+ * Path input acts as a filter when typing partial names, or navigates
+ * directly when an absolute path is entered. Tab auto-completes and enters
+ * the first matching folder.
  */
 
 import { Clock, Folder, FolderOpen, Search, X } from 'lucide-react'
 import {
   type KeyboardEvent,
+  type ReactNode,
   useCallback,
   useEffect,
   useMemo,
   useRef,
   useState,
 } from 'react'
-import { createPortal } from 'react-dom'
 import useSWR from 'swr'
+import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
+import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet'
+import { useMediaQuery } from '@/hooks/useMediaQuery'
 import type {
   WorkspaceBrowseResponse,
   WorkspaceEntry,
@@ -70,11 +74,6 @@ const rootLabel = (value: string): string => {
 }
 
 // ─── data fetching ──────────────────────────────────────────────────────────
-
-// Roots and per-directory listings are cached by SWR. Re-opening the picker on
-// an already-visited path returns the cached entries instantly while SWR
-// silently revalidates in the background, so the dialog no longer flashes
-// through an empty/loading state on every open.
 
 async function rootsFetcher(url: string): Promise<string[]> {
   const res = await fetch(url)
@@ -128,6 +127,8 @@ export function WorkspacePicker({
   onSelect,
   onMissingHistory,
 }: WorkspacePickerProps) {
+  const isDesktop = useMediaQuery('(min-width: 640px)')
+
   const {
     data: roots = [],
     error: rootsError,
@@ -141,7 +142,6 @@ export function WorkspacePicker({
   const [filter, setFilter] = useState('')
 
   const inputRef = useRef<HTMLInputElement | null>(null)
-  const closeButtonRef = useRef<HTMLButtonElement | null>(null)
 
   const browseKey = buildBrowseKey(target)
   const { data: browseData, error: browseError } =
@@ -164,7 +164,6 @@ export function WorkspacePicker({
     )
   }, [open, roots, currentCwd])
 
-  // Reset transient state on each open.
   useEffect(() => {
     if (!open) return
     setFilter('')
@@ -183,34 +182,14 @@ export function WorkspacePicker({
     )
   }, [browseData])
 
-  // Focus management — match original behavior (input on keyboard opens, close
-  // button otherwise to avoid the mobile keyboard).
-  useEffect(() => {
-    if (!open) return
-    const timer = setTimeout(() => {
-      if (shouldAutoFocusTextInputOnOpen(openedWithKeyboard)) {
-        inputRef.current?.focus()
-        return
-      }
-      closeButtonRef.current?.focus()
-    }, 50)
-    return () => clearTimeout(timer)
-  }, [open, openedWithKeyboard])
-
-  // ── derived ──────────────────────────────────────────────────────────────
-
   const root = target?.root ?? ''
   const path = target?.path ?? ''
   const entries = browseData?.entries ?? []
   const current = browseData?.current ?? ''
 
-  // Show the centered loader only when there's nothing to display yet. Once
-  // SWR has cached data for this key, subsequent opens skip the spinner
-  // entirely.
   const loading =
     rootsLoading || (Boolean(browseKey) && !browseData && !browseError)
 
-  // Reset filter when arriving at a new directory.
   const prevCurrentRef = useRef(current)
   if (prevCurrentRef.current !== current) {
     prevCurrentRef.current = current
@@ -224,8 +203,6 @@ export function WorkspacePicker({
       e.name.toLowerCase().includes(trimmed),
     )
   }, [filter, entries])
-
-  // ── navigation ───────────────────────────────────────────────────────────
 
   const browseTo = useCallback((nextRoot: string, nextPath: string) => {
     setUiError('')
@@ -316,28 +293,16 @@ export function WorkspacePicker({
         e.preventDefault()
         const firstEntry = filteredEntries[0]
         if (firstEntry && root) browseTo(root, firstEntry.path)
-      } else if (e.key === 'Escape') {
-        if (filter) {
-          setFilter('')
-        } else {
-          onClose()
-        }
+      } else if (e.key === 'Escape' && filter) {
+        e.preventDefault()
+        e.stopPropagation()
+        setFilter('')
       } else if (e.key === 'Backspace' && !filter) {
         handleGoParent()
       }
     },
-    [
-      filter,
-      filteredEntries,
-      root,
-      browseTo,
-      navigateToPath,
-      onClose,
-      handleGoParent,
-    ],
+    [filter, filteredEntries, root, browseTo, navigateToPath, handleGoParent],
   )
-
-  // ── derived (rendering) ──────────────────────────────────────────────────
 
   const pathSegments = path ? path.split('/') : []
   const currentPath = current || currentCwd || ''
@@ -353,272 +318,282 @@ export function WorkspacePicker({
       : '')
   const showRoots = Boolean(browseError) && roots.length > 0 && !filter.trim()
 
-  // ── render ───────────────────────────────────────────────────────────────
-
-  if (!open) return null
-
-  return createPortal(
-    <div
-      className="fixed inset-0 z-[100] flex items-end sm:items-center sm:justify-center"
-      role="dialog"
-      aria-modal="true"
-      aria-label="Select Workspace"
-    >
-      {/* Backdrop */}
-      <div
-        className="absolute inset-0 bg-black/50 backdrop-blur-[3px] animate-backdrop-in"
-        onClick={onClose}
-        aria-hidden="true"
-      />
-
-      <div
-        className={cn(
-          'relative flex flex-col overflow-hidden',
-          'bg-background border border-border/40 shadow-2xl',
-          'w-full rounded-t-2xl max-h-[82vh]',
-          'animate-sheet-in',
-          'sm:rounded-xl sm:w-[440px] sm:max-h-[520px]',
-          'sm:animate-dialog-in',
-        )}
-      >
-        {/* Drag handle — mobile only */}
+  const body: ReactNode = (
+    <>
+      {/* Drag handle — mobile only */}
+      {!isDesktop && (
         <div
-          className="sm:hidden flex justify-center pt-2.5 pb-1 shrink-0"
+          className="flex justify-center pt-2.5 pb-1 shrink-0"
           aria-hidden="true"
         >
           <div className="w-10 h-[3px] rounded-full bg-border/60" />
         </div>
+      )}
 
-        {/* Breadcrumb header */}
-        <div className="flex items-center min-h-[44px] px-4 border-b border-border/30 shrink-0 gap-1">
-          <div className="flex-1 flex items-center overflow-x-auto scrollbar-none min-w-0 gap-0.5">
-            <button
-              type="button"
-              onClick={() => root && browseTo(root, '')}
-              className={cn(
-                'shrink-0 px-1.5 py-0.5 rounded text-xs font-mono cursor-pointer',
-                'transition-colors hover:bg-muted/60 hover:text-foreground',
-                pathSegments.length === 0
-                  ? 'text-foreground font-medium'
-                  : 'text-muted-foreground',
-              )}
-            >
-              {rootLabel(root) || '~'}
-            </button>
-            {pathSegments.map((segment, index) => {
-              const crumbPath = pathSegments.slice(0, index + 1).join('/')
-              return (
-                <div key={crumbPath} className="flex items-center shrink-0">
-                  <span
-                    className="text-border select-none mx-0.5 text-xs"
-                    aria-hidden="true"
-                  >
-                    /
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => browseTo(root, crumbPath)}
-                    className={cn(
-                      'px-1.5 py-0.5 rounded text-xs font-mono cursor-pointer whitespace-nowrap',
-                      'transition-colors hover:bg-muted/60 hover:text-foreground',
-                      index === pathSegments.length - 1
-                        ? 'text-foreground font-medium'
-                        : 'text-muted-foreground',
-                    )}
-                  >
-                    {segment}
-                  </button>
-                </div>
-              )
-            })}
-          </div>
-
+      {/* Breadcrumb header */}
+      <div className="flex items-center min-h-[44px] px-4 border-b border-border/30 shrink-0 gap-1">
+        <div className="flex-1 flex items-center overflow-x-auto scrollbar-none min-w-0 gap-0.5">
           <button
-            ref={closeButtonRef}
             type="button"
-            onClick={onClose}
+            onClick={() => root && browseTo(root, '')}
             className={cn(
-              'flex items-center justify-center w-8 h-8 rounded-lg shrink-0 cursor-pointer',
-              'text-muted-foreground/50 transition-colors',
-              'hover:bg-muted/70 hover:text-foreground',
-              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+              'shrink-0 px-1.5 py-0.5 rounded text-xs font-mono',
+              'transition-colors hover:bg-muted/60 hover:text-foreground',
+              pathSegments.length === 0
+                ? 'text-foreground font-medium'
+                : 'text-muted-foreground',
             )}
-            aria-label="Close"
           >
-            <X className="h-3.5 w-3.5" />
+            {rootLabel(root) || '~'}
           </button>
-        </div>
-
-        {/* Filter input */}
-        <div className="flex items-center gap-2.5 px-4 py-2.5 border-b border-border/20 shrink-0">
-          <Search className="h-3.5 w-3.5 shrink-0 text-muted-foreground/30" />
-          <input
-            ref={inputRef}
-            name="workspace-filter"
-            value={filter}
-            onChange={(e) => setFilter(e.target.value)}
-            onKeyDown={handleInputKeyDown}
-            placeholder="Filter or type a path…"
-            spellCheck={false}
-            autoComplete="off"
-            autoCorrect="off"
-            autoCapitalize="off"
-            className="w-full bg-transparent text-base md:text-sm font-mono focus-visible:outline-none text-foreground placeholder:text-muted-foreground/30 caret-accent"
-            aria-label="Filter directories or enter a path"
-          />
-          {filter && (
-            <button
-              type="button"
-              onClick={() => setFilter('')}
-              className="shrink-0 text-muted-foreground/40 hover:text-muted-foreground transition-colors"
-              aria-label="Clear filter"
-            >
-              <X className="h-3 w-3" />
-            </button>
-          )}
-        </div>
-
-        {/* Content */}
-        <div className="flex-1 overflow-y-auto overscroll-contain">
-          {loading && (
-            <div className="flex items-center justify-center h-36">
-              <div className="flex items-end gap-1">
-                {[0, 1, 2].map((i) => (
-                  <div
-                    key={i}
-                    className="w-[3px] rounded-full bg-muted-foreground/30 animate-pulse"
-                    style={{
-                      height: `${12 + i * 4}px`,
-                      animationDelay: `${i * 120}ms`,
-                    }}
-                  />
-                ))}
-              </div>
-            </div>
-          )}
-
-          {!loading && blockingErrorMessage && (
-            <div className="flex items-center justify-center h-36 px-6 text-center">
-              <p className="text-xs text-destructive leading-relaxed">
-                {blockingErrorMessage}
-              </p>
-            </div>
-          )}
-
-          {!loading && !blockingErrorMessage && (
-            <div className="py-1">
-              {noticeMessage && (
-                <div className="mx-4 my-2 rounded-md border border-border/30 bg-muted/20 px-3 py-2 text-[11px] leading-relaxed text-muted-foreground">
-                  {noticeMessage}
-                </div>
-              )}
-
-              {/* Recent */}
-              {showRecent && (
-                <>
-                  <div className="px-4 pt-3 pb-1.5">
-                    <span className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/40 select-none">
-                      Recent
-                    </span>
-                  </div>
-                  {recentPaths.map((p) => (
-                    <button
-                      type="button"
-                      key={p}
-                      onClick={() => void handleSelectRecent(p)}
-                      className="group flex items-center gap-3 w-full min-h-[44px] px-4 py-2 text-left cursor-pointer transition-colors hover:bg-muted/50 active:bg-muted/70 focus-visible:outline-none focus-visible:bg-muted/50"
-                    >
-                      <Clock className="h-3.5 w-3.5 shrink-0 text-muted-foreground/35 group-hover:text-accent/60 transition-colors" />
-                      <span className="truncate text-xs font-mono text-muted-foreground group-hover:text-foreground/80 transition-colors">
-                        {p}
-                      </span>
-                    </button>
-                  ))}
-                  {(filteredEntries.length > 0 || showRoots) && (
-                    <div className="mx-4 mt-1 mb-1 border-b border-border/20" />
-                  )}
-                </>
-              )}
-
-              {showRoots && (
-                <>
-                  <div className="px-4 pt-3 pb-1.5">
-                    <span className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/40 select-none">
-                      Roots
-                    </span>
-                  </div>
-                  {roots.map((workspaceRoot) => (
-                    <button
-                      type="button"
-                      key={workspaceRoot}
-                      onClick={() => browseTo(workspaceRoot, '')}
-                      className="group flex items-center gap-3 w-full min-h-[44px] px-4 py-2 text-left cursor-pointer transition-colors hover:bg-muted/50 active:bg-muted/70 focus-visible:outline-none focus-visible:bg-muted/50"
-                    >
-                      <FolderOpen className="h-3.5 w-3.5 shrink-0 text-muted-foreground/35 group-hover:text-accent/60 transition-colors" />
-                      <span className="truncate text-xs font-mono text-muted-foreground group-hover:text-foreground/80 transition-colors">
-                        {workspaceRoot}
-                      </span>
-                    </button>
-                  ))}
-                  {filteredEntries.length > 0 && (
-                    <div className="mx-4 mt-1 mb-1 border-b border-border/20" />
-                  )}
-                </>
-              )}
-
-              {/* Entries */}
-              {filteredEntries.length === 0 && !showRecent && !showRoots && (
-                <div className="flex flex-col items-center justify-center gap-3 h-36 text-muted-foreground/30">
-                  <Folder className="h-10 w-10" strokeWidth={1} />
-                  <p className="text-xs">
-                    {filter.trim() ? 'No matches' : 'This folder is empty'}
-                  </p>
-                </div>
-              )}
-              {filteredEntries.map((entry) => (
+          {pathSegments.map((segment, index) => {
+            const crumbPath = pathSegments.slice(0, index + 1).join('/')
+            return (
+              <div key={crumbPath} className="flex items-center shrink-0">
+                <span
+                  className="text-border select-none mx-0.5 text-xs"
+                  aria-hidden="true"
+                >
+                  /
+                </span>
                 <button
                   type="button"
-                  key={entry.path}
-                  onClick={() => browseTo(root, entry.path)}
-                  className="group flex items-center gap-3 w-full min-h-[44px] px-4 py-2 text-left cursor-pointer transition-colors hover:bg-muted/50 active:bg-muted/70 focus-visible:outline-none focus-visible:bg-muted/50"
+                  onClick={() => browseTo(root, crumbPath)}
+                  className={cn(
+                    'px-1.5 py-0.5 rounded text-xs font-mono whitespace-nowrap',
+                    'transition-colors hover:bg-muted/60 hover:text-foreground',
+                    index === pathSegments.length - 1
+                      ? 'text-foreground font-medium'
+                      : 'text-muted-foreground',
+                  )}
                 >
-                  <Folder className="h-3.5 w-3.5 shrink-0 text-accent/40 group-hover:text-accent/70 transition-colors" />
-                  <span className="truncate text-sm font-mono text-foreground/70 group-hover:text-foreground transition-colors">
-                    {entry.name}
-                  </span>
+                  {segment}
                 </button>
-              ))}
-            </div>
-          )}
+              </div>
+            )
+          })}
         </div>
 
-        {/* Footer */}
-        <div className="flex items-center gap-3 h-12 px-4 border-t border-border/20 shrink-0">
-          <FolderOpen className="h-3.5 w-3.5 shrink-0 text-muted-foreground/30" />
-          <span
-            className="flex-1 min-w-0 truncate text-xs font-mono text-muted-foreground/60"
-            title={current}
-          >
-            {current || '—'}
-          </span>
+        <button
+          type="button"
+          onClick={onClose}
+          className={cn(
+            'flex items-center justify-center w-8 h-8 rounded-lg shrink-0',
+            'text-muted-foreground/50 transition-colors',
+            'hover:bg-muted/70 hover:text-foreground',
+            'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+          )}
+          aria-label="Close"
+        >
+          <X className="h-3.5 w-3.5" />
+        </button>
+      </div>
+
+      {/* Filter input */}
+      <div className="flex items-center gap-2.5 px-4 py-2.5 border-b border-border/20 shrink-0">
+        <Search className="h-3.5 w-3.5 shrink-0 text-muted-foreground/30" />
+        <input
+          ref={inputRef}
+          name="workspace-filter"
+          value={filter}
+          onChange={(e) => setFilter(e.target.value)}
+          onKeyDown={handleInputKeyDown}
+          placeholder="Filter or type a path…"
+          spellCheck={false}
+          autoComplete="off"
+          autoCorrect="off"
+          autoCapitalize="off"
+          className="w-full bg-transparent text-base sm:text-sm font-mono focus-visible:outline-none text-foreground placeholder:text-muted-foreground/30 caret-accent"
+          aria-label="Filter directories or enter a path"
+        />
+        {filter && (
           <button
             type="button"
-            onClick={handleSelect}
-            disabled={!current}
-            className={cn(
-              'shrink-0 px-3.5 h-7 rounded-md text-xs font-semibold cursor-pointer',
-              'transition-colors',
-              'bg-accent/15 text-accent border border-accent/20',
-              'hover:bg-accent/25 hover:border-accent/40 active:bg-accent/30',
-              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-              'disabled:opacity-25 disabled:cursor-not-allowed',
-            )}
+            onClick={() => setFilter('')}
+            className="shrink-0 text-muted-foreground/40 hover:text-muted-foreground transition-colors"
+            aria-label="Clear filter"
           >
-            Open
+            <X className="h-3 w-3" />
           </button>
-        </div>
+        )}
       </div>
-    </div>,
-    document.body,
+
+      {/* Content */}
+      <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain">
+        {loading && (
+          <div className="flex items-center justify-center h-36">
+            <div className="flex items-end gap-1">
+              {[0, 1, 2].map((i) => (
+                <div
+                  key={i}
+                  className="w-[3px] rounded-full bg-muted-foreground/30 animate-pulse"
+                  style={{
+                    height: `${12 + i * 4}px`,
+                    animationDelay: `${i * 120}ms`,
+                  }}
+                />
+              ))}
+            </div>
+          </div>
+        )}
+
+        {!loading && blockingErrorMessage && (
+          <div className="flex items-center justify-center h-36 px-6 text-center">
+            <p className="text-xs text-destructive leading-relaxed">
+              {blockingErrorMessage}
+            </p>
+          </div>
+        )}
+
+        {!loading && !blockingErrorMessage && (
+          <div className="py-1">
+            {noticeMessage && (
+              <div className="mx-4 my-2 rounded-md border border-border/30 bg-muted/20 px-3 py-2 text-[11px] leading-relaxed text-muted-foreground">
+                {noticeMessage}
+              </div>
+            )}
+
+            {/* Recent */}
+            {showRecent && (
+              <>
+                <div className="px-4 pt-3 pb-1.5">
+                  <span className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/40 select-none">
+                    Recent
+                  </span>
+                </div>
+                {recentPaths.map((p) => (
+                  <button
+                    type="button"
+                    key={p}
+                    onClick={() => void handleSelectRecent(p)}
+                    className="group flex items-center gap-3 w-full min-h-[44px] px-4 py-2 text-left transition-colors hover:bg-muted/50 active:bg-muted/70 focus-visible:outline-none focus-visible:bg-muted/50"
+                  >
+                    <Clock className="h-3.5 w-3.5 shrink-0 text-muted-foreground/35 group-hover:text-accent/60 transition-colors" />
+                    <span className="truncate text-xs font-mono text-muted-foreground group-hover:text-foreground/80 transition-colors">
+                      {p}
+                    </span>
+                  </button>
+                ))}
+                {(filteredEntries.length > 0 || showRoots) && (
+                  <div className="mx-4 mt-1 mb-1 border-b border-border/20" />
+                )}
+              </>
+            )}
+
+            {showRoots && (
+              <>
+                <div className="px-4 pt-3 pb-1.5">
+                  <span className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/40 select-none">
+                    Roots
+                  </span>
+                </div>
+                {roots.map((workspaceRoot) => (
+                  <button
+                    type="button"
+                    key={workspaceRoot}
+                    onClick={() => browseTo(workspaceRoot, '')}
+                    className="group flex items-center gap-3 w-full min-h-[44px] px-4 py-2 text-left transition-colors hover:bg-muted/50 active:bg-muted/70 focus-visible:outline-none focus-visible:bg-muted/50"
+                  >
+                    <FolderOpen className="h-3.5 w-3.5 shrink-0 text-muted-foreground/35 group-hover:text-accent/60 transition-colors" />
+                    <span className="truncate text-xs font-mono text-muted-foreground group-hover:text-foreground/80 transition-colors">
+                      {workspaceRoot}
+                    </span>
+                  </button>
+                ))}
+                {filteredEntries.length > 0 && (
+                  <div className="mx-4 mt-1 mb-1 border-b border-border/20" />
+                )}
+              </>
+            )}
+
+            {/* Entries */}
+            {filteredEntries.length === 0 && !showRecent && !showRoots && (
+              <div className="flex flex-col items-center justify-center gap-3 h-36 text-muted-foreground/30">
+                <Folder className="h-10 w-10" strokeWidth={1} />
+                <p className="text-xs">
+                  {filter.trim() ? 'No matches' : 'This folder is empty'}
+                </p>
+              </div>
+            )}
+            {filteredEntries.map((entry) => (
+              <button
+                type="button"
+                key={entry.path}
+                onClick={() => browseTo(root, entry.path)}
+                className="group flex items-center gap-3 w-full min-h-[44px] px-4 py-2 text-left transition-colors hover:bg-muted/50 active:bg-muted/70 focus-visible:outline-none focus-visible:bg-muted/50"
+              >
+                <Folder className="h-3.5 w-3.5 shrink-0 text-accent/40 group-hover:text-accent/70 transition-colors" />
+                <span className="truncate text-sm font-mono text-foreground/70 group-hover:text-foreground transition-colors">
+                  {entry.name}
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Footer */}
+      <div className="flex items-center gap-3 h-12 px-4 border-t border-border/20 shrink-0">
+        <FolderOpen className="h-3.5 w-3.5 shrink-0 text-muted-foreground/30" />
+        <span
+          className="flex-1 min-w-0 truncate text-xs font-mono text-muted-foreground/60"
+          title={current}
+        >
+          {current || '—'}
+        </span>
+        <button
+          type="button"
+          onClick={handleSelect}
+          disabled={!current}
+          className={cn(
+            'shrink-0 px-3.5 h-7 rounded-md text-xs font-semibold',
+            'transition-colors',
+            'bg-accent/15 text-accent border border-accent/20',
+            'hover:bg-accent/25 hover:border-accent/40 active:bg-accent/30',
+            'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+            'disabled:opacity-25 disabled:cursor-not-allowed',
+          )}
+        >
+          Open
+        </button>
+      </div>
+    </>
+  )
+
+  const handleOpenChange = (next: boolean) => {
+    if (!next) onClose()
+  }
+
+  const initialFocus = shouldAutoFocusTextInputOnOpen(openedWithKeyboard)
+    ? inputRef
+    : undefined
+
+  if (isDesktop) {
+    return (
+      <Dialog open={open} onOpenChange={handleOpenChange}>
+        <DialogContent
+          showCloseButton={false}
+          initialFocus={initialFocus}
+          className="flex flex-col gap-0 p-0 w-[440px] max-w-[calc(100vw-2rem)] max-h-[520px] sm:max-w-[calc(100vw-2rem)]"
+        >
+          <DialogTitle className="sr-only">Select workspace</DialogTitle>
+          {body}
+        </DialogContent>
+      </Dialog>
+    )
+  }
+
+  return (
+    <Sheet open={open} onOpenChange={handleOpenChange}>
+      <SheetContent
+        side="bottom"
+        showCloseButton={false}
+        initialFocus={initialFocus}
+        className="flex flex-col gap-0 p-0 max-h-[82vh] rounded-t-2xl"
+      >
+        <SheetTitle className="sr-only">Select workspace</SheetTitle>
+        {body}
+      </SheetContent>
+    </Sheet>
   )
 }

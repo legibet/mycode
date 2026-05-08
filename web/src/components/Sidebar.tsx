@@ -89,8 +89,8 @@ interface SidebarProps {
   onOpenSettings: () => void
   workspaceMissing?: boolean
   width: number
-  onResize: (width: number) => void
-  onResizeReset: () => void
+  onResize?: (width: number) => void
+  onResizeReset?: () => void
 }
 
 function SidebarResizer({
@@ -393,11 +393,13 @@ export const Sidebar = memo(function Sidebar({
         </button>
       </div>
 
-      <SidebarResizer
-        width={width}
-        onResize={onResize}
-        onResizeReset={onResizeReset}
-      />
+      {onResize && onResizeReset && (
+        <SidebarResizer
+          width={width}
+          onResize={onResize}
+          onResizeReset={onResizeReset}
+        />
+      )}
     </div>
   )
 })

@@ -281,8 +281,8 @@ export const InputArea = memo(function InputArea({
       <div
         role="presentation"
         className={cn(
-          'relative rounded-lg bg-card border shadow-sm transition duration-200',
-          'focus-within:shadow-md focus-within:border-accent/40',
+          'relative rounded-lg bg-card border shadow-xs transition duration-200',
+          'focus-within:shadow-sm focus-within:border-accent/40',
           dragging ? 'border-accent/50 bg-accent/5' : 'border-border',
         )}
         onDragEnter={handleDragEnter}
@@ -299,7 +299,7 @@ export const InputArea = memo(function InputArea({
         {files.length > 0 && (
           <div className="flex flex-wrap gap-1.5 px-3 pt-2.5 pb-1">
             {files.map((file) => (
-              <div key={file.id} className="relative group/thumb flex-shrink-0">
+              <div key={file.id} className="relative group/thumb shrink-0">
                 {file.kind === 'image' ? (
                   <img
                     src={file.preview}
