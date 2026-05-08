@@ -153,8 +153,7 @@
     font-variant-ligatures: contextual;
   }
 
-  /* Restore Tailwind v3 button cursor — v4 preflight matches the browser
-     default (cursor: default), but our UI relies on the pointer affordance. */
+  /* v4 preflight uses cursor: default on buttons; restore the pointer affordance. */
   button:not(:disabled),
   [role="button"]:not(:disabled) {
     cursor: pointer;

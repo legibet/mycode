@@ -1,10 +1,6 @@
 /**
  * Workspace folder picker.
  *
- * Renders as a centered Dialog on desktop and a bottom Sheet on mobile (the
- * canonical shadcn responsive-dialog pattern, with Sheet standing in for
- * Drawer).
- *
  * Path input acts as a filter when typing partial names, or navigates
  * directly when an absolute path is entered. Tab auto-completes and enters
  * the first matching folder.
@@ -574,7 +570,7 @@ export function WorkspacePicker({
         <DialogContent
           showCloseButton={false}
           initialFocus={initialFocus}
-          className="flex flex-col gap-0 p-0 w-[440px] max-w-[calc(100vw-2rem)] max-h-[520px] sm:max-w-[calc(100vw-2rem)]"
+          className="flex flex-col gap-0 p-0 w-110 max-w-[calc(100vw-2rem)] max-h-130 sm:max-w-[calc(100vw-2rem)]"
         >
           <DialogTitle className="sr-only">Select workspace</DialogTitle>
           {body}

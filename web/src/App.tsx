@@ -286,35 +286,34 @@ function AppContent() {
   return (
     <Layout>
       <div className="relative flex h-full min-h-0 overflow-hidden">
-        {/* Desktop sidebar — inline, resizable */}
-        <div className="hidden md:block md:shrink-0">
-          <Sidebar
-            sessions={sessions}
-            activeSession={activeSession}
-            onSelectSession={handleSelectSession}
-            onCreateSession={handleCreateSession}
-            onDeleteSession={handleDeleteSession}
-            config={config}
-            remoteConfig={remoteConfig}
-            cwdHistory={cwdHistory}
-            onUpdateConfig={handleConfigUpdate}
-            onRemoveHistory={handleRemoveHistory}
-            onOpenSettings={handleOpenSettings}
-            workspaceMissing={workspaceMissing}
-            width={displayedSidebarWidth}
-            onResize={handleResizeSidebar}
-            onResizeReset={handleResetSidebarWidth}
-            className="h-full"
-          />
-        </div>
-
-        {/* Mobile sidebar — slide-in sheet (only mounted on mobile) */}
-        {!isDesktop && (
+        {/* Mounted exclusively to avoid duplicate SWR / WorkspacePicker state. */}
+        {isDesktop ? (
+          <div className="shrink-0">
+            <Sidebar
+              sessions={sessions}
+              activeSession={activeSession}
+              onSelectSession={handleSelectSession}
+              onCreateSession={handleCreateSession}
+              onDeleteSession={handleDeleteSession}
+              config={config}
+              remoteConfig={remoteConfig}
+              cwdHistory={cwdHistory}
+              onUpdateConfig={handleConfigUpdate}
+              onRemoveHistory={handleRemoveHistory}
+              onOpenSettings={handleOpenSettings}
+              workspaceMissing={workspaceMissing}
+              width={displayedSidebarWidth}
+              onResize={handleResizeSidebar}
+              onResizeReset={handleResetSidebarWidth}
+              className="h-full"
+            />
+          </div>
+        ) : (
           <Sheet open={sidebarOpen} onOpenChange={setSidebarOpen}>
             <SheetContent
               side="left"
               showCloseButton={false}
-              className="p-0 gap-0 w-[260px] bg-sidebar-bg"
+              className="p-0 gap-0 w-65 bg-sidebar-bg"
             >
               <SheetTitle className="sr-only">Navigation</SheetTitle>
               <Sidebar

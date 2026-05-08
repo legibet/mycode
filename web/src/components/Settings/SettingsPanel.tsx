@@ -5,10 +5,6 @@
  * .mycode/config.json files continue to override the global file at runtime
  * — the banner makes that explicit when the app is running inside a workspace
  * that has one.
- *
- * Renders as a centered Dialog on desktop and a fullscreen bottom Sheet on
- * mobile (the canonical shadcn responsive-dialog pattern, with Sheet standing
- * in for Drawer).
  */
 
 import { Laptop, Loader2, Moon, Plus, Sun, X } from 'lucide-react'
@@ -357,7 +353,6 @@ export function SettingsPanel({
 
   const editsPath = `Edits ${prettifyPath(settings?.path ?? FALLBACK_CONFIG_PATH)}`
 
-  // Body shared between Dialog (desktop) and Sheet (mobile).
   const body: ReactNode = (
     <>
       {/* Header */}
@@ -636,7 +631,7 @@ export function SettingsPanel({
               type="button"
               onClick={() => void handleSave()}
               disabled={!settings || saving || hasInvalidProvider}
-              className={cn(SAVE_BTN_CLASS, 'flex-[2] h-9')}
+              className={cn(SAVE_BTN_CLASS, 'flex-2 h-9')}
             >
               {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
               Save
@@ -685,7 +680,7 @@ export function SettingsPanel({
       <Dialog open={open} onOpenChange={handleOpenChange}>
         <DialogContent
           showCloseButton={false}
-          className="flex flex-col gap-0 p-0 w-[640px] max-w-[calc(100vw-2rem)] max-h-[82vh] sm:max-w-[calc(100vw-2rem)]"
+          className="flex flex-col gap-0 p-0 w-160 max-w-[calc(100vw-2rem)] max-h-[82vh] sm:max-w-[calc(100vw-2rem)]"
         >
           <DialogTitle className="sr-only">Settings</DialogTitle>
           {body}
@@ -699,7 +694,7 @@ export function SettingsPanel({
       <SheetContent
         side="bottom"
         showCloseButton={false}
-        className="flex flex-col gap-0 p-0 h-[100dvh] rounded-none"
+        className="flex flex-col gap-0 p-0 h-dvh rounded-none"
       >
         <SheetTitle className="sr-only">Settings</SheetTitle>
         {body}

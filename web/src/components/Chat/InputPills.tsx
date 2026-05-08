@@ -1,10 +1,4 @@
-/**
- * Triggers shown inside the input box bottom row: model, effort.
- *
- * Each is a plain text button followed by a tiny chevron. Popovers open
- * upward and are portalled by Base UI so they escape the chat area's
- * overflow-hidden container.
- */
+/** Triggers shown inside the input box bottom row: model, effort. */
 
 import { Check, ChevronDown } from 'lucide-react'
 import { memo, useMemo, useState } from 'react'
@@ -16,6 +10,12 @@ import {
   CommandItem,
   CommandList,
 } from '@/components/ui/command'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import {
   Popover,
   PopoverContent,
@@ -39,10 +39,12 @@ const TRIGGER_BTN =
   'transition-colors focus-visible:outline-none focus-visible:bg-muted/60 ' +
   'disabled:opacity-40 disabled:cursor-not-allowed'
 
-const POPOVER_CONTENT_CLASS =
-  'p-0 gap-0 border border-border/50 shadow-md bg-popover text-popover-foreground'
+const POPOVER_CONTENT_CLASS = 'p-0 gap-0'
 
-// ─── model trigger ──────────────────────────────────────────────────────────
+// Skip auto-focus on touch/pen so the soft keyboard doesn't pop up just
+// from opening the picker. `openType` is Base UI's `InteractionType`.
+const initialFocusByOpenType = (openType: string) =>
+  openType === 'mouse' || openType === 'keyboard'
 
 interface ModelTriggerProps {
   config: LocalConfig
@@ -114,12 +116,13 @@ export const ModelTrigger = memo(function ModelTrigger({
         side="top"
         align="start"
         sideOffset={6}
-        className={cn(
-          POPOVER_CONTENT_CLASS,
-          'w-[320px] max-w-[calc(100vw-1rem)]',
-        )}
+        initialFocus={initialFocusByOpenType}
+        className={cn(POPOVER_CONTENT_CLASS, 'w-80 max-w-[calc(100vw-1rem)]')}
       >
-        <Command className="max-h-[min(60vh,360px)] bg-transparent">
+        <Command
+          defaultValue={`${config.provider}:${config.model}`}
+          className="max-h-[min(60vh,360px)] bg-transparent"
+        >
           <CommandInput placeholder="Filter models…" />
           <CommandList>
             <CommandEmpty>No matches</CommandEmpty>
@@ -157,8 +160,6 @@ export const ModelTrigger = memo(function ModelTrigger({
   )
 })
 
-// ─── effort trigger ─────────────────────────────────────────────────────────
-
 interface EffortTriggerProps {
   config: LocalConfig
   remoteConfig: RemoteConfig | null
@@ -194,8 +195,8 @@ export const EffortTrigger = memo(function EffortTrigger({
   }
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger
+    <DropdownMenu open={open} onOpenChange={setOpen}>
+      <DropdownMenuTrigger
         render={
           <button
             type="button"
@@ -212,34 +213,24 @@ export const EffortTrigger = memo(function EffortTrigger({
           </button>
         }
       />
-      <PopoverContent
+      <DropdownMenuContent
         side="top"
         align="end"
         sideOffset={6}
-        className={cn(POPOVER_CONTENT_CLASS, 'w-[140px] py-1')}
+        className="min-w-35"
       >
         {options.map((opt) => {
           const active = opt === current
           return (
-            <button
-              key={opt}
-              type="button"
-              onClick={() => select(opt)}
-              className={cn(
-                'flex items-center gap-2 w-full px-3 py-1.5 text-left transition-colors',
-                active
-                  ? 'bg-muted text-foreground'
-                  : 'text-foreground/80 hover:bg-muted/50 hover:text-foreground',
-              )}
-            >
+            <DropdownMenuItem key={opt} onClick={() => select(opt)}>
               <span className="flex-1 font-mono text-[13px]">
                 {opt || 'auto'}
               </span>
               {active && <Check className="h-3 w-3 shrink-0 text-accent" />}
-            </button>
+            </DropdownMenuItem>
           )
         })}
-      </PopoverContent>
-    </Popover>
+      </DropdownMenuContent>
+    </DropdownMenu>
   )
 })
