@@ -355,7 +355,7 @@ export const InputArea = memo(function InputArea({
           placeholder={disabledReason || 'Message…'}
           disabled={disabled}
           className={cn(
-            'block w-full resize-none bg-transparent px-3.5 pt-4 pb-1.5 max-md:pt-3.5 text-base md:text-sm leading-relaxed placeholder:text-muted-foreground/40 focus-visible:outline-none max-h-[200px]',
+            'block w-full resize-none bg-transparent px-3.5 pt-4 pb-1.5 max-md:pt-3.5 text-base md:text-sm leading-relaxed placeholder:text-muted-foreground/40 focus-visible:outline-none max-h-50',
             disabled ? 'text-muted-foreground/50' : 'text-foreground',
           )}
         />

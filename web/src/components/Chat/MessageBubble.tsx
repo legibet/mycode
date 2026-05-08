@@ -363,7 +363,7 @@ export const MessageBubble = memo(function MessageBubble({
                 e.target.style.height = `${Math.min(e.target.scrollHeight, 300)}px`
               }}
               onKeyDown={handleEditKeyDown}
-              className="w-full resize-none rounded-lg bg-muted px-3.5 py-2 text-base md:text-sm leading-relaxed text-foreground border border-border/60 focus:outline-none focus:border-accent/60 max-h-[300px]"
+              className="w-full resize-none rounded-lg bg-muted px-3.5 py-2 text-base md:text-sm leading-relaxed text-foreground border border-border/60 focus:outline-none focus:border-accent/60 max-h-75"
             />
             <div className="flex justify-end gap-2">
               <button
@@ -458,7 +458,7 @@ export const MessageBubble = memo(function MessageBubble({
             </div>
           )}
           {textContent && (
-            <div className="rounded-lg bg-muted px-3.5 py-2 text-sm leading-relaxed text-foreground whitespace-pre-wrap [overflow-wrap:anywhere]">
+            <div className="rounded-lg bg-muted px-3.5 py-2 text-sm leading-relaxed text-foreground whitespace-pre-wrap wrap-anywhere">
               {textContent}
             </div>
           )}

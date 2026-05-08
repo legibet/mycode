@@ -70,7 +70,7 @@ export const PermissionPrompt = memo(function PermissionPrompt({
 
         {request.preview && (
           <div className="px-3.5 pb-2.5">
-            <div className="rounded-md bg-code px-3 py-2 font-mono text-[12.5px] leading-[1.5] text-foreground/80 whitespace-pre-wrap break-all max-h-28 overflow-y-auto scrollbar-subtle">
+            <div className="rounded-md bg-code px-3 py-2 font-mono text-[12.5px] leading-normal text-foreground/80 whitespace-pre-wrap break-all max-h-28 overflow-y-auto scrollbar-subtle">
               {isBash && (
                 <span className="text-muted-foreground/40 select-none">$ </span>
               )}

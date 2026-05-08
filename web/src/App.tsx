@@ -362,7 +362,7 @@ function AppContent() {
               />
 
               {/* Gradient fade above input */}
-              <div className="pointer-events-none absolute bottom-0 left-0 right-0 h-24 bg-gradient-to-t from-background via-background/80 to-transparent" />
+              <div className="pointer-events-none absolute bottom-0 left-0 right-0 h-24 bg-linear-to-t from-background via-background/80 to-transparent" />
 
               <div className="shrink-0 relative z-10 pb-4 max-md:pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-1">
                 {pendingPermission && (

@@ -156,13 +156,13 @@ function SidebarResizer({
       onKeyDown={handleKeyDown}
       className={cn(
         'group/resizer hidden md:block',
-        'absolute top-0 bottom-0 -right-[3px] w-[6px] z-20 cursor-col-resize',
+        'absolute top-0 bottom-0 -right-0.75 w-1.5 z-20 cursor-col-resize',
         'focus-visible:outline-none',
       )}
     >
       <div
         className={cn(
-          'absolute inset-y-0 right-[3px] w-px transition-colors',
+          'absolute inset-y-0 right-0.75 w-px transition-colors',
           dragging
             ? 'bg-accent'
             : 'bg-transparent group-hover/resizer:bg-accent/60 group-focus-visible/resizer:bg-accent/60',
@@ -224,7 +224,7 @@ export const Sidebar = memo(function Sidebar({
   return (
     <div
       className={cn(
-        'relative flex w-64 md:w-[var(--sidebar-width)] flex-col border-r border-border/50 bg-sidebar-bg',
+        'relative flex w-64 md:w-(--sidebar-width) flex-col border-r border-border/50 bg-sidebar-bg',
         className,
       )}
       style={{ '--sidebar-width': `${width}px` } as CSSProperties}
@@ -320,7 +320,7 @@ export const Sidebar = memo(function Sidebar({
                   <div key={session.id} className="group relative">
                     <span
                       className={cn(
-                        'absolute left-0 top-1.5 bottom-1.5 w-[2px] rounded-r',
+                        'absolute left-0 top-1.5 bottom-1.5 w-0.5 rounded-r',
                         isActive ? 'bg-accent' : 'bg-transparent',
                       )}
                       aria-hidden="true"

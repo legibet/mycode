@@ -322,12 +322,12 @@ export function WorkspacePicker({
           className="flex justify-center pt-2.5 pb-1 shrink-0"
           aria-hidden="true"
         >
-          <div className="w-10 h-[3px] rounded-full bg-border/60" />
+          <div className="w-10 h-0.75 rounded-full bg-border/60" />
         </div>
       )}
 
       {/* Breadcrumb header */}
-      <div className="flex items-center min-h-[44px] px-4 border-b border-border/30 shrink-0 gap-1">
+      <div className="flex items-center min-h-11 px-4 border-b border-border/30 shrink-0 gap-1">
         <div className="flex-1 flex items-center overflow-x-auto scrollbar-none min-w-0 gap-0.5">
           <button
             type="button"
@@ -422,7 +422,7 @@ export function WorkspacePicker({
               {[0, 1, 2].map((i) => (
                 <div
                   key={i}
-                  className="w-[3px] rounded-full bg-muted-foreground/30 animate-pulse"
+                  className="w-0.75 rounded-full bg-muted-foreground/30 animate-pulse"
                   style={{
                     height: `${12 + i * 4}px`,
                     animationDelay: `${i * 120}ms`,
@@ -462,7 +462,7 @@ export function WorkspacePicker({
                     type="button"
                     key={p}
                     onClick={() => void handleSelectRecent(p)}
-                    className="group flex items-center gap-3 w-full min-h-[44px] px-4 py-2 text-left transition-colors hover:bg-muted/50 active:bg-muted/70 focus-visible:outline-none focus-visible:bg-muted/50"
+                    className="group flex items-center gap-3 w-full min-h-11 px-4 py-2 text-left transition-colors hover:bg-muted/50 active:bg-muted/70 focus-visible:outline-none focus-visible:bg-muted/50"
                   >
                     <Clock className="h-3.5 w-3.5 shrink-0 text-muted-foreground/35 group-hover:text-accent/60 transition-colors" />
                     <span className="truncate text-xs font-mono text-muted-foreground group-hover:text-foreground/80 transition-colors">
@@ -488,7 +488,7 @@ export function WorkspacePicker({
                     type="button"
                     key={workspaceRoot}
                     onClick={() => browseTo(workspaceRoot, '')}
-                    className="group flex items-center gap-3 w-full min-h-[44px] px-4 py-2 text-left transition-colors hover:bg-muted/50 active:bg-muted/70 focus-visible:outline-none focus-visible:bg-muted/50"
+                    className="group flex items-center gap-3 w-full min-h-11 px-4 py-2 text-left transition-colors hover:bg-muted/50 active:bg-muted/70 focus-visible:outline-none focus-visible:bg-muted/50"
                   >
                     <FolderOpen className="h-3.5 w-3.5 shrink-0 text-muted-foreground/35 group-hover:text-accent/60 transition-colors" />
                     <span className="truncate text-xs font-mono text-muted-foreground group-hover:text-foreground/80 transition-colors">
@@ -516,7 +516,7 @@ export function WorkspacePicker({
                 type="button"
                 key={entry.path}
                 onClick={() => browseTo(root, entry.path)}
-                className="group flex items-center gap-3 w-full min-h-[44px] px-4 py-2 text-left transition-colors hover:bg-muted/50 active:bg-muted/70 focus-visible:outline-none focus-visible:bg-muted/50"
+                className="group flex items-center gap-3 w-full min-h-11 px-4 py-2 text-left transition-colors hover:bg-muted/50 active:bg-muted/70 focus-visible:outline-none focus-visible:bg-muted/50"
               >
                 <Folder className="h-3.5 w-3.5 shrink-0 text-accent/40 group-hover:text-accent/70 transition-colors" />
                 <span className="truncate text-sm font-mono text-foreground/70 group-hover:text-foreground transition-colors">

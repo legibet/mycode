@@ -93,7 +93,7 @@ export const MessageList = memo(function MessageList({
           <div className="text-center">
             <h1 className="font-display text-2xl tracking-tighter text-foreground/70">
               mycode
-              <span className="inline-block w-[2px] h-5 bg-accent/60 ml-0.5 align-middle animate-cursor-blink" />
+              <span className="inline-block w-0.5 h-5 bg-accent/60 ml-0.5 align-middle animate-cursor-blink" />
             </h1>
           </div>
         )}

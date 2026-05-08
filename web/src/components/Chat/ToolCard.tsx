@@ -74,7 +74,7 @@ function getEditStats(
 
 function EditDiffFallback({ edits }: { edits: EditEntry[] }) {
   return (
-    <div className="rounded-md bg-code px-3 py-2 font-mono text-[13px] leading-[1.5] overflow-x-auto scrollbar-subtle whitespace-pre-wrap">
+    <div className="rounded-md bg-code px-3 py-2 font-mono text-[13px] leading-normal overflow-x-auto scrollbar-subtle whitespace-pre-wrap">
       {edits.map((entry, i) => (
         <div key={i}>
           {i > 0 && (
@@ -125,7 +125,7 @@ function ResultBlock({ text, isError }: { text: string; isError: boolean }) {
       className={cn(
         RESULT_BASE,
         isError
-          ? 'bg-red-500/[0.05] text-red-400/70'
+          ? 'bg-red-500/5 text-red-400/70'
           : 'bg-code text-muted-foreground',
       )}
     >
@@ -226,7 +226,7 @@ function BashBody({
   return (
     <div className="space-y-2">
       {command && (
-        <div className="rounded-md bg-code px-3 py-2 font-mono text-[13px] leading-[1.5] overflow-x-auto scrollbar-subtle">
+        <div className="rounded-md bg-code px-3 py-2 font-mono text-[13px] leading-normal overflow-x-auto scrollbar-subtle">
           <span className="text-muted-foreground/40 select-none">$ </span>
           <span className="text-foreground/75 whitespace-pre-wrap break-all">
             {command}
@@ -256,7 +256,7 @@ function WriteBody({
   return (
     <div className="space-y-2">
       {content && !isError && (
-        <div className="rounded-md bg-code px-3 py-2 font-mono text-[13px] leading-[1.5] overflow-x-auto overflow-y-auto scrollbar-subtle whitespace-pre-wrap max-h-[240px] text-foreground/75">
+        <div className="rounded-md bg-code px-3 py-2 font-mono text-[13px] leading-normal overflow-x-auto overflow-y-auto scrollbar-subtle whitespace-pre-wrap max-h-60 text-foreground/75">
           {content}
         </div>
       )}
