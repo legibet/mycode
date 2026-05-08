@@ -1,6 +1,6 @@
-# mycode — Project Context
+# mycode — Agent Context
 
-Authoritative context for agent runs on this project. Keep in sync with the code. See `docs/` for detailed specs.
+Always-loaded context for agent runs on this project. Detailed specs live in `docs/`; this file points at them rather than duplicating their content.
 
 ## Product
 
@@ -11,183 +11,108 @@ Authoritative context for agent runs on this project. Keep in sync with the code
 
 Priorities: small readable core · one message model · one agent loop · append-only sessions · provider adapters at the boundary.
 
-## Core Rules
+## Guardrails
 
-- 4 built-in tools only: `read`, `write`, `edit`, `bash` — do not add more to the SDK
-- Provider-specific behavior stays inside adapters, never in the agent loop
-- Prefer simple Python; add helpers only for real reuse or non-obvious logic
-- Keep the runtime deterministic and easy to inspect
+- 4 built-in tools only: `read`, `write`, `edit`, `bash`.
+- Provider-specific behavior stays inside adapters, never in the agent loop.
+- Sessions stay append-only and human-inspectable.
 
-## Source Map
+When in doubt, prefer the simpler and more explicit design.
 
-SDK package — `mycode/src/mycode/`:
+## Project Layout
 
-- `__init__.py` — public API re-exports (`Agent`, `tool`, built-in tool constants, message helpers, …)
-- `agent.py` — agent loop (`Agent`)
-- `messages.py` — internal message/block format
-- `tools.py` — `ToolSpec`, `ToolExecutor`, `ToolContext`, the four built-in tools, `@tool` decorator
-- `hooks.py` — `Hooks`, `ToolHookContext` for `before_tool` / `after_tool` callbacks
-- `session.py` — append-only JSONL session storage, compact/rewind events
-- `models.py` — bundled model metadata lookup
-- `models_catalog.json` — generated model metadata catalog; source is `scripts/update_models_catalog.py`
-- `utils.py` — small typed helpers (`as_int`, `as_bool`, `omit_none`, `parse_tool_arguments`)
-- `providers/base.py` — `ProviderAdapter` abstract interface
-- `providers/__init__.py` — adapter registry and provider lookup helpers
-- `providers/anthropic_like.py` — adapters: `anthropic`, `moonshotai`, `minimax`
-- `providers/gemini.py` — adapter: `google`
-- `providers/openai_responses.py` — adapter: `openai`
-- `providers/openai_chat.py` — adapters: `openai_chat`, `deepseek`, `zai`, `openrouter`
+```text
+mycode/src/mycode/        # SDK package
+  agent.py                # agent loop (Agent, achat, run)
+  messages.py             # internal block-based message format
+  tools.py                # ToolSpec, ToolExecutor, @tool, the 4 built-in tools
+  hooks.py                # before_tool / after_tool hook protocol
+  session.py              # append-only JSONL store, compact, rewind
+  models.py               # bundled model metadata lookup
+  models_catalog.json     # generated; source: scripts/update_models_catalog.py
+  utils.py                # small typed helpers
+  providers/              # one file per protocol family
+    base.py               # ProviderAdapter ABC + prepare_messages()
+    anthropic_like.py     # anthropic, moonshotai, minimax
+    gemini.py             # google
+    openai_responses.py   # openai
+    openai_chat.py        # openai_chat, deepseek, zai, openrouter
 
-CLI package — `cli/src/mycode_cli/`:
+cli/src/mycode_cli/       # CLI + FastAPI web server
+  main.py                 # Typer entrypoint, slash commands, session resolution
+  runtime.py              # build_agent() shared by TUI and server
+  config.py               # layered JSON config, provider resolution, paths
+  permissions.py          # tool permission policy + before_tool hook
+  system_prompt.py        # base prompt + AGENTS.md + skills discovery
+  tui/                    # interactive terminal chat (chat.py, render.py, theme.py)
+  server/                 # FastAPI app, routers, run_manager, schemas
 
-- `main.py` — Typer entrypoint (commands: default, run, web, session) and CLI session resolution (`resolve_session`)
-- `runtime.py` — `build_agent()` (shared by TUI startup and the web server)
-- `config.py` — layered JSON config loading, provider resolution, and CLI-owned path helpers (`resolve_mycode_home` / `resolve_sessions_dir`)
-- `permissions.py` — tool permission policy: classify tier, build `before_tool` hooks, optional interactive review
-- `system_prompt.py` — runtime system prompt assembly: inlined base prompt + AGENTS.md + skills discovery
-- `tui/chat.py` — TerminalChat interactive loop, plus TUI-only runtime helpers (`clone_agent`, provider/model picker, `apply_resolved_provider`)
-- `tui/render.py` — TerminalView rich rendering
-- `tui/theme.py` — terminal theme detection and color tokens
-- `server/app.py` — FastAPI factory, static mount
-- `server/routers/chat.py` — POST /api/chat, GET /api/runs/{id}/stream, POST /api/runs/{id}/cancel, POST /api/runs/{id}/decide, GET /api/config
-- `server/routers/sessions.py` — session CRUD
-- `server/routers/settings.py` — global config GET/PUT, plus the validators that own the JSON write schema
-- `server/routers/workspaces.py` — directory browser
-- `server/run_manager.py` — concurrent run management
-- `server/schemas.py` — Pydantic request/response models
+web/src/                  # React + Vite UI
+  hooks/useChat.ts        # chat state + SSE streaming
+  utils/messages.ts       # buildRenderMessages(): canonical blocks → UI messages
 
-Web UI — `web/src/`:
-
-- `hooks/useChat.ts` — chat state, SSE streaming, tool runtime
-- `utils/messages.ts` — `buildRenderMessages()` — canonical blocks → UI messages
-
-Scripts — `scripts/`:
-
-- `update_models_catalog.py` — regenerates `mycode/src/mycode/models_catalog.json`
+scripts/
+  update_models_catalog.py  # regenerates mycode/src/mycode/models_catalog.json
+  release.sh                # bumps versions + builds wheels for both packages
+```
 
 ## Internal Message Model
 
-Block-based JSON — single format used at runtime and persisted to sessions:
+A single block-based JSON format is used at runtime and persisted to JSONL. Block types: `text` · `image` · `thinking` · `tool_use` · `tool_result`. Persisted message roles: `user` · `assistant` · `compact` · `rewind`; the last two are inline timeline markers (`compact` carries the summary text and stays visible to UIs; `rewind` carries an index into the visible list and is consumed at load time).
 
-```json
-{
-  "role": "assistant",
-  "content": [
-    {"type": "thinking", "text": "...", "meta": {}},
-    {"type": "text", "text": "..."},
-    {"type": "tool_use", "id": "call_1", "name": "read", "input": {"path": "x.py"}}
-  ],
-  "meta": {
-    "provider": "anthropic",
-    "model": "claude-sonnet-4-6",
-    "stop_reason": "tool_use",
-    "total_tokens": 1456,
-    "context_window": 200000,
-    "native": {}
-  }
-}
-```
+`thinking` blocks are first-class session data — persisted, replayed to providers, and shown in UI. Provider-specific extras live in `meta.native` on messages and `block.meta.native` on blocks. Tool results are stored as `user` messages whose `tool_result` blocks carry the replayed `output` plus structured UI `metadata`. Compact substitution (replacing pre-compact history with a summary continuation) happens lazily inside `Agent._project_for_provider` per request; visible state and JSONL keep the real history.
 
-Block types: `text` · `image` · `thinking` · `tool_use` · `tool_result`
-
-Message roles persisted to JSONL: `user` · `assistant` · `compact` · `rewind`. `compact` and `rewind` records act as inline timeline markers — `compact` carries the summary text and stays visible to UIs; `rewind` carries an index into the visible list and is consumed at load time by `apply_rewind`.
-
-- `thinking` blocks are first-class session data — persisted and shown in UI
-- Provider-specific extras: `meta.native` on messages, `block.meta.native` on blocks
-- Tool results stored as a `user` message with `tool_result` blocks:
-
-  ```json
-  {"type": "tool_result", "tool_use_id": "call_1", "output": "ok", "metadata": {"patch": "...", "added_lines": 1, "removed_lines": 1}, "is_error": false}
-  ```
-
-  `output` is replayed to providers on later turns; `metadata` is structured UI data (e.g. `edit` carries a unified patch and line stats).
-  `tool_result.content` may store structured `text` and `image` blocks (replayed to providers alongside `output`).
-- System prompt is runtime-only, not persisted
-- Compact substitution (replacing pre-compact history with a summary continuation) happens lazily inside `Agent._project_for_provider` per request; visible state and JSONL keep the real history.
+Full schema, JSONL record types, replay rules, and the rewind/compact projection live in `docs/sessions.md`. The SDK-level event surface and `Agent` API live in `docs/sdk.md`.
 
 ## Agent Loop
 
-`mycode/src/mycode/agent.py` — per user turn:
+Per user turn (`mycode/src/mycode/agent.py`):
 
-1. Append user message to session
-2. Call provider adapter → stream events to CLI/server
-3. Persist assistant message to JSONL
-4. Execute tool calls locally
-5. Append `user` tool-result message
-6. Repeat until no tool calls; `max_turns` defaults to unlimited
-7. Optionally compact context when usage ≥ `compact_threshold` (default 0.8)
+1. Append user message to session.
+2. Call provider adapter → stream events to CLI/server.
+3. Persist assistant message to JSONL.
+4. Execute tool calls locally.
+5. Append `user` tool-result message.
+6. Repeat until no tool calls; `max_turns` defaults to unlimited.
+7. After each assistant/tool-result boundary, optionally compact when `total_tokens ≥ context_window × compact_threshold` (default `0.8`).
 
 ## Provider Adapters
 
-See `docs/providers.md` for per-adapter details, env vars, and quirks.
+Adapter ids: `anthropic`, `moonshotai`, `minimax`, `google`, `openai`, `openai_chat`, `deepseek`, `zai`, `openrouter`. All implement `ProviderAdapter.stream_turn()`; canonical → wire-format projection lives in `prepare_messages()`.
 
-| id            | protocol                      | file                  |
-| ------------- | ----------------------------- | --------------------- |
-| `anthropic`   | Anthropic Messages API        | `anthropic_like.py`   |
-| `moonshotai`  | Anthropic-compatible endpoint | `anthropic_like.py`   |
-| `minimax`     | Anthropic-compatible endpoint | `anthropic_like.py`   |
-| `google`      | Google genai SDK              | `gemini.py`           |
-| `openai`      | OpenAI Responses API          | `openai_responses.py` |
-| `openai_chat` | OpenAI Chat Completions       | `openai_chat.py`      |
-| `deepseek`    | OpenAI-compatible chat        | `openai_chat.py`      |
-| `zai`         | OpenAI-compatible chat        | `openai_chat.py`      |
-| `openrouter`  | OpenAI-compatible chat        | `openai_chat.py`      |
-
-All adapters implement `ProviderAdapter.stream_turn()`. Message projection to provider wire format lives in `prepare_messages()`.
+Per-adapter SDK, base URL, env vars, reasoning effort mapping, image/PDF serialization, and replay quirks live in `docs/providers.md`. Most adapter regressions come from missing replay shapes (native thought signatures, empty `reasoning_content` markers, function-call id matching).
 
 ## SSE Contract
 
-**Do not change event names or payload shapes without updating server, CLI, and web UI.**
+`GET /api/runs/{run_id}/stream` event types: `reasoning`, `reasoning_done`, `text`, `tool_start`, `tool_output`, `tool_done`, `compact`, `error`, `permission_request`, `permission_resolved`, `usage`. Every event also carries a monotonically increasing `seq: int`.
 
-| event                 | payload                                                      |
-| --------------------- | ------------------------------------------------------------ |
-| `reasoning`           | `delta`                                                      |
-| `reasoning_done`      | `duration_ms`                                                |
-| `text`                | `delta`                                                      |
-| `tool_start`          | `tool_call: {id, name, input}`                               |
-| `tool_output`         | `tool_use_id`, `output`                                      |
-| `tool_done`           | `tool_use_id`, `output`, `is_error`, `metadata?`, `content?` |
-| `compact`             | _empty_                                                      |
-| `error`               | `message`                                                    |
-| `permission_request`  | `request_id`, `tool_use_id`, `tool_name`, `preview`          |
-| `permission_resolved` | `request_id`, `decision` (`"allow"` or `"deny"`)             |
-| `usage`               | `total_tokens`, `model?`, `provider?`, `context_window?`     |
+Event names and payload shapes are a cross-component contract — changes need to land in server, CLI, and web UI together. Full payload fields, reconnect semantics (`after=<seq>`), and the permission request/resolve flow live in `docs/api.md`. SDK-level event variants (used by SDK embedders) live in `docs/sdk.md`.
 
-## Detailed Docs
+## Detailed Specs
 
-Always read relevant docs before making changes:
+Read the relevant doc before related changes.
 
-- `docs/api.md` — Server API endpoints, request/response schemas, SSE contract details
-- `docs/config.md` — Config files, schema, API key resolution, reasoning effort, skills/instructions discovery
-- `docs/providers.md` — Per-adapter details: SDK, base URL, env vars, reasoning effort mapping, quirks
-- `docs/sdk.md` — Public SDK surface, `Agent`, `@tool`, `SessionStore`
-- `docs/sessions.md` — Storage layout, JSONL record types, compact/rewind, format version
-- `docs/web.md` — Component structure, message state model, build process
+| Area                                                                            | Doc                                           |
+| ------------------------------------------------------------------------------- | --------------------------------------------- |
+| `mycode/src/mycode/agent.py`, `messages.py`, `tools.py`, `hooks.py`, public SDK | `docs/sdk.md`                                 |
+| `mycode/src/mycode/session.py` or anything touching JSONL / compact / rewind    | `docs/sessions.md`                            |
+| `mycode/src/mycode/providers/*`                                                 | `docs/providers.md`                           |
+| `cli/src/mycode_cli/server/**` or any SSE event / route                         | `docs/api.md`                                 |
+| `cli/src/mycode_cli/config.py`, `system_prompt.py`, `permissions.py`            | `docs/config.md`                              |
+| `web/src/**`                                                                    | `docs/web.md`                                 |
+| Cross-cutting changes (e.g. a new SSE event)                                    | `docs/api.md` + `docs/sdk.md` + `docs/web.md` |
+
+For third-party SDKs and APIs touched by adapter or runtime code, prefer `context7` lookups over assumptions.
 
 ## Interfaces
 
-**CLI** — `cli/src/mycode_cli/main.py`:
+CLI commands: `mycode` (interactive), `mycode run "..."` (non-interactive), `mycode web [--dev]`, `mycode session list`. Inside the TUI: `@path` attaches files (text → `<file>` snapshots, images/PDFs → structured blocks); slash commands `/clear` `/new` `/resume` `/rewind` `/provider` `/model` `/effort` `/q`.
 
-- `mycode` — interactive session (default)
-- `mycode run "..."` — non-interactive single run
-- `mycode web [--dev]` — web server; `--dev` serves API only (for Vite dev)
-- `mycode session list` — list sessions
-- Interactive CLI: `@path` attaches files; images become `image` blocks, text files become extra `text` blocks
-- Slash commands: `/clear` `/new` `/resume` `/rewind` `/provider` `/model` `/effort` `/q`
-
-**Server** — `cli/src/mycode_cli/server/routers/`:
-
-- `POST /api/chat` — start a run from `message` or `input`; returns `{run, session}` JSON immediately
-- `GET /api/runs/{run_id}/stream` — SSE stream for a run
-- `POST /api/runs/{run_id}/cancel` — cancel a run
-- `POST /api/runs/{run_id}/decide` — resolve a pending tool permission request
-- `GET /api/config` — provider, reasoning, and image-input metadata for the web UI
-- Session CRUD at `/api/sessions`
-- Workspace browser at `/api/workspaces`
+Server routes are mounted under `/api`: chat (`/api/chat`, `/api/runs/...`), sessions, settings, workspaces, config. Endpoint schemas, error codes, and the run manager's lifecycle live in `docs/api.md`.
 
 ## Commit Conventions
 
-Commit message format: `type(scope): description`
+Format: `type(scope): description`.
 
 Scopes:
 
@@ -197,7 +122,7 @@ Scopes:
 
 Examples:
 
-```
+```text
 feat(web): add tool duration display
 fix(sdk): handle empty tool result in compact
 feat(sdk): add tool decorator
@@ -229,30 +154,16 @@ uv build --package mycode-cli                          # build CLI package
 Useful shortcuts:
 
 ```bash
-just dev                                               # start backend API and Vite dev server together
-just check                                             # run ruff check, basedpyright, web typecheck, and biome check
-just test                                              # run Python tests and web tests
-just fmt                                               # run ruff fix/format and biome check --write
+just dev                                               # backend API + Vite dev together
+just check                                             # ruff check, basedpyright, web typecheck, biome check
+just test                                              # Python + web tests
+just fmt                                               # ruff fix/format + biome check --write
 ```
 
-## Versioning
+Releases are cut by `scripts/release.sh`, which bumps the `mycode-sdk` and `mycode-cli` versions in their `pyproject.toml`, refreshes the CLI's pin on `mycode-sdk`, builds both wheels, and tags the repo.
 
-Package metadata is the single source of truth for release versions:
+The bundled model metadata catalog (`mycode/src/mycode/models_catalog.json`) is regenerated by:
 
-- `mycode/pyproject.toml` owns the `mycode-sdk` version.
-- `cli/pyproject.toml` owns the `mycode-cli` version and pins `mycode-sdk` to the same version.
-- `mycode.__version__` reads the installed `mycode-sdk` package metadata.
-- `mycode_cli.__version__` and `mycode --version` read the installed `mycode-cli` package metadata.
-- `scripts/release.sh` updates both package versions, refreshes the CLI dependency pin, builds both wheels, and validates that package metadata and runtime `__version__` values all match before tagging.
-
-## Guardrails
-
-Preserve unless explicitly asked to change:
-
-- 4 built-in tools stay unchanged
-- Append-only sessions stay human-inspectable
-- CLI and server remain thin wrappers over the `mycode` SDK
-- Provider-specific quirks stay in adapters
-- No new abstraction layers unless they remove real complexity
-
-When in doubt, prefer the simpler and more explicit design.
+```bash
+uv run python scripts/update_models_catalog.py
+```
