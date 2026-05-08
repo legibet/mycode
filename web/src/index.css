@@ -241,7 +241,7 @@
   @apply text-base mt-5 mb-2;
 }
 .prose p {
-  @apply leading-relaxed [&:not(:first-child)]:mt-3;
+  @apply leading-relaxed not-first:mt-3;
   overflow-wrap: anywhere;
 }
 .prose blockquote {
