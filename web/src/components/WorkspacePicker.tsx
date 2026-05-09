@@ -39,7 +39,7 @@ const matchRoot = (
   fallback = true,
 ): string | undefined => {
   const normalized = normalizeSlashes(value)
-  const sorted = [...roots].sort((a, b) => b.length - a.length)
+  const sorted = roots.toSorted((a, b) => b.length - a.length)
   return (
     sorted.find((root) => {
       const normRoot = normalizeSlashes(root).replace(/\/+$/, '')
