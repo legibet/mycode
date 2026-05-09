@@ -302,6 +302,11 @@ export function useChat(config: LocalConfig) {
     | null
   >(null)
 
+  const setActiveSessionSnapshot = useCallback((session: SessionSummary) => {
+    activeSessionRef.current = session
+    setActiveSession(session)
+  }, [])
+
   const cancelRun = useCallback(async (runId: string) => {
     if (!runId) return
 
@@ -339,8 +344,7 @@ export function useChat(config: LocalConfig) {
         (session) => session.id === active.id,
       )
       if (syncedActive && syncedActive !== active) {
-        activeSessionRef.current = syncedActive
-        setActiveSession(syncedActive)
+        setActiveSessionSnapshot(syncedActive)
       }
 
       return sessionsWithDraft
@@ -348,7 +352,7 @@ export function useChat(config: LocalConfig) {
       console.error('Failed to load sessions:', e)
       return []
     }
-  }, [config.cwd])
+  }, [config.cwd, setActiveSessionSnapshot])
 
   const stopStreaming = useCallback(() => {
     streamTokenRef.current += 1
@@ -524,8 +528,7 @@ export function useChat(config: LocalConfig) {
       }
       if (!data.session) return null
 
-      activeSessionRef.current = data.session
-      setActiveSession(data.session)
+      setActiveSessionSnapshot(data.session)
       saveActiveSession(requestCwd, data.session.id)
       setPendingPermissions([])
       const run = data.active_run || null
@@ -574,7 +577,7 @@ export function useChat(config: LocalConfig) {
 
       return data
     },
-    [config.cwd, streamRun],
+    [config.cwd, setActiveSessionSnapshot, streamRun],
   )
 
   useEffect(() => {
@@ -678,8 +681,7 @@ export function useChat(config: LocalConfig) {
         // Update active session from backend response (has real title, id, etc.)
         if (chatData.session) {
           const session = chatData.session
-          activeSessionRef.current = session
-          setActiveSession(session)
+          setActiveSessionSnapshot(session)
           saveActiveSession(requestCwd, session.id)
         }
 
@@ -701,7 +703,14 @@ export function useChat(config: LocalConfig) {
         }
       }
     },
-    [activeSession.id, config, fetchSessions, loading, streamRun],
+    [
+      activeSession.id,
+      config,
+      fetchSessions,
+      loading,
+      setActiveSessionSnapshot,
+      streamRun,
+    ],
   )
 
   const rewindAndSend = useCallback(
@@ -781,8 +790,7 @@ export function useChat(config: LocalConfig) {
 
         if (chatData.session) {
           const session = chatData.session
-          activeSessionRef.current = session
-          setActiveSession(session)
+          setActiveSessionSnapshot(session)
           saveActiveSession(requestCwd, session.id)
         }
 
@@ -803,7 +811,14 @@ export function useChat(config: LocalConfig) {
         }
       }
     },
-    [activeSession.id, config, fetchSessions, loading, streamRun],
+    [
+      activeSession.id,
+      config,
+      fetchSessions,
+      loading,
+      setActiveSessionSnapshot,
+      streamRun,
+    ],
   )
 
   const cancel = useCallback(() => {
@@ -852,12 +867,11 @@ export function useChat(config: LocalConfig) {
     sessionRequestTokenRef.current += 1
     const session = createDraftSession()
 
-    activeSessionRef.current = session
-    setActiveSession(session)
+    setActiveSessionSnapshot(session)
     dispatch({ type: 'set_messages', messages: [], sessionId: session.id })
     // Refresh from server to get accurate is_running, then prepend the new draft
     fetchSessions()
-  }, [fetchSessions, sessionLoading, stopStreaming])
+  }, [fetchSessions, sessionLoading, setActiveSessionSnapshot, stopStreaming])
 
   const selectSession = useCallback(
     async (sessionId: string) => {
@@ -872,8 +886,7 @@ export function useChat(config: LocalConfig) {
       const previousSession = activeSessionRef.current
       const summary = sessions.find((session) => session.id === sessionId)
       if (summary) {
-        activeSessionRef.current = summary
-        setActiveSession(summary)
+        setActiveSessionSnapshot(summary)
       }
       setPendingPermissions([])
 
@@ -894,8 +907,7 @@ export function useChat(config: LocalConfig) {
       } catch (e) {
         console.error('Failed to load session:', e)
         if (isStillCurrent()) {
-          activeSessionRef.current = previousSession
-          setActiveSession(previousSession)
+          setActiveSessionSnapshot(previousSession)
         }
       } finally {
         if (isStillCurrent()) {
@@ -908,6 +920,7 @@ export function useChat(config: LocalConfig) {
       config.cwd,
       fetchSessions,
       loadSession,
+      setActiveSessionSnapshot,
       sessions,
       stopStreaming,
     ],
@@ -955,8 +968,7 @@ export function useChat(config: LocalConfig) {
 
         if (fallbackSession && !fallbackSession.isDraft) {
           setSessions(remainingSessions)
-          activeSessionRef.current = fallbackSession
-          setActiveSession(fallbackSession)
+          setActiveSessionSnapshot(fallbackSession)
           dispatch({
             type: 'set_messages',
             messages: [],
@@ -970,8 +982,7 @@ export function useChat(config: LocalConfig) {
         }
 
         const draft = createDraftSession()
-        activeSessionRef.current = draft
-        setActiveSession(draft)
+        setActiveSessionSnapshot(draft)
         setSessions([draft])
         dispatch({ type: 'set_messages', messages: [], sessionId: draft.id })
         setLoading(false)
@@ -981,12 +992,15 @@ export function useChat(config: LocalConfig) {
         setSessionLoading(false)
       }
     },
-    [activeSession.id, config.cwd, loadSession, sessions, stopStreaming],
+    [
+      activeSession.id,
+      config.cwd,
+      loadSession,
+      sessions,
+      setActiveSessionSnapshot,
+      stopStreaming,
+    ],
   )
-
-  useEffect(() => {
-    activeSessionRef.current = activeSession
-  }, [activeSession])
 
   // Single source of init: first mount and any cwd change reset state and
   // reload the workspace's sessions. `loadSession` is read through
@@ -1000,8 +1014,7 @@ export function useChat(config: LocalConfig) {
       initRef.current = false
       setSessions([])
       const draft = createDraftSession()
-      activeSessionRef.current = draft
-      setActiveSession(draft)
+      setActiveSessionSnapshot(draft)
       dispatch({ type: 'set_messages', messages: [], sessionId: draft.id })
     }
     if (initRef.current) return
@@ -1042,8 +1055,7 @@ export function useChat(config: LocalConfig) {
             (session) => session.id === initialSessionId,
           )
           if (summary) {
-            activeSessionRef.current = summary
-            setActiveSession(summary)
+            setActiveSessionSnapshot(summary)
           }
           await loadSessionRef.current?.(initialSessionId, {
             requestCwd,
@@ -1051,8 +1063,7 @@ export function useChat(config: LocalConfig) {
           })
         } else {
           const draft = createDraftSession()
-          activeSessionRef.current = draft
-          setActiveSession(draft)
+          setActiveSessionSnapshot(draft)
           setSessions([draft])
           dispatch({ type: 'set_messages', messages: [], sessionId: draft.id })
           setLoading(false)
@@ -1063,7 +1074,7 @@ export function useChat(config: LocalConfig) {
         if (isStillCurrent()) setSessionLoading(false)
       }
     })()
-  }, [config.cwd, stopStreaming])
+  }, [config.cwd, setActiveSessionSnapshot, stopStreaming])
 
   useEffect(() => {
     return () => {
