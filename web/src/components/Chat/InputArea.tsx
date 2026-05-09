@@ -276,7 +276,7 @@ export const InputArea = memo(function InputArea({
     .join(",");
 
   return (
-    <div className="mx-auto max-w-4xl max-md:max-w-none px-5 max-md:p-3 max-md:py-2">
+    <div className="mx-auto max-w-4xl max-md:max-w-none px-5 max-md:px-3 max-md:pb-2">
       {/* biome-ignore lint/a11y/noStaticElementInteractions: drag-and-drop drop target */}
       <div
         role="presentation"

@@ -357,7 +357,7 @@ function AppContent() {
         )}
 
         {/* Main content */}
-        <main className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background">
+        <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background">
           {/* Mobile header */}
           <MobileHeader
             title={activeSession?.title}
@@ -381,10 +381,7 @@ function AppContent() {
                 onRewindAndSend={workspaceMissing ? undefined : rewindAndSend}
               />
 
-              {/* Gradient fade above input */}
-              <div className="pointer-events-none absolute bottom-0 left-0 right-0 h-24 bg-linear-to-t from-background via-background/80 to-transparent" />
-
-              <div className="shrink-0 relative z-10 pb-4 max-md:pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-1">
+              <div className="shrink-0 pb-4 max-md:pb-[max(0.5rem,env(safe-area-inset-bottom))]">
                 {pendingPermission && (
                   <PermissionPrompt
                     request={pendingPermission}
