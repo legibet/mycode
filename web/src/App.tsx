@@ -77,17 +77,27 @@ function pruneAttachments(
   supportsImage: boolean,
   supportsPdf: boolean,
 ): AttachedFile[] {
-  const next = prev.filter(
-    (a) =>
-      a.kind === 'text' ||
-      (a.kind === 'image' && supportsImage) ||
-      (a.kind === 'document' && supportsPdf),
-  )
-  if (next.length === prev.length) return prev
-  for (const a of prev) {
-    if (a.kind === 'image' && !next.includes(a)) URL.revokeObjectURL(a.preview)
+  const next: AttachedFile[] = []
+  let changed = false
+
+  for (const attachment of prev) {
+    const keep =
+      attachment.kind === 'text' ||
+      (attachment.kind === 'image' && supportsImage) ||
+      (attachment.kind === 'document' && supportsPdf)
+
+    if (keep) {
+      next.push(attachment)
+      continue
+    }
+
+    changed = true
+    if (attachment.kind === 'image') {
+      URL.revokeObjectURL(attachment.preview)
+    }
   }
-  return next
+
+  return changed ? next : prev
 }
 
 function AppContent() {

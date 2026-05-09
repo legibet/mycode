@@ -533,11 +533,11 @@ export function useChat(config: LocalConfig) {
       const pendingEvents = Array.isArray(data.pending_events)
         ? data.pending_events
         : []
-      const replayedPermissions: PermissionRequest[] = []
+      const replayedPermissions = new Map<string, PermissionRequest>()
       const replayEvents: StreamEvent[] = []
       for (const event of pendingEvents) {
         if (event?.type === 'permission_request') {
-          replayedPermissions.push({
+          replayedPermissions.set(event.request_id, {
             request_id: event.request_id,
             tool_use_id: event.tool_use_id,
             tool_name: event.tool_name,
@@ -546,11 +546,7 @@ export function useChat(config: LocalConfig) {
           continue
         }
         if (event?.type === 'permission_resolved') {
-          const requestId = event.request_id
-          const index = replayedPermissions.findIndex(
-            (p) => p.request_id === requestId,
-          )
-          if (index >= 0) replayedPermissions.splice(index, 1)
+          replayedPermissions.delete(event.request_id)
           continue
         }
         replayEvents.push(event)
@@ -563,8 +559,8 @@ export function useChat(config: LocalConfig) {
       for (const event of replayEvents) {
         dispatch({ type: 'apply_event', event })
       }
-      if (replayedPermissions.length) {
-        setPendingPermissions(replayedPermissions)
+      if (replayedPermissions.size) {
+        setPendingPermissions(Array.from(replayedPermissions.values()))
       }
 
       activeRunRef.current = run
