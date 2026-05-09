@@ -7,7 +7,7 @@ import {
   SquarePen,
   Terminal,
 } from "lucide-react";
-import { type KeyboardEvent, memo, useEffect, useRef } from "react";
+import { type KeyboardEvent, memo, useCallback } from "react";
 import type { PermissionRequest } from "../../types";
 
 const TOOL_ICON: Record<string, LucideIcon> = {
@@ -26,14 +26,9 @@ export const PermissionPrompt = memo(function PermissionPrompt({
   request,
   onDecide,
 }: PermissionPromptProps) {
-  const dialogRef = useRef<HTMLDivElement | null>(null);
-
-  // Focus the dialog itself so Enter / Escape land on the keydown handler
-  // without painting a button focus ring.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: re-focus on each new request, not every render
-  useEffect(() => {
-    dialogRef.current?.focus();
-  }, [request.request_id]);
+  const setDialogElement = useCallback((el: HTMLDivElement | null) => {
+    el?.focus();
+  }, []);
 
   const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.key === "Enter") {
@@ -51,7 +46,8 @@ export const PermissionPrompt = memo(function PermissionPrompt({
   return (
     <div className="mx-auto max-w-4xl max-md:max-w-none px-5 max-md:px-3 pt-3 max-md:pt-2 pb-1">
       <div
-        ref={dialogRef}
+        key={request.request_id}
+        ref={setDialogElement}
         role="dialog"
         aria-label="Tool permission request"
         tabIndex={-1}

@@ -10,6 +10,7 @@ import {
   useEffect,
   useMemo,
   useState,
+  useSyncExternalStore,
 } from "react";
 import type { Theme, ThemeContextValue } from "../types";
 
@@ -22,6 +23,16 @@ interface ThemeProviderProps {
 const ThemeProviderContext = createContext<ThemeContextValue | null>(null);
 
 const DARK_QUERY = "(prefers-color-scheme: dark)";
+
+function subscribeToColorScheme(onChange: () => void) {
+  const mq = window.matchMedia(DARK_QUERY);
+  mq.addEventListener("change", onChange);
+  return () => mq.removeEventListener("change", onChange);
+}
+
+function getColorSchemeSnapshot() {
+  return window.matchMedia(DARK_QUERY).matches;
+}
 
 export function ThemeProvider({
   children,
@@ -36,16 +47,11 @@ export function ThemeProvider({
       ? savedTheme
       : defaultTheme;
   });
-  const [systemDark, setSystemDark] = useState(
-    () => window.matchMedia(DARK_QUERY).matches,
+  const systemDark = useSyncExternalStore(
+    subscribeToColorScheme,
+    getColorSchemeSnapshot,
+    () => false,
   );
-
-  useEffect(() => {
-    const mq = window.matchMedia(DARK_QUERY);
-    const onChange = () => setSystemDark(mq.matches);
-    mq.addEventListener("change", onChange);
-    return () => mq.removeEventListener("change", onChange);
-  }, []);
 
   const resolvedTheme: ThemeContextValue["resolvedTheme"] =
     theme === "system" ? (systemDark ? "dark" : "light") : theme;

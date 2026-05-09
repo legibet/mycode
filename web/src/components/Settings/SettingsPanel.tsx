@@ -8,13 +8,7 @@
  */
 
 import { Laptop, Loader2, Moon, Plus, Sun, X } from "lucide-react";
-import {
-  type ReactNode,
-  useCallback,
-  useEffect,
-  useMemo,
-  useState,
-} from "react";
+import { type ReactNode, useCallback, useMemo, useState } from "react";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
@@ -220,15 +214,11 @@ export function SettingsPanel({
 }: SettingsPanelProps) {
   const isDesktop = useMediaQuery("(min-width: 768px)");
   const { theme, setTheme } = useTheme();
-  const [draft, setDraft] = useState<DraftState>(INITIAL_DRAFT);
+  const [draft, setDraft] = useState<DraftState>(() =>
+    settings ? buildDraft(settings) : INITIAL_DRAFT,
+  );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!open || !settings) return;
-    setDraft(buildDraft(settings));
-    setError(null);
-  }, [open, settings]);
 
   const providerTypes = settings?.options.provider_types ?? [];
   const effortOptions = settings?.options.reasoning_efforts ?? [];

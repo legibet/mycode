@@ -160,12 +160,6 @@ export function WorkspacePicker({
     );
   }, [open, roots, currentCwd]);
 
-  useEffect(() => {
-    if (!open) return;
-    setFilter("");
-    setUiError("");
-  }, [open]);
-
   // The backend may normalize the requested path (strip trailing slashes,
   // collapse `..`, etc). Realign target so subsequent navigation uses the
   // canonical form.

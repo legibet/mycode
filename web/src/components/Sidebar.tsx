@@ -191,6 +191,7 @@ export const Sidebar = memo(function Sidebar({
   onResizeReset,
 }: SidebarProps) {
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
+  const [workspaceOpenKey, setWorkspaceOpenKey] = useState(0);
   const workspaceOpenedWithKeyboardRef = useRef(false);
   const resolvedCwd =
     config.cwd === "." ? remoteConfig?.cwd || "." : config.cwd;
@@ -251,7 +252,10 @@ export const Sidebar = memo(function Sidebar({
                 workspaceOpenedWithKeyboardRef.current = true;
               }
             }}
-            onClick={() => setWorkspaceOpen(true)}
+            onClick={() => {
+              setWorkspaceOpenKey((key) => key + 1);
+              setWorkspaceOpen(true);
+            }}
             title={resolvedCwd}
             aria-label={`Workspace: ${resolvedCwd}. Click to switch.`}
             className={cn(
@@ -290,6 +294,7 @@ export const Sidebar = memo(function Sidebar({
       </div>
 
       <WorkspacePicker
+        key={workspaceOpenKey}
         open={workspaceOpen}
         openedWithKeyboard={workspaceOpenedWithKeyboardRef.current}
         onClose={() => setWorkspaceOpen(false)}

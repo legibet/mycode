@@ -100,6 +100,15 @@ function pruneAttachments(
   return changed ? next : prev;
 }
 
+function settingsPanelKey(open: boolean, settings: SettingsResponse | null) {
+  return JSON.stringify({
+    open,
+    path: settings?.path ?? "",
+    config: settings?.config ?? null,
+    options: settings?.options ?? null,
+  });
+}
+
 function AppContent() {
   const [config, setConfig] = useState<LocalConfig>(loadConfig);
   const [input, setInput] = useState("");
@@ -405,6 +414,7 @@ function AppContent() {
       </div>
 
       <SettingsPanel
+        key={settingsPanelKey(settingsOpen, settingsResponse)}
         open={settingsOpen}
         onClose={() => setSettingsOpen(false)}
         settings={settingsResponse}

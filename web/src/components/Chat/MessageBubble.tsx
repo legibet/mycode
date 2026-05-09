@@ -244,7 +244,6 @@ export const MessageBubble = memo(function MessageBubble({
   const [copied, setCopied] = useState(false);
   const [editing, setEditing] = useState(false);
   const [editText, setEditText] = useState("");
-  const editRef = useRef<HTMLTextAreaElement | null>(null);
   const resetCopiedTimeoutRef = useRef<number | null>(null);
 
   const { textContent, textAttachmentBlocks, imageBlocks, documentBlocks } =
@@ -315,14 +314,12 @@ export const MessageBubble = memo(function MessageBubble({
     setEditing(true);
   }, [textContent]);
 
-  useEffect(() => {
-    if (editing && editRef.current) {
-      const el = editRef.current;
-      el.focus();
-      el.style.height = "auto";
-      el.style.height = `${el.scrollHeight}px`;
-    }
-  }, [editing]);
+  const setEditElement = useCallback((el: HTMLTextAreaElement | null) => {
+    if (!el) return;
+    el.focus();
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight}px`;
+  }, []);
 
   const submitEdit = useCallback(() => {
     const trimmed = editText.trim();
@@ -353,7 +350,7 @@ export const MessageBubble = memo(function MessageBubble({
         <div className="flex justify-end px-5 max-md:px-4">
           <div className="max-w-[85%] w-full flex flex-col gap-2">
             <textarea
-              ref={editRef}
+              ref={setEditElement}
               name="edit-message"
               aria-label="Edit message"
               value={editText}
