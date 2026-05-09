@@ -134,7 +134,7 @@ export type MessageBlock =
   | ImageBlock
   | DocumentBlock
 
-export interface AttachedImageFile {
+interface AttachedImageFile {
   id: string
   kind: 'image'
   data: string
@@ -143,7 +143,7 @@ export interface AttachedImageFile {
   preview: string // object URL for thumbnail display
 }
 
-export interface AttachedDocumentFile {
+interface AttachedDocumentFile {
   id: string
   kind: 'document'
   data: string
@@ -151,7 +151,7 @@ export interface AttachedDocumentFile {
   name: string
 }
 
-export interface AttachedTextFile {
+interface AttachedTextFile {
   id: string
   kind: 'text'
   text: string
@@ -194,27 +194,27 @@ export function isCompactMarker(
   return 'kind' in message && message.kind === 'compact-marker'
 }
 
-export interface StreamEventBase {
+interface StreamEventBase {
   type: string
   seq?: number
 }
 
-export interface ReasoningEvent extends StreamEventBase {
+interface ReasoningEvent extends StreamEventBase {
   type: 'reasoning'
   delta?: string
 }
 
-export interface ReasoningDoneEvent extends StreamEventBase {
+interface ReasoningDoneEvent extends StreamEventBase {
   type: 'reasoning_done'
   duration_ms?: number
 }
 
-export interface TextEvent extends StreamEventBase {
+interface TextEvent extends StreamEventBase {
   type: 'text'
   delta?: string
 }
 
-export interface ToolStartEvent extends StreamEventBase {
+interface ToolStartEvent extends StreamEventBase {
   type: 'tool_start'
   tool_call?: {
     id?: string
@@ -223,13 +223,13 @@ export interface ToolStartEvent extends StreamEventBase {
   }
 }
 
-export interface ToolOutputEvent extends StreamEventBase {
+interface ToolOutputEvent extends StreamEventBase {
   type: 'tool_output'
   tool_use_id?: string
   output?: string
 }
 
-export interface ToolDoneEvent extends StreamEventBase {
+interface ToolDoneEvent extends StreamEventBase {
   type: 'tool_done'
   tool_use_id?: string
   output?: string
@@ -237,16 +237,16 @@ export interface ToolDoneEvent extends StreamEventBase {
   is_error?: boolean
 }
 
-export interface ErrorEvent extends StreamEventBase {
+interface ErrorEvent extends StreamEventBase {
   type: 'error'
   message?: string
 }
 
-export interface CompactEvent extends StreamEventBase {
+interface CompactEvent extends StreamEventBase {
   type: 'compact'
 }
 
-export interface PermissionRequestEvent extends StreamEventBase {
+interface PermissionRequestEvent extends StreamEventBase {
   type: 'permission_request'
   request_id: string
   tool_use_id: string
@@ -254,13 +254,13 @@ export interface PermissionRequestEvent extends StreamEventBase {
   preview: string
 }
 
-export interface PermissionResolvedEvent extends StreamEventBase {
+interface PermissionResolvedEvent extends StreamEventBase {
   type: 'permission_resolved'
   request_id: string
   decision: 'allow' | 'deny'
 }
 
-export interface UsageEvent extends StreamEventBase {
+interface UsageEvent extends StreamEventBase {
   type: 'usage'
   total_tokens?: number
   context_window?: number
