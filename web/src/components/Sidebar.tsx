@@ -231,7 +231,7 @@ export const Sidebar = memo(function Sidebar({
     >
       {/* Brand */}
       <div className="shrink-0 flex items-center gap-2.5 px-5 pt-5 pb-5">
-        <Terminal className="h-4 w-4 text-foreground" aria-hidden="true" />
+        <Terminal className="size-4 text-foreground" aria-hidden="true" />
         <span className="font-display text-[15px] leading-none tracking-tight text-foreground font-medium">
           mycode
         </span>
@@ -278,12 +278,12 @@ export const Sidebar = memo(function Sidebar({
             aria-label="New chat"
             title="New chat"
             className={cn(
-              'shrink-0 h-6 w-6 mt-0.5 flex items-center justify-center rounded',
+              'shrink-0 size-6 mt-0.5 flex items-center justify-center rounded',
               'text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors',
               'focus-visible:outline-none focus-visible:bg-muted/60',
             )}
           >
-            <Plus className="h-3.5 w-3.5" />
+            <Plus className="size-3.5" />
           </button>
         </div>
       </div>
@@ -341,7 +341,7 @@ export const Sidebar = memo(function Sidebar({
                       </span>
                       {isRunning && (
                         <span
-                          className="shrink-0 h-1.5 w-1.5 rounded-full bg-accent animate-breathing"
+                          className="shrink-0 size-1.5 rounded-full bg-accent animate-breathing"
                           role="img"
                           aria-label="Running"
                         />
@@ -361,12 +361,12 @@ export const Sidebar = memo(function Sidebar({
                         void onDeleteSession(session.id)
                       }}
                       className={cn(
-                        'absolute right-3 top-1/2 -translate-y-1/2 h-5 w-5 flex items-center justify-center rounded',
+                        'absolute right-3 top-1/2 -translate-y-1/2 size-5 flex items-center justify-center rounded',
                         'opacity-0 group-hover:opacity-100 max-md:opacity-100',
                         'text-muted-foreground/60 hover:text-destructive hover:bg-destructive/10 transition-all',
                       )}
                     >
-                      <Trash2 className="h-3 w-3" />
+                      <Trash2 className="size-3" />
                     </button>
                   </div>
                 )
@@ -377,19 +377,19 @@ export const Sidebar = memo(function Sidebar({
       </div>
 
       {/* Footer — single settings entry */}
-      <div className="shrink-0 px-3 py-3 flex items-center">
+      <div className="shrink-0 p-3 flex items-center">
         <button
           type="button"
           onClick={onOpenSettings}
           aria-label="Open settings"
           title="Settings"
           className={cn(
-            'h-7 w-7 flex items-center justify-center rounded-md transition-colors',
+            'size-7 flex items-center justify-center rounded-md transition-colors',
             'text-muted-foreground hover:text-foreground hover:bg-muted/50',
             'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
           )}
         >
-          <SettingsIcon className="h-3.5 w-3.5" />
+          <SettingsIcon className="size-3.5" />
         </button>
       </div>
 

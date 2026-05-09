@@ -399,10 +399,10 @@ export const MessageBubble = memo(function MessageBubble({
             type="button"
             aria-label="Edit message"
             onClick={startEdit}
-            className="self-end mr-2 mb-0.5 opacity-0 group-hover/user:opacity-100 max-md:opacity-60 transition-opacity duration-150 h-6 w-6 flex items-center justify-center rounded text-muted-foreground/50 hover:text-foreground"
+            className="self-end mr-2 mb-0.5 opacity-0 group-hover/user:opacity-100 max-md:opacity-60 transition-opacity duration-150 size-6 flex items-center justify-center rounded text-muted-foreground/50 hover:text-foreground"
             title="Edit & resend"
           >
-            <Pencil className="h-3 w-3" />
+            <Pencil className="size-3" />
           </button>
         )}
         <div className="max-w-[85%] flex flex-col gap-1.5 items-end">
@@ -426,7 +426,7 @@ export const MessageBubble = memo(function MessageBubble({
                   className="min-w-32 max-w-xs rounded-lg border border-border/40 bg-muted/50 px-3 py-2 text-sm text-foreground/80"
                 >
                   <div className="flex items-center gap-2">
-                    <FileText className="h-4 w-4 shrink-0 text-accent/80" />
+                    <FileText className="size-4 shrink-0 text-accent/80" />
                     <span className="font-medium">PDF</span>
                   </div>
                   <div className="mt-1 break-all text-xs text-muted-foreground">
@@ -446,7 +446,7 @@ export const MessageBubble = memo(function MessageBubble({
                     className="min-w-32 max-w-xs rounded-lg border border-border/40 bg-muted/50 px-3 py-2 text-sm text-foreground/80"
                   >
                     <div className="flex items-center gap-2">
-                      <FileText className="h-4 w-4 shrink-0 text-accent/80" />
+                      <FileText className="size-4 shrink-0 text-accent/80" />
                       <span className="font-medium">Text</span>
                     </div>
                     <div className="mt-1 break-all text-xs text-muted-foreground">
@@ -538,7 +538,7 @@ export const MessageBubble = memo(function MessageBubble({
             aria-label="Copy to clipboard"
             onClick={handleCopy}
             className={cn(
-              'flex items-center justify-center h-6 w-6 rounded transition-colors duration-150',
+              'flex items-center justify-center size-6 rounded transition-colors duration-150',
               copied
                 ? 'text-emerald-400'
                 : 'text-muted-foreground/50 hover:text-foreground',
@@ -546,9 +546,9 @@ export const MessageBubble = memo(function MessageBubble({
             title="Copy"
           >
             {copied ? (
-              <Check className="h-3.5 w-3.5" />
+              <Check className="size-3.5" />
             ) : (
-              <Copy className="h-3.5 w-3.5" />
+              <Copy className="size-3.5" />
             )}
           </button>
           {(model || totalTokens) && (

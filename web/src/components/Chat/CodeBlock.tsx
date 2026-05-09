@@ -81,7 +81,7 @@ export function CodeBlock({ className, children, ...props }: CodeBlockProps) {
         aria-label="Copy code"
         onClick={handleCopy}
         className={cn(
-          'absolute top-1 right-1 z-10 flex items-center justify-center h-7 w-7 rounded-md transition duration-150',
+          'absolute top-1 right-1 z-10 flex items-center justify-center size-7 rounded-md transition duration-150',
           copied
             ? 'text-emerald-400 opacity-100'
             : 'text-muted-foreground/40 max-md:opacity-60 opacity-0 group-hover/code:opacity-100 hover:text-foreground/60 hover:bg-muted/20',
@@ -89,9 +89,9 @@ export function CodeBlock({ className, children, ...props }: CodeBlockProps) {
         title="Copy"
       >
         {copied ? (
-          <Check className="h-3.5 w-3.5" />
+          <Check className="size-3.5" />
         ) : (
-          <Copy className="h-3.5 w-3.5" />
+          <Copy className="size-3.5" />
         )}
       </button>
 

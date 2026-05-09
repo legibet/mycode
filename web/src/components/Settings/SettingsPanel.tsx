@@ -99,10 +99,10 @@ const THEME_OPTIONS: { value: Theme; label: string; icon: React.ReactNode }[] =
     {
       value: 'system',
       label: 'system',
-      icon: <Laptop className="h-3.5 w-3.5" />,
+      icon: <Laptop className="size-3.5" />,
     },
-    { value: 'light', label: 'light', icon: <Sun className="h-3.5 w-3.5" /> },
-    { value: 'dark', label: 'dark', icon: <Moon className="h-3.5 w-3.5" /> },
+    { value: 'light', label: 'light', icon: <Sun className="size-3.5" /> },
+    { value: 'dark', label: 'dark', icon: <Moon className="size-3.5" /> },
   ]
 
 function buildDraft(response: SettingsResponse): DraftState {
@@ -372,12 +372,12 @@ export function SettingsPanel({
           aria-label="Close"
           className={cn(
             'inline-flex items-center justify-center rounded -mr-1',
-            'h-8 w-8',
+            'size-8',
             'text-muted-foreground/70 hover:text-foreground hover:bg-muted/60 transition-colors',
             'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
           )}
         >
-          <X className="h-4 w-4" />
+          <X className="size-4" />
         </button>
       </div>
 
@@ -596,7 +596,7 @@ export function SettingsPanel({
                     'text-[13px]',
                   )}
                 >
-                  <Plus className="h-4 w-4" />
+                  <Plus className="size-4" />
                   Add provider
                 </button>
               </div>
@@ -633,7 +633,7 @@ export function SettingsPanel({
               disabled={!settings || saving || hasInvalidProvider}
               className={cn(SAVE_BTN_CLASS, 'flex-2 h-9')}
             >
-              {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+              {saving && <Loader2 className="size-3.5 animate-spin" />}
               Save
             </button>
           </div>
@@ -662,7 +662,7 @@ export function SettingsPanel({
               disabled={!settings || saving || hasInvalidProvider}
               className={cn(SAVE_BTN_CLASS, 'h-8 px-4')}
             >
-              {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+              {saving && <Loader2 className="size-3.5 animate-spin" />}
               Save
             </button>
           </div>

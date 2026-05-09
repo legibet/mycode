@@ -105,7 +105,7 @@ export const ModelTrigger = memo(function ModelTrigger({
             <span className="truncate font-mono">{label}</span>
             <ChevronDown
               className={cn(
-                'h-3 w-3 shrink-0 opacity-60 transition-transform',
+                'size-3 shrink-0 opacity-60 transition-transform',
                 open && 'rotate-180',
               )}
             />
@@ -146,7 +146,7 @@ export const ModelTrigger = memo(function ModelTrigger({
                         {item.model}
                       </span>
                       {active && (
-                        <Check className="h-3 w-3 shrink-0 text-accent" />
+                        <Check className="size-3 shrink-0 text-accent" />
                       )}
                     </CommandItem>
                   )
@@ -206,7 +206,7 @@ export const EffortTrigger = memo(function EffortTrigger({
             <span className="font-mono">{current}</span>
             <ChevronDown
               className={cn(
-                'h-3 w-3 shrink-0 opacity-60 transition-transform',
+                'size-3 shrink-0 opacity-60 transition-transform',
                 open && 'rotate-180',
               )}
             />
@@ -226,7 +226,7 @@ export const EffortTrigger = memo(function EffortTrigger({
               <span className="flex-1 font-mono text-[13px]">
                 {opt || 'auto'}
               </span>
-              {active && <Check className="h-3 w-3 shrink-0 text-accent" />}
+              {active && <Check className="size-3 shrink-0 text-accent" />}
             </DropdownMenuItem>
           )
         })}

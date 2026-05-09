@@ -21,9 +21,9 @@ export function MobileHeader({
         type="button"
         aria-label="Toggle menu"
         onClick={onMenuToggle}
-        className="flex items-center justify-center h-10 w-10 -ml-2 text-muted-foreground hover:text-foreground active:scale-90 transition"
+        className="flex items-center justify-center size-10 -ml-2 text-muted-foreground hover:text-foreground active:scale-90 transition"
       >
-        <Menu className="h-5 w-5" />
+        <Menu className="size-5" />
       </button>
 
       <span className="text-xs font-mono text-foreground/70 truncate max-w-[60%] text-center">
@@ -34,9 +34,9 @@ export function MobileHeader({
         type="button"
         aria-label="New chat"
         onClick={onCreateSession}
-        className="flex items-center justify-center h-10 w-10 -mr-2 text-muted-foreground hover:text-foreground active:scale-90 transition"
+        className="flex items-center justify-center size-10 -mr-2 text-muted-foreground hover:text-foreground active:scale-90 transition"
       >
-        <Plus className="h-5 w-5" />
+        <Plus className="size-5" />
       </button>
     </header>
   )

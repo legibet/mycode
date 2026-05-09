@@ -374,20 +374,20 @@ export function WorkspacePicker({
           type="button"
           onClick={onClose}
           className={cn(
-            'flex items-center justify-center w-8 h-8 rounded-lg shrink-0',
+            'flex items-center justify-center size-8 rounded-lg shrink-0',
             'text-muted-foreground/50 transition-colors',
             'hover:bg-muted/70 hover:text-foreground',
             'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
           )}
           aria-label="Close"
         >
-          <X className="h-3.5 w-3.5" />
+          <X className="size-3.5" />
         </button>
       </div>
 
       {/* Filter input */}
       <div className="flex items-center gap-2.5 px-4 py-2.5 border-b border-border/20 shrink-0">
-        <Search className="h-3.5 w-3.5 shrink-0 text-muted-foreground/30" />
+        <Search className="size-3.5 shrink-0 text-muted-foreground/30" />
         <input
           ref={inputRef}
           name="workspace-filter"
@@ -409,7 +409,7 @@ export function WorkspacePicker({
             className="shrink-0 text-muted-foreground/40 hover:text-muted-foreground transition-colors"
             aria-label="Clear filter"
           >
-            <X className="h-3 w-3" />
+            <X className="size-3" />
           </button>
         )}
       </div>
@@ -464,7 +464,7 @@ export function WorkspacePicker({
                     onClick={() => void handleSelectRecent(p)}
                     className="group flex items-center gap-3 w-full min-h-11 px-4 py-2 text-left transition-colors hover:bg-muted/50 active:bg-muted/70 focus-visible:outline-none focus-visible:bg-muted/50"
                   >
-                    <Clock className="h-3.5 w-3.5 shrink-0 text-muted-foreground/35 group-hover:text-accent/60 transition-colors" />
+                    <Clock className="size-3.5 shrink-0 text-muted-foreground/35 group-hover:text-accent/60 transition-colors" />
                     <span className="truncate text-xs font-mono text-muted-foreground group-hover:text-foreground/80 transition-colors">
                       {p}
                     </span>
@@ -490,7 +490,7 @@ export function WorkspacePicker({
                     onClick={() => browseTo(workspaceRoot, '')}
                     className="group flex items-center gap-3 w-full min-h-11 px-4 py-2 text-left transition-colors hover:bg-muted/50 active:bg-muted/70 focus-visible:outline-none focus-visible:bg-muted/50"
                   >
-                    <FolderOpen className="h-3.5 w-3.5 shrink-0 text-muted-foreground/35 group-hover:text-accent/60 transition-colors" />
+                    <FolderOpen className="size-3.5 shrink-0 text-muted-foreground/35 group-hover:text-accent/60 transition-colors" />
                     <span className="truncate text-xs font-mono text-muted-foreground group-hover:text-foreground/80 transition-colors">
                       {workspaceRoot}
                     </span>
@@ -505,7 +505,7 @@ export function WorkspacePicker({
             {/* Entries */}
             {filteredEntries.length === 0 && !showRecent && !showRoots && (
               <div className="flex flex-col items-center justify-center gap-3 h-36 text-muted-foreground/30">
-                <Folder className="h-10 w-10" strokeWidth={1} />
+                <Folder className="size-10" strokeWidth={1} />
                 <p className="text-xs">
                   {filter.trim() ? 'No matches' : 'This folder is empty'}
                 </p>
@@ -518,7 +518,7 @@ export function WorkspacePicker({
                 onClick={() => browseTo(root, entry.path)}
                 className="group flex items-center gap-3 w-full min-h-11 px-4 py-2 text-left transition-colors hover:bg-muted/50 active:bg-muted/70 focus-visible:outline-none focus-visible:bg-muted/50"
               >
-                <Folder className="h-3.5 w-3.5 shrink-0 text-accent/40 group-hover:text-accent/70 transition-colors" />
+                <Folder className="size-3.5 shrink-0 text-accent/40 group-hover:text-accent/70 transition-colors" />
                 <span className="truncate text-sm font-mono text-foreground/70 group-hover:text-foreground transition-colors">
                   {entry.name}
                 </span>
@@ -530,7 +530,7 @@ export function WorkspacePicker({
 
       {/* Footer */}
       <div className="flex items-center gap-3 h-12 px-4 border-t border-border/20 shrink-0">
-        <FolderOpen className="h-3.5 w-3.5 shrink-0 text-muted-foreground/30" />
+        <FolderOpen className="size-3.5 shrink-0 text-muted-foreground/30" />
         <span
           className="flex-1 min-w-0 truncate text-xs font-mono text-muted-foreground/60"
           title={current}

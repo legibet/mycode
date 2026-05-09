@@ -112,12 +112,12 @@ export const ProviderCard = memo(function ProviderCard({
         onClick={() => onRemove(draft.id)}
         aria-label={`Remove provider ${draft.name || 'untitled'}`}
         className={cn(
-          'absolute right-2 top-2 inline-flex items-center justify-center rounded h-7 w-7',
+          'absolute right-2 top-2 inline-flex items-center justify-center rounded size-7',
           'text-muted-foreground/50 hover:text-destructive hover:bg-destructive/10 transition-colors',
           'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-destructive/60',
         )}
       >
-        <X className="h-3.5 w-3.5" />
+        <X className="size-3.5" />
       </button>
 
       <div className="flex flex-col gap-2.5 pr-8">
@@ -228,12 +228,12 @@ export const ProviderCard = memo(function ProviderCard({
                       type="button"
                       onClick={() => removeModel(model)}
                       className={cn(
-                        'inline-flex items-center justify-center rounded h-5 w-5',
+                        'inline-flex items-center justify-center rounded size-5',
                         'text-muted-foreground/60 hover:text-destructive transition-colors',
                       )}
                       aria-label={`Remove model ${model}`}
                     >
-                      <X className="h-3 w-3" />
+                      <X className="size-3" />
                     </button>
                   </span>
                 ))}
@@ -264,12 +264,12 @@ export const ProviderCard = memo(function ProviderCard({
                   type="button"
                   onClick={addModel}
                   className={cn(
-                    'shrink-0 inline-flex items-center justify-center rounded h-9 w-9',
+                    'shrink-0 inline-flex items-center justify-center rounded size-9',
                     'text-muted-foreground/70 hover:text-foreground hover:bg-muted/50 transition-colors',
                   )}
                   aria-label="Add model"
                 >
-                  <Plus className="h-4 w-4" />
+                  <Plus className="size-4" />
                 </button>
               )}
             </div>
@@ -290,7 +290,7 @@ function computeApiKeyHint(
   if (renamed && draft.api_key_saved && !draft.api_key_dirty) {
     return (
       <span className="text-destructive/80">
-        renamed from <code className="font-mono">{draft.original_name}</code> —
+        renamed from <code className="font-mono">{draft.original_name}</code>:
         saved key won't carry over, paste it again
       </span>
     )
@@ -322,8 +322,8 @@ function computeApiKeyHint(
       </>
     ) : (
       <span className="text-destructive/80">
-        env <code className="font-mono">{primary}</code> not set — paste a key
-        or set the env
+        env <code className="font-mono">{primary}</code> not set. Paste a key or
+        set the env
       </span>
     )
   }
@@ -342,7 +342,7 @@ function renderNameHint(
     if (usedTypesByOthers.has(draft.type)) {
       return (
         <>
-          type <code className="font-mono">{draft.type}</code> already used —
+          type <code className="font-mono">{draft.type}</code> already used.
           pick an alias name
         </>
       )

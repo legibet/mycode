@@ -60,7 +60,7 @@ export const PermissionPrompt = memo(function PermissionPrompt({
       >
         <div className="flex items-center gap-2 px-3.5 pt-3 pb-2">
           <Icon
-            className="h-3.5 w-3.5 shrink-0 text-muted-foreground"
+            className="size-3.5 shrink-0 text-muted-foreground"
             aria-hidden="true"
           />
           <span className="text-sm text-foreground/90">

@@ -276,7 +276,7 @@ export const InputArea = memo(function InputArea({
     .join(',')
 
   return (
-    <div className="mx-auto max-w-4xl max-md:max-w-none px-5 max-md:px-3 py-3 max-md:py-2">
+    <div className="mx-auto max-w-4xl max-md:max-w-none px-5 max-md:p-3 max-md:py-2">
       {/* biome-ignore lint/a11y/noStaticElementInteractions: drag-and-drop drop target */}
       <div
         role="presentation"
@@ -304,11 +304,11 @@ export const InputArea = memo(function InputArea({
                   <img
                     src={file.preview}
                     alt={file.name}
-                    className="h-14 w-14 rounded-lg object-cover border border-border/30"
+                    className="size-14 rounded-lg object-cover border border-border/30"
                   />
                 ) : (
                   <div className="h-14 min-w-28 rounded-lg border border-border/30 bg-muted/30 px-3 flex items-center gap-2 text-xs text-foreground/80">
-                    <FileText className="h-4 w-4 shrink-0 text-accent/80" />
+                    <FileText className="size-4 shrink-0 text-accent/80" />
                     <div className="min-w-0">
                       <div className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground/70">
                         {file.kind === 'document' ? 'PDF' : 'Text'}
@@ -321,9 +321,9 @@ export const InputArea = memo(function InputArea({
                   type="button"
                   onClick={() => onRemoveFile?.(file.id)}
                   aria-label={`Remove ${file.name}`}
-                  className="absolute -top-1 -right-1 h-4 w-4 bg-foreground text-background rounded-full flex items-center justify-center opacity-0 group-hover/thumb:opacity-100 max-md:opacity-100 transition-opacity"
+                  className="absolute -top-1 -right-1 size-4 bg-foreground text-background rounded-full flex items-center justify-center opacity-0 group-hover/thumb:opacity-100 max-md:opacity-100 transition-opacity"
                 >
-                  <X className="h-2.5 w-2.5" />
+                  <X className="size-2.5" />
                 </button>
               </div>
             ))}
@@ -368,14 +368,14 @@ export const InputArea = memo(function InputArea({
             disabled={loading || disabled}
             onClick={() => fileInputRef.current?.click()}
             className={cn(
-              'h-7 w-7 flex items-center justify-center rounded-md transition-colors shrink-0',
+              'size-7 flex items-center justify-center rounded-md transition-colors shrink-0',
               loading || disabled
                 ? 'text-muted-foreground/20'
                 : 'text-muted-foreground/60 hover:text-foreground hover:bg-muted/70',
             )}
             title="Attach file"
           >
-            <Paperclip className="h-3.5 w-3.5" />
+            <Paperclip className="size-3.5" />
           </button>
 
           <div className="flex items-center gap-0.5 min-w-0 flex-1 overflow-hidden">
@@ -396,10 +396,10 @@ export const InputArea = memo(function InputArea({
               type="button"
               aria-label="Stop generating"
               onClick={onCancel}
-              className="h-7 w-7 flex items-center justify-center rounded-md text-destructive/70 hover:text-destructive hover:bg-destructive/10 active:scale-95 transition shrink-0"
+              className="size-7 flex items-center justify-center rounded-md text-destructive/70 hover:text-destructive hover:bg-destructive/10 active:scale-95 transition shrink-0"
               title="Stop"
             >
-              <Square className="h-3 w-3 fill-current" />
+              <Square className="size-3 fill-current" />
             </button>
           ) : (
             <button
@@ -408,14 +408,14 @@ export const InputArea = memo(function InputArea({
               onClick={onSend}
               disabled={!hasInput || disabled}
               className={cn(
-                'h-7 w-7 flex items-center justify-center rounded-md transition-colors shrink-0',
+                'size-7 flex items-center justify-center rounded-md transition-colors shrink-0',
                 hasInput && !disabled
                   ? 'bg-accent text-accent-foreground hover:opacity-90 active:scale-95'
                   : 'text-muted-foreground/30 bg-muted/40',
               )}
               title="Send"
             >
-              <ArrowUp className="h-3.5 w-3.5" strokeWidth={2.5} />
+              <ArrowUp className="size-3.5" strokeWidth={2.5} />
             </button>
           )}
         </div>
