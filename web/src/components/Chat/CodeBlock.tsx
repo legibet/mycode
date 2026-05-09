@@ -3,66 +3,66 @@
  * Language label and copy button float over code. No border.
  */
 
-import { Check, Copy } from 'lucide-react'
-import type { ComponentPropsWithoutRef } from 'react'
-import { useEffect, useRef, useState } from 'react'
-import type { ExtraProps } from 'react-markdown'
-import { copyText } from '../../utils/clipboard'
-import { cn } from '../../utils/cn'
-import HighlightedCode from './HighlightedCode'
+import { Check, Copy } from "lucide-react";
+import type { ComponentPropsWithoutRef } from "react";
+import { useEffect, useRef, useState } from "react";
+import type { ExtraProps } from "react-markdown";
+import { copyText } from "../../utils/clipboard";
+import { cn } from "../../utils/cn";
+import HighlightedCode from "./HighlightedCode";
 
-const LANGUAGE_RE = /language-([a-z0-9+#-]+)/i
-type CodeBlockProps = ComponentPropsWithoutRef<'code'> & ExtraProps
+const LANGUAGE_RE = /language-([a-z0-9+#-]+)/i;
+type CodeBlockProps = ComponentPropsWithoutRef<"code"> & ExtraProps;
 
 export function CodeBlock({ className, children, ...props }: CodeBlockProps) {
-  const [copied, setCopied] = useState(false)
-  const resetCopiedTimeoutRef = useRef<number | null>(null)
+  const [copied, setCopied] = useState(false);
+  const resetCopiedTimeoutRef = useRef<number | null>(null);
 
-  const match = LANGUAGE_RE.exec(className || '')
-  const language = match?.[1] ?? ''
+  const match = LANGUAGE_RE.exec(className || "");
+  const language = match?.[1] ?? "";
   const rawContent = Array.isArray(children)
-    ? children.join('')
-    : String(children || '')
-  const codeContent = rawContent.replace(/\n$/, '')
+    ? children.join("")
+    : String(children || "");
+  const codeContent = rawContent.replace(/\n$/, "");
 
-  const isInline = !match && !rawContent.endsWith('\n')
+  const isInline = !match && !rawContent.endsWith("\n");
 
   useEffect(() => {
     return () => {
       if (resetCopiedTimeoutRef.current !== null) {
-        window.clearTimeout(resetCopiedTimeoutRef.current)
+        window.clearTimeout(resetCopiedTimeoutRef.current);
       }
-    }
-  }, [])
+    };
+  }, []);
 
   const handleCopy = async () => {
     try {
-      await copyText(codeContent)
-      setCopied(true)
+      await copyText(codeContent);
+      setCopied(true);
       if (resetCopiedTimeoutRef.current !== null) {
-        window.clearTimeout(resetCopiedTimeoutRef.current)
+        window.clearTimeout(resetCopiedTimeoutRef.current);
       }
       resetCopiedTimeoutRef.current = window.setTimeout(() => {
-        setCopied(false)
-        resetCopiedTimeoutRef.current = null
-      }, 2000)
+        setCopied(false);
+        resetCopiedTimeoutRef.current = null;
+      }, 2000);
     } catch {
       /* ignore */
     }
-  }
+  };
 
   if (isInline) {
     return (
       <code
         className={cn(
-          'px-1.5 py-0.5 rounded bg-code font-mono text-[13px] text-accent font-medium',
+          "px-1.5 py-0.5 rounded bg-code font-mono text-[13px] text-accent font-medium",
           className,
         )}
         {...props}
       >
         {children}
       </code>
-    )
+    );
   }
 
   return (
@@ -81,10 +81,10 @@ export function CodeBlock({ className, children, ...props }: CodeBlockProps) {
         aria-label="Copy code"
         onClick={handleCopy}
         className={cn(
-          'absolute top-1 right-1 z-10 flex items-center justify-center size-7 rounded-md transition duration-150',
+          "absolute top-1 right-1 z-10 flex items-center justify-center size-7 rounded-md transition duration-150",
           copied
-            ? 'text-emerald-400 opacity-100'
-            : 'text-muted-foreground/40 max-md:opacity-60 opacity-0 group-hover/code:opacity-100 hover:text-foreground/60 hover:bg-muted/20',
+            ? "text-emerald-400 opacity-100"
+            : "text-muted-foreground/40 max-md:opacity-60 opacity-0 group-hover/code:opacity-100 hover:text-foreground/60 hover:bg-muted/20",
         )}
         title="Copy"
       >
@@ -96,10 +96,10 @@ export function CodeBlock({ className, children, ...props }: CodeBlockProps) {
       </button>
 
       <div className="overflow-x-auto scrollbar-subtle">
-        <div className={cn('px-3 pb-2.5', language ? 'pt-6' : 'pt-2')}>
+        <div className={cn("px-3 pb-2.5", language ? "pt-6" : "pt-2")}>
           <HighlightedCode language={language} code={codeContent} />
         </div>
       </div>
     </div>
-  )
+  );
 }

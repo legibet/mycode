@@ -6,12 +6,12 @@
 export function shouldAutoFocusTextInputOnOpen(
   openedWithKeyboard: boolean,
 ): boolean {
-  if (openedWithKeyboard) return true
+  if (openedWithKeyboard) return true;
   if (
-    typeof window === 'undefined' ||
-    typeof window.matchMedia !== 'function'
+    typeof window === "undefined" ||
+    typeof window.matchMedia !== "function"
   ) {
-    return false
+    return false;
   }
-  return window.matchMedia('(hover: hover) and (pointer: fine)').matches
+  return window.matchMedia("(hover: hover) and (pointer: fine)").matches;
 }

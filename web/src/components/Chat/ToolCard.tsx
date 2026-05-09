@@ -6,70 +6,70 @@
  * preserved.
  */
 
-import { FileText, PenLine, SquarePen, Terminal } from 'lucide-react'
-import { lazy, memo, Suspense, useState } from 'react'
-import { cn } from '../../utils/cn'
+import { FileText, PenLine, SquarePen, Terminal } from "lucide-react";
+import { lazy, memo, Suspense, useState } from "react";
+import { cn } from "../../utils/cn";
 
-const EditDiff = lazy(() => import('./EditDiff'))
+const EditDiff = lazy(() => import("./EditDiff"));
 
 interface EditEntry {
-  oldText: string
-  newText: string
+  oldText: string;
+  newText: string;
 }
 
 // Tool inputs/outputs are JSON from the model; treat fields as `unknown` and
 // type-check at the read site instead of trusting the shape with `as`.
-type Args = Record<string, unknown> | undefined
-type Meta = Record<string, unknown> | null | undefined
+type Args = Record<string, unknown> | undefined;
+type Meta = Record<string, unknown> | null | undefined;
 
 interface BashArgs {
-  command?: unknown
+  command?: unknown;
 }
 interface PathArgs {
-  path?: unknown
+  path?: unknown;
 }
 interface ReadArgs {
-  offset?: unknown
-  limit?: unknown
+  offset?: unknown;
+  limit?: unknown;
 }
 interface WriteArgs {
-  content?: unknown
+  content?: unknown;
 }
 interface EditArgs {
-  edits?: unknown
+  edits?: unknown;
 }
 interface EditMeta {
-  patch?: unknown
-  added_lines?: unknown
-  removed_lines?: unknown
+  patch?: unknown;
+  added_lines?: unknown;
+  removed_lines?: unknown;
 }
 
 function asString(value: unknown): string {
-  return typeof value === 'string' ? value : ''
+  return typeof value === "string" ? value : "";
 }
 
 function asNumber(value: unknown): number | null {
-  return typeof value === 'number' ? value : null
+  return typeof value === "number" ? value : null;
 }
 
 function getEdits(args: Args): EditEntry[] | null {
-  const edits = (args as EditArgs | undefined)?.edits
-  return Array.isArray(edits) ? (edits as EditEntry[]) : null
+  const edits = (args as EditArgs | undefined)?.edits;
+  return Array.isArray(edits) ? (edits as EditEntry[]) : null;
 }
 
 function getEditPatch(metadata: Meta): string | null {
-  const patch = (metadata as EditMeta | null | undefined)?.patch
-  return typeof patch === 'string' && patch ? patch : null
+  const patch = (metadata as EditMeta | null | undefined)?.patch;
+  return typeof patch === "string" && patch ? patch : null;
 }
 
 function getEditStats(
   metadata: Meta,
 ): { added: number; removed: number } | null {
-  const meta = metadata as EditMeta | null | undefined
-  const added = asNumber(meta?.added_lines)
-  const removed = asNumber(meta?.removed_lines)
-  if (added == null || removed == null) return null
-  return { added, removed }
+  const meta = metadata as EditMeta | null | undefined;
+  const added = asNumber(meta?.added_lines);
+  const removed = asNumber(meta?.removed_lines);
+  if (added == null || removed == null) return null;
+  return { added, removed };
 }
 
 function EditDiffFallback({ edits }: { edits: EditEntry[] }) {
@@ -91,24 +91,24 @@ function EditDiffFallback({ edits }: { edits: EditEntry[] }) {
         </div>
       ))}
     </div>
-  )
+  );
 }
 
 const TOOL_META = {
-  read: { icon: FileText, label: 'read' },
-  write: { icon: PenLine, label: 'write' },
-  edit: { icon: SquarePen, label: 'edit' },
-  bash: { icon: Terminal, label: 'bash' },
-}
+  read: { icon: FileText, label: "read" },
+  write: { icon: PenLine, label: "write" },
+  edit: { icon: SquarePen, label: "edit" },
+  bash: { icon: Terminal, label: "bash" },
+};
 
 interface ToolCardProps {
-  name: string
-  args?: Record<string, unknown>
-  output?: string | null | undefined
-  finalOutput?: string | null | undefined
-  metadata?: Record<string, unknown> | null | undefined
-  pending?: boolean | undefined
-  isError?: boolean | undefined
+  name: string;
+  args?: Record<string, unknown>;
+  output?: string | null | undefined;
+  finalOutput?: string | null | undefined;
+  metadata?: Record<string, unknown> | null | undefined;
+  pending?: boolean | undefined;
+  isError?: boolean | undefined;
 }
 
 // ---------------------------------------------------------------------------
@@ -116,22 +116,22 @@ interface ToolCardProps {
 // ---------------------------------------------------------------------------
 
 const RESULT_BASE =
-  'rounded-md px-3 py-2 font-mono text-[13px] leading-relaxed overflow-x-auto overflow-y-auto scrollbar-subtle whitespace-pre-wrap max-h-[240px]'
+  "rounded-md px-3 py-2 font-mono text-[13px] leading-relaxed overflow-x-auto overflow-y-auto scrollbar-subtle whitespace-pre-wrap max-h-[240px]";
 
 function ResultBlock({ text, isError }: { text: string; isError: boolean }) {
-  if (!text) return null
+  if (!text) return null;
   return (
     <div
       className={cn(
         RESULT_BASE,
         isError
-          ? 'bg-red-500/5 text-red-400/70'
-          : 'bg-code text-muted-foreground',
+          ? "bg-red-500/5 text-red-400/70"
+          : "bg-code text-muted-foreground",
       )}
     >
       {text}
     </div>
-  )
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -139,39 +139,39 @@ function ResultBlock({ text, isError }: { text: string; isError: boolean }) {
 // ---------------------------------------------------------------------------
 
 function getPreview(name: string, args: Args): string {
-  if (!args) return ''
+  if (!args) return "";
   switch (name) {
-    case 'bash':
-      return asString((args as BashArgs).command)
-    case 'read':
-    case 'write':
-    case 'edit':
-      return asString((args as PathArgs).path)
+    case "bash":
+      return asString((args as BashArgs).command);
+    case "read":
+    case "write":
+    case "edit":
+      return asString((args as PathArgs).path);
     default: {
-      const values: string[] = []
+      const values: string[] = [];
       for (const [key, value] of Object.entries(args)) {
-        if (key === 'content' || key === 'prompt') continue
-        values.push(typeof value === 'object' ? '…' : String(value))
+        if (key === "content" || key === "prompt") continue;
+        values.push(typeof value === "object" ? "…" : String(value));
       }
-      return values.join(' ')
+      return values.join(" ");
     }
   }
 }
 
 function getReadHint(args: Args): string {
-  const a = args as ReadArgs | undefined
-  const offset = asNumber(a?.offset)
-  const limit = asNumber(a?.limit)
-  if (offset != null && limit != null) return `:${offset}-${offset + limit}`
-  if (offset != null) return `:${offset}`
-  if (limit != null) return `:1-${limit}`
-  return ''
+  const a = args as ReadArgs | undefined;
+  const offset = asNumber(a?.offset);
+  const limit = asNumber(a?.limit);
+  if (offset != null && limit != null) return `:${offset}-${offset + limit}`;
+  if (offset != null) return `:${offset}`;
+  if (limit != null) return `:1-${limit}`;
+  return "";
 }
 
 function getWriteHint(args: Args): string {
-  const content = asString((args as WriteArgs | undefined)?.content)
-  if (!content) return ''
-  return `${content.split('\n').length} lines`
+  const content = asString((args as WriteArgs | undefined)?.content);
+  if (!content) return "";
+  return `${content.split("\n").length} lines`;
 }
 
 function CollapsedSuffix({
@@ -179,33 +179,33 @@ function CollapsedSuffix({
   args,
   metadata,
 }: {
-  name: string
-  args: Args
-  metadata: Meta
+  name: string;
+  args: Args;
+  metadata: Meta;
 }) {
-  if (name === 'edit') {
-    const stats = getEditStats(metadata)
-    if (!stats || (stats.added === 0 && stats.removed === 0)) return null
+  if (name === "edit") {
+    const stats = getEditStats(metadata);
+    if (!stats || (stats.added === 0 && stats.removed === 0)) return null;
     return (
       <span className="shrink-0 text-[12px] font-mono tabular-nums">
         <span className="text-emerald-500/70">+{stats.added}</span>
         <span className="text-red-400/70 ml-1">−{stats.removed}</span>
       </span>
-    )
+    );
   }
 
   const hint =
-    name === 'read'
+    name === "read"
       ? getReadHint(args)
-      : name === 'write'
+      : name === "write"
         ? getWriteHint(args)
-        : ''
-  if (!hint) return null
+        : "";
+  if (!hint) return null;
   return (
     <span className="shrink-0 text-[12px] font-mono text-muted-foreground/60">
       {hint}
     </span>
-  )
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -217,11 +217,11 @@ function BashBody({
   display,
   isError,
 }: {
-  args: Args
-  display: string
-  isError: boolean
+  args: Args;
+  display: string;
+  isError: boolean;
 }) {
-  const command = asString((args as BashArgs | undefined)?.command)
+  const command = asString((args as BashArgs | undefined)?.command);
 
   return (
     <div className="space-y-2">
@@ -235,11 +235,11 @@ function BashBody({
       )}
       <ResultBlock text={display} isError={isError} />
     </div>
-  )
+  );
 }
 
 function ReadBody({ display, isError }: { display: string; isError: boolean }) {
-  return <ResultBlock text={display} isError={isError} />
+  return <ResultBlock text={display} isError={isError} />;
 }
 
 function WriteBody({
@@ -247,11 +247,11 @@ function WriteBody({
   display,
   isError,
 }: {
-  args: Args
-  display: string
-  isError: boolean
+  args: Args;
+  display: string;
+  isError: boolean;
 }) {
-  const content = asString((args as WriteArgs | undefined)?.content)
+  const content = asString((args as WriteArgs | undefined)?.content);
 
   return (
     <div className="space-y-2">
@@ -262,7 +262,7 @@ function WriteBody({
       )}
       {isError && <ResultBlock text={display} isError />}
     </div>
-  )
+  );
 }
 
 function EditBody({
@@ -271,14 +271,14 @@ function EditBody({
   display,
   isError,
 }: {
-  args: Args
-  metadata: Meta
-  display: string
-  isError: boolean
+  args: Args;
+  metadata: Meta;
+  display: string;
+  isError: boolean;
 }) {
-  const edits = getEdits(args)
+  const edits = getEdits(args);
   if (edits?.length) {
-    const patch = getEditPatch(metadata)
+    const patch = getEditPatch(metadata);
     return (
       <div className="space-y-2">
         {patch ? (
@@ -290,7 +290,7 @@ function EditBody({
         )}
         {isError && <ResultBlock text={display} isError />}
       </div>
-    )
+    );
   }
 
   return (
@@ -298,7 +298,7 @@ function EditBody({
       {args && Object.keys(args).length > 0 && <GenericArgs args={args} />}
       <ResultBlock text={display} isError={isError} />
     </div>
-  )
+  );
 }
 
 function GenericArgs({ args }: { args: Record<string, unknown> }) {
@@ -308,14 +308,14 @@ function GenericArgs({ args }: { args: Record<string, unknown> }) {
         <div key={key}>
           <span className="text-accent/80">{key}: </span>
           <span className="text-foreground/75 break-all whitespace-pre-wrap">
-            {typeof value === 'object'
+            {typeof value === "object"
               ? JSON.stringify(value, null, 2)
               : String(value)}
           </span>
         </div>
       ))}
     </div>
-  )
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -332,33 +332,35 @@ export const ToolCard = memo(function ToolCard({
   isError,
 }: ToolCardProps) {
   const display =
-    typeof finalOutput === 'string'
+    typeof finalOutput === "string"
       ? finalOutput
-      : typeof output === 'string'
+      : typeof output === "string"
         ? output
-        : ''
+        : "";
   const resolvedIsError =
     Boolean(isError) ||
-    (typeof finalOutput === 'string' && finalOutput.startsWith('error:'))
-  const [expandedOverride, setExpandedOverride] = useState<boolean | null>(null)
-  const expanded = expandedOverride ?? resolvedIsError
+    (typeof finalOutput === "string" && finalOutput.startsWith("error:"));
+  const [expandedOverride, setExpandedOverride] = useState<boolean | null>(
+    null,
+  );
+  const expanded = expandedOverride ?? resolvedIsError;
 
-  const status = pending ? 'pending' : resolvedIsError ? 'error' : 'success'
+  const status = pending ? "pending" : resolvedIsError ? "error" : "success";
 
   const meta = Object.hasOwn(TOOL_META, name)
     ? TOOL_META[name as keyof typeof TOOL_META]
-    : { icon: Terminal, label: name }
-  const Icon = meta.icon
-  const preview = getPreview(name, args)
+    : { icon: Terminal, label: name };
+  const Icon = meta.icon;
+  const preview = getPreview(name, args);
 
   const body =
-    name === 'bash' ? (
+    name === "bash" ? (
       <BashBody args={args} display={display} isError={resolvedIsError} />
-    ) : name === 'read' ? (
+    ) : name === "read" ? (
       <ReadBody display={display} isError={resolvedIsError} />
-    ) : name === 'write' ? (
+    ) : name === "write" ? (
       <WriteBody args={args} display={display} isError={resolvedIsError} />
-    ) : name === 'edit' ? (
+    ) : name === "edit" ? (
       <EditBody
         args={args}
         metadata={metadata}
@@ -370,7 +372,7 @@ export const ToolCard = memo(function ToolCard({
         {args && Object.keys(args).length > 0 && <GenericArgs args={args} />}
         <ResultBlock text={display} isError={resolvedIsError} />
       </>
-    )
+    );
 
   return (
     <div className="group/tool">
@@ -387,11 +389,11 @@ export const ToolCard = memo(function ToolCard({
 
         <span
           className={cn(
-            'text-[13px] shrink-0 tracking-tight transition-colors duration-200',
-            status === 'error'
-              ? 'text-destructive/90 group-hover/tool:text-destructive'
-              : 'text-foreground/90 group-hover/tool:text-foreground',
-            status === 'pending' && 'animate-thinking',
+            "text-[13px] shrink-0 tracking-tight transition-colors duration-200",
+            status === "error"
+              ? "text-destructive/90 group-hover/tool:text-destructive"
+              : "text-foreground/90 group-hover/tool:text-foreground",
+            status === "pending" && "animate-thinking",
           )}
         >
           {name}
@@ -408,10 +410,10 @@ export const ToolCard = memo(function ToolCard({
 
       <div
         className={cn(
-          'grid transition-[grid-template-rows,opacity] duration-250 ease-out',
+          "grid transition-[grid-template-rows,opacity] duration-250 ease-out",
           expanded
-            ? 'grid-rows-[1fr] opacity-100'
-            : 'grid-rows-[0fr] opacity-0',
+            ? "grid-rows-[1fr] opacity-100"
+            : "grid-rows-[0fr] opacity-0",
         )}
       >
         <div className="overflow-hidden">
@@ -419,5 +421,5 @@ export const ToolCard = memo(function ToolCard({
         </div>
       </div>
     </div>
-  )
-})
+  );
+});

@@ -14,79 +14,79 @@ import type {
   ToolResultBlock,
   ToolRuntime,
   ToolUseBlock,
-} from '../types'
-import { isCompactMarker } from '../types'
+} from "../types";
+import { isCompactMarker } from "../types";
 
 interface ToolCall {
-  id?: string
-  name?: string
-  input?: ToolInput
+  id?: string;
+  name?: string;
+  input?: ToolInput;
 }
 
 interface ToolIndexEntry {
-  messageIndex: number
-  blockIndex: number
+  messageIndex: number;
+  blockIndex: number;
 }
 
 // Shared frozen ref so memo equality holds across tool_use blocks.
-const EMPTY_TOOL_INPUT: ToolInput = Object.freeze({}) as ToolInput
+const EMPTY_TOOL_INPUT: ToolInput = Object.freeze({}) as ToolInput;
 
 function isObject(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === 'object' && !Array.isArray(value)
+  return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
 function getBlocks(message?: ChatMessage | null): MessageBlock[] {
-  return Array.isArray(message?.content) ? message.content : []
+  return Array.isArray(message?.content) ? message.content : [];
 }
 
 function cloneBlock(
   block: MessageBlock,
   renderKey: string | null = null,
 ): MessageBlock {
-  const next = { ...block }
-  if (next.meta) next.meta = { ...next.meta }
-  if (renderKey) next.renderKey = renderKey
-  return next
+  const next = { ...block };
+  if (next.meta) next.meta = { ...next.meta };
+  if (renderKey) next.renderKey = renderKey;
+  return next;
 }
 
 function createMessage(
-  role: ChatMessage['role'],
+  role: ChatMessage["role"],
   content: MessageBlock[] = [],
 ): ChatMessage {
-  return { role, content }
+  return { role, content };
 }
 
 function createTextBlock(text: string): TextBlock {
-  return { type: 'text', text }
+  return { type: "text", text };
 }
 
 function escapeHtmlAttribute(value: string): string {
   return value
-    .replaceAll('&', '&amp;')
-    .replaceAll('"', '&quot;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
+    .replaceAll("&", "&amp;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;");
 }
 
 function createAttachedTextBlock(text: string, name: string): TextBlock {
   return {
-    type: 'text',
+    type: "text",
     text: `<file name="${escapeHtmlAttribute(name)}">\n${text}\n</file>`,
     meta: { attachment: true, path: name },
-  }
+  };
 }
 
 function createThinkingBlock(text: string): ThinkingBlock {
-  return { type: 'thinking', text }
+  return { type: "thinking", text };
 }
 
 function createToolUseBlock(toolCall: ToolCall): ToolUseBlock {
   return {
-    type: 'tool_use',
-    id: toolCall?.id || '',
-    name: toolCall?.name || 'tool',
+    type: "tool_use",
+    id: toolCall?.id || "",
+    name: toolCall?.name || "tool",
     input: isObject(toolCall?.input) ? toolCall.input : EMPTY_TOOL_INPUT,
-  }
+  };
 }
 
 function createToolResultBlock(
@@ -96,12 +96,12 @@ function createToolResultBlock(
   isError = false,
 ): ToolResultBlock {
   return {
-    type: 'tool_result',
+    type: "tool_result",
     tool_use_id: toolUseId,
     output,
     metadata,
     is_error: isError,
-  }
+  };
 }
 
 function createImageBlock(
@@ -109,9 +109,9 @@ function createImageBlock(
   mimeType: string,
   name?: string,
 ): MessageBlock {
-  const block: MessageBlock = { type: 'image', data, mime_type: mimeType }
-  if (name) block.name = name
-  return block
+  const block: MessageBlock = { type: "image", data, mime_type: mimeType };
+  if (name) block.name = name;
+  return block;
 }
 
 function createDocumentBlock(
@@ -119,91 +119,91 @@ function createDocumentBlock(
   mimeType: string,
   name?: string,
 ): DocumentBlock {
-  const block: DocumentBlock = { type: 'document', data, mime_type: mimeType }
-  if (name) block.name = name
-  return block
+  const block: DocumentBlock = { type: "document", data, mime_type: mimeType };
+  if (name) block.name = name;
+  return block;
 }
 
 function createAttachmentBlock(attachment: AttachedFile): MessageBlock {
-  if (attachment.kind === 'image') {
+  if (attachment.kind === "image") {
     return createImageBlock(
       attachment.data,
       attachment.mime_type,
       attachment.name,
-    )
+    );
   }
-  if (attachment.kind === 'document') {
+  if (attachment.kind === "document") {
     return createDocumentBlock(
       attachment.data,
       attachment.mime_type,
       attachment.name,
-    )
+    );
   }
-  return createAttachedTextBlock(attachment.text, attachment.name)
+  return createAttachedTextBlock(attachment.text, attachment.name);
 }
 
 export function createUserTextMessage(text: string): ChatMessage {
-  return createMessage('user', text ? [createTextBlock(text)] : [])
+  return createMessage("user", text ? [createTextBlock(text)] : []);
 }
 
 export function createUserMessage(
   text: string,
   attachments: AttachedFile[],
 ): ChatMessage {
-  const blocks: MessageBlock[] = []
-  if (text) blocks.push(createTextBlock(text))
+  const blocks: MessageBlock[] = [];
+  if (text) blocks.push(createTextBlock(text));
   for (const attachment of attachments) {
-    blocks.push(createAttachmentBlock(attachment))
+    blocks.push(createAttachmentBlock(attachment));
   }
-  return createMessage('user', blocks)
+  return createMessage("user", blocks);
 }
 
 export function createAssistantMessage(
   content: MessageBlock[] = [],
 ): ChatMessage {
-  return createMessage('assistant', content)
+  return createMessage("assistant", content);
 }
 
 function ensureTailAssistant(messages: ChatMessage[]): {
-  messages: ChatMessage[]
-  index: number
+  messages: ChatMessage[];
+  index: number;
 } {
-  const next = [...messages]
-  const lastIndex = next.length - 1
-  if (lastIndex >= 0 && next[lastIndex]?.role === 'assistant') {
-    return { messages: next, index: lastIndex }
+  const next = [...messages];
+  const lastIndex = next.length - 1;
+  if (lastIndex >= 0 && next[lastIndex]?.role === "assistant") {
+    return { messages: next, index: lastIndex };
   }
-  next.push(createAssistantMessage([]))
-  return { messages: next, index: next.length - 1 }
+  next.push(createAssistantMessage([]));
+  return { messages: next, index: next.length - 1 };
 }
 
 export function appendAssistantDelta(
   messages: ChatMessage[],
-  blockType: 'thinking' | 'text',
+  blockType: "thinking" | "text",
   delta: string,
 ): ChatMessage[] {
-  if (!delta) return messages
+  if (!delta) return messages;
 
-  const { messages: next, index } = ensureTailAssistant(messages)
-  const assistant = next[index] ?? createAssistantMessage([])
-  const content = [...getBlocks(assistant)]
-  const lastBlock = content[content.length - 1]
+  const { messages: next, index } = ensureTailAssistant(messages);
+  const assistant = next[index] ?? createAssistantMessage([]);
+  const content = [...getBlocks(assistant)];
+  const lastBlock = content[content.length - 1];
 
   if (lastBlock?.type === blockType) {
     content[content.length - 1] = {
       ...lastBlock,
-      text: `${lastBlock.text || ''}${delta}`,
-    }
+      text: `${lastBlock.text || ""}${delta}`,
+    };
   } else {
     content.push(
-      blockType === 'thinking'
+      blockType === "thinking"
         ? createThinkingBlock(delta)
         : createTextBlock(delta),
-    )
+    );
   }
 
-  next[index] = { ...assistant, content }
-  return next
+  next[index] = { ...assistant, content };
+  return next;
 }
 
 export function appendToolUse(
@@ -212,23 +212,23 @@ export function appendToolUse(
 ): ChatMessage[] {
   // Tail-aware: a backward scan would attach the new tool to the previous
   // turn's assistant when the tail is a tool-result user message or compact.
-  const { messages: next, index } = ensureTailAssistant(messages)
-  const assistant = next[index]
-  if (!assistant) return next
+  const { messages: next, index } = ensureTailAssistant(messages);
+  const assistant = next[index];
+  if (!assistant) return next;
   next[index] = {
     ...assistant,
     content: [...getBlocks(assistant), createToolUseBlock(toolCall)],
-  }
-  return next
+  };
+  return next;
 }
 
 function isToolResultOnlyUserMessage(message?: ChatMessage): boolean {
-  const blocks = getBlocks(message)
+  const blocks = getBlocks(message);
   return (
-    message?.role === 'user' &&
+    message?.role === "user" &&
     blocks.length > 0 &&
-    blocks.every((block) => block?.type === 'tool_result')
-  )
+    blocks.every((block) => block?.type === "tool_result")
+  );
 }
 
 export function appendToolResult(
@@ -238,22 +238,22 @@ export function appendToolResult(
   metadata: Record<string, unknown> | null,
   isError = false,
 ): ChatMessage[] {
-  const block = createToolResultBlock(toolUseId, output, metadata, isError)
-  const next = [...messages]
-  const lastIndex = next.length - 1
+  const block = createToolResultBlock(toolUseId, output, metadata, isError);
+  const next = [...messages];
+  const lastIndex = next.length - 1;
 
   if (lastIndex >= 0 && isToolResultOnlyUserMessage(next[lastIndex])) {
-    const lastMessage = next[lastIndex]
-    if (!lastMessage) return next
+    const lastMessage = next[lastIndex];
+    if (!lastMessage) return next;
     next[lastIndex] = {
       ...lastMessage,
       content: [...getBlocks(lastMessage), block],
-    }
-    return next
+    };
+    return next;
   }
 
-  next.push(createMessage('user', [block]))
-  return next
+  next.push(createMessage("user", [block]));
+  return next;
 }
 
 export function updateLatestThinkingDuration(
@@ -265,29 +265,29 @@ export function updateLatestThinkingDuration(
     messageIndex >= 0;
     messageIndex--
   ) {
-    const message = messages[messageIndex]
-    if (message?.role !== 'assistant') continue
+    const message = messages[messageIndex];
+    if (message?.role !== "assistant") continue;
 
-    const content = getBlocks(message)
+    const content = getBlocks(message);
     for (let blockIndex = content.length - 1; blockIndex >= 0; blockIndex--) {
-      const block = content[blockIndex]
-      if (block?.type !== 'thinking') continue
+      const block = content[blockIndex];
+      if (block?.type !== "thinking") continue;
 
-      const next = [...messages]
-      const nextContent = [...content]
+      const next = [...messages];
+      const nextContent = [...content];
       nextContent[blockIndex] = {
         ...block,
         meta: {
           ...(isObject(block.meta) ? block.meta : {}),
           duration_ms: durationMs,
         },
-      }
-      next[messageIndex] = { ...message, content: nextContent }
-      return next
+      };
+      next[messageIndex] = { ...message, content: nextContent };
+      return next;
     }
   }
 
-  return messages
+  return messages;
 }
 
 export function updateLatestAssistantMeta(
@@ -295,35 +295,35 @@ export function updateLatestAssistantMeta(
   patch: Partial<MessageMeta>,
 ): ChatMessage[] {
   for (let i = messages.length - 1; i >= 0; i--) {
-    const message = messages[i]
-    if (message?.role !== 'assistant') continue
-    const next = [...messages]
-    next[i] = { ...message, meta: { ...(message.meta ?? {}), ...patch } }
-    return next
+    const message = messages[i];
+    if (message?.role !== "assistant") continue;
+    const next = [...messages];
+    next[i] = { ...message, meta: { ...(message.meta ?? {}), ...patch } };
+    return next;
   }
-  return messages
+  return messages;
 }
 
 function buildToolRuntime(
   runtime: ToolRuntime | undefined,
   toolResultBlock: ToolResultBlock | null,
 ): ToolRuntime {
-  const output = typeof runtime?.output === 'string' ? runtime.output : ''
+  const output = typeof runtime?.output === "string" ? runtime.output : "";
   const runtimeFinal =
-    typeof runtime?.finalOutput === 'string' ? runtime.finalOutput : null
+    typeof runtime?.finalOutput === "string" ? runtime.finalOutput : null;
   const persistedOutput =
-    typeof toolResultBlock?.output === 'string' ? toolResultBlock.output : null
-  const finalOutput = runtimeFinal ?? persistedOutput
-  const runtimeMetadata = isObject(runtime?.metadata) ? runtime.metadata : null
+    typeof toolResultBlock?.output === "string" ? toolResultBlock.output : null;
+  const finalOutput = runtimeFinal ?? persistedOutput;
+  const runtimeMetadata = isObject(runtime?.metadata) ? runtime.metadata : null;
   const persistedMetadata = isObject(toolResultBlock?.metadata)
     ? toolResultBlock.metadata
-    : null
-  const metadata = runtimeMetadata ?? persistedMetadata
+    : null;
+  const metadata = runtimeMetadata ?? persistedMetadata;
   const isError = Boolean(
     runtime?.isError ||
       toolResultBlock?.is_error ||
-      (typeof finalOutput === 'string' && finalOutput.startsWith('error:')),
-  )
+      (typeof finalOutput === "string" && finalOutput.startsWith("error:")),
+  );
 
   return {
     pending: Boolean(runtime?.pending),
@@ -331,24 +331,24 @@ function buildToolRuntime(
     finalOutput,
     metadata,
     isError,
-  }
+  };
 }
 
 function createCompactMarker(sourceIndex: number): CompactMarkerMessage {
   return {
-    kind: 'compact-marker',
+    kind: "compact-marker",
     sourceIndex,
     renderKey: `compact:${sourceIndex}`,
-  }
+  };
 }
 
 function createRenderAssistantMessage(sourceIndex: number): ChatMessage {
   return {
-    role: 'assistant',
+    role: "assistant",
     content: [],
     renderKey: `assistant:${sourceIndex}`,
     sourceIndex,
-  }
+  };
 }
 
 /**
@@ -358,142 +358,145 @@ export function buildRenderMessages(
   messages: ChatMessage[],
   toolRuntimeById: Record<string, ToolRuntime> = {},
 ): RenderMessage[] {
-  if (!Array.isArray(messages)) return []
+  if (!Array.isArray(messages)) return [];
 
-  const result: RenderMessage[] = []
-  const toolIndex: Record<string, ToolIndexEntry> = {}
-  let currentAssistant: ChatMessage | null = null
+  const result: RenderMessage[] = [];
+  const toolIndex: Record<string, ToolIndexEntry> = {};
+  let currentAssistant: ChatMessage | null = null;
 
   const ensureAssistantRenderMessage = (sourceIndex: number) => {
-    if (currentAssistant) return currentAssistant
-    currentAssistant = createRenderAssistantMessage(sourceIndex)
-    result.push(currentAssistant)
-    return currentAssistant
-  }
+    if (currentAssistant) return currentAssistant;
+    currentAssistant = createRenderAssistantMessage(sourceIndex);
+    result.push(currentAssistant);
+    return currentAssistant;
+  };
 
   for (const [sourceIndex, message] of messages.entries()) {
-    const role = message?.role
-    const blocks = getBlocks(message)
+    const role = message?.role;
+    const blocks = getBlocks(message);
 
-    if (role === 'compact') {
-      result.push(createCompactMarker(sourceIndex))
-      currentAssistant = null
-      continue
+    if (role === "compact") {
+      result.push(createCompactMarker(sourceIndex));
+      currentAssistant = null;
+      continue;
     }
 
-    if (role === 'user') {
-      const userBlocks: MessageBlock[] = []
-      const toolResults: ToolResultBlock[] = []
+    if (role === "user") {
+      const userBlocks: MessageBlock[] = [];
+      const toolResults: ToolResultBlock[] = [];
 
       for (const [blockIndex, block] of blocks.entries()) {
         if (
-          (block?.type === 'text' && block.text) ||
-          block?.type === 'image' ||
-          block?.type === 'document'
+          (block?.type === "text" && block.text) ||
+          block?.type === "image" ||
+          block?.type === "document"
         ) {
           userBlocks.push(
             cloneBlock(block, `user:${sourceIndex}:${blockIndex}`),
-          )
-        } else if (block?.type === 'tool_result') {
-          toolResults.push(block)
+          );
+        } else if (block?.type === "tool_result") {
+          toolResults.push(block);
         }
       }
 
       if (userBlocks.length > 0) {
         const userMsg: ChatMessage = {
-          role: 'user',
+          role: "user",
           content: userBlocks,
           renderKey: `user:${sourceIndex}`,
           sourceIndex,
-        }
+        };
         if (isObject(message?.meta))
-          userMsg.meta = { ...(message.meta as MessageMeta) }
-        result.push(userMsg)
-        currentAssistant = null
+          userMsg.meta = { ...(message.meta as MessageMeta) };
+        result.push(userMsg);
+        currentAssistant = null;
       }
 
-      if (toolResults.length === 0) continue
+      if (toolResults.length === 0) continue;
 
-      const assistantMessage = ensureAssistantRenderMessage(sourceIndex)
-      let assistantContent = [...getBlocks(assistantMessage)]
+      const assistantMessage = ensureAssistantRenderMessage(sourceIndex);
+      let assistantContent = [...getBlocks(assistantMessage)];
 
       for (const block of toolResults) {
-        const toolUseId = block.tool_use_id
-        const runtime = toolUseId ? toolRuntimeById[toolUseId] : undefined
-        const entry = toolUseId ? toolIndex[toolUseId] : undefined
+        const toolUseId = block.tool_use_id;
+        const runtime = toolUseId ? toolRuntimeById[toolUseId] : undefined;
+        const entry = toolUseId ? toolIndex[toolUseId] : undefined;
 
         if (entry) {
           // Tool result for a tool_use we already projected — splice the
           // runtime/result back onto that tool_use block.
-          const target = result[entry.messageIndex]
+          const target = result[entry.messageIndex];
           if (target && !isCompactMarker(target)) {
-            const targetContent = [...getBlocks(target)]
-            const targetBlock = targetContent[entry.blockIndex]
-            if (targetBlock?.type === 'tool_use') {
+            const targetContent = [...getBlocks(target)];
+            const targetBlock = targetContent[entry.blockIndex];
+            if (targetBlock?.type === "tool_use") {
               targetContent[entry.blockIndex] = {
                 ...targetBlock,
                 runtime: buildToolRuntime(runtime, block),
-              }
-              const updatedMessage = { ...target, content: targetContent }
-              result[entry.messageIndex] = updatedMessage
+              };
+              const updatedMessage = { ...target, content: targetContent };
+              result[entry.messageIndex] = updatedMessage;
               if (entry.messageIndex === result.length - 1) {
-                currentAssistant = updatedMessage
-                assistantContent = targetContent
+                currentAssistant = updatedMessage;
+                assistantContent = targetContent;
               }
             }
           }
-          continue
+          continue;
         }
 
         // Orphan tool_result (no matching tool_use seen) — surface it as a
         // synthetic tool_use block on the current assistant so the UI still
         // shows it instead of silently dropping.
         const nextBlock: ToolUseBlock = {
-          type: 'tool_use',
-          id: toolUseId || '',
-          name: 'tool',
+          type: "tool_use",
+          id: toolUseId || "",
+          name: "tool",
           input: EMPTY_TOOL_INPUT,
           runtime: buildToolRuntime(runtime, block),
-        }
-        const blockIndex = assistantContent.length
+        };
+        const blockIndex = assistantContent.length;
         nextBlock.renderKey =
-          toolUseId || `tool-result:${sourceIndex}:${blockIndex}`
-        assistantContent.push(nextBlock)
-        currentAssistant = { ...assistantMessage, content: assistantContent }
-        result[result.length - 1] = currentAssistant
+          toolUseId || `tool-result:${sourceIndex}:${blockIndex}`;
+        assistantContent.push(nextBlock);
+        currentAssistant = { ...assistantMessage, content: assistantContent };
+        result[result.length - 1] = currentAssistant;
         if (toolUseId) {
-          toolIndex[toolUseId] = { messageIndex: result.length - 1, blockIndex }
+          toolIndex[toolUseId] = {
+            messageIndex: result.length - 1,
+            blockIndex,
+          };
         }
       }
 
-      continue
+      continue;
     }
 
-    if (role !== 'assistant') continue
+    if (role !== "assistant") continue;
 
-    const assistantMessage = ensureAssistantRenderMessage(sourceIndex)
-    const assistantContent = [...getBlocks(assistantMessage)]
-    const messageIndex = result.length - 1
+    const assistantMessage = ensureAssistantRenderMessage(sourceIndex);
+    const assistantContent = [...getBlocks(assistantMessage)];
+    const messageIndex = result.length - 1;
 
     for (const [sourceBlockIndex, block] of blocks.entries()) {
-      if (block?.type === 'thinking' && block.text) {
+      if (block?.type === "thinking" && block.text) {
         assistantContent.push(
           cloneBlock(block, `assistant:${sourceIndex}:${sourceBlockIndex}`),
-        )
-        continue
+        );
+        continue;
       }
 
-      if (block?.type === 'text' && block.text) {
+      if (block?.type === "text" && block.text) {
         assistantContent.push(
           cloneBlock(block, `assistant:${sourceIndex}:${sourceBlockIndex}`),
-        )
-        continue
+        );
+        continue;
       }
 
-      if (block?.type !== 'tool_use') continue
+      if (block?.type !== "tool_use") continue;
 
       const renderBlock: ToolUseBlock = {
-        type: 'tool_use',
+        type: "tool_use",
         id: block.id,
         name: block.name,
         input: isObject(block.input) ? block.input : EMPTY_TOOL_INPUT,
@@ -501,17 +504,17 @@ export function buildRenderMessages(
           block.id ? toolRuntimeById[block.id] : undefined,
           null,
         ),
-      }
+      };
       renderBlock.renderKey =
-        block.id || `assistant:${sourceIndex}:${sourceBlockIndex}`
+        block.id || `assistant:${sourceIndex}:${sourceBlockIndex}`;
       if (isObject(block.meta)) {
-        renderBlock.meta = { ...block.meta }
+        renderBlock.meta = { ...block.meta };
       }
-      const blockIndex = assistantContent.length
-      assistantContent.push(renderBlock)
+      const blockIndex = assistantContent.length;
+      assistantContent.push(renderBlock);
 
       if (block.id) {
-        toolIndex[block.id] = { messageIndex, blockIndex }
+        toolIndex[block.id] = { messageIndex, blockIndex };
       }
     }
 
@@ -521,22 +524,22 @@ export function buildRenderMessages(
     const merged: ChatMessage = {
       ...assistantMessage,
       content: assistantContent,
-    }
-    const rawMeta = message?.meta as MessageMeta | undefined
+    };
+    const rawMeta = message?.meta as MessageMeta | undefined;
     if (rawMeta) {
-      merged.meta = { ...rawMeta }
+      merged.meta = { ...rawMeta };
     } else {
-      delete merged.meta
+      delete merged.meta;
     }
-    currentAssistant = merged
-    result[messageIndex] = merged
+    currentAssistant = merged;
+    result[messageIndex] = merged;
   }
 
   return result.filter((message, index) => {
-    if (isCompactMarker(message)) return true
+    if (isCompactMarker(message)) return true;
     return (
       (Array.isArray(message.content) && message.content.length > 0) ||
-      (index === result.length - 1 && message.role === 'assistant')
-    )
-  })
+      (index === result.length - 1 && message.role === "assistant")
+    );
+  });
 }

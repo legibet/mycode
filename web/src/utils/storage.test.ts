@@ -1,62 +1,62 @@
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it } from "vitest";
 
 import {
   loadActiveSession,
   removeActiveSession,
   saveActiveSession,
-} from './storage'
+} from "./storage";
 
 function createLocalStorage() {
-  const store = new Map()
+  const store = new Map();
 
   return {
     get length() {
-      return store.size
+      return store.size;
     },
     key(index: number) {
-      return Array.from(store.keys())[index] ?? null
+      return Array.from(store.keys())[index] ?? null;
     },
     getItem(key: string) {
-      return store.has(key) ? store.get(key) : null
+      return store.has(key) ? store.get(key) : null;
     },
     setItem(key: string, value: string) {
-      store.set(key, String(value))
+      store.set(key, String(value));
     },
     removeItem(key: string) {
-      store.delete(key)
+      store.delete(key);
     },
     clear() {
-      store.clear()
+      store.clear();
     },
-  }
+  };
 }
 
-describe('storage', () => {
+describe("storage", () => {
   beforeEach(() => {
-    globalThis.localStorage = createLocalStorage()
-  })
+    globalThis.localStorage = createLocalStorage();
+  });
 
-  it('stores active sessions per workspace', () => {
-    saveActiveSession('/workspace/a', 'session-a')
-    saveActiveSession('/workspace/b', 'session-b')
+  it("stores active sessions per workspace", () => {
+    saveActiveSession("/workspace/a", "session-a");
+    saveActiveSession("/workspace/b", "session-b");
 
-    expect(loadActiveSession('/workspace/a')).toBe('session-a')
-    expect(loadActiveSession('/workspace/b')).toBe('session-b')
-  })
+    expect(loadActiveSession("/workspace/a")).toBe("session-a");
+    expect(loadActiveSession("/workspace/b")).toBe("session-b");
+  });
 
-  it('returns empty for workspaces without a saved session', () => {
-    saveActiveSession('/workspace/a', 'session-a')
+  it("returns empty for workspaces without a saved session", () => {
+    saveActiveSession("/workspace/a", "session-a");
 
-    expect(loadActiveSession('/workspace/b')).toBe('')
-  })
+    expect(loadActiveSession("/workspace/b")).toBe("");
+  });
 
-  it('removes the saved active session for a workspace', () => {
-    saveActiveSession('/workspace/a', 'session-a')
-    saveActiveSession('/workspace/b', 'session-b')
+  it("removes the saved active session for a workspace", () => {
+    saveActiveSession("/workspace/a", "session-a");
+    saveActiveSession("/workspace/b", "session-b");
 
-    removeActiveSession('/workspace/a')
+    removeActiveSession("/workspace/a");
 
-    expect(loadActiveSession('/workspace/a')).toBe('')
-    expect(loadActiveSession('/workspace/b')).toBe('session-b')
-  })
-})
+    expect(loadActiveSession("/workspace/a")).toBe("");
+    expect(loadActiveSession("/workspace/b")).toBe("session-b");
+  });
+});

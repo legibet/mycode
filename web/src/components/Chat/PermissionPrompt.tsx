@@ -6,47 +6,47 @@ import {
   PenLine,
   SquarePen,
   Terminal,
-} from 'lucide-react'
-import { type KeyboardEvent, memo, useEffect, useRef } from 'react'
-import type { PermissionRequest } from '../../types'
+} from "lucide-react";
+import { type KeyboardEvent, memo, useEffect, useRef } from "react";
+import type { PermissionRequest } from "../../types";
 
 const TOOL_ICON: Record<string, LucideIcon> = {
   bash: Terminal,
   read: FileText,
   write: PenLine,
   edit: SquarePen,
-}
+};
 
 interface PermissionPromptProps {
-  request: PermissionRequest
-  onDecide: (decision: 'allow' | 'deny') => void
+  request: PermissionRequest;
+  onDecide: (decision: "allow" | "deny") => void;
 }
 
 export const PermissionPrompt = memo(function PermissionPrompt({
   request,
   onDecide,
 }: PermissionPromptProps) {
-  const dialogRef = useRef<HTMLDivElement | null>(null)
+  const dialogRef = useRef<HTMLDivElement | null>(null);
 
   // Focus the dialog itself so Enter / Escape land on the keydown handler
   // without painting a button focus ring.
   // biome-ignore lint/correctness/useExhaustiveDependencies: re-focus on each new request, not every render
   useEffect(() => {
-    dialogRef.current?.focus()
-  }, [request.request_id])
+    dialogRef.current?.focus();
+  }, [request.request_id]);
 
   const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (event.key === 'Enter') {
-      event.preventDefault()
-      onDecide('allow')
-    } else if (event.key === 'Escape') {
-      event.preventDefault()
-      onDecide('deny')
+    if (event.key === "Enter") {
+      event.preventDefault();
+      onDecide("allow");
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      onDecide("deny");
     }
-  }
+  };
 
-  const Icon = TOOL_ICON[request.tool_name] ?? Terminal
-  const isBash = request.tool_name === 'bash'
+  const Icon = TOOL_ICON[request.tool_name] ?? Terminal;
+  const isBash = request.tool_name === "bash";
 
   return (
     <div className="mx-auto max-w-4xl max-md:max-w-none px-5 max-md:px-3 pt-3 max-md:pt-2 pb-1">
@@ -82,14 +82,14 @@ export const PermissionPrompt = memo(function PermissionPrompt({
         <div className="flex items-center justify-end gap-1 px-2 pb-2">
           <button
             type="button"
-            onClick={() => onDecide('allow')}
+            onClick={() => onDecide("allow")}
             className="h-7 px-3 rounded-md text-[12.5px] font-medium bg-accent text-accent-foreground hover:opacity-90 active:scale-[0.97] transition-[opacity,transform]"
           >
             Allow
           </button>
           <button
             type="button"
-            onClick={() => onDecide('deny')}
+            onClick={() => onDecide("deny")}
             className="h-7 px-3 rounded-md text-[12.5px] text-muted-foreground hover:text-foreground hover:bg-muted/70 transition-colors"
           >
             Deny
@@ -97,5 +97,5 @@ export const PermissionPrompt = memo(function PermissionPrompt({
         </div>
       </div>
     </div>
-  )
-})
+  );
+});

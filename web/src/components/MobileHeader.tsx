@@ -2,12 +2,12 @@
  * Mobile-only top bar with menu toggle, session title, and new chat.
  */
 
-import { Menu, Plus } from 'lucide-react'
+import { Menu, Plus } from "lucide-react";
 
 interface MobileHeaderProps {
-  title?: string | undefined
-  onMenuToggle: () => void
-  onCreateSession: () => void
+  title?: string | undefined;
+  onMenuToggle: () => void;
+  onCreateSession: () => void;
 }
 
 export function MobileHeader({
@@ -27,7 +27,7 @@ export function MobileHeader({
       </button>
 
       <span className="text-xs font-mono text-foreground/70 truncate max-w-[60%] text-center">
-        {title || 'mycode'}
+        {title || "mycode"}
       </span>
 
       <button
@@ -39,5 +39,5 @@ export function MobileHeader({
         <Plus className="size-5" />
       </button>
     </header>
-  )
+  );
 }

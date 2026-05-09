@@ -1,24 +1,24 @@
-import { PatchDiff } from '@pierre/diffs/react'
-import type { CSSProperties } from 'react'
-import { useTheme } from '../ThemeProvider'
+import { PatchDiff } from "@pierre/diffs/react";
+import type { CSSProperties } from "react";
+import { useTheme } from "../ThemeProvider";
 
 interface EditDiffProps {
-  patch: string
+  patch: string;
 }
 
 const DIFF_THEMES = {
-  dark: 'dark-plus',
-  light: 'light-plus',
-} as const
+  dark: "dark-plus",
+  light: "light-plus",
+} as const;
 
 const baseDiffStyle = {
-  '--diffs-font-family': '"JetBrains Mono", ui-monospace, monospace',
-  '--diffs-header-font-family': '"JetBrains Mono", ui-monospace, monospace',
-  '--diffs-font-size': '13px',
-  '--diffs-line-height': '1.5',
-  '--diffs-light-bg': 'hsl(var(--code-background))',
-  '--diffs-dark-bg': 'hsl(var(--code-background))',
-} as CSSProperties
+  "--diffs-font-family": '"JetBrains Mono", ui-monospace, monospace',
+  "--diffs-header-font-family": '"JetBrains Mono", ui-monospace, monospace',
+  "--diffs-font-size": "13px",
+  "--diffs-line-height": "1.5",
+  "--diffs-light-bg": "hsl(var(--code-background))",
+  "--diffs-dark-bg": "hsl(var(--code-background))",
+} as CSSProperties;
 
 const diffCss = `
 [data-code] {
@@ -47,10 +47,10 @@ const diffCss = `
     ),
     var(--diffs-bg);
 }
-`
+`;
 
 export default function EditDiff({ patch }: EditDiffProps) {
-  const { resolvedTheme } = useTheme()
+  const { resolvedTheme } = useTheme();
 
   return (
     <div className="rounded-md bg-code overflow-hidden">
@@ -61,14 +61,14 @@ export default function EditDiff({ patch }: EditDiffProps) {
         options={{
           theme: DIFF_THEMES,
           themeType: resolvedTheme,
-          diffStyle: 'unified',
-          diffIndicators: 'classic',
+          diffStyle: "unified",
+          diffIndicators: "classic",
           disableFileHeader: true,
-          hunkSeparators: 'simple',
-          overflow: 'scroll',
+          hunkSeparators: "simple",
+          overflow: "scroll",
           unsafeCSS: diffCss,
         }}
       />
     </div>
-  )
+  );
 }

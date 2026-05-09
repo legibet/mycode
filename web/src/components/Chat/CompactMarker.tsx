@@ -11,5 +11,5 @@ export function CompactMarker() {
       </span>
       <div className="h-px flex-1 bg-border/40" />
     </div>
-  )
+  );
 }

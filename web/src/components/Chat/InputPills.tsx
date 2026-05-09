@@ -1,7 +1,7 @@
 /** Triggers shown inside the input box bottom row: model, effort. */
 
-import { Check, ChevronDown } from 'lucide-react'
-import { memo, useMemo, useState } from 'react'
+import { Check, ChevronDown } from "lucide-react";
+import { memo, useMemo, useState } from "react";
 import {
   Command,
   CommandEmpty,
@@ -9,53 +9,53 @@ import {
   CommandInput,
   CommandItem,
   CommandList,
-} from '@/components/ui/command'
+} from "@/components/ui/command";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
+} from "@/components/ui/dropdown-menu";
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
-} from '@/components/ui/popover'
+} from "@/components/ui/popover";
 import type {
   LocalConfig,
   ProviderInfo,
   ReasoningEffort,
   RemoteConfig,
-} from '../../types'
-import { cn } from '../../utils/cn'
+} from "../../types";
+import { cn } from "../../utils/cn";
 import {
   getDefaultReasoningEffort,
   isReasoningEffort,
-} from '../../utils/config'
+} from "../../utils/config";
 
 const TRIGGER_BTN =
-  'inline-flex items-center gap-0.5 h-6 px-1.5 rounded text-[12px] leading-none ' +
-  'text-muted-foreground hover:text-foreground hover:bg-muted/60 ' +
-  'transition-colors focus-visible:outline-none focus-visible:bg-muted/60 ' +
-  'disabled:opacity-40 disabled:cursor-not-allowed'
+  "inline-flex items-center gap-0.5 h-6 px-1.5 rounded text-[12px] leading-none " +
+  "text-muted-foreground hover:text-foreground hover:bg-muted/60 " +
+  "transition-colors focus-visible:outline-none focus-visible:bg-muted/60 " +
+  "disabled:opacity-40 disabled:cursor-not-allowed";
 
-const POPOVER_CONTENT_CLASS = 'p-0 gap-0'
+const POPOVER_CONTENT_CLASS = "p-0 gap-0";
 
 // Skip auto-focus on touch/pen so the soft keyboard doesn't pop up just
 // from opening the picker. `openType` is Base UI's `InteractionType`.
 const initialFocusByOpenType = (openType: string) =>
-  openType === 'mouse' || openType === 'keyboard'
+  openType === "mouse" || openType === "keyboard";
 
 interface ModelTriggerProps {
-  config: LocalConfig
-  remoteConfig: RemoteConfig | null
-  onUpdateConfig: (config: LocalConfig) => void
+  config: LocalConfig;
+  remoteConfig: RemoteConfig | null;
+  onUpdateConfig: (config: LocalConfig) => void;
 }
 
 interface ModelItem {
-  providerKey: string
-  providerName: string
-  model: string
+  providerKey: string;
+  providerName: string;
+  model: string;
 }
 
 export const ModelTrigger = memo(function ModelTrigger({
@@ -63,13 +63,13 @@ export const ModelTrigger = memo(function ModelTrigger({
   remoteConfig,
   onUpdateConfig,
 }: ModelTriggerProps) {
-  const [open, setOpen] = useState(false)
+  const [open, setOpen] = useState(false);
 
   const groups = useMemo(() => {
-    const providers = remoteConfig?.providers || {}
+    const providers = remoteConfig?.providers || {};
     const entries: Array<[string, ProviderInfo]> = Object.entries(
       providers,
-    ).filter((e): e is [string, ProviderInfo] => e[1] !== undefined)
+    ).filter((e): e is [string, ProviderInfo] => e[1] !== undefined);
     return entries.map(([providerKey, info]) => ({
       providerKey,
       providerName: info.name,
@@ -78,20 +78,20 @@ export const ModelTrigger = memo(function ModelTrigger({
         providerName: info.name,
         model,
       })),
-    }))
-  }, [remoteConfig])
+    }));
+  }, [remoteConfig]);
 
-  const label = config.model || 'no-model'
+  const label = config.model || "no-model";
 
   const select = (item: ModelItem) => {
     onUpdateConfig({
       ...config,
       provider: item.providerKey,
       model: item.model,
-      reasoningEffort: '',
-    })
-    setOpen(false)
-  }
+      reasoningEffort: "",
+    });
+    setOpen(false);
+  };
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -99,14 +99,14 @@ export const ModelTrigger = memo(function ModelTrigger({
         render={
           <button
             type="button"
-            className={cn(TRIGGER_BTN, 'min-w-0 max-w-full')}
+            className={cn(TRIGGER_BTN, "min-w-0 max-w-full")}
             title={label}
           >
             <span className="truncate font-mono">{label}</span>
             <ChevronDown
               className={cn(
-                'size-3 shrink-0 opacity-60 transition-transform',
-                open && 'rotate-180',
+                "size-3 shrink-0 opacity-60 transition-transform",
+                open && "rotate-180",
               )}
             />
           </button>
@@ -117,7 +117,7 @@ export const ModelTrigger = memo(function ModelTrigger({
         align="start"
         sideOffset={6}
         initialFocus={initialFocusByOpenType}
-        className={cn(POPOVER_CONTENT_CLASS, 'w-80 max-w-[calc(100vw-1rem)]')}
+        className={cn(POPOVER_CONTENT_CLASS, "w-80 max-w-[calc(100vw-1rem)]")}
       >
         <Command
           defaultValue={`${config.provider}:${config.model}`}
@@ -134,7 +134,7 @@ export const ModelTrigger = memo(function ModelTrigger({
                 {group.items.map((item) => {
                   const active =
                     item.providerKey === config.provider &&
-                    item.model === config.model
+                    item.model === config.model;
                   return (
                     <CommandItem
                       key={`${item.providerKey}:${item.model}`}
@@ -149,7 +149,7 @@ export const ModelTrigger = memo(function ModelTrigger({
                         <Check className="size-3 shrink-0 text-accent" />
                       )}
                     </CommandItem>
-                  )
+                  );
                 })}
               </CommandGroup>
             ))}
@@ -157,13 +157,13 @@ export const ModelTrigger = memo(function ModelTrigger({
         </Command>
       </PopoverContent>
     </Popover>
-  )
-})
+  );
+});
 
 interface EffortTriggerProps {
-  config: LocalConfig
-  remoteConfig: RemoteConfig | null
-  onUpdateConfig: (config: LocalConfig) => void
+  config: LocalConfig;
+  remoteConfig: RemoteConfig | null;
+  onUpdateConfig: (config: LocalConfig) => void;
 }
 
 export const EffortTrigger = memo(function EffortTrigger({
@@ -171,28 +171,28 @@ export const EffortTrigger = memo(function EffortTrigger({
   remoteConfig,
   onUpdateConfig,
 }: EffortTriggerProps) {
-  const [open, setOpen] = useState(false)
+  const [open, setOpen] = useState(false);
 
-  const activeProviderInfo = remoteConfig?.providers?.[config.provider]
-  const reasoningModels = activeProviderInfo?.reasoning_models || []
+  const activeProviderInfo = remoteConfig?.providers?.[config.provider];
+  const reasoningModels = activeProviderInfo?.reasoning_models || [];
   const supportsEffort = Boolean(
     activeProviderInfo?.supports_reasoning_effort &&
       reasoningModels.includes(config.model),
-  )
-  const options = remoteConfig?.reasoning_effort_options || []
+  );
+  const options = remoteConfig?.reasoning_effort_options || [];
 
   const current =
     config.reasoningEffort ||
     getDefaultReasoningEffort(remoteConfig, config.provider, config.model) ||
-    'auto'
+    "auto";
 
-  if (!supportsEffort) return null
+  if (!supportsEffort) return null;
 
   const select = (value: ReasoningEffort) => {
-    if (!isReasoningEffort(value)) return
-    onUpdateConfig({ ...config, reasoningEffort: value })
-    setOpen(false)
-  }
+    if (!isReasoningEffort(value)) return;
+    onUpdateConfig({ ...config, reasoningEffort: value });
+    setOpen(false);
+  };
 
   return (
     <DropdownMenu open={open} onOpenChange={setOpen}>
@@ -206,8 +206,8 @@ export const EffortTrigger = memo(function EffortTrigger({
             <span className="font-mono">{current}</span>
             <ChevronDown
               className={cn(
-                'size-3 shrink-0 opacity-60 transition-transform',
-                open && 'rotate-180',
+                "size-3 shrink-0 opacity-60 transition-transform",
+                open && "rotate-180",
               )}
             />
           </button>
@@ -220,17 +220,17 @@ export const EffortTrigger = memo(function EffortTrigger({
         className="min-w-35"
       >
         {options.map((opt) => {
-          const active = opt === current
+          const active = opt === current;
           return (
             <DropdownMenuItem key={opt} onClick={() => select(opt)}>
               <span className="flex-1 font-mono text-[13px]">
-                {opt || 'auto'}
+                {opt || "auto"}
               </span>
               {active && <Check className="size-3 shrink-0 text-accent" />}
             </DropdownMenuItem>
-          )
+          );
         })}
       </DropdownMenuContent>
     </DropdownMenu>
-  )
-})
+  );
+});

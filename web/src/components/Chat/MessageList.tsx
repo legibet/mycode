@@ -4,27 +4,27 @@
  * Empty state: blinking cursor terminal prompt.
  */
 
-import { memo, useCallback, useLayoutEffect, useRef } from 'react'
-import type { RenderMessage } from '../../types'
-import { isCompactMarker } from '../../types'
-import { CompactMarker } from './CompactMarker'
-import { MessageBubble } from './MessageBubble'
+import { memo, useCallback, useLayoutEffect, useRef } from "react";
+import type { RenderMessage } from "../../types";
+import { isCompactMarker } from "../../types";
+import { CompactMarker } from "./CompactMarker";
+import { MessageBubble } from "./MessageBubble";
 
-const SCROLL_THRESHOLD = 120
-const DRAFT_SESSION_KEY = '__draft__'
+const SCROLL_THRESHOLD = 120;
+const DRAFT_SESSION_KEY = "__draft__";
 
 interface MessageListProps {
-  sessionId?: string | undefined
-  messages: RenderMessage[]
-  loading: boolean
-  sessionLoading: boolean
+  sessionId?: string | undefined;
+  messages: RenderMessage[];
+  loading: boolean;
+  sessionLoading: boolean;
   onRewindAndSend?:
     | ((rewindTo: number, input: string) => Promise<void>)
-    | undefined
+    | undefined;
 }
 
 function getBottomScrollTop(container: HTMLDivElement): number {
-  return Math.max(0, container.scrollHeight - container.clientHeight)
+  return Math.max(0, container.scrollHeight - container.clientHeight);
 }
 
 export const MessageList = memo(function MessageList({
@@ -34,53 +34,55 @@ export const MessageList = memo(function MessageList({
   sessionLoading,
   onRewindAndSend,
 }: MessageListProps) {
-  const sessionKey = sessionId || DRAFT_SESSION_KEY
-  const containerRef = useRef<HTMLDivElement | null>(null)
-  const scrollPositionsRef = useRef(new Map<string, number>())
-  const activeSessionKeyRef = useRef(sessionKey)
-  const stickToBottom = useRef(true)
-  const previousMessageCount = useRef(0)
+  const sessionKey = sessionId || DRAFT_SESSION_KEY;
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const scrollPositionsRef = useRef(new Map<string, number>());
+  const activeSessionKeyRef = useRef(sessionKey);
+  const stickToBottom = useRef(true);
+  const previousMessageCount = useRef(0);
 
   const saveScrollPosition = useCallback((sessionKey: string) => {
-    const el = containerRef.current
-    if (!el) return
-    scrollPositionsRef.current.set(sessionKey, el.scrollTop)
+    const el = containerRef.current;
+    if (!el) return;
+    scrollPositionsRef.current.set(sessionKey, el.scrollTop);
     stickToBottom.current =
-      el.scrollHeight - el.scrollTop - el.clientHeight < SCROLL_THRESHOLD
-  }, [])
+      el.scrollHeight - el.scrollTop - el.clientHeight < SCROLL_THRESHOLD;
+  }, []);
 
   const handleScroll = useCallback(() => {
-    saveScrollPosition(activeSessionKeyRef.current)
-  }, [saveScrollPosition])
+    saveScrollPosition(activeSessionKeyRef.current);
+  }, [saveScrollPosition]);
 
   useLayoutEffect(() => {
-    const sessionChanged = activeSessionKeyRef.current !== sessionKey
-    const previousCount = previousMessageCount.current
-    previousMessageCount.current = messages.length
+    const sessionChanged = activeSessionKeyRef.current !== sessionKey;
+    const previousCount = previousMessageCount.current;
+    previousMessageCount.current = messages.length;
 
-    const container = containerRef.current
-    if (!messages.length || !container) return
+    const container = containerRef.current;
+    if (!messages.length || !container) return;
 
     if (sessionChanged) {
-      activeSessionKeyRef.current = sessionKey
-      const savedTop = scrollPositionsRef.current.get(sessionKey)
-      const bottomTop = getBottomScrollTop(container)
+      activeSessionKeyRef.current = sessionKey;
+      const savedTop = scrollPositionsRef.current.get(sessionKey);
+      const bottomTop = getBottomScrollTop(container);
       container.scrollTop =
-        typeof savedTop === 'number' ? Math.min(savedTop, bottomTop) : bottomTop
+        typeof savedTop === "number"
+          ? Math.min(savedTop, bottomTop)
+          : bottomTop;
       stickToBottom.current =
         container.scrollHeight - container.scrollTop - container.clientHeight <
-        SCROLL_THRESHOLD
-      return
+        SCROLL_THRESHOLD;
+      return;
     }
 
-    if (!stickToBottom.current) return
+    if (!stickToBottom.current) return;
 
     container.scrollTo({
       top: getBottomScrollTop(container),
-      behavior: loading || previousCount === 0 ? 'auto' : 'smooth',
-    })
-    saveScrollPosition(sessionKey)
-  }, [loading, messages, saveScrollPosition, sessionKey])
+      behavior: loading || previousCount === 0 ? "auto" : "smooth",
+    });
+    saveScrollPosition(sessionKey);
+  }, [loading, messages, saveScrollPosition, sessionKey]);
 
   if (messages.length === 0) {
     return (
@@ -98,7 +100,7 @@ export const MessageList = memo(function MessageList({
           </div>
         )}
       </div>
-    )
+    );
   }
 
   return (
@@ -110,7 +112,7 @@ export const MessageList = memo(function MessageList({
       <div className="mx-auto max-w-4xl max-md:max-w-none flex flex-col gap-6 max-md:gap-5">
         {messages.map((message, index) => {
           if (isCompactMarker(message)) {
-            return <CompactMarker key={message.renderKey} />
+            return <CompactMarker key={message.renderKey} />;
           }
           return (
             <MessageBubble
@@ -121,7 +123,7 @@ export const MessageList = memo(function MessageList({
               isStreaming={
                 loading &&
                 index === messages.length - 1 &&
-                message.role === 'assistant'
+                message.role === "assistant"
               }
               isLoading={loading}
               totalTokens={message.meta?.total_tokens}
@@ -129,10 +131,10 @@ export const MessageList = memo(function MessageList({
               contextWindow={message.meta?.context_window}
               onRewindAndSend={onRewindAndSend}
             />
-          )
+          );
         })}
         <div className="h-4" />
       </div>
     </div>
-  )
-})
+  );
+});

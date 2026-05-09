@@ -2,29 +2,29 @@
  * Local storage utilities for config and history persistence.
  */
 
-import type { LocalConfig } from '../types'
-import { isReasoningEffort } from './config'
+import type { LocalConfig } from "../types";
+import { isReasoningEffort } from "./config";
 import {
   SIDEBAR_DEFAULT_WIDTH,
   SIDEBAR_MAX_WIDTH,
   SIDEBAR_MIN_WIDTH,
-} from './sidebar'
+} from "./sidebar";
 
-const STORAGE_KEY = 'mycode_config'
-const HISTORY_KEY = 'mycode_cwd_history'
-const ACTIVE_SESSIONS_KEY = 'mycode_active_sessions'
-const SIDEBAR_WIDTH_KEY = 'mycode_sidebar_width'
-const SCHEMA_VERSION = 1
+const STORAGE_KEY = "mycode_config";
+const HISTORY_KEY = "mycode_cwd_history";
+const ACTIVE_SESSIONS_KEY = "mycode_active_sessions";
+const SIDEBAR_WIDTH_KEY = "mycode_sidebar_width";
+const SCHEMA_VERSION = 1;
 
 const DEFAULT_CONFIG: LocalConfig = {
-  provider: '', // configured alias or raw provider id; empty = use server default
-  model: '',
-  cwd: '.',
-  reasoningEffort: '', // empty = use server/config default
-}
+  provider: "", // configured alias or raw provider id; empty = use server default
+  model: "",
+  cwd: ".",
+  reasoningEffort: "", // empty = use server/config default
+};
 
 function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === 'object' && !Array.isArray(value)
+  return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
 function getString(
@@ -32,38 +32,38 @@ function getString(
   key: string,
   fallback: string,
 ): string {
-  return typeof record[key] === 'string' ? record[key] : fallback
+  return typeof record[key] === "string" ? record[key] : fallback;
 }
 
 function normalizeStoredConfig(record: Record<string, unknown>): LocalConfig {
   // biome-ignore lint/complexity/useLiteralKeys: index signature requires bracket access
-  const reasoningEffort = record['reasoningEffort']
+  const reasoningEffort = record["reasoningEffort"];
 
   return {
-    provider: getString(record, 'provider', DEFAULT_CONFIG.provider),
-    model: getString(record, 'model', DEFAULT_CONFIG.model),
-    cwd: getString(record, 'cwd', DEFAULT_CONFIG.cwd),
+    provider: getString(record, "provider", DEFAULT_CONFIG.provider),
+    model: getString(record, "model", DEFAULT_CONFIG.model),
+    cwd: getString(record, "cwd", DEFAULT_CONFIG.cwd),
     reasoningEffort: isReasoningEffort(reasoningEffort)
       ? reasoningEffort
       : DEFAULT_CONFIG.reasoningEffort,
-  }
+  };
 }
 
 export function loadConfig(): LocalConfig {
   try {
-    const saved = localStorage.getItem(STORAGE_KEY)
+    const saved = localStorage.getItem(STORAGE_KEY);
     if (saved) {
-      const parsed = JSON.parse(saved) as unknown
+      const parsed = JSON.parse(saved) as unknown;
       // biome-ignore lint/complexity/useLiteralKeys: index signature requires bracket access
-      if (!isRecord(parsed) || parsed['_v'] !== SCHEMA_VERSION) {
-        return DEFAULT_CONFIG
+      if (!isRecord(parsed) || parsed["_v"] !== SCHEMA_VERSION) {
+        return DEFAULT_CONFIG;
       }
-      return normalizeStoredConfig(parsed)
+      return normalizeStoredConfig(parsed);
     }
   } catch (e) {
-    console.error('Failed to load config:', e)
+    console.error("Failed to load config:", e);
   }
-  return DEFAULT_CONFIG
+  return DEFAULT_CONFIG;
 }
 
 export function saveConfig(config: LocalConfig): void {
@@ -71,64 +71,64 @@ export function saveConfig(config: LocalConfig): void {
     localStorage.setItem(
       STORAGE_KEY,
       JSON.stringify({ ...config, _v: SCHEMA_VERSION }),
-    )
+    );
   } catch (e) {
-    console.error('Failed to save config:', e)
+    console.error("Failed to save config:", e);
   }
 }
 
 export function loadHistory(): string[] {
   try {
-    const saved = localStorage.getItem(HISTORY_KEY)
+    const saved = localStorage.getItem(HISTORY_KEY);
     if (saved) {
-      const parsed = JSON.parse(saved) as unknown
+      const parsed = JSON.parse(saved) as unknown;
       return Array.isArray(parsed)
-        ? parsed.filter((item): item is string => typeof item === 'string')
-        : []
+        ? parsed.filter((item): item is string => typeof item === "string")
+        : [];
     }
   } catch (e) {
-    console.error('Failed to load history:', e)
+    console.error("Failed to load history:", e);
   }
-  return []
+  return [];
 }
 
 export function saveHistory(history: string[]): void {
   try {
-    localStorage.setItem(HISTORY_KEY, JSON.stringify(history.slice(0, 6)))
+    localStorage.setItem(HISTORY_KEY, JSON.stringify(history.slice(0, 6)));
   } catch (e) {
-    console.error('Failed to save history:', e)
+    console.error("Failed to save history:", e);
   }
 }
 
 export function addHistory(history: string[], value: string): string[] {
-  if (!value) return history
-  const cleaned = value.trim()
-  if (!cleaned) return history
-  const next = [cleaned, ...history.filter((item) => item !== cleaned)]
-  return next.slice(0, 6)
+  if (!value) return history;
+  const cleaned = value.trim();
+  if (!cleaned) return history;
+  const next = [cleaned, ...history.filter((item) => item !== cleaned)];
+  return next.slice(0, 6);
 }
 
 function normalizeCwdKey(cwd: string): string {
-  if (typeof cwd !== 'string') return '.'
-  const value = cwd.trim()
-  return value || '.'
+  if (typeof cwd !== "string") return ".";
+  const value = cwd.trim();
+  return value || ".";
 }
 
 function loadActiveSessionMap(): Record<string, string> {
   try {
-    const saved = localStorage.getItem(ACTIVE_SESSIONS_KEY)
-    if (!saved) return {}
-    const parsed = JSON.parse(saved) as unknown
-    if (!isRecord(parsed)) return {}
+    const saved = localStorage.getItem(ACTIVE_SESSIONS_KEY);
+    if (!saved) return {};
+    const parsed = JSON.parse(saved) as unknown;
+    if (!isRecord(parsed)) return {};
     return Object.fromEntries(
       Object.entries(parsed).filter(
         (entry): entry is [string, string] =>
-          typeof entry[0] === 'string' && typeof entry[1] === 'string',
+          typeof entry[0] === "string" && typeof entry[1] === "string",
       ),
-    )
+    );
   } catch (e) {
-    console.error('Failed to load active sessions:', e)
-    return {}
+    console.error("Failed to load active sessions:", e);
+    return {};
   }
 }
 
@@ -136,64 +136,64 @@ function saveActiveSessionMap(activeSessions: Record<string, string>): void {
   try {
     const entries = Object.entries(activeSessions).filter(
       ([cwd, sessionId]) =>
-        typeof cwd === 'string' &&
+        typeof cwd === "string" &&
         cwd &&
-        typeof sessionId === 'string' &&
+        typeof sessionId === "string" &&
         sessionId,
-    )
+    );
     if (entries.length === 0) {
-      localStorage.removeItem(ACTIVE_SESSIONS_KEY)
-      return
+      localStorage.removeItem(ACTIVE_SESSIONS_KEY);
+      return;
     }
     localStorage.setItem(
       ACTIVE_SESSIONS_KEY,
       JSON.stringify(Object.fromEntries(entries)),
-    )
+    );
   } catch (e) {
-    console.error('Failed to save active sessions:', e)
+    console.error("Failed to save active sessions:", e);
   }
 }
 
 export function loadActiveSession(cwd: string): string {
-  const activeSessions = loadActiveSessionMap()
-  const sessionId = activeSessions[normalizeCwdKey(cwd)]
-  return typeof sessionId === 'string' ? sessionId : ''
+  const activeSessions = loadActiveSessionMap();
+  const sessionId = activeSessions[normalizeCwdKey(cwd)];
+  return typeof sessionId === "string" ? sessionId : "";
 }
 
 export function saveActiveSession(cwd: string, sessionId: string): void {
-  if (typeof sessionId !== 'string' || !sessionId) return
-  const activeSessions = loadActiveSessionMap()
-  activeSessions[normalizeCwdKey(cwd)] = sessionId
-  saveActiveSessionMap(activeSessions)
+  if (typeof sessionId !== "string" || !sessionId) return;
+  const activeSessions = loadActiveSessionMap();
+  activeSessions[normalizeCwdKey(cwd)] = sessionId;
+  saveActiveSessionMap(activeSessions);
 }
 
 export function removeActiveSession(cwd: string): void {
-  const activeSessions = loadActiveSessionMap()
-  delete activeSessions[normalizeCwdKey(cwd)]
-  saveActiveSessionMap(activeSessions)
+  const activeSessions = loadActiveSessionMap();
+  delete activeSessions[normalizeCwdKey(cwd)];
+  saveActiveSessionMap(activeSessions);
 }
 
 export function loadSidebarWidth(): number {
   try {
-    const saved = localStorage.getItem(SIDEBAR_WIDTH_KEY)
+    const saved = localStorage.getItem(SIDEBAR_WIDTH_KEY);
     if (saved) {
-      const n = Number(saved)
+      const n = Number(saved);
       if (Number.isFinite(n)) {
         // Global bounds only — viewport-dependent clamp happens at render time
         // so a narrow viewport never overwrites the user's preferred width.
-        return Math.max(SIDEBAR_MIN_WIDTH, Math.min(SIDEBAR_MAX_WIDTH, n))
+        return Math.max(SIDEBAR_MIN_WIDTH, Math.min(SIDEBAR_MAX_WIDTH, n));
       }
     }
   } catch (e) {
-    console.error('Failed to load sidebar width:', e)
+    console.error("Failed to load sidebar width:", e);
   }
-  return SIDEBAR_DEFAULT_WIDTH
+  return SIDEBAR_DEFAULT_WIDTH;
 }
 
 export function saveSidebarWidth(width: number): void {
   try {
-    localStorage.setItem(SIDEBAR_WIDTH_KEY, String(width))
+    localStorage.setItem(SIDEBAR_WIDTH_KEY, String(width));
   } catch (e) {
-    console.error('Failed to save sidebar width:', e)
+    console.error("Failed to save sidebar width:", e);
   }
 }

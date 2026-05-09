@@ -5,7 +5,7 @@
  * Assistant: left-aligned, full-width, content-first.
  */
 
-import { Check, Copy, FileText, Pencil } from 'lucide-react'
+import { Check, Copy, FileText, Pencil } from "lucide-react";
 import {
   Component,
   type KeyboardEvent,
@@ -16,80 +16,80 @@ import {
   useMemo,
   useRef,
   useState,
-} from 'react'
+} from "react";
 import type {
   ChatMessage,
   DocumentBlock,
   ImageBlock,
   MessageBlock,
   TextBlock,
-} from '../../types'
-import { copyText } from '../../utils/clipboard'
-import { cn } from '../../utils/cn'
-import { MarkdownBlock } from './MarkdownBlock'
-import { ReasoningBlock } from './ReasoningBlock'
-import { ToolCard } from './ToolCard'
+} from "../../types";
+import { copyText } from "../../utils/clipboard";
+import { cn } from "../../utils/cn";
+import { MarkdownBlock } from "./MarkdownBlock";
+import { ReasoningBlock } from "./ReasoningBlock";
+import { ToolCard } from "./ToolCard";
 
 interface MessageBubbleProps {
-  role: ChatMessage['role']
-  blocks: MessageBlock[]
-  sourceIndex?: number | undefined
-  isStreaming?: boolean | undefined
-  isLoading: boolean
-  totalTokens?: number | undefined
-  model?: string | undefined
-  contextWindow?: number | undefined
+  role: ChatMessage["role"];
+  blocks: MessageBlock[];
+  sourceIndex?: number | undefined;
+  isStreaming?: boolean | undefined;
+  isLoading: boolean;
+  totalTokens?: number | undefined;
+  model?: string | undefined;
+  contextWindow?: number | undefined;
   onRewindAndSend?:
     | ((rewindTo: number, input: string) => Promise<void>)
-    | undefined
+    | undefined;
 }
 
 interface RenderErrorBoundaryProps {
-  children: ReactNode
-  fallback: ReactNode
+  children: ReactNode;
+  fallback: ReactNode;
 }
 
 interface RenderErrorBoundaryState {
-  hasError: boolean
+  hasError: boolean;
 }
 
 interface AttachmentMeta {
-  attachment?: boolean
-  path?: string
+  attachment?: boolean;
+  path?: string;
 }
 
 function getDurationMs(block: MessageBlock): number | undefined {
   // biome-ignore lint/complexity/useLiteralKeys: index signature requires bracket access
-  const durationMs = block.meta?.['duration_ms']
-  return typeof durationMs === 'number' ? durationMs : undefined
+  const durationMs = block.meta?.["duration_ms"];
+  return typeof durationMs === "number" ? durationMs : undefined;
 }
 
 function getAttachmentMeta(block: MessageBlock): AttachmentMeta | undefined {
-  return block.meta as AttachmentMeta | undefined
+  return block.meta as AttachmentMeta | undefined;
 }
 
 function blocksEqual(prev: MessageBlock, next: MessageBlock): boolean {
-  if (prev === next) return true
-  if (prev.type !== next.type) return false
+  if (prev === next) return true;
+  if (prev.type !== next.type) return false;
 
-  if (prev.type === 'text' && next.type === 'text') {
+  if (prev.type === "text" && next.type === "text") {
     return (
       prev.text === next.text &&
       getAttachmentMeta(prev)?.attachment ===
         getAttachmentMeta(next)?.attachment &&
       getAttachmentMeta(prev)?.path === getAttachmentMeta(next)?.path
-    )
+    );
   }
 
-  if (prev.type === 'thinking' && next.type === 'thinking') {
+  if (prev.type === "thinking" && next.type === "thinking") {
     return (
       prev.text === next.text && getDurationMs(prev) === getDurationMs(next)
-    )
+    );
   }
 
-  if (prev.type === 'tool_use' && next.type === 'tool_use') {
-    const prevRuntime = prev.runtime
-    const nextRuntime = next.runtime
+  if (prev.type === "tool_use" && next.type === "tool_use") {
+    const prevRuntime = prev.runtime;
+    const nextRuntime = next.runtime;
     return (
       prev.id === next.id &&
       prev.name === next.name &&
@@ -99,48 +99,48 @@ function blocksEqual(prev: MessageBlock, next: MessageBlock): boolean {
       prevRuntime?.finalOutput === nextRuntime?.finalOutput &&
       prevRuntime?.metadata === nextRuntime?.metadata &&
       prevRuntime?.isError === nextRuntime?.isError
-    )
+    );
   }
 
-  if (prev.type === 'image' && next.type === 'image') {
+  if (prev.type === "image" && next.type === "image") {
     return (
       prev.data === next.data &&
       prev.mime_type === next.mime_type &&
       prev.name === next.name
-    )
+    );
   }
 
-  if (prev.type === 'document' && next.type === 'document') {
+  if (prev.type === "document" && next.type === "document") {
     return (
       prev.data === next.data &&
       prev.mime_type === next.mime_type &&
       prev.name === next.name
-    )
+    );
   }
 
-  if (prev.type === 'tool_result' && next.type === 'tool_result') {
+  if (prev.type === "tool_result" && next.type === "tool_result") {
     return (
       prev.tool_use_id === next.tool_use_id &&
       prev.output === next.output &&
       prev.metadata === next.metadata &&
       prev.is_error === next.is_error
-    )
+    );
   }
 
-  return false
+  return false;
 }
 
 function blockListsEqual(prev: MessageBlock[], next: MessageBlock[]): boolean {
-  if (prev === next) return true
-  if (prev.length !== next.length) return false
+  if (prev === next) return true;
+  if (prev.length !== next.length) return false;
   for (let i = 0; i < prev.length; i++) {
-    const prevBlock = prev[i]
-    const nextBlock = next[i]
+    const prevBlock = prev[i];
+    const nextBlock = next[i];
     if (!prevBlock || !nextBlock || !blocksEqual(prevBlock, nextBlock)) {
-      return false
+      return false;
     }
   }
-  return true
+  return true;
 }
 
 function messageBubblePropsEqual(
@@ -156,32 +156,32 @@ function messageBubblePropsEqual(
     prev.contextWindow !== next.contextWindow ||
     prev.onRewindAndSend !== next.onRewindAndSend
   ) {
-    return false
+    return false;
   }
 
-  if (prev.role === 'user' && prev.isLoading !== next.isLoading) {
-    return false
+  if (prev.role === "user" && prev.isLoading !== next.isLoading) {
+    return false;
   }
 
-  return blockListsEqual(prev.blocks, next.blocks)
+  return blockListsEqual(prev.blocks, next.blocks);
 }
 
 class RenderErrorBoundary extends Component<
   RenderErrorBoundaryProps,
   RenderErrorBoundaryState
 > {
-  state: RenderErrorBoundaryState = { hasError: false }
+  state: RenderErrorBoundaryState = { hasError: false };
 
   static getDerivedStateFromError(): RenderErrorBoundaryState {
-    return { hasError: true }
+    return { hasError: true };
   }
 
   componentDidCatch(error: Error) {
-    console.error('Chat block render failed:', error)
+    console.error("Chat block render failed:", error);
   }
 
   render() {
-    return this.state.hasError ? this.props.fallback : this.props.children
+    return this.state.hasError ? this.props.fallback : this.props.children;
   }
 }
 
@@ -189,30 +189,30 @@ const renderErrorFallback = (
   <div className="rounded-lg bg-destructive/10 px-3 py-2 text-xs text-destructive/80">
     Failed to render this block.
   </div>
-)
+);
 
 function ContextStats({
   model,
   totalTokens,
   contextWindow,
 }: {
-  model?: string | undefined
-  totalTokens?: number | undefined
-  contextWindow?: number | undefined
+  model?: string | undefined;
+  totalTokens?: number | undefined;
+  contextWindow?: number | undefined;
 }) {
   const pct =
     totalTokens && contextWindow
       ? Math.round((totalTokens / contextWindow) * 100)
-      : null
+      : null;
   const visible = [model, pct != null ? `${pct}%` : null]
     .filter(Boolean)
-    .join(' · ')
-  if (!visible) return null
+    .join(" · ");
+  if (!visible) return null;
 
   const detail =
     totalTokens && contextWindow
       ? `${totalTokens.toLocaleString()} / ${contextWindow.toLocaleString()} tokens`
-      : null
+      : null;
 
   return (
     <span className="group/stats relative cursor-default text-xs text-muted-foreground/60">
@@ -226,7 +226,7 @@ function ContextStats({
         </span>
       )}
     </span>
-  )
+  );
 }
 
 export const MessageBubble = memo(function MessageBubble({
@@ -240,65 +240,65 @@ export const MessageBubble = memo(function MessageBubble({
   contextWindow,
   onRewindAndSend,
 }: MessageBubbleProps) {
-  const isUser = role === 'user'
-  const [copied, setCopied] = useState(false)
-  const [editing, setEditing] = useState(false)
-  const [editText, setEditText] = useState('')
-  const editRef = useRef<HTMLTextAreaElement | null>(null)
-  const resetCopiedTimeoutRef = useRef<number | null>(null)
+  const isUser = role === "user";
+  const [copied, setCopied] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [editText, setEditText] = useState("");
+  const editRef = useRef<HTMLTextAreaElement | null>(null);
+  const resetCopiedTimeoutRef = useRef<number | null>(null);
 
   const { textContent, textAttachmentBlocks, imageBlocks, documentBlocks } =
     useMemo(() => {
-      const visibleText: string[] = []
-      const textAttachmentBlocks: TextBlock[] = []
-      const imageBlocks: ImageBlock[] = []
-      const documentBlocks: DocumentBlock[] = []
+      const visibleText: string[] = [];
+      const textAttachmentBlocks: TextBlock[] = [];
+      const imageBlocks: ImageBlock[] = [];
+      const documentBlocks: DocumentBlock[] = [];
       for (const block of blocks) {
-        if (!block) continue
-        if (block.type === 'text') {
+        if (!block) continue;
+        if (block.type === "text") {
           if (getAttachmentMeta(block)?.attachment) {
-            textAttachmentBlocks.push(block)
+            textAttachmentBlocks.push(block);
           } else {
-            visibleText.push(block.text)
+            visibleText.push(block.text);
           }
-        } else if (block.type === 'image') {
-          imageBlocks.push(block)
-        } else if (block.type === 'document') {
-          documentBlocks.push(block)
+        } else if (block.type === "image") {
+          imageBlocks.push(block);
+        } else if (block.type === "document") {
+          documentBlocks.push(block);
         }
       }
       return {
-        textContent: visibleText.join('\n\n'),
+        textContent: visibleText.join("\n\n"),
         textAttachmentBlocks,
         imageBlocks,
         documentBlocks,
-      }
-    }, [blocks])
+      };
+    }, [blocks]);
 
   useEffect(() => {
     return () => {
       if (resetCopiedTimeoutRef.current !== null) {
-        window.clearTimeout(resetCopiedTimeoutRef.current)
+        window.clearTimeout(resetCopiedTimeoutRef.current);
       }
-    }
-  }, [])
+    };
+  }, []);
 
   const handleCopy = useCallback(async () => {
-    if (!textContent) return
+    if (!textContent) return;
     try {
-      await copyText(textContent)
-      setCopied(true)
+      await copyText(textContent);
+      setCopied(true);
       if (resetCopiedTimeoutRef.current !== null) {
-        window.clearTimeout(resetCopiedTimeoutRef.current)
+        window.clearTimeout(resetCopiedTimeoutRef.current);
       }
       resetCopiedTimeoutRef.current = window.setTimeout(() => {
-        setCopied(false)
-        resetCopiedTimeoutRef.current = null
-      }, 2000)
+        setCopied(false);
+        resetCopiedTimeoutRef.current = null;
+      }, 2000);
     } catch {
       /* ignore */
     }
-  }, [textContent])
+  }, [textContent]);
 
   const canEdit =
     isUser &&
@@ -306,46 +306,46 @@ export const MessageBubble = memo(function MessageBubble({
     imageBlocks.length === 0 &&
     documentBlocks.length === 0 &&
     textAttachmentBlocks.length === 0 &&
-    typeof sourceIndex === 'number' &&
+    typeof sourceIndex === "number" &&
     !isLoading &&
-    onRewindAndSend
+    onRewindAndSend;
 
   const startEdit = useCallback(() => {
-    setEditText(textContent)
-    setEditing(true)
-  }, [textContent])
+    setEditText(textContent);
+    setEditing(true);
+  }, [textContent]);
 
   useEffect(() => {
     if (editing && editRef.current) {
-      const el = editRef.current
-      el.focus()
-      el.style.height = 'auto'
-      el.style.height = `${el.scrollHeight}px`
+      const el = editRef.current;
+      el.focus();
+      el.style.height = "auto";
+      el.style.height = `${el.scrollHeight}px`;
     }
-  }, [editing])
+  }, [editing]);
 
   const submitEdit = useCallback(() => {
-    const trimmed = editText.trim()
-    if (!trimmed || !onRewindAndSend || typeof sourceIndex !== 'number') return
-    setEditing(false)
-    onRewindAndSend(sourceIndex, trimmed)
-  }, [editText, onRewindAndSend, sourceIndex])
+    const trimmed = editText.trim();
+    if (!trimmed || !onRewindAndSend || typeof sourceIndex !== "number") return;
+    setEditing(false);
+    onRewindAndSend(sourceIndex, trimmed);
+  }, [editText, onRewindAndSend, sourceIndex]);
 
   const cancelEdit = useCallback(() => {
-    setEditing(false)
-  }, [])
+    setEditing(false);
+  }, []);
 
   const handleEditKeyDown = useCallback(
     (e: KeyboardEvent<HTMLTextAreaElement>) => {
-      if (e.key === 'Enter' && !e.shiftKey) {
-        e.preventDefault()
-        submitEdit()
-      } else if (e.key === 'Escape') {
-        cancelEdit()
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        submitEdit();
+      } else if (e.key === "Escape") {
+        cancelEdit();
       }
     },
     [submitEdit, cancelEdit],
-  )
+  );
 
   if (isUser) {
     if (editing) {
@@ -358,9 +358,9 @@ export const MessageBubble = memo(function MessageBubble({
               aria-label="Edit message"
               value={editText}
               onChange={(e) => {
-                setEditText(e.target.value)
-                e.target.style.height = 'auto'
-                e.target.style.height = `${Math.min(e.target.scrollHeight, 300)}px`
+                setEditText(e.target.value);
+                e.target.style.height = "auto";
+                e.target.style.height = `${Math.min(e.target.scrollHeight, 300)}px`;
               }}
               onKeyDown={handleEditKeyDown}
               className="w-full resize-none rounded-lg bg-muted px-3.5 py-2 text-base md:text-sm leading-relaxed text-foreground border border-border/60 focus:outline-none focus:border-accent/60 max-h-75"
@@ -378,10 +378,10 @@ export const MessageBubble = memo(function MessageBubble({
                 onClick={submitEdit}
                 disabled={!editText.trim()}
                 className={cn(
-                  'px-3 py-1 text-xs rounded-lg transition-colors',
+                  "px-3 py-1 text-xs rounded-lg transition-colors",
                   editText.trim()
-                    ? 'bg-accent text-accent-foreground hover:opacity-90'
-                    : 'text-muted-foreground/40',
+                    ? "bg-accent text-accent-foreground hover:opacity-90"
+                    : "text-muted-foreground/40",
                 )}
               >
                 Send
@@ -389,7 +389,7 @@ export const MessageBubble = memo(function MessageBubble({
             </div>
           </div>
         </div>
-      )
+      );
     }
 
     return (
@@ -412,7 +412,7 @@ export const MessageBubble = memo(function MessageBubble({
                 <img
                   key={block.renderKey}
                   src={`data:${block.mime_type};base64,${block.data}`}
-                  alt={block.name ?? 'Image'}
+                  alt={block.name ?? "Image"}
                   className="max-h-64 max-w-full rounded-lg"
                 />
               ))}
@@ -430,7 +430,7 @@ export const MessageBubble = memo(function MessageBubble({
                     <span className="font-medium">PDF</span>
                   </div>
                   <div className="mt-1 break-all text-xs text-muted-foreground">
-                    {block.name ?? 'document.pdf'}
+                    {block.name ?? "document.pdf"}
                   </div>
                 </div>
               ))}
@@ -439,7 +439,7 @@ export const MessageBubble = memo(function MessageBubble({
           {textAttachmentBlocks.length > 0 && (
             <div className="flex flex-wrap gap-2 justify-end">
               {textAttachmentBlocks.map((block) => {
-                const path = getAttachmentMeta(block)?.path
+                const path = getAttachmentMeta(block)?.path;
                 return (
                   <div
                     key={block.renderKey}
@@ -450,10 +450,10 @@ export const MessageBubble = memo(function MessageBubble({
                       <span className="font-medium">Text</span>
                     </div>
                     <div className="mt-1 break-all text-xs text-muted-foreground">
-                      {typeof path === 'string' ? path : 'attached-file'}
+                      {typeof path === "string" ? path : "attached-file"}
                     </div>
                   </div>
-                )
+                );
               })}
             </div>
           )}
@@ -464,17 +464,17 @@ export const MessageBubble = memo(function MessageBubble({
           )}
         </div>
       </div>
-    )
+    );
   }
 
   return (
     <div className="group/msg relative px-5 max-md:px-4">
       <div className="flex flex-col gap-3 text-foreground/90 leading-relaxed text-sm">
         {blocks.map((block, blockIndex) => {
-          if (block.type === 'thinking') {
+          if (block.type === "thinking") {
             const renderKey =
-              block.renderKey || `thinking:${block.text || 'block'}`
-            const durationMs = getDurationMs(block)
+              block.renderKey || `thinking:${block.text || "block"}`;
+            const durationMs = getDurationMs(block);
             return (
               <RenderErrorBoundary
                 key={renderKey}
@@ -490,10 +490,11 @@ export const MessageBubble = memo(function MessageBubble({
                   }
                 />
               </RenderErrorBoundary>
-            )
+            );
           }
-          if (block.type === 'text') {
-            const renderKey = block.renderKey || `text:${block.text || 'block'}`
+          if (block.type === "text") {
+            const renderKey =
+              block.renderKey || `text:${block.text || "block"}`;
             return (
               <RenderErrorBoundary
                 key={renderKey}
@@ -501,11 +502,11 @@ export const MessageBubble = memo(function MessageBubble({
               >
                 <MarkdownBlock content={block.text} />
               </RenderErrorBoundary>
-            )
+            );
           }
-          if (block.type === 'tool_use') {
+          if (block.type === "tool_use") {
             const renderKey =
-              block.renderKey || block.id || `tool:${block.name || 'tool'}`
+              block.renderKey || block.id || `tool:${block.name || "tool"}`;
             return (
               <RenderErrorBoundary
                 key={renderKey}
@@ -521,9 +522,9 @@ export const MessageBubble = memo(function MessageBubble({
                   isError={block.runtime?.isError}
                 />
               </RenderErrorBoundary>
-            )
+            );
           }
-          return null
+          return null;
         })}
 
         {isStreaming && (
@@ -538,10 +539,10 @@ export const MessageBubble = memo(function MessageBubble({
             aria-label="Copy to clipboard"
             onClick={handleCopy}
             className={cn(
-              'flex items-center justify-center size-6 rounded transition-colors duration-150',
+              "flex items-center justify-center size-6 rounded transition-colors duration-150",
               copied
-                ? 'text-emerald-400'
-                : 'text-muted-foreground/50 hover:text-foreground',
+                ? "text-emerald-400"
+                : "text-muted-foreground/50 hover:text-foreground",
             )}
             title="Copy"
           >
@@ -561,5 +562,5 @@ export const MessageBubble = memo(function MessageBubble({
         </div>
       )}
     </div>
-  )
-}, messageBubblePropsEqual)
+  );
+}, messageBubblePropsEqual);

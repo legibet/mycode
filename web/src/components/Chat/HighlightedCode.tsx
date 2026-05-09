@@ -1,25 +1,25 @@
-import { startTransition, useEffect, useState } from 'react'
-import type { InlineStyle } from '../../types'
+import { startTransition, useEffect, useState } from "react";
+import type { InlineStyle } from "../../types";
 
 // Safety note: shiki codeToHtml generates HTML from a tokenized AST,
 // producing only <pre>/<code>/<span> elements with inline styles.
 // It does not pass through raw user input, so the output is safe.
 
 // Start the shiki chunk download at module-eval, not on first effect.
-const highlighterModulePromise = import('../../utils/highlighter')
+const highlighterModulePromise = import("../../utils/highlighter");
 
 const MONO_STYLE = {
   margin: 0,
   padding: 0,
   fontFamily: '"JetBrains Mono", ui-monospace, monospace',
-  fontSize: '13px',
-  lineHeight: '1.5',
+  fontSize: "13px",
+  lineHeight: "1.5",
   fontWeight: 400,
-} satisfies InlineStyle
+} satisfies InlineStyle;
 
 interface HighlightedCodeProps {
-  code: string
-  language: string
+  code: string;
+  language: string;
 }
 
 export default function HighlightedCode({
@@ -27,46 +27,46 @@ export default function HighlightedCode({
   language,
 }: HighlightedCodeProps) {
   const [highlight, setHighlight] = useState<{
-    code: string
-    language: string
-    html: string
-  } | null>(null)
+    code: string;
+    language: string;
+    html: string;
+  } | null>(null);
 
   useEffect(() => {
     if (!language.trim()) {
-      setHighlight(null)
-      return
+      setHighlight(null);
+      return;
     }
 
-    let cancelled = false
+    let cancelled = false;
     void highlighterModulePromise
       .then(({ highlightCode }) => highlightCode(code, language))
       .then((html) => {
-        if (cancelled) return
+        if (cancelled) return;
         startTransition(() => {
-          setHighlight(html ? { code, language, html } : null)
-        })
+          setHighlight(html ? { code, language, html } : null);
+        });
       })
       .catch(() => {
-        if (!cancelled) setHighlight(null)
-      })
+        if (!cancelled) setHighlight(null);
+      });
 
     return () => {
-      cancelled = true
-    }
-  }, [code, language])
+      cancelled = true;
+    };
+  }, [code, language]);
 
   const html =
     highlight?.code === code && highlight.language === language
       ? highlight.html
-      : null
+      : null;
 
   if (!html) {
     return (
       <pre style={MONO_STYLE}>
         <code>{code}</code>
       </pre>
-    )
+    );
   }
 
   return (
@@ -76,5 +76,5 @@ export default function HighlightedCode({
       // biome-ignore lint/security/noDangerouslySetInnerHtml: shiki output is from tokenized AST, not user input
       dangerouslySetInnerHTML={{ __html: html }}
     />
-  )
+  );
 }

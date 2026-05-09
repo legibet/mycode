@@ -8,13 +8,13 @@
  *   • three font sizes (14 section / 13 control / 12 label·hint), three opacities (/100 /70 /50)
  */
 
-import type { ReactNode, SelectHTMLAttributes } from 'react'
-import { cn } from '../../utils/cn'
+import type { ReactNode, SelectHTMLAttributes } from "react";
+import { cn } from "../../utils/cn";
 
 interface FieldProps {
-  label: string
-  hint?: ReactNode
-  children: ReactNode
+  label: string;
+  hint?: ReactNode;
+  children: ReactNode;
 }
 
 export function Field({ label, hint, children }: FieldProps) {
@@ -24,8 +24,8 @@ export function Field({ label, hint, children }: FieldProps) {
   return (
     <div
       className={cn(
-        'flex flex-col gap-1.5',
-        'md:grid md:grid-cols-[110px_1fr] md:gap-x-3 md:gap-y-0 md:items-start',
+        "flex flex-col gap-1.5",
+        "md:grid md:grid-cols-[110px_1fr] md:gap-x-3 md:gap-y-0 md:items-start",
       )}
     >
       <div className="text-[12px] text-muted-foreground/80 select-none md:pt-2">
@@ -40,12 +40,12 @@ export function Field({ label, hint, children }: FieldProps) {
         )}
       </div>
     </div>
-  )
+  );
 }
 
 interface SectionProps {
-  title: string
-  children: ReactNode
+  title: string;
+  children: ReactNode;
 }
 
 export function Section({ title, children }: SectionProps) {
@@ -56,15 +56,15 @@ export function Section({ title, children }: SectionProps) {
       </h3>
       <div className="flex flex-col gap-2.5">{children}</div>
     </section>
-  )
+  );
 }
 
 interface SegmentedProps<T extends string> {
-  value: T
-  options: { value: T; label: string; icon?: ReactNode }[]
-  onChange: (value: T) => void
-  ariaLabel?: string
-  size?: 'sm' | 'md'
+  value: T;
+  options: { value: T; label: string; icon?: ReactNode }[];
+  onChange: (value: T) => void;
+  ariaLabel?: string;
+  size?: "sm" | "md";
 }
 
 export function Segmented<T extends string>({
@@ -72,7 +72,7 @@ export function Segmented<T extends string>({
   options,
   onChange,
   ariaLabel,
-  size = 'md',
+  size = "md",
 }: SegmentedProps<T>) {
   return (
     <div
@@ -81,7 +81,7 @@ export function Segmented<T extends string>({
       className="inline-flex items-center rounded-md border border-border/50 bg-muted/30 p-0.5"
     >
       {options.map((opt) => {
-        const active = opt.value === value
+        const active = opt.value === value;
         return (
           // biome-ignore lint/a11y/useSemanticElements: visual button-group pattern; native radios don't fit the segmented look
           <button
@@ -91,25 +91,25 @@ export function Segmented<T extends string>({
             aria-checked={active}
             onClick={() => onChange(opt.value)}
             className={cn(
-              'inline-flex items-center justify-center gap-1.5 rounded font-medium transition-colors',
-              size === 'sm' ? 'h-7 px-2.5 text-[12px]' : 'h-7 px-3 text-[12px]',
+              "inline-flex items-center justify-center gap-1.5 rounded font-medium transition-colors",
+              size === "sm" ? "h-7 px-2.5 text-[12px]" : "h-7 px-3 text-[12px]",
               active
-                ? 'bg-background text-foreground'
-                : 'text-muted-foreground/80 hover:text-foreground',
-              'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent/60',
+                ? "bg-background text-foreground"
+                : "text-muted-foreground/80 hover:text-foreground",
+              "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent/60",
             )}
           >
             {opt.icon}
             {opt.label}
           </button>
-        )
+        );
       })}
     </div>
-  )
+  );
 }
 
 interface TextInputProps extends React.InputHTMLAttributes<HTMLInputElement> {
-  invalid?: boolean
+  invalid?: boolean;
 }
 
 export function TextInput({ className, invalid, ...props }: TextInputProps) {
@@ -117,19 +117,19 @@ export function TextInput({ className, invalid, ...props }: TextInputProps) {
     <input
       {...props}
       className={cn(
-        'h-9 w-full bg-transparent px-2',
-        'text-[13px] font-mono',
-        'border-b border-border/60',
-        'transition-colors',
-        'placeholder:text-muted-foreground/50',
-        'hover:border-border',
-        'focus:border-accent focus:outline-none',
-        'disabled:opacity-50 disabled:hover:border-border/60',
-        invalid && 'border-destructive/70 focus:border-destructive',
+        "h-9 w-full bg-transparent px-2",
+        "text-[13px] font-mono",
+        "border-b border-border/60",
+        "transition-colors",
+        "placeholder:text-muted-foreground/50",
+        "hover:border-border",
+        "focus:border-accent focus:outline-none",
+        "disabled:opacity-50 disabled:hover:border-border/60",
+        invalid && "border-destructive/70 focus:border-destructive",
         className,
       )}
     />
-  )
+  );
 }
 
 export function NativeSelect({
@@ -142,12 +142,12 @@ export function NativeSelect({
       <select
         {...props}
         className={cn(
-          'appearance-none w-full h-9 pl-2 pr-7',
-          'text-[13px] font-mono bg-transparent',
-          'border-b border-border/60',
-          'transition-colors',
-          'hover:border-border',
-          'focus:border-accent focus:outline-none',
+          "appearance-none w-full h-9 pl-2 pr-7",
+          "text-[13px] font-mono bg-transparent",
+          "border-b border-border/60",
+          "transition-colors",
+          "hover:border-border",
+          "focus:border-accent focus:outline-none",
           className,
         )}
       >
@@ -160,5 +160,5 @@ export function NativeSelect({
         ▾
       </span>
     </div>
-  )
+  );
 }
