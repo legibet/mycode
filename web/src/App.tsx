@@ -381,7 +381,7 @@ function AppContent() {
                 onRewindAndSend={workspaceMissing ? undefined : rewindAndSend}
               />
 
-              <div className="shrink-0 pb-4 max-md:pb-[max(0.5rem,env(safe-area-inset-bottom))]">
+              <div className="shrink-0 pb-4 max-md:pb-1">
                 {pendingPermission && (
                   <PermissionPrompt
                     request={pendingPermission}
