@@ -823,11 +823,35 @@ export function useChat(config: LocalConfig) {
 
   const cancel = useCallback(() => {
     const runId = activeRunRef.current?.id;
-    stopStreaming();
+    const sessionId = activeSessionRef.current.id;
 
-    if (!runId) return;
-    void cancelRun(runId);
-  }, [cancelRun, stopStreaming]);
+    streamTokenRef.current += 1;
+    pendingRequestTokenRef.current = 0;
+    streamAbortRef.current?.abort();
+    streamAbortRef.current = null;
+    activeRunRef.current = null;
+    setPendingPermissions([]);
+
+    if (!runId) {
+      setLoading(false);
+      return;
+    }
+
+    void (async () => {
+      await cancelRun(runId);
+      if (activeSessionRef.current.id !== sessionId) return;
+
+      try {
+        await loadSessionRef.current?.(sessionId);
+        fetchSessions();
+      } catch (error) {
+        console.error("Failed to reload session after cancel:", error);
+        if (activeSessionRef.current.id === sessionId) {
+          setLoading(false);
+        }
+      }
+    })();
+  }, [cancelRun, fetchSessions]);
 
   const decidePermission = useCallback(
     async (decision: "allow" | "deny") => {
