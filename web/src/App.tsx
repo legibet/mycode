@@ -4,7 +4,13 @@
  * Mobile: sidebar as overlay, top header bar.
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import useSWR from "swr";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
@@ -27,6 +33,7 @@ import { normalizeConfigWithRemoteDefaults } from "./utils/config";
 import {
   getMaxSidebarWidth,
   SIDEBAR_DEFAULT_WIDTH,
+  SIDEBAR_MAX_WIDTH,
   SIDEBAR_MIN_WIDTH,
 } from "./utils/sidebar";
 import {
@@ -109,18 +116,25 @@ function settingsPanelKey(open: boolean, settings: SettingsResponse | null) {
   });
 }
 
+function subscribeToWindowResize(onChange: () => void) {
+  window.addEventListener("resize", onChange);
+  return () => window.removeEventListener("resize", onChange);
+}
+
 function AppContent() {
-  const [config, setConfig] = useState<LocalConfig>(loadConfig);
+  const [localConfig, setLocalConfig] = useState<LocalConfig>(loadConfig);
   const [input, setInput] = useState("");
   const [attachments, setAttachments] = useState<AttachedFile[]>([]);
   const [cwdHistory, setCwdHistory] = useState<string[]>(loadHistory);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   // User's preferred sidebar width — only changes on explicit drag/reset.
   const [sidebarWidth, setSidebarWidth] = useState(loadSidebarWidth);
-  // Viewport-dependent cap; recomputed on window resize and used at render time
-  // so a narrow viewport clamps the displayed width without touching user intent.
-  const [maxSidebarWidth, setMaxSidebarWidth] = useState(getMaxSidebarWidth);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const maxSidebarWidth = useSyncExternalStore(
+    subscribeToWindowResize,
+    getMaxSidebarWidth,
+    () => SIDEBAR_MAX_WIDTH,
+  );
 
   const handleOpenSettings = useCallback(() => {
     setSettingsOpen(true);
@@ -138,19 +152,13 @@ function AppContent() {
     handleResizeSidebar(SIDEBAR_DEFAULT_WIDTH);
   }, [handleResizeSidebar]);
 
-  useEffect(() => {
-    const onWindowResize = () => setMaxSidebarWidth(getMaxSidebarWidth());
-    window.addEventListener("resize", onWindowResize);
-    return () => window.removeEventListener("resize", onWindowResize);
-  }, []);
-
   const isDesktop = useMediaQuery("(min-width: 768px)");
 
   const displayedSidebarWidth = Math.max(
     SIDEBAR_MIN_WIDTH,
     Math.min(maxSidebarWidth, sidebarWidth),
   );
-  const configUrl = `/api/config?cwd=${encodeURIComponent(config.cwd)}`;
+  const configUrl = `/api/config?cwd=${encodeURIComponent(localConfig.cwd)}`;
   const {
     data: remoteConfig = null,
     error: remoteConfigError,
@@ -165,6 +173,14 @@ function AppContent() {
   } = useSWR<SettingsResponse, Error>(
     "/api/settings",
     fetchJson<SettingsResponse>,
+  );
+
+  const config = useMemo(
+    () =>
+      remoteConfig
+        ? normalizeConfigWithRemoteDefaults(localConfig, remoteConfig)
+        : localConfig,
+    [localConfig, remoteConfig],
   );
 
   const {
@@ -184,29 +200,6 @@ function AppContent() {
     deleteSession,
   } = useChat(config);
 
-  useEffect(() => {
-    if (!remoteConfig) return;
-
-    setConfig((prev) => {
-      const updated = normalizeConfigWithRemoteDefaults(prev, remoteConfig);
-      if (
-        prev.provider === updated.provider &&
-        prev.model === updated.model &&
-        prev.reasoningEffort === updated.reasoningEffort
-      ) {
-        return prev;
-      }
-      return updated;
-    });
-  }, [remoteConfig]);
-
-  // Persist config on every change. Initial save (from loadConfig) is
-  // idempotent; subsequent ones cover both user edits and remote-defaults
-  // normalization above.
-  useEffect(() => {
-    saveConfig(config);
-  }, [config]);
-
   const handleConfigUpdate = useCallback(
     (newConfig: LocalConfig) => {
       if (newConfig.cwd !== config.cwd) {
@@ -214,7 +207,8 @@ function AppContent() {
         setCwdHistory(nextHistory);
         saveHistory(nextHistory);
       }
-      setConfig(newConfig);
+      setLocalConfig(newConfig);
+      saveConfig(newConfig);
     },
     [config.cwd, cwdHistory],
   );

@@ -11,7 +11,6 @@ import {
   type KeyboardEvent,
   type ReactNode,
   useCallback,
-  useEffect,
   useMemo,
   useRef,
   useState,
@@ -102,6 +101,20 @@ function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "Unknown error";
 }
 
+function getInitialTarget(
+  open: boolean,
+  roots: string[],
+  currentCwd?: string,
+): { root: string; path: string } | null {
+  if (!open || roots.length === 0) return null;
+  const root = currentCwd ? matchRoot(roots, currentCwd) : roots[0];
+  if (!root) return null;
+  return {
+    root,
+    path: currentCwd ? toRelativePath(root, currentCwd) : "",
+  };
+}
+
 // ─── component ──────────────────────────────────────────────────────────────
 
 interface WorkspacePickerProps {
@@ -131,60 +144,34 @@ export function WorkspacePicker({
     isLoading: rootsLoading,
   } = useSWR<string[]>("/api/workspaces/roots", rootsFetcher, ROOTS_OPTS);
 
-  const [target, setTarget] = useState<{ root: string; path: string } | null>(
-    null,
-  );
+  const [targetOverride, setTargetOverride] = useState<{
+    root: string;
+    path: string;
+  } | null>(null);
   const [uiError, setUiError] = useState("");
   const [filter, setFilter] = useState("");
 
   const inputRef = useRef<HTMLInputElement | null>(null);
 
-  const browseKey = buildBrowseKey(target);
+  const initialTarget = useMemo(
+    () => getInitialTarget(open, roots, currentCwd),
+    [open, roots, currentCwd],
+  );
+  const requestedTarget = targetOverride ?? initialTarget;
+  const browseKey = buildBrowseKey(requestedTarget);
   const { data: browseData, error: browseError } =
     useSWR<WorkspaceBrowseResponse>(browseKey, browseFetcher, BROWSE_OPTS);
+  const activeTarget = browseData
+    ? { root: browseData.root, path: browseData.path }
+    : requestedTarget;
 
-  // Sync target with currentCwd whenever the picker opens or the host's cwd
-  // changes. setState short-circuits when the target is already correct so a
-  // re-open on the same cwd doesn't invalidate SWR caches.
-  useEffect(() => {
-    if (!open || roots.length === 0) return;
-    const desiredRoot = currentCwd ? matchRoot(roots, currentCwd) : roots[0];
-    if (!desiredRoot) return;
-    const desiredPath = currentCwd
-      ? toRelativePath(desiredRoot, currentCwd)
-      : "";
-    setTarget((prev) =>
-      prev?.root === desiredRoot && prev.path === desiredPath
-        ? prev
-        : { root: desiredRoot, path: desiredPath },
-    );
-  }, [open, roots, currentCwd]);
-
-  // The backend may normalize the requested path (strip trailing slashes,
-  // collapse `..`, etc). Realign target so subsequent navigation uses the
-  // canonical form.
-  useEffect(() => {
-    if (!browseData) return;
-    setTarget((prev) =>
-      prev?.root === browseData.root && prev.path === browseData.path
-        ? prev
-        : { root: browseData.root, path: browseData.path },
-    );
-  }, [browseData]);
-
-  const root = target?.root ?? "";
-  const path = target?.path ?? "";
+  const root = activeTarget?.root ?? "";
+  const path = activeTarget?.path ?? "";
   const entries = browseData?.entries ?? [];
   const current = browseData?.current ?? "";
 
   const loading =
     rootsLoading || (Boolean(browseKey) && !browseData && !browseError);
-
-  const prevCurrentRef = useRef(current);
-  if (prevCurrentRef.current !== current) {
-    prevCurrentRef.current = current;
-    if (filter) setFilter("");
-  }
 
   const filteredEntries = useMemo(() => {
     const trimmed = filter.trim().toLowerCase();
@@ -196,7 +183,8 @@ export function WorkspacePicker({
 
   const browseTo = useCallback((nextRoot: string, nextPath: string) => {
     setUiError("");
-    setTarget((prev) =>
+    setFilter("");
+    setTargetOverride((prev) =>
       prev?.root === nextRoot && prev.path === nextPath
         ? prev
         : { root: nextRoot, path: nextPath },
@@ -214,19 +202,19 @@ export function WorkspacePicker({
           return;
         }
         browseTo(matched, toRelativePath(matched, trimmed));
-      } else if (target) {
-        const base = target.path ? `${target.path}/${trimmed}` : trimmed;
-        browseTo(target.root, base);
+      } else if (root) {
+        const base = path ? `${path}/${trimmed}` : trimmed;
+        browseTo(root, base);
       }
     },
-    [roots, target, browseTo],
+    [roots, root, path, browseTo],
   );
 
   const handleGoParent = useCallback(() => {
-    if (!target?.root || !target.path) return;
-    const segments = target.path.split("/");
-    browseTo(target.root, segments.slice(0, -1).join("/"));
-  }, [target, browseTo]);
+    if (!root || !path) return;
+    const segments = path.split("/");
+    browseTo(root, segments.slice(0, -1).join("/"));
+  }, [root, path, browseTo]);
 
   const handleSelect = useCallback(() => {
     if (current) {

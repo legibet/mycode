@@ -10,7 +10,6 @@ import {
   type KeyboardEvent,
   memo,
   useCallback,
-  useEffect,
   useRef,
   useState,
 } from "react";
@@ -200,18 +199,23 @@ export const InputArea = memo(function InputArea({
   const [dragging, setDragging] = useState(false);
   const dragCounterRef = useRef(0);
 
-  useEffect(() => {
-    if (!input && textareaRef.current) {
+  const disabled = Boolean(disabledReason);
+
+  const resetTextareaHeight = () => {
+    if (textareaRef.current) {
       textareaRef.current.style.height = "auto";
     }
-  }, [input]);
+  };
 
-  const disabled = Boolean(disabledReason);
+  const submit = () => {
+    onSend();
+    resetTextareaHeight();
+  };
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      if (!loading && !disabled) onSend();
+      if (!loading && !disabled) submit();
     }
   };
 
@@ -405,7 +409,7 @@ export const InputArea = memo(function InputArea({
             <button
               type="button"
               aria-label="Send message"
-              onClick={onSend}
+              onClick={submit}
               disabled={!hasInput || disabled}
               className={cn(
                 "size-7 flex items-center justify-center rounded-md transition-colors shrink-0",
