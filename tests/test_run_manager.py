@@ -113,7 +113,10 @@ async def test_cancel_only_marks_target_run_cancelled() -> None:
         agent=second_agent,
     )
 
-    await manager.cancel_run(first["id"])
+    cancelled = await manager.cancel_run(first["id"])
+    assert cancelled is not None
+    assert cancelled["status"] == "cancelled"
+    assert not await manager.has_active_run("session-1")
 
     first_state = await manager.get_run(first["id"])
     assert first_state is not None and first_state.task is not None

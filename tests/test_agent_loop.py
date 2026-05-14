@@ -475,3 +475,9 @@ class TestAgentCancel:
             assert remaining_events[0].type == "error"
             assert remaining_events[0].data == {"message": "cancelled"}
             assert adapter.closed.is_set()
+            assert agent.messages[-1]["role"] == "assistant"
+            assert agent.messages[-1]["content"] == [
+                {"type": "thinking", "text": "working", "meta": {"duration_ms": pytest.approx(0, abs=1000)}}
+            ]
+            assert agent.messages[-1]["meta"]["provider"] == "openai"
+            assert agent.messages[-1]["meta"]["model"] == "gpt-5.5"

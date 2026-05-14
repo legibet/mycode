@@ -30,6 +30,8 @@ from mycode.messages import (
     ConversationMessage,
     build_message,
     flatten_message_text,
+    text_block,
+    thinking_block,
     tool_result_block,
     user_text_message,
 )
@@ -303,6 +305,7 @@ class Agent:
 
         task = asyncio.create_task(run_in_thread())
         was_cancelled = False
+        output_parts: list[str] = []
 
         while True:
             if self._cancel_event.is_set() and not was_cancelled:
@@ -319,6 +322,7 @@ class Agent:
             if output is None:
                 break
             if not was_cancelled:
+                output_parts.append(output)
                 yield Event("tool_output", {"tool_use_id": tool_id, "output": output})
 
         if was_cancelled:
@@ -326,7 +330,8 @@ class Agent:
                 await task
             except Exception:
                 pass
-            result = ToolExecutionResult(output="error: cancelled", is_error=True)
+            output = "\n".join([*output_parts, "error: cancelled"]) if output_parts else "error: cancelled"
+            result = ToolExecutionResult(output=output, is_error=True)
             yield self._tool_done_event(tool_id, result)
             return
         else:
@@ -492,8 +497,10 @@ class Agent:
                 return
 
             assistant_message: ConversationMessage | None = None
+            partial_content: list[dict[str, Any]] = []
             thinking_started_at: float | None = None
             thinking_duration_ms: int | None = None
+            provider_cancelled = False
             request = ProviderRequest(
                 provider=self.provider,
                 model=self.model,
@@ -513,14 +520,18 @@ class Agent:
                 # Phase 1: ask the provider for exactly one assistant turn.
                 async for provider_event in self._stream_provider_turn(adapter, request):
                     if self._cancel_event.is_set():
-                        yield Event("error", {"message": "cancelled"})
-                        return
+                        provider_cancelled = True
+                        break
 
                     if provider_event.type == "thinking_delta":
                         delta_text = str(provider_event.data.get("text") or "")
                         if delta_text:
                             if thinking_started_at is None:
                                 thinking_started_at = time.monotonic()
+                            if partial_content and partial_content[-1].get("type") == "thinking":
+                                partial_content[-1]["text"] = f"{partial_content[-1].get('text') or ''}{delta_text}"
+                            else:
+                                partial_content.append(thinking_block(delta_text))
                             yield Event("reasoning", {"delta": delta_text})
                         continue
 
@@ -530,6 +541,10 @@ class Agent:
                             if thinking_started_at is not None and thinking_duration_ms is None:
                                 thinking_duration_ms = max(0, int((time.monotonic() - thinking_started_at) * 1000))
                                 yield Event("reasoning_done", {"duration_ms": thinking_duration_ms})
+                            if partial_content and partial_content[-1].get("type") == "text":
+                                partial_content[-1]["text"] = f"{partial_content[-1].get('text') or ''}{delta_text}"
+                            else:
+                                partial_content.append(text_block(delta_text))
                             yield Event("text", {"delta": delta_text})
                         continue
 
@@ -548,11 +563,36 @@ class Agent:
                         assistant_message = message
 
             except asyncio.CancelledError:
-                yield Event("error", {"message": "cancelled"})
-                return
+                provider_cancelled = True
             except Exception as exc:
                 logger.exception("Provider request failed")
                 yield Event("error", {"message": str(exc)})
+                return
+
+            if provider_cancelled:
+                if partial_content:
+                    if thinking_started_at is not None and thinking_duration_ms is None:
+                        thinking_duration_ms = max(0, int((time.monotonic() - thinking_started_at) * 1000))
+                    if thinking_duration_ms is not None:
+                        for block in reversed(partial_content):
+                            if block.get("type") != "thinking":
+                                continue
+                            raw_meta = block.get("meta")
+                            meta = cast(dict[str, Any], raw_meta) if isinstance(raw_meta, dict) else {}
+                            block["meta"] = {**meta, "duration_ms": thinking_duration_ms}
+                            break
+                    cancelled_message = build_message(
+                        "assistant",
+                        [dict(block) for block in partial_content],
+                        meta={
+                            "provider": self.provider,
+                            "model": self.model,
+                            "context_window": self.context_window,
+                        },
+                    )
+                    self.messages.append(cancelled_message)
+                    await persist(cancelled_message)
+                yield Event("error", {"message": "cancelled"})
                 return
 
             if not assistant_message:

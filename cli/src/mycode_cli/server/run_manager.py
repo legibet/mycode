@@ -130,6 +130,8 @@ class RunManager:
         for fut in state.pending_decisions.values():
             if not fut.done():
                 fut.cancel()
+        if state.task is not None:
+            await state.task
         return state.info()
 
     async def has_active_run(self, session_id: str) -> bool:
