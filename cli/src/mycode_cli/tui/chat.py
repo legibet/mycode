@@ -448,13 +448,7 @@ class TerminalChat:
             multiline=True,
             prompt_continuation="  ",
         )
-        # Both callbacks read self.agent at call time, so the same Hooks
-        # object survives clone_agent (/new, /resume, /provider, /model).
-        self.agent.hooks = build_permission_hooks(
-            self.settings,
-            review=self._review_tool_call,
-            on_user_denied=self._cancel_active_agent,
-        )
+        self.agent.hooks = build_permission_hooks(self.settings, review=self._review_tool_call)
 
     def _cancel_active_agent(self) -> None:
         self.agent.cancel()
@@ -473,7 +467,10 @@ class TerminalChat:
                 preview = preview[:119] + "…"
             self.view.console.print(Text(f"  {preview}", style=MUTED))
         selected = await choose([("allow", "Allow"), ("deny", "Deny")], default="allow")
-        return "allow" if selected == "allow" else "deny"
+        if selected == "allow":
+            return "allow"
+        self._cancel_active_agent()
+        return "deny"
 
     async def run(self) -> None:
         """Run the interactive chat loop until the user exits the terminal UI."""

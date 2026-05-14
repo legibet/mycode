@@ -65,6 +65,7 @@ Response:
 
 Error responses:
 
+- `422` — invalid request shape, such as missing `message`/`input`, both `message` and `input`, or invalid inline media fields; body is FastAPI validation detail (`{"detail": [...]}`)
 - `400` — invalid `rewind_to`; body is `{"detail": "..."}`
 - `400` — missing or invalid `cwd`; body is `{"detail": "Working directory does not exist: ..."}`
 - `409` — session already has a running task; body is `{"detail": {"message": "...", "run": {...}}}`

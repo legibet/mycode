@@ -47,6 +47,7 @@ class RunState:
     next_seq: int = 1
     task: asyncio.Task[None] | None = None
     finished_at: float | None = None
+    cancel_requested: bool = False
     condition: asyncio.Condition = field(default_factory=asyncio.Condition)
     pending_decisions: dict[str, asyncio.Future[ToolReviewDecision]] = field(default_factory=dict)
 
@@ -126,6 +127,7 @@ class RunManager:
         state = await self.get_run(run_id)
         if not state:
             return None
+        state.cancel_requested = True
         state.agent.cancel()
         for fut in state.pending_decisions.values():
             if not fut.done():
@@ -174,6 +176,9 @@ class RunManager:
         decision: ToolReviewDecision = "deny"
         try:
             decision = await future
+            if decision == "deny":
+                state.cancel_requested = True
+                state.agent.cancel()
             return decision
         except asyncio.CancelledError:
             # Treat cancellation as deny so the agent loop unwinds via its own cancel check.
@@ -224,7 +229,7 @@ class RunManager:
             last_error = str(exc)
             await self._append_event(state, Event("error", {"message": last_error}))
 
-        if last_error == "cancelled":
+        if state.cancel_requested or last_error == "cancelled":
             await self._finish_run(state, status="cancelled", error=last_error)
             return
 

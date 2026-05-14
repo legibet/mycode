@@ -258,8 +258,11 @@ async def test_request_decision_deny_returns_deny() -> None:
     await state.task
 
     assert agent.decision == "deny"
+    assert agent.cancelled is True
     resolved_event = next(event for event in state.events if event["type"] == "permission_resolved")
     assert resolved_event["decision"] == "deny"
+    assert state.status == "cancelled"
+    assert not await manager.has_active_run("session-1")
 
 
 async def test_cancel_run_unblocks_pending_decision_as_deny() -> None:

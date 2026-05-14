@@ -191,18 +191,9 @@ async def test_permission_hook_denies_without_interactive_review_without_cancell
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr("mycode_cli.permissions.discover_skills", lambda _cwd: [])
-    cancelled = False
-
-    def cancel() -> None:
-        nonlocal cancelled
-        cancelled = True
-
-    hooks = build_permission_hooks(
-        _settings(tmp_path, permission=PermissionConfig(level="safe", mode="ask")), on_user_denied=cancel
-    )
+    hooks = build_permission_hooks(_settings(tmp_path, permission=PermissionConfig(level="safe", mode="ask")))
     result = await hooks.run_before_tool(_ctx("bash", {"command": "pnpm install"}))
 
-    assert cancelled is False
     assert result == ToolExecutionResult(output=PERMISSION_DENIED_OUTPUT, is_error=True)
 
 
@@ -228,11 +219,6 @@ async def test_permission_hook_allows_interactive_approval(tmp_path: Path, monke
 @pytest.mark.asyncio
 async def test_permission_hook_distinguishes_user_denial(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("mycode_cli.permissions.discover_skills", lambda _cwd: [])
-    cancelled = False
-
-    def cancel() -> None:
-        nonlocal cancelled
-        cancelled = True
 
     async def review(_request: ToolReviewRequest) -> ToolReviewDecision:
         return "deny"
@@ -240,9 +226,7 @@ async def test_permission_hook_distinguishes_user_denial(tmp_path: Path, monkeyp
     hooks = build_permission_hooks(
         _settings(tmp_path, permission=PermissionConfig(level="safe", mode="ask")),
         review=review,
-        on_user_denied=cancel,
     )
     result = await hooks.run_before_tool(_ctx("bash", {"command": "pnpm install"}))
 
-    assert cancelled is True
     assert result == ToolExecutionResult(output=PERMISSION_DENIED_BY_USER_OUTPUT, is_error=True)

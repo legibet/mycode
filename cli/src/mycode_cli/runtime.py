@@ -28,7 +28,8 @@ def build_agent(
     """
 
     model_config = resolved_provider.model_config
-    agent = Agent(
+    hooks = build_permission_hooks(settings, review=review)
+    return Agent(
         model=resolved_provider.model,
         provider=resolved_provider.provider,
         cwd=cwd,
@@ -46,6 +47,5 @@ def build_agent(
         max_turns=max_turns,
         system=build_system_prompt(cwd, settings),
         tools=DEFAULT_TOOL_SPECS,
+        hooks=hooks,
     )
-    agent.hooks = build_permission_hooks(settings, review=review, on_user_denied=agent.cancel)
-    return agent

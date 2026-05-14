@@ -73,7 +73,6 @@ def build_permission_hooks(
     settings: Settings,
     *,
     review: ToolReviewCallback | None = None,
-    on_user_denied: Callable[[], None] | None = None,
 ) -> Hooks:
     hooks = Hooks()
     skill_roots = [Path(s.path).parent.resolve(strict=False) for s in discover_skills(settings.cwd)]
@@ -96,8 +95,6 @@ def build_permission_hooks(
             )
             if review_decision == "allow":
                 return None
-            if on_user_denied is not None:
-                on_user_denied()
             return ToolExecutionResult(output=PERMISSION_DENIED_BY_USER_OUTPUT, is_error=True)
 
         return ToolExecutionResult(output=PERMISSION_DENIED_OUTPUT, is_error=True)

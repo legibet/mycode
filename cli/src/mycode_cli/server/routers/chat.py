@@ -9,7 +9,7 @@ import os
 from base64 import b64encode
 from collections.abc import AsyncIterator
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
@@ -92,13 +92,8 @@ async def chat(chat: ChatRequest, store: StoreDep, runs: RunManagerDep):
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     session_id = chat.session_id or "default"
 
-    if chat.message and chat.input:
-        raise HTTPException(status_code=400, detail="message and input are mutually exclusive")
-
     if not chat.input:
         message_text = str(chat.message or "").strip()
-        if not message_text:
-            raise HTTPException(status_code=400, detail="message or input is required")
         user_message = build_message("user", [text_block(message_text)])
     else:
         blocks: list[dict[str, Any]] = []
@@ -119,13 +114,9 @@ async def chat(chat: ChatRequest, store: StoreDep, runs: RunManagerDep):
             elif block.type == "document":
                 if block.data:
                     mime_type = block.mime_type or "application/pdf"
-                    if mime_type != "application/pdf":
-                        raise HTTPException(status_code=400, detail="unsupported document mime_type")
                     blocks.append(document_block(block.data, mime_type=mime_type, name=block.name or "document.pdf"))
                 else:
-                    if not block.path:
-                        raise HTTPException(status_code=400, detail="document input requires path or data")
-                    path = Path(resolve_path(block.path, cwd=cwd))
+                    path = Path(resolve_path(cast(str, block.path), cwd=cwd))
                     if not path.is_file():
                         raise HTTPException(status_code=400, detail=f"document file not found: {block.path}")
                     mime_type = block.mime_type or detect_document_mime_type(path)
@@ -136,13 +127,11 @@ async def chat(chat: ChatRequest, store: StoreDep, runs: RunManagerDep):
 
             else:  # image
                 if block.data:
-                    if not block.mime_type:
-                        raise HTTPException(status_code=400, detail="image data requires mime_type")
-                    blocks.append(image_block(block.data, mime_type=block.mime_type, name=block.name or "image"))
+                    blocks.append(
+                        image_block(block.data, mime_type=cast(str, block.mime_type), name=block.name or "image")
+                    )
                 else:
-                    if not block.path:
-                        raise HTTPException(status_code=400, detail="image input requires path or data")
-                    path = Path(resolve_path(block.path, cwd=cwd))
+                    path = Path(resolve_path(cast(str, block.path), cwd=cwd))
                     if not path.is_file():
                         raise HTTPException(status_code=400, detail=f"image file not found: {block.path}")
                     mime_type = block.mime_type or detect_image_mime_type(path)

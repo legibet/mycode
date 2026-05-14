@@ -43,3 +43,20 @@ def test_web_mount_behavior(
 def test_create_app_starts_without_models_catalog_side_effects() -> None:
     with TestClient(create_app(serve_web=False)):
         pass
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"message": "hi", "input": [{"type": "text", "text": "also hi"}]},
+        {"message": "   "},
+        {"input": [{"type": "image", "data": "abc"}]},
+        {"input": [{"type": "document", "data": "abc", "mime_type": "text/plain"}]},
+        {"input": [{"type": "image"}]},
+    ],
+)
+def test_chat_request_shape_validation(payload: dict[str, object]) -> None:
+    with TestClient(create_api_app()) as client:
+        response = client.post("/api/chat", json=payload)
+
+    assert response.status_code == 422

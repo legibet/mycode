@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Any, Literal, Self
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class ChatInputBlock(BaseModel):
@@ -17,6 +17,22 @@ class ChatInputBlock(BaseModel):
     mime_type: str | None = None
     name: str | None = None
     is_attachment: bool = False
+
+    @model_validator(mode="after")
+    def validate_shape(self) -> Self:
+        if self.type == "text":
+            return self
+
+        if not self.path and not self.data:
+            raise ValueError(f"{self.type} input requires path or data")
+
+        if self.type == "image" and self.data and not self.mime_type:
+            raise ValueError("image data requires mime_type")
+
+        if self.type == "document" and self.mime_type not in {None, "application/pdf"}:
+            raise ValueError("unsupported document mime_type")
+
+        return self
 
 
 class ChatRequest(BaseModel):
@@ -32,6 +48,16 @@ class ChatRequest(BaseModel):
     api_base: str | None = None
     reasoning_effort: str | None = None
     rewind_to: int | None = Field(default=None, description="Visible message index for rewind.")
+
+    @model_validator(mode="after")
+    def validate_shape(self) -> Self:
+        has_message = bool((self.message or "").strip())
+        has_input = bool(self.input)
+        if has_message and has_input:
+            raise ValueError("message and input are mutually exclusive")
+        if not has_message and not has_input:
+            raise ValueError("message or input is required")
+        return self
 
 
 class SessionCreateRequest(BaseModel):
