@@ -52,7 +52,7 @@ async for _ in agent.achat("follow-up that references the earlier answer"):
 
 ### Cancellation
 
-`agent.cancel()` aborts the in-flight turn from another task: it sets the cancel flag, terminates active bash subprocesses, and cancels the provider stream. The active `achat()` yields one final `error` event with `message="cancelled"` and stops. `run()` collects the same event into `RunResult.events` and copies its message into `RunResult.error`.
+`agent.cancel()` aborts the in-flight turn from another task: it sets the cancel flag, terminates active bash subprocesses, and cancels the provider stream. The active `achat()` yields one final `error` event with `message="cancelled"` and stops. Already streamed `thinking`/`text` blocks are kept in memory and persisted when session persistence is enabled. `run()` collects the same event into `RunResult.events` and copies its message into `RunResult.error`.
 
 ### Streaming events
 
@@ -121,7 +121,7 @@ See `docs/sessions.md` for the on-disk record format, the projection rule that b
 from mycode import read_tool, write_tool, edit_tool, bash_tool
 ```
 
-Four built-in tools, opted in via `tools=[...]`. Only `bash_tool` streams incremental output as `tool_output` events; the other three return a single `tool_done` result.
+Four built-in tools, opted in via `tools=[...]`. Only `bash_tool` streams incremental output as `tool_output` events; the other three return a single `tool_done` result. Cancelled streaming tools return emitted output followed by `error: cancelled`.
 
 ### `@tool`
 

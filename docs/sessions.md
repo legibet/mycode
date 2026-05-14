@@ -53,6 +53,8 @@ Standard `user` or `assistant` message in the internal block format.
 
 `assistant.meta.context_window` is the model's full context window for the call, resolved from the catalog at runtime. Stamped onto the message so clients can render the consumed-context percentage without re-deriving model metadata. Absent when unavailable.
 
+Cancelled provider streams can append a partial assistant message before the final cancelled error. It contains streamed `thinking`/`text` blocks plus `meta.provider`, `meta.model`, and `meta.context_window`.
+
 Adapter normalization for `total_tokens`:
 
 | provider       | source                                                  |
@@ -134,6 +136,8 @@ Rewind indices refer to the visible history, which now includes pre-compact turn
 Bash output exceeding 5MB in memory (`_BASH_MAX_IN_MEMORY_BYTES`) is written to `<tool_output_dir>/bash-<tool_call_id>.log`. The tool result keeps the last 2000 lines in memory and cites the saved log path.
 
 `tool_output_dir` is always set — Agent defaults it to a session-adjacent directory when persistence is configured, or a tempdir-scoped equivalent otherwise. The directory itself is created lazily on first spill.
+
+Cancelled streaming tools persist emitted output plus `error: cancelled`.
 
 ## Session Store API
 

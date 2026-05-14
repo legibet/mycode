@@ -16,8 +16,9 @@ Explicit request args (CLI flags, API params) override both.
 Config resolution: `get_settings(cwd)` → returns `Settings` dataclass.
 
 The web UI's settings panel edits **only the global file**; project-level files
-must be edited by hand and continue to override it. See `GET /api/settings` and
-`PUT /api/settings` in `docs/api.md`.
+continue to override it. Settings API validators live in
+`cli/src/mycode_cli/server/routers/settings.py`; runtime config resolution
+stays in `cli/src/mycode_cli/config.py`.
 
 ## Schema
 
@@ -96,6 +97,8 @@ If no API key is found at any step, provider resolution raises an error listing 
 4. If nothing found: raise error listing checked env vars
 
 Auto-discovery is limited to providers where `auto_discoverable=True` and the corresponding env var is set.
+
+`ResolvedProvider.model_config` is the selected model's config override, or `None`.
 
 ## Reasoning Effort
 

@@ -7,7 +7,7 @@ React + Vite app in `web/`. Built assets are copied to `cli/src/mycode_cli/serve
 - `mycode web` — serves packaged web assets from `cli/src/mycode_cli/server/static/`
 - `mycode web --dev` — API only with backend hot reload; no static files (pair with `pnpm --dir web dev`)
 
-CORS is enabled for all origins in the FastAPI app.
+CORS is disabled by default for the packaged web app. The API-only dev app allows only `http://localhost:5173` and `http://127.0.0.1:5173` for the Vite dev server.
 
 ## Component Structure
 
@@ -96,6 +96,8 @@ Rendering rules:
 
 A live `compact` SSE event is consumed by the reducer at the position it arrives — the marker lands between whatever just streamed and whatever streams next, mirroring where the agent emitted it (e.g. between two tool calls of the same turn). The server has already persisted the `compact` JSONL record at the same point, so a later session reload renders the same marker without any extra round-trip.
 
+`permission_request` opens the approval prompt. `permission_resolved` clears it. `deny` cancels the active run.
+
 Streaming state tracking:
 
 - `streamTokenRef` — incremented to invalidate stale streams
@@ -116,6 +118,7 @@ Web UI config is persisted to `localStorage`:
 - `provider`, `model`, `cwd`, `reasoningEffort`
 - `auto` and empty string both mean "do not send reasoning_effort to server"
 - The reasoning effort selector in the sidebar only renders when `supports_reasoning_effort` is true AND the current model appears in `reasoning_models` (from `GET /api/config`)
+- Settings editor options come from `provider_type_env_vars` and `provider_type_default_models`
 
 ## Build
 

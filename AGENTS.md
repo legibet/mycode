@@ -45,7 +45,7 @@ cli/src/mycode_cli/       # CLI + FastAPI web server
   permissions.py          # tool permission policy + before_tool hook
   system_prompt.py        # base prompt + AGENTS.md + skills discovery
   tui/                    # interactive terminal chat (chat.py, render.py, theme.py)
-  server/                 # FastAPI app, routers, run_manager, schemas
+  server/                 # FastAPI app, routers, run_manager, schemas; settings router validates config writes
 
 web/src/                  # React + Vite UI
   hooks/useChat.ts        # chat state + SSE streaming
@@ -61,6 +61,8 @@ scripts/
 A single block-based JSON format is used at runtime and persisted to JSONL. Block types: `text` · `image` · `thinking` · `tool_use` · `tool_result`. Persisted message roles: `user` · `assistant` · `compact` · `rewind`; the last two are inline timeline markers (`compact` carries the summary text and stays visible to UIs; `rewind` carries an index into the visible list and is consumed at load time).
 
 `thinking` blocks are first-class session data — persisted, replayed to providers, and shown in UI. Provider-specific extras live in `meta.native` on messages and `block.meta.native` on blocks. Tool results are stored as `user` messages whose `tool_result` blocks carry the replayed `output` plus structured UI `metadata`. Compact substitution (replacing pre-compact history with a summary continuation) happens lazily inside `Agent._project_for_provider` per request; visible state and JSONL keep the real history.
+
+Cancelled provider streams may persist partial assistant `thinking`/`text`. Cancelled streaming tools append `error: cancelled` to emitted output.
 
 Full schema, JSONL record types, replay rules, and the rewind/compact projection live in `docs/sessions.md`. The SDK-level event surface and `Agent` API live in `docs/sdk.md`.
 
@@ -109,6 +111,8 @@ For third-party SDKs and APIs touched by adapter or runtime code, prefer `contex
 CLI commands: `mycode` (interactive), `mycode run "..."` (non-interactive), `mycode web [--dev]`, `mycode session list`. Inside the TUI: `@path` attaches files (text → `<file>` snapshots, images/PDFs → structured blocks); slash commands `/clear` `/new` `/resume` `/rewind` `/provider` `/model` `/effort` `/q`.
 
 Server routes are mounted under `/api`: chat (`/api/chat`, `/api/runs/...`), sessions, settings, workspaces, config. Endpoint schemas, error codes, and the run manager's lifecycle live in `docs/api.md`.
+
+`mycode web` serves packaged assets without CORS. `mycode web --dev` allows only Vite dev origins.
 
 ## Commit Conventions
 

@@ -2,6 +2,10 @@
 
 Base prefix: `/api`. All endpoints are defined in `cli/src/mycode_cli/server/routers/`.
 
+## Serving and CORS
+
+`mycode web` serves packaged static assets and does not enable CORS. `mycode web --dev` starts the API-only app for Vite development and allows only `http://localhost:5173` and `http://127.0.0.1:5173`.
+
 ## Chat
 
 ### `POST /api/chat`
@@ -75,14 +79,14 @@ Error responses:
 
 Stream events for a run as SSE (`text/event-stream`).
 
-- `after` — resume from a sequence number (for reconnects)
+- `after` — resume from a sequence number (for reconnects); must be `>= 0`
 - Each event is a JSON-encoded `StreamEvent` as an SSE `data:` line
 - Stream ends with `data: [DONE]`
 - All events carry a monotonically increasing `seq` integer
 
 ### `POST /api/runs/{run_id}/cancel`
 
-Cancel a running agent run. Returns `{status: "ok", run: {...}}`.
+Cancel a running agent run. Pending permission waits resolve as deny. Returns `{status: "ok", run: {...}}` after the run task finishes.
 
 ### `POST /api/runs/{run_id}/decide`
 
@@ -174,18 +178,21 @@ Returns the global config plus options for the editor UI.
     "reasoning_efforts": ["auto", "none", "low", "medium", "high", "xhigh"]
   },
   "env": {"ANTHROPIC_API_KEY": true, "OPENAI_API_KEY": false},
-  "provider_type_env_vars": {"anthropic": ["ANTHROPIC_API_KEY"]}
+  "provider_type_env_vars": {"anthropic": ["ANTHROPIC_API_KEY"]},
+  "provider_type_default_models": {"anthropic": ["claude-sonnet-4-6"]}
 }
 ```
 
 - `config.providers.<name>.api_key` is `"${VAR}"` for env references and `null` for both literal secrets and unset values
 - `config.providers.<name>.api_key_saved` is `true` only when a literal secret is stored on disk; the secret value itself is never echoed
 - `env` reports whether each referenced env var is currently set (built-in env names per provider type plus any `${VAR}` referenced in the config)
+- `provider_type_env_vars` — provider type → API key env var names
+- `provider_type_default_models` — provider type → default model ids
 - `models` is normalised to a list of model ids; per-model metadata overrides come back under `model_overrides` if present
 
 ### `PUT /api/settings`
 
-Replace the global config file. Validates input via `validate_global_config` and writes atomically.
+Replace the global config file. Validates input and writes atomically.
 
 ```json
 {
@@ -236,6 +243,10 @@ Request body (`SessionCreateRequest`):
 ```
 
 `cwd` defaults to the server's current working directory. A new uuid-hex `session_id` is allocated.
+
+Response: `{session: {...}, messages: []}`
+
+Missing directories return `400` with `{"detail": "Working directory does not exist: ..."}`.
 
 ### `GET /api/sessions/{id}`
 
@@ -322,5 +333,7 @@ Every event also carries `seq: int` for reconnect support. The web UI uses `afte
 
 - One active run per session (enforced by `ActiveRunError` on conflict)
 - `RunState` tracks events, condition variable for streaming, and cleanup
+- Explicit permission `deny` marks the run as cancelled and calls `agent.cancel()`
+- `cancel_run()` waits for the agent task to finish before returning the final run info
 - Finished runs pruned after 300 seconds (`FINISHED_RUN_TTL_SECONDS`)
 - `snapshot_session()` returns reconnect data (base messages + buffered events) for active runs
