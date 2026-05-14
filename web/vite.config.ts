@@ -1,14 +1,11 @@
-import path from "node:path";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
-import { defineConfig } from "vite";
+import type { UserConfig } from "vite";
 
-export default defineConfig({
+export default {
   plugins: [react(), tailwindcss()],
   resolve: {
-    alias: {
-      "@": path.resolve(__dirname, "src"),
-    },
+    tsconfigPaths: true,
   },
   optimizeDeps: {
     exclude: [
@@ -28,4 +25,4 @@ export default defineConfig({
       "/ws": { target: "ws://localhost:8000", ws: true },
     },
   },
-});
+} satisfies UserConfig;
