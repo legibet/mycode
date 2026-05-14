@@ -77,6 +77,7 @@ function getErrorDetail(
 }
 
 function getRunFromDetail(detail: ChatErrorResponse["detail"]): RunInfo | null {
+  if (Array.isArray(detail)) return null;
   return typeof detail === "object" && detail?.run ? detail.run : null;
 }
 
@@ -85,6 +86,10 @@ function getMessageFromDetail(
   fallback: string,
 ): string {
   if (typeof detail === "string" && detail) return detail;
+  if (Array.isArray(detail)) {
+    const firstMessage = detail.find((item) => item.msg)?.msg;
+    return firstMessage || fallback;
+  }
   if (detail && typeof detail === "object" && detail.message) {
     return detail.message;
   }

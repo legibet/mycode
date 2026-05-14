@@ -304,9 +304,16 @@ export interface ChatResponse {
   session: SessionSummary;
 }
 
+export interface ValidationErrorDetail {
+  loc?: (string | number)[];
+  msg?: string;
+  type?: string;
+}
+
 export interface ChatErrorResponse {
   detail?:
     | string
+    | ValidationErrorDetail[]
     | {
         message?: string;
         run?: RunInfo;
