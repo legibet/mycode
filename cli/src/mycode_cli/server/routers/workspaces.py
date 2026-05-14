@@ -2,8 +2,9 @@
 
 import os
 from pathlib import Path
+from typing import Annotated
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Query
 
 router = APIRouter(prefix="/workspaces", tags=["workspaces"])
 
@@ -31,13 +32,16 @@ def _parse_workspace_roots() -> list[Path]:
 
 
 @router.get("/roots")
-async def list_workspace_roots():
+def list_workspace_roots() -> dict[str, list[str]]:
     """List workspace roots for browsing."""
     return {"roots": [str(root) for root in _parse_workspace_roots()]}
 
 
 @router.get("/browse")
-async def browse_workspaces(root: str, path: str | None = None):
+def browse_workspaces(
+    root: Annotated[str, Query(min_length=1)],
+    path: Annotated[str | None, Query()] = None,
+) -> dict[str, object]:
     """Browse directories within a workspace root."""
     root_path = None
     requested_root = Path(root).expanduser().resolve(strict=False)
@@ -87,6 +91,7 @@ async def browse_workspaces(root: str, path: str | None = None):
 
 
 @router.get("/cwd")
-async def get_cwd():
+def get_cwd() -> dict[str, object]:
     """Get current working directory."""
-    return {"cwd": os.getcwd(), "exists": Path(os.getcwd()).exists()}
+    cwd = os.getcwd()
+    return {"cwd": cwd, "exists": Path(cwd).exists()}

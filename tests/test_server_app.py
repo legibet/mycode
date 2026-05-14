@@ -45,6 +45,40 @@ def test_create_app_starts_without_models_catalog_side_effects() -> None:
         pass
 
 
+def test_packaged_web_app_does_not_enable_cors_by_default() -> None:
+    with TestClient(create_app(serve_web=False)) as client:
+        response = client.options(
+            "/api/settings",
+            headers={
+                "Origin": "https://example.com",
+                "Access-Control-Request-Method": "GET",
+            },
+        )
+
+    assert "access-control-allow-origin" not in response.headers
+
+
+def test_api_dev_app_allows_only_local_vite_cors() -> None:
+    with TestClient(create_api_app()) as client:
+        allowed = client.options(
+            "/api/settings",
+            headers={
+                "Origin": "http://localhost:5173",
+                "Access-Control-Request-Method": "GET",
+            },
+        )
+        denied = client.options(
+            "/api/settings",
+            headers={
+                "Origin": "https://example.com",
+                "Access-Control-Request-Method": "GET",
+            },
+        )
+
+    assert allowed.headers["access-control-allow-origin"] == "http://localhost:5173"
+    assert "access-control-allow-origin" not in denied.headers
+
+
 @pytest.mark.parametrize(
     "payload",
     [

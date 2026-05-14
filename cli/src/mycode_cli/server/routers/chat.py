@@ -9,9 +9,10 @@ import os
 from base64 import b64encode
 from collections.abc import AsyncIterator
 from pathlib import Path
-from typing import Any, cast
+from typing import Annotated, Any, cast
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import Path as PathParam
 from fastapi.responses import StreamingResponse
 
 from mycode.messages import (
@@ -34,7 +35,15 @@ from mycode_cli.permissions import ToolReviewDecision, ToolReviewRequest
 from mycode_cli.runtime import build_agent
 from mycode_cli.server.deps import RunManagerDep, StoreDep
 from mycode_cli.server.run_manager import ActiveRunError, RunManager, RunState
-from mycode_cli.server.schemas import ChatRequest, DecideRequest, StreamEvent
+from mycode_cli.server.schemas import (
+    CancelRunResponse,
+    ChatRequest,
+    ChatResponse,
+    DecideRequest,
+    RunInfo,
+    StatusResponse,
+    StreamEvent,
+)
 
 router = APIRouter()
 
@@ -74,11 +83,11 @@ async def _stream_run(req: Request, state: RunState, after: int) -> AsyncIterato
 
 
 @router.post("/chat")
-async def chat(chat: ChatRequest, store: StoreDep, runs: RunManagerDep):
+async def chat(chat: ChatRequest, store: StoreDep, runs: RunManagerDep) -> ChatResponse:
     cwd = os.path.abspath(chat.cwd or os.getcwd())
     if not os.path.isdir(cwd):
         raise HTTPException(status_code=400, detail=f"Working directory does not exist: {cwd}")
-    settings = get_settings(cwd)
+    settings = await asyncio.to_thread(get_settings, cwd)
     resolved = resolve_provider(
         settings,
         provider_name=chat.provider,
@@ -122,7 +131,7 @@ async def chat(chat: ChatRequest, store: StoreDep, runs: RunManagerDep):
                     mime_type = block.mime_type or detect_document_mime_type(path)
                     if mime_type != "application/pdf":
                         raise HTTPException(status_code=400, detail=f"unsupported document file: {block.path}")
-                    data = b64encode(path.read_bytes()).decode("utf-8")
+                    data = b64encode(await asyncio.to_thread(path.read_bytes)).decode("utf-8")
                     blocks.append(document_block(data, mime_type=mime_type, name=block.name or path.name))
 
             else:  # image
@@ -137,7 +146,7 @@ async def chat(chat: ChatRequest, store: StoreDep, runs: RunManagerDep):
                     mime_type = block.mime_type or detect_image_mime_type(path)
                     if not mime_type:
                         raise HTTPException(status_code=400, detail=f"unsupported image file: {block.path}")
-                    data = b64encode(path.read_bytes()).decode("utf-8")
+                    data = b64encode(await asyncio.to_thread(path.read_bytes)).decode("utf-8")
                     blocks.append(image_block(data, mime_type=mime_type, name=block.name or path.name))
 
         if not blocks:
@@ -208,7 +217,8 @@ async def chat(chat: ChatRequest, store: StoreDep, runs: RunManagerDep):
         created = await store.create_session(session_id, cwd=cwd)
         session = created["session"]
 
-    agent = build_agent(
+    agent = await asyncio.to_thread(
+        build_agent,
         store=store,
         cwd=cwd,
         settings=settings,
@@ -232,11 +242,16 @@ async def chat(chat: ChatRequest, store: StoreDep, runs: RunManagerDep):
             detail["run"] = existing.info()
         raise HTTPException(status_code=409, detail=detail) from exc
 
-    return {"run": run, "session": session}
+    return ChatResponse(run=RunInfo.model_validate(run), session=session)
 
 
 @router.get("/runs/{run_id}/stream")
-async def stream_run(run_id: str, req: Request, runs: RunManagerDep, after: int = 0):
+async def stream_run(
+    run_id: Annotated[str, PathParam(min_length=1)],
+    req: Request,
+    runs: RunManagerDep,
+    after: Annotated[int, Query(ge=0)] = 0,
+) -> StreamingResponse:
     state = await runs.get_run(run_id)
     if not state:
         raise HTTPException(status_code=404, detail="run not found")
@@ -249,19 +264,21 @@ async def stream_run(run_id: str, req: Request, runs: RunManagerDep, after: int 
 
 
 @router.post("/runs/{run_id}/cancel")
-async def cancel_run(run_id: str, runs: RunManagerDep):
+async def cancel_run(run_id: Annotated[str, PathParam(min_length=1)], runs: RunManagerDep) -> CancelRunResponse:
     run = await runs.cancel_run(run_id)
     if not run:
         raise HTTPException(status_code=404, detail="run not found")
-    return {"status": "ok", "run": run}
+    return CancelRunResponse(status="ok", run=RunInfo.model_validate(run))
 
 
 @router.post("/runs/{run_id}/decide")
-async def decide_run(run_id: str, body: DecideRequest, runs: RunManagerDep):
+async def decide_run(
+    run_id: Annotated[str, PathParam(min_length=1)], body: DecideRequest, runs: RunManagerDep
+) -> StatusResponse:
     resolved = await runs.resolve_decision(run_id, body.request_id, body.decision)
     if not resolved:
         raise HTTPException(status_code=404, detail="permission request not found")
-    return {"status": "ok"}
+    return StatusResponse(status="ok")
 
 
 def _make_review(runs: RunManager, session_id: str):
@@ -279,9 +296,9 @@ def _make_review(runs: RunManager, session_id: str):
 
 
 @router.get("/config")
-async def get_config(cwd: str | None = None):
+async def get_config(cwd: Annotated[str | None, Query()] = None) -> dict[str, Any]:
     resolved_cwd = os.path.abspath(cwd or os.getcwd())
-    settings = get_settings(resolved_cwd)
+    settings = await asyncio.to_thread(get_settings, resolved_cwd)
     try:
         resolved = resolve_provider(settings)
     except ValueError as exc:

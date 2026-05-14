@@ -317,12 +317,12 @@ def _atomic_write(path: Path, payload: dict[str, Any]) -> None:
 
 
 @router.get("/settings")
-async def get_settings_endpoint() -> dict[str, Any]:
+def get_settings_endpoint() -> dict[str, Any]:
     return _build_response(resolve_mycode_home() / "config.json")
 
 
 @router.put("/settings")
-async def put_settings_endpoint(payload: SettingsRequest) -> dict[str, Any]:
+def put_settings_endpoint(payload: SettingsRequest) -> dict[str, Any]:
     path = resolve_mycode_home() / "config.json"
     existing = _read_raw_config(path)
     incoming = copy.deepcopy(payload.config or {})

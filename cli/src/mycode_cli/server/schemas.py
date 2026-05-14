@@ -108,3 +108,32 @@ class SettingsRequest(BaseModel):
     """Request body for PUT /settings — full replacement of global config."""
 
     config: dict[str, Any] | None = None
+
+
+class RunInfo(BaseModel):
+    """Public run state returned by the server."""
+
+    id: str
+    session_id: str
+    status: Literal["running", "completed", "failed", "cancelled"]
+    last_seq: int
+    error: str | None = None
+
+
+class ChatResponse(BaseModel):
+    """Response for POST /chat."""
+
+    run: RunInfo
+    session: dict[str, Any]
+
+
+class StatusResponse(BaseModel):
+    """Simple status response."""
+
+    status: Literal["ok"]
+
+
+class CancelRunResponse(StatusResponse):
+    """Response for POST /runs/{run_id}/cancel."""
+
+    run: RunInfo

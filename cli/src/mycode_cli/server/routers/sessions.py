@@ -3,19 +3,21 @@
 from __future__ import annotations
 
 import os
+from typing import Annotated, Any
 from uuid import uuid4
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
+from fastapi import Path as PathParam
 
 from mycode.messages import ConversationMessage
 from mycode_cli.server.deps import RunManagerDep, StoreDep
-from mycode_cli.server.schemas import SessionCreateRequest
+from mycode_cli.server.schemas import SessionCreateRequest, StatusResponse
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
 
 
-def _redact_document_data(messages: list[ConversationMessage]) -> list[ConversationMessage]:
-    redacted: list[ConversationMessage] = []
+def _redact_document_data(messages: list[ConversationMessage]) -> list[dict[str, Any]]:
+    redacted: list[dict[str, Any]] = []
     for message in messages:
         content = []
         for block in message.get("content") or []:
@@ -29,16 +31,21 @@ def _redact_document_data(messages: list[ConversationMessage]) -> list[Conversat
 
 
 @router.post("")
-async def create_session(req: SessionCreateRequest, store: StoreDep):
+async def create_session(req: SessionCreateRequest, store: StoreDep) -> dict[str, Any]:
     cwd = os.path.abspath(req.cwd or os.getcwd())
     if not os.path.isdir(cwd):
         raise HTTPException(status_code=400, detail=f"Working directory does not exist: {cwd}")
     session_id = uuid4().hex
-    return await store.create_session(session_id, cwd=cwd)
+    data = await store.create_session(session_id, cwd=cwd)
+    return {"session": data["session"], "messages": data["messages"]}
 
 
 @router.get("")
-async def list_sessions(store: StoreDep, runs: RunManagerDep, cwd: str | None = None):
+async def list_sessions(
+    store: StoreDep,
+    runs: RunManagerDep,
+    cwd: Annotated[str | None, Query()] = None,
+) -> dict[str, Any]:
     sessions = await store.list_sessions(cwd=cwd)
     for session in sessions:
         session_id = str(session.get("id") or "")
@@ -47,7 +54,9 @@ async def list_sessions(store: StoreDep, runs: RunManagerDep, cwd: str | None = 
 
 
 @router.get("/{session_id}")
-async def load_session(session_id: str, store: StoreDep, runs: RunManagerDep):
+async def load_session(
+    session_id: Annotated[str, PathParam(min_length=1)], store: StoreDep, runs: RunManagerDep
+) -> dict[str, Any]:
     """Load a session, overlaying any active in-memory run state."""
 
     data = await store.load_session(session_id)
@@ -73,16 +82,20 @@ async def load_session(session_id: str, store: StoreDep, runs: RunManagerDep):
 
 
 @router.delete("/{session_id}")
-async def delete_session(session_id: str, store: StoreDep, runs: RunManagerDep):
+async def delete_session(
+    session_id: Annotated[str, PathParam(min_length=1)], store: StoreDep, runs: RunManagerDep
+) -> StatusResponse:
     if await runs.has_active_run(session_id):
         raise HTTPException(status_code=409, detail="session has a running task")
     await store.delete_session(session_id)
-    return {"status": "ok"}
+    return StatusResponse(status="ok")
 
 
 @router.post("/{session_id}/clear")
-async def clear_session(session_id: str, store: StoreDep, runs: RunManagerDep):
+async def clear_session(
+    session_id: Annotated[str, PathParam(min_length=1)], store: StoreDep, runs: RunManagerDep
+) -> StatusResponse:
     if await runs.has_active_run(session_id):
         raise HTTPException(status_code=409, detail="session has a running task")
     await store.clear_session(session_id)
-    return {"status": "ok"}
+    return StatusResponse(status="ok")
