@@ -23,9 +23,9 @@ classifiers = [
 ]
 keywords = ["agent", "llm", "anthropic", "openai", "gemini", "sdk"]
 dependencies = [
-    "anthropic>=0.74.0",
-    "google-genai>=1.68.0",
-    "openai>=2.11.0",
+    "anthropic>=0.102.0",
+    "google-genai>=2.3.0",
+    "openai>=2.36.0",
 ]
 
 [project.urls]
