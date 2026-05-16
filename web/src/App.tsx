@@ -410,6 +410,7 @@ function AppContent() {
         onClose={() => setSettingsOpen(false)}
         settings={settingsResponse}
         loadError={settingsError?.message}
+        remoteConfig={remoteConfig}
         onSettingsSaved={(settings) => {
           void mutateSettings(settings, { revalidate: false });
           void mutateRemoteConfig();

@@ -18,6 +18,7 @@ import type {
   PermissionLevel,
   PermissionMode,
   ReasoningEffort,
+  RemoteConfig,
   SettingsResponse,
   Theme,
 } from "../../types";
@@ -32,6 +33,7 @@ interface SettingsPanelProps {
   onClose: () => void;
   settings: SettingsResponse | null;
   loadError?: string | undefined;
+  remoteConfig: RemoteConfig | null;
   /** Notified after a successful save so callers can update cached settings. */
   onSettingsSaved?: ((settings: SettingsResponse) => void) | undefined;
   /** Project-level config files in effect, used for the override-warning banner. */
@@ -43,8 +45,8 @@ const FALLBACK_CONFIG_PATH = "~/.mycode/config.json";
 interface DraftState {
   default_provider: string;
   /** Carried opaquely from disk; the panel doesn't render it (provider runtime
-   * uses the provider's first listed model anyway), but PUT replaces the file
-   * wholesale so we must pass it through to avoid wiping it on save. */
+   * uses the provider's first listed model when it is unset), but PUT replaces
+   * the file wholesale so we pass it through while the provider is unchanged. */
   default_model: string;
   default_reasoning_effort: ReasoningEffort | "";
   compact_threshold: string; // form-friendly; '' means unset, 'disabled' for false
@@ -145,13 +147,18 @@ function buildDraft(response: SettingsResponse): DraftState {
   return draft;
 }
 
-function buildPayload(draft: DraftState): GlobalConfig {
+function buildPayload(
+  draft: DraftState,
+  defaultProvider: string,
+): GlobalConfig {
   const config: GlobalConfig = {};
 
   const defaultSection: NonNullable<GlobalConfig["default"]> = {};
-  if (draft.default_provider.trim())
-    defaultSection.provider = draft.default_provider.trim();
-  if (draft.default_model.trim())
+  if (defaultProvider.trim()) defaultSection.provider = defaultProvider.trim();
+  if (
+    draft.default_provider.trim() === defaultProvider.trim() &&
+    draft.default_model.trim()
+  )
     defaultSection.model = draft.default_model.trim();
   if (draft.default_reasoning_effort) {
     defaultSection.reasoning_effort = draft.default_reasoning_effort;
@@ -209,6 +216,7 @@ export function SettingsPanel({
   onClose,
   settings,
   loadError,
+  remoteConfig,
   onSettingsSaved,
   projectConfigPaths,
 }: SettingsPanelProps) {
@@ -253,20 +261,14 @@ export function SettingsPanel({
     return duplicates;
   }, [draft.providers]);
 
-  const providerOptions = useMemo(() => {
-    const options: string[] = [];
-    for (const p of draft.providers) {
-      const name = p.name.trim();
-      if (name) options.push(name);
-    }
-    return options;
-  }, [draft.providers]);
-
-  const effectiveDefaultProvider = providerOptions.includes(
-    draft.default_provider,
-  )
-    ? draft.default_provider
-    : (providerOptions[0] ?? "");
+  const providerOptions = Object.keys(remoteConfig?.providers ?? {});
+  const configuredDefaultProvider = draft.default_provider.trim();
+  const runtimeDefaultProvider = remoteConfig?.default?.provider ?? "";
+  const defaultProvider = providerOptions.includes(configuredDefaultProvider)
+    ? configuredDefaultProvider
+    : providerOptions.includes(runtimeDefaultProvider)
+      ? runtimeDefaultProvider
+      : (providerOptions[0] ?? "");
 
   const hasInvalidProvider =
     duplicateNames.size > 0 ||
@@ -317,7 +319,9 @@ export function SettingsPanel({
       const res = await fetch("/api/settings", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ config: buildPayload(draft) }),
+        body: JSON.stringify({
+          config: buildPayload(draft, defaultProvider),
+        }),
       });
       if (!res.ok) {
         let message = `Save failed (${res.status})`;
@@ -412,19 +416,17 @@ export function SettingsPanel({
             <Section title="Defaults">
               {providerOptions.length === 0 ? (
                 <div className="rounded-md border border-dashed border-border/50 px-3.5 py-2.5 text-[12px] text-muted-foreground/70">
-                  Add a provider below to configure defaults.
+                  No runnable providers are available.
                 </div>
               ) : (
-                <Field
-                  label="Provider"
-                  hint="Default model is the provider's first listed entry — reorder the chips below to change it."
-                >
+                <Field label="Provider">
                   <NativeSelect
-                    value={effectiveDefaultProvider}
+                    value={defaultProvider}
                     onChange={(e) =>
                       setDraft((prev) => ({
                         ...prev,
                         default_provider: e.target.value,
+                        default_model: "",
                       }))
                     }
                   >
