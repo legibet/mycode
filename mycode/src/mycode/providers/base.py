@@ -1,14 +1,8 @@
 """Shared provider adapter interfaces.
 
-The agent loop talks to providers through a small normalized contract:
-
-- input: `ProviderRequest`
-- output: streamed `ProviderStreamEvent` objects
-
-Concrete adapters are free to use the official SDK or protocol that best matches
-their upstream provider. Each adapter is also responsible for projecting the
-canonical session transcript into a provider-safe replay history before a new
-request is sent upstream.
+Each adapter implements `stream_turn()` and reuses `prepare_messages()` to
+project the canonical session transcript into a provider-safe replay history
+before sending a request upstream.
 """
 
 from __future__ import annotations
@@ -205,6 +199,8 @@ def repair_messages_for_replay(
                 block_type = raw_block.get("type")
                 if block_type in {"text", "thinking"}:
                     text = str(raw_block.get("text") or "")
+                    # Empty native thinking blocks may still carry signatures or
+                    # provider replay state.
                     if text or get_native_meta(raw_block):
                         content.append(dict(raw_block))
                     continue
@@ -256,6 +252,8 @@ def repair_messages_for_replay(
                 if supported:
                     content.append(dict(raw_block))
                 else:
+                    # Preserve that the file existed even when the target
+                    # provider cannot accept the original media payload.
                     default_mime = "image" if block_type == "image" else "application/pdf"
                     label = "image input" if block_type == "image" else "PDF input"
                     name = html.escape(str(raw_block.get("name") or f"attached-{block_type}"), quote=True)

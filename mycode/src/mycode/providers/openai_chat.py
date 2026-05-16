@@ -50,8 +50,6 @@ class OpenAIChatAdapter(ProviderAdapter):
             timeout=DEFAULT_REQUEST_TIMEOUT,
         )
 
-        # Keep the streamed turn state local to this adapter so the wire-format
-        # mapping stays readable in one file.
         tool_calls: dict[int, _ChatToolCallState] = {}
         text_parts: list[str] = []
         thinking_parts: list[str] = []
@@ -353,9 +351,8 @@ class DeepSeekAdapter(OpenAIChatAdapter):
 class ZAIAdapter(OpenAIChatAdapter):
     """Z.AI's OpenAI-compatible chat endpoint.
 
-    GLM models think by default. We still send the explicit thinking parameter
-    so that clear_thinking=False preserves reasoning across multi-turn tool loops
-    instead of resetting it on each turn.
+    GLM models think by default. The explicit thinking parameter is sent only
+    so ``clear_thinking=False`` preserves reasoning across multi-turn tool loops.
     """
 
     provider_id = "zai"

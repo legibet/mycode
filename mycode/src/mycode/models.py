@@ -42,12 +42,7 @@ def load_models_catalog() -> dict[str, Any] | None:
 
 
 def infer_provider_from_model(model: str | None) -> str | None:
-    """Return the canonical built-in provider id for a known model id, else None.
-
-    Recognizes well-known prefixes on bare model ids and ``provider/model``
-    ids alike. Returns ``None`` for unknown ids — callers should require an
-    explicit provider in that case rather than guess.
-    """
+    """Return the canonical built-in provider id for a known model id, else None."""
 
     bare = (model or "").strip().split("/", 1)[-1].strip().lower()
     if bare.startswith("claude-"):

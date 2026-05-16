@@ -32,19 +32,7 @@ _THINKING_BUDGETS: dict[str, int] = {"low": 2048, "medium": 8192, "high": 24576,
 
 
 class AnthropicLikeAdapter(ProviderAdapter):
-    """Shared Messages adapter for Anthropic-compatible providers.
-
-    Anthropic, Moonshot, and MiniMax all document agent usage around the
-    Anthropic Messages protocol. The differences we care about are limited to:
-
-    - default base URL
-    - API key env var names
-    - optional thinking defaults
-    - provider-native metadata carried in content blocks
-
-    MiniMax requires the full assistant content (all blocks) to be sent on
-    multi-turn tool-loop requests — not just the text portion.
-    """
+    """Shared Messages adapter for Anthropic-compatible providers."""
 
     def thinking_config(self, request: ProviderRequest) -> dict[str, Any] | None:
         del request
@@ -363,9 +351,8 @@ class AnthropicAdapter(AnthropicLikeAdapter):
 class MoonshotAIAdapter(AnthropicLikeAdapter):
     """Moonshot's Anthropic-compatible Messages endpoint.
 
-    kimi-k2.6 tool loops work through this endpoint. When thinking is enabled,
-    prior reasoning blocks must be replayed in the conversation history —
-    Moonshot does not strip them on the server side.
+    When thinking is enabled, prior reasoning blocks must be replayed in the
+    conversation history — Moonshot does not strip them on the server side.
     """
 
     provider_id = "moonshotai"

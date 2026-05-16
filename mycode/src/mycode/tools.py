@@ -1,14 +1,9 @@
 """Tool execution runtime.
 
-The SDK ships four built-in coding tools (``read`` / ``write`` / ``edit`` /
-``bash``) as :data:`DEFAULT_TOOL_SPECS`. SDK users register additional tools
-either by building :class:`ToolSpec` directly or by wrapping a typed function
-with :func:`tool`.
-
-Every tool runner receives a :class:`ToolContext` and a raw argument dict.
-Context exposes the runtime state (cwd, output directory, image support) plus
-typed facades for the four built-ins so custom tools can invoke them without
-stringly-typed dispatch::
+The four built-in tools (``read`` / ``write`` / ``edit`` / ``bash``) are
+bundled as :data:`DEFAULT_TOOL_SPECS`. Custom tools wrap a typed Python
+function with :func:`tool` and can invoke the built-ins through the facades
+on :class:`ToolContext`::
 
     @tool
     def smart_read(ctx: ToolContext, path: str) -> str:
@@ -42,11 +37,10 @@ from mycode.messages import image_block, text_block
 # ---------------------------------------------------------------------------
 # Limits
 # ---------------------------------------------------------------------------
-# read
+
 DEFAULT_MAX_LINES = 2000
 DEFAULT_MAX_BYTES = 50 * 1024
 READ_MAX_LINE_CHARS = 2000
-# bash
 BASH_TIMEOUT_SECONDS = 120
 _BASH_MAX_IN_MEMORY_BYTES = 5_000_000
 
@@ -60,20 +54,13 @@ ToolOutputCallback = Callable[[str], None]
 
 @dataclass(frozen=True)
 class ToolExecutionResult:
-    """Result of one tool run.
+    """Result of one tool run."""
 
-    Two consumers read this:
-
-    - **provider** — gets ``output`` (a text summary) and, for multimodal
-      returns, ``content`` (structured blocks such as an image). ``output``
-      is replayed on later turns.
-    - **UI** — reads ``metadata`` for structured rendering (e.g. edit patch
-      and stats). When ``metadata`` is absent, the UI falls back to ``output``
-      as a one-line summary.
-    """
-
+    # Replayed to providers on later turns.
     output: str
+    # Structured replay content, e.g. an image returned by a tool.
     content: list[dict[str, Any]] | None = None
+    # UI-only structured data such as edit patches and line stats.
     metadata: dict[str, Any] | None = None
     is_error: bool = False
 
@@ -83,18 +70,13 @@ ToolRunner = Callable[["ToolContext", dict[str, Any]], ToolExecutionResult]
 
 @dataclass(frozen=True)
 class ToolSpec:
-    """One tool the agent can call.
-
-    ``runner`` receives a :class:`ToolContext` and the raw argument dict.
-    Tools that emit incremental output (``bash``) set ``streams_output=True``
-    and push lines via ``ctx.emit``; the agent forwards them as
-    ``tool_output`` events live during execution.
-    """
+    """One tool the agent can call."""
 
     name: str
     description: str
     input_schema: dict[str, Any]
     runner: ToolRunner
+    # Streaming tools push incremental output through ToolContext.emit.
     streams_output: bool = False
 
 
@@ -107,25 +89,16 @@ class ToolSpec:
 class ToolContext:
     """Per-call runtime context handed to every tool runner.
 
-    ``cwd`` / ``tool_output_dir`` / ``supports_image_input`` describe where
-    the tool runs and what the model accepts. ``tool_call_id`` and ``emit``
-    are set by the agent for live streaming; they are ``None`` when a tool
-    is invoked outside the agent loop (e.g. TUI attachment read).
-
-    The four facades :meth:`read`, :meth:`write`, :meth:`edit`, :meth:`bash`
-    are the SDK-friendly way to invoke the built-in tools from custom code.
-    :meth:`call` is a generic fallback for dispatching to any registered
-    tool by name.
+    Includes typed facades for built-in tools and generic registry dispatch.
     """
 
     executor: ToolExecutor
     cwd: str
     tool_output_dir: Path
     supports_image_input: bool = False
+    # Only agent-loop calls have a provider tool-call id and live output sink.
     tool_call_id: str | None = None
     emit: ToolOutputCallback | None = None
-
-    # Typed facades for the built-ins.
 
     def read(
         self,
@@ -146,13 +119,9 @@ class ToolContext:
         return self.call("bash", {"command": command, "timeout": timeout})
 
     def call(self, name: str, args: dict[str, Any]) -> ToolExecutionResult:
-        """Dispatch to a tool by name. Used by the facades above and by
-        custom tools that wrap another registered tool."""
+        """Dispatch through the registry, including from custom tool wrappers."""
 
         return self.executor.execute(name, args, self)
-
-    # Subprocess hooks — used by bash to register/unregister its child so
-    # ``Agent.cancel`` and ``cancel_all_tools`` can terminate it.
 
     def track_proc(self, proc: subprocess.Popen[str]) -> None:
         self.executor.track_proc(proc)
@@ -167,12 +136,7 @@ class ToolContext:
 
 
 class ToolExecutor:
-    """Tool registry plus subprocess lifecycle for one agent session.
-
-    Agents construct one executor internally; SDK users normally pass
-    ``tools=[...]`` to :class:`~mycode.agent.Agent` rather than building
-    this directly.
-    """
+    """Tool registry plus subprocess lifecycle for one agent session."""
 
     def __init__(self, tools: Sequence[ToolSpec]):
         names = [spec.name for spec in tools]
@@ -184,8 +148,6 @@ class ToolExecutor:
 
     @property
     def definitions(self) -> list[dict[str, Any]]:
-        """Provider-facing tool definitions (name / description / schema)."""
-
         return [
             {"name": spec.name, "description": spec.description, "input_schema": spec.input_schema}
             for spec in self._tools.values()
@@ -230,10 +192,9 @@ class ToolExecutor:
 # ---------------------------------------------------------------------------
 # Subprocess lifecycle (process-global)
 # ---------------------------------------------------------------------------
-# Bash registers each child in both the executor and this module-level set.
-# The executor set scopes cancellation to one session (multiple agents may
-# run concurrently in the same process); the global set is a shutdown-time
-# safety net exposed as ``cancel_all_tools``.
+# The executor's tracking set scopes cancellation to one session (multiple
+# agents may run concurrently in the same process); this module-level set is
+# a shutdown-time safety net exposed as ``cancel_all_tools``.
 
 _ACTIVE_PROCS: set[subprocess.Popen[str]] = set()
 _ACTIVE_PROCS_LOCK = threading.Lock()
@@ -580,8 +541,6 @@ def _run_edit(ctx: ToolContext, args: dict[str, Any]) -> ToolExecutionResult:
                 is_error=True,
             )
 
-        # Fuzzy fallback: normalize both sides, find in normalized space,
-        # but map the span back to the original text for replacement.
         if norm_text is None:
             norm_text, norm_imap = _normalize_text(text)
         norm_old, _ = _normalize_text(old_text)
@@ -604,6 +563,8 @@ def _run_edit(ctx: ToolContext, args: dict[str, Any]) -> ToolExecutionResult:
 
         idx = norm_text.find(norm_old)
         assert norm_imap is not None
+        # Normalized matching tolerates whitespace drift; replacement still
+        # uses original offsets so untouched content is preserved exactly.
         orig_start = norm_imap[idx]
         end_idx = idx + len(norm_old)
         orig_end = norm_imap[end_idx] if end_idx < len(norm_imap) else len(text)
@@ -1009,14 +970,11 @@ def tool(
     description: str | None = None,
     streams_output: bool = False,
 ) -> ToolSpec | Callable[[Callable[..., Any]], ToolSpec]:
-    """Wrap a plain Python function as a :class:`ToolSpec`.
+    """Wrap a sync or async Python function as a :class:`ToolSpec`.
 
-    Sync and async functions are both supported. If the first parameter is
-    annotated :class:`ToolContext`, the context is injected automatically
-    and the remaining parameters drive the JSON schema sent to the provider.
-
-    The function may return a :class:`ToolExecutionResult` or any
-    JSON-serializable value; non-result values are wrapped as text output.
+    A first parameter annotated :class:`ToolContext` is injected automatically;
+    the remaining parameters drive the input schema. The function may return a
+    :class:`ToolExecutionResult` or any JSON-serializable value.
     """
 
     def wrap(fn: Callable[..., Any]) -> ToolSpec:
@@ -1026,6 +984,8 @@ def tool(
         except Exception:
             resolved_hints = {}
         wants_context = bool(parameters) and resolved_hints.get(parameters[0].name) is ToolContext
+        # ToolContext is injected locally and must not appear in the provider
+        # input schema.
         tool_params = parameters[1:] if wants_context else parameters
         param_names = {p.name for p in tool_params}
         input_schema, coercions = _build_input_schema(tool_params, resolved_hints)
@@ -1070,7 +1030,7 @@ def _build_input_schema(
 ) -> tuple[dict[str, Any], dict[str, Callable[[Any], Any]]]:
     """Build the JSON schema for ``parameters`` and a per-name coercion map.
 
-    The coercion map carries post-JSON conversions for annotations with no
+    The coercion map carries post-JSON conversions for annotations without a
     native JSON type (currently only ``Path``).
     """
 

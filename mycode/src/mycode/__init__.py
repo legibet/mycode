@@ -39,9 +39,6 @@ from mycode.tools import (
 # The package metadata in mycode/pyproject.toml is the single version source.
 __version__ = metadata.version("mycode-sdk")
 
-# Built-in tool specs exposed as module-level constants so callers can pick
-# which ones to register (``tools=[read_tool, bash_tool]``) rather than
-# getting all four by default.
 read_tool, write_tool, edit_tool, bash_tool = DEFAULT_TOOL_SPECS
 
 __all__ = [

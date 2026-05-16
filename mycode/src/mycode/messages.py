@@ -1,23 +1,18 @@
 """Internal conversation model shared by the runtime, session store, CLI, and UI.
 
-The runtime persists a single message shape everywhere:
+Provider adapters translate this shape to and from provider-specific wire
+formats so the agent loop and session store stay provider-agnostic.
 
-- user message: text blocks, image blocks, document blocks, and tool_result blocks
-- assistant message: thinking blocks, text blocks, and tool_use blocks
+Metadata layout:
 
-Provider adapters translate between this internal shape and provider-specific wire
-formats. The agent loop and session store should never need to know provider wire
-details.
-
-Metadata contract:
-
-- assistant message `meta` keeps normalized top-level fields only:
-  `provider`, `model`, `provider_message_id`, `stop_reason`, `total_tokens`,
-  `context_window` (see docs/sessions.md for `total_tokens` semantics)
-- provider-specific assistant message extras live under `meta.native`
-- provider-specific block replay hints live under `block.meta.native`
-- local display metadata, such as `block.meta.duration_ms`, is never sent
-  upstream; provider adapters must explicitly project only supported fields
+- assistant message ``meta`` keeps only normalized top-level fields:
+  ``provider``, ``model``, ``provider_message_id``, ``stop_reason``,
+  ``total_tokens``, ``context_window`` (see docs/sessions.md for
+  ``total_tokens`` semantics)
+- provider-specific extras live under ``meta.native`` on messages and
+  ``block.meta.native`` on blocks
+- local display metadata such as ``block.meta.duration_ms`` is never sent
+  upstream
 """
 
 from __future__ import annotations

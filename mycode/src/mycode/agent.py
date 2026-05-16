@@ -136,10 +136,9 @@ class Agent:
             raise ValueError(msg)
         self.messages: list[ConversationMessage] = list(messages)
 
-        # Tool runtime: one executor per agent. ``tool_output_dir`` is where
-        # tools can drop artifacts — defaults to a session-adjacent directory
-        # so logs (e.g. bash spill files) live next to the session JSONL.
-        # When no session is configured, use a tempdir scoped to session_id.
+        # ``tool_output_dir`` defaults to a session-adjacent directory so logs
+        # (e.g. bash spill files) live next to the session JSONL; without a
+        # session, fall back to a tempdir scoped to ``session_id``.
         if session_dir is not None:
             tool_output_dir = session_dir / self.session_id / "tool-output"
         else:
@@ -434,21 +433,12 @@ class Agent:
         *,
         on_persist: PersistCallback | None = None,
     ) -> AsyncIterator[Event]:
-        """Run the full agent loop for one user message.
-
-        Each turn asks the provider for one assistant message. If the assistant
-        requests tools, the agent runs them locally, appends one user-side
-        tool_result message, and continues until the assistant stops using tools.
-
-        When a ``session_dir`` is configured, every emitted message is appended
-        to the on-disk session log. ``on_persist`` fires *before* that append
-        regardless of whether a store is configured, so callers can plug in a
-        custom backend or stage related records (the web server uses it to
-        land a rewind marker first).
-        """
+        """Run the full agent loop for one user message."""
 
         async def persist(message: ConversationMessage) -> None:
             if on_persist is not None:
+                # Callers may need to write related records before the SDK
+                # appends this message to its own session log.
                 await on_persist(message)
             if self._store is None:
                 return
@@ -517,7 +507,6 @@ class Agent:
             )
 
             try:
-                # Phase 1: ask the provider for exactly one assistant turn.
                 async for provider_event in self._stream_provider_turn(adapter, request):
                     if self._cancel_event.is_set():
                         provider_cancelled = True
@@ -675,8 +664,8 @@ class Agent:
                     yield Event("error", {"message": "cancelled"})
                     return
                 except Exception:
-                    # Best-effort: transient failures retry next threshold check;
-                    # persistent ones surface from phase 1 of the next turn.
+                    # Compaction must not block the current answer; the full
+                    # transcript is still available for the next turn.
                     logger.warning(
                         "Context compaction failed, continuing without compaction",
                         exc_info=True,
@@ -686,7 +675,6 @@ class Agent:
                 break
 
         else:
-            # while loop exhausted max_turns without breaking
             yield Event("error", {"message": "max_turns reached"})
             return
 

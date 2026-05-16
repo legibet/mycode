@@ -20,21 +20,17 @@ from typing import TypedDict, cast
 
 from mycode.messages import ConversationMessage, flatten_message_text
 
-# ---------------------------------------------------------------------
-# Session format defaults
-# ---------------------------------------------------------------------
-
 MESSAGE_FORMAT_VERSION = 7
 DEFAULT_SESSION_TITLE = "New chat"
 
 
-# ---------------------------------------------------------------------
-# Rewind session events
-# ---------------------------------------------------------------------
-
-
 def _now() -> str:
     return datetime.now(UTC).isoformat()
+
+
+# ---------------------------------------------------------------------
+# Rewind markers
+# ---------------------------------------------------------------------
 
 
 def build_rewind_event(rewind_to: int) -> ConversationMessage:
@@ -112,7 +108,7 @@ class SessionStore:
         self.data_dir.mkdir(parents=True, exist_ok=True)
 
     # ---------------------------------------------------------------------
-    # Session paths
+    # Paths and meta I/O
     # ---------------------------------------------------------------------
 
     def session_dir(self, session_id: str) -> Path:
