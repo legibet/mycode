@@ -4,7 +4,14 @@
  * Empty state: blinking cursor terminal prompt.
  */
 
-import { memo, useCallback, useLayoutEffect, useRef } from "react";
+import {
+  memo,
+  useCallback,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import type { RenderMessage } from "../../types";
 import { isCompactMarker } from "../../types";
 import { CompactMarker } from "./CompactMarker";
@@ -12,6 +19,9 @@ import { MessageBubble } from "./MessageBubble";
 
 const SCROLL_THRESHOLD = 120;
 const DRAFT_SESSION_KEY = "__draft__";
+const INITIAL_MESSAGE_COUNT = 80;
+const LOAD_PREVIOUS_COUNT = 40;
+const LOAD_PREVIOUS_THRESHOLD = 160;
 
 interface MessageListProps {
   sessionId?: string | undefined;
@@ -23,10 +33,6 @@ interface MessageListProps {
     | undefined;
 }
 
-function getBottomScrollTop(container: HTMLDivElement): number {
-  return Math.max(0, container.scrollHeight - container.clientHeight);
-}
-
 export const MessageList = memo(function MessageList({
   sessionId,
   messages,
@@ -35,54 +41,6 @@ export const MessageList = memo(function MessageList({
   onRewindAndSend,
 }: MessageListProps) {
   const sessionKey = sessionId || DRAFT_SESSION_KEY;
-  const containerRef = useRef<HTMLDivElement | null>(null);
-  const scrollPositionsRef = useRef(new Map<string, number>());
-  const activeSessionKeyRef = useRef(sessionKey);
-  const stickToBottom = useRef(true);
-  const previousMessageCount = useRef(0);
-
-  const saveScrollPosition = useCallback((sessionKey: string) => {
-    const el = containerRef.current;
-    if (!el) return;
-    scrollPositionsRef.current.set(sessionKey, el.scrollTop);
-    stickToBottom.current =
-      el.scrollHeight - el.scrollTop - el.clientHeight < SCROLL_THRESHOLD;
-  }, []);
-
-  const handleScroll = useCallback(() => {
-    saveScrollPosition(activeSessionKeyRef.current);
-  }, [saveScrollPosition]);
-
-  useLayoutEffect(() => {
-    const sessionChanged = activeSessionKeyRef.current !== sessionKey;
-    const previousCount = previousMessageCount.current;
-    previousMessageCount.current = messages.length;
-
-    const container = containerRef.current;
-    if (!messages.length || !container) return;
-
-    if (sessionChanged) {
-      activeSessionKeyRef.current = sessionKey;
-      const savedTop = scrollPositionsRef.current.get(sessionKey);
-      const bottomTop = getBottomScrollTop(container);
-      container.scrollTop =
-        typeof savedTop === "number"
-          ? Math.min(savedTop, bottomTop)
-          : bottomTop;
-      stickToBottom.current =
-        container.scrollHeight - container.scrollTop - container.clientHeight <
-        SCROLL_THRESHOLD;
-      return;
-    }
-
-    if (!stickToBottom.current) return;
-
-    container.scrollTo({
-      top: getBottomScrollTop(container),
-      behavior: loading || previousCount === 0 ? "auto" : "smooth",
-    });
-    saveScrollPosition(sessionKey);
-  }, [loading, messages, saveScrollPosition, sessionKey]);
 
   if (messages.length === 0) {
     return (
@@ -100,16 +58,121 @@ export const MessageList = memo(function MessageList({
   }
 
   return (
+    <WindowedMessages
+      key={sessionKey}
+      messages={messages}
+      loading={loading}
+      onRewindAndSend={onRewindAndSend}
+    />
+  );
+});
+
+interface WindowedMessagesProps {
+  messages: RenderMessage[];
+  loading: boolean;
+  onRewindAndSend?:
+    | ((rewindTo: number, input: string) => Promise<void>)
+    | undefined;
+}
+
+function getInitialStartIndex(messageCount: number): number {
+  return Math.max(0, messageCount - INITIAL_MESSAGE_COUNT);
+}
+
+function WindowedMessages({
+  messages,
+  loading,
+  onRewindAndSend,
+}: WindowedMessagesProps) {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const stickToBottom = useRef(true);
+  const previousMessageCount = useRef(messages.length);
+  const prependSnapshot = useRef<number | null>(null);
+  const [visibleStartIndex, setVisibleStartIndex] = useState(() =>
+    getInitialStartIndex(messages.length),
+  );
+  const effectiveStartIndex = Math.min(
+    visibleStartIndex,
+    getInitialStartIndex(messages.length),
+  );
+  const visibleMessages = useMemo(
+    () => messages.slice(effectiveStartIndex),
+    [effectiveStartIndex, messages],
+  );
+
+  const updateStickToBottom = useCallback(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    stickToBottom.current =
+      el.scrollHeight - el.scrollTop - el.clientHeight < SCROLL_THRESHOLD;
+  }, []);
+
+  const handleScroll = useCallback(() => {
+    const el = containerRef.current;
+    if (!el) return;
+
+    stickToBottom.current =
+      el.scrollHeight - el.scrollTop - el.clientHeight < SCROLL_THRESHOLD;
+
+    if (el.scrollTop > LOAD_PREVIOUS_THRESHOLD || effectiveStartIndex === 0) {
+      return;
+    }
+
+    prependSnapshot.current = el.scrollHeight - el.scrollTop;
+    setVisibleStartIndex(
+      Math.max(0, effectiveStartIndex - LOAD_PREVIOUS_COUNT),
+    );
+  }, [effectiveStartIndex]);
+
+  useLayoutEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+
+    el.scrollTop = el.scrollHeight;
+    stickToBottom.current = true;
+  }, []);
+
+  useLayoutEffect(() => {
+    const snapshot = prependSnapshot.current;
+    if (snapshot == null) return;
+
+    const el = containerRef.current;
+    if (!el) return;
+
+    el.scrollTop = el.scrollHeight - snapshot;
+    prependSnapshot.current = null;
+  });
+
+  useLayoutEffect(() => {
+    const previousCount = previousMessageCount.current;
+    previousMessageCount.current = messages.length;
+
+    if (!stickToBottom.current) return;
+
+    const el = containerRef.current;
+    if (!el) return;
+
+    el.scrollTo({
+      top: el.scrollHeight,
+      behavior:
+        loading || messages.length === previousCount ? "auto" : "smooth",
+    });
+    updateStickToBottom();
+  }, [loading, messages, updateStickToBottom]);
+
+  return (
     <div
       ref={containerRef}
       onScroll={handleScroll}
       className="flex-1 overflow-y-auto pb-4 pt-6 [overflow-anchor:none]"
     >
       <div className="mx-auto max-w-4xl max-md:max-w-none flex flex-col gap-6 max-md:gap-5">
-        {messages.map((message, index) => {
+        {visibleMessages.map((message, visibleIndex) => {
+          const index = effectiveStartIndex + visibleIndex;
           if (isCompactMarker(message)) {
             return <CompactMarker key={message.renderKey} />;
           }
+
           return (
             <MessageBubble
               key={message.renderKey || `msg-${index}`}
@@ -133,4 +196,4 @@ export const MessageList = memo(function MessageList({
       </div>
     </div>
   );
-});
+}

@@ -85,6 +85,8 @@ Rendering rules:
 - `image` blocks → inline image preview in `MessageBubble`
 - `compact-marker` entries → `CompactMarker` (a thin labelled divider, no interactivity)
 
+`MessageList` renders long histories as a tail window: initial session load renders the latest messages and scrolls to the bottom before paint. Scrolling near the top prepends older messages in batches and preserves the current viewport by restoring the previous distance from the bottom. Auto-scroll follows incoming message updates only while the user is already near the bottom; local height changes such as expanding tools do not trigger it.
+
 ## Streaming
 
 1. `POST /api/chat` → get `{run, session}`
