@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
-from typing import Any
+from typing import Any, override
 from urllib.parse import urlparse
 
 from google import genai
@@ -51,6 +51,7 @@ class GoogleGeminiAdapter(ProviderAdapter):
     default_models = ("gemini-3.1-pro-preview", "gemini-3-flash-preview")
     supports_reasoning_effort = True
 
+    @override
     async def stream_turn(self, request: ProviderRequest) -> AsyncIterator[ProviderStreamEvent]:
         api_key = self.require_api_key(request.api_key)
         client = genai.Client(api_key=api_key, http_options=self._http_options(request.api_base))

@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, override
 
 from openai import APIError, AsyncOpenAI
 
@@ -42,6 +42,7 @@ class OpenAIChatAdapter(ProviderAdapter):
     env_api_key_names = ("OPENAI_API_KEY",)
     auto_discoverable = False
 
+    @override
     async def stream_turn(self, request: ProviderRequest) -> AsyncIterator[ProviderStreamEvent]:
         api_key = self.require_api_key(request.api_key)
         client = AsyncOpenAI(
@@ -336,6 +337,7 @@ class DeepSeekAdapter(OpenAIChatAdapter):
     auto_discoverable = True
     supports_reasoning_effort = True
 
+    @override
     def _build_provider_payload_overrides(self, request: ProviderRequest) -> dict[str, Any]:
         if request.reasoning_effort == "none":
             return {"extra_body": {"thinking": {"type": "disabled"}}}
@@ -362,6 +364,7 @@ class ZAIAdapter(OpenAIChatAdapter):
     default_models = ("glm-5.1", "glm-5-turbo")
     auto_discoverable = True
 
+    @override
     def _build_provider_payload_overrides(self, request: ProviderRequest) -> dict[str, Any]:
         return {"extra_body": {"thinking": {"type": "enabled", "clear_thinking": False}}}
 
@@ -377,6 +380,7 @@ class OpenRouterAdapter(OpenAIChatAdapter):
     auto_discoverable = True
     supports_reasoning_effort = True
 
+    @override
     def _build_provider_payload_overrides(self, request: ProviderRequest) -> dict[str, Any]:
         if not request.reasoning_effort:
             return {}

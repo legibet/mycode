@@ -5,7 +5,7 @@ from __future__ import annotations
 import time
 from collections.abc import Awaitable, Callable
 from datetime import datetime
-from typing import Any
+from typing import Any, override
 
 from rich.console import Console, ConsoleOptions, RenderResult
 from rich.live import Live
@@ -54,6 +54,7 @@ console = Console(highlight=False, theme=_THEME)
 class _LeftHeading(_RichHeading):
     """Heading variant that left-aligns all heading levels."""
 
+    @override
     def __rich_console__(self, console: Console, options: ConsoleOptions) -> RenderResult:
         text = self.text
         text.justify = "left"
@@ -71,6 +72,7 @@ class _LeftHeading(_RichHeading):
 class _CleanCodeBlock(_RichCodeBlock):
     """Code block that uses the terminal background instead of the theme background."""
 
+    @override
     def __rich_console__(self, console: Console, options: ConsoleOptions) -> RenderResult:
         code = str(self.text).rstrip()
         yield Syntax(

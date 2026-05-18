@@ -134,6 +134,7 @@ class _PromptCompleter(Completer):
     def __init__(self, *, cwd: str | None = None) -> None:
         self._cwd = cwd
 
+    @override
     def get_completions(self, document: Document, complete_event: CompleteEvent) -> Iterable[Completion]:
         del complete_event
         text_before_cursor = document.text_before_cursor

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 from collections.abc import AsyncIterator
-from typing import Any, cast
+from typing import Any, cast, override
 
 from anthropic import APIError, AsyncAnthropic
 
@@ -78,6 +78,7 @@ class AnthropicLikeAdapter(ProviderAdapter):
             payload["output_config"] = output_config
         return payload
 
+    @override
     def project_tool_call_id(self, tool_call_id: str, used_tool_call_ids: set[str]) -> str:
         """Return a short ASCII ID without introducing collisions.
 
@@ -126,6 +127,7 @@ class AnthropicLikeAdapter(ProviderAdapter):
 
             return
 
+    @override
     async def stream_turn(self, request: ProviderRequest) -> AsyncIterator[ProviderStreamEvent]:
         api_key = self.require_api_key(request.api_key)
         client = AsyncAnthropic(
@@ -314,6 +316,7 @@ class AnthropicAdapter(AnthropicLikeAdapter):
     default_models = ("claude-sonnet-4-6", "claude-opus-4-7")
     supports_reasoning_effort = True
 
+    @override
     def thinking_config(self, request: ProviderRequest) -> dict[str, Any] | None:
         effort = request.reasoning_effort
         if not effort:
@@ -328,6 +331,7 @@ class AnthropicAdapter(AnthropicLikeAdapter):
             return thinking
         return self.manual_thinking_config(effort)
 
+    @override
     def output_config(self, request: ProviderRequest) -> dict[str, Any] | None:
         effort = request.reasoning_effort
         if not effort or effort == "none":
@@ -362,6 +366,7 @@ class MoonshotAIAdapter(AnthropicLikeAdapter):
     default_models = ("kimi-k2.6",)
     supports_reasoning_effort = True
 
+    @override
     def thinking_config(self, request: ProviderRequest) -> dict[str, Any] | None:
         return self.manual_thinking_config(request.reasoning_effort)
 
@@ -381,5 +386,6 @@ class MiniMaxAdapter(AnthropicLikeAdapter):
     default_models = ("MiniMax-M2.7", "MiniMax-M2.7-highspeed")
     supports_reasoning_effort = True
 
+    @override
     def thinking_config(self, request: ProviderRequest) -> dict[str, Any] | None:
         return self.manual_thinking_config(request.reasoning_effort)

@@ -31,27 +31,27 @@ exclude = [
 pythonVersion = "3.12"
 pythonPlatform = "All"
 typeCheckingMode = "recommended"
+baselineFile = ".basedpyright/baseline.json"
+allowedUntypedLibraries = ["hatchling"]
 reportMissingTypeStubs = false
 reportAny = "none"
 reportExplicitAny = "none"
-reportImplicitOverride = "none"
 reportUnannotatedClassAttribute = "none"
 reportUnusedCallResult = "hint"
-# The internal message format uses dict[str, Any] by design.
+reportUnusedFunction = "none"
 reportUnknownMemberType = "none"
 reportUnknownVariableType = "none"
 reportUnknownArgumentType = "none"
 reportUnknownParameterType = "none"
-# Prompt-toolkit key bindings register callbacks via decorators; the functions
-# look unused to static analysis but are called at runtime.
-reportUnusedFunction = "none"
 reportUnreachable = "hint"
-allowedUntypedLibraries = ["hatchling"]
-executionEnvironments = [
-    # Tests use pytest fixtures and autouse decorators that confuse static analysis.
-    { root = "tests", reportMissingParameterType = "none", reportPrivateUsage = "none", reportUnknownArgumentType = "none", reportUnknownLambdaType = "none", reportUnknownMemberType = "none", reportUnknownParameterType = "none", reportUnknownVariableType = "none", reportUnusedParameter = "none", reportUnusedVariable = "none" },
-]
-baselineFile = ".basedpyright/baseline.json"
+
+[[tool.basedpyright.executionEnvironments]]
+root = "tests"
+reportMissingParameterType = "none"
+reportPrivateUsage = "none"
+reportUnknownLambdaType = "none"
+reportUnusedParameter = "none"
+reportUnusedVariable = "none"
 
 [tool.ruff]
 target-version = "py312"

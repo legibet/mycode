@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from collections.abc import AsyncIterator
 from copy import deepcopy
-from typing import Any, cast
+from typing import Any, cast, override
 
 from openai import APIError, AsyncOpenAI
 
@@ -33,6 +33,7 @@ class OpenAIResponsesAdapter(ProviderAdapter):
     default_models = ("gpt-5.5", "gpt-5.4-mini")
     supports_reasoning_effort = True
 
+    @override
     async def stream_turn(self, request: ProviderRequest) -> AsyncIterator[ProviderStreamEvent]:
         api_key = self.require_api_key(request.api_key)
         client = AsyncOpenAI(
