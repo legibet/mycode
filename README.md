@@ -2,10 +2,11 @@
 
 >There are many coding agents, but this one is mine.
 
-A minimal coding agent. Inspired by [pi](https://github.com/badlogic/pi-mono).
+A minimal coding agent.
 
-- Minimal agent core (< 5k lines) with multiple provider support and robust message replay.
-- 4 built-in tools only (`read`, `write`, `edit`, `bash`), expanded via skills.
+- Minimal：agent core code lines < 5k, total < 10k (backend).
+- Multiple provider support and robust message replay.
+- 4 built-in tools (`read`, `write`, `edit`, `bash`), expanded via skills.
 - Mobile-friendly web UI.
 - Native image and pdf input support.
 

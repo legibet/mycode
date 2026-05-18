@@ -104,8 +104,6 @@ Read the relevant doc before related changes.
 | `web/src/**`                                                                    | `docs/web.md`                                 |
 | Cross-cutting changes (e.g. a new SSE event)                                    | `docs/api.md` + `docs/sdk.md` + `docs/web.md` |
 
-For third-party SDKs and APIs touched by adapter or runtime code, prefer `context7` lookups over assumptions.
-
 ## Interfaces
 
 CLI commands: `mycode` (interactive), `mycode run "..."` (non-interactive), `mycode web [--dev]`, `mycode session list`. Inside the TUI: `@path` attaches files (text → `<file>` snapshots, images/PDFs → structured blocks); slash commands `/clear` `/new` `/resume` `/rewind` `/provider` `/model` `/effort` `/q`.
