@@ -87,11 +87,7 @@ export const MessageList = memo(function MessageList({
   if (messages.length === 0) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center p-8">
-        {sessionLoading ? (
-          <div className="font-mono text-xs text-muted-foreground/60">
-            loading session
-          </div>
-        ) : (
+        {!sessionLoading && (
           <div className="text-center">
             <h1 className="font-display text-2xl tracking-tighter text-foreground/70">
               mycode
