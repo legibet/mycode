@@ -110,16 +110,20 @@ function SidebarResizer({
     const startX = e.clientX;
     const startWidth = width;
     setDragging(true);
-    document.body.style.cursor = "col-resize";
-    document.body.style.userSelect = "none";
+    Object.assign(document.body.style, {
+      cursor: "col-resize",
+      userSelect: "none",
+    });
 
     const onMove = (ev: PointerEvent) => {
       onResize(clampSidebarWidth(startWidth + (ev.clientX - startX)));
     };
     const onUp = () => {
       setDragging(false);
-      document.body.style.cursor = "";
-      document.body.style.userSelect = "";
+      Object.assign(document.body.style, {
+        cursor: "",
+        userSelect: "",
+      });
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
     };
