@@ -361,12 +361,8 @@ describe("useChat", () => {
 
     expect(result.current.activeSession.id).toBe("session-2");
     expect(result.current.sessionLoading).toBe(true);
-    expect(expectChat(result.current.messages[0]).content[0]).toEqual({
-      type: "text",
-      text: "first session",
-      renderKey: "assistant:0:0",
-    });
-    expect(result.current.messageSessionId).toBe("session-1");
+    expect(result.current.messages).toEqual([]);
+    expect(result.current.messageSessionId).toBe("session-2");
 
     await act(async () => {
       resolveSession2(
@@ -393,6 +389,116 @@ describe("useChat", () => {
     expect(expectChat(result.current.messages[0]).content[0]).toEqual({
       type: "text",
       text: "second session",
+      renderKey: "assistant:0:0",
+    });
+  });
+
+  it("ignores stale selected history when switching sessions again", async () => {
+    saveActiveSession("/workspace/a", "session-1");
+
+    let resolveSession2!: (response: Response) => void;
+    const session2Response = new Promise<Response>((resolve) => {
+      resolveSession2 = resolve;
+    });
+    let resolveSession3!: (response: Response) => void;
+    const session3Response = new Promise<Response>((resolve) => {
+      resolveSession3 = resolve;
+    });
+
+    mockFetch({
+      "/api/sessions?cwd=": createJsonResponse({
+        sessions: [
+          { id: "session-3", title: "Third" },
+          { id: "session-2", title: "Second" },
+          { id: "session-1", title: "First" },
+        ],
+      }),
+      "/api/sessions/session-1": createJsonResponse({
+        session: { id: "session-1", title: "First" },
+        messages: [
+          {
+            role: "assistant",
+            content: [{ type: "text", text: "first session" }],
+          },
+        ],
+        active_run: null,
+        pending_events: [],
+      }),
+      "/api/sessions/session-2": () => session2Response,
+      "/api/sessions/session-3": () => session3Response,
+    });
+
+    const { result } = renderChatHook();
+
+    await waitFor(() => {
+      expect(result.current.sessionLoading).toBe(false);
+      expect(result.current.activeSession.id).toBe("session-1");
+    });
+
+    let selectSession2!: Promise<void>;
+    act(() => {
+      selectSession2 = result.current.selectSession("session-2");
+    });
+
+    expect(result.current.activeSession.id).toBe("session-2");
+    expect(result.current.messages).toEqual([]);
+    expect(result.current.messageSessionId).toBe("session-2");
+
+    let selectSession3!: Promise<void>;
+    act(() => {
+      selectSession3 = result.current.selectSession("session-3");
+    });
+
+    expect(result.current.activeSession.id).toBe("session-3");
+    expect(result.current.messages).toEqual([]);
+    expect(result.current.messageSessionId).toBe("session-3");
+
+    await act(async () => {
+      resolveSession2(
+        createJsonResponse({
+          session: { id: "session-2", title: "Second" },
+          messages: [
+            {
+              role: "assistant",
+              content: [{ type: "text", text: "second session" }],
+            },
+          ],
+          active_run: null,
+          pending_events: [],
+        }),
+      );
+      await selectSession2;
+    });
+
+    expect(result.current.activeSession.id).toBe("session-3");
+    expect(result.current.messages).toEqual([]);
+    expect(result.current.messageSessionId).toBe("session-3");
+
+    await act(async () => {
+      resolveSession3(
+        createJsonResponse({
+          session: { id: "session-3", title: "Third" },
+          messages: [
+            {
+              role: "assistant",
+              content: [{ type: "text", text: "third session" }],
+            },
+          ],
+          active_run: null,
+          pending_events: [],
+        }),
+      );
+      await selectSession3;
+    });
+
+    await waitFor(() => {
+      expect(result.current.sessionLoading).toBe(false);
+      expect(result.current.messageSessionId).toBe("session-3");
+      expect(result.current.messages).toHaveLength(1);
+    });
+    expect(expectChat(result.current.messages[0]).content[0]).toEqual({
+      type: "text",
+      text: "third session",
       renderKey: "assistant:0:0",
     });
   });

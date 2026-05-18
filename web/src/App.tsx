@@ -189,7 +189,6 @@ function AppContent() {
     loading,
     sessions,
     activeSession,
-    sessionLoading,
     pendingPermission,
     send,
     rewindAndSend,
@@ -371,7 +370,6 @@ function AppContent() {
                 sessionId={messageSessionId ?? activeSession?.id}
                 messages={messages}
                 loading={loading}
-                sessionLoading={sessionLoading}
                 onRewindAndSend={workspaceMissing ? undefined : rewindAndSend}
               />
 

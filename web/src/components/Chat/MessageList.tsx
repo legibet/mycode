@@ -19,15 +19,14 @@ import { MessageBubble } from "./MessageBubble";
 
 const SCROLL_THRESHOLD = 120;
 const DRAFT_SESSION_KEY = "__draft__";
-const INITIAL_MESSAGE_COUNT = 80;
-const LOAD_PREVIOUS_COUNT = 40;
+const INITIAL_MESSAGE_COUNT = 60;
+const LOAD_PREVIOUS_COUNT = 30;
 const LOAD_PREVIOUS_THRESHOLD = 160;
 
 interface MessageListProps {
   sessionId?: string | undefined;
   messages: RenderMessage[];
   loading: boolean;
-  sessionLoading: boolean;
   onRewindAndSend?:
     | ((rewindTo: number, input: string) => Promise<void>)
     | undefined;
@@ -37,7 +36,6 @@ export const MessageList = memo(function MessageList({
   sessionId,
   messages,
   loading,
-  sessionLoading,
   onRewindAndSend,
 }: MessageListProps) {
   const sessionKey = sessionId || DRAFT_SESSION_KEY;
@@ -45,14 +43,12 @@ export const MessageList = memo(function MessageList({
   if (messages.length === 0) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center p-8">
-        {!sessionLoading && (
-          <div className="text-center">
-            <h1 className="font-display text-2xl tracking-tighter text-foreground/70">
-              mycode
-              <span className="inline-block w-0.5 h-5 bg-accent/60 ml-0.5 align-middle animate-cursor-blink" />
-            </h1>
-          </div>
-        )}
+        <div className="text-center">
+          <h1 className="font-display text-2xl tracking-tighter text-foreground/70">
+            mycode
+            <span className="inline-block w-0.5 h-5 bg-accent/60 ml-0.5 align-middle animate-cursor-blink" />
+          </h1>
+        </div>
       </div>
     );
   }

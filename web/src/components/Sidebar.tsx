@@ -331,7 +331,14 @@ export const Sidebar = memo(function Sidebar({
                   <div key={session.id} className="group relative">
                     <span
                       className={cn(
-                        "absolute left-0 top-1.5 bottom-1.5 w-0.5 rounded-r",
+                        "pointer-events-none absolute inset-y-0 left-0 right-2",
+                        isActive ? "bg-accent/10" : "bg-transparent",
+                      )}
+                      aria-hidden="true"
+                    />
+                    <span
+                      className={cn(
+                        "absolute left-0 top-1.5 bottom-1.5 z-10 w-0.5 rounded-r",
                         isActive ? "bg-accent" : "bg-transparent",
                       )}
                       aria-hidden="true"
@@ -340,10 +347,10 @@ export const Sidebar = memo(function Sidebar({
                       type="button"
                       aria-current={isActive ? "true" : undefined}
                       className={cn(
-                        "flex w-full items-center gap-2 pl-5 pr-9 py-1.5 text-[13px] text-left transition-colors",
+                        "relative z-10 flex w-full items-center gap-2 pl-5 pr-9 py-1.5 text-[13px] text-left transition-colors",
                         isActive
-                          ? "text-foreground bg-accent/10"
-                          : "text-muted-foreground hover:text-foreground hover:bg-muted/40",
+                          ? "text-foreground"
+                          : "text-muted-foreground hover:text-foreground",
                       )}
                       onClick={() => onSelectSession(session.id)}
                     >
@@ -372,7 +379,7 @@ export const Sidebar = memo(function Sidebar({
                         void onDeleteSession(session.id);
                       }}
                       className={cn(
-                        "absolute right-3 top-1/2 -translate-y-1/2 size-5 flex items-center justify-center rounded",
+                        "absolute right-3 top-1/2 z-20 -translate-y-1/2 size-5 flex items-center justify-center rounded",
                         "opacity-0 group-hover:opacity-100 max-md:opacity-100",
                         "text-muted-foreground/60 hover:text-destructive hover:bg-destructive/10 transition-all",
                       )}

@@ -4,6 +4,7 @@
  */
 
 import {
+  startTransition,
   useCallback,
   useEffect,
   useMemo,
@@ -60,7 +61,13 @@ interface ChatState {
 }
 
 type ChatAction =
-  | { type: "set_messages"; messages: ChatMessage[]; sessionId?: string | null }
+  | {
+      type: "set_messages";
+      messages: ChatMessage[];
+      sessionId?: string | null;
+      replayEvents?: StreamEvent[];
+      expectedSessionId?: string | null;
+    }
   | { type: "start_turn"; content: string; attachments?: AttachedFile[] }
   | { type: "rewind_and_start_turn"; rewindTo: number; content: string }
   | { type: "apply_event"; event: StreamEvent }
@@ -107,12 +114,25 @@ function createDraftSession(): SessionSummary {
 function chatReducer(state: ChatState, action: ChatAction): ChatState {
   switch (action.type) {
     case "set_messages": {
-      return {
+      if (
+        action.expectedSessionId != null &&
+        state.messageSessionId !== action.expectedSessionId
+      ) {
+        return state;
+      }
+
+      let nextState: ChatState = {
         messageSessionId: action.sessionId ?? state.messageSessionId,
         rawMessages: action.messages,
         toolRuntimeById: {},
         preTurnRawMessages: null,
       };
+
+      for (const event of action.replayEvents || []) {
+        nextState = chatReducer(nextState, { type: "apply_event", event });
+      }
+
+      return nextState;
     }
 
     case "start_turn": {
@@ -562,14 +582,15 @@ export function useChat(config: LocalConfig) {
         }
         replayEvents.push(event);
       }
-      dispatch({
-        type: "set_messages",
-        messages: data.messages || [],
-        sessionId: data.session?.id ?? sessionId,
+      startTransition(() => {
+        dispatch({
+          type: "set_messages",
+          messages: data.messages || [],
+          sessionId: data.session?.id ?? sessionId,
+          replayEvents,
+          expectedSessionId: data.session?.id ?? sessionId,
+        });
       });
-      for (const event of replayEvents) {
-        dispatch({ type: "apply_event", event });
-      }
       if (replayedPermissions.size) {
         setPendingPermissions(Array.from(replayedPermissions.values()));
       }
@@ -915,11 +936,11 @@ export function useChat(config: LocalConfig) {
       sessionRequestTokenRef.current = requestToken;
       setSessionLoading(true);
 
-      const previousSession = activeSessionRef.current;
       const summary = sessions.find((session) => session.id === sessionId);
       if (summary) {
         setActiveSessionSnapshot(summary);
       }
+      dispatch({ type: "set_messages", messages: [], sessionId });
       setPendingPermissions([]);
 
       const isStillCurrent = () =>
@@ -938,9 +959,6 @@ export function useChat(config: LocalConfig) {
         fetchSessions();
       } catch (e) {
         console.error("Failed to load session:", e);
-        if (isStillCurrent()) {
-          setActiveSessionSnapshot(previousSession);
-        }
       } finally {
         if (isStillCurrent()) {
           setSessionLoading(false);
@@ -1090,6 +1108,11 @@ export function useChat(config: LocalConfig) {
           if (summary) {
             setActiveSessionSnapshot(summary);
           }
+          dispatch({
+            type: "set_messages",
+            messages: [],
+            sessionId: initialSessionId,
+          });
           await loadSessionRef.current?.(initialSessionId, {
             requestCwd,
             requestToken,
