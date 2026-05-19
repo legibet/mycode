@@ -75,6 +75,16 @@ function getInitialStartIndex(messageCount: number): number {
   return Math.max(0, messageCount - INITIAL_MESSAGE_COUNT);
 }
 
+function measureMessageShells(container: HTMLElement) {
+  const shells = container.querySelectorAll<HTMLElement>(".chat-message-shell");
+  for (const shell of shells) {
+    shell.style.setProperty(
+      "--chat-message-intrinsic-size",
+      `${Math.ceil(shell.getBoundingClientRect().height)}px`,
+    );
+  }
+}
+
 function WindowedMessages({
   messages,
   loading,
@@ -84,6 +94,9 @@ function WindowedMessages({
   const stickToBottom = useRef(true);
   const previousMessageCount = useRef(messages.length);
   const prependSnapshot = useRef<number | null>(null);
+  const layoutMeasureFrame = useRef<number | null>(null);
+  const bottomDistanceToRestore = useRef<number | null>(null);
+  const [layoutOptimized, setLayoutOptimized] = useState(false);
   const [visibleStartIndex, setVisibleStartIndex] = useState(() =>
     getInitialStartIndex(messages.length),
   );
@@ -103,6 +116,19 @@ function WindowedMessages({
       el.scrollHeight - el.scrollTop - el.clientHeight < SCROLL_THRESHOLD;
   }, []);
 
+  const scheduleLayoutOptimization = useCallback((bottomDistance: number) => {
+    bottomDistanceToRestore.current = bottomDistance;
+    if (layoutMeasureFrame.current !== null) {
+      window.cancelAnimationFrame(layoutMeasureFrame.current);
+    }
+    layoutMeasureFrame.current = window.requestAnimationFrame(() => {
+      layoutMeasureFrame.current = null;
+      const el = containerRef.current;
+      if (el) measureMessageShells(el);
+      setLayoutOptimized(true);
+    });
+  }, []);
+
   const handleScroll = useCallback(() => {
     const el = containerRef.current;
     if (!el) return;
@@ -115,6 +141,7 @@ function WindowedMessages({
     }
 
     prependSnapshot.current = el.scrollHeight - el.scrollTop;
+    setLayoutOptimized(false);
     setVisibleStartIndex(
       Math.max(0, effectiveStartIndex - LOAD_PREVIOUS_COUNT),
     );
@@ -126,6 +153,15 @@ function WindowedMessages({
 
     el.scrollTop = el.scrollHeight;
     stickToBottom.current = true;
+    scheduleLayoutOptimization(0);
+  }, [scheduleLayoutOptimization]);
+
+  useLayoutEffect(() => {
+    return () => {
+      if (layoutMeasureFrame.current !== null) {
+        window.cancelAnimationFrame(layoutMeasureFrame.current);
+      }
+    };
   }, []);
 
   useLayoutEffect(() => {
@@ -137,7 +173,22 @@ function WindowedMessages({
 
     el.scrollTop = el.scrollHeight - snapshot;
     prependSnapshot.current = null;
-  });
+    scheduleLayoutOptimization(snapshot);
+  }, [scheduleLayoutOptimization]);
+
+  useLayoutEffect(() => {
+    if (!layoutOptimized) return;
+
+    const bottomDistance = bottomDistanceToRestore.current;
+    if (bottomDistance == null) return;
+
+    const el = containerRef.current;
+    if (!el) return;
+
+    el.scrollTop = el.scrollHeight - bottomDistance;
+    bottomDistanceToRestore.current = null;
+    updateStickToBottom();
+  }, [layoutOptimized, updateStickToBottom]);
 
   useLayoutEffect(() => {
     const previousCount = previousMessageCount.current;
@@ -165,27 +216,42 @@ function WindowedMessages({
       <div className="mx-auto max-w-4xl max-md:max-w-none flex flex-col gap-6 max-md:gap-5">
         {visibleMessages.map((message, visibleIndex) => {
           const index = effectiveStartIndex + visibleIndex;
+          const renderKey = message.renderKey || `msg-${index}`;
+
           if (isCompactMarker(message)) {
-            return <CompactMarker key={message.renderKey} />;
+            return (
+              <div
+                key={renderKey}
+                className="chat-message-shell"
+                data-layout-optimized={layoutOptimized}
+              >
+                <CompactMarker />
+              </div>
+            );
           }
 
           return (
-            <MessageBubble
-              key={message.renderKey || `msg-${index}`}
-              role={message.role}
-              blocks={message.content}
-              sourceIndex={message.sourceIndex}
-              isStreaming={
-                loading &&
-                index === messages.length - 1 &&
-                message.role === "assistant"
-              }
-              isLoading={loading}
-              totalTokens={message.meta?.total_tokens}
-              model={message.meta?.model}
-              contextWindow={message.meta?.context_window}
-              onRewindAndSend={onRewindAndSend}
-            />
+            <div
+              key={renderKey}
+              className="chat-message-shell"
+              data-layout-optimized={layoutOptimized}
+            >
+              <MessageBubble
+                role={message.role}
+                blocks={message.content}
+                sourceIndex={message.sourceIndex}
+                isStreaming={
+                  loading &&
+                  index === messages.length - 1 &&
+                  message.role === "assistant"
+                }
+                isLoading={loading}
+                totalTokens={message.meta?.total_tokens}
+                model={message.meta?.model}
+                contextWindow={message.meta?.context_window}
+                onRewindAndSend={onRewindAndSend}
+              />
+            </div>
           );
         })}
         <div className="h-4" />

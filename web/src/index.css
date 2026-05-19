@@ -221,6 +221,17 @@
   }
 }
 
+/* Reduce resize layout work after messages have completed one real layout pass. */
+.chat-message-shell[data-layout-optimized="true"] {
+  content-visibility: auto;
+  contain-intrinsic-size: auto var(--chat-message-intrinsic-size, 320px);
+}
+
+.chat-message-shell[data-layout-optimized="true"]
+  .chat-collapsible-body[data-expanded="false"] {
+  content-visibility: hidden;
+}
+
 /* ── Prose / Markdown ── */
 .prose {
   @apply text-foreground max-w-none;
