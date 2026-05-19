@@ -6,6 +6,7 @@
 
 import {
   memo,
+  type ReactNode,
   useCallback,
   useLayoutEffect,
   useMemo,
@@ -30,6 +31,7 @@ interface MessageListProps {
   onRewindAndSend?:
     | ((rewindTo: number, input: string) => Promise<void>)
     | undefined;
+  emptyStateFooter?: ReactNode;
 }
 
 export const MessageList = memo(function MessageList({
@@ -37,18 +39,18 @@ export const MessageList = memo(function MessageList({
   messages,
   loading,
   onRewindAndSend,
+  emptyStateFooter,
 }: MessageListProps) {
   const sessionKey = sessionId || DRAFT_SESSION_KEY;
 
   if (messages.length === 0) {
     return (
-      <div className="flex flex-1 flex-col items-center justify-center p-8">
-        <div className="text-center">
-          <h1 className="font-display text-2xl tracking-tighter text-foreground/70">
-            mycode
-            <span className="inline-block w-0.5 h-5 bg-accent/60 ml-0.5 align-middle animate-cursor-blink" />
-          </h1>
-        </div>
+      <div className="flex flex-1 flex-col items-center justify-center p-8 text-center">
+        <h1 className="font-display text-2xl tracking-tighter text-foreground/70">
+          mycode
+          <span className="inline-block w-0.5 h-5 bg-accent/60 ml-0.5 align-middle animate-cursor-blink" />
+        </h1>
+        {emptyStateFooter && <div className="mt-8">{emptyStateFooter}</div>}
       </div>
     );
   }

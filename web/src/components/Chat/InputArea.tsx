@@ -106,6 +106,7 @@ interface InputAreaProps {
   remoteConfig: RemoteConfig | null;
   onUpdateConfig: (config: LocalConfig) => void;
   disabledReason?: string | undefined;
+  disabled?: boolean | undefined;
 }
 
 function readFileAsBase64(file: File): Promise<string> {
@@ -193,13 +194,14 @@ export const InputArea = memo(function InputArea({
   remoteConfig,
   onUpdateConfig,
   disabledReason,
+  disabled: disabledProp = false,
 }: InputAreaProps) {
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [dragging, setDragging] = useState(false);
   const dragCounterRef = useRef(0);
 
-  const disabled = Boolean(disabledReason);
+  const disabled = disabledProp || Boolean(disabledReason);
 
   const resetTextareaHeight = () => {
     if (textareaRef.current) {

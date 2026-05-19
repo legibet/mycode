@@ -45,6 +45,7 @@ export interface RemoteConfig {
   cwd_exists?: boolean;
   project?: string;
   config_paths?: string[];
+  setup_error?: { message: string } | null;
 }
 
 export interface SessionSummary {

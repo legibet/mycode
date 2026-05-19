@@ -12,6 +12,7 @@ import {
   useSyncExternalStore,
 } from "react";
 import useSWR from "swr";
+import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { InputArea } from "./components/Chat/InputArea";
@@ -258,6 +259,25 @@ function AppContent() {
   const workspaceDisabledReason = workspaceMissing
     ? "Workspace no longer exists. Choose another workspace."
     : undefined;
+  const setupRequired =
+    Boolean(remoteConfig?.setup_error) ||
+    (!remoteConfig && Boolean(remoteConfigError));
+  const emptyStateFooter = setupRequired ? (
+    remoteConfig ? (
+      <div className="flex items-center gap-3">
+        <p className="text-sm text-muted-foreground">
+          Add a provider to get started.
+        </p>
+        <Button variant="outline" size="sm" onClick={handleOpenSettings}>
+          Open settings
+        </Button>
+      </div>
+    ) : (
+      <p className="text-sm text-muted-foreground">
+        Couldn&apos;t reach the API.
+      </p>
+    )
+  ) : undefined;
 
   // Side effect (not derived state): drop already-attached files the active
   // model can no longer accept and revoke their object URLs. Listening on the
@@ -358,47 +378,41 @@ function AppContent() {
             onCreateSession={handleCreateSession}
           />
 
-          {remoteConfigError && !remoteConfig ? (
-            <div className="flex flex-1 items-center justify-center px-6">
-              <div className="max-w-xl font-mono text-xs leading-6 text-muted-foreground">
-                {remoteConfigError.message}
-              </div>
-            </div>
-          ) : (
-            <>
-              <MessageList
-                sessionId={messageSessionId ?? activeSession?.id}
-                messages={messages}
-                loading={loading}
-                onRewindAndSend={workspaceMissing ? undefined : rewindAndSend}
-              />
+          <MessageList
+            sessionId={messageSessionId ?? activeSession?.id}
+            messages={setupRequired ? [] : messages}
+            loading={setupRequired ? false : loading}
+            onRewindAndSend={
+              workspaceMissing || setupRequired ? undefined : rewindAndSend
+            }
+            emptyStateFooter={emptyStateFooter}
+          />
 
-              <div className="shrink-0 pb-4 max-md:pb-1">
-                {pendingPermission && (
-                  <PermissionPrompt
-                    request={pendingPermission}
-                    onDecide={decidePermission}
-                  />
-                )}
-                <InputArea
-                  input={input}
-                  setInput={setInput}
-                  loading={loading}
-                  onSend={handleSend}
-                  onCancel={cancel}
-                  supportsImages={supportsImageInput}
-                  supportsDocuments={supportsPdfInput}
-                  files={attachments}
-                  onAttachFiles={handleAttachFiles}
-                  onRemoveFile={handleRemoveAttachment}
-                  config={config}
-                  remoteConfig={remoteConfig}
-                  onUpdateConfig={handleConfigUpdate}
-                  disabledReason={workspaceDisabledReason}
-                />
-              </div>
-            </>
-          )}
+          <div className="shrink-0 pb-4 max-md:pb-1">
+            {pendingPermission && (
+              <PermissionPrompt
+                request={pendingPermission}
+                onDecide={decidePermission}
+              />
+            )}
+            <InputArea
+              input={input}
+              setInput={setInput}
+              loading={loading}
+              onSend={handleSend}
+              onCancel={cancel}
+              supportsImages={supportsImageInput}
+              supportsDocuments={supportsPdfInput}
+              files={attachments}
+              onAttachFiles={handleAttachFiles}
+              onRemoveFile={handleRemoveAttachment}
+              config={config}
+              remoteConfig={remoteConfig}
+              onUpdateConfig={handleConfigUpdate}
+              disabled={setupRequired}
+              disabledReason={workspaceDisabledReason}
+            />
+          </div>
         </main>
       </div>
 
