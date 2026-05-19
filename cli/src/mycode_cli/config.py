@@ -404,13 +404,18 @@ def resolve_provider(
 
     selected_name = (provider_name or settings.default_provider or "").strip()
     if selected_name:
-        return _resolve_provider_runtime(
-            settings,
-            selected_name=selected_name,
-            model=model,
-            api_key=api_key,
-            api_base=api_base,
-        )
+        try:
+            return _resolve_provider_runtime(
+                settings,
+                selected_name=selected_name,
+                model=model,
+                api_key=api_key,
+                api_base=api_base,
+            )
+        except ValueError:
+            # A caller-supplied provider_name must fail loudly rather than silently fall back.
+            if provider_name:
+                raise
 
     refs = _available_provider_references(settings)
     if refs:

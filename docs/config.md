@@ -91,10 +91,10 @@ If no API key is found at any step, provider resolution raises an error listing 
 
 `resolve_provider(settings, provider_name=..., model=...)` returns a `ResolvedProvider`:
 
-1. If `provider_name` given: resolve it as a configured alias or raw provider id
-2. If no provider given: try the configured default
-3. Fallback: iterate configured providers with valid credentials, then env-discoverable built-in providers
-4. If nothing found: raise error listing checked env vars
+1. If `provider_name` given: resolve it as a configured alias or raw provider id; failures raise.
+2. If no `provider_name`: try the configured default; failures fall through to step 3.
+3. Iterate configured providers with valid credentials, then env-discoverable built-in providers.
+4. If nothing found: raise error listing checked env vars.
 
 Auto-discovery is limited to providers where `auto_discoverable=True` and the corresponding env var is set.
 

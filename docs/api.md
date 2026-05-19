@@ -137,11 +137,12 @@ Response:
   "cwd": "...",
   "cwd_exists": true,
   "project": "...",
-  "config_paths": [...]
+  "config_paths": [...],
+  "setup_error": null
 }
 ```
 
-`reasoning_models` is returned only when `supports_reasoning_effort` is true. `image_input_models` lists models with `supports_image_input=true`. `pdf_input_models` lists models with `supports_pdf_input=true`.
+`reasoning_models` is returned only when `supports_reasoning_effort` is true. `image_input_models` lists models with `supports_image_input=true`. `pdf_input_models` lists models with `supports_pdf_input=true`. `setup_error` is `{ "message": "..." }` when no provider is usable (response stays `200`, `providers` is `{}`, `default` fields are empty strings); otherwise `null`.
 
 ## Settings
 

@@ -260,7 +260,7 @@ class TestResolveProvider:
         ("provider_name", "env_name", "env_value", "model", "expected_model"),
         [
             ("moonshotai", "MOONSHOT_API_KEY", "moonshot-env-key", "kimi-k2-thinking", "kimi-k2-thinking"),
-            ("google", "GEMINI_API_KEY", "gemini-env-key", None, "gemini-3.1-pro-preview"),
+            ("google", "GEMINI_API_KEY", "gemini-env-key", None, "gemini-3.5-flash"),
         ],
     )
     def test_accepts_raw_supported_providers(
@@ -361,10 +361,10 @@ class TestResolveProvider:
 
         assert resolved.api_key == "router-env-key"
 
-    def test_errors_when_configured_api_key_env_var_is_missing(
+    def test_falls_back_when_default_provider_api_key_is_missing(
         self, workspace: Path, config_home: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        monkeypatch.setenv("OPENAI_API_KEY", "default-env-key")
+        monkeypatch.setenv("OPENAI_API_KEY", "openai-env-key")
         write_json(
             config_home / "config.json",
             {
@@ -380,8 +380,10 @@ class TestResolveProvider:
             },
         )
 
-        with pytest.raises(ValueError, match="OPENROUTER_API_KEY"):
-            resolve_provider(get_settings(str(workspace.resolve())))
+        resolved = resolve_provider(get_settings(str(workspace.resolve())))
+
+        assert resolved.provider == "openai"
+        assert resolved.api_key == "openai-env-key"
 
     def test_auto_discovers_first_env_provider(self, workspace: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("OPENAI_API_KEY", "openai-env-key")
@@ -431,7 +433,7 @@ class TestResolveProvider:
         assert resolved.model == "deepseek-v4-pro"
         assert resolved.api_key == "deepseek-env-key"
 
-    def test_does_not_fallback_away_from_selected_default_provider(
+    def test_explicit_provider_name_does_not_fall_back(
         self, workspace: Path, config_home: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.setenv("OPENAI_API_KEY", "openai-env-key")
@@ -449,7 +451,10 @@ class TestResolveProvider:
         )
 
         with pytest.raises(ValueError, match="provider 'claude' is selected"):
-            resolve_provider(get_settings(str(workspace.resolve())))
+            resolve_provider(
+                get_settings(str(workspace.resolve())),
+                provider_name="claude",
+            )
 
     def test_ignores_anthropic_auth_token_env(self, workspace: Path, config_home: Path, monkeypatch) -> None:
         monkeypatch.setenv("ANTHROPIC_AUTH_TOKEN", "env-token")

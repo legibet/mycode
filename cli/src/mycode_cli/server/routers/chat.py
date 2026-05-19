@@ -26,6 +26,7 @@ from mycode.providers import get_provider_adapter, provider_default_models
 from mycode.tools import detect_document_mime_type, detect_image_mime_type, resolve_path
 from mycode_cli.config import (
     REASONING_EFFORT_OPTIONS,
+    ResolvedProvider,
     get_settings,
     normalize_reasoning_effort,
     resolve_provider,
@@ -299,10 +300,12 @@ def _make_review(runs: RunManager, session_id: str):
 async def get_config(cwd: Annotated[str | None, Query()] = None) -> dict[str, Any]:
     resolved_cwd = os.path.abspath(cwd or os.getcwd())
     settings = await asyncio.to_thread(get_settings, resolved_cwd)
+    resolved: ResolvedProvider | None = None
+    setup_error: dict[str, str] | None = None
     try:
         resolved = resolve_provider(settings)
     except ValueError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
+        setup_error = {"message": str(exc)}
 
     providers_info: dict[str, Any] = {}
     for provider in resolve_provider_choices(settings):
@@ -356,16 +359,20 @@ async def get_config(cwd: Annotated[str | None, Query()] = None) -> dict[str, An
 
         providers_info[provider.provider_name or provider.provider] = info
 
+    default_payload = (
+        {"provider": resolved.provider_name, "model": resolved.model}
+        if resolved is not None
+        else {"provider": "", "model": ""}
+    )
+
     return {
         "providers": providers_info,
-        "default": {
-            "provider": resolved.provider_name,
-            "model": resolved.model,
-        },
+        "default": default_payload,
         "default_reasoning_effort": settings.default_reasoning_effort,
         "reasoning_effort_options": REASONING_EFFORT_OPTIONS,
         "cwd": resolved_cwd,
         "cwd_exists": os.path.isdir(resolved_cwd),
         "project": settings.project,
         "config_paths": settings.config_paths,
+        "setup_error": setup_error,
     }
