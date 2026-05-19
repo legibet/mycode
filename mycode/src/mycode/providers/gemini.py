@@ -48,7 +48,7 @@ class GoogleGeminiAdapter(ProviderAdapter):
     label = "Google Gemini"
     default_base_url = "https://generativelanguage.googleapis.com"
     env_api_key_names = ("GEMINI_API_KEY", "GOOGLE_API_KEY")
-    default_models = ("gemini-3.1-pro-preview", "gemini-3-flash-preview")
+    default_models = ("gemini-3.5-flash", "gemini-3.1-pro-preview")
     supports_reasoning_effort = True
 
     @override
@@ -241,16 +241,15 @@ class GoogleGeminiAdapter(ProviderAdapter):
 
         thinking_config = types.ThinkingConfig(include_thoughts=True)
         if request.reasoning_effort and request.model.lower().startswith("gemini-3"):
-            # Official OpenAI-compat mapping:
-            # Gemini 3.1 Pro: minimal -> low
-            # Gemini 3 Flash:   minimal -> minimal
             effort = request.reasoning_effort
-            if effort in {"none", "low"}:
+            if effort == "none":
                 thinking_config.thinking_level = (
                     types.ThinkingLevel.LOW
                     if request.model.lower().startswith("gemini-3.1-pro")
                     else types.ThinkingLevel.MINIMAL
                 )
+            elif effort == "low":
+                thinking_config.thinking_level = types.ThinkingLevel.LOW
             elif effort == "medium":
                 thinking_config.thinking_level = types.ThinkingLevel.MEDIUM
             else:

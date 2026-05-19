@@ -82,10 +82,11 @@ class ProviderAdapter(ABC):
 - API: Gemini Developer API
 - Base URL: `https://generativelanguage.googleapis.com`
 - API key env: `GEMINI_API_KEY`, `GOOGLE_API_KEY`
-- Default models: `gemini-3.1-pro-preview`, `gemini-3-flash-preview`
+- Default models: `gemini-3.5-flash`, `gemini-3.1-pro-preview`
 - `supports_reasoning_effort`: true (Gemini 3 models only, via `thinking_level`)
 - Reasoning effort mapping for Gemini 3:
-  - `none`/`low` → `LOW` for `gemini-3.1-pro*`, `MINIMAL` for other `gemini-3*` models
+  - `none` → `LOW` for `gemini-3.1-pro*`, `MINIMAL` for other `gemini-3*` models
+  - `low` → `LOW`
   - `medium` → `MEDIUM`
   - `high`/`xhigh` → `HIGH`
 - Replays `Part` metadata through `block.meta.native.part`, preserving function-call ids and thought signatures
