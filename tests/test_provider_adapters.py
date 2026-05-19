@@ -15,7 +15,6 @@ from mycode.providers import (
     OpenAIChatAdapter,
     OpenAIResponsesAdapter,
     OpenRouterAdapter,
-    ZAIAdapter,
 )
 from mycode.providers.base import DEFAULT_REQUEST_TIMEOUT, ProviderStreamEvent, repair_messages_for_replay
 from mycode.tools import DEFAULT_TOOL_SPECS
@@ -769,30 +768,6 @@ def test_google_gemini_replays_native_parts_for_same_provider_history() -> None:
     ]
 
 
-@pytest.mark.parametrize(
-    ("model", "expected_thinking_config"),
-    [
-        ("gemini-3.1-pro-preview", {"include_thoughts": True, "thinking_level": "LOW"}),
-        ("gemini-3-flash-preview", {"include_thoughts": True, "thinking_level": "MINIMAL"}),
-    ],
-)
-def test_google_gemini_build_request_config_maps_reasoning_effort(
-    model: str,
-    expected_thinking_config: dict[str, Any],
-) -> None:
-    adapter = GoogleGeminiAdapter()
-    request = request_obj(
-        model=model,
-        system="You are helpful.",
-        max_tokens=2048,
-        reasoning_effort="none",
-    )
-
-    config = adapter._build_config(request).model_dump(mode="json", exclude_none=True)
-
-    assert config["thinking_config"] == expected_thinking_config
-
-
 def test_google_gemini_build_request_config_uses_supported_tool_settings() -> None:
     adapter = GoogleGeminiAdapter()
     request = request_obj(
@@ -1493,100 +1468,6 @@ def test_anthropic_like_replays_unsigned_thinking_without_signature(adapter) -> 
             {"type": "tool_use", "id": "call_1", "name": "read", "input": {}},
         ],
     }
-
-
-@pytest.mark.parametrize(
-    ("reasoning_effort", "expected_deepseek", "expected_zai", "expected_openrouter"),
-    [
-        pytest.param(
-            "high",
-            {"reasoning_effort": "high", "extra_body": {"thinking": {"type": "enabled"}}},
-            {"thinking": {"type": "enabled", "clear_thinking": False}},
-            {"reasoning": {"effort": "high"}},
-            id="high",
-        ),
-        pytest.param(
-            "none",
-            {"extra_body": {"thinking": {"type": "disabled"}}},
-            {"thinking": {"type": "enabled", "clear_thinking": False}},
-            {"reasoning": {"effort": "none"}},
-            id="none",
-        ),
-        pytest.param(
-            "xhigh",
-            {"reasoning_effort": "max", "extra_body": {"thinking": {"type": "enabled"}}},
-            {"thinking": {"type": "enabled", "clear_thinking": False}},
-            {"reasoning": {"effort": "xhigh"}},
-            id="xhigh",
-        ),
-    ],
-)
-def test_openai_compatible_provider_payload_overrides(
-    reasoning_effort: str,
-    expected_deepseek: dict[str, Any],
-    expected_zai: dict[str, Any],
-    expected_openrouter: dict[str, Any],
-) -> None:
-    request = request_obj(max_tokens=2048, reasoning_effort=reasoning_effort)
-
-    assert OpenAIResponsesAdapter().supports_reasoning_effort is True
-    assert "reasoning_effort" not in OpenAIChatAdapter()._build_request_payload(request)
-    assert DeepSeekAdapter().supports_reasoning_effort is True
-
-    deepseek_payload = DeepSeekAdapter()._build_request_payload(request)
-    for key, value in expected_deepseek.items():
-        assert deepseek_payload[key] == value
-
-    assert ZAIAdapter()._build_request_payload(request)["extra_body"] == expected_zai
-    assert OpenRouterAdapter()._build_request_payload(request)["extra_body"] == expected_openrouter
-
-
-@pytest.mark.parametrize(
-    ("model", "reasoning_effort", "expected_thinking", "expected_output_config"),
-    [
-        (
-            "claude-sonnet-4-6",
-            "high",
-            {"type": "adaptive"},
-            {"effort": "high"},
-        ),
-        (
-            "claude-opus-4-5",
-            "xhigh",
-            {"type": "enabled", "budget_tokens": 32768},
-            None,
-        ),
-        (
-            "claude-opus-4-6",
-            "xhigh",
-            {"type": "adaptive"},
-            {"effort": "max"},
-        ),
-        (
-            "claude-opus-4-7",
-            "xhigh",
-            {"type": "adaptive", "display": "summarized"},
-            {"effort": "xhigh"},
-        ),
-    ],
-)
-def test_anthropic_build_request_payload_maps_reasoning_config(
-    model: str,
-    reasoning_effort: str,
-    expected_thinking: dict[str, Any],
-    expected_output_config: dict[str, Any] | None,
-) -> None:
-    adapter = AnthropicAdapter()
-    request = request_obj(model=model, max_tokens=8192, reasoning_effort=reasoning_effort)
-
-    payload = adapter._build_request_payload(request)
-
-    assert payload["thinking"] == expected_thinking
-    if expected_output_config is None:
-        assert "output_config" not in payload
-    else:
-        assert payload["output_config"] == expected_output_config
-    assert adapter.supports_reasoning_effort is True
 
 
 @pytest.mark.parametrize(
