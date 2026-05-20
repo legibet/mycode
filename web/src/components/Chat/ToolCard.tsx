@@ -340,10 +340,7 @@ export const ToolCard = memo(function ToolCard({
   const resolvedIsError =
     Boolean(isError) ||
     (typeof finalOutput === "string" && finalOutput.startsWith("error:"));
-  const [expandedOverride, setExpandedOverride] = useState<boolean | null>(
-    null,
-  );
-  const expanded = expandedOverride ?? resolvedIsError;
+  const [expanded, setExpanded] = useState(false);
 
   const status = pending ? "pending" : resolvedIsError ? "error" : "success";
 
@@ -380,7 +377,7 @@ export const ToolCard = memo(function ToolCard({
         type="button"
         className="flex w-full items-center gap-1.5 select-none cursor-pointer text-left"
         aria-expanded={expanded}
-        onClick={() => setExpandedOverride(!expanded)}
+        onClick={() => setExpanded((current) => !current)}
       >
         <Icon
           className="size-3.5 shrink-0 text-muted-foreground"

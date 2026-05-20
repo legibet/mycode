@@ -87,6 +87,11 @@ function measureMessageShells(container: HTMLElement) {
   }
 }
 
+interface PrependSnapshot {
+  scrollHeight: number;
+  scrollTop: number;
+}
+
 function WindowedMessages({
   messages,
   loading,
@@ -94,10 +99,10 @@ function WindowedMessages({
 }: WindowedMessagesProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const stickToBottom = useRef(true);
+  const didHandleInitialMessages = useRef(false);
   const previousMessageCount = useRef(messages.length);
-  const prependSnapshot = useRef<number | null>(null);
+  const prependSnapshot = useRef<PrependSnapshot | null>(null);
   const layoutMeasureFrame = useRef<number | null>(null);
-  const bottomDistanceToRestore = useRef<number | null>(null);
   const [layoutOptimized, setLayoutOptimized] = useState(false);
   const [visibleStartIndex, setVisibleStartIndex] = useState(() =>
     getInitialStartIndex(messages.length),
@@ -118,8 +123,7 @@ function WindowedMessages({
       el.scrollHeight - el.scrollTop - el.clientHeight < SCROLL_THRESHOLD;
   }, []);
 
-  const scheduleLayoutOptimization = useCallback((bottomDistance: number) => {
-    bottomDistanceToRestore.current = bottomDistance;
+  const scheduleLayoutOptimization = useCallback(() => {
     if (layoutMeasureFrame.current !== null) {
       window.cancelAnimationFrame(layoutMeasureFrame.current);
     }
@@ -142,7 +146,10 @@ function WindowedMessages({
       return;
     }
 
-    prependSnapshot.current = el.scrollHeight - el.scrollTop;
+    prependSnapshot.current = {
+      scrollHeight: el.scrollHeight,
+      scrollTop: el.scrollTop,
+    };
     setLayoutOptimized(false);
     setVisibleStartIndex(
       Math.max(0, effectiveStartIndex - LOAD_PREVIOUS_COUNT),
@@ -155,7 +162,7 @@ function WindowedMessages({
 
     el.scrollTop = el.scrollHeight;
     stickToBottom.current = true;
-    scheduleLayoutOptimization(0);
+    scheduleLayoutOptimization();
   }, [scheduleLayoutOptimization]);
 
   useLayoutEffect(() => {
@@ -173,28 +180,29 @@ function WindowedMessages({
     const el = containerRef.current;
     if (!el) return;
 
-    el.scrollTop = el.scrollHeight - snapshot;
+    el.scrollTop = el.scrollHeight - snapshot.scrollHeight + snapshot.scrollTop;
     prependSnapshot.current = null;
-    scheduleLayoutOptimization(snapshot);
+    scheduleLayoutOptimization();
   }, [scheduleLayoutOptimization]);
 
   useLayoutEffect(() => {
-    if (!layoutOptimized) return;
-
-    const bottomDistance = bottomDistanceToRestore.current;
-    if (bottomDistance == null) return;
+    if (!layoutOptimized || !stickToBottom.current) return;
 
     const el = containerRef.current;
     if (!el) return;
 
-    el.scrollTop = el.scrollHeight - bottomDistance;
-    bottomDistanceToRestore.current = null;
+    el.scrollTop = el.scrollHeight;
     updateStickToBottom();
   }, [layoutOptimized, updateStickToBottom]);
 
   useLayoutEffect(() => {
     const previousCount = previousMessageCount.current;
     previousMessageCount.current = messages.length;
+
+    if (!didHandleInitialMessages.current) {
+      didHandleInitialMessages.current = true;
+      return;
+    }
 
     if (!stickToBottom.current) return;
 
