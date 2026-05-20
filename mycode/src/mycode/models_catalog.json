@@ -375,6 +375,13 @@
       "supports_pdf_input": true,
       "supports_reasoning": true
     },
+    "gemini-3.5-flash": {
+      "context_window": 1048576,
+      "max_output_tokens": 65536,
+      "supports_image_input": true,
+      "supports_pdf_input": true,
+      "supports_reasoning": true
+    },
     "gemini-embedding-001": {
       "context_window": 2048,
       "max_output_tokens": 3072,
