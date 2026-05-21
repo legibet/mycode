@@ -3,17 +3,6 @@
 
 @custom-variant dark (&:where(.dark, .dark *));
 
-/* Tighten Tailwind's built-in hover variant so `hover:*` utilities only
-   apply on devices with a real pointer. Without this, tapping on touch
-   screens leaves elements in :hover state until the next tap elsewhere. */
-@custom-variant hover {
-  @media (hover: hover) and (pointer: fine) {
-    &:hover {
-      @slot;
-    }
-  }
-}
-
 /* ── Source Sans 3 / Source Code Pro (variable wght 200–900). SIL OFL 1.1 ── */
 @font-face {
   font-family: "Source Sans 3";
@@ -230,7 +219,7 @@
   }
 }
 
-@media (hover: hover) and (pointer: fine) {
+@media (hover: hover) {
   .session-row-inactive:hover {
     @apply bg-secondary/20 text-foreground;
   }
