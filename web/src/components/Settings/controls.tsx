@@ -91,7 +91,7 @@ export function Segmented<T extends string>({
             aria-checked={active}
             onClick={() => onChange(opt.value)}
             className={cn(
-              "inline-flex items-center justify-center gap-1.5 rounded font-medium transition-colors",
+              "inline-flex items-center justify-center gap-1.5 rounded-sm font-medium transition-colors",
               size === "sm" ? "h-7 px-2.5 text-[12px]" : "h-7 px-3 text-[12px]",
               active
                 ? "bg-background text-foreground"

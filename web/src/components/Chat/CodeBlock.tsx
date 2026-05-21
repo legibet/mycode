@@ -55,7 +55,7 @@ export function CodeBlock({ className, children, ...props }: CodeBlockProps) {
     return (
       <code
         className={cn(
-          "px-1.5 py-0.5 rounded bg-code font-mono text-[13px] text-accent font-medium",
+          "px-1.5 py-0.5 rounded-sm bg-code font-mono text-[13px] text-accent font-medium",
           className,
         )}
         {...props}
@@ -81,7 +81,7 @@ export function CodeBlock({ className, children, ...props }: CodeBlockProps) {
         aria-label="Copy code"
         onClick={handleCopy}
         className={cn(
-          "absolute top-1 right-1 z-10 flex items-center justify-center size-7 rounded-md transition duration-150",
+          "absolute top-1 right-1 z-10 flex items-center justify-center size-7 rounded-md active:scale-95 transition-[color,background-color,opacity,scale] duration-150",
           copied
             ? "text-emerald-400 opacity-100"
             : "text-muted-foreground/40 max-md:opacity-60 opacity-0 group-hover/code:opacity-100 hover:text-foreground/60 hover:bg-muted/20",

@@ -3,30 +3,57 @@
 
 @custom-variant dark (&:where(.dark, .dark *));
 
+/* Tighten Tailwind's built-in hover variant so `hover:*` utilities only
+   apply on devices with a real pointer. Without this, tapping on touch
+   screens leaves elements in :hover state until the next tap elsewhere. */
+@custom-variant hover {
+  @media (hover: hover) and (pointer: fine) {
+    &:hover {
+      @slot;
+    }
+  }
+}
+
+/* ── Source Sans 3 / Source Code Pro (variable wght 200–900). SIL OFL 1.1 ── */
+@font-face {
+  font-family: "Source Sans 3";
+  src: url("/fonts/SourceSans3-Variable.woff2") format("woff2-variations");
+  font-weight: 200 900;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Source Code Pro";
+  src: url("/fonts/SourceCodePro-Variable.woff2") format("woff2-variations");
+  font-weight: 200 900;
+  font-style: normal;
+  font-display: swap;
+}
+
 @theme inline {
-  --color-border: hsl(var(--border));
-  --color-input: hsl(var(--input));
-  --color-ring: hsl(var(--ring));
-  --color-background: hsl(var(--background));
-  --color-foreground: hsl(var(--foreground));
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
 
-  --color-primary: hsl(var(--primary));
-  --color-primary-foreground: hsl(var(--primary-foreground));
-  --color-secondary: hsl(var(--secondary));
-  --color-secondary-foreground: hsl(var(--secondary-foreground));
-  --color-destructive: hsl(var(--destructive));
-  --color-destructive-foreground: hsl(var(--destructive-foreground));
-  --color-muted: hsl(var(--muted));
-  --color-muted-foreground: hsl(var(--muted-foreground));
-  --color-accent: hsl(var(--accent));
-  --color-accent-foreground: hsl(var(--accent-foreground));
-  --color-popover: hsl(var(--popover));
-  --color-popover-foreground: hsl(var(--popover-foreground));
-  --color-card: hsl(var(--card));
-  --color-card-foreground: hsl(var(--card-foreground));
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
 
-  --color-code: hsl(var(--code-background));
-  --color-sidebar-bg: hsl(var(--sidebar-bg));
+  --color-code: var(--code-background);
+  --color-sidebar-bg: var(--sidebar-bg);
 
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
@@ -34,13 +61,14 @@
   --radius-xl: calc(var(--radius) + 4px);
 
   --font-sans:
-    "Inter", "PingFang SC", "Hiragino Sans GB", "Source Han Sans CN",
-    "Microsoft YaHei", "Noto Sans SC", system-ui, sans-serif;
+    "Source Sans 3", -apple-system, BlinkMacSystemFont, "PingFang SC",
+    "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans SC", system-ui, sans-serif;
   --font-mono:
-    "JetBrains Mono", ui-monospace, "PingFang SC", "Microsoft Han Sans",
+    "Source Code Pro", "JetBrains Mono", ui-monospace, "PingFang SC",
     "Microsoft YaHei", monospace;
   --font-display:
-    "Inter", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+    "Source Code Pro", "JetBrains Mono", ui-monospace, "PingFang SC",
+    "Microsoft YaHei", monospace;
 
   --text-2xs: 0.6875rem;
   --text-2xs--line-height: 1rem;
@@ -52,73 +80,77 @@
 }
 
 @layer base {
-  /* ── Dark theme (default) ── Quiet Blue ── */
+  /* ── Dark theme (default) ── Quiet Blue / OKLCH ── */
   :root {
     color-scheme: dark;
-    --background: 220 16% 10%;
-    --foreground: 220 15% 92%;
-    --card: 220 14% 13%;
-    --card-foreground: 220 15% 92%;
-    --popover: 220 14% 13%;
-    --popover-foreground: 220 15% 92%;
-    --primary: 220 15% 92%;
-    --primary-foreground: 220 16% 10%;
-    --secondary: 220 12% 14%;
-    --secondary-foreground: 220 14% 85%;
-    --muted: 220 12% 17%;
-    --muted-foreground: 220 10% 62%;
-    --accent: 215 65% 70%;
-    --accent-foreground: 220 16% 10%;
-    --destructive: 0 60% 60%;
-    --destructive-foreground: 0 0% 98%;
-    --border: 220 10% 22%;
-    --input: 220 10% 22%;
-    --ring: 215 65% 70%;
+    --background: oklch(0.17 0.006 250);
+    --foreground: oklch(0.925 0.008 250);
+    --card: oklch(0.205 0.007 250);
+    --card-foreground: oklch(0.925 0.008 250);
+    --popover: oklch(0.205 0.007 250);
+    --popover-foreground: oklch(0.925 0.008 250);
+    --primary: oklch(0.925 0.008 250);
+    --primary-foreground: oklch(0.17 0.006 250);
+    --secondary: oklch(0.225 0.008 250);
+    --secondary-foreground: oklch(0.87 0.01 250);
+    --muted: oklch(0.245 0.008 250);
+    --muted-foreground: oklch(0.68 0.014 250);
+    --accent: oklch(0.77 0.105 240);
+    --accent-foreground: oklch(0.17 0.006 250);
+    --destructive: oklch(0.65 0.165 25);
+    --destructive-foreground: oklch(0.985 0.003 250);
+    --border: oklch(0.29 0.012 250);
+    --input: oklch(0.29 0.012 250);
+    --ring: oklch(0.77 0.105 240);
     --radius: 0.5rem;
 
-    --code-background: 220 18% 7%;
-    --sidebar-bg: 220 18% 8%;
+    --code-background: oklch(0.135 0.007 250);
+    --sidebar-bg: oklch(0.14 0.007 250);
 
-    --scrollbar-thumb: hsl(var(--border) / 0.9);
-    --scrollbar-thumb-hover: hsl(var(--muted-foreground) / 0.45);
+    --scrollbar-thumb: color-mix(in oklch, var(--border) 90%, transparent);
+    --scrollbar-thumb-hover: color-mix(
+      in oklch,
+      var(--muted-foreground) 45%,
+      transparent
+    );
     --scrollbar-track: transparent;
 
-    --diff-removed-bg: rgba(232, 110, 110, 0.1);
-    --diff-added-bg: rgba(110, 200, 140, 0.1);
-    --diff-removed-indicator: rgba(232, 110, 110, 0.55);
-    --diff-added-indicator: rgba(110, 200, 140, 0.55);
+    --diff-removed-bg: oklch(0.65 0.15 25 / 0.1);
+    --diff-added-bg: oklch(0.72 0.14 145 / 0.1);
+    --diff-removed-indicator: oklch(0.65 0.15 25 / 0.55);
+    --diff-added-indicator: oklch(0.72 0.14 145 / 0.55);
   }
 
-  /* ── Light theme ── Quiet Blue ── */
+  /* ── Light theme ── Quiet Blue / OKLCH ── */
   .light {
     color-scheme: light;
-    --background: 220 25% 99%;
-    --foreground: 222 25% 18%;
-    --card: 220 18% 96%;
-    --card-foreground: 222 25% 18%;
-    --popover: 220 18% 96%;
-    --popover-foreground: 222 25% 18%;
-    --primary: 222 25% 18%;
-    --primary-foreground: 220 25% 99%;
-    --secondary: 220 16% 93%;
-    --secondary-foreground: 222 22% 22%;
-    --muted: 220 16% 94%;
-    --muted-foreground: 220 12% 48%;
-    --accent: 215 70% 50%;
-    --accent-foreground: 220 25% 99%;
-    --destructive: 0 65% 50%;
-    --destructive-foreground: 0 0% 98%;
-    --border: 220 14% 89%;
-    --input: 220 14% 89%;
-    --ring: 215 70% 50%;
+    --background: oklch(0.992 0.003 250);
+    --foreground: oklch(0.28 0.018 250);
+    --card: oklch(0.98 0.004 250);
+    --card-foreground: oklch(0.28 0.018 250);
+    --popover: oklch(0.985 0.004 250);
+    --popover-foreground: oklch(0.28 0.018 250);
+    --primary: oklch(0.28 0.018 250);
+    --primary-foreground: oklch(0.992 0.003 250);
+    --secondary: oklch(0.952 0.005 250);
+    --secondary-foreground: oklch(0.33 0.018 250);
+    --muted: oklch(0.952 0.006 250);
+    --muted-foreground: oklch(0.54 0.014 250);
+    --accent: oklch(0.585 0.14 240);
+    --accent-foreground: oklch(0.992 0.003 250);
+    --destructive: oklch(0.56 0.19 25);
+    --destructive-foreground: oklch(0.992 0.003 250);
+    --border: oklch(0.915 0.008 250);
+    --input: oklch(0.915 0.008 250);
+    --ring: oklch(0.585 0.14 240);
 
-    --code-background: 220 16% 95%;
-    --sidebar-bg: 220 20% 96%;
+    --code-background: oklch(0.962 0.006 250);
+    --sidebar-bg: oklch(0.948 0.006 250);
 
-    --diff-removed-bg: rgba(200, 70, 70, 0.07);
-    --diff-added-bg: rgba(40, 140, 70, 0.07);
-    --diff-removed-indicator: rgba(190, 50, 50, 0.55);
-    --diff-added-indicator: rgba(36, 130, 60, 0.55);
+    --diff-removed-bg: oklch(0.55 0.17 25 / 0.07);
+    --diff-added-bg: oklch(0.6 0.16 145 / 0.07);
+    --diff-removed-indicator: oklch(0.55 0.17 25 / 0.55);
+    --diff-added-indicator: oklch(0.6 0.16 145 / 0.55);
   }
 
   html,
@@ -136,14 +168,9 @@
     @apply bg-background text-foreground font-sans;
     font-size: 15px;
     line-height: 1.55;
-    font-feature-settings: "cv11", "ss01";
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     overscroll-behavior: none;
-  }
-  .light body {
-    -webkit-font-smoothing: auto;
-    -moz-osx-font-smoothing: auto;
   }
   code,
   pre,
@@ -240,10 +267,11 @@
 .prose h2,
 .prose h3,
 .prose h4 {
-  @apply text-foreground font-semibold tracking-tight;
+  @apply text-foreground font-semibold;
+  text-wrap: balance;
 }
 .prose h1 {
-  @apply text-xl mt-8 mb-4;
+  @apply text-xl mt-8 mb-4 tracking-[-0.012em];
 }
 .prose h2 {
   @apply text-lg mt-6 mb-3;
@@ -254,6 +282,7 @@
 .prose p {
   @apply leading-relaxed not-first:mt-3;
   overflow-wrap: anywhere;
+  text-wrap: pretty;
 }
 .prose blockquote {
   @apply mt-4 border-l-2 border-border pl-4 italic text-muted-foreground;

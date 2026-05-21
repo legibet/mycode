@@ -79,13 +79,13 @@ const PERMISSION_MODE_OPTIONS: { value: PermissionMode; label: string }[] = [
 
 const CANCEL_BTN_CLASS = cn(
   "inline-flex items-center justify-center rounded-md text-[13px]",
-  "text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors",
+  "text-muted-foreground hover:text-foreground hover:bg-muted/60 active:scale-95 transition-[color,background-color,scale] duration-150",
   "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
 );
 
 const SAVE_BTN_CLASS = cn(
   "inline-flex items-center justify-center gap-1.5 rounded-md text-[13px] font-medium",
-  "bg-accent text-accent-foreground hover:bg-accent/90 transition-colors",
+  "bg-accent text-accent-foreground hover:bg-accent/90 active:scale-95 transition-[color,background-color,scale] duration-150",
   "disabled:opacity-40 disabled:pointer-events-none",
   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50",
 );
@@ -366,9 +366,9 @@ export function SettingsPanel({
           onClick={onClose}
           aria-label="Close"
           className={cn(
-            "inline-flex items-center justify-center rounded -mr-1",
+            "inline-flex items-center justify-center rounded-sm -mr-1",
             "size-8",
-            "text-muted-foreground/70 hover:text-foreground hover:bg-muted/60 transition-colors",
+            "text-muted-foreground/70 hover:text-foreground hover:bg-muted/60 active:scale-95 transition-[color,background-color,scale] duration-150",
             "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
           )}
         >
@@ -585,7 +585,7 @@ export function SettingsPanel({
                   className={cn(
                     "inline-flex items-center justify-center gap-1.5 rounded-lg h-9",
                     "border border-dashed border-border/50 text-muted-foreground/80",
-                    "hover:border-border hover:text-foreground hover:bg-muted/30 transition-colors",
+                    "hover:border-border hover:text-foreground hover:bg-muted/30 active:scale-95 transition-[color,background-color,border-color,scale] duration-150",
                     "text-[13px]",
                   )}
                 >

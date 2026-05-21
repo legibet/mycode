@@ -12,12 +12,12 @@ const DIFF_THEMES = {
 } as const;
 
 const baseDiffStyle = {
-  "--diffs-font-family": '"JetBrains Mono", ui-monospace, monospace',
-  "--diffs-header-font-family": '"JetBrains Mono", ui-monospace, monospace',
+  "--diffs-font-family": "var(--font-mono)",
+  "--diffs-header-font-family": "var(--font-mono)",
   "--diffs-font-size": "13px",
   "--diffs-line-height": "1.5",
-  "--diffs-light-bg": "hsl(var(--code-background))",
-  "--diffs-dark-bg": "hsl(var(--code-background))",
+  "--diffs-light-bg": "var(--code-background)",
+  "--diffs-dark-bg": "var(--code-background)",
 } as CSSProperties;
 
 const diffCss = `

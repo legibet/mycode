@@ -34,9 +34,10 @@ import {
 } from "../../utils/config";
 
 const TRIGGER_BTN =
-  "inline-flex items-center gap-0.5 h-6 px-1.5 rounded text-[12px] leading-none " +
+  "inline-flex items-center gap-0.5 h-6 px-1.5 rounded-sm text-[12px] leading-none " +
   "text-muted-foreground hover:text-foreground hover:bg-muted/60 " +
-  "transition-colors focus-visible:outline-none focus-visible:bg-muted/60 " +
+  "transition-[color,background-color] duration-150 " +
+  "focus-visible:outline-none focus-visible:bg-muted/60 " +
   "disabled:opacity-40 disabled:cursor-not-allowed";
 
 const POPOVER_CONTENT_CLASS = "p-0 gap-0";

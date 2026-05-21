@@ -317,8 +317,8 @@ export function WorkspacePicker({
             type="button"
             onClick={() => root && browseTo(root, "")}
             className={cn(
-              "shrink-0 px-1.5 py-0.5 rounded text-xs font-mono",
-              "transition-colors hover:bg-muted/60 hover:text-foreground",
+              "shrink-0 px-1.5 py-0.5 rounded-sm text-xs font-mono",
+              "active:scale-95 transition-[color,background-color,scale] duration-150 hover:bg-muted/60 hover:text-foreground",
               pathSegments.length === 0
                 ? "text-foreground font-medium"
                 : "text-muted-foreground",
@@ -340,8 +340,8 @@ export function WorkspacePicker({
                   type="button"
                   onClick={() => browseTo(root, crumbPath)}
                   className={cn(
-                    "px-1.5 py-0.5 rounded text-xs font-mono whitespace-nowrap",
-                    "transition-colors hover:bg-muted/60 hover:text-foreground",
+                    "px-1.5 py-0.5 rounded-sm text-xs font-mono whitespace-nowrap",
+                    "active:scale-95 transition-[color,background-color,scale] duration-150 hover:bg-muted/60 hover:text-foreground",
                     index === pathSegments.length - 1
                       ? "text-foreground font-medium"
                       : "text-muted-foreground",
@@ -359,7 +359,7 @@ export function WorkspacePicker({
           onClick={onClose}
           className={cn(
             "flex items-center justify-center size-8 rounded-lg shrink-0",
-            "text-muted-foreground/50 transition-colors",
+            "text-muted-foreground/50 active:scale-95 transition-[color,background-color,scale] duration-150",
             "hover:bg-muted/70 hover:text-foreground",
             "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
           )}
@@ -390,7 +390,7 @@ export function WorkspacePicker({
           <button
             type="button"
             onClick={() => setFilter("")}
-            className="shrink-0 text-muted-foreground/40 hover:text-muted-foreground transition-colors"
+            className="shrink-0 text-muted-foreground/40 hover:text-muted-foreground active:scale-95 transition-[color,scale] duration-150"
             aria-label="Clear filter"
           >
             <X className="size-3" />
@@ -527,7 +527,7 @@ export function WorkspacePicker({
           disabled={!current}
           className={cn(
             "shrink-0 px-3.5 h-7 rounded-md text-xs font-semibold",
-            "transition-colors",
+            "active:scale-95 transition-[color,background-color,border-color,scale] duration-150",
             "bg-accent/15 text-accent border border-accent/20",
             "hover:bg-accent/25 hover:border-accent/40 active:bg-accent/30",
             "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",

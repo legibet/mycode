@@ -52,7 +52,7 @@ export const PermissionPrompt = memo(function PermissionPrompt({
         aria-label="Tool permission request"
         tabIndex={-1}
         onKeyDown={handleKeyDown}
-        className="rounded-lg border border-border bg-card shadow-xs animate-fade-in-up focus:outline-none"
+        className="rounded-lg border border-border bg-card shadow-sm animate-fade-in-up focus:outline-none"
       >
         <div className="flex items-center gap-2 px-3.5 pt-3 pb-2">
           <Icon
@@ -79,14 +79,14 @@ export const PermissionPrompt = memo(function PermissionPrompt({
           <button
             type="button"
             onClick={() => onDecide("allow")}
-            className="h-7 px-3 rounded-md text-[12.5px] font-medium bg-accent text-accent-foreground hover:opacity-90 active:scale-[0.97] transition-[opacity,transform]"
+            className="h-7 px-3 rounded-md text-[12.5px] font-medium bg-accent text-accent-foreground hover:opacity-90 active:scale-95 transition-[opacity,scale] duration-150"
           >
             Allow
           </button>
           <button
             type="button"
             onClick={() => onDecide("deny")}
-            className="h-7 px-3 rounded-md text-[12.5px] text-muted-foreground hover:text-foreground hover:bg-muted/70 transition-colors"
+            className="h-7 px-3 rounded-md text-[12.5px] text-muted-foreground hover:text-foreground hover:bg-muted/70 active:scale-95 transition-[color,background-color,scale] duration-150"
           >
             Deny
           </button>

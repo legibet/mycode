@@ -287,8 +287,8 @@ export const Sidebar = memo(function Sidebar({
             aria-label="New chat"
             title="New chat"
             className={cn(
-              "shrink-0 size-6 mt-0.5 flex items-center justify-center rounded",
-              "text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors",
+              "shrink-0 size-6 mt-0.5 flex items-center justify-center rounded-sm",
+              "text-muted-foreground hover:text-foreground hover:bg-muted/60 active:scale-95 transition-[color,background-color,scale] duration-150",
               "focus-visible:outline-none focus-visible:bg-muted/60",
             )}
           >
@@ -379,9 +379,9 @@ export const Sidebar = memo(function Sidebar({
                         void onDeleteSession(session.id);
                       }}
                       className={cn(
-                        "absolute right-3 top-1/2 z-20 -translate-y-1/2 size-5 flex items-center justify-center rounded",
+                        "absolute right-3 top-1/2 z-20 -translate-y-1/2 size-5 flex items-center justify-center rounded-sm",
                         "opacity-0 group-hover:opacity-100 max-md:opacity-100",
-                        "text-muted-foreground/60 hover:text-destructive hover:bg-destructive/10 transition-all",
+                        "text-muted-foreground/60 hover:text-destructive hover:bg-destructive/10 active:scale-95 transition-[color,background-color,scale] duration-150",
                       )}
                     >
                       <Trash2 className="size-3" />
@@ -402,7 +402,7 @@ export const Sidebar = memo(function Sidebar({
           aria-label="Open settings"
           title="Settings"
           className={cn(
-            "size-7 flex items-center justify-center rounded-md transition-colors",
+            "size-7 flex items-center justify-center rounded-md active:scale-95 transition-[color,background-color,scale] duration-150",
             "text-muted-foreground hover:text-foreground hover:bg-muted/50",
             "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
           )}

@@ -215,7 +215,7 @@ function ContextStats({
       : null;
 
   return (
-    <span className="group/stats relative cursor-default text-xs text-muted-foreground/60">
+    <span className="group/stats relative cursor-default text-xs tabular-nums text-muted-foreground/60">
       {visible}
       {detail && (
         <span
@@ -366,7 +366,7 @@ export const MessageBubble = memo(function MessageBubble({
               <button
                 type="button"
                 onClick={cancelEdit}
-                className="px-3 py-1 text-xs rounded-lg text-muted-foreground hover:text-foreground transition-colors"
+                className="px-3 py-1 text-xs rounded-lg text-muted-foreground hover:text-foreground active:scale-95 transition-[color,scale] duration-150"
               >
                 Cancel
               </button>
@@ -375,9 +375,9 @@ export const MessageBubble = memo(function MessageBubble({
                 onClick={submitEdit}
                 disabled={!editText.trim()}
                 className={cn(
-                  "px-3 py-1 text-xs rounded-lg transition-colors",
+                  "px-3 py-1 text-xs rounded-lg transition-[color,background-color,opacity,scale] duration-150",
                   editText.trim()
-                    ? "bg-accent text-accent-foreground hover:opacity-90"
+                    ? "bg-accent text-accent-foreground hover:opacity-90 active:scale-95"
                     : "text-muted-foreground/40",
                 )}
               >
@@ -396,7 +396,7 @@ export const MessageBubble = memo(function MessageBubble({
             type="button"
             aria-label="Edit message"
             onClick={startEdit}
-            className="self-end mr-2 mb-0.5 opacity-0 group-hover/user:opacity-100 max-md:opacity-60 transition-opacity duration-150 size-6 flex items-center justify-center rounded text-muted-foreground/50 hover:text-foreground"
+            className="self-end mr-2 mb-0.5 opacity-0 group-hover/user:opacity-100 max-md:opacity-60 active:scale-95 transition-[color,opacity,scale] duration-150 size-6 flex items-center justify-center rounded-sm text-muted-foreground/50 hover:text-foreground"
             title="Edit & resend"
           >
             <Pencil className="size-3" />
@@ -536,7 +536,7 @@ export const MessageBubble = memo(function MessageBubble({
             aria-label="Copy to clipboard"
             onClick={handleCopy}
             className={cn(
-              "flex items-center justify-center size-6 rounded transition-colors duration-150",
+              "flex items-center justify-center size-6 rounded-sm active:scale-95 transition-[color,scale] duration-150",
               copied
                 ? "text-emerald-400"
                 : "text-muted-foreground/50 hover:text-foreground",

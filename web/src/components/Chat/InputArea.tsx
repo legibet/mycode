@@ -287,8 +287,8 @@ export const InputArea = memo(function InputArea({
       <div
         role="presentation"
         className={cn(
-          "relative rounded-lg bg-card border shadow-xs transition duration-200",
-          "focus-within:shadow-sm focus-within:border-accent/40",
+          "relative rounded-lg bg-card border shadow-sm transition-[border-color,background-color,box-shadow] duration-200",
+          "focus-within:shadow-md focus-within:border-accent/40",
           dragging ? "border-accent/50 bg-accent/5" : "border-border",
         )}
         onDragEnter={handleDragEnter}
@@ -402,7 +402,7 @@ export const InputArea = memo(function InputArea({
               type="button"
               aria-label="Stop generating"
               onClick={onCancel}
-              className="size-7 flex items-center justify-center rounded-md text-destructive/70 hover:text-destructive hover:bg-destructive/10 active:scale-95 transition shrink-0"
+              className="size-7 flex items-center justify-center rounded-md text-destructive/70 hover:text-destructive hover:bg-destructive/10 active:scale-95 transition-[color,background-color,scale] duration-150 shrink-0"
               title="Stop"
             >
               <Square className="size-3 fill-current" />
@@ -414,7 +414,7 @@ export const InputArea = memo(function InputArea({
               onClick={submit}
               disabled={!hasInput || disabled}
               className={cn(
-                "size-7 flex items-center justify-center rounded-md transition-colors shrink-0",
+                "size-7 flex items-center justify-center rounded-md transition-[color,background-color,opacity,scale] duration-150 shrink-0",
                 hasInput && !disabled
                   ? "bg-accent text-accent-foreground hover:opacity-90 active:scale-95"
                   : "text-muted-foreground/30 bg-muted/40",

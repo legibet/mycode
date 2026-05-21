@@ -103,7 +103,7 @@ export const ProviderCard = memo(function ProviderCard({
   return (
     <div
       className={cn(
-        "relative rounded-lg border border-border/40 bg-card/40 px-4 py-3.5",
+        "relative rounded-lg border border-border/40 bg-card shadow-sm px-4 py-3.5",
         "transition-colors hover:border-border/60",
       )}
     >
@@ -112,8 +112,8 @@ export const ProviderCard = memo(function ProviderCard({
         onClick={() => onRemove(draft.id)}
         aria-label={`Remove provider ${draft.name || "untitled"}`}
         className={cn(
-          "absolute right-2 top-2 inline-flex items-center justify-center rounded size-7",
-          "text-muted-foreground/50 hover:text-destructive hover:bg-destructive/10 transition-colors",
+          "absolute right-2 top-2 inline-flex items-center justify-center rounded-sm size-7",
+          "text-muted-foreground/50 hover:text-destructive hover:bg-destructive/10 active:scale-95 transition-[color,background-color,scale] duration-150",
           "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-destructive/60",
         )}
       >
@@ -193,7 +193,7 @@ export const ProviderCard = memo(function ProviderCard({
                 }
                 className={cn(
                   "shrink-0 text-[12px]",
-                  "text-muted-foreground/70 hover:text-destructive transition-colors",
+                  "text-muted-foreground/70 hover:text-destructive active:scale-95 transition-[color,scale] duration-150",
                   "h-9 px-2",
                 )}
                 aria-label="Clear saved API key"
@@ -219,7 +219,7 @@ export const ProviderCard = memo(function ProviderCard({
                   <span
                     key={model}
                     className={cn(
-                      "group inline-flex items-center gap-1 rounded h-7 pl-2.5 pr-1",
+                      "group inline-flex items-center gap-1 rounded-sm h-7 pl-2.5 pr-1",
                       "bg-muted/60 text-foreground/90 text-[12px] font-mono",
                     )}
                   >
@@ -228,8 +228,8 @@ export const ProviderCard = memo(function ProviderCard({
                       type="button"
                       onClick={() => removeModel(model)}
                       className={cn(
-                        "inline-flex items-center justify-center rounded size-5",
-                        "text-muted-foreground/60 hover:text-destructive transition-colors",
+                        "inline-flex items-center justify-center rounded-sm size-5",
+                        "text-muted-foreground/60 hover:text-destructive active:scale-95 transition-[color,scale] duration-150",
                       )}
                       aria-label={`Remove model ${model}`}
                     >
@@ -264,8 +264,8 @@ export const ProviderCard = memo(function ProviderCard({
                   type="button"
                   onClick={addModel}
                   className={cn(
-                    "shrink-0 inline-flex items-center justify-center rounded size-9",
-                    "text-muted-foreground/70 hover:text-foreground hover:bg-muted/50 transition-colors",
+                    "shrink-0 inline-flex items-center justify-center rounded-sm size-9",
+                    "text-muted-foreground/70 hover:text-foreground hover:bg-muted/50 active:scale-95 transition-[color,background-color,scale] duration-150",
                   )}
                   aria-label="Add model"
                 >

@@ -202,7 +202,7 @@ function CollapsedSuffix({
         : "";
   if (!hint) return null;
   return (
-    <span className="shrink-0 text-[12px] font-mono text-muted-foreground/60">
+    <span className="shrink-0 text-[12px] font-mono tabular-nums text-muted-foreground/60">
       {hint}
     </span>
   );
