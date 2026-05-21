@@ -1,7 +1,7 @@
 /**
  * Markdown renderer with GFM, code highlighting, and LaTeX math support.
  * Math is rendered by remark-math + rehype-katex.
- * \(...\) and \[...\] are normalized to dollar delimiters before parsing.
+ * \(inline\) and \[display\] are normalized before parsing.
  */
 
 import { type ComponentPropsWithoutRef, memo } from "react";
@@ -32,13 +32,26 @@ const MARKDOWN_COMPONENTS: Components = {
 };
 
 /**
- * Normalize \(...\) and \[...\] without touching code spans or code blocks.
+ * Normalize math delimiters without touching code spans or code blocks.
+ * remark-math parses same-line $$...$$ as text math, so display math is
+ * expanded into flow-math fences.
  */
 export function normalizeMathDelimiters(text: string): string {
   let result = "";
   let i = 0;
   let fenceChar = "";
   let fenceLength = 0;
+
+  const appendDisplayMath = (body: string, nextIndex: number) => {
+    const before =
+      result === "" || result.endsWith("\n\n")
+        ? ""
+        : result.endsWith("\n")
+          ? "\n"
+          : "\n\n";
+    const after = text[nextIndex] && text[nextIndex] !== "\n" ? "\n\n" : "";
+    result += `${before}$$\n${body.trim()}\n$$${after}`;
+  };
 
   while (i < text.length) {
     const lineStart = i === 0 || text[i - 1] === "\n";
@@ -91,10 +104,19 @@ export function normalizeMathDelimiters(text: string): string {
       }
     }
 
+    if (text[i] === "$" && text[i + 1] === "$" && text[i - 1] !== "\\") {
+      const close = text.indexOf("$$", i + 2);
+      if (close !== -1) {
+        appendDisplayMath(text.slice(i + 2, close), close + 2);
+        i = close + 2;
+        continue;
+      }
+    }
+
     if (text[i] === "\\" && text[i + 1] === "[") {
       const close = text.indexOf("\\]", i + 2);
       if (close !== -1) {
-        result += `$$${text.slice(i + 2, close)}$$`;
+        appendDisplayMath(text.slice(i + 2, close), close + 2);
         i = close + 2;
         continue;
       }
