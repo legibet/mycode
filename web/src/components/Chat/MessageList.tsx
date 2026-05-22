@@ -98,9 +98,8 @@ function WindowedMessages({
   onRewindAndSend,
 }: WindowedMessagesProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const stickToBottom = useRef(true);
-  const didHandleInitialMessages = useRef(false);
-  const previousMessageCount = useRef(messages.length);
+  const followOutputRef = useRef(true);
+  const previousMessageVersionRef = useRef("");
   const prependSnapshot = useRef<PrependSnapshot | null>(null);
   const layoutMeasureFrame = useRef<number | null>(null);
   const [layoutOptimized, setLayoutOptimized] = useState(false);
@@ -115,12 +114,29 @@ function WindowedMessages({
     () => messages.slice(effectiveStartIndex),
     [effectiveStartIndex, messages],
   );
+  const latestMessage = messages.at(-1);
+  const latestOutputBlockCount =
+    !latestMessage || isCompactMarker(latestMessage)
+      ? 0
+      : latestMessage.content.length;
+  const latestOutputTextLength =
+    !latestMessage || isCompactMarker(latestMessage)
+      ? 0
+      : latestMessage.content.reduce((total, block) => {
+          if (block.type !== "text" && block.type !== "thinking") return total;
+          return total + (block.text?.length ?? 0);
+        }, 0);
+  const outputVersion = `${messages.length}:${latestOutputBlockCount}:${latestOutputTextLength}`;
 
-  const updateStickToBottom = useCallback(() => {
+  const isNearBottom = useCallback((el: HTMLElement) => {
+    return el.scrollHeight - el.scrollTop - el.clientHeight < SCROLL_THRESHOLD;
+  }, []);
+
+  const scrollToBottom = useCallback(() => {
     const el = containerRef.current;
     if (!el) return;
-    stickToBottom.current =
-      el.scrollHeight - el.scrollTop - el.clientHeight < SCROLL_THRESHOLD;
+
+    el.scrollTop = el.scrollHeight;
   }, []);
 
   const scheduleLayoutOptimization = useCallback(() => {
@@ -139,8 +155,7 @@ function WindowedMessages({
     const el = containerRef.current;
     if (!el) return;
 
-    stickToBottom.current =
-      el.scrollHeight - el.scrollTop - el.clientHeight < SCROLL_THRESHOLD;
+    followOutputRef.current = isNearBottom(el);
 
     if (el.scrollTop > LOAD_PREVIOUS_THRESHOLD || effectiveStartIndex === 0) {
       return;
@@ -154,16 +169,13 @@ function WindowedMessages({
     setVisibleStartIndex(
       Math.max(0, effectiveStartIndex - LOAD_PREVIOUS_COUNT),
     );
-  }, [effectiveStartIndex]);
+  }, [effectiveStartIndex, isNearBottom]);
 
   useLayoutEffect(() => {
-    const el = containerRef.current;
-    if (!el) return;
-
-    el.scrollTop = el.scrollHeight;
-    stickToBottom.current = true;
+    followOutputRef.current = true;
+    scrollToBottom();
     scheduleLayoutOptimization();
-  }, [scheduleLayoutOptimization]);
+  }, [scheduleLayoutOptimization, scrollToBottom]);
 
   useLayoutEffect(() => {
     return () => {
@@ -182,51 +194,41 @@ function WindowedMessages({
 
     el.scrollTop = el.scrollHeight - snapshot.scrollHeight + snapshot.scrollTop;
     prependSnapshot.current = null;
+    followOutputRef.current = isNearBottom(el);
     scheduleLayoutOptimization();
-  }, [scheduleLayoutOptimization]);
+  }, [isNearBottom, scheduleLayoutOptimization]);
 
   useLayoutEffect(() => {
-    if (!layoutOptimized || !stickToBottom.current) return;
+    if (!layoutOptimized || !followOutputRef.current) return;
+    if (prependSnapshot.current != null) return;
 
-    const el = containerRef.current;
-    if (!el) return;
-
-    el.scrollTop = el.scrollHeight;
-    updateStickToBottom();
-  }, [layoutOptimized, updateStickToBottom]);
+    scrollToBottom();
+  }, [layoutOptimized, scrollToBottom]);
 
   useLayoutEffect(() => {
-    const previousCount = previousMessageCount.current;
-    previousMessageCount.current = messages.length;
+    if (previousMessageVersionRef.current === outputVersion) return;
+    previousMessageVersionRef.current = outputVersion;
+    if (!followOutputRef.current) return;
+    if (prependSnapshot.current != null) return;
 
-    if (!didHandleInitialMessages.current) {
-      didHandleInitialMessages.current = true;
-      return;
-    }
-
-    if (!stickToBottom.current) return;
-
-    const el = containerRef.current;
-    if (!el) return;
-
-    el.scrollTo({
-      top: el.scrollHeight,
-      behavior:
-        loading || messages.length === previousCount ? "auto" : "smooth",
-    });
-    updateStickToBottom();
-  }, [loading, messages, updateStickToBottom]);
+    scrollToBottom();
+  }, [outputVersion, scrollToBottom]);
 
   return (
     <div
       ref={containerRef}
       onScroll={handleScroll}
-      className="flex-1 overflow-y-auto pb-4 pt-6 [overflow-anchor:none]"
+      className="min-h-0 flex-1 overflow-y-auto pb-4 pt-6 [overflow-anchor:none]"
     >
       <div className="mx-auto max-w-4xl max-md:max-w-none flex flex-col gap-6 max-md:gap-5">
         {visibleMessages.map((message, visibleIndex) => {
           const index = effectiveStartIndex + visibleIndex;
           const renderKey = message.renderKey || `msg-${index}`;
+          const isStreamingMessage =
+            loading &&
+            index === messages.length - 1 &&
+            !isCompactMarker(message) &&
+            message.role === "assistant";
 
           if (isCompactMarker(message)) {
             return (
@@ -250,11 +252,7 @@ function WindowedMessages({
                 role={message.role}
                 blocks={message.content}
                 sourceIndex={message.sourceIndex}
-                isStreaming={
-                  loading &&
-                  index === messages.length - 1 &&
-                  message.role === "assistant"
-                }
+                isStreaming={isStreamingMessage}
                 isLoading={loading}
                 totalTokens={message.meta?.total_tokens}
                 model={message.meta?.model}
