@@ -16,6 +16,7 @@ from fastapi import Path as PathParam
 from fastapi.responses import StreamingResponse
 
 from mycode.messages import (
+    ConversationMessage,
     build_message,
     document_block,
     image_block,
@@ -83,6 +84,90 @@ async def _stream_run(req: Request, state: RunState, after: int) -> AsyncIterato
     yield "data: [DONE]\n\n"
 
 
+async def _build_user_message(chat: ChatRequest, cwd: str) -> ConversationMessage:
+    if not chat.input:
+        return build_message("user", [text_block(str(chat.message or "").strip())])
+
+    blocks: list[dict[str, Any]] = []
+    for block in chat.input:
+        if block.type == "text":
+            text = block.text or ""
+            if block.is_attachment:
+                name = str(block.name or "attached-file")
+                blocks.append(
+                    text_block(
+                        f'<file name="{html.escape(name, quote=True)}">\n{text}\n</file>',
+                        meta={"attachment": True, "path": name},
+                    )
+                )
+            elif text:
+                blocks.append(text_block(text))
+            continue
+
+        if block.type == "document":
+            if block.data:
+                mime_type = block.mime_type or "application/pdf"
+                blocks.append(document_block(block.data, mime_type=mime_type, name=block.name or "document.pdf"))
+                continue
+
+            path = Path(resolve_path(cast(str, block.path), cwd=cwd))
+            if not path.is_file():
+                raise HTTPException(status_code=400, detail=f"document file not found: {block.path}")
+            mime_type = block.mime_type or detect_document_mime_type(path)
+            if mime_type != "application/pdf":
+                raise HTTPException(status_code=400, detail=f"unsupported document file: {block.path}")
+            data = b64encode(await asyncio.to_thread(path.read_bytes)).decode("utf-8")
+            blocks.append(document_block(data, mime_type=mime_type, name=block.name or path.name))
+            continue
+
+        if block.data:
+            blocks.append(image_block(block.data, mime_type=cast(str, block.mime_type), name=block.name or "image"))
+            continue
+
+        path = Path(resolve_path(cast(str, block.path), cwd=cwd))
+        if not path.is_file():
+            raise HTTPException(status_code=400, detail=f"image file not found: {block.path}")
+        mime_type = block.mime_type or detect_image_mime_type(path)
+        if not mime_type:
+            raise HTTPException(status_code=400, detail=f"unsupported image file: {block.path}")
+        data = b64encode(await asyncio.to_thread(path.read_bytes)).decode("utf-8")
+        blocks.append(image_block(data, mime_type=mime_type, name=block.name or path.name))
+
+    if not blocks:
+        raise HTTPException(status_code=400, detail="input must include at least one non-empty block")
+    return build_message("user", blocks)
+
+
+def _validate_rewind_request(
+    *,
+    session: dict[str, Any] | None,
+    messages: list[ConversationMessage],
+    rewind_to: int | None,
+) -> None:
+    if rewind_to is None:
+        return
+
+    if session is None:
+        raise HTTPException(status_code=400, detail="rewind_to requires an existing session")
+
+    if not (0 <= rewind_to < len(messages)):
+        raise HTTPException(
+            status_code=400,
+            detail=f"rewind_to must reference a visible message index between 0 and {len(messages) - 1}",
+        )
+
+    target = messages[rewind_to]
+    raw_blocks = target.get("content")
+    blocks = raw_blocks if isinstance(raw_blocks, list) else []
+    has_user_content = any(
+        isinstance(block, dict)
+        and ((block.get("type") == "text" and block.get("text")) or block.get("type") in {"image", "document"})
+        for block in blocks
+    )
+    if target.get("role") != "user" or not has_user_content:
+        raise HTTPException(status_code=400, detail="rewind_to must reference a real user message")
+
+
 @router.post("/chat")
 async def chat(chat: ChatRequest, store: StoreDep, runs: RunManagerDep) -> ChatResponse:
     cwd = os.path.abspath(chat.cwd or os.getcwd())
@@ -101,89 +186,12 @@ async def chat(chat: ChatRequest, store: StoreDep, runs: RunManagerDep) -> ChatR
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     session_id = chat.session_id or "default"
-
-    if not chat.input:
-        message_text = str(chat.message or "").strip()
-        user_message = build_message("user", [text_block(message_text)])
-    else:
-        blocks: list[dict[str, Any]] = []
-        for block in chat.input:
-            if block.type == "text":
-                text = block.text or ""
-                if block.is_attachment:
-                    name = str(block.name or "attached-file")
-                    blocks.append(
-                        text_block(
-                            f'<file name="{html.escape(name, quote=True)}">\n{text}\n</file>',
-                            meta={"attachment": True, "path": name},
-                        )
-                    )
-                elif text:
-                    blocks.append(text_block(text))
-
-            elif block.type == "document":
-                if block.data:
-                    mime_type = block.mime_type or "application/pdf"
-                    blocks.append(document_block(block.data, mime_type=mime_type, name=block.name or "document.pdf"))
-                else:
-                    path = Path(resolve_path(cast(str, block.path), cwd=cwd))
-                    if not path.is_file():
-                        raise HTTPException(status_code=400, detail=f"document file not found: {block.path}")
-                    mime_type = block.mime_type or detect_document_mime_type(path)
-                    if mime_type != "application/pdf":
-                        raise HTTPException(status_code=400, detail=f"unsupported document file: {block.path}")
-                    data = b64encode(await asyncio.to_thread(path.read_bytes)).decode("utf-8")
-                    blocks.append(document_block(data, mime_type=mime_type, name=block.name or path.name))
-
-            else:  # image
-                if block.data:
-                    blocks.append(
-                        image_block(block.data, mime_type=cast(str, block.mime_type), name=block.name or "image")
-                    )
-                else:
-                    path = Path(resolve_path(cast(str, block.path), cwd=cwd))
-                    if not path.is_file():
-                        raise HTTPException(status_code=400, detail=f"image file not found: {block.path}")
-                    mime_type = block.mime_type or detect_image_mime_type(path)
-                    if not mime_type:
-                        raise HTTPException(status_code=400, detail=f"unsupported image file: {block.path}")
-                    data = b64encode(await asyncio.to_thread(path.read_bytes)).decode("utf-8")
-                    blocks.append(image_block(data, mime_type=mime_type, name=block.name or path.name))
-
-        if not blocks:
-            raise HTTPException(status_code=400, detail="input must include at least one non-empty block")
-        user_message = build_message("user", blocks)
+    user_message = await _build_user_message(chat, cwd)
 
     data = await store.load_session(session_id)
-    session = (data or {}).get("session")
-    existing_messages = (data or {}).get("messages") or []
-
-    if not session and chat.rewind_to is not None:
-        raise HTTPException(status_code=400, detail="rewind_to requires an existing session")
-
-    if chat.rewind_to is not None:
-        if not (0 <= chat.rewind_to < len(existing_messages)):
-            raise HTTPException(
-                status_code=400,
-                detail=f"rewind_to must reference a visible message index between 0 and {len(existing_messages) - 1}",
-            )
-
-        target = existing_messages[chat.rewind_to]
-        raw_blocks = target.get("content")
-        blocks = raw_blocks if isinstance(raw_blocks, list) else []
-        has_user_content = any(
-            (block.get("type") == "text" and block.get("text")) or block.get("type") in {"image", "document"}
-            for block in blocks
-        )
-
-        # Rewind only makes sense for real user prompts. Assistant messages,
-        # compact markers, and tool-result-only user messages are not valid
-        # targets.
-        if target.get("role") != "user" or not has_user_content:
-            raise HTTPException(
-                status_code=400,
-                detail="rewind_to must reference a real user message",
-            )
+    session = cast(dict[str, Any] | None, data["session"] if data else None)
+    existing_messages = data["messages"] if data else []
+    _validate_rewind_request(session=session, messages=existing_messages, rewind_to=chat.rewind_to)
 
     # Capability check before any disk mutation — a failed check must not
     # leave an empty session on disk or land a premature rewind marker.

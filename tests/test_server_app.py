@@ -8,7 +8,11 @@ import pytest
 from starlette.routing import Mount
 from starlette.testclient import TestClient
 
+from mycode.models import ModelMetadata
+from mycode.session import SessionStore
 from mycode_cli.server.app import create_api_app, create_app
+from mycode_cli.server.deps import get_run_manager, get_store
+from mycode_cli.server.run_manager import RunManager
 
 
 def mount_paths(app) -> list[str]:
@@ -94,3 +98,41 @@ def test_chat_request_shape_validation(payload: dict[str, object]) -> None:
         response = client.post("/api/chat", json=payload)
 
     assert response.status_code == 422
+
+
+def test_chat_capability_failure_does_not_create_session(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    monkeypatch.setattr(
+        "mycode_cli.server.routers.chat.resolve_model_metadata",
+        lambda **_: ModelMetadata(
+            provider="anthropic",
+            model="claude-sonnet-4-6",
+            supports_reasoning=True,
+            supports_image_input=False,
+            supports_pdf_input=True,
+        ),
+    )
+    store = SessionStore(data_dir=tmp_path / "sessions")
+    app = create_api_app()
+    app.dependency_overrides[get_store] = lambda: store
+    app.dependency_overrides[get_run_manager] = lambda: RunManager()
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/chat",
+            json={
+                "session_id": "new-session",
+                "cwd": str(tmp_path),
+                "message": None,
+                "input": [{"type": "image", "data": "abc", "mime_type": "image/png"}],
+                "provider": "anthropic",
+                "model": "claude-sonnet-4-6",
+            },
+        )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "current model does not support image input"
+    assert not store.session_dir("new-session").exists()
