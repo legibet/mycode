@@ -14,6 +14,7 @@ from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from typing import Any
 
+from mycode.compact import apply_compact_replay
 from mycode.messages import ConversationMessage, build_message, text_block, tool_result_block
 
 DEFAULT_REQUEST_TIMEOUT = 300.0
@@ -33,6 +34,8 @@ class ProviderRequest:
     reasoning_effort: str | None = None
     supports_image_input: bool = True
     supports_pdf_input: bool = True
+    transcript_path: str | None = None
+    append_messages: list[ConversationMessage] = field(default_factory=list)
 
 
 @dataclass
@@ -89,14 +92,18 @@ class ProviderAdapter(ABC):
         """Stream exactly one assistant turn."""
 
     def prepare_messages(self, request: ProviderRequest) -> list[ConversationMessage]:
-        """Repair canonical history, then project tool IDs for provider replay."""
+        """Project visible history into provider-safe replay messages."""
 
-        supports_image_input = getattr(request, "supports_image_input", True)
-        supports_pdf_input = getattr(request, "supports_pdf_input", True)
-        repaired_messages = repair_messages_for_replay(
+        replay_messages = apply_compact_replay(
             request.messages,
-            supports_image_input=supports_image_input,
-            supports_pdf_input=supports_pdf_input,
+            transcript_path=request.transcript_path,
+        )
+        if request.append_messages:
+            replay_messages = [*replay_messages, *request.append_messages]
+        repaired_messages = repair_messages_for_replay(
+            replay_messages,
+            supports_image_input=request.supports_image_input,
+            supports_pdf_input=request.supports_pdf_input,
         )
         prepared_messages: list[ConversationMessage] = []
         tool_id_map: dict[str, str] = {}

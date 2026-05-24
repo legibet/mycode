@@ -6,6 +6,7 @@ from typing import Any, cast
 
 import pytest
 
+from mycode.compact import build_compact_event
 from mycode.providers import (
     AnthropicAdapter,
     DeepSeekAdapter,
@@ -55,6 +56,8 @@ def request_obj(**overrides: Any) -> Any:
         "api_base": None,
         "supports_image_input": True,
         "supports_pdf_input": True,
+        "transcript_path": None,
+        "append_messages": [],
     }
     data.update(overrides)
     return cast(Any, _Obj(**data))
@@ -1118,6 +1121,29 @@ def test_provider_prepare_messages_filters_history_images_when_disabled() -> Non
             ],
         },
     ]
+
+
+def test_provider_prepare_messages_applies_compact_before_appending_messages() -> None:
+    adapter = OpenAIChatAdapter()
+    request = request_obj(
+        transcript_path="/sessions/s1/messages.jsonl",
+        append_messages=[{"role": "user", "content": [{"type": "text", "text": "summarize now"}]}],
+        messages=[
+            {"role": "user", "content": [{"type": "text", "text": "old prompt"}]},
+            {"role": "assistant", "content": [{"type": "text", "text": "old answer"}]},
+            build_compact_event("latest summary", provider="openai", model="gpt-5.4"),
+            {"role": "assistant", "content": [{"type": "text", "text": "tail answer"}]},
+        ],
+    )
+
+    prepared = adapter.prepare_messages(request)
+
+    assert [message["role"] for message in prepared] == ["user", "assistant", "user"]
+    assert "latest summary" in prepared[0]["content"][0]["text"]
+    assert "/sessions/s1/messages.jsonl" in prepared[0]["content"][0]["text"]
+    assert "old prompt" not in prepared[0]["content"][0]["text"]
+    assert prepared[1]["content"][0]["text"] == "tail answer"
+    assert prepared[2]["content"][0]["text"] == "summarize now"
 
 
 def test_provider_prepare_messages_escapes_image_notice_attributes_when_disabled() -> None:

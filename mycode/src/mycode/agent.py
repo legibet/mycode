@@ -21,7 +21,6 @@ from uuid import uuid4
 from mycode.compact import (
     COMPACT_SUMMARY_PROMPT,
     DEFAULT_COMPACT_THRESHOLD,
-    apply_compact_replay,
     build_compact_event,
     should_compact,
 )
@@ -495,7 +494,7 @@ class Agent:
                 provider=self.provider,
                 model=self.model,
                 session_id=self.session_id,
-                messages=apply_compact_replay(self.messages, transcript_path=self.transcript_path),
+                messages=self.messages,
                 system=self.system,
                 tools=self.tools.definitions,
                 max_tokens=self.max_tokens,
@@ -504,6 +503,7 @@ class Agent:
                 reasoning_effort=self.reasoning_effort,
                 supports_image_input=self.supports_image_input,
                 supports_pdf_input=self.supports_pdf_input,
+                transcript_path=self.transcript_path,
             )
 
             try:
@@ -716,14 +716,11 @@ class Agent:
     ) -> None:
         """Ask the provider for a summary, persist the compact event, append it."""
 
-        compact_messages = apply_compact_replay(self.messages, transcript_path=self.transcript_path) + [
-            user_text_message(COMPACT_SUMMARY_PROMPT)
-        ]
         request = ProviderRequest(
             provider=self.provider,
             model=self.model,
             session_id=self.session_id,
-            messages=compact_messages,
+            messages=self.messages,
             system=self.system,
             tools=[],
             max_tokens=min(self.max_tokens, 8192),
@@ -731,6 +728,8 @@ class Agent:
             api_base=self.api_base,
             supports_image_input=self.supports_image_input,
             supports_pdf_input=self.supports_pdf_input,
+            transcript_path=self.transcript_path,
+            append_messages=[user_text_message(COMPACT_SUMMARY_PROMPT)],
         )
 
         summary_message: ConversationMessage | None = None
