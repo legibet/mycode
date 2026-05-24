@@ -1,286 +1,168 @@
-"""Tests for conversation rewind (append-only truncation)."""
+"""Tests for conversation rewind behavior."""
 
 import asyncio
-import json
-import tempfile
 from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 
 from mycode.compact import build_compact_event
-from mycode.session import SessionStore, apply_rewind, build_rewind_event
+from mycode.messages import ConversationMessage
+from mycode.session import SessionStore
 from mycode_cli.server.app import create_app
 from mycode_cli.server.deps import get_run_manager, get_store
 from mycode_cli.server.run_manager import RunManager
 
 
 @pytest.fixture
-def temp_store():
-    with tempfile.TemporaryDirectory() as tmpdir:
-        yield SessionStore(data_dir=Path(tmpdir))
+def store(tmp_path: Path) -> SessionStore:
+    return SessionStore(data_dir=tmp_path / "sessions")
 
 
-# -- Unit tests for rewind primitives --
+def text_message(role: str, text: str) -> ConversationMessage:
+    return {"role": role, "content": [{"type": "text", "text": text}]}
 
 
-class TestBuildRewindEvent:
-    def test_basic_structure(self):
-        event = build_rewind_event(3)
-        assert event["role"] == "rewind"
-        assert event["meta"]["rewind_to"] == 3
-        assert "created_at" in event["meta"]
-
-    def test_rewind_to_zero(self):
-        event = build_rewind_event(0)
-        assert event["meta"]["rewind_to"] == 0
+def message_texts(messages: list[ConversationMessage]) -> list[str]:
+    return [str((message.get("content") or [{}])[0].get("text")) for message in messages]
 
 
-class TestApplyRewind:
-    def test_no_rewind_events(self):
-        messages = [
-            {"role": "user", "content": [{"type": "text", "text": "hello"}]},
-            {"role": "assistant", "content": [{"type": "text", "text": "hi"}]},
-        ]
-        assert apply_rewind(messages) == messages
+async def append_messages(
+    store: SessionStore,
+    session_id: str,
+    messages: list[ConversationMessage],
+) -> None:
+    for message in messages:
+        await store.append_message(session_id, message)
 
-    def test_single_rewind(self):
-        messages = [
-            {"role": "user", "content": [{"type": "text", "text": "hello"}]},
-            {"role": "assistant", "content": [{"type": "text", "text": "hi"}]},
-            {"role": "user", "content": [{"type": "text", "text": "explain X"}]},
-            {"role": "assistant", "content": [{"type": "text", "text": "X is..."}]},
-            build_rewind_event(2),
-            {"role": "user", "content": [{"type": "text", "text": "explain Y"}]},
-            {"role": "assistant", "content": [{"type": "text", "text": "Y is..."}]},
-        ]
-        result = apply_rewind(messages)
-        assert len(result) == 4
-        assert result[0]["content"][0]["text"] == "hello"
-        assert result[1]["content"][0]["text"] == "hi"
-        assert result[2]["content"][0]["text"] == "explain Y"
-        assert result[3]["content"][0]["text"] == "Y is..."
 
-    def test_multiple_rewinds(self):
-        messages = [
-            {"role": "user", "content": [{"type": "text", "text": "a"}]},
-            {"role": "assistant", "content": [{"type": "text", "text": "b"}]},
-            {"role": "user", "content": [{"type": "text", "text": "c"}]},
-            {"role": "assistant", "content": [{"type": "text", "text": "d"}]},
-            build_rewind_event(2),
-            {"role": "user", "content": [{"type": "text", "text": "e"}]},
-            {"role": "assistant", "content": [{"type": "text", "text": "f"}]},
-            build_rewind_event(2),
-            {"role": "user", "content": [{"type": "text", "text": "g"}]},
-        ]
-        result = apply_rewind(messages)
-        assert len(result) == 3
-        assert result[0]["content"][0]["text"] == "a"
-        assert result[1]["content"][0]["text"] == "b"
-        assert result[2]["content"][0]["text"] == "g"
+@pytest.mark.asyncio
+async def test_rewind_replaces_the_visible_tail_without_rewriting_the_log(store: SessionStore) -> None:
+    await store.create_session("s1", cwd="/tmp")
+    await append_messages(
+        store,
+        "s1",
+        [
+            text_message("user", "hello"),
+            text_message("assistant", "hi"),
+            text_message("user", "explain X"),
+            text_message("assistant", "X is..."),
+        ],
+    )
 
-    def test_rewind_to_zero(self):
-        messages = [
-            {"role": "user", "content": [{"type": "text", "text": "a"}]},
-            build_rewind_event(0),
-            {"role": "user", "content": [{"type": "text", "text": "fresh"}]},
-        ]
-        result = apply_rewind(messages)
-        assert len(result) == 1
-        assert result[0]["content"][0]["text"] == "fresh"
+    await store.append_rewind("s1", 2)
+    await store.append_message("s1", text_message("user", "explain Y instead"))
 
-    def test_rewind_past_compact_discards_compact(self):
-        """A rewind that goes before a compact event should discard it."""
-        messages = [
-            {"role": "user", "content": [{"type": "text", "text": "a"}]},
-            {"role": "assistant", "content": [{"type": "text", "text": "b"}]},
+    loaded = await store.load_session("s1")
+    raw_lines = store.messages_path("s1").read_text(encoding="utf-8").strip().splitlines()
+
+    assert loaded is not None
+    assert message_texts(loaded["messages"]) == ["hello", "hi", "explain Y instead"]
+    assert len(raw_lines) == 6
+
+
+@pytest.mark.asyncio
+async def test_rewind_can_discard_the_entire_visible_history(store: SessionStore) -> None:
+    await store.create_session("s1", cwd="/tmp")
+    await store.append_message("s1", text_message("user", "old start"))
+
+    await store.append_rewind("s1", 0)
+    await store.append_message("s1", text_message("user", "fresh start"))
+
+    loaded = await store.load_session("s1")
+
+    assert loaded is not None
+    assert message_texts(loaded["messages"]) == ["fresh start"]
+
+
+@pytest.mark.asyncio
+async def test_multiple_rewinds_are_applied_in_order(store: SessionStore) -> None:
+    await store.create_session("s1", cwd="/tmp")
+    await append_messages(store, "s1", [text_message("user", "a"), text_message("assistant", "b")])
+
+    await store.append_message("s1", text_message("user", "c"))
+    await store.append_rewind("s1", 2)
+    await store.append_message("s1", text_message("user", "d"))
+    await store.append_rewind("s1", 2)
+    await store.append_message("s1", text_message("user", "e"))
+
+    loaded = await store.load_session("s1")
+
+    assert loaded is not None
+    assert message_texts(loaded["messages"]) == ["a", "b", "e"]
+
+
+@pytest.mark.asyncio
+async def test_rewind_before_a_compact_marker_drops_the_marker(store: SessionStore) -> None:
+    await store.create_session("s1", cwd="/tmp")
+    await append_messages(
+        store,
+        "s1",
+        [
+            text_message("user", "hello"),
+            text_message("assistant", "hi"),
             build_compact_event("summary", provider="p", model="m"),
-            build_rewind_event(0),
-            {"role": "user", "content": [{"type": "text", "text": "new start"}]},
-        ]
-        result = apply_rewind(messages)
-        assert len(result) == 1
-        assert result[0]["content"][0]["text"] == "new start"
+            text_message("user", "explain X"),
+        ],
+    )
 
-    def test_empty_messages(self):
-        assert apply_rewind([]) == []
+    await store.append_rewind("s1", 0)
+    await store.append_message("s1", text_message("user", "fresh start"))
+
+    loaded = await store.load_session("s1")
+
+    assert loaded is not None
+    assert [message["role"] for message in loaded["messages"]] == ["user"]
+    assert message_texts(loaded["messages"]) == ["fresh start"]
 
 
-# -- Integration tests with SessionStore --
+@pytest.mark.asyncio
+async def test_rewind_after_a_compact_marker_keeps_the_marker(store: SessionStore) -> None:
+    await store.create_session("s1", cwd="/tmp")
+    await append_messages(
+        store,
+        "s1",
+        [
+            text_message("user", "hello"),
+            text_message("assistant", "hi"),
+            build_compact_event("summary", provider="p", model="m"),
+            text_message("user", "explain X"),
+            text_message("assistant", "X is..."),
+        ],
+    )
+
+    await store.append_rewind("s1", 3)
+    await store.append_message("s1", text_message("user", "explain Y instead"))
+
+    loaded = await store.load_session("s1")
+
+    assert loaded is not None
+    assert [message["role"] for message in loaded["messages"]] == ["user", "assistant", "compact", "user"]
+    assert message_texts(loaded["messages"]) == ["hello", "hi", "summary", "explain Y instead"]
 
 
-class TestSessionRewind:
-    @pytest.mark.asyncio
-    async def test_append_rewind_and_reload(self, temp_store):
-        """Rewind event should truncate messages when session is reloaded."""
-        await temp_store.create_session("s1", cwd="/tmp")
-        sid = "s1"
-
-        for msg in [
-            {"role": "user", "content": [{"type": "text", "text": "hello"}]},
-            {"role": "assistant", "content": [{"type": "text", "text": "hi"}]},
-            {"role": "user", "content": [{"type": "text", "text": "explain X"}]},
-            {"role": "assistant", "content": [{"type": "text", "text": "X is..."}]},
-        ]:
-            await temp_store.append_message(sid, msg)
-
-        await temp_store.append_rewind(sid, 2)
-
-        await temp_store.append_message(
-            sid,
-            {"role": "user", "content": [{"type": "text", "text": "explain Y instead"}]},
-        )
-
-        loaded = await temp_store.load_session(sid)
-        messages = loaded["messages"]
-        assert len(messages) == 3
-        assert messages[0]["content"][0]["text"] == "hello"
-        assert messages[1]["content"][0]["text"] == "hi"
-        assert messages[2]["content"][0]["text"] == "explain Y instead"
-
-    @pytest.mark.asyncio
-    async def test_rewind_preserves_original_lines_in_jsonl(self, temp_store):
-        """JSONL file should contain all original messages plus the rewind marker."""
-        await temp_store.create_session("s1", cwd="/tmp")
-        sid = "s1"
-
-        for msg in [
-            {"role": "user", "content": [{"type": "text", "text": "a"}]},
-            {"role": "assistant", "content": [{"type": "text", "text": "b"}]},
-        ]:
-            await temp_store.append_message(sid, msg)
-
-        await temp_store.append_rewind(sid, 0)
-
-        raw_lines = temp_store.messages_path(sid).read_text().strip().splitlines()
-        assert len(raw_lines) == 3
-        assert json.loads(raw_lines[2])["role"] == "rewind"
-        assert json.loads(raw_lines[2])["meta"]["rewind_to"] == 0
-
-    @pytest.mark.asyncio
-    async def test_rewind_then_compact_works(self, temp_store):
-        """Rewind followed by compact should keep the compact marker inline."""
-        await temp_store.create_session("s1", cwd="/tmp")
-        sid = "s1"
-
-        for msg in [
-            {"role": "user", "content": [{"type": "text", "text": "a"}]},
-            {"role": "assistant", "content": [{"type": "text", "text": "b"}]},
-            {"role": "user", "content": [{"type": "text", "text": "c"}]},
-            {"role": "assistant", "content": [{"type": "text", "text": "d"}]},
-        ]:
-            await temp_store.append_message(sid, msg)
-
-        # Rewind to keep first 2 messages
-        await temp_store.append_rewind(sid, 2)
-
-        # Add new conversation after rewind
-        for msg in [
-            {"role": "user", "content": [{"type": "text", "text": "e"}]},
-            {"role": "assistant", "content": [{"type": "text", "text": "f"}]},
-        ]:
-            await temp_store.append_message(sid, msg)
-
-        # Compact emitted after the new turn lands inline as a marker.
-        compact = build_compact_event("summary", provider="p", model="m")
-        await temp_store.append_message(sid, compact)
-
-        loaded = await temp_store.load_session(sid)
-        messages = loaded["messages"]
-        assert [m["role"] for m in messages] == ["user", "assistant", "user", "assistant", "compact"]
-        assert messages[-1]["content"][0]["text"] == "summary"
-
-    @pytest.mark.asyncio
-    async def test_rewind_drops_orphan_tool_use(self, temp_store):
-        """Rewind past an open tool_use must remove it from the visible history."""
-        await temp_store.create_session("s1", cwd="/tmp")
-        sid = "s1"
-
-        for msg in [
-            {"role": "user", "content": [{"type": "text", "text": "hello"}]},
-            {"role": "assistant", "content": [{"type": "text", "text": "hi"}]},
+@pytest.mark.asyncio
+async def test_rewind_removes_an_interrupted_tool_call_from_visible_history(store: SessionStore) -> None:
+    await store.create_session("s1", cwd="/tmp")
+    await append_messages(
+        store,
+        "s1",
+        [
+            text_message("user", "hello"),
+            text_message("assistant", "hi"),
             {
                 "role": "assistant",
                 "content": [{"type": "tool_use", "id": "call_1", "name": "read", "input": {"path": "x.py"}}],
             },
-        ]:
-            await temp_store.append_message(sid, msg)
+        ],
+    )
 
-        # Rewind to before the tool_use message — the interrupted loop is gone
-        await temp_store.append_rewind(sid, 2)
+    await store.append_rewind("s1", 2)
 
-        loaded = await temp_store.load_session(sid)
-        messages = loaded["messages"]
-        assert len(messages) == 2
-        assert messages[0]["content"][0]["text"] == "hello"
-        assert messages[1]["content"][0]["text"] == "hi"
+    loaded = await store.load_session("s1")
 
-    @pytest.mark.asyncio
-    async def test_rewind_to_pre_compact_user_drops_marker(self, temp_store):
-        """Rewinding to a real user message before the compact marker drops it."""
-        await temp_store.create_session("s1", cwd="/tmp")
-        sid = "s1"
-
-        for msg in [
-            {"role": "user", "content": [{"type": "text", "text": "hello"}]},
-            {"role": "assistant", "content": [{"type": "text", "text": "hi"}]},
-            build_compact_event("summary", provider="p", model="m"),
-            {"role": "user", "content": [{"type": "text", "text": "explain X"}]},
-            {"role": "assistant", "content": [{"type": "text", "text": "X is..."}]},
-        ]:
-            await temp_store.append_message(sid, msg)
-
-        # Visible: [user_hello, asst_hi, compact, user_X, asst_X_is]
-        loaded = await temp_store.load_session(sid)
-        assert [m["role"] for m in loaded["messages"]] == [
-            "user",
-            "assistant",
-            "compact",
-            "user",
-            "assistant",
-        ]
-
-        # Rewind to user_hello. The compact marker and post-compact history are
-        # all sliced away — we are back to the pre-compact state.
-        await temp_store.append_rewind(sid, 0)
-        await temp_store.append_message(
-            sid,
-            {"role": "user", "content": [{"type": "text", "text": "fresh start"}]},
-        )
-
-        reloaded = await temp_store.load_session(sid)
-        messages = reloaded["messages"]
-        assert len(messages) == 1
-        assert messages[0]["content"][0]["text"] == "fresh start"
-
-    @pytest.mark.asyncio
-    async def test_rewind_after_compact_keeps_marker(self, temp_store):
-        """Rewind to a target after the compact marker keeps the marker."""
-        await temp_store.create_session("s1", cwd="/tmp")
-        sid = "s1"
-
-        for msg in [
-            {"role": "user", "content": [{"type": "text", "text": "hello"}]},
-            {"role": "assistant", "content": [{"type": "text", "text": "hi"}]},
-            build_compact_event("summary", provider="p", model="m"),
-            {"role": "user", "content": [{"type": "text", "text": "explain X"}]},
-            {"role": "assistant", "content": [{"type": "text", "text": "X is..."}]},
-        ]:
-            await temp_store.append_message(sid, msg)
-
-        # Rewind to the post-compact user message (index 3) — the compact
-        # marker stays, the latest assistant turn is dropped.
-        await temp_store.append_rewind(sid, 3)
-        await temp_store.append_message(
-            sid,
-            {"role": "user", "content": [{"type": "text", "text": "explain Y instead"}]},
-        )
-
-        reloaded = await temp_store.load_session(sid)
-        messages = reloaded["messages"]
-        assert [m["role"] for m in messages] == ["user", "assistant", "compact", "user"]
-        assert messages[2]["content"][0]["text"] == "summary"
-        assert messages[3]["content"][0]["text"] == "explain Y instead"
+    assert loaded is not None
+    assert message_texts(loaded["messages"]) == ["hello", "hi"]
 
 
 def test_chat_rejects_rewind_to_compact_marker(tmp_path: Path, monkeypatch) -> None:

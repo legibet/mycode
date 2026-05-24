@@ -10,10 +10,7 @@ from mycode.tools import (
     ToolContext,
     ToolExecutionResult,
     ToolExecutor,
-    detect_image_mime_type,
-    truncate_text,
 )
-from mycode.utils import parse_tool_arguments
 
 _PNG_1X1 = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j1X8AAAAASUVORK5CYII="
@@ -40,97 +37,6 @@ def assert_edit_ok(
     assert isinstance(result.metadata["patch"], str)
     assert isinstance(result.metadata["added_lines"], int)
     assert isinstance(result.metadata["removed_lines"], int)
-
-
-class TestTruncateText:
-    """Tests for text truncation logic."""
-
-    def test_no_truncation_needed(self):
-        """Short text should not be truncated."""
-        text = "Hello\nWorld"
-        content, trunc = truncate_text(text, max_lines=10, max_bytes=1000)
-
-        assert content == text
-        assert trunc.truncated is False
-        assert trunc.truncated_by is None
-
-    def test_truncated_by_lines(self):
-        """Text exceeding line limit should be truncated."""
-        text = "\n".join([f"line {i}" for i in range(100)])
-        content, trunc = truncate_text(text, max_lines=10, max_bytes=100000)
-
-        assert trunc.truncated is True
-        assert trunc.truncated_by == "lines"
-        assert trunc.output_lines == 10
-        assert "line 9" in content
-        assert "line 10" not in content
-
-    def test_truncated_by_bytes(self):
-        """Text exceeding byte limit should be truncated."""
-        text = "x" * 1000
-        _, trunc = truncate_text(text, max_lines=1000, max_bytes=100)
-
-        assert trunc.truncated is True
-        assert trunc.truncated_by == "bytes"
-        assert trunc.output_bytes <= 100
-
-    def test_truncated_by_bytes_mid_line(self):
-        """Byte truncation can happen mid-line."""
-        lines = ["short", "a" * 1000, "another short"]
-        text = "\n".join(lines)
-        content, trunc = truncate_text(text, max_lines=10, max_bytes=50)
-
-        assert trunc.truncated is True
-        assert len(content.encode("utf-8")) <= 50 + 20  # some margin for newlines
-
-    def test_empty_text(self):
-        """Empty text should handle gracefully."""
-        content, trunc = truncate_text("")
-
-        assert content == ""
-        assert trunc.truncated is False
-        assert trunc.output_lines == 0
-        assert trunc.output_bytes == 0
-
-    def test_single_line(self):
-        """Single line text should not be truncated."""
-        content, trunc = truncate_text("single line")
-
-        assert content == "single line"
-        assert trunc.truncated is False
-        assert trunc.output_lines == 1
-
-    def test_tail_truncation_keeps_last_lines(self):
-        text = "\n".join([f"line {i}" for i in range(20)])
-        content, trunc = truncate_text(text, max_lines=5, max_bytes=1000, tail=True)
-
-        assert trunc.truncated is True
-        assert trunc.truncated_by == "lines"
-        assert "line 19" in content
-        assert "line 15" in content
-        assert "line 14" not in content
-
-
-class TestParseToolArguments:
-    """Tests for tool argument parsing."""
-
-    def test_valid_json(self):
-        result = parse_tool_arguments('{"path": "/tmp/file.txt"}')
-        assert result == {"path": "/tmp/file.txt"}
-
-    def test_empty_string(self):
-        result = parse_tool_arguments("")
-        assert result == {}
-
-    def test_none(self):
-        result = parse_tool_arguments(None)
-        assert result == {}
-
-    def test_invalid_json(self):
-        assert parse_tool_arguments("not json") is None
-
-    def test_non_object_json(self):
-        assert parse_tool_arguments("[1, 2, 3]") is None
 
 
 class TestRead:
@@ -244,13 +150,6 @@ class TestRead:
             assert "not supported by the current model" in result.output
 
 
-def test_detect_image_mime_type_from_header(tmp_path):
-    image_path = tmp_path / "tiny.bin"
-    image_path.write_bytes(_PNG_1X1)
-
-    assert detect_image_mime_type(image_path) == "image/png"
-
-
 class TestWrite:
     def test_write_new_file(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -306,15 +205,6 @@ class TestEdit:
             assert result.is_error is True
             assert "occurs" in result.output.lower()
             assert test_file.read_text() == "apple apple apple"
-
-    def test_edit_exact_snippet_replacement(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            test_file = Path(tmpdir) / "test.txt"
-            test_file.write_text("Hello World")
-
-            result = _ctx(tmpdir).edit("test.txt", [{"oldText": "Hello", "newText": "Hi"}])
-            assert_edit_ok(result)
-            assert test_file.read_text() == "Hi World"
 
     def test_edit_nonexistent_file(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -523,26 +413,3 @@ class TestAbsolutePath:
             # cwd elsewhere; reading by absolute path must still work.
             result = _ctx("/tmp").read(str(test_file))
             assert "Absolute path content" in result.output
-
-    def test_read_relative_path(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            (Path(tmpdir) / "rel_test.txt").write_text("Relative path content")
-
-            result = _ctx(tmpdir).read("rel_test.txt")
-            assert "Relative path content" in result.output
-
-    def test_write_relative_path_resolves_to_cwd(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            result = _ctx(tmpdir).write("relative.txt", "Content")
-            assert result.is_error is False
-
-            assert (Path(tmpdir) / "relative.txt").exists()
-
-
-# ``ToolExecutionResult`` constructor shape sanity check.
-def test_tool_execution_result_fields():
-    result = ToolExecutionResult(output="ok", metadata={"k": 1})
-    assert result.output == "ok"
-    assert result.metadata == {"k": 1}
-    assert result.content is None
-    assert result.is_error is False

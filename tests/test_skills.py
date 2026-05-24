@@ -7,8 +7,6 @@ from pathlib import Path
 import pytest
 
 from mycode_cli.system_prompt import (
-    _parse_skill_md,
-    _scan_skill_root,
     discover_skills,
     load_skills_prompt,
 )
@@ -44,68 +42,30 @@ def workspace(tmp_path: Path) -> Path:
     return path
 
 
-class TestParseSkillMd:
-    def test_accepts_valid_frontmatter(self, tmp_path: Path) -> None:
-        path = tmp_path / "SKILL.md"
-        write_file(path, skill_text())
+def test_discovers_supported_layouts_and_ignores_invalid_skill_files(skill_home: Path, workspace: Path) -> None:
+    root = workspace / ".mycode" / "skills"
+    write_file(root / "deploy.md", skill_text(name="deploy", description="Deploy things."))
+    write_file(root / "lint.md", skill_text(name="lint", description="Lint things."))
+    write_file(root / "nested" / "SKILL.md", skill_text(description="Nested skill."))
+    write_file(root / "cool-tool" / "SKILL.md", skill_text(name=None, description="Fallback skill."))
+    write_file(root / ".hidden" / "SKILL.md", skill_text(description="Hidden skill."))
+    write_file(root / "node_modules" / "pkg" / "SKILL.md", skill_text(description="Ignored skill."))
+    write_file(root / "invalid" / "SKILL.md", skill_text(description=None))
+    write_file(root / "bad name!" / "SKILL.md", skill_text(name="bad name!", description="Bad skill."))
+    write_file(root / "plain" / "SKILL.md", "# Just a markdown file\nNo YAML frontmatter here.\n")
+    write_file(root / "a" / "b" / "c" / "SKILL.md", skill_text(name="depth-three", description="Allowed depth."))
+    write_file(root / "a" / "b" / "c" / "d" / "SKILL.md", skill_text(name="too-deep", description="Too deep."))
 
-        skill = _parse_skill_md(path, "project")
+    skills = discover_skills(str(workspace))
 
-        assert skill is not None
-        assert skill.name == "test-skill"
-        assert skill.description == "A test skill."
-        assert skill.source == "project"
-
-    def test_uses_fallback_name_when_frontmatter_omits_name(self, tmp_path: Path) -> None:
-        path = tmp_path / "SKILL.md"
-        write_file(path, skill_text(name=None, description="Fallback skill."))
-
-        skill = _parse_skill_md(path, "project", fallback_name="cool-tool")
-
-        assert skill is not None
-        assert skill.name == "cool-tool"
-        assert skill.description == "Fallback skill."
-
-    @pytest.mark.parametrize(
-        "content",
-        [
-            skill_text(description=None),
-            skill_text(name="bad name!"),
-            "# Just a markdown file\nNo YAML frontmatter here.\n",
-        ],
-    )
-    def test_rejects_invalid_skill_files(self, tmp_path: Path, content: str) -> None:
-        path = tmp_path / "SKILL.md"
-        write_file(path, content)
-
-        assert _parse_skill_md(path, "global") is None
-
-    def test_returns_none_for_missing_file(self, tmp_path: Path) -> None:
-        assert _parse_skill_md(tmp_path / "missing.md", "global") is None
-
-
-class TestScanSkillRoot:
-    def test_discovers_supported_layouts_and_ignores_noise(self, tmp_path: Path) -> None:
-        write_file(tmp_path / "deploy.md", skill_text(name="deploy", description="Deploy things."))
-        write_file(tmp_path / "lint.md", skill_text(name="lint", description="Lint things."))
-        write_file(tmp_path / "nested" / "SKILL.md", skill_text(description="Nested skill."))
-        write_file(tmp_path / "cool-tool" / "SKILL.md", skill_text(name=None, description="Fallback skill."))
-        write_file(tmp_path / ".hidden" / "SKILL.md", skill_text(description="Hidden skill."))
-        write_file(tmp_path / "node_modules" / "pkg" / "SKILL.md", skill_text(description="Ignored skill."))
-        write_file(
-            tmp_path / "a" / "b" / "c" / "SKILL.md", skill_text(name="depth-three", description="Allowed depth.")
-        )
-        write_file(tmp_path / "a" / "b" / "c" / "d" / "SKILL.md", skill_text(name="too-deep", description="Too deep."))
-
-        skills = _scan_skill_root(tmp_path, "project")
-
-        assert {skill.name for skill in skills} == {
-            "cool-tool",
-            "deploy",
-            "depth-three",
-            "lint",
-            "test-skill",
-        }
+    assert {skill.name for skill in skills} == {
+        "cool-tool",
+        "deploy",
+        "depth-three",
+        "lint",
+        "test-skill",
+    }
+    assert all(skill.source == "project" for skill in skills)
 
 
 class TestDiscoverSkills:

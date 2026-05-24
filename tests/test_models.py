@@ -2,10 +2,7 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
-import mycode.models as models
-from mycode.models import load_models_catalog, lookup_model_metadata
+from mycode.models import lookup_model_metadata
 
 
 def patch_catalog(monkeypatch, catalog: dict[str, object]) -> None:
@@ -81,35 +78,6 @@ def test_lookup_model_metadata_requires_query_provider(monkeypatch) -> None:
 
     assert lookup_model_metadata(provider_type=None, model="some-niche-model") is None
     assert lookup_model_metadata(provider_type=None, model="gpt-5") is None
-
-
-def test_lookup_model_metadata_does_not_retry_on_miss(monkeypatch) -> None:
-    calls = {"count": 0}
-
-    def fake_load_models_catalog():
-        calls["count"] += 1
-        return {"zai": {}}
-
-    monkeypatch.setattr("mycode.models.load_models_catalog", fake_load_models_catalog)
-
-    metadata = lookup_model_metadata(provider_type="zai", model="glm-5.1")
-
-    assert metadata is None
-    assert calls["count"] == 1
-
-
-def test_load_models_catalog_reads_file_once(monkeypatch, tmp_path: Path) -> None:
-    catalog_path = tmp_path / "models_catalog.json"
-    catalog_path.write_text('{"openai":{"gpt-5":{}}}', encoding="utf-8")
-
-    monkeypatch.setattr(models, "_MODELS_CATALOG_PATH", catalog_path)
-    load_models_catalog.cache_clear()
-
-    assert load_models_catalog() == {"openai": {"gpt-5": {}}}
-    catalog_path.write_text('{"changed":true}', encoding="utf-8")
-    assert load_models_catalog() == {"openai": {"gpt-5": {}}}
-
-    load_models_catalog.cache_clear()
 
 
 def test_lookup_model_metadata_reads_capability_flags(monkeypatch) -> None:

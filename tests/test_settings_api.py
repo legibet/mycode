@@ -2,7 +2,7 @@
 
 Scope: only behaviours that are easy to break and not covered elsewhere —
 secret masking, the three-state ``api_key`` PUT semantics, and the
-``validate_global_config`` edge cases that aren't already tested via
+settings write-normalisation edge cases that aren't already tested via
 ``get_settings``.
 """
 
@@ -16,7 +16,6 @@ from starlette.testclient import TestClient
 
 from mycode.providers import list_env_discoverable_providers, provider_env_api_key_names
 from mycode_cli.server.app import create_api_app
-from mycode_cli.server.routers.settings import validate_global_config
 
 
 @pytest.fixture(autouse=True)
@@ -130,22 +129,28 @@ class TestSettingsApi:
         assert "unsupported" in response.json()["detail"]
 
 
-class TestValidateGlobalConfig:
+class TestSettingsWriteNormalization:
     """Edge cases that the round-trip API tests don't directly exercise."""
 
-    def test_drops_empty_fields(self) -> None:
-        cleaned = validate_global_config(
-            {
-                "default": {"provider": "", "model": None},
-                "permission": None,
-                "providers": {"anthropic": {"api_key": "", "base_url": None, "models": []}},
-            }
+    def test_put_drops_empty_fields(self, client: TestClient, home: Path) -> None:
+        response = client.put(
+            "/api/settings",
+            json={
+                "config": {
+                    "default": {"provider": "", "model": None},
+                    "permission": None,
+                    "providers": {"anthropic": {"api_key": "", "base_url": None, "models": []}},
+                }
+            },
         )
-        assert cleaned == {"providers": {"anthropic": {}}}
+        assert response.status_code == 200
 
-    def test_compact_threshold_false_persists_as_false(self) -> None:
-        # Distinguishing False from 0.0 matters: get_settings reads `False` as
-        # "compaction disabled" and any numeric 0.0 the same — but the on-disk
-        # convention is `false`, and we shouldn't silently rewrite it.
-        cleaned = validate_global_config({"default": {"compact_threshold": False}})
-        assert cleaned == {"default": {"compact_threshold": False}}
+        on_disk = json.loads((home / "config.json").read_text(encoding="utf-8"))
+        assert on_disk == {"providers": {"anthropic": {}}}
+
+    def test_put_compact_threshold_false_persists_as_false(self, client: TestClient, home: Path) -> None:
+        response = client.put("/api/settings", json={"config": {"default": {"compact_threshold": False}}})
+        assert response.status_code == 200
+
+        on_disk = json.loads((home / "config.json").read_text(encoding="utf-8"))
+        assert on_disk == {"default": {"compact_threshold": False}}

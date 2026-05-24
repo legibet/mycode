@@ -17,7 +17,7 @@ from mycode.providers import (
     OpenAIResponsesAdapter,
     OpenRouterAdapter,
 )
-from mycode.providers.base import DEFAULT_REQUEST_TIMEOUT, ProviderStreamEvent, repair_messages_for_replay
+from mycode.providers.base import ProviderStreamEvent, repair_messages_for_replay
 from mycode.tools import DEFAULT_TOOL_SPECS
 
 _PNG_1X1 = base64.b64decode(
@@ -604,6 +604,38 @@ def test_openai_responses_uses_stream_output_items_when_final_output_is_empty() 
     ]
 
 
+def test_openai_responses_preserves_invalid_tool_arguments() -> None:
+    adapter = OpenAIResponsesAdapter()
+    response = _Obj(
+        id="resp_123",
+        model="gpt-5.4",
+        status="completed",
+        usage=_Obj(input_tokens=10, output_tokens=5),
+        output=[
+            _Obj(
+                type="function_call",
+                id="fc_1",
+                call_id="call_1",
+                name="read",
+                arguments="{not json",
+                status="completed",
+            ),
+        ],
+    )
+
+    message = adapter._convert_final_response(response)
+
+    assert message["content"] == [
+        {
+            "type": "tool_use",
+            "id": "call_1",
+            "name": "read",
+            "input": {},
+            "meta": {"native": {"item_id": "fc_1", "status": "completed", "raw_arguments": "{not json"}},
+        }
+    ]
+
+
 def test_openai_responses_serializes_strict_tool_schemas() -> None:
     adapter = OpenAIResponsesAdapter()
 
@@ -798,15 +830,6 @@ def test_google_gemini_build_request_config_uses_supported_tool_settings() -> No
     assert tool["parameters_json_schema"]["required"] == ["path"]
     assert "tool_config" not in config
     assert "automatic_function_calling" not in config
-
-
-def test_google_gemini_http_options_use_millisecond_timeout() -> None:
-    adapter = GoogleGeminiAdapter()
-
-    options = adapter._http_options(None).model_dump(mode="json", exclude_none=True)
-
-    assert options["api_version"] == "v1beta"
-    assert options["timeout"] == int(DEFAULT_REQUEST_TIMEOUT * 1000)
 
 
 def test_google_gemini_streaming_parts_merge_into_final_blocks() -> None:

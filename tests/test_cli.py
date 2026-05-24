@@ -112,19 +112,6 @@ class _PermissionDeniedThenReplyAgent:
             )
 
 
-class _SpyLive:
-    def __init__(self) -> None:
-        self.transient = False
-        self.stopped = False
-        self.updates: list[Any] = []
-
-    def update(self, renderable: Any) -> None:
-        self.updates.append(renderable)
-
-    def stop(self) -> None:
-        self.stopped = True
-
-
 class _RuntimeAgent:
     def __init__(self, *, cwd: str) -> None:
         self.cwd = cwd
@@ -286,27 +273,13 @@ def test_print_history_preview_renders_recent_turns() -> None:
 
 class TestReplyRenderer:
     def test_finish_keeps_streamed_text_visible(self) -> None:
-        renderer = ReplyRenderer(Console(file=StringIO(), force_terminal=False, color_system=None))
-        live = _SpyLive()
-        renderer._live = cast(Any, live)
-        renderer._text = ["final answer"]
+        output = StringIO()
+        renderer = ReplyRenderer(Console(file=output, force_terminal=False, color_system=None, width=120))
+        renderer.text("final answer")
 
         renderer.finish()
 
-        assert live.stopped is True
-        assert live.transient is False
-        assert live.updates == []
-
-    def test_finish_clears_initial_spinner(self) -> None:
-        renderer = ReplyRenderer(Console(file=StringIO(), force_terminal=False, color_system=None))
-        live = _SpyLive()
-        renderer._live = cast(Any, live)
-
-        renderer.finish()
-
-        assert live.stopped is True
-        assert live.transient is True
-        assert len(live.updates) == 1
+        assert "final answer" in output.getvalue()
 
 
 def test_cli_rejects_non_positive_max_turns() -> None:

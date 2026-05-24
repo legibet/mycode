@@ -81,14 +81,7 @@ class TestBashTruncation:
             assert "of 3000 lines" in result.output
             assert "line 3000" in result.output
             assert "Full output:" in result.output
-            assert (tool_output / "bash-test-large.log").exists()
-
-    def test_bash_output_saved_for_large_truncation(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tool_output = Path(tmpdir) / "tool-output"
-            _ctx(tmpdir, tool_output_dir=tool_output, tool_call_id="saved-output").bash("seq 1 3000")
-
-            log_file = tool_output / "bash-saved-output.log"
+            log_file = tool_output / "bash-test-large.log"
             assert log_file.exists()
             assert "3000" in log_file.read_text()
 

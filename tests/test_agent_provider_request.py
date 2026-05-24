@@ -56,29 +56,25 @@ async def capture_request(tmp_path: Path, **agent_kwargs):
 
 
 @pytest.mark.asyncio
-class TestAgentProviderRequest:
-    async def test_includes_session_id(self, tmp_path: Path) -> None:
-        request = await capture_request(tmp_path, session_id="session-explicit")
+async def test_agent_builds_provider_request_from_runtime_options(tmp_path: Path) -> None:
+    request = await capture_request(
+        tmp_path,
+        session_id="session-explicit",
+        system="Use this exact system prompt.",
+        tools=[PING_TOOL],
+    )
 
-        assert request.session_id == "session-explicit"
-
-    async def test_uses_explicit_system_prompt(self, tmp_path: Path) -> None:
-        request = await capture_request(tmp_path, system="Use this exact system prompt.")
-
-        assert request.system == "Use this exact system prompt."
-
-    async def test_includes_custom_tool_definitions(self, tmp_path: Path) -> None:
-        request = await capture_request(tmp_path, tools=[PING_TOOL])
-
-        assert request.tools == [
-            {
-                "name": "ping",
-                "description": "Echoes a short string.",
-                "input_schema": {
-                    "type": "object",
-                    "properties": {"text": {"type": "string", "description": "Text to echo."}},
-                    "required": ["text"],
-                    "additionalProperties": False,
-                },
-            }
-        ]
+    assert request.session_id == "session-explicit"
+    assert request.system == "Use this exact system prompt."
+    assert request.tools == [
+        {
+            "name": "ping",
+            "description": "Echoes a short string.",
+            "input_schema": {
+                "type": "object",
+                "properties": {"text": {"type": "string", "description": "Text to echo."}},
+                "required": ["text"],
+                "additionalProperties": False,
+            },
+        }
+    ]

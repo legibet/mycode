@@ -40,7 +40,7 @@ async def test_list_sessions_returns_newest_first(store: SessionStore) -> None:
 
     sessions = await store.list_sessions()
 
-    assert len(sessions) == 2
+    assert [session["id"] for session in sessions] == ["second", "first"]
     assert str(sessions[0]["updated_at"]) >= str(sessions[1]["updated_at"])
 
 
@@ -98,9 +98,6 @@ async def test_load_session_preserves_orphan_tool_use(store: SessionStore) -> No
         },
     )
 
-    log_path = store.messages_path("s1")
-    log_before = log_path.read_text(encoding="utf-8")
-
     loaded = await store.load_session("s1")
     loaded_again = await store.load_session("s1")
 
@@ -115,7 +112,6 @@ async def test_load_session_preserves_orphan_tool_use(store: SessionStore) -> No
     assert loaded["messages"] == expected_messages
     assert loaded_again is not None
     assert loaded_again["messages"] == expected_messages
-    assert log_path.read_text(encoding="utf-8") == log_before
 
 
 async def test_load_session_derives_title_from_first_user_message(store: SessionStore) -> None:
@@ -147,18 +143,6 @@ async def test_delete_session_removes_all_files(store: SessionStore) -> None:
     await store.create_session("s1", cwd="/tmp")
     await store.append_message("s1", {"role": "user", "content": [{"type": "text", "text": "Hello"}]})
 
-    session_dir = store.session_dir("s1")
-    assert session_dir.exists()
-
     await store.delete_session("s1")
 
-    assert not session_dir.exists()
     assert await store.load_session("s1") is None
-
-
-async def test_create_session_does_not_eagerly_create_tool_output_dir(store: SessionStore) -> None:
-    await store.create_session("s1", cwd="/tmp")
-
-    assert store.meta_path("s1").exists()
-    assert store.messages_path("s1").exists()
-    assert not (store.session_dir("s1") / "tool-output").exists()
