@@ -41,7 +41,7 @@ mycode/src/mycode/        # SDK package
 cli/src/mycode_cli/       # CLI + FastAPI web server
   main.py                 # Typer entrypoint, slash commands, session resolution
   runtime.py              # build_agent() shared by TUI and server
-  config.py               # layered JSON config, provider resolution, paths
+  config.py               # layered JSON config, config validation, provider resolution, paths
   permissions.py          # tool permission policy + before_tool hook
   system_prompt.py        # base prompt + AGENTS.md + skills discovery
   tui/                    # interactive terminal chat (chat.py, render.py, theme.py)

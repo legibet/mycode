@@ -16,9 +16,9 @@ Explicit request args (CLI flags, API params) override both.
 Config resolution: `get_settings(cwd)` → returns `Settings` dataclass.
 
 The web UI's settings panel edits **only the global file**; project-level files
-continue to override it. Settings API validators live in
-`cli/src/mycode_cli/server/routers/settings.py`; runtime config resolution
-stays in `cli/src/mycode_cli/config.py`.
+continue to override it. Config document validation and runtime resolution live
+in `cli/src/mycode_cli/config.py`; the settings API only reads/writes the global
+file and adapts it for the UI.
 
 ## Schema
 

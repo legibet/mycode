@@ -1,4 +1,4 @@
-"""Config loading, provider resolution, and CLI-owned filesystem paths."""
+"""Configuration document validation, settings loading, and provider resolution."""
 
 from __future__ import annotations
 
@@ -22,27 +22,20 @@ from mycode.providers import (
 from mycode.utils import as_bool, as_int
 
 _DEFAULT_MYCODE_HOME = "~/.mycode"
-
-
-def resolve_mycode_home() -> Path:
-    """Resolve the mycode home directory (``$MYCODE_HOME`` or ``~/.mycode``)."""
-
-    raw = os.environ.get("MYCODE_HOME", _DEFAULT_MYCODE_HOME)
-    return Path(raw).expanduser().resolve(strict=False)
-
-
-def resolve_sessions_dir() -> Path:
-    """Resolve the directory used for persisted sessions."""
-
-    return resolve_mycode_home() / "sessions"
-
-
 _API_KEY_ENV_REF_RE = re.compile(r"^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$")
-# Full set of user-facing choices. "auto" means "do not send an explicit effort
-# to the provider" and is represented internally as `None` after normalization.
+
+# "auto" means "do not send an explicit effort to the provider"; after
+# normalization it is represented as None.
 REASONING_EFFORT_OPTIONS = ("auto", "none", "low", "medium", "high", "xhigh")
 PERMISSION_LEVEL_OPTIONS = ("readonly", "safe", "standard", "yolo")
 PERMISSION_MODE_OPTIONS = ("ask", "deny")
+MODEL_OVERRIDE_KEYS = (
+    "context_window",
+    "max_output_tokens",
+    "supports_reasoning",
+    "supports_image_input",
+    "supports_pdf_input",
+)
 _EFFORT_AUTO_ALIASES = frozenset({"", "auto", "default"})
 _EFFORT_OFF_ALIASES = frozenset({"off", "disabled"})
 
@@ -103,14 +96,17 @@ class ResolvedProvider:
     model_config: ModelConfig | None = None
 
 
-def _load_json(path: Path) -> dict[str, Any] | None:
-    if not path.is_file():
-        return None
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
-        return None
-    return data if isinstance(data, dict) else None
+def resolve_mycode_home() -> Path:
+    """Resolve the mycode home directory (``$MYCODE_HOME`` or ``~/.mycode``)."""
+
+    raw = os.environ.get("MYCODE_HOME", _DEFAULT_MYCODE_HOME)
+    return Path(raw).expanduser().resolve(strict=False)
+
+
+def resolve_sessions_dir() -> Path:
+    """Resolve the directory used for persisted sessions."""
+
+    return resolve_mycode_home() / "sessions"
 
 
 def resolve_project(cwd: str) -> Path:
@@ -127,7 +123,10 @@ def project_dirs(cwd: str, project: str | Path | None = None) -> list[Path]:
     """Return directories from project to cwd, inclusive."""
 
     cwd_path = Path(cwd).expanduser().resolve(strict=False)
-    project_path = Path(project).expanduser().resolve(strict=False) if project is not None else resolve_project(cwd)
+    if project is None:
+        project_path = resolve_project(cwd)
+    else:
+        project_path = Path(project).expanduser().resolve(strict=False)
 
     dirs = [cwd_path]
     while dirs[-1] != project_path:
@@ -139,51 +138,23 @@ def project_dirs(cwd: str, project: str | Path | None = None) -> list[Path]:
     return list(reversed(dirs))
 
 
-def _normalize_models(value: Any) -> dict[str, ModelConfig]:
-    if not isinstance(value, dict):
-        return {}
+def _candidate_config_paths(cwd: str, project: str | Path) -> list[Path]:
+    """Return config files in override order: global, then project to cwd."""
 
-    models: dict[str, ModelConfig] = {}
-    for model, raw in value.items():
-        if not isinstance(model, str):
-            continue
-        model_id = model.strip()
-        if not model_id:
-            continue
-        if isinstance(raw, ModelConfig):
-            models[model_id] = raw
-            continue
-        raw_config = raw if isinstance(raw, dict) else {}
-        models[model_id] = ModelConfig(
-            context_window=as_int(raw_config.get("context_window")),
-            max_output_tokens=as_int(raw_config.get("max_output_tokens")),
-            supports_reasoning=as_bool(raw_config.get("supports_reasoning")),
-            supports_image_input=as_bool(raw_config.get("supports_image_input")),
-            supports_pdf_input=as_bool(raw_config.get("supports_pdf_input")),
-        )
-    return models
+    paths = [resolve_mycode_home() / "config.json"]
+    paths.extend(path / ".mycode" / "config.json" for path in project_dirs(cwd, project))
+    return paths
 
 
-def _parse_config_api_key(value: Any) -> tuple[str | None, str | None]:
-    if not isinstance(value, str):
-        return None, None
+def is_api_key_env_ref(value: str) -> str | None:
+    """Return the env var name when ``value`` is a ``${NAME}`` reference."""
 
-    cleaned = value.strip()
-    if not cleaned:
-        return None, None
-
-    match = _API_KEY_ENV_REF_RE.fullmatch(cleaned)
-    if match:
-        return None, match.group(1)
-    return cleaned, None
+    match = _API_KEY_ENV_REF_RE.fullmatch(value.strip())
+    return match.group(1) if match else None
 
 
 def parse_compact_threshold(value: Any) -> float | None:
-    """Parse compact_threshold from config.
-
-    Returns ``None`` when the key should keep the current/default value, ``0.0``
-    when compaction is explicitly disabled, or a valid float in ``[0, 1]``.
-    """
+    """Parse compact_threshold from config."""
 
     if value is None:
         return None
@@ -201,13 +172,7 @@ def parse_compact_threshold(value: Any) -> float | None:
 
 
 def normalize_reasoning_effort(value: Any) -> str | None:
-    """Normalize a reasoning effort setting.
-
-    Returns `None` for "auto"/"default"/empty — the sentinel for "do not send an
-    explicit effort to the provider". Returns "none" for "off"/"disabled" and
-    a canonical tier string for recognized levels. Raises `ValueError` for any
-    other string (or non-string, non-None value).
-    """
+    """Normalize a reasoning effort setting."""
 
     if value is None:
         return None
@@ -258,61 +223,151 @@ def parse_permission(value: Any, current: PermissionConfig | None = None) -> Per
     raise ValueError(f"permission must be a string or object, got {type(value).__name__}")
 
 
-def _config_api_key_from_env_var(provider: ProviderConfig, *, require: bool = False) -> str | None:
-    env_name = provider.api_key_env_var
-    if not env_name:
+def validate_global_config(data: Any) -> dict[str, Any]:
+    """Validate and clean a global config document before writing it to disk."""
+
+    if data is None:
+        return {}
+    if not isinstance(data, dict):
+        raise ValueError("config must be an object")
+
+    out: dict[str, Any] = {}
+
+    if data.get("default") is not None:
+        default = _validate_default_config(data["default"])
+        if default:
+            out["default"] = default
+
+    if data.get("permission") is not None:
+        out["permission"] = _validate_permission_config(data["permission"])
+
+    raw_providers = data.get("providers")
+    if raw_providers is not None:
+        if not isinstance(raw_providers, dict):
+            raise ValueError("providers must be an object")
+        providers: dict[str, dict[str, Any]] = {}
+        for name, raw in raw_providers.items():
+            if not isinstance(name, str) or not name.strip():
+                raise ValueError("provider name must be a non-empty string")
+            provider_name = name.strip()
+            providers[provider_name] = _validate_provider_config(provider_name, raw)
+        if providers:
+            out["providers"] = providers
+
+    return out
+
+
+def _optional_config_string(raw: dict[str, Any], key: str, label: str) -> str | None:
+    if key not in raw:
         return None
-
-    value = (os.environ.get(env_name) or "").strip()
-    if value:
-        return value
-
-    if require:
-        raise ValueError(f"missing API key env var {env_name!r} referenced by provider {provider.name!r}")
-    return None
+    value = raw[key]
+    if value is None or value == "":
+        return None
+    if not isinstance(value, str):
+        raise ValueError(f"{label} must be a string")
+    return value.strip() or None
 
 
-def provider_has_api_key(provider: ProviderConfig) -> bool:
-    """Return whether a configured provider can authenticate right now."""
+def _validate_default_config(raw: Any) -> dict[str, Any]:
+    if not isinstance(raw, dict):
+        raise ValueError("default must be an object")
 
-    if provider.api_key_env_var:
-        return bool(_config_api_key_from_env_var(provider))
-    return bool(provider.api_key or provider_api_key_from_env(provider.type))
+    out: dict[str, Any] = {}
+    for key in ("provider", "model"):
+        value = _optional_config_string(raw, key, f"default.{key}")
+        if value:
+            out[key] = value
+
+    effort = raw.get("reasoning_effort")
+    if effort not in (None, ""):
+        normalize_reasoning_effort(effort)
+        out["reasoning_effort"] = effort
+
+    compact_threshold = raw.get("compact_threshold")
+    if compact_threshold is False:
+        out["compact_threshold"] = False
+    elif compact_threshold is not None:
+        if isinstance(compact_threshold, bool):
+            raise ValueError("default.compact_threshold must be a number in [0, 1] or false")
+        parsed = parse_compact_threshold(compact_threshold)
+        if parsed is None:
+            raise ValueError("default.compact_threshold must be a number in [0, 1] or false")
+        out["compact_threshold"] = parsed
+
+    return out
 
 
-def _candidate_config_paths(cwd: str, project: str | Path) -> list[Path]:
-    paths = [resolve_mycode_home() / "config.json"]
-    paths.extend(path / ".mycode" / "config.json" for path in project_dirs(cwd, project))
-    return paths
+def _validate_permission_config(raw: Any) -> PermissionLevel | dict[str, Any]:
+    if isinstance(raw, str):
+        return normalize_permission_level(raw)
+    if not isinstance(raw, dict):
+        raise ValueError("permission must be a string or object")
+
+    out: dict[str, Any] = {}
+    if "level" in raw:
+        out["level"] = normalize_permission_level(raw.get("level"))
+    if "mode" in raw:
+        out["mode"] = normalize_permission_mode(raw.get("mode"))
+    return out
 
 
-def _build_providers(raw_providers: dict[str, dict[str, Any]]) -> dict[str, ProviderConfig]:
-    providers: dict[str, ProviderConfig] = {}
+def _validate_provider_config(name: str, raw: Any) -> dict[str, Any]:
+    if not isinstance(raw, dict):
+        raise ValueError(f"provider {name!r} must be an object")
 
-    for name, raw in raw_providers.items():
-        raw_type = raw.get("type")
-        if raw_type:
-            provider_type = str(raw_type)
-        elif is_supported_provider(name):
-            # Built-in providers can be overridden by name without repeating type.
-            provider_type = name
-        else:
+    out: dict[str, Any] = {}
+    raw_type = raw.get("type")
+    if raw_type in (None, ""):
+        if not is_supported_provider(name):
             raise ValueError(f"provider {name!r} must set 'type'")
+    elif not isinstance(raw_type, str):
+        raise ValueError(f"provider {name!r}: type must be a string")
+    elif not is_supported_provider(raw_type):
+        supported = ", ".join(list_supported_providers())
+        raise ValueError(f"provider {name!r}: unsupported type {raw_type!r}; supported: {supported}")
+    else:
+        out["type"] = raw_type
 
-        models = _normalize_models(raw.get("models"))
-        if not models:
-            models = {model: ModelConfig() for model in provider_default_models(provider_type)}
-        providers[name] = ProviderConfig(
-            name=name,
-            type=provider_type,
-            models=models,
-            api_key=raw.get("api_key") or None,
-            api_key_env_var=raw.get("api_key_env_var") or None,
-            base_url=raw.get("base_url") or None,
-            reasoning_effort=normalize_reasoning_effort(raw.get("reasoning_effort")),
-        )
+    for key in ("api_key", "base_url"):
+        value = _optional_config_string(raw, key, f"provider {name!r}: {key}")
+        if value:
+            out[key] = value
 
-    return providers
+    effort = raw.get("reasoning_effort")
+    if effort not in (None, ""):
+        normalize_reasoning_effort(effort)
+        out["reasoning_effort"] = effort
+
+    raw_models = raw.get("models")
+    if raw_models is not None:
+        models = _validate_model_config_entries(name, raw_models)
+        if models:
+            out["models"] = models
+
+    return out
+
+
+def _validate_model_config_entries(name: str, raw: Any) -> dict[str, dict[str, Any]]:
+    # The settings UI sends a model list, while stored config uses a model map.
+    if isinstance(raw, list):
+        items: list[tuple[Any, Any]] = [(model, None) for model in raw]
+    elif isinstance(raw, dict):
+        items = list(raw.items())
+    else:
+        raise ValueError(f"provider {name!r}: models must be a list or object")
+
+    out: dict[str, dict[str, Any]] = {}
+    for model_id, overrides in items:
+        if not isinstance(model_id, str) or not model_id.strip():
+            raise ValueError(f"provider {name!r}: model id must be a non-empty string")
+        key = model_id.strip()
+        if overrides is None:
+            out[key] = {}
+        elif isinstance(overrides, dict):
+            out[key] = {k: v for k, v in overrides.items() if k in MODEL_OVERRIDE_KEYS and v is not None}
+        else:
+            raise ValueError(f"provider {name!r}: model {key!r} config must be an object")
+    return out
 
 
 def get_settings(cwd: str | None = None) -> Settings:
@@ -392,6 +447,100 @@ def get_settings(cwd: str | None = None) -> Settings:
     )
 
 
+def _load_json(path: Path) -> dict[str, Any] | None:
+    """Load a JSON object from a config file; ignore missing or invalid files."""
+
+    if not path.is_file():
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _normalize_models(value: Any) -> dict[str, ModelConfig]:
+    """Convert raw model overrides into runtime model config objects."""
+
+    if not isinstance(value, dict):
+        return {}
+
+    models: dict[str, ModelConfig] = {}
+    for model, raw in value.items():
+        if not isinstance(model, str):
+            continue
+        model_id = model.strip()
+        if not model_id:
+            continue
+        if isinstance(raw, ModelConfig):
+            models[model_id] = raw
+            continue
+        raw_config = raw if isinstance(raw, dict) else {}
+        models[model_id] = ModelConfig(
+            context_window=as_int(raw_config.get("context_window")),
+            max_output_tokens=as_int(raw_config.get("max_output_tokens")),
+            supports_reasoning=as_bool(raw_config.get("supports_reasoning")),
+            supports_image_input=as_bool(raw_config.get("supports_image_input")),
+            supports_pdf_input=as_bool(raw_config.get("supports_pdf_input")),
+        )
+    return models
+
+
+def _parse_config_api_key(value: Any) -> tuple[str | None, str | None]:
+    """Return a literal API key or an env var reference from config."""
+
+    if not isinstance(value, str):
+        return None, None
+
+    cleaned = value.strip()
+    if not cleaned:
+        return None, None
+
+    env_name = is_api_key_env_ref(cleaned)
+    if env_name:
+        return None, env_name
+    return cleaned, None
+
+
+def _build_providers(raw_providers: dict[str, dict[str, Any]]) -> dict[str, ProviderConfig]:
+    """Build runtime provider configs after layered config files are merged."""
+
+    providers: dict[str, ProviderConfig] = {}
+
+    for name, raw in raw_providers.items():
+        raw_type = raw.get("type")
+        if raw_type:
+            provider_type = str(raw_type)
+        elif is_supported_provider(name):
+            # Built-in providers can be overridden by name without repeating type.
+            provider_type = name
+        else:
+            raise ValueError(f"provider {name!r} must set 'type'")
+
+        models = _normalize_models(raw.get("models"))
+        if not models:
+            models = {model: ModelConfig() for model in provider_default_models(provider_type)}
+        providers[name] = ProviderConfig(
+            name=name,
+            type=provider_type,
+            models=models,
+            api_key=raw.get("api_key") or None,
+            api_key_env_var=raw.get("api_key_env_var") or None,
+            base_url=raw.get("base_url") or None,
+            reasoning_effort=normalize_reasoning_effort(raw.get("reasoning_effort")),
+        )
+
+    return providers
+
+
+def provider_has_api_key(provider: ProviderConfig) -> bool:
+    """Return whether a configured provider can authenticate right now."""
+
+    if provider.api_key_env_var:
+        return bool(_config_api_key_from_env_var(provider))
+    return bool(provider.api_key or provider_api_key_from_env(provider.type))
+
+
 def resolve_provider(
     settings: Settings,
     *,
@@ -451,6 +600,20 @@ def resolve_provider_choices(settings: Settings) -> list[ResolvedProvider]:
         except ValueError:
             continue
     return choices
+
+
+def _config_api_key_from_env_var(provider: ProviderConfig, *, require: bool = False) -> str | None:
+    env_name = provider.api_key_env_var
+    if not env_name:
+        return None
+
+    value = (os.environ.get(env_name) or "").strip()
+    if value:
+        return value
+
+    if require:
+        raise ValueError(f"missing API key env var {env_name!r} referenced by provider {provider.name!r}")
+    return None
 
 
 def _available_provider_references(settings: Settings) -> list[tuple[str, ProviderConfig | None]]:
