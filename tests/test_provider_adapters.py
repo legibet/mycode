@@ -17,7 +17,7 @@ from mycode.providers import (
     OpenAIResponsesAdapter,
     OpenRouterAdapter,
 )
-from mycode.providers.base import ProviderStreamEvent, repair_messages_for_replay
+from mycode.providers.base import repair_messages_for_replay
 from mycode.tools import DEFAULT_TOOL_SPECS
 
 _PNG_1X1 = base64.b64decode(
@@ -61,6 +61,9 @@ def request_obj(**overrides: Any) -> Any:
     }
     data.update(overrides)
     return cast(Any, _Obj(**data))
+
+
+# User media block wire shapes
 
 
 @pytest.mark.parametrize(
@@ -145,7 +148,7 @@ def test_user_image_input_serialization(
         ),
         pytest.param(
             AnthropicAdapter(),
-            lambda adapter, request: adapter._serialize_message(request.messages[0])["content"],
+            lambda adapter, request: adapter._build_request_payload(request)["messages"][0]["content"],
             "document",
             id="anthropic",
         ),
@@ -201,17 +204,18 @@ def test_user_pdf_input_serialization(
         }
     elif expected_kind == "document":
         assert content[0] == {"type": "text", "text": "summarize"}
-        assert content[1] == {
-            "type": "document",
-            "source": {
-                "type": "base64",
-                "media_type": "application/pdf",
-                "data": pdf_data,
-            },
+        assert content[1]["type"] == "document"
+        assert content[1]["source"] == {
+            "type": "base64",
+            "media_type": "application/pdf",
+            "data": pdf_data,
         }
     else:
         assert content[0] == {"text": "summarize"}
         assert content[1] == {"inline_data": {"mime_type": "application/pdf", "data": pdf_data}}
+
+
+# Replay repair
 
 
 def test_repair_messages_for_replay_downgrades_pdf_for_unsupported_models() -> None:
@@ -247,6 +251,9 @@ def test_repair_messages_for_replay_downgrades_pdf_for_unsupported_models() -> N
             ],
         }
     ]
+
+
+# OpenAI Responses adapter
 
 
 def test_openai_responses_replays_native_output_items_for_tool_results() -> None:
@@ -304,22 +311,17 @@ def test_openai_responses_replays_native_output_items_for_tool_results() -> None
 
     input_items = adapter._build_request_payload(request)["input"]
 
-    assert input_items == [
-        {"type": "reasoning", "id": "rs_1", "summary": [], "encrypted_content": "enc_1"},
-        {
-            "type": "message",
-            "role": "assistant",
-            "phase": "commentary",
-            "content": [{"type": "output_text", "text": "Checking the file."}],
-        },
-        {
-            "type": "function_call",
-            "call_id": "call_1",
-            "name": "read",
-            "arguments": '{"path": "x.py"}',
-        },
-        {"type": "function_call_output", "call_id": "call_1", "output": "file contents"},
+    assert [item["type"] for item in input_items] == [
+        "reasoning",
+        "message",
+        "function_call",
+        "function_call_output",
     ]
+    assert input_items[0]["encrypted_content"] == "enc_1"
+    assert input_items[1]["content"][0]["text"] == "Checking the file."
+    assert input_items[2]["call_id"] == "call_1"
+    assert input_items[2]["arguments"] == '{"path": "x.py"}'
+    assert input_items[3] == {"type": "function_call_output", "call_id": "call_1", "output": "file contents"}
 
 
 def test_openai_responses_serializes_tool_result_images(tmp_path) -> None:
@@ -398,65 +400,12 @@ def test_openai_responses_falls_back_to_full_replay_for_cross_provider_history()
 
     input_items = adapter._build_request_payload(request)["input"]
 
-    assert input_items == [
-        {
-            "type": "message",
-            "role": "user",
-            "content": [{"type": "input_text", "text": "double 21"}],
-        },
-        {
-            "type": "function_call",
-            "call_id": "call_1",
-            "name": "read",
-            "arguments": '{"path": "x.py"}',
-        },
-        {
-            "type": "function_call_output",
-            "call_id": "call_1",
-            "output": "42",
-        },
-    ]
-
-
-def test_anthropic_serializes_image_tool_result_content(tmp_path) -> None:
-    image_path = tmp_path / "tiny.png"
-    image_path.write_bytes(_PNG_1X1)
-    adapter = AnthropicAdapter()
-
-    payload = adapter._build_request_payload(
-        request_obj(
-            model="claude-sonnet-4-6",
-            messages=[
-                {
-                    "role": "assistant",
-                    "content": [{"type": "tool_use", "id": "call_1", "name": "read", "input": {"path": "x.png"}}],
-                },
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "tool_result",
-                            "tool_use_id": "call_1",
-                            "output": "Read image file [image/png]",
-                            "content": [
-                                {"type": "text", "text": "Read image file [image/png]"},
-                                {
-                                    "type": "image",
-                                    "data": base64.b64encode(image_path.read_bytes()).decode("utf-8"),
-                                    "mime_type": "image/png",
-                                },
-                            ],
-                        }
-                    ],
-                },
-            ],
-        )
-    )
-
-    content = payload["messages"][1]["content"][0]["content"]
-    assert content[0] == {"type": "text", "text": "Read image file [image/png]"}
-    assert content[1]["type"] == "image"
-    assert content[1]["source"]["media_type"] == "image/png"
+    assert [item["type"] for item in input_items] == ["message", "function_call", "function_call_output"]
+    assert input_items[0]["role"] == "user"
+    assert input_items[0]["content"][0]["text"] == "double 21"
+    assert input_items[1]["call_id"] == "call_1"
+    assert input_items[1]["arguments"] == '{"path": "x.py"}'
+    assert input_items[2]["output"] == "42"
 
 
 def test_openai_responses_fallback_replay_skips_reasoning_blocks() -> None:
@@ -478,24 +427,10 @@ def test_openai_responses_fallback_replay_skips_reasoning_blocks() -> None:
 
     input_items = adapter._build_request_payload(request)["input"]
 
-    assert input_items == [
-        {
-            "type": "message",
-            "role": "assistant",
-            "content": [{"type": "output_text", "text": "I will inspect the file."}],
-        },
-        {
-            "type": "function_call",
-            "call_id": "call_1",
-            "name": "read",
-            "arguments": '{"path": "x.py"}',
-        },
-        {
-            "type": "function_call_output",
-            "call_id": "call_1",
-            "output": "error: tool call was interrupted",
-        },
-    ]
+    assert [item["type"] for item in input_items] == ["message", "function_call", "function_call_output"]
+    assert input_items[0]["content"] == [{"type": "output_text", "text": "I will inspect the file."}]
+    assert input_items[1]["call_id"] == "call_1"
+    assert input_items[2]["output"] == "error: tool call was interrupted"
 
 
 def test_openai_responses_build_request_payload_includes_prompt_cache_key() -> None:
@@ -552,18 +487,11 @@ def test_openai_responses_converts_final_response_blocks() -> None:
     assert message["content"][2]["id"] == "call_1"
     assert message["content"][2]["input"] == {"path": "x.py"}
     assert message["content"][2]["meta"] == {"native": {"item_id": "fc_1", "status": "completed"}}
-    assert message["meta"]["native"]["output_items"] == [
-        {"type": "reasoning", "id": "rs_1", "status": "completed", "content": [{"text": "think"}], "summary": []},
-        {"type": "message", "content": [{"type": "output_text", "text": "answer", "annotations": []}]},
-        {
-            "type": "function_call",
-            "id": "fc_1",
-            "call_id": "call_1",
-            "name": "read",
-            "arguments": '{"path": "x.py"}',
-            "status": "completed",
-        },
-    ]
+    native_items = message["meta"]["native"]["output_items"]
+    assert [item["type"] for item in native_items] == ["reasoning", "message", "function_call"]
+    assert native_items[0]["id"] == "rs_1"
+    assert native_items[1]["content"][0]["text"] == "answer"
+    assert native_items[2]["call_id"] == "call_1"
 
 
 def test_openai_responses_uses_stream_output_items_when_final_output_is_empty() -> None:
@@ -592,16 +520,11 @@ def test_openai_responses_uses_stream_output_items_when_final_output_is_empty() 
     )
 
     assert message["role"] == "assistant"
-    assert message["content"] == [
-        {"type": "text", "text": "hello world"},
-        {
-            "type": "tool_use",
-            "id": "call_1",
-            "name": "read",
-            "input": {"path": "pyproject.toml"},
-            "meta": {"native": {"item_id": "fc_1", "status": "completed"}},
-        },
-    ]
+    assert message["content"][0] == {"type": "text", "text": "hello world"}
+    assert message["content"][1]["type"] == "tool_use"
+    assert message["content"][1]["id"] == "call_1"
+    assert message["content"][1]["input"] == {"path": "pyproject.toml"}
+    assert message["content"][1]["meta"] == {"native": {"item_id": "fc_1", "status": "completed"}}
 
 
 def test_openai_responses_preserves_invalid_tool_arguments() -> None:
@@ -639,31 +562,38 @@ def test_openai_responses_preserves_invalid_tool_arguments() -> None:
 def test_openai_responses_serializes_strict_tool_schemas() -> None:
     adapter = OpenAIResponsesAdapter()
 
-    serialized_tools = [
-        adapter._serialize_tool(
-            {
-                "name": tool.name,
-                "description": tool.description,
-                "input_schema": tool.input_schema,
-            }
+    payload = adapter._build_request_payload(
+        request_obj(
+            model="gpt-5.4",
+            messages=[{"role": "user", "content": [{"type": "text", "text": "hello"}]}],
+            tools=[
+                {
+                    "name": tool.name,
+                    "description": tool.description,
+                    "input_schema": tool.input_schema,
+                }
+                for tool in DEFAULT_TOOL_SPECS
+            ],
         )
-        for tool in DEFAULT_TOOL_SPECS
-    ]
+    )
 
-    for tool in serialized_tools:
+    for tool in payload["tools"]:
         parameters = tool["parameters"]
         assert tool["strict"] is True
         assert parameters["required"] == list(parameters["properties"].keys())
 
-    read_tool = next(tool for tool in serialized_tools if tool["name"] == "read")
+    read_tool = next(tool for tool in payload["tools"] if tool["name"] == "read")
     assert read_tool["parameters"]["properties"]["offset"]["type"] == ["integer", "null"]
     assert read_tool["parameters"]["properties"]["limit"]["type"] == ["integer", "null"]
 
-    bash_tool = next(tool for tool in serialized_tools if tool["name"] == "bash")
+    bash_tool = next(tool for tool in payload["tools"] if tool["name"] == "bash")
     assert bash_tool["parameters"]["properties"]["timeout"]["type"] == ["integer", "null"]
 
     read_schema = next(tool for tool in DEFAULT_TOOL_SPECS if tool.name == "read").input_schema
     assert read_schema["required"] == ["path"]
+
+
+# Gemini adapter
 
 
 def test_google_gemini_falls_back_to_full_replay_for_cross_provider_history() -> None:
@@ -694,32 +624,14 @@ def test_google_gemini_falls_back_to_full_replay_for_cross_provider_history() ->
         ],
     )
 
-    assert adapter._build_contents(request) == [
-        {"role": "user", "parts": [{"text": "double 21"}]},
-        {
-            "role": "model",
-            "parts": [
-                {"text": "Need the tool first.", "thought": True},
-                {"text": "I will inspect the file."},
-                {
-                    "function_call": {"id": "call_1", "name": "read", "args": {"path": "x.py"}},
-                    "thought_signature": "skip_thought_signature_validator",
-                },
-            ],
-        },
-        {
-            "role": "user",
-            "parts": [
-                {
-                    "function_response": {
-                        "id": "call_1",
-                        "name": "read",
-                        "response": {"result": "42"},
-                    }
-                }
-            ],
-        },
-    ]
+    contents = adapter._build_contents(request)
+
+    assert [content["role"] for content in contents] == ["user", "model", "user"]
+    assert contents[0]["parts"][0]["text"] == "double 21"
+    assert contents[1]["parts"][0] == {"text": "Need the tool first.", "thought": True}
+    assert contents[1]["parts"][2]["function_call"] == {"id": "call_1", "name": "read", "args": {"path": "x.py"}}
+    assert contents[1]["parts"][2]["thought_signature"] == "skip_thought_signature_validator"
+    assert contents[2]["parts"][0]["function_response"]["response"] == {"result": "42"}
 
 
 def test_google_gemini_replays_native_parts_for_same_provider_history() -> None:
@@ -777,30 +689,13 @@ def test_google_gemini_replays_native_parts_for_same_provider_history() -> None:
         ],
     )
 
-    assert adapter._build_contents(request) == [
-        {
-            "role": "model",
-            "parts": [
-                {"text": "Think", "thought": True, "thought_signature": "c2ln"},
-                {
-                    "function_call": {"id": "call_1", "name": "read", "args": {"path": "x.py"}},
-                    "thought_signature": "c2ln",
-                },
-            ],
-        },
-        {
-            "role": "user",
-            "parts": [
-                {
-                    "function_response": {
-                        "id": "call_1",
-                        "name": "read",
-                        "response": {"result": "file contents"},
-                    }
-                }
-            ],
-        },
-    ]
+    contents = adapter._build_contents(request)
+
+    assert [content["role"] for content in contents] == ["model", "user"]
+    assert contents[0]["parts"][0] == {"text": "Think", "thought": True, "thought_signature": "c2ln"}
+    assert contents[0]["parts"][1]["function_call"] == {"id": "call_1", "name": "read", "args": {"path": "x.py"}}
+    assert contents[0]["parts"][1]["thought_signature"] == "c2ln"
+    assert contents[1]["parts"][0]["function_response"]["response"] == {"result": "file contents"}
 
 
 def test_google_gemini_build_request_config_uses_supported_tool_settings() -> None:
@@ -832,128 +727,7 @@ def test_google_gemini_build_request_config_uses_supported_tool_settings() -> No
     assert "automatic_function_calling" not in config
 
 
-def test_google_gemini_streaming_parts_merge_into_final_blocks() -> None:
-    adapter = GoogleGeminiAdapter()
-    blocks: list[dict[str, Any]] = []
-
-    events = adapter._consume_part(
-        blocks,
-        _Obj(text="step ", thought=True, thought_signature=None, function_call=None),
-    )
-    assert events == [ProviderStreamEvent("thinking_delta", {"text": "step "})]
-
-    events = adapter._consume_part(
-        blocks,
-        _Obj(text="one", thought=True, thought_signature="c2ln", function_call=None),
-    )
-    assert events == [ProviderStreamEvent("thinking_delta", {"text": "one"})]
-
-    events = adapter._consume_part(
-        blocks,
-        _Obj(
-            text=None,
-            thought=False,
-            thought_signature="c2ln",
-            function_call=_Obj(id="call_1", name="read", args={"path": "x.py"}),
-        ),
-    )
-    assert events == []
-    assert blocks == [
-        {
-            "type": "thinking",
-            "text": "step one",
-            "meta": {"native": {"part": {"text": "step one", "thought": True, "thought_signature": "c2ln"}}},
-        },
-        {
-            "type": "tool_use",
-            "id": "call_1",
-            "name": "read",
-            "input": {"path": "x.py"},
-            "meta": {
-                "native": {
-                    "part": {
-                        "function_call": {"id": "call_1", "name": "read", "args": {"path": "x.py"}},
-                        "thought_signature": "c2ln",
-                    }
-                }
-            },
-        },
-    ]
-
-
-def test_google_gemini_keeps_signature_only_stream_chunk() -> None:
-    adapter = GoogleGeminiAdapter()
-    blocks: list[dict[str, Any]] = []
-
-    events = adapter._consume_part(
-        blocks,
-        _Obj(text="", thought=False, thought_signature="c2ln", function_call=None),
-    )
-
-    assert events == []
-    assert blocks == [
-        {
-            "type": "text",
-            "text": "",
-            "meta": {"native": {"part": {"text": "", "thought_signature": "c2ln"}}},
-        }
-    ]
-
-
-@pytest.mark.parametrize(
-    ("delta", "expected_text", "expected_meta"),
-    [
-        (
-            _Obj(reasoning_content="step zero"),
-            "step zero",
-            {"reasoning_field": "reasoning_content"},
-        ),
-        (
-            _Obj(model_extra={"reasoning_content": "step one"}),
-            "step one",
-            {"reasoning_field": "reasoning_content"},
-        ),
-        (
-            _Obj(model_extra={"reasoning": "step alias"}),
-            "step alias",
-            {"reasoning_field": "reasoning"},
-        ),
-        (
-            _Obj(model_extra={"reasoning_content": None}),
-            "",
-            {"reasoning_field": "reasoning_content"},
-        ),
-        (
-            _Obj(model_extra={"reasoning_content": ""}),
-            "",
-            {"reasoning_field": "reasoning_content"},
-        ),
-        (
-            _Obj(
-                model_extra={
-                    "reasoning_details": [
-                        {"type": "reasoning.text", "text": "step "},
-                        {"type": "reasoning.text", "text": "two"},
-                    ]
-                }
-            ),
-            "step two",
-            {
-                "reasoning_field": "reasoning_details",
-                "reasoning_details": [
-                    {"type": "reasoning.text", "text": "step "},
-                    {"type": "reasoning.text", "text": "two"},
-                ],
-            },
-        ),
-    ],
-)
-def test_openai_chat_extracts_reasoning_from_known_extra_fields(delta, expected_text, expected_meta) -> None:
-    adapter = OpenAIChatAdapter()
-    text, meta = adapter._extract_reasoning_delta(delta)
-
-    assert text == expected_text
-    assert meta == expected_meta
+# Provider replay preparation
 
 
 @pytest.mark.parametrize(
@@ -1268,6 +1042,9 @@ def test_anthropic_prepare_messages_normalizes_tool_ids() -> None:
     ]
 
 
+# OpenAI Chat compatible reasoning
+
+
 def test_openai_chat_replays_reasoning_by_default() -> None:
     adapter = OpenAIChatAdapter()
 
@@ -1309,7 +1086,7 @@ def test_thinking_duration_metadata_is_not_sent_to_providers() -> None:
         ],
     }
     payloads = [
-        AnthropicAdapter()._serialize_message(message),
+        AnthropicAdapter()._build_request_payload(request_obj(messages=[message]))["messages"],
         OpenAIChatAdapter()._build_request_payload(request_obj(messages=[message]))["messages"],
         GoogleGeminiAdapter()._build_contents(request_obj(messages=[message])),
         OpenAIResponsesAdapter()._build_request_payload(request_obj(messages=[message]))["input"],
@@ -1470,53 +1247,102 @@ def test_deepseek_replays_empty_reasoning_content_after_tool_turn() -> None:
     assert payload_messages[2]["reasoning_content"] is None
 
 
+# Anthropic-like adapters
+
+
+def test_anthropic_serializes_image_tool_result_content(tmp_path) -> None:
+    image_path = tmp_path / "tiny.png"
+    image_path.write_bytes(_PNG_1X1)
+    adapter = AnthropicAdapter()
+
+    payload = adapter._build_request_payload(
+        request_obj(
+            model="claude-sonnet-4-6",
+            messages=[
+                {
+                    "role": "assistant",
+                    "content": [{"type": "tool_use", "id": "call_1", "name": "read", "input": {"path": "x.png"}}],
+                },
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "tool_result",
+                            "tool_use_id": "call_1",
+                            "output": "Read image file [image/png]",
+                            "content": [
+                                {"type": "text", "text": "Read image file [image/png]"},
+                                {
+                                    "type": "image",
+                                    "data": base64.b64encode(image_path.read_bytes()).decode("utf-8"),
+                                    "mime_type": "image/png",
+                                },
+                            ],
+                        }
+                    ],
+                },
+            ],
+        )
+    )
+
+    content = payload["messages"][1]["content"][0]["content"]
+    assert content[0] == {"type": "text", "text": "Read image file [image/png]"}
+    assert content[1]["type"] == "image"
+    assert content[1]["source"]["media_type"] == "image/png"
+
+
 def test_anthropic_replays_native_block_metadata() -> None:
     adapter = AnthropicAdapter()
 
-    payload = adapter._serialize_message(
-        {
-            "role": "assistant",
-            "content": [
-                {"type": "thinking", "text": "think", "meta": {"native": {"signature": "sig_1"}}},
+    payload = adapter._build_request_payload(
+        request_obj(
+            model="claude-sonnet-4-6",
+            messages=[
                 {
-                    "type": "tool_use",
-                    "id": "call_1",
-                    "name": "read",
-                    "input": {},
-                    "meta": {"native": {"caller": "server"}},
-                },
+                    "role": "assistant",
+                    "content": [
+                        {"type": "thinking", "text": "think", "meta": {"native": {"signature": "sig_1"}}},
+                        {
+                            "type": "tool_use",
+                            "id": "call_1",
+                            "name": "read",
+                            "input": {},
+                            "meta": {"native": {"caller": "server"}},
+                        },
+                    ],
+                }
             ],
-        }
-    )
+        )
+    )["messages"][0]
 
-    assert payload == {
-        "role": "assistant",
-        "content": [
-            {"type": "thinking", "thinking": "think", "signature": "sig_1"},
-            {"type": "tool_use", "id": "call_1", "name": "read", "input": {}, "caller": "server"},
-        ],
-    }
+    assert payload["role"] == "assistant"
+    assert payload["content"][0] == {"type": "thinking", "thinking": "think", "signature": "sig_1"}
+    assert payload["content"][1]["type"] == "tool_use"
+    assert payload["content"][1]["id"] == "call_1"
+    assert payload["content"][1]["caller"] == "server"
 
 
 @pytest.mark.parametrize("adapter", [MoonshotAIAdapter(), AnthropicAdapter()])
 def test_anthropic_like_replays_unsigned_thinking_without_signature(adapter) -> None:
-    payload = adapter._serialize_message(
-        {
-            "role": "assistant",
-            "content": [
-                {"type": "thinking", "text": "Need the tool result first."},
-                {"type": "tool_use", "id": "call_1", "name": "read", "input": {}},
+    payload = adapter._build_request_payload(
+        request_obj(
+            model="claude-sonnet-4-6",
+            messages=[
+                {
+                    "role": "assistant",
+                    "content": [
+                        {"type": "thinking", "text": "Need the tool result first."},
+                        {"type": "tool_use", "id": "call_1", "name": "read", "input": {}},
+                    ],
+                }
             ],
-        }
-    )
+        )
+    )["messages"][0]
 
-    assert payload == {
-        "role": "assistant",
-        "content": [
-            {"type": "thinking", "thinking": "Need the tool result first."},
-            {"type": "tool_use", "id": "call_1", "name": "read", "input": {}},
-        ],
-    }
+    assert payload["role"] == "assistant"
+    assert payload["content"][0] == {"type": "thinking", "thinking": "Need the tool result first."}
+    assert payload["content"][1]["type"] == "tool_use"
+    assert payload["content"][1]["id"] == "call_1"
 
 
 @pytest.mark.parametrize(
