@@ -123,6 +123,33 @@ class RunManager:
                 "pending_events": copy.deepcopy(state.events),
             }
 
+    async def stream_events(self, run_id: str, after: int) -> AsyncIterator[dict[str, Any]]:
+        """Yield buffered and future events for a run after the given sequence."""
+
+        state = await self.get_run(run_id)
+        if not state:
+            return
+
+        last_seq = max(0, after)
+        while True:
+            async with state.condition:
+                pending = [copy.deepcopy(event) for event in state.events if int(event.get("seq") or 0) > last_seq]
+                finished = state.status != "running"
+
+                if not pending and not finished:
+                    try:
+                        await asyncio.wait_for(state.condition.wait(), timeout=0.5)
+                    except TimeoutError:
+                        continue
+                    continue
+
+            for payload in pending:
+                yield payload
+                last_seq = int(payload.get("seq") or last_seq)
+
+            if finished:
+                break
+
     async def cancel_run(self, run_id: str) -> dict[str, Any] | None:
         state = await self.get_run(run_id)
         if not state:

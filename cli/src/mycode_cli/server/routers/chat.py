@@ -36,7 +36,7 @@ from mycode_cli.config import (
 from mycode_cli.permissions import ToolReviewDecision, ToolReviewRequest
 from mycode_cli.runtime import build_agent
 from mycode_cli.server.deps import RunManagerDep, StoreDep
-from mycode_cli.server.run_manager import ActiveRunError, RunManager, RunState
+from mycode_cli.server.run_manager import ActiveRunError, RunManager
 from mycode_cli.server.schemas import (
     CancelRunResponse,
     ChatRequest,
@@ -48,40 +48,6 @@ from mycode_cli.server.schemas import (
 )
 
 router = APIRouter()
-
-
-def _format_sse(event: StreamEvent) -> str:
-    return f"data: {json.dumps(event.model_dump(exclude_none=True), ensure_ascii=False)}\n\n"
-
-
-async def _stream_run(req: Request, state: RunState, after: int) -> AsyncIterator[str]:
-    last_seq = max(0, after)
-
-    while True:
-        if await req.is_disconnected():
-            return
-
-        async with state.condition:
-            pending = [event for event in state.events if int(event.get("seq") or 0) > last_seq]
-            finished = state.status != "running"
-
-            if not pending and not finished:
-                try:
-                    await asyncio.wait_for(state.condition.wait(), timeout=0.5)
-                except TimeoutError:
-                    continue
-                continue
-
-        for payload in pending:
-            if await req.is_disconnected():
-                return
-            yield _format_sse(StreamEvent(**payload))
-            last_seq = int(payload.get("seq") or last_seq)
-
-        if finished:
-            break
-
-    yield "data: [DONE]\n\n"
 
 
 async def _build_user_message(chat: ChatRequest, cwd: str) -> ConversationMessage:
@@ -261,12 +227,20 @@ async def stream_run(
     runs: RunManagerDep,
     after: Annotated[int, Query(ge=0)] = 0,
 ) -> StreamingResponse:
-    state = await runs.get_run(run_id)
-    if not state:
+    if not await runs.get_run(run_id):
         raise HTTPException(status_code=404, detail="run not found")
 
+    async def events() -> AsyncIterator[str]:
+        async for payload in runs.stream_events(run_id, after):
+            if await req.is_disconnected():
+                return
+            event = StreamEvent(**payload)
+            yield f"data: {json.dumps(event.model_dump(exclude_none=True), ensure_ascii=False)}\n\n"
+
+        yield "data: [DONE]\n\n"
+
     return StreamingResponse(
-        _stream_run(req, state, after),
+        events(),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )

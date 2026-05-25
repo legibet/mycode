@@ -70,6 +70,27 @@ async def test_snapshot_includes_user_message_and_pending_events() -> None:
     await state.task
 
 
+async def test_stream_events_respects_after_and_finishes() -> None:
+    manager = RunManager()
+
+    run = await manager.start_run(
+        session_id="session-1",
+        user_message={"role": "user", "content": [{"type": "text", "text": "done"}]},
+        base_messages=[],
+        agent=SimpleAgent(),
+    )
+
+    state = await manager.get_run(run["id"])
+    assert state is not None and state.task is not None
+    await state.task
+
+    events = [event async for event in manager.stream_events(run["id"], after=0)]
+    assert events == [{"seq": 1, "type": "text", "delta": "reply:done"}]
+
+    events_after_first = [event async for event in manager.stream_events(run["id"], after=1)]
+    assert events_after_first == []
+
+
 async def test_same_session_cannot_start_second_run() -> None:
     manager = RunManager()
     first_agent = BlockingAgent()
@@ -197,13 +218,14 @@ class ReviewAgent:
 
 
 async def _wait_for_event(manager: RunManager, run_id: str, event_type: str) -> dict[str, object]:
-    for _ in range(200):
-        state = await manager.get_run(run_id)
-        assert state is not None
-        for event in state.events:
-            if event.get("type") == event_type:
-                return event
-        await asyncio.sleep(0.01)
+    try:
+        async with asyncio.timeout(2):
+            async for event in manager.stream_events(run_id, after=0):
+                if event.get("type") == event_type:
+                    return event
+    except TimeoutError as exc:
+        raise AssertionError(f"{event_type!r} never emitted") from exc
+
     raise AssertionError(f"{event_type!r} never emitted")
 
 
