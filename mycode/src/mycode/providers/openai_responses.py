@@ -100,14 +100,6 @@ class OpenAIResponsesAdapter(ProviderAdapter):
     def _build_request_payload(self, request: ProviderRequest) -> dict[str, Any]:
         prepared_messages = self.prepare_messages(request)
         input_items: list[dict[str, Any]] = []
-        if request.system:
-            input_items.append(
-                {
-                    "type": "message",
-                    "role": "developer",
-                    "content": [{"type": "input_text", "text": request.system}],
-                }
-            )
         for message in prepared_messages:
             role = message.get("role")
             if role == "user":
@@ -127,6 +119,7 @@ class OpenAIResponsesAdapter(ProviderAdapter):
         payload: dict[str, Any] = {
             "model": request.model,
             "input": input_items,
+            "instructions": request.system or None,
             "store": False,
             "include": ["reasoning.encrypted_content"],
             "prompt_cache_key": request.session_id or None,
