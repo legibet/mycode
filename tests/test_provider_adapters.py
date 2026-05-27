@@ -318,7 +318,13 @@ def test_openai_responses_replays_native_output_items_for_tool_results() -> None
         "function_call_output",
     ]
     assert input_items[0]["encrypted_content"] == "enc_1"
+    assert "status" not in input_items[0]
+    assert "id" not in input_items[1]
+    assert "status" not in input_items[1]
+    assert input_items[1]["phase"] == "commentary"
     assert input_items[1]["content"][0]["text"] == "Checking the file."
+    assert "id" not in input_items[2]
+    assert "status" not in input_items[2]
     assert input_items[2]["call_id"] == "call_1"
     assert input_items[2]["arguments"] == '{"path": "x.py"}'
     assert input_items[3] == {"type": "function_call_output", "call_id": "call_1", "output": "file contents"}
@@ -452,6 +458,13 @@ def test_openai_responses_build_request_payload_includes_prompt_cache_key() -> N
     assert payload["prompt_cache_key"] == "session_123"
     assert payload["store"] is False
     assert payload["include"] == ["reasoning.encrypted_content"]
+    assert "instructions" not in payload
+    assert payload["input"][0] == {
+        "type": "message",
+        "role": "developer",
+        "content": [{"type": "input_text", "text": "You are helpful."}],
+    }
+    assert payload["input"][1]["role"] == "user"
     assert "previous_response_id" not in payload
 
 
