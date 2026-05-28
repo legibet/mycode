@@ -193,27 +193,6 @@
     }
   },
   "google": {
-    "gemini-1.5-flash": {
-      "context_window": 1000000,
-      "max_output_tokens": 8192,
-      "supports_image_input": true,
-      "supports_pdf_input": false,
-      "supports_reasoning": false
-    },
-    "gemini-1.5-flash-8b": {
-      "context_window": 1000000,
-      "max_output_tokens": 8192,
-      "supports_image_input": true,
-      "supports_pdf_input": false,
-      "supports_reasoning": false
-    },
-    "gemini-1.5-pro": {
-      "context_window": 1000000,
-      "max_output_tokens": 8192,
-      "supports_image_input": true,
-      "supports_pdf_input": false,
-      "supports_reasoning": false
-    },
     "gemini-2.0-flash": {
       "context_window": 1048576,
       "max_output_tokens": 8192,
@@ -242,13 +221,6 @@
       "supports_pdf_input": false,
       "supports_reasoning": true
     },
-    "gemini-2.5-flash-image-preview": {
-      "context_window": 32768,
-      "max_output_tokens": 32768,
-      "supports_image_input": true,
-      "supports_pdf_input": false,
-      "supports_reasoning": true
-    },
     "gemini-2.5-flash-lite": {
       "context_window": 1048576,
       "max_output_tokens": 65536,
@@ -256,44 +228,9 @@
       "supports_pdf_input": true,
       "supports_reasoning": true
     },
-    "gemini-2.5-flash-lite-preview-06-17": {
-      "context_window": 1048576,
-      "max_output_tokens": 65536,
-      "supports_image_input": true,
-      "supports_pdf_input": true,
-      "supports_reasoning": true
-    },
-    "gemini-2.5-flash-lite-preview-09-2025": {
-      "context_window": 1048576,
-      "max_output_tokens": 65536,
-      "supports_image_input": true,
-      "supports_pdf_input": true,
-      "supports_reasoning": true
-    },
-    "gemini-2.5-flash-preview-04-17": {
-      "context_window": 1048576,
-      "max_output_tokens": 65536,
-      "supports_image_input": true,
-      "supports_pdf_input": true,
-      "supports_reasoning": true
-    },
-    "gemini-2.5-flash-preview-05-20": {
-      "context_window": 1048576,
-      "max_output_tokens": 65536,
-      "supports_image_input": true,
-      "supports_pdf_input": true,
-      "supports_reasoning": true
-    },
-    "gemini-2.5-flash-preview-09-2025": {
-      "context_window": 1048576,
-      "max_output_tokens": 65536,
-      "supports_image_input": true,
-      "supports_pdf_input": true,
-      "supports_reasoning": true
-    },
     "gemini-2.5-flash-preview-tts": {
-      "context_window": 8000,
-      "max_output_tokens": 16000,
+      "context_window": 8192,
+      "max_output_tokens": 16384,
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -305,23 +242,9 @@
       "supports_pdf_input": true,
       "supports_reasoning": true
     },
-    "gemini-2.5-pro-preview-05-06": {
-      "context_window": 1048576,
-      "max_output_tokens": 65536,
-      "supports_image_input": true,
-      "supports_pdf_input": true,
-      "supports_reasoning": true
-    },
-    "gemini-2.5-pro-preview-06-05": {
-      "context_window": 1048576,
-      "max_output_tokens": 65536,
-      "supports_image_input": true,
-      "supports_pdf_input": true,
-      "supports_reasoning": true
-    },
     "gemini-2.5-pro-preview-tts": {
-      "context_window": 8000,
-      "max_output_tokens": 16000,
+      "context_window": 8192,
+      "max_output_tokens": 16384,
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -334,15 +257,15 @@
       "supports_reasoning": true
     },
     "gemini-3-pro-preview": {
-      "context_window": 1000000,
-      "max_output_tokens": 64000,
+      "context_window": 1048576,
+      "max_output_tokens": 65536,
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
     },
     "gemini-3.1-flash-image-preview": {
-      "context_window": 131072,
-      "max_output_tokens": 32768,
+      "context_window": 65536,
+      "max_output_tokens": 65536,
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -384,7 +307,7 @@
     },
     "gemini-embedding-001": {
       "context_window": 2048,
-      "max_output_tokens": 3072,
+      "max_output_tokens": 1,
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -403,65 +326,16 @@
       "supports_pdf_input": true,
       "supports_reasoning": true
     },
-    "gemini-live-2.5-flash": {
-      "context_window": 128000,
-      "max_output_tokens": 8000,
-      "supports_image_input": true,
-      "supports_pdf_input": false,
-      "supports_reasoning": true
-    },
-    "gemini-live-2.5-flash-preview-native-audio": {
-      "context_window": 131072,
-      "max_output_tokens": 65536,
-      "supports_image_input": false,
-      "supports_pdf_input": false,
-      "supports_reasoning": true
-    },
-    "gemma-3-12b-it": {
-      "context_window": 32768,
-      "max_output_tokens": 8192,
-      "supports_image_input": true,
-      "supports_pdf_input": false,
-      "supports_reasoning": false
-    },
-    "gemma-3-27b-it": {
-      "context_window": 131072,
-      "max_output_tokens": 8192,
-      "supports_image_input": true,
-      "supports_pdf_input": false,
-      "supports_reasoning": false
-    },
-    "gemma-3-4b-it": {
-      "context_window": 32768,
-      "max_output_tokens": 8192,
-      "supports_image_input": true,
-      "supports_pdf_input": false,
-      "supports_reasoning": false
-    },
-    "gemma-3n-e2b-it": {
-      "context_window": 8192,
-      "max_output_tokens": 2000,
-      "supports_image_input": false,
-      "supports_pdf_input": false,
-      "supports_reasoning": false
-    },
-    "gemma-3n-e4b-it": {
-      "context_window": 8192,
-      "max_output_tokens": 2000,
-      "supports_image_input": false,
-      "supports_pdf_input": false,
-      "supports_reasoning": false
-    },
     "gemma-4-26b-a4b-it": {
-      "context_window": 256000,
-      "max_output_tokens": 8192,
+      "context_window": 262144,
+      "max_output_tokens": 32768,
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
     },
     "gemma-4-31b-it": {
-      "context_window": 256000,
-      "max_output_tokens": 8192,
+      "context_window": 262144,
+      "max_output_tokens": 32768,
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -971,13 +845,6 @@
       "supports_pdf_input": false,
       "supports_reasoning": false
     },
-    "alibaba/tongyi-deepresearch-30b-a3b": {
-      "context_window": 131072,
-      "max_output_tokens": 131072,
-      "supports_image_input": false,
-      "supports_pdf_input": false,
-      "supports_reasoning": true
-    },
     "allenai/olmo-3-32b-think": {
       "context_window": 65536,
       "max_output_tokens": 65536,
@@ -1139,23 +1006,9 @@
       "supports_pdf_input": false,
       "supports_reasoning": false
     },
-    "arcee-ai/trinity-large-preview": {
-      "context_window": 131000,
-      "max_output_tokens": 131000,
-      "supports_image_input": false,
-      "supports_pdf_input": false,
-      "supports_reasoning": false
-    },
     "arcee-ai/trinity-large-thinking": {
       "context_window": 262144,
       "max_output_tokens": 262144,
-      "supports_image_input": false,
-      "supports_pdf_input": false,
-      "supports_reasoning": true
-    },
-    "arcee-ai/trinity-large-thinking:free": {
-      "context_window": 262144,
-      "max_output_tokens": 80000,
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -1173,13 +1026,6 @@
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": false
-    },
-    "baidu/cobuddy:free": {
-      "context_window": 131072,
-      "max_output_tokens": 65536,
-      "supports_image_input": false,
-      "supports_pdf_input": false,
-      "supports_reasoning": true
     },
     "baidu/ernie-4.5-21b-a3b": {
       "context_window": 120000,
@@ -1301,8 +1147,8 @@
       "supports_reasoning": true
     },
     "deepseek/deepseek-chat": {
-      "context_window": 163840,
-      "max_output_tokens": 16384,
+      "context_window": 128000,
+      "max_output_tokens": 16000,
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -1378,8 +1224,8 @@
       "supports_reasoning": true
     },
     "deepseek/deepseek-v4-flash": {
-      "context_window": 1048575,
-      "max_output_tokens": 131072,
+      "context_window": 1048576,
+      "max_output_tokens": 16384,
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -1406,7 +1252,7 @@
       "supports_reasoning": false
     },
     "google/gemini-2.0-flash-001": {
-      "context_window": 1048576,
+      "context_window": 1000000,
       "max_output_tokens": 8192,
       "supports_image_input": true,
       "supports_pdf_input": true,
@@ -1511,6 +1357,13 @@
       "supports_reasoning": true
     },
     "google/gemini-3.1-pro-preview-customtools": {
+      "context_window": 1048576,
+      "max_output_tokens": 65536,
+      "supports_image_input": true,
+      "supports_pdf_input": true,
+      "supports_reasoning": true
+    },
+    "google/gemini-3.5-flash": {
       "context_window": 1048576,
       "max_output_tokens": 65536,
       "supports_image_input": true,
@@ -2408,7 +2261,7 @@
     },
     "openai/gpt-5.1-chat": {
       "context_window": 128000,
-      "max_output_tokens": 16384,
+      "max_output_tokens": 32000,
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": false
@@ -2429,7 +2282,7 @@
     },
     "openai/gpt-5.1-codex-mini": {
       "context_window": 400000,
-      "max_output_tokens": 128000,
+      "max_output_tokens": 100000,
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -2443,7 +2296,7 @@
     },
     "openai/gpt-5.2-chat": {
       "context_window": 128000,
-      "max_output_tokens": 32000,
+      "max_output_tokens": 16384,
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": false
@@ -2729,15 +2582,15 @@
       "supports_reasoning": true
     },
     "poolside/laguna-m.1:free": {
-      "context_window": 131072,
-      "max_output_tokens": 8192,
+      "context_window": 262144,
+      "max_output_tokens": 32768,
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
     },
     "poolside/laguna-xs.2:free": {
-      "context_window": 131072,
-      "max_output_tokens": 8192,
+      "context_window": 262144,
+      "max_output_tokens": 32768,
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -2989,7 +2842,7 @@
     },
     "qwen/qwen3.5-122b-a10b": {
       "context_window": 262144,
-      "max_output_tokens": 65536,
+      "max_output_tokens": 262144,
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -3044,15 +2897,15 @@
       "supports_reasoning": true
     },
     "qwen/qwen3.6-27b": {
-      "context_window": 262144,
-      "max_output_tokens": 81920,
+      "context_window": 262140,
+      "max_output_tokens": 262140,
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
     },
     "qwen/qwen3.6-35b-a3b": {
-      "context_window": 262144,
-      "max_output_tokens": 262144,
+      "context_window": 262140,
+      "max_output_tokens": 262140,
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -3075,6 +2928,13 @@
       "context_window": 1000000,
       "max_output_tokens": 65536,
       "supports_image_input": true,
+      "supports_pdf_input": false,
+      "supports_reasoning": true
+    },
+    "qwen/qwen3.7-max": {
+      "context_window": 1000000,
+      "max_output_tokens": 65536,
+      "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
     },
@@ -3143,7 +3003,7 @@
     },
     "stepfun/step-3.5-flash": {
       "context_window": 262144,
-      "max_output_tokens": 65536,
+      "max_output_tokens": 16384,
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -3239,6 +3099,13 @@
       "supports_pdf_input": false,
       "supports_reasoning": true
     },
+    "x-ai/grok-build-0.1": {
+      "context_window": 256000,
+      "max_output_tokens": 256000,
+      "supports_image_input": true,
+      "supports_pdf_input": false,
+      "supports_reasoning": true
+    },
     "xiaomi/mimo-v2-flash": {
       "context_window": 262144,
       "max_output_tokens": 65536,
@@ -3269,7 +3136,7 @@
     },
     "xiaomi/mimo-v2.5-pro": {
       "context_window": 1048576,
-      "max_output_tokens": 16384,
+      "max_output_tokens": 131072,
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -3289,8 +3156,8 @@
       "supports_reasoning": true
     },
     "z-ai/glm-4.5-air": {
-      "context_window": 131072,
-      "max_output_tokens": 98304,
+      "context_window": 131070,
+      "max_output_tokens": 131070,
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -3353,7 +3220,7 @@
     },
     "z-ai/glm-5.1": {
       "context_window": 202752,
-      "max_output_tokens": 131072,
+      "max_output_tokens": 202800,
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
