@@ -51,6 +51,7 @@ def request_obj(**overrides: Any) -> Any:
         "system": "",
         "tools": [],
         "max_tokens": 4096,
+        "temperature": 1.0,
         "reasoning_effort": None,
         "api_key": None,
         "api_base": None,

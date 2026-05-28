@@ -78,6 +78,7 @@ class Agent:
         messages: list[ConversationMessage] | None = None,
         max_turns: int | None = None,
         max_tokens: int | None = None,
+        temperature: float = 1.0,
         context_window: int | None = None,
         compact_threshold: float | None = None,
         reasoning_effort: str | None = None,
@@ -110,6 +111,16 @@ class Agent:
         self.api_key = api_key
         self.api_base = api_base
         self.max_turns = max_turns
+        if not 0 <= temperature <= 1:
+            raise ValueError("temperature must be between 0 and 1")
+        if (
+            provider in {"anthropic", "moonshotai", "minimax"}
+            and reasoning_effort
+            and reasoning_effort != "none"
+            and temperature != 1.0
+        ):
+            raise ValueError(f"{provider} does not support custom temperature when thinking is enabled")
+        self.temperature = float(temperature)
         self.compact_threshold = compact_threshold if compact_threshold is not None else DEFAULT_COMPACT_THRESHOLD
         self.reasoning_effort = reasoning_effort
 
@@ -498,6 +509,7 @@ class Agent:
                 system=self.system,
                 tools=self.tools.definitions,
                 max_tokens=self.max_tokens,
+                temperature=self.temperature,
                 api_key=self.api_key,
                 api_base=self.api_base,
                 reasoning_effort=self.reasoning_effort,
@@ -724,6 +736,7 @@ class Agent:
             system=self.system,
             tools=[],
             max_tokens=min(self.max_tokens, 8192),
+            temperature=self.temperature,
             api_key=self.api_key,
             api_base=self.api_base,
             supports_image_input=self.supports_image_input,

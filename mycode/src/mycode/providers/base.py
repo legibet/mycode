@@ -29,6 +29,7 @@ class ProviderRequest:
     system: str
     tools: list[dict[str, Any]]
     max_tokens: int
+    temperature: float
     api_key: str | None
     api_base: str | None
     reasoning_effort: str | None = None

@@ -53,10 +53,12 @@ class AnthropicLikeAdapter(ProviderAdapter):
     def _build_request_payload(self, request: ProviderRequest) -> dict[str, Any]:
         messages = [self._serialize_message(message) for message in self.prepare_messages(request)]
         self._apply_cache_control(messages)
+        thinking = self.thinking_config(request)
 
         payload: dict[str, Any] = {
             "model": request.model,
             "max_tokens": request.max_tokens,
+            "temperature": request.temperature,
             "messages": messages,
         }
         if request.system:
@@ -70,7 +72,6 @@ class AnthropicLikeAdapter(ProviderAdapter):
         if request.tools:
             payload["tools"] = [self._serialize_tool(tool) for tool in request.tools]
             payload["tool_choice"] = {"type": "auto"}
-        thinking = self.thinking_config(request)
         if thinking is not None:
             payload["thinking"] = thinking
         output_config = self.output_config(request)

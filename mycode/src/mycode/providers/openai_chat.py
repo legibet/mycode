@@ -161,6 +161,7 @@ class OpenAIChatAdapter(ProviderAdapter):
             "tools": [self._serialize_tool(tool) for tool in request.tools] or None,
             "tool_choice": "auto" if request.tools else None,
             "max_tokens": request.max_tokens,
+            "temperature": request.temperature,
             "stream_options": {"include_usage": True},
         }
         payload.update(self._build_provider_payload_overrides(request))
