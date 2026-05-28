@@ -54,7 +54,7 @@ class OpenAIResponsesAdapter(ProviderAdapter):
             async for event in stream:
                 event_type = getattr(event, "type", None)
 
-                if event_type == "response.reasoning_text.delta":
+                if event_type == "response.reasoning_summary_text.delta":
                     delta = cast(str | None, getattr(event, "delta", None))
                     if delta:
                         yield ProviderStreamEvent("thinking_delta", {"text": delta})
@@ -128,7 +128,10 @@ class OpenAIResponsesAdapter(ProviderAdapter):
             "tool_choice": "auto" if request.tools else None,
         }
         if request.reasoning_effort:
-            payload["reasoning"] = {"effort": request.reasoning_effort}
+            reasoning: dict[str, str] = {"effort": request.reasoning_effort}
+            if request.reasoning_effort != "none":
+                reasoning["summary"] = "auto"
+            payload["reasoning"] = reasoning
         return omit_none(payload)
 
     def _serialize_user_message(self, message: ConversationMessage) -> list[dict[str, Any]]:
@@ -202,7 +205,7 @@ class OpenAIResponsesAdapter(ProviderAdapter):
         replay_items: list[dict[str, Any]] = []
         for item in cast(list[dict[str, Any]], deepcopy(output_items)):
             item_type = str(item.get("type") or "")
-            item.pop("status", None)
+            item.pop("status", None)  # some gateways don't expect this field in input items
             if item_type != "reasoning":
                 item.pop("id", None)
             replay_items.append(item)
@@ -294,16 +297,10 @@ class OpenAIResponsesAdapter(ProviderAdapter):
 
             if item_type == "reasoning":
                 text_parts = []
-                for content in getattr(item, "content", None) or []:
-                    text = getattr(content, "text", None)
+                for summary in getattr(item, "summary", None) or []:
+                    text = getattr(summary, "text", None)
                     if text:
                         text_parts.append(text)
-
-                if not text_parts:
-                    for summary in getattr(item, "summary", None) or []:
-                        text = getattr(summary, "text", None)
-                        if text:
-                            text_parts.append(text)
 
                 summary = dump_model(getattr(item, "summary", None))
                 item_meta = omit_none(

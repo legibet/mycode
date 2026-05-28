@@ -107,6 +107,8 @@ class ProviderAdapter(ABC):
 - `supports_reasoning_effort`: true (`reasoning = {"effort": ...}`, values: `none/low/medium/high/xhigh`)
 - OpenAI recommends Responses API for GPT-5.5 reasoning/tool-calling/multi-turn use cases; `gpt-5.5` defaults to `medium` effort and `low` is the recommended first step for latency-sensitive workloads
 - Runs stateless: `store=false`, `include=["reasoning.encrypted_content"]`
+- When reasoning is enabled, requests `reasoning.summary=auto`; streams `response.reasoning_summary_text.delta` as canonical thinking and does not surface raw `response.reasoning_text.delta`
+- Final reasoning items use `summary` text for the canonical thinking block and retain full native output items for replay
 - OpenAI recommends reserving at least ~25k `max_output_tokens` for reasoning + output when first tuning reasoning models to avoid incomplete responses during reasoning
 - Streaming turns persist completed output items from `response.output_item.done` under `assistant.meta.native.output_items` and replay them directly
 - Tool results replay as `function_call_output`; foreign thinking never converted to OpenAI reasoning items

@@ -463,7 +463,7 @@ def test_openai_responses_converts_final_response_blocks() -> None:
         status="completed",
         usage=_Obj(input_tokens=10, output_tokens=5),
         output=[
-            _Obj(type="reasoning", id="rs_1", status="completed", content=[_Obj(text="think")], summary=[]),
+            _Obj(type="reasoning", id="rs_1", status="completed", summary=[_Obj(text="think")]),
             _Obj(type="message", content=[_Obj(type="output_text", text="answer", annotations=[])]),
             _Obj(
                 type="function_call",
@@ -481,7 +481,9 @@ def test_openai_responses_converts_final_response_blocks() -> None:
     assert message["role"] == "assistant"
     assert message["content"][0]["type"] == "thinking"
     assert message["content"][0]["text"] == "think"
-    assert message["content"][0]["meta"] == {"native": {"item_id": "rs_1", "status": "completed"}}
+    assert message["content"][0]["meta"] == {
+        "native": {"item_id": "rs_1", "status": "completed", "summary": [{"text": "think"}]}
+    }
     assert message["content"][1] == {"type": "text", "text": "answer"}
     assert message["content"][2]["type"] == "tool_use"
     assert message["content"][2]["id"] == "call_1"
