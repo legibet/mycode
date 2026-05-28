@@ -5,7 +5,8 @@ from __future__ import annotations
 import asyncio
 import copy
 import time
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator, AsyncIterator
+from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from typing import Any, Literal, Protocol
 from uuid import uuid4
@@ -16,6 +17,7 @@ from mycode_cli.permissions import ToolReviewDecision
 
 RunStatus = Literal["running", "completed", "failed", "cancelled"]
 FINISHED_RUN_TTL_SECONDS = 300
+RUN_EVENT_BUFFER_SIZE = 2000
 
 
 class ActiveRunError(RuntimeError):
@@ -72,6 +74,7 @@ class RunManager:
         self._lock = asyncio.Lock()
         self._active_by_session: dict[str, RunState] = {}
         self._runs_by_id: dict[str, RunState] = {}
+        self._session_locks: dict[str, asyncio.Lock] = {}
 
     async def start_run(
         self,
@@ -122,6 +125,22 @@ class RunManager:
                 "messages": messages,
                 "pending_events": copy.deepcopy(state.events),
             }
+
+    @asynccontextmanager
+    async def session_operation(self, session_id: str) -> AsyncGenerator[None]:
+        async with self._lock:
+            lock = self._session_locks.get(session_id)
+            if lock is None:
+                lock = asyncio.Lock()
+                self._session_locks[session_id] = lock
+
+        async with lock:
+            yield
+
+    async def active_run_info(self, session_id: str) -> dict[str, Any] | None:
+        async with self._lock:
+            state = self._active_by_session.get(session_id)
+            return state.info() if state else None
 
     async def stream_events(self, run_id: str, after: int) -> AsyncIterator[dict[str, Any]]:
         """Yield buffered and future events for a run after the given sequence."""
@@ -271,6 +290,8 @@ class RunManager:
             payload = {"seq": state.next_seq, "type": event.type, **event.data}
             state.next_seq += 1
             state.events.append(payload)
+            if len(state.events) > RUN_EVENT_BUFFER_SIZE:
+                del state.events[: len(state.events) - RUN_EVENT_BUFFER_SIZE]
             state.condition.notify_all()
 
     async def _finish_run(self, state: RunState, *, status: RunStatus, error: str | None = None) -> None:

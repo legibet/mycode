@@ -154,11 +154,6 @@ async def chat(chat: ChatRequest, store: StoreDep, runs: RunManagerDep) -> ChatR
     session_id = chat.session_id or "default"
     user_message = await _build_user_message(chat, cwd)
 
-    data = await store.load_session(session_id)
-    session = cast(dict[str, Any] | None, data["session"] if data else None)
-    existing_messages = data["messages"] if data else []
-    _validate_rewind_request(session=session, messages=existing_messages, rewind_to=chat.rewind_to)
-
     # Capability check before any disk mutation — a failed check must not
     # leave an empty session on disk or land a premature rewind marker.
     model_config = resolved.model_config
@@ -183,39 +178,52 @@ async def chat(chat: ChatRequest, store: StoreDep, runs: RunManagerDep) -> ChatR
         else None
     )
 
-    # All validation passed. Land the rewind marker (if any) and create the
-    # session so the response payload has a meta dict and the agent's
-    # auto-resume sees the correct on-disk state.
-    if chat.rewind_to is not None:
-        await store.append_rewind(session_id, chat.rewind_to)
-    if not session:
-        created = await store.create_session(session_id, cwd=cwd)
-        session = created["session"]
+    async with runs.session_operation(session_id):
+        active = await runs.active_run_info(session_id)
+        if active:
+            raise HTTPException(
+                status_code=409,
+                detail={"message": "session already has a running task", "run": active},
+            )
 
-    agent = await asyncio.to_thread(
-        build_agent,
-        store=store,
-        cwd=cwd,
-        settings=settings,
-        resolved_provider=resolved,
-        session_id=session_id,
-        reasoning_effort=reasoning_effort,
-        review=_make_review(runs, session_id),
-    )
+        data = await store.load_session(session_id)
+        session = cast(dict[str, Any] | None, data["session"] if data else None)
+        existing_messages = data["messages"] if data else []
+        _validate_rewind_request(session=session, messages=existing_messages, rewind_to=chat.rewind_to)
 
-    try:
-        run = await runs.start_run(
+        # All validation passed. Land the rewind marker (if any) and create the
+        # session so the response payload has a meta dict and the agent's
+        # auto-resume sees the correct on-disk state.
+        if chat.rewind_to is not None:
+            await store.append_rewind(session_id, chat.rewind_to)
+        if not session:
+            created = await store.create_session(session_id, cwd=cwd)
+            session = created["session"]
+
+        agent = await asyncio.to_thread(
+            build_agent,
+            store=store,
+            cwd=cwd,
+            settings=settings,
+            resolved_provider=resolved,
             session_id=session_id,
-            user_message=user_message,
-            base_messages=agent.messages,
-            agent=agent,
+            reasoning_effort=reasoning_effort,
+            review=_make_review(runs, session_id),
         )
-    except ActiveRunError as exc:
-        existing = await runs.get_run(exc.run_id)
-        detail: dict[str, Any] = {"message": "session already has a running task"}
-        if existing:
-            detail["run"] = existing.info()
-        raise HTTPException(status_code=409, detail=detail) from exc
+
+        try:
+            run = await runs.start_run(
+                session_id=session_id,
+                user_message=user_message,
+                base_messages=agent.messages,
+                agent=agent,
+            )
+        except ActiveRunError as exc:
+            existing = await runs.get_run(exc.run_id)
+            detail: dict[str, Any] = {"message": "session already has a running task"}
+            if existing:
+                detail["run"] = existing.info()
+            raise HTTPException(status_code=409, detail=detail) from exc
 
     return ChatResponse(run=RunInfo.model_validate(run), session=session)
 

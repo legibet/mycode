@@ -85,9 +85,10 @@ async def load_session(
 async def delete_session(
     session_id: Annotated[str, PathParam(min_length=1)], store: StoreDep, runs: RunManagerDep
 ) -> StatusResponse:
-    if await runs.has_active_run(session_id):
-        raise HTTPException(status_code=409, detail="session has a running task")
-    await store.delete_session(session_id)
+    async with runs.session_operation(session_id):
+        if await runs.has_active_run(session_id):
+            raise HTTPException(status_code=409, detail="session has a running task")
+        await store.delete_session(session_id)
     return StatusResponse(status="ok")
 
 
@@ -95,7 +96,8 @@ async def delete_session(
 async def clear_session(
     session_id: Annotated[str, PathParam(min_length=1)], store: StoreDep, runs: RunManagerDep
 ) -> StatusResponse:
-    if await runs.has_active_run(session_id):
-        raise HTTPException(status_code=409, detail="session has a running task")
-    await store.clear_session(session_id)
+    async with runs.session_operation(session_id):
+        if await runs.has_active_run(session_id):
+            raise HTTPException(status_code=409, detail="session has a running task")
+        await store.clear_session(session_id)
     return StatusResponse(status="ok")
