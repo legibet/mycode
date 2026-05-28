@@ -7,13 +7,13 @@ before sending a request upstream.
 
 from __future__ import annotations
 
-import html
 import os
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from typing import Any
 
+from mycode.attachments import unsupported_attachment_block
 from mycode.compact import apply_compact_replay
 from mycode.messages import ConversationMessage, build_message, text_block, tool_result_block
 
@@ -260,18 +260,14 @@ def repair_messages_for_replay(
                 if supported:
                     content.append(dict(raw_block))
                 else:
-                    # Preserve that the file existed even when the target
-                    # provider cannot accept the original media payload.
+                    # Keep a record of the file even though its bytes are dropped.
                     default_mime = "image" if block_type == "image" else "application/pdf"
-                    label = "image input" if block_type == "image" else "PDF input"
-                    name = html.escape(str(raw_block.get("name") or f"attached-{block_type}"), quote=True)
-                    mime = html.escape(str(raw_block.get("mime_type") or default_mime), quote=True)
                     content.append(
-                        {
-                            "type": "text",
-                            "text": f'<file name="{name}" media_type="{mime}" kind="{block_type}">Current model does not support {label}.</file>',
-                            "meta": {"attachment": True},
-                        }
+                        unsupported_attachment_block(
+                            name=str(raw_block.get("name") or f"attached-{block_type}"),
+                            mime_type=str(raw_block.get("mime_type") or default_mime),
+                            kind=block_type,
+                        )
                     )
                 continue
 

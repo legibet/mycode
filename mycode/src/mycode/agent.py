@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any, cast
 from uuid import uuid4
 
+from mycode.attachments import AttachmentLike, build_attachment_blocks
 from mycode.compact import (
     COMPACT_SUMMARY_PROMPT,
     DEFAULT_COMPACT_THRESHOLD,
@@ -441,6 +442,7 @@ class Agent:
         self,
         user_input: str | ConversationMessage,
         *,
+        attachments: Sequence[AttachmentLike] = (),
         on_persist: PersistCallback | None = None,
     ) -> AsyncIterator[Event]:
         """Run the full agent loop for one user message."""
@@ -471,6 +473,10 @@ class Agent:
             raw_meta = user_input.get("meta")
             if isinstance(raw_meta, dict):
                 user_message["meta"] = {str(k): v for k, v in raw_meta.items()}
+
+        if attachments:
+            blocks = await asyncio.to_thread(build_attachment_blocks, attachments, cwd=self.cwd)
+            user_message["content"] = list(user_message.get("content") or []) + blocks
 
         content_blocks = user_message.get("content") or []
         if not self.supports_image_input and any(
@@ -694,6 +700,7 @@ class Agent:
         self,
         user_input: str | ConversationMessage,
         *,
+        attachments: Sequence[AttachmentLike] = (),
         on_persist: PersistCallback | None = None,
     ) -> RunResult:
         """Run one user turn synchronously and collect the streamed result."""
@@ -707,7 +714,7 @@ class Agent:
 
         async def collect() -> RunResult:
             result = RunResult()
-            async for event in self.achat(user_input, on_persist=on_persist):
+            async for event in self.achat(user_input, attachments=attachments, on_persist=on_persist):
                 result.events.append(event)
                 if event.type == "text":
                     result.text += str(event.data.get("delta") or "")

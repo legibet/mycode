@@ -53,6 +53,28 @@ agent.run("What is 2 + 2?")
 agent.run("Now multiply that by 10.")    # remembers the earlier answer
 ```
 
+## Attachments
+
+Pass `attachments` to `achat()` or `run()` to add files alongside the prompt:
+
+```python
+from mycode import Attachment
+
+agent.run("Describe these.", attachments=["diagram.png", "report.pdf", "notes.txt"])
+
+# Or build them explicitly — raw bytes and inline text never touch the disk:
+agent.run(
+    "Review.",
+    attachments=[
+        Attachment.path("diagram.png"),
+        Attachment.bytes(png_data, media_type="image/png"),
+        Attachment.text("TODO: ship it", name="note.md"),
+    ],
+)
+```
+
+Images support `image/png`, `image/jpeg`, `image/gif`, `image/webp`; documents support `application/pdf`. Sending an image or PDF to a model that lacks that capability yields an `error` event; a bad path or unsupported type raises `ValueError` before the model is called.
+
 ## Saving sessions
 
 Pass `session_dir` to persist the conversation to disk. Each session lives in a subdirectory named by `session_id`:

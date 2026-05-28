@@ -3,10 +3,8 @@
 from __future__ import annotations
 
 import asyncio
-import html
 import re
 import shlex
-from base64 import b64encode
 from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
@@ -28,7 +26,14 @@ from prompt_toolkit.widgets import RadioList
 from rich.text import Text
 
 from mycode.agent import Agent
-from mycode.messages import build_message, document_block, image_block, text_block
+from mycode.attachments import (
+    Attachment,
+    build_attachment_blocks,
+    detect_document_mime_type,
+    detect_image_mime_type,
+    unsupported_attachment_block,
+)
+from mycode.messages import build_message, text_block
 from mycode.providers import (
     get_provider_adapter,
     list_env_discoverable_providers,
@@ -36,12 +41,8 @@ from mycode.providers import (
     provider_default_models,
 )
 from mycode.session import SessionStore
-from mycode.tools import (
-    DEFAULT_TOOL_SPECS,
-    detect_document_mime_type,
-    detect_image_mime_type,
-    resolve_path,
-)
+from mycode.tools import DEFAULT_TOOL_SPECS
+from mycode.utils import resolve_path
 from mycode_cli.config import (
     REASONING_EFFORT_OPTIONS,
     ResolvedProvider,
@@ -525,14 +526,9 @@ class TerminalChat:
                 self._current_renderer = None
 
     def _build_user_message(self, text: str) -> dict[str, Any]:
-        """Build one user message with the raw prompt first, then resolved attachments.
+        """Build one user message: the raw prompt plus any `@path` attachments, in input order."""
 
-        Text files are appended as extra text blocks. Images and PDFs become
-        native blocks only when the current model supports that input type.
-        Only explicit `@path` tokens that resolve to real files are attached.
-        """
-
-        blocks = [text_block(text)]
+        blocks: list[dict[str, Any]] = [text_block(text)]
         try:
             tokens = shlex.split(text.replace("\r\n", "\n").replace("\r", "\n"), posix=True)
         except ValueError:
@@ -542,51 +538,33 @@ class TerminalChat:
         for token in tokens:
             if not token.startswith("@") or token == "@":
                 continue
-
             path = Path(resolve_path(token[1:], cwd=self.agent.cwd))
             if not path.is_file():
                 continue
-
             path_text = str(path)
             if path_text in seen:
                 continue
             seen.add(path_text)
 
-            # Detect image or document; bundle (kind, mime, supported) together.
-            media: tuple[str, str, bool] | None = None
-            if m := detect_image_mime_type(path):
-                media = ("image", m, self.agent.supports_image_input)
-            elif m := detect_document_mime_type(path):
-                media = ("document", m, self.agent.supports_pdf_input)
-
-            if media:
-                kind, mime_type, supported = media
-                if supported:
-                    data = b64encode(path.read_bytes()).decode("utf-8")
-                    fn = image_block if kind == "image" else document_block
-                    blocks.append(fn(data, mime_type=mime_type, name=path.name))
-                else:
-                    label = "image input" if kind == "image" else "PDF input"
-                    blocks.append(
-                        text_block(
-                            f'<file name="{html.escape(path_text, quote=True)}" media_type="{mime_type}" kind="{kind}">Current model does not support {label}.</file>',
-                            meta={"attachment": True, "path": path_text},
-                        )
-                    )
+            img = detect_image_mime_type(path)
+            pdf = detect_document_mime_type(path)
+            # An image/PDF the model can't ingest becomes a text placeholder so the
+            # message still references it.
+            if img and not self.agent.supports_image_input:
+                blocks.append(unsupported_attachment_block(name=path_text, mime_type=img, kind="image", path=path_text))
                 continue
-
-            # Reuse the existing read tool so attached text files follow the same
-            # UTF-8, truncation, and long-line rules as agent-initiated reads.
-            result = self.agent.tool_ctx.read(path_text)
-            if result.is_error:
-                continue
-
-            blocks.append(
-                text_block(
-                    f'<file name="{html.escape(path_text, quote=True)}">\n{result.output}\n</file>',
-                    meta={"attachment": True, "path": path_text},
+            if pdf and not self.agent.supports_pdf_input:
+                blocks.append(
+                    unsupported_attachment_block(name=path_text, mime_type=pdf, kind="document", path=path_text)
                 )
-            )
+                continue
+            # Text snippets keep the resolved path as the visible name; image/PDF default to the basename.
+            # A non-UTF-8 binary raises ValueError inside build_attachment_blocks and is skipped.
+            name = None if img or pdf else path_text
+            try:
+                blocks.extend(build_attachment_blocks([Attachment.path(path_text, name=name)], cwd=self.agent.cwd))
+            except ValueError:
+                continue
 
         return build_message("user", blocks)
 

@@ -28,11 +28,12 @@ from collections import deque
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from difflib import SequenceMatcher, unified_diff
-from mimetypes import guess_type
 from pathlib import Path
 from typing import Any, Literal, TextIO, cast, get_args, get_origin, overload
 
+from mycode.attachments import detect_image_mime_type
 from mycode.messages import image_block, text_block
+from mycode.utils import resolve_path
 
 # ---------------------------------------------------------------------------
 # Limits
@@ -228,15 +229,6 @@ def cancel_all_tools() -> None:
 # ---------------------------------------------------------------------------
 
 
-def resolve_path(path: str, *, cwd: str) -> str:
-    """Resolve ``path`` relative to ``cwd`` without changing the process cwd."""
-
-    p = Path(path).expanduser()
-    if not p.is_absolute():
-        p = Path(cwd) / p
-    return str(p.resolve(strict=False))
-
-
 def _atomic_write_text(path: Path, content: str, *, newline: str | None = None) -> None:
     tmp = path.with_suffix(path.suffix + ".tmp")
     if newline is None:
@@ -316,43 +308,6 @@ def truncate_text(
         output_bytes=out_bytes,
     )
     return content, trunc
-
-
-# ---------------------------------------------------------------------------
-# MIME detection
-# ---------------------------------------------------------------------------
-
-
-def detect_image_mime_type(path: Path) -> str | None:
-    try:
-        with path.open("rb") as file:
-            header = file.read(16)
-    except OSError:
-        return None
-
-    if header.startswith(b"\x89PNG\r\n\x1a\n"):
-        return "image/png"
-    if header.startswith(b"\xff\xd8\xff"):
-        return "image/jpeg"
-    if header.startswith((b"GIF87a", b"GIF89a")):
-        return "image/gif"
-    if header.startswith(b"RIFF") and header[8:12] == b"WEBP":
-        return "image/webp"
-    guessed, _ = guess_type(path.name)
-    if guessed in {"image/png", "image/jpeg", "image/gif", "image/webp"}:
-        return guessed
-    return None
-
-
-def detect_document_mime_type(path: Path) -> str | None:
-    try:
-        with path.open("rb") as file:
-            if file.read(5).startswith(b"%PDF-"):
-                return "application/pdf"
-    except OSError:
-        pass
-    guessed, _ = guess_type(path.name)
-    return "application/pdf" if guessed == "application/pdf" else None
 
 
 # ---------------------------------------------------------------------------

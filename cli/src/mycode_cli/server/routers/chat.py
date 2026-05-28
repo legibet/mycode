@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import html
 import json
 import os
 from base64 import b64encode
@@ -15,6 +14,12 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi import Path as PathParam
 from fastapi.responses import StreamingResponse
 
+from mycode.attachments import (
+    Attachment,
+    build_attachment_blocks,
+    detect_document_mime_type,
+    detect_image_mime_type,
+)
 from mycode.messages import (
     ConversationMessage,
     build_message,
@@ -24,7 +29,7 @@ from mycode.messages import (
 )
 from mycode.models import resolve_model_metadata
 from mycode.providers import get_provider_adapter, provider_default_models
-from mycode.tools import detect_document_mime_type, detect_image_mime_type, resolve_path
+from mycode.utils import resolve_path
 from mycode_cli.config import (
     REASONING_EFFORT_OPTIONS,
     ResolvedProvider,
@@ -59,45 +64,36 @@ async def _build_user_message(chat: ChatRequest, cwd: str) -> ConversationMessag
         if block.type == "text":
             text = block.text or ""
             if block.is_attachment:
-                name = str(block.name or "attached-file")
-                blocks.append(
-                    text_block(
-                        f'<file name="{html.escape(name, quote=True)}">\n{text}\n</file>',
-                        meta={"attachment": True, "path": name},
+                blocks.extend(
+                    build_attachment_blocks(
+                        [Attachment.text(text, name=str(block.name or "attached-file"))],
+                        cwd=cwd,
                     )
                 )
             elif text:
                 blocks.append(text_block(text))
             continue
 
-        if block.type == "document":
-            if block.data:
-                mime_type = block.mime_type or "application/pdf"
-                blocks.append(document_block(block.data, mime_type=mime_type, name=block.name or "document.pdf"))
-                continue
-
-            path = Path(resolve_path(cast(str, block.path), cwd=cwd))
-            if not path.is_file():
-                raise HTTPException(status_code=400, detail=f"document file not found: {block.path}")
-            mime_type = block.mime_type or detect_document_mime_type(path)
-            if mime_type != "application/pdf":
-                raise HTTPException(status_code=400, detail=f"unsupported document file: {block.path}")
-            data = b64encode(await asyncio.to_thread(path.read_bytes)).decode("utf-8")
-            blocks.append(document_block(data, mime_type=mime_type, name=block.name or path.name))
-            continue
-
+        # Inline base64 from the web client.
         if block.data:
-            blocks.append(image_block(block.data, mime_type=cast(str, block.mime_type), name=block.name or "image"))
+            mime_type = block.mime_type or "application/pdf"
+            default_name = "document.pdf" if block.type == "document" else "image"
+            factory = document_block if block.type == "document" else image_block
+            blocks.append(factory(block.data, mime_type=mime_type, name=block.name or default_name))
             continue
 
+        # Server-side path: read the bytes and validate the sniffed MIME matches
+        # the declared block.type so a request for an "image" can't ship a PDF.
         path = Path(resolve_path(cast(str, block.path), cwd=cwd))
         if not path.is_file():
-            raise HTTPException(status_code=400, detail=f"image file not found: {block.path}")
-        mime_type = block.mime_type or detect_image_mime_type(path)
-        if not mime_type:
-            raise HTTPException(status_code=400, detail=f"unsupported image file: {block.path}")
+            raise HTTPException(status_code=400, detail=f"{block.type} file not found: {block.path}")
+        detect = detect_image_mime_type if block.type == "image" else detect_document_mime_type
+        mime_type = block.mime_type or detect(path)
+        if not mime_type or (block.type == "document" and mime_type != "application/pdf"):
+            raise HTTPException(status_code=400, detail=f"unsupported {block.type} file: {block.path}")
         data = b64encode(await asyncio.to_thread(path.read_bytes)).decode("utf-8")
-        blocks.append(image_block(data, mime_type=mime_type, name=block.name or path.name))
+        factory = image_block if block.type == "image" else document_block
+        blocks.append(factory(data, mime_type=mime_type, name=block.name or path.name))
 
     if not blocks:
         raise HTTPException(status_code=400, detail="input must include at least one non-empty block")

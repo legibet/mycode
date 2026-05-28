@@ -24,6 +24,36 @@ async for event in agent.achat("Hello"):
 
 `achat(user_input)` drives **one user turn** as a streaming async iterator. A turn repeats `provider → tool calls → provider` internally until the assistant stops calling tools; the iterator ends when that turn is done.
 
+`user_input` is either a `str` or a `ConversationMessage` with `role="user"`. A passed message's `content` and `meta` are kept verbatim; attachments are appended to its `content`.
+
+### Attachments
+
+```python
+from mycode import Agent, Attachment
+
+agent.run(
+    "Summarize these files.",
+    attachments=[
+        "notes.txt",
+        Attachment.path("diagram.png"),
+        Attachment.bytes(pdf_bytes, media_type="application/pdf", name="report.pdf"),
+    ],
+)
+```
+
+`attachments` accepts `str | Path | Attachment`; bare strings and `Path` are treated as `Attachment.path(...)`. Blocks are appended to the user message in the given order, persisted, and replayed on later turns:
+
+- A path to PNG/JPEG/GIF/WebP becomes an `image` block.
+- A path to PDF becomes a `document` block.
+- A path to a UTF-8 text file becomes a `<file name="…">…</file>` text block with `meta.attachment=True`.
+- `Attachment.bytes(...)` with `image/png`, `image/jpeg`, `image/gif`, or `image/webp` becomes an `image` block.
+- `Attachment.bytes(..., media_type="application/pdf")` becomes a `document` block.
+- `Attachment.text(data, name=...)` becomes the same wrapped text block.
+
+Document attachments support `application/pdf` only.
+
+Bad input — unknown path, directory, non-UTF-8 binary that isn't a recognized image or PDF, missing or unsupported `media_type` — raises `ValueError` before the provider is touched. An image or PDF on a model that doesn't advertise that capability yields the existing `error` event instead.
+
 ### `run()` — synchronous wrapper
 
 `run()` is a thin wrapper around `achat()`. It consumes the stream via `asyncio.run`, concatenates the `text` deltas into `RunResult.text`, stashes every event in `RunResult.events`, and captures the first error message in `RunResult.error`:

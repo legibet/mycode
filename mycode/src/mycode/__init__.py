@@ -10,6 +10,7 @@ silently exposing file system and shell access.
 from importlib import metadata
 
 from mycode.agent import Agent, Event, PersistCallback, RunResult
+from mycode.attachments import Attachment
 from mycode.hooks import AfterToolHook, BeforeToolHook, HookResult, Hooks, ToolHookContext
 from mycode.messages import (
     ContentBlock,
@@ -43,6 +44,7 @@ read_tool, write_tool, edit_tool, bash_tool = DEFAULT_TOOL_SPECS
 
 __all__ = [
     "Agent",
+    "Attachment",
     "ContentBlock",
     "ConversationMessage",
     "DEFAULT_TOOL_SPECS",

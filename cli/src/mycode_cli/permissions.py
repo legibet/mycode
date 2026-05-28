@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Literal, NamedTuple
 
 from mycode import Hooks, ToolExecutionResult, ToolHookContext
-from mycode.tools import resolve_path
+from mycode.utils import resolve_path
 from mycode_cli.config import PermissionConfig, PermissionLevel, Settings
 from mycode_cli.system_prompt import discover_skills
 

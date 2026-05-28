@@ -566,6 +566,45 @@ class TestAttachments:
             "meta": {"attachment": True, "path": str(path)},
         }
 
+    def test_keeps_attachment_input_order_when_mixing_supported_and_placeholder(
+        self, tmp_path: Path, cli_home: Path
+    ) -> None:
+        image_file = tmp_path / "diagram.png"
+        pdf_file = tmp_path / "report.pdf"
+        image_file.write_bytes(b"\x89PNG\r\n\x1a\nrest")
+        pdf_file.write_bytes(b"%PDF-1.7\nrest")
+
+        chat = TerminalChat(
+            agent=cast(
+                Any,
+                _AttachmentAgent(cwd=str(tmp_path), session_dir=tmp_path / ".session", supports_pdf_input=False),
+            ),
+            settings=settings_for(str(tmp_path)),
+            store=cast(Any, object()),
+            session_id="test-session",
+        )
+        message = chat._build_user_message(f"check @{image_file} @{pdf_file}")
+
+        # Order follows the prompt: image block first, then the PDF placeholder.
+        assert message["content"][1]["type"] == "image"
+        assert message["content"][2]["type"] == "text"
+        assert 'kind="document">Current model does not support PDF input.' in message["content"][2]["text"]
+
+    def test_skips_binary_attachment_that_is_not_image_or_pdf(self, tmp_path: Path, cli_home: Path) -> None:
+        binary_file = tmp_path / "blob.bin"
+        binary_file.write_bytes(b"\x00\x01\x02\xff\xfe")
+
+        chat = TerminalChat(
+            agent=cast(Any, _AttachmentAgent(cwd=str(tmp_path), session_dir=tmp_path / ".session")),
+            settings=settings_for(str(tmp_path)),
+            store=cast(Any, object()),
+            session_id="test-session",
+        )
+        message = chat._build_user_message(f"check @{binary_file}")
+
+        assert len(message["content"]) == 1
+        assert message["content"][0]["type"] == "text"
+
 
 def test_apply_resolved_provider_updates_agent_runtime(tmp_path: Path) -> None:
     agent = _RuntimeAgent(cwd=str(tmp_path))
