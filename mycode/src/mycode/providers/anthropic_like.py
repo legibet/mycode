@@ -130,27 +130,27 @@ class AnthropicLikeAdapter(ProviderAdapter):
     @override
     async def stream_turn(self, request: ProviderRequest) -> AsyncIterator[ProviderStreamEvent]:
         api_key = self.require_api_key(request.api_key)
-        client = AsyncAnthropic(
-            api_key=api_key,
-            base_url=self.resolve_base_url(request.api_base),
-            timeout=DEFAULT_REQUEST_TIMEOUT,
-        )
 
         try:
-            async with client.messages.stream(**self._build_request_payload(request)) as stream:
-                async for event in stream:
-                    event_type = getattr(event, "type", None)
-                    if event_type == "thinking":
-                        thinking = cast(str | None, getattr(event, "thinking", None))
-                        if thinking:
-                            yield ProviderStreamEvent("thinking_delta", {"text": thinking})
-                        continue
-                    if event_type == "text":
-                        text = cast(str | None, getattr(event, "text", None))
-                        if text:
-                            yield ProviderStreamEvent("text_delta", {"text": text})
+            async with AsyncAnthropic(
+                api_key=api_key,
+                base_url=self.resolve_base_url(request.api_base),
+                timeout=DEFAULT_REQUEST_TIMEOUT,
+            ) as client:
+                async with client.messages.stream(**self._build_request_payload(request)) as stream:
+                    async for event in stream:
+                        event_type = getattr(event, "type", None)
+                        if event_type == "thinking":
+                            thinking = cast(str | None, getattr(event, "thinking", None))
+                            if thinking:
+                                yield ProviderStreamEvent("thinking_delta", {"text": thinking})
+                            continue
+                        if event_type == "text":
+                            text = cast(str | None, getattr(event, "text", None))
+                            if text:
+                                yield ProviderStreamEvent("text_delta", {"text": text})
 
-                final_message = await stream.get_final_message()
+                    final_message = await stream.get_final_message()
         except APIError as exc:
             raise ValueError(str(exc)) from exc
 

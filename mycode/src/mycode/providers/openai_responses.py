@@ -36,66 +36,68 @@ class OpenAIResponsesAdapter(ProviderAdapter):
     @override
     async def stream_turn(self, request: ProviderRequest) -> AsyncIterator[ProviderStreamEvent]:
         api_key = self.require_api_key(request.api_key)
-        client = AsyncOpenAI(
-            api_key=api_key,
-            base_url=self.resolve_base_url(request.api_base),
-            timeout=DEFAULT_REQUEST_TIMEOUT,
-        )
 
         payload = self._build_request_payload(request)
         try:
-            stream = await client.responses.create(**payload, stream=True)
-            final_response = None
-            # Some Responses-compatible endpoints emit correct completed output
-            # items during the stream but leave `response.output` empty on the
-            # final completed object. Persist the completed items from the
-            # stream so the canonical assistant message stays intact.
-            streamed_output_items: dict[int, Any] = {}
-            async for event in stream:
-                event_type = getattr(event, "type", None)
+            async with AsyncOpenAI(
+                api_key=api_key,
+                base_url=self.resolve_base_url(request.api_base),
+                timeout=DEFAULT_REQUEST_TIMEOUT,
+            ) as client:
+                stream = await client.responses.create(**payload, stream=True)
+                async with stream:
+                    final_response = None
+                    # Some Responses-compatible endpoints emit correct completed output
+                    # items during the stream but leave `response.output` empty on the
+                    # final completed object. Persist the completed items from the
+                    # stream so the canonical assistant message stays intact.
+                    streamed_output_items: dict[int, Any] = {}
+                    async for event in stream:
+                        event_type = getattr(event, "type", None)
 
-                if event_type == "response.reasoning_summary_text.delta":
-                    delta = cast(str | None, getattr(event, "delta", None))
-                    if delta:
-                        yield ProviderStreamEvent("thinking_delta", {"text": delta})
-                    continue
+                        if event_type == "response.reasoning_summary_text.delta":
+                            delta = cast(str | None, getattr(event, "delta", None))
+                            if delta:
+                                yield ProviderStreamEvent("thinking_delta", {"text": delta})
+                            continue
 
-                if event_type == "response.output_text.delta":
-                    delta = cast(str | None, getattr(event, "delta", None))
-                    if delta:
-                        yield ProviderStreamEvent("text_delta", {"text": delta})
-                    continue
+                        if event_type == "response.output_text.delta":
+                            delta = cast(str | None, getattr(event, "delta", None))
+                            if delta:
+                                yield ProviderStreamEvent("text_delta", {"text": delta})
+                            continue
 
-                if event_type == "response.output_item.done":
-                    item = getattr(event, "item", None)
-                    if item is not None:
-                        output_index = int(getattr(event, "output_index", 0) or 0)
-                        streamed_output_items[output_index] = item
-                    continue
+                        if event_type == "response.output_item.done":
+                            item = getattr(event, "item", None)
+                            if item is not None:
+                                output_index = int(getattr(event, "output_index", 0) or 0)
+                                streamed_output_items[output_index] = item
+                            continue
 
-                if event_type == "error":
-                    raise ValueError(str(getattr(event, "message", event)))
+                        if event_type == "error":
+                            raise ValueError(str(getattr(event, "message", event)))
 
-                if event_type == "response.failed":
-                    raise ValueError(str(getattr(event, "response", None) or event))
+                        if event_type == "response.failed":
+                            raise ValueError(str(getattr(event, "response", None) or event))
 
-                if event_type == "response.completed":
-                    final_response = getattr(event, "response", None)
+                        if event_type == "response.completed":
+                            final_response = getattr(event, "response", None)
+
+                    if final_response is None:
+                        raise ValueError("OpenAI Responses stream ended before response.completed")
+
+                    yield ProviderStreamEvent(
+                        "message_done",
+                        {
+                            "message": self._convert_final_response(
+                                final_response,
+                                output_items=[streamed_output_items[index] for index in sorted(streamed_output_items)]
+                                or None,
+                            )
+                        },
+                    )
         except APIError as exc:
             raise ValueError(str(exc)) from exc
-
-        if final_response is None:
-            raise ValueError("OpenAI Responses stream ended before response.completed")
-
-        yield ProviderStreamEvent(
-            "message_done",
-            {
-                "message": self._convert_final_response(
-                    final_response,
-                    output_items=[streamed_output_items[index] for index in sorted(streamed_output_items)] or None,
-                )
-            },
-        )
 
     def _build_request_payload(self, request: ProviderRequest) -> dict[str, Any]:
         prepared_messages = self.prepare_messages(request)

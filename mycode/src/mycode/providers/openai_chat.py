@@ -45,11 +45,6 @@ class OpenAIChatAdapter(ProviderAdapter):
     @override
     async def stream_turn(self, request: ProviderRequest) -> AsyncIterator[ProviderStreamEvent]:
         api_key = self.require_api_key(request.api_key)
-        client = AsyncOpenAI(
-            api_key=api_key,
-            base_url=self.resolve_base_url(request.api_base),
-            timeout=DEFAULT_REQUEST_TIMEOUT,
-        )
 
         tool_calls: dict[int, _ChatToolCallState] = {}
         text_parts: list[str] = []
@@ -61,45 +56,51 @@ class OpenAIChatAdapter(ProviderAdapter):
         usage: Any = None
 
         try:
-            stream = await client.chat.completions.create(**self._build_request_payload(request), stream=True)
-            async for chunk in stream:
-                response_id = response_id or getattr(chunk, "id", None)
-                response_model = response_model or getattr(chunk, "model", None)
+            async with AsyncOpenAI(
+                api_key=api_key,
+                base_url=self.resolve_base_url(request.api_base),
+                timeout=DEFAULT_REQUEST_TIMEOUT,
+            ) as client:
+                stream = await client.chat.completions.create(**self._build_request_payload(request), stream=True)
+                async with stream:
+                    async for chunk in stream:
+                        response_id = response_id or getattr(chunk, "id", None)
+                        response_model = response_model or getattr(chunk, "model", None)
 
-                if getattr(chunk, "usage", None) is not None:
-                    usage = chunk.usage
+                        if getattr(chunk, "usage", None) is not None:
+                            usage = chunk.usage
 
-                if not chunk.choices:
-                    continue
+                        if not chunk.choices:
+                            continue
 
-                choice = chunk.choices[0]
-                if choice.finish_reason:
-                    finish_reason = choice.finish_reason
+                        choice = chunk.choices[0]
+                        if choice.finish_reason:
+                            finish_reason = choice.finish_reason
 
-                delta = choice.delta
-                reasoning_delta, reasoning_meta_update = self._extract_reasoning_delta(delta)
-                if reasoning_meta_update:
-                    thinking_native_meta.update(reasoning_meta_update)
-                if reasoning_delta:
-                    thinking_parts.append(reasoning_delta)
-                    yield ProviderStreamEvent("thinking_delta", {"text": reasoning_delta})
+                        delta = choice.delta
+                        reasoning_delta, reasoning_meta_update = self._extract_reasoning_delta(delta)
+                        if reasoning_meta_update:
+                            thinking_native_meta.update(reasoning_meta_update)
+                        if reasoning_delta:
+                            thinking_parts.append(reasoning_delta)
+                            yield ProviderStreamEvent("thinking_delta", {"text": reasoning_delta})
 
-                if delta.content:
-                    text_parts.append(delta.content)
-                    yield ProviderStreamEvent("text_delta", {"text": delta.content})
+                        if delta.content:
+                            text_parts.append(delta.content)
+                            yield ProviderStreamEvent("text_delta", {"text": delta.content})
 
-                for tool_call in delta.tool_calls or []:
-                    index = tool_call.index or 0
-                    state = tool_calls.setdefault(index, _ChatToolCallState(index=index))
-                    if tool_call.id:
-                        state.tool_id = tool_call.id
-                    function = tool_call.function
-                    if function is None:
-                        continue
-                    if function.name:
-                        state.name = function.name
-                    if function.arguments:
-                        state.arguments_text += function.arguments
+                        for tool_call in delta.tool_calls or []:
+                            index = tool_call.index or 0
+                            state = tool_calls.setdefault(index, _ChatToolCallState(index=index))
+                            if tool_call.id:
+                                state.tool_id = tool_call.id
+                            function = tool_call.function
+                            if function is None:
+                                continue
+                            if function.name:
+                                state.name = function.name
+                            if function.arguments:
+                                state.arguments_text += function.arguments
         except APIError as exc:
             raise ValueError(str(exc)) from exc
 
