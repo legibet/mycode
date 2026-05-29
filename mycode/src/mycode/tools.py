@@ -1,9 +1,9 @@
 """Tool execution runtime.
 
-The four built-in tools (``read`` / ``write`` / ``edit`` / ``bash``) are
-bundled as :data:`DEFAULT_TOOL_SPECS`. Custom tools wrap a typed Python
-function with :func:`tool` and can invoke the built-ins through the facades
-on :class:`ToolContext`::
+The four built-in tools (``read_tool`` / ``write_tool`` / ``edit_tool`` /
+``bash_tool``) are regular :class:`ToolSpec` values. Custom tools wrap a typed
+Python function with :func:`tool` and can invoke the built-ins through the
+facades on :class:`ToolContext`::
 
     @tool
     def smart_read(ctx: ToolContext, path: str) -> str:
@@ -25,11 +25,14 @@ import time
 import typing
 from base64 import b64encode
 from collections import deque
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from difflib import SequenceMatcher, unified_diff
 from pathlib import Path
-from typing import Any, Literal, TextIO, cast, get_args, get_origin, overload
+from typing import Any, TextIO, cast, overload
+
+from griffe import Docstring, DocstringSectionKind, Parser
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, create_model
 
 from mycode.attachments import detect_image_mime_type
 from mycode.messages import image_block, text_block
@@ -197,6 +200,17 @@ class ToolExecutor:
 # agents may run concurrently in the same process); this module-level set is
 # a shutdown-time safety net exposed as ``cancel_all_tools``.
 
+
+def cancel_all_tools() -> None:
+    """Terminate every running bash subprocess in the current process."""
+
+    with _ACTIVE_PROCS_LOCK:
+        procs = list(_ACTIVE_PROCS)
+        _ACTIVE_PROCS.clear()
+    for proc in procs:
+        _kill_proc_tree(proc)
+
+
 _ACTIVE_PROCS: set[subprocess.Popen[str]] = set()
 _ACTIVE_PROCS_LOCK = threading.Lock()
 
@@ -214,100 +228,203 @@ def _kill_proc_tree(proc: subprocess.Popen[str]) -> None:
             pass
 
 
-def cancel_all_tools() -> None:
-    """Terminate every running bash subprocess in the current process."""
-
-    with _ACTIVE_PROCS_LOCK:
-        procs = list(_ACTIVE_PROCS)
-        _ACTIVE_PROCS.clear()
-    for proc in procs:
-        _kill_proc_tree(proc)
-
-
 # ---------------------------------------------------------------------------
-# Generic file utilities
+# @tool decorator
 # ---------------------------------------------------------------------------
 
 
-def _atomic_write_text(path: Path, content: str, *, newline: str | None = None) -> None:
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    if newline is None:
-        tmp.write_text(content, encoding="utf-8")
-    else:
-        normalized = content.replace("\r\n", "\n")
-        if newline == "\r\n":
-            normalized = normalized.replace("\n", "\r\n")
-        with tmp.open("w", encoding="utf-8", newline="") as file:
-            file.write(normalized)
-    tmp.replace(path)
-
-
-@dataclass(frozen=True)
-class Truncation:
-    truncated: bool
-    truncated_by: str | None
-    output_lines: int
-    output_bytes: int
-
-
-def truncate_text(
-    text: str,
+@overload
+def tool(
+    function: Callable[..., Any],
     *,
-    max_lines: int = DEFAULT_MAX_LINES,
-    max_bytes: int = DEFAULT_MAX_BYTES,
-    tail: bool = False,
-) -> tuple[str, Truncation]:
-    """Truncate text by both line and byte limits; keep head or tail."""
+    name: str | None = None,
+    description: str | None = None,
+    parameters: Mapping[str, str] | None = None,
+    streams_output: bool = False,
+) -> ToolSpec: ...
 
-    lines = text.splitlines()
-    total_bytes = len(text.encode("utf-8"))
-    out_lines: list[str] = []
-    out_bytes = 0
 
-    source = reversed(lines) if tail else lines
+@overload
+def tool(
+    function: None = None,
+    *,
+    name: str | None = None,
+    description: str | None = None,
+    parameters: Mapping[str, str] | None = None,
+    streams_output: bool = False,
+) -> Callable[[Callable[..., Any]], ToolSpec]: ...
 
-    for line in source:
-        if len(out_lines) >= max_lines:
-            break
-        b = len(line.encode("utf-8")) + 1  # +1 for newline
-        if out_bytes + b > max_bytes:
-            break
-        out_lines.append(line)
-        out_bytes += b
 
-    if tail:
-        out_lines.reverse()
+def tool(
+    function: Callable[..., Any] | None = None,
+    *,
+    name: str | None = None,
+    description: str | None = None,
+    parameters: Mapping[str, str] | None = None,
+    streams_output: bool = False,
+) -> ToolSpec | Callable[[Callable[..., Any]], ToolSpec]:
+    """Wrap a sync or async Python function as a :class:`ToolSpec`."""
 
-    # Edge case: a single line exceeds max_bytes — slice the tail/head.
-    if not out_lines and lines:
-        target = lines[-1] if tail else lines[0]
-        encoded = target.encode("utf-8")
-        sliced = encoded[-max_bytes:] if tail else encoded[:max_bytes]
-        content = sliced.decode("utf-8", errors="ignore")
-        return content, Truncation(
-            truncated=True,
-            truncated_by="bytes",
-            output_lines=1,
-            output_bytes=len(sliced),
+    current_frame = inspect.currentframe()
+    caller_frame = current_frame.f_back if current_frame is not None else None
+    caller_locals = dict(caller_frame.f_locals) if caller_frame is not None else {}
+    del current_frame
+    del caller_frame
+
+    def wrap(fn: Callable[..., Any]) -> ToolSpec:
+        tool_name = name or fn.__name__
+        signature = inspect.signature(fn)
+        signature_parameters = list(signature.parameters.values())
+        try:
+            closure = inspect.getclosurevars(fn)
+            localns = {**caller_locals, **closure.nonlocals, **closure.globals}
+            resolved_hints = typing.get_type_hints(
+                fn,
+                globalns=fn.__globals__,
+                localns=localns,
+                include_extras=True,
+            )
+        except Exception:
+            resolved_hints = {}
+
+        wants_context = bool(signature_parameters) and resolved_hints.get(signature_parameters[0].name) is ToolContext
+        tool_params = signature_parameters[1:] if wants_context else signature_parameters
+        tool_param_names = [parameter.name for parameter in tool_params]
+        description_from_docstring, param_descriptions = _parse_tool_docstring(fn)
+        if parameters is not None:
+            unknown_params = sorted(set(parameters) - set(tool_param_names))
+            if unknown_params:
+                raise ValueError(f"unknown parameter descriptions for tool {tool_name!r}: {unknown_params}")
+            param_descriptions.update(parameters)
+
+        fields: dict[str, Any] = {}
+        defaulted_non_nullable_params: set[str] = set()
+        for parameter in tool_params:
+            if parameter.kind not in {inspect.Parameter.POSITIONAL_OR_KEYWORD, inspect.Parameter.KEYWORD_ONLY}:
+                raise ValueError(f"unsupported tool parameter kind: {parameter.name}")
+
+            annotation = resolved_hints.get(parameter.name, parameter.annotation)
+            if annotation is inspect.Signature.empty:
+                raise TypeError(f"tool parameter {parameter.name!r} requires a type annotation")
+
+            default = ... if parameter.default is inspect.Signature.empty else parameter.default
+            if default is not ... and not _allows_none(annotation):
+                defaulted_non_nullable_params.add(parameter.name)
+            fields[parameter.name] = (annotation, Field(default, description=param_descriptions.get(parameter.name)))
+
+        model_name = "".join(part.capitalize() for part in tool_name.split("_")) + "Args"
+        args_model = create_model(
+            model_name,
+            __config__=ConfigDict(extra="forbid", validate_by_name=True, validate_by_alias=True),
+            **fields,
+        )
+        input_schema = _clean_input_schema(args_model.model_json_schema(by_alias=True), tool_name=tool_name)
+
+        resolved_description = description or description_from_docstring
+        if not resolved_description:
+            raise ValueError(f"tool {tool_name!r} requires a docstring or explicit description")
+
+        is_async = inspect.iscoroutinefunction(fn)
+
+        def runner(context: ToolContext, args: dict[str, Any]) -> ToolExecutionResult:
+            # Strict providers send explicit null for an omitted optional field;
+            # drop it so the parameter default applies instead of failing validation.
+            validation_args = {
+                key: value
+                for key, value in args.items()
+                if not (value is None and key in defaulted_non_nullable_params)
+            }
+            try:
+                parsed_args = args_model.model_validate(validation_args)
+            except ValidationError as exc:
+                return ToolExecutionResult(output=f"error: invalid tool input: {exc}", is_error=True)
+
+            call_args = {name: getattr(parsed_args, name) for name in tool_param_names}
+            if is_async:
+                # The executor runs on a worker thread, so spinning a fresh
+                # event loop here is safe.
+                value = asyncio.run(fn(context, **call_args) if wants_context else fn(**call_args))
+            else:
+                value = fn(context, **call_args) if wants_context else fn(**call_args)
+            return _coerce_tool_result(value)
+
+        return ToolSpec(
+            name=tool_name,
+            description=resolved_description,
+            input_schema=input_schema,
+            runner=runner,
+            streams_output=streams_output,
         )
 
-    content = "\n".join(out_lines)
-    truncated = len(out_lines) < len(lines) or out_bytes < total_bytes
+    if function is None:
+        return wrap
+    return wrap(function)
 
-    truncated_by: str | None = None
-    if truncated:
-        if len(out_lines) < len(lines):
-            truncated_by = "lines" if len(out_lines) == max_lines else "bytes"
-        else:
-            truncated_by = "bytes"
 
-    trunc = Truncation(
-        truncated=truncated,
-        truncated_by=truncated_by,
-        output_lines=len(out_lines),
-        output_bytes=out_bytes,
-    )
-    return content, trunc
+def _allows_none(annotation: Any) -> bool:
+    if annotation is Any or annotation is type(None):
+        return True
+    if typing.get_origin(annotation) is typing.Annotated:
+        return _allows_none(typing.get_args(annotation)[0])
+    return type(None) in typing.get_args(annotation)
+
+
+def _parse_tool_docstring(fn: Callable[..., Any]) -> tuple[str | None, dict[str, str]]:
+    docstring = inspect.getdoc(fn)
+    if not docstring:
+        return None, {}
+
+    description_parts: list[str] = []
+    param_descriptions: dict[str, str] = {}
+    parsed = Docstring(
+        docstring,
+        parser=Parser.google,
+        parser_options={"warn_missing_types": False, "warn_unknown_params": False, "warnings": False},
+    ).parse()
+    for section in parsed:
+        if section.kind is DocstringSectionKind.text:
+            description_parts.append(str(section.value).strip())
+        elif section.kind is DocstringSectionKind.parameters:
+            for parameter in section.value:
+                param_descriptions[parameter.name] = parameter.description
+
+    description = "\n\n".join(part for part in description_parts if part)
+    return description or docstring, param_descriptions
+
+
+def _clean_input_schema(value: Any, *, tool_name: str) -> Any:
+    """Strip noisy Pydantic metadata and reject unsupported dynamic-key objects.
+
+    User-defined property names are preserved; only schema-level ``title`` and
+    ``format`` keys are dropped. ``dict``/map inputs (``additionalProperties``
+    other than ``False``) are rejected here so the error surfaces at decoration.
+    """
+
+    if isinstance(value, dict):
+        if value.get("additionalProperties") not in (None, False):
+            raise TypeError(f"tool {tool_name!r} uses unsupported dict/map input; use a Pydantic model or list[Model]")
+        cleaned: dict[str, Any] = {}
+        for key, item in value.items():
+            if key in {"properties", "$defs", "defs"} and isinstance(item, dict):
+                cleaned[key] = {name: _clean_input_schema(schema, tool_name=tool_name) for name, schema in item.items()}
+            elif key not in {"title", "format"}:
+                cleaned[key] = _clean_input_schema(item, tool_name=tool_name)
+        return cleaned
+    if isinstance(value, list):
+        return [_clean_input_schema(item, tool_name=tool_name) for item in value]
+    return value
+
+
+def _coerce_tool_result(value: Any) -> ToolExecutionResult:
+    if isinstance(value, ToolExecutionResult):
+        return value
+    if isinstance(value, str):
+        return ToolExecutionResult(output=value)
+    try:
+        text = json.dumps(value, ensure_ascii=False)
+    except TypeError:
+        text = str(value)
+    return ToolExecutionResult(output=text)
 
 
 # ---------------------------------------------------------------------------
@@ -315,15 +432,29 @@ def truncate_text(
 # ---------------------------------------------------------------------------
 
 
-def _run_read(ctx: ToolContext, args: dict[str, Any]) -> ToolExecutionResult:
+@tool(
+    name="read",
+    description=(
+        "Read a UTF-8 text file or supported image file. Returns up to 2000 lines for text files. "
+        "Use offset/limit for large files. Very long lines are shortened."
+    ),
+    parameters={
+        "path": "File path (relative or absolute).",
+        "offset": "Line number to start from (1-indexed).",
+        "limit": "Maximum number of lines to return.",
+    },
+)
+def read_tool(
+    ctx: ToolContext,
+    path: str,
+    offset: int | None = None,
+    limit: int | None = None,
+) -> ToolExecutionResult:
     """Read a UTF-8 text file or a supported image file.
 
-    ``offset`` is 1-indexed. ``limit`` caps the number of lines returned.
+    Offset is 1-indexed. Limit caps the number of lines returned.
     """
 
-    path = str(args.get("path") or "")
-    offset = args.get("offset")
-    limit = args.get("limit")
     file_path = Path(resolve_path(path, cwd=ctx.cwd))
 
     image_mime_type = detect_image_mime_type(file_path)
@@ -419,9 +550,15 @@ def _run_read(ctx: ToolContext, args: dict[str, Any]) -> ToolExecutionResult:
 # ---------------------------------------------------------------------------
 
 
-def _run_write(ctx: ToolContext, args: dict[str, Any]) -> ToolExecutionResult:
-    path = str(args.get("path") or "")
-    content = str(args.get("content") or "")
+@tool(
+    name="write",
+    description="Write a file (create or overwrite).",
+    parameters={
+        "path": "File path (relative or absolute).",
+        "content": "File content.",
+    },
+)
+def write_tool(ctx: ToolContext, path: str, content: str) -> ToolExecutionResult:
     file_path = Path(resolve_path(path, cwd=ctx.cwd))
     try:
         file_path.parent.mkdir(parents=True, exist_ok=True)
@@ -436,7 +573,28 @@ def _run_write(ctx: ToolContext, args: dict[str, Any]) -> ToolExecutionResult:
 # ---------------------------------------------------------------------------
 
 
-def _run_edit(ctx: ToolContext, args: dict[str, Any]) -> ToolExecutionResult:
+class EditEntry(BaseModel):
+    """One text replacement for the edit tool."""
+
+    model_config = ConfigDict(extra="forbid", validate_by_name=True, validate_by_alias=True)
+
+    old_text: str = Field(alias="oldText", description="Exact text to find (must be unique in the file).")
+    new_text: str = Field(alias="newText", description="Replacement text.")
+
+
+@tool(
+    name="edit",
+    description=(
+        "Edit a file by replacing text snippets. "
+        "Each edits[].oldText must match uniquely in the original file. "
+        "For multiple disjoint changes in one file, use one call with multiple edits."
+    ),
+    parameters={
+        "path": "File path (relative or absolute).",
+        "edits": "Replacements to apply. All matched against the original file, not incrementally.",
+    },
+)
+def edit_tool(ctx: ToolContext, path: str, edits: list[EditEntry]) -> ToolExecutionResult:
     """Replace one or more unique snippets in a file.
 
     Edits all match against the original file content. Exact match is tried
@@ -444,19 +602,14 @@ def _run_edit(ctx: ToolContext, args: dict[str, Any]) -> ToolExecutionResult:
     whitespace differences while only replacing the matched region.
     """
 
-    path = str(args.get("path") or "")
-    raw_edits = args.get("edits")
-    if not isinstance(raw_edits, list):
-        return ToolExecutionResult(output="error: edits must be a list", is_error=True)
-    edits = cast(list[dict[str, str]], raw_edits)
     file_path = Path(resolve_path(path, cwd=ctx.cwd))
     if not edits:
         return ToolExecutionResult(output="error: edits must not be empty", is_error=True)
 
     multi = len(edits) > 1
     for i, entry in enumerate(edits):
-        old_text = entry.get("oldText", "")
-        new_text = entry.get("newText", "")
+        old_text = entry.old_text
+        new_text = entry.new_text
         pfx = f"edits[{i}]: " if multi else ""
         if not old_text:
             return ToolExecutionResult(output=f"error: {pfx}oldText must not be empty", is_error=True)
@@ -481,8 +634,8 @@ def _run_edit(ctx: ToolContext, args: dict[str, Any]) -> ToolExecutionResult:
     norm_imap: list[int] | None = None
 
     for i, entry in enumerate(edits):
-        old_text = entry["oldText"]
-        new_text = entry["newText"]
+        old_text = entry.old_text
+        new_text = entry.new_text
         pfx = f"edits[{i}]: " if multi else ""
 
         exact_count = text.count(old_text)
@@ -583,63 +736,24 @@ def _run_edit(ctx: ToolContext, args: dict[str, Any]) -> ToolExecutionResult:
     )
 
 
-def _closest_line_hint(text: str, needle: str) -> str | None:
-    needle_clean = needle.strip()
-    if not needle_clean:
-        return None
-
-    best_ratio = 0.0
-    best_line = ""
-    for line in text.splitlines():
-        candidate = line.strip()
-        if not candidate:
-            continue
-        ratio = SequenceMatcher(None, needle_clean, candidate).ratio()
-        if ratio > best_ratio:
-            best_ratio = ratio
-            best_line = candidate
-            if ratio >= 1.0:
-                break
-
-    if best_ratio < 0.6 or not best_line:
-        return None
-
-    if len(best_line) > 120:
-        return best_line[:117] + "..."
-    return best_line
-
-
-def _normalize_text(text: str) -> tuple[str, list[int]]:
-    """Normalize for fuzzy edit matching: strip trailing whitespace per line, CRLF→LF.
-
-    Returns (normalized, index_map) where ``index_map[i]`` is the position of
-    normalized char *i* in the original text, so callers can map matches in
-    the normalized string back to exact original byte offsets.
-    """
-
-    chars: list[str] = []
-    imap: list[int] = []
-    pos = 0
-    for line in text.splitlines(keepends=True):
-        content = line.rstrip("\r\n")
-        trimmed = content.rstrip(" \t")
-        chars.extend(trimmed)
-        imap.extend(range(pos, pos + len(trimmed)))
-        eol = line[len(content) :]
-        if eol:
-            chars.append("\n")
-            imap.append(pos + len(content))
-        pos += len(line)
-
-    return "".join(chars), imap
-
-
 # ---------------------------------------------------------------------------
 # Built-in: bash
 # ---------------------------------------------------------------------------
 
 
-def _run_bash(ctx: ToolContext, args: dict[str, Any]) -> ToolExecutionResult:
+@tool(
+    name="bash",
+    description=(
+        "Run a shell command in the session working directory. "
+        "Large output returns the tail and saves the full log to a file."
+    ),
+    parameters={
+        "command": "Shell command.",
+        "timeout": "Timeout in seconds (optional).",
+    },
+    streams_output=True,
+)
+def bash_tool(ctx: ToolContext, command: str, timeout: int | None = None) -> ToolExecutionResult:
     """Run a shell command and return combined stdout/stderr text.
 
     Output is streamed line-by-line through ``ctx.emit`` when set.
@@ -649,9 +763,6 @@ def _run_bash(ctx: ToolContext, args: dict[str, Any]) -> ToolExecutionResult:
     only a bounded tail stays in memory; the returned text is then truncated
     again by :func:`truncate_text` to the display limits.
     """
-
-    command = str(args.get("command") or "")
-    timeout = args.get("timeout")
 
     timeout_seconds = int(timeout) if isinstance(timeout, int) and timeout > 0 else BASH_TIMEOUT_SECONDS
 
@@ -800,284 +911,136 @@ def _run_bash(ctx: ToolContext, args: dict[str, Any]) -> ToolExecutionResult:
 
 
 # ---------------------------------------------------------------------------
-# Built-in tool specs
-# ---------------------------------------------------------------------------
-
-DEFAULT_TOOL_SPECS: tuple[ToolSpec, ...] = (
-    ToolSpec(
-        name="read",
-        description=(
-            "Read a UTF-8 text file or supported image file. Returns up to 2000 lines for text files. "
-            "Use offset/limit for large files. Very long lines are shortened."
-        ),
-        input_schema={
-            "type": "object",
-            "properties": {
-                "path": {"type": "string", "description": "File path (relative or absolute)."},
-                "offset": {"type": "integer", "description": "Line number to start from (1-indexed)."},
-                "limit": {"type": "integer", "description": "Maximum number of lines to return."},
-            },
-            "required": ["path"],
-            "additionalProperties": False,
-        },
-        runner=_run_read,
-    ),
-    ToolSpec(
-        name="write",
-        description="Write a file (create or overwrite).",
-        input_schema={
-            "type": "object",
-            "properties": {
-                "path": {"type": "string", "description": "File path (relative or absolute)."},
-                "content": {"type": "string", "description": "File content."},
-            },
-            "required": ["path", "content"],
-            "additionalProperties": False,
-        },
-        runner=_run_write,
-    ),
-    ToolSpec(
-        name="edit",
-        description=(
-            "Edit a file by replacing text snippets. "
-            "Each edits[].oldText must match uniquely in the original file. "
-            "For multiple disjoint changes in one file, use one call with multiple edits."
-        ),
-        input_schema={
-            "type": "object",
-            "properties": {
-                "path": {"type": "string", "description": "File path (relative or absolute)."},
-                "edits": {
-                    "type": "array",
-                    "items": {
-                        "type": "object",
-                        "properties": {
-                            "oldText": {
-                                "type": "string",
-                                "description": "Exact text to find (must be unique in the file).",
-                            },
-                            "newText": {
-                                "type": "string",
-                                "description": "Replacement text.",
-                            },
-                        },
-                        "required": ["oldText", "newText"],
-                        "additionalProperties": False,
-                    },
-                    "description": "Replacements to apply. All matched against the original file, not incrementally.",
-                },
-            },
-            "required": ["path", "edits"],
-            "additionalProperties": False,
-        },
-        runner=_run_edit,
-    ),
-    ToolSpec(
-        name="bash",
-        description=(
-            "Run a shell command in the session working directory. "
-            "Large output returns the tail and saves the full log to a file."
-        ),
-        input_schema={
-            "type": "object",
-            "properties": {
-                "command": {"type": "string", "description": "Shell command."},
-                "timeout": {"type": "integer", "description": "Timeout in seconds (optional)."},
-            },
-            "required": ["command"],
-            "additionalProperties": False,
-        },
-        runner=_run_bash,
-        streams_output=True,
-    ),
-)
-
-
-# ---------------------------------------------------------------------------
-# @tool decorator
+# Edit helpers
 # ---------------------------------------------------------------------------
 
 
-@overload
-def tool(
-    function: Callable[..., Any],
+def _closest_line_hint(text: str, needle: str) -> str | None:
+    needle_clean = needle.strip()
+    if not needle_clean:
+        return None
+
+    best_ratio = 0.0
+    best_line = ""
+    for line in text.splitlines():
+        candidate = line.strip()
+        if not candidate:
+            continue
+        ratio = SequenceMatcher(None, needle_clean, candidate).ratio()
+        if ratio > best_ratio:
+            best_ratio = ratio
+            best_line = candidate
+            if ratio >= 1.0:
+                break
+
+    if best_ratio < 0.6 or not best_line:
+        return None
+
+    if len(best_line) > 120:
+        return best_line[:117] + "..."
+    return best_line
+
+
+def _normalize_text(text: str) -> tuple[str, list[int]]:
+    """Normalize text while preserving a map back to original offsets."""
+
+    chars: list[str] = []
+    imap: list[int] = []
+    pos = 0
+    for line in text.splitlines(keepends=True):
+        content = line.rstrip("\r\n")
+        trimmed = content.rstrip(" \t")
+        chars.extend(trimmed)
+        imap.extend(range(pos, pos + len(trimmed)))
+        eol = line[len(content) :]
+        if eol:
+            chars.append("\n")
+            imap.append(pos + len(content))
+        pos += len(line)
+
+    return "".join(chars), imap
+
+
+# ---------------------------------------------------------------------------
+# File and output helpers
+# ---------------------------------------------------------------------------
+
+
+def _atomic_write_text(path: Path, content: str, *, newline: str | None = None) -> None:
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    if newline is None:
+        tmp.write_text(content, encoding="utf-8")
+    else:
+        normalized = content.replace("\r\n", "\n")
+        if newline == "\r\n":
+            normalized = normalized.replace("\n", "\r\n")
+        with tmp.open("w", encoding="utf-8", newline="") as file:
+            file.write(normalized)
+    tmp.replace(path)
+
+
+@dataclass(frozen=True)
+class Truncation:
+    truncated: bool
+    truncated_by: str | None
+    output_lines: int
+    output_bytes: int
+
+
+def truncate_text(
+    text: str,
     *,
-    name: str | None = None,
-    description: str | None = None,
-    streams_output: bool = False,
-) -> ToolSpec: ...
+    max_lines: int = DEFAULT_MAX_LINES,
+    max_bytes: int = DEFAULT_MAX_BYTES,
+    tail: bool = False,
+) -> tuple[str, Truncation]:
+    """Truncate text by both line and byte limits; keep head or tail."""
 
+    lines = text.splitlines()
+    total_bytes = len(text.encode("utf-8"))
+    out_lines: list[str] = []
+    out_bytes = 0
 
-@overload
-def tool(
-    function: None = None,
-    *,
-    name: str | None = None,
-    description: str | None = None,
-    streams_output: bool = False,
-) -> Callable[[Callable[..., Any]], ToolSpec]: ...
+    source = reversed(lines) if tail else lines
 
+    for line in source:
+        if len(out_lines) >= max_lines:
+            break
+        b = len(line.encode("utf-8")) + 1  # +1 for newline
+        if out_bytes + b > max_bytes:
+            break
+        out_lines.append(line)
+        out_bytes += b
 
-def tool(
-    function: Callable[..., Any] | None = None,
-    *,
-    name: str | None = None,
-    description: str | None = None,
-    streams_output: bool = False,
-) -> ToolSpec | Callable[[Callable[..., Any]], ToolSpec]:
-    """Wrap a sync or async Python function as a :class:`ToolSpec`.
+    if tail:
+        out_lines.reverse()
 
-    A first parameter annotated :class:`ToolContext` is injected automatically;
-    the remaining parameters drive the input schema. The function may return a
-    :class:`ToolExecutionResult` or any JSON-serializable value.
-    """
-
-    def wrap(fn: Callable[..., Any]) -> ToolSpec:
-        parameters = list(inspect.signature(fn).parameters.values())
-        try:
-            resolved_hints = typing.get_type_hints(fn)
-        except Exception:
-            resolved_hints = {}
-        wants_context = bool(parameters) and resolved_hints.get(parameters[0].name) is ToolContext
-        # ToolContext is injected locally and must not appear in the provider
-        # input schema.
-        tool_params = parameters[1:] if wants_context else parameters
-        param_names = {p.name for p in tool_params}
-        input_schema, coercions = _build_input_schema(tool_params, resolved_hints)
-
-        resolved_description = description or inspect.getdoc(fn)
-        if not resolved_description:
-            raise ValueError(f"tool {(name or fn.__name__)!r} requires a docstring or explicit description")
-
-        is_async = inspect.iscoroutinefunction(fn)
-
-        def runner(context: ToolContext, args: dict[str, Any]) -> ToolExecutionResult:
-            call_args: dict[str, Any] = {}
-            for key, raw_value in args.items():
-                if key not in param_names:
-                    continue
-                coerce = coercions.get(key)
-                call_args[key] = coerce(raw_value) if (coerce is not None and raw_value is not None) else raw_value
-            if is_async:
-                # The executor runs on a worker thread, so spinning a fresh
-                # event loop here is safe.
-                value = asyncio.run(fn(context, **call_args) if wants_context else fn(**call_args))
-            else:
-                value = fn(context, **call_args) if wants_context else fn(**call_args)
-            return _coerce_tool_result(value)
-
-        return ToolSpec(
-            name=name or fn.__name__,
-            description=resolved_description,
-            input_schema=input_schema,
-            runner=runner,
-            streams_output=streams_output,
+    # Edge case: a single line exceeds max_bytes — slice the tail/head.
+    if not out_lines and lines:
+        target = lines[-1] if tail else lines[0]
+        encoded = target.encode("utf-8")
+        sliced = encoded[-max_bytes:] if tail else encoded[:max_bytes]
+        content = sliced.decode("utf-8", errors="ignore")
+        return content, Truncation(
+            truncated=True,
+            truncated_by="bytes",
+            output_lines=1,
+            output_bytes=len(sliced),
         )
 
-    if function is None:
-        return wrap
-    return wrap(function)
+    content = "\n".join(out_lines)
+    truncated = len(out_lines) < len(lines) or out_bytes < total_bytes
 
+    truncated_by: str | None = None
+    if truncated:
+        if len(out_lines) < len(lines):
+            truncated_by = "lines" if len(out_lines) == max_lines else "bytes"
+        else:
+            truncated_by = "bytes"
 
-def _build_input_schema(
-    parameters: list[inspect.Parameter],
-    resolved_hints: dict[str, Any],
-) -> tuple[dict[str, Any], dict[str, Callable[[Any], Any]]]:
-    """Build the JSON schema for ``parameters`` and a per-name coercion map.
-
-    The coercion map carries post-JSON conversions for annotations without a
-    native JSON type (currently only ``Path``).
-    """
-
-    properties: dict[str, Any] = {}
-    required: list[str] = []
-    coercions: dict[str, Callable[[Any], Any]] = {}
-
-    for parameter in parameters:
-        if parameter.kind not in {inspect.Parameter.POSITIONAL_OR_KEYWORD, inspect.Parameter.KEYWORD_ONLY}:
-            raise ValueError(f"unsupported tool parameter kind: {parameter.name}")
-
-        annotation = resolved_hints.get(parameter.name, parameter.annotation)
-        properties[parameter.name] = _annotation_to_schema(annotation, parameter.name)
-        coerce = _coercion_for_annotation(annotation)
-        if coerce is not None:
-            coercions[parameter.name] = coerce
-        if parameter.default is inspect.Signature.empty:
-            required.append(parameter.name)
-            continue
-
-        try:
-            json.dumps(parameter.default)
-        except TypeError:
-            continue
-        properties[parameter.name]["default"] = parameter.default
-
-    schema = {
-        "type": "object",
-        "properties": properties,
-        "required": required,
-        "additionalProperties": False,
-    }
-    return schema, coercions
-
-
-def _annotation_to_schema(annotation: Any, parameter_name: str) -> dict[str, Any]:
-    if annotation is inspect.Signature.empty:
-        raise TypeError(f"tool parameter {parameter_name!r} requires a type annotation")
-    if annotation in {str, Path}:
-        return {"type": "string"}
-    if annotation is bool:
-        return {"type": "boolean"}
-    if annotation is int:
-        return {"type": "integer"}
-    if annotation is float:
-        return {"type": "number"}
-
-    origin = get_origin(annotation)
-    args = get_args(annotation)
-
-    if origin in {list, tuple, set}:
-        items = _annotation_to_schema(args[0], parameter_name) if args else {"type": "string"}
-        return {"type": "array", "items": items}
-
-    if origin is Literal:
-        values = list(args)
-        if not values:
-            raise TypeError(f"Literal annotation on {parameter_name!r} must list at least one value")
-        schema = _annotation_to_schema(type(values[0]), parameter_name)
-        schema["enum"] = values
-        return schema
-
-    if args and type(None) in args:
-        non_none = [arg for arg in args if arg is not type(None)]
-        if len(non_none) == 1:
-            return _annotation_to_schema(non_none[0], parameter_name)
-
-    raise TypeError(f"unsupported tool parameter type for {parameter_name!r}: {annotation!r}")
-
-
-def _coercion_for_annotation(annotation: Any) -> Callable[[Any], Any] | None:
-    """Return a value coercion to apply after JSON parsing, or None."""
-
-    if annotation is Path:
-        return Path
-
-    args = get_args(annotation)
-    if args and type(None) in args:
-        non_none = [arg for arg in args if arg is not type(None)]
-        if len(non_none) == 1:
-            return _coercion_for_annotation(non_none[0])
-
-    return None
-
-
-def _coerce_tool_result(value: Any) -> ToolExecutionResult:
-    if isinstance(value, ToolExecutionResult):
-        return value
-    if isinstance(value, str):
-        return ToolExecutionResult(output=value)
-    try:
-        text = json.dumps(value, ensure_ascii=False)
-    except TypeError:
-        text = str(value)
-    return ToolExecutionResult(output=text)
+    return content, Truncation(
+        truncated=truncated,
+        truncated_by=truncated_by,
+        output_lines=len(out_lines),
+        output_bytes=out_bytes,
+    )

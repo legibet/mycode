@@ -41,7 +41,7 @@ from mycode.providers import (
     provider_default_models,
 )
 from mycode.session import SessionStore
-from mycode.tools import DEFAULT_TOOL_SPECS
+from mycode.tools import bash_tool, edit_tool, read_tool, write_tool
 from mycode.utils import resolve_path
 from mycode_cli.config import (
     REASONING_EFFORT_OPTIONS,
@@ -330,7 +330,7 @@ def clone_agent(agent: Agent, *, store: SessionStore, session_id: str) -> Agent:
         supports_image_input=agent.supports_image_input,
         supports_pdf_input=agent.supports_pdf_input,
         system=agent.system,
-        tools=DEFAULT_TOOL_SPECS,
+        tools=[read_tool, write_tool, edit_tool, bash_tool],
         hooks=agent.hooks,
     )
 

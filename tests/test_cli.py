@@ -19,7 +19,7 @@ from rich.console import Console
 
 from mycode.agent import Event
 from mycode.session import SessionStore
-from mycode.tools import DEFAULT_TOOL_SPECS, ToolContext, ToolExecutor
+from mycode.tools import ToolContext, ToolExecutor, bash_tool, edit_tool, read_tool, write_tool
 from mycode_cli.config import ResolvedProvider, Settings
 from mycode_cli.main import app, resolve_session, run_noninteractive
 from mycode_cli.permissions import PERMISSION_DENIED_BY_USER_OUTPUT, PERMISSION_DENIED_OUTPUT
@@ -30,6 +30,8 @@ from mycode_cli.tui.chat import (
     apply_resolved_provider,
 )
 from mycode_cli.tui.render import ReplyRenderer, TerminalView
+
+_TOOLS = (read_tool, write_tool, edit_tool, bash_tool)
 
 
 def settings_for(cwd: str) -> Settings:
@@ -56,7 +58,7 @@ class _AttachmentAgent:
         self.cwd = cwd
         self.supports_image_input = supports_image_input
         self.supports_pdf_input = supports_pdf_input
-        self.tools = ToolExecutor(DEFAULT_TOOL_SPECS)
+        self.tools = ToolExecutor(_TOOLS)
         self.tool_ctx = ToolContext(
             executor=self.tools,
             cwd=cwd,
@@ -125,7 +127,7 @@ class _RuntimeAgent:
         self.supports_reasoning: bool | None = None
         self.supports_image_input = False
         self.supports_pdf_input = False
-        self.tools = ToolExecutor(DEFAULT_TOOL_SPECS)
+        self.tools = ToolExecutor(_TOOLS)
 
     def refresh_capabilities(self, **_: Any) -> None:
         return None

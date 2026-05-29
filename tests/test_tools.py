@@ -5,22 +5,26 @@ import tempfile
 from pathlib import Path
 
 from mycode.tools import (
-    DEFAULT_TOOL_SPECS,
     READ_MAX_LINE_CHARS,
     ToolContext,
     ToolExecutionResult,
     ToolExecutor,
+    bash_tool,
+    edit_tool,
+    read_tool,
+    write_tool,
 )
 
 _PNG_1X1 = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j1X8AAAAASUVORK5CYII="
 )
+_TOOLS = (read_tool, write_tool, edit_tool, bash_tool)
 
 
 def _ctx(cwd: str, *, tool_output_dir: Path | None = None, supports_image_input: bool = False) -> ToolContext:
     """Build a ToolContext with the four built-ins registered."""
 
-    executor = ToolExecutor(DEFAULT_TOOL_SPECS)
+    executor = ToolExecutor(_TOOLS)
     return ToolContext(
         executor=executor,
         cwd=cwd,

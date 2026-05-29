@@ -8,6 +8,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+from pydantic import BaseModel, Field
 
 from mycode import (
     Agent,
@@ -225,6 +226,18 @@ class TestToolDecorator:
         assert lookup.input_schema["required"] == ["key"]
         assert lookup.streams_output is False
 
+    def test_preserves_parameters_named_like_schema_metadata(self) -> None:
+        @tool
+        def render(format: str, title: str, additionalProperties: str) -> str:
+            """Render a document."""
+
+            return f"{format}:{title}:{additionalProperties}"
+
+        assert render.input_schema["properties"]["format"] == {"type": "string"}
+        assert render.input_schema["properties"]["title"] == {"type": "string"}
+        assert render.input_schema["properties"]["additionalProperties"] == {"type": "string"}
+        assert render.input_schema["required"] == ["format", "title", "additionalProperties"]
+
     def test_converts_path_arguments_before_calling_runner(self, tmp_path: Path) -> None:
         captured: dict[str, object] = {}
 
@@ -243,3 +256,88 @@ class TestToolDecorator:
         assert isinstance(captured["value"], Path)
         assert captured["value"] == Path("/etc/hosts")
         assert result.output == "/etc/hosts"
+
+    def test_uses_default_when_non_nullable_default_parameter_receives_null(self, tmp_path: Path) -> None:
+        @tool
+        def lookup(key: str, limit: int = 10) -> str:
+            """Find entries."""
+
+            return f"{key}:{limit}"
+
+        executor = ToolExecutor([lookup])
+        ctx = ToolContext(executor=executor, cwd=".", tool_output_dir=tmp_path / "_p")
+        result = lookup.runner(ctx, {"key": "a", "limit": None})
+
+        assert result.output == "a:10"
+        assert result.is_error is False
+
+    def test_decorator_metadata_overrides_docstring(self) -> None:
+        @tool(
+            name="find",
+            description="Decorator description.",
+            parameters={"key": "Decorator key.", "limit": "Decorator limit."},
+        )
+        def lookup(key: str, limit: int = 10) -> str:
+            """Docstring description.
+
+            Args:
+                key: Docstring key.
+                limit: Docstring limit.
+            """
+
+            return f"{key}:{limit}"
+
+        assert lookup.name == "find"
+        assert lookup.description == "Decorator description."
+        assert lookup.input_schema["properties"]["key"]["description"] == "Decorator key."
+        assert lookup.input_schema["properties"]["limit"]["description"] == "Decorator limit."
+
+    def test_rejects_unknown_decorator_parameter_descriptions(self) -> None:
+        with pytest.raises(ValueError, match="unknown parameter descriptions"):
+
+            @tool(parameters={"missing": "Typo."})
+            def lookup(key: str) -> str:
+                """Find entries."""
+
+                return key
+
+    def test_rejects_dict_parameters(self) -> None:
+        with pytest.raises(TypeError, match="dict/map input"):
+
+            @tool
+            def search(filters: dict[str, str]) -> str:
+                """Search entries."""
+
+                return str(filters)
+
+    def test_supports_nested_pydantic_models(self, tmp_path: Path) -> None:
+        class EditEntry(BaseModel):
+            old_text: str = Field(alias="oldText", description="Exact text to find.")
+            new_text: str = Field(alias="newText", description="Replacement text.")
+
+        captured: dict[str, object] = {}
+
+        @tool(parameters={"path": "File path.", "edits": "Replacement entries."})
+        def replace(path: str, edits: list[EditEntry]) -> str:
+            """Replace text snippets."""
+
+            captured["edit"] = edits[0]
+            return path
+
+        executor = ToolExecutor([replace])
+        ctx = ToolContext(executor=executor, cwd=".", tool_output_dir=tmp_path / "_p")
+        result = replace.runner(ctx, {"path": "x.txt", "edits": [{"oldText": "a", "newText": "b"}]})
+
+        assert result.output == "x.txt"
+        assert isinstance(captured["edit"], EditEntry)
+        assert captured["edit"].old_text == "a"
+        assert replace.input_schema["properties"]["path"] == {"type": "string", "description": "File path."}
+        assert replace.input_schema["properties"]["edits"] == {
+            "description": "Replacement entries.",
+            "items": {"$ref": "#/$defs/EditEntry"},
+            "type": "array",
+        }
+        assert replace.input_schema["$defs"]["EditEntry"]["properties"]["oldText"] == {
+            "description": "Exact text to find.",
+            "type": "string",
+        }

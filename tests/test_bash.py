@@ -6,12 +6,17 @@ import time
 from pathlib import Path
 
 from mycode.tools import (
-    DEFAULT_TOOL_SPECS,
     ToolContext,
     ToolExecutionResult,
     ToolExecutor,
+    bash_tool,
     cancel_all_tools,
+    edit_tool,
+    read_tool,
+    write_tool,
 )
+
+_TOOLS = (read_tool, write_tool, edit_tool, bash_tool)
 
 
 def _ctx(
@@ -21,7 +26,7 @@ def _ctx(
     tool_call_id: str | None = None,
     on_output=None,
 ) -> ToolContext:
-    executor = ToolExecutor(DEFAULT_TOOL_SPECS)
+    executor = ToolExecutor(_TOOLS)
     return ToolContext(
         executor=executor,
         cwd=cwd,

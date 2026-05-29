@@ -28,26 +28,25 @@ from mycode.messages import (
 )
 from mycode.session import SessionStore
 from mycode.tools import (
-    DEFAULT_TOOL_SPECS,
     ToolContext,
     ToolExecutionResult,
     ToolExecutor,
     ToolSpec,
+    bash_tool,
     cancel_all_tools,
+    edit_tool,
+    read_tool,
     tool,
+    write_tool,
 )
 
-# The package metadata in mycode/pyproject.toml is the single version source.
 __version__ = metadata.version("mycode-sdk")
-
-read_tool, write_tool, edit_tool, bash_tool = DEFAULT_TOOL_SPECS
 
 __all__ = [
     "Agent",
     "Attachment",
     "ContentBlock",
     "ConversationMessage",
-    "DEFAULT_TOOL_SPECS",
     "Event",
     "AfterToolHook",
     "BeforeToolHook",
