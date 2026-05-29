@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import base64
 import json
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 import pytest
 
@@ -18,7 +18,7 @@ from mycode.providers import (
     OpenRouterAdapter,
 )
 from mycode.providers.base import repair_messages_for_replay
-from mycode.tools import DEFAULT_TOOL_SPECS
+from mycode.tools import tool as define_tool
 
 _PNG_1X1 = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j1X8AAAAASUVORK5CYII="
@@ -564,6 +564,26 @@ def test_openai_responses_preserves_invalid_tool_arguments() -> None:
 
 def test_openai_responses_serializes_strict_tool_schemas() -> None:
     adapter = OpenAIResponsesAdapter()
+    input_schema = {
+        "type": "object",
+        "properties": {
+            "path": {"type": "string"},
+            "limit": {"anyOf": [{"type": "integer"}, {"type": "null"}], "default": None},
+            "mode": {"type": "string", "enum": ["fast", "safe"], "default": "fast"},
+            "edits": {"type": "array", "items": {"$ref": "#/$defs/EditEntry"}},
+        },
+        "required": ["path", "edits"],
+        "$defs": {
+            "EditEntry": {
+                "type": "object",
+                "properties": {
+                    "oldText": {"type": "string"},
+                    "newText": {"type": "string"},
+                },
+                "required": ["oldText", "newText"],
+            }
+        },
+    }
 
     payload = adapter._build_request_payload(
         request_obj(
@@ -571,29 +591,90 @@ def test_openai_responses_serializes_strict_tool_schemas() -> None:
             messages=[{"role": "user", "content": [{"type": "text", "text": "hello"}]}],
             tools=[
                 {
-                    "name": tool.name,
-                    "description": tool.description,
-                    "input_schema": tool.input_schema,
+                    "name": "patch",
+                    "description": "Patch a file.",
+                    "input_schema": input_schema,
                 }
-                for tool in DEFAULT_TOOL_SPECS
             ],
         )
     )
 
-    for tool in payload["tools"]:
-        parameters = tool["parameters"]
-        assert tool["strict"] is True
-        assert parameters["required"] == list(parameters["properties"].keys())
+    serialized_tool = payload["tools"][0]
+    parameters = serialized_tool["parameters"]
+    assert serialized_tool["strict"] is True
+    assert parameters["required"] == list(parameters["properties"].keys())
+    assert parameters["additionalProperties"] is False
 
-    read_tool = next(tool for tool in payload["tools"] if tool["name"] == "read")
-    assert read_tool["parameters"]["properties"]["offset"]["type"] == ["integer", "null"]
-    assert read_tool["parameters"]["properties"]["limit"]["type"] == ["integer", "null"]
+    assert parameters["properties"]["limit"]["anyOf"] == [{"type": "integer"}, {"type": "null"}]
+    assert "default" not in parameters["properties"]["limit"]
 
-    bash_tool = next(tool for tool in payload["tools"] if tool["name"] == "bash")
-    assert bash_tool["parameters"]["properties"]["timeout"]["type"] == ["integer", "null"]
+    assert parameters["properties"]["mode"]["type"] == ["string", "null"]
+    assert parameters["properties"]["mode"]["enum"] == ["fast", "safe", None]
+    assert "default" not in parameters["properties"]["mode"]
 
-    read_schema = next(tool for tool in DEFAULT_TOOL_SPECS if tool.name == "read").input_schema
-    assert read_schema["required"] == ["path"]
+    edit_entry = parameters["$defs"]["EditEntry"]
+    assert edit_entry["additionalProperties"] is False
+    assert edit_entry["required"] == ["oldText", "newText"]
+
+
+def test_openai_responses_allows_null_for_optional_literal_tool_fields() -> None:
+    @define_tool
+    def choose_enum(mode: Literal["fast", "safe"] = "fast") -> str:
+        """Choose a mode."""
+
+        return mode
+
+    @define_tool
+    def choose_const(mode: Literal["fast"] = "fast") -> str:
+        """Choose a mode."""
+
+        return mode
+
+    for literal_tool, expected_enum in [(choose_enum, ["fast", "safe", None]), (choose_const, ["fast", None])]:
+        payload = OpenAIResponsesAdapter()._build_request_payload(
+            request_obj(
+                model="gpt-5.4",
+                messages=[{"role": "user", "content": [{"type": "text", "text": "hello"}]}],
+                tools=[
+                    {
+                        "name": literal_tool.name,
+                        "description": literal_tool.description,
+                        "input_schema": literal_tool.input_schema,
+                    }
+                ],
+            )
+        )
+
+        mode_schema = payload["tools"][0]["parameters"]["properties"]["mode"]
+        assert mode_schema["type"] == ["string", "null"]
+        assert mode_schema["enum"] == expected_enum
+        assert "const" not in mode_schema
+
+
+def test_openai_responses_rejects_dynamic_object_schemas() -> None:
+    with pytest.raises(ValueError, match="dynamic keys"):
+        OpenAIResponsesAdapter()._build_request_payload(
+            request_obj(
+                model="gpt-5.4",
+                messages=[{"role": "user", "content": [{"type": "text", "text": "hello"}]}],
+                tools=[
+                    {
+                        "name": "search",
+                        "description": "Search entries.",
+                        "input_schema": {
+                            "type": "object",
+                            "properties": {
+                                "filters": {
+                                    "type": "object",
+                                    "additionalProperties": {"type": "string"},
+                                }
+                            },
+                            "required": ["filters"],
+                        },
+                    }
+                ],
+            )
+        )
 
 
 # Gemini adapter

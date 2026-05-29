@@ -244,39 +244,8 @@ class OpenAIResponsesAdapter(ProviderAdapter):
         return items
 
     def _serialize_tool(self, tool: dict[str, Any]) -> dict[str, Any]:
-        parameters = cast(dict[str, Any], dict(tool.get("input_schema") or {"type": "object", "properties": {}}))
-        properties = parameters.get("properties")
-        required = parameters.get("required")
-
-        # OpenAI strict tools require every top-level property to appear in
-        # `required`. Our built-in tool schemas are flat, so optional fields only
-        # need a shallow nullable conversion here.
-        if isinstance(properties, dict):
-            copied_properties: dict[str, Any] = {
-                key: dict(value) if isinstance(value, dict) else value for key, value in properties.items()
-            }
-            required_names = {str(name) for name in required} if isinstance(required, list) else set()
-
-            for name, property_schema in copied_properties.items():
-                if name in required_names or not isinstance(property_schema, dict):
-                    continue
-
-                property_type = property_schema.get("type")
-                if isinstance(property_type, str):
-                    property_schema["type"] = [property_type, "null"]
-                elif isinstance(property_type, list):
-                    if "null" not in property_type:
-                        property_schema["type"] = [*property_type, "null"]
-                else:
-                    copied_properties[name] = {"anyOf": [property_schema, {"type": "null"}]}
-                    continue
-
-                enum_values = property_schema.get("enum")
-                if isinstance(enum_values, list) and None not in enum_values:
-                    property_schema["enum"] = [*enum_values, None]
-
-            parameters["properties"] = copied_properties
-            parameters["required"] = list(copied_properties.keys())
+        parameters = deepcopy(cast(dict[str, Any], tool.get("input_schema") or {"type": "object", "properties": {}}))
+        _normalize_strict_schema(parameters)
 
         return {
             "type": "function",
@@ -374,3 +343,65 @@ class OpenAIResponsesAdapter(ProviderAdapter):
             total_tokens=total_tokens,
             native_meta={"output_items": dumped_output_items} if dumped_output_items else None,
         )
+
+
+def _normalize_strict_schema(schema: Any) -> None:
+    """Mutate a JSON schema into the strict shape required by OpenAI tools."""
+
+    if isinstance(schema, list):
+        for item in schema:
+            _normalize_strict_schema(item)
+        return
+    if not isinstance(schema, dict):
+        return
+
+    schema.pop("default", None)
+    additional_properties = schema.get("additionalProperties")
+    if additional_properties not in (None, False):
+        raise ValueError("OpenAI strict tool schemas do not support object schemas with dynamic keys")
+
+    properties = schema.get("properties")
+    if isinstance(properties, dict):
+        required_names = {str(name) for name in schema.get("required", []) if isinstance(name, str)}
+        for name, property_schema in list(properties.items()):
+            _normalize_strict_schema(property_schema)
+            if name not in required_names:
+                properties[name] = _nullable_schema(property_schema)
+        schema["required"] = list(properties.keys())
+        schema["additionalProperties"] = False
+
+    for key in ("$defs", "defs"):
+        defs = schema.get(key)
+        if isinstance(defs, dict):
+            for definition in defs.values():
+                _normalize_strict_schema(definition)
+
+    for key in ("items", "anyOf", "oneOf", "allOf"):
+        _normalize_strict_schema(schema.get(key))
+
+
+def _nullable_schema(schema: Any) -> dict[str, Any]:
+    if not isinstance(schema, dict):
+        return {"anyOf": [schema, {"type": "null"}]}
+
+    schema_type = schema.get("type")
+    if isinstance(schema_type, str):
+        if schema_type == "null":
+            return schema
+        nullable_type = [schema_type, "null"]
+    elif isinstance(schema_type, list):
+        if "null" in schema_type:
+            return schema
+        nullable_type = [*schema_type, "null"]
+    else:
+        any_of = schema.get("anyOf")
+        if isinstance(any_of, list) and any(isinstance(item, dict) and item.get("type") == "null" for item in any_of):
+            return schema
+        return {"anyOf": [schema, {"type": "null"}]}
+
+    nullable = {**schema, "type": nullable_type}
+    if "const" in nullable:
+        nullable["enum"] = [nullable.pop("const"), None]
+    elif isinstance(nullable.get("enum"), list) and None not in nullable["enum"]:
+        nullable["enum"] = [*nullable["enum"], None]
+    return nullable
