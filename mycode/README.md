@@ -102,7 +102,7 @@ Four tools for reading, writing, editing files, and running shell commands. Opt 
 
 ## Custom tools
 
-Decorate any function with `@tool`. Parameter type hints become the JSON schema sent to the provider; the docstring becomes the description:
+Decorate a typed function with `@tool`:
 
 ```python
 from mycode import Agent, tool
@@ -110,7 +110,11 @@ from mycode import Agent, tool
 
 @tool
 def greet(name: str) -> str:
-    """Return a friendly greeting."""
+    """Return a friendly greeting.
+
+    Args:
+        name: Person name.
+    """
 
     return f"hello, {name}"
 
@@ -122,7 +126,7 @@ agent = Agent(
 )
 ```
 
-To call a built-in tool from inside your own, type the first parameter as `ToolContext`:
+To call a built-in tool from inside your own tool, type the first parameter as `ToolContext`:
 
 ```python
 from mycode import ToolContext, tool

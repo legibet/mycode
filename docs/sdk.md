@@ -155,42 +155,77 @@ Four built-in tools, opted in via `tools=[...]`. Only `bash_tool` streams increm
 
 ### `@tool`
 
-`@tool` wraps a sync or `async def` Python function as a `ToolSpec`. Parameter type hints drive the JSON schema sent to the provider; the docstring becomes the tool description.
+`@tool` wraps a sync or `async def` function as a `ToolSpec`. Parameters are validated with Pydantic and exported as the provider JSON schema.
 
 ```python
-from mycode import ToolContext, ToolExecutionResult, tool
+from mycode import tool
 
 
 @tool
 def greet(name: str) -> str:
-    """Return a friendly greeting."""
+    """Return a friendly greeting.
+
+    Args:
+        name: Person name.
+    """
 
     return f"hello, {name}"
+```
+
+Tool names and descriptions:
+
+- The function name becomes the tool name. Use `@tool(name=...)` to set a different provider-facing name.
+- The docstring summary becomes the tool description. Use `@tool(description=...)` to set it explicitly.
+- Google-style `Args:` entries describe top-level parameters. Use `@tool(parameters={...})` to set those descriptions explicitly.
+- Pydantic `Field(description=...)` describes fields inside nested models.
+
+Unknown `parameters={...}` keys raise at decoration time.
+
+Explicit metadata keeps schema text close to the decorator:
+
+```python
+@tool(
+    name="lookup",
+    description="Find entries by key.",
+    parameters={"key": "Lookup key.", "limit": "Maximum results."},
+)
+def lookup_entries(key: str, limit: int = 10) -> list[str]:
+    ...
+```
+
+Use Pydantic models for nested input:
+
+```python
+from pydantic import BaseModel, Field
 
 
+class Replacement(BaseModel):
+    old_text: str = Field(alias="oldText", description="Exact text to find.")
+    new_text: str = Field(alias="newText", description="Replacement text.")
+
+
+@tool(parameters={"path": "File path.", "edits": "Replacement entries."})
+def replace(path: str, edits: list[Replacement]) -> str:
+    """Replace text snippets."""
+
+    ...
+```
+
+Async tools work the same way:
+
+```python
 @tool
 async def fetch_url(url: str) -> str:
     """Fetch a URL and return its body."""
 
     import httpx
+
     async with httpx.AsyncClient() as client:
         response = await client.get(url)
         return response.text
-
-
-@tool(streams_output=True)
-def tail(ctx: ToolContext, path: str) -> ToolExecutionResult:
-    """Stream a file line by line."""
-
-    for line in open(path):
-        if ctx.emit:
-            ctx.emit(line.rstrip("\n"))
-    return ToolExecutionResult(output="done")
 ```
 
-- Missing docstrings raise at decoration time — pass `description=...` when no docstring fits.
-- Async tools are dispatched via `asyncio.run` on the executor's worker thread, so each call gets its own fresh event loop.
-- A bare `str` return becomes the tool's `output` (replayed to the provider on the next turn). Any other JSON-serializable return is dumped to JSON first. Return a `ToolExecutionResult` for finer control: `output` (replayed), `content` (multimodal blocks such as images, also replayed), `metadata` (structured UI data; `edit` uses this to carry a unified patch and line stats), and `is_error`.
+A bare `str` return becomes the tool output replayed to the provider. Other JSON-serializable returns are dumped to JSON. Return `ToolExecutionResult` when you need `content`, `metadata`, or `is_error`.
 
 ### `ToolContext`
 
