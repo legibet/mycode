@@ -57,6 +57,15 @@ class TestBash:
             assert tmpdir in result.output
             assert str(Path.home()) in result.output
 
+    def test_bash_does_not_wait_for_implicit_stdin(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            result = _ctx(tmpdir, tool_call_id="stdin-devnull").bash(
+                'python3 -c "import sys; data = sys.stdin.read(); print(repr(data))"',
+                timeout=1,
+            )
+
+            assert result.output == "''"
+
 
 class TestBashTimeout:
     def test_bash_timeout(self):

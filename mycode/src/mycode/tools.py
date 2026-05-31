@@ -780,6 +780,7 @@ def bash_tool(ctx: ToolContext, command: str, timeout: int | None = None) -> Too
             command,
             shell=True,
             cwd=ctx.cwd,
+            stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
