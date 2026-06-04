@@ -5,10 +5,12 @@ Source: `mycode/src/mycode/session.py`
 ## Storage Layout
 
 ```text
-<data_dir>/<session_id>/
-  meta.json        # immutable session metadata
-  messages.jsonl   # one JSON record per line (append-only)
-  tool-output/     # bash spill files (lazy; created on first spill)
+<data_dir>/
+  index.json       # session list cache
+  <session_id>/
+    meta.json      # session metadata
+    messages.jsonl # one JSON record per line (append-only)
+    tool-output/   # bash spill files (lazy; created on first spill)
 ```
 
 `data_dir` is supplied by the caller. The SDK never picks a default path. The CLI resolves it to `$MYCODE_HOME/sessions/` (default `~/.mycode/sessions/`) via `mycode_cli.config.resolve_sessions_dir()`.
@@ -22,17 +24,30 @@ Source: `mycode/src/mycode/session.py`
   "cwd": "/path/to/workspace",
   "title": "...",
   "created_at": "...",
-  "updated_at": "...",
-  "message_format_version": 7
+  "updated_at": "..."
 }
 ```
 
 - `cwd` — workspace path recorded at session creation; used by `list_sessions(cwd=...)` for filtering
 - `title` — defaults to `"New chat"`; promoted to the first user message text (truncated to 48 chars) on the first `append_message` carrying readable user text
 - `updated_at` — bumped on every `append_message`
-- `message_format_version` — written as `7`, not validated on load. v7 keeps `compact` events as inline visible markers (instead of replacing pre-compact history at load time); v6 sessions are not migrated.
 
 Per-turn state (`provider` / `model` / `api_base`) intentionally lives only on each `ConversationMessage.meta`; caching a "current" value at the session level would drift after `/model` switches.
+
+## index.json
+
+```json
+{
+  "session-id": {
+    "cwd": "/path/to/workspace",
+    "title": "...",
+    "created_at": "...",
+    "updated_at": "..."
+  }
+}
+```
+
+`index.json` is a map from session id to session metadata. `list_sessions()` reads it directly; missing or invalid index data is rebuilt from existing `meta.json` files.
 
 ## messages.jsonl Record Types
 

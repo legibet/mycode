@@ -2,9 +2,11 @@
 
 On disk:
 
-<data_dir>/<session_id>/
-  meta.json
-  messages.jsonl   # internal message/block dicts (system prompt excluded)
+<data_dir>/
+  index.json
+  <session_id>/
+    meta.json
+    messages.jsonl   # internal message/block dicts (system prompt excluded)
 """
 
 from __future__ import annotations
@@ -20,8 +22,8 @@ from typing import TypedDict, cast
 
 from mycode.messages import ConversationMessage, flatten_message_text
 
-MESSAGE_FORMAT_VERSION = 7
 DEFAULT_SESSION_TITLE = "New chat"
+META_KEYS = ("cwd", "title", "created_at", "updated_at")
 
 
 def _now() -> str:
@@ -77,10 +79,10 @@ class SessionMeta:
     title: str
     created_at: str
     updated_at: str
-    message_format_version: int
 
 
 SessionMetaDict = dict[str, object]
+SessionIndex = dict[str, SessionMetaDict]
 
 
 class SessionData(TypedDict):
@@ -120,6 +122,9 @@ class SessionStore:
     def messages_path(self, session_id: str) -> Path:
         return self.session_dir(session_id) / "messages.jsonl"
 
+    def index_path(self) -> Path:
+        return self.data_dir / "index.json"
+
     def session_exists(self, session_id: str) -> bool:
         return self.meta_path(session_id).exists()
 
@@ -128,12 +133,46 @@ class SessionStore:
         if not path.exists():
             return None
         try:
-            return json.loads(path.read_text(encoding="utf-8"))
+            raw = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             return None
+        if not isinstance(raw, dict):
+            return None
+        return {key: raw[key] for key in META_KEYS if key in raw}
 
     def _write_meta(self, session_id: str, meta: SessionMetaDict) -> None:
-        self.meta_path(session_id).write_text(json.dumps(meta, indent=2), encoding="utf-8")
+        meta = {key: meta[key] for key in META_KEYS if key in meta}
+        self.meta_path(session_id).write_text(json.dumps(meta, indent=2, ensure_ascii=False), encoding="utf-8")
+        index = self._read_index()
+        index[session_id] = dict(meta)
+        self._write_index(index)
+
+    def _read_index(self) -> SessionIndex:
+        try:
+            raw = json.loads(self.index_path().read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return self._rebuild_index()
+        if not isinstance(raw, dict):
+            return self._rebuild_index()
+        return {
+            str(session_id): {key: meta[key] for key in META_KEYS if key in meta}
+            for session_id, meta in raw.items()
+            if isinstance(meta, dict)
+        }
+
+    def _write_index(self, index: SessionIndex) -> None:
+        self.index_path().write_text(json.dumps(index, indent=2, ensure_ascii=False), encoding="utf-8")
+
+    def _rebuild_index(self) -> SessionIndex:
+        index: SessionIndex = {}
+        for entry in self.data_dir.iterdir():
+            if not entry.is_dir():
+                continue
+            meta = self._read_meta(entry.name)
+            if meta is not None:
+                index[entry.name] = dict(meta)
+        self._write_index(index)
+        return index
 
     # ---------------------------------------------------------------------
     # Session CRUD
@@ -149,7 +188,6 @@ class SessionStore:
                 title=DEFAULT_SESSION_TITLE,
                 created_at=now,
                 updated_at=now,
-                message_format_version=MESSAGE_FORMAT_VERSION,
             )
         )
 
@@ -169,15 +207,10 @@ class SessionStore:
 
         def load_all() -> list[SessionMetaDict]:
             out: list[SessionMetaDict] = []
-            for entry in self.data_dir.iterdir():
-                if not entry.is_dir():
-                    continue
-                meta = self._read_meta(entry.name)
-                if meta is None:
-                    continue
+            for session_id, meta in self._read_index().items():
                 if normalized and os.path.abspath(str(meta.get("cwd") or "")) != normalized:
                     continue
-                out.append(self._summary(entry.name, meta))
+                out.append(self._summary(session_id, meta))
 
             out.sort(key=lambda m: str(m.get("updated_at") or ""), reverse=True)
             return out
@@ -228,6 +261,9 @@ class SessionStore:
             sdir = self.session_dir(session_id)
             if sdir.exists():
                 shutil.rmtree(sdir, ignore_errors=True)
+            index = self._read_index()
+            index.pop(session_id, None)
+            self._write_index(index)
 
         await asyncio.to_thread(delete)
 

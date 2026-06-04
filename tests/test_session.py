@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Literal
 
 import pytest
 
@@ -55,6 +56,23 @@ async def test_list_sessions_filters_by_workspace(store: SessionStore, tmp_path:
 
     assert [session["id"] for session in current] == ["current"]
     assert {session["id"] for session in all_sessions} == {"current", "other"}
+
+
+@pytest.mark.parametrize("index_state", ["missing", "damaged"])
+async def test_list_sessions_recovers_when_index_is_unavailable(
+    store: SessionStore,
+    index_state: Literal["missing", "damaged"],
+) -> None:
+    await store.create_session("s1", cwd="/tmp")
+    await store.append_message("s1", {"role": "user", "content": [{"type": "text", "text": "Hello"}]})
+    if index_state == "missing":
+        store.index_path().unlink()
+    else:
+        store.index_path().write_text("{bad json", encoding="utf-8")
+
+    sessions = await store.list_sessions(cwd="/tmp")
+
+    assert [(session["id"], session["title"]) for session in sessions] == [("s1", "Hello")]
 
 
 async def test_latest_session_returns_most_recent_match(store: SessionStore) -> None:
@@ -122,9 +140,11 @@ async def test_load_session_derives_title_from_first_user_message(store: Session
     )
 
     loaded = await store.load_session("s1")
+    sessions = await store.list_sessions(cwd="/tmp")
 
     assert loaded is not None
     assert loaded["session"]["title"] == "How do I write a Python function?"
+    assert sessions[0]["title"] == "How do I write a Python function?"
 
 
 async def test_clear_session_keeps_metadata(store: SessionStore) -> None:
@@ -133,10 +153,12 @@ async def test_clear_session_keeps_metadata(store: SessionStore) -> None:
 
     await store.clear_session("s1")
     loaded = await store.load_session("s1")
+    sessions = await store.list_sessions(cwd="/tmp")
 
     assert loaded is not None
     assert loaded["messages"] == []
     assert loaded["session"]["cwd"] == "/tmp"
+    assert sessions[0]["title"] == "New chat"
 
 
 async def test_delete_session_removes_all_files(store: SessionStore) -> None:
@@ -146,3 +168,4 @@ async def test_delete_session_removes_all_files(store: SessionStore) -> None:
     await store.delete_session("s1")
 
     assert await store.load_session("s1") is None
+    assert await store.list_sessions(cwd="/tmp") == []
