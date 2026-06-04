@@ -126,6 +126,13 @@
       "supports_pdf_input": true,
       "supports_reasoning": true
     },
+    "claude-opus-4-8": {
+      "context_window": 1000000,
+      "max_output_tokens": 128000,
+      "supports_image_input": true,
+      "supports_pdf_input": true,
+      "supports_reasoning": true
+    },
     "claude-sonnet-4-0": {
       "context_window": 200000,
       "max_output_tokens": 64000,
@@ -381,6 +388,13 @@
       "context_window": 204800,
       "max_output_tokens": 131072,
       "supports_image_input": false,
+      "supports_pdf_input": false,
+      "supports_reasoning": true
+    },
+    "MiniMax-M3": {
+      "context_window": 512000,
+      "max_output_tokens": 128000,
+      "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
     }
@@ -838,13 +852,6 @@
       "supports_pdf_input": false,
       "supports_reasoning": false
     },
-    "alfredpros/codellama-7b-instruct-solidity": {
-      "context_window": 4096,
-      "max_output_tokens": 4096,
-      "supports_image_input": false,
-      "supports_pdf_input": false,
-      "supports_reasoning": false
-    },
     "allenai/olmo-3-32b-think": {
       "context_window": 65536,
       "max_output_tokens": 65536,
@@ -964,6 +971,20 @@
       "supports_pdf_input": true,
       "supports_reasoning": true
     },
+    "anthropic/claude-opus-4.8": {
+      "context_window": 1000000,
+      "max_output_tokens": 128000,
+      "supports_image_input": true,
+      "supports_pdf_input": true,
+      "supports_reasoning": true
+    },
+    "anthropic/claude-opus-4.8-fast": {
+      "context_window": 1000000,
+      "max_output_tokens": 128000,
+      "supports_image_input": true,
+      "supports_pdf_input": true,
+      "supports_reasoning": true
+    },
     "anthropic/claude-sonnet-4": {
       "context_window": 1000000,
       "max_output_tokens": 64000,
@@ -1027,27 +1048,6 @@
       "supports_pdf_input": false,
       "supports_reasoning": false
     },
-    "baidu/ernie-4.5-21b-a3b": {
-      "context_window": 120000,
-      "max_output_tokens": 8000,
-      "supports_image_input": false,
-      "supports_pdf_input": false,
-      "supports_reasoning": false
-    },
-    "baidu/ernie-4.5-21b-a3b-thinking": {
-      "context_window": 131072,
-      "max_output_tokens": 65536,
-      "supports_image_input": false,
-      "supports_pdf_input": false,
-      "supports_reasoning": true
-    },
-    "baidu/ernie-4.5-300b-a47b": {
-      "context_window": 123000,
-      "max_output_tokens": 12000,
-      "supports_image_input": false,
-      "supports_pdf_input": false,
-      "supports_reasoning": false
-    },
     "baidu/ernie-4.5-vl-28b-a3b": {
       "context_window": 30000,
       "max_output_tokens": 8000,
@@ -1058,13 +1058,6 @@
     "baidu/ernie-4.5-vl-424b-a47b": {
       "context_window": 123000,
       "max_output_tokens": 16000,
-      "supports_image_input": true,
-      "supports_pdf_input": false,
-      "supports_reasoning": true
-    },
-    "baidu/qianfan-ocr-fast": {
-      "context_window": 65536,
-      "max_output_tokens": 28672,
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -1203,8 +1196,8 @@
       "supports_reasoning": true
     },
     "deepseek/deepseek-v3.2": {
-      "context_window": 131072,
-      "max_output_tokens": 65536,
+      "context_window": 128000,
+      "max_output_tokens": 64000,
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -1216,23 +1209,9 @@
       "supports_pdf_input": false,
       "supports_reasoning": true
     },
-    "deepseek/deepseek-v3.2-speciale": {
-      "context_window": 163840,
-      "max_output_tokens": 163840,
-      "supports_image_input": false,
-      "supports_pdf_input": false,
-      "supports_reasoning": true
-    },
     "deepseek/deepseek-v4-flash": {
       "context_window": 1048576,
-      "max_output_tokens": 16384,
-      "supports_image_input": false,
-      "supports_pdf_input": false,
-      "supports_reasoning": true
-    },
-    "deepseek/deepseek-v4-flash:free": {
-      "context_window": 1048576,
-      "max_output_tokens": 384000,
+      "max_output_tokens": 131072,
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -1249,20 +1228,6 @@
       "max_output_tokens": 32768,
       "supports_image_input": false,
       "supports_pdf_input": false,
-      "supports_reasoning": false
-    },
-    "google/gemini-2.0-flash-001": {
-      "context_window": 1000000,
-      "max_output_tokens": 8192,
-      "supports_image_input": true,
-      "supports_pdf_input": true,
-      "supports_reasoning": false
-    },
-    "google/gemini-2.0-flash-lite-001": {
-      "context_window": 1048576,
-      "max_output_tokens": 8192,
-      "supports_image_input": true,
-      "supports_pdf_input": true,
       "supports_reasoning": false
     },
     "google/gemini-2.5-flash": {
@@ -1706,17 +1671,17 @@
       "supports_pdf_input": false,
       "supports_reasoning": true
     },
-    "minimax/minimax-m2.5:free": {
-      "context_window": 196608,
-      "max_output_tokens": 8192,
-      "supports_image_input": false,
-      "supports_pdf_input": false,
-      "supports_reasoning": true
-    },
     "minimax/minimax-m2.7": {
       "context_window": 196608,
       "max_output_tokens": 131072,
       "supports_image_input": false,
+      "supports_pdf_input": false,
+      "supports_reasoning": true
+    },
+    "minimax/minimax-m3": {
+      "context_window": 524288,
+      "max_output_tokens": 512000,
+      "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
     },
@@ -1730,20 +1695,6 @@
     "mistralai/devstral-2512": {
       "context_window": 262144,
       "max_output_tokens": 262144,
-      "supports_image_input": false,
-      "supports_pdf_input": true,
-      "supports_reasoning": false
-    },
-    "mistralai/devstral-medium": {
-      "context_window": 131072,
-      "max_output_tokens": 131072,
-      "supports_image_input": false,
-      "supports_pdf_input": true,
-      "supports_reasoning": false
-    },
-    "mistralai/devstral-small": {
-      "context_window": 131072,
-      "max_output_tokens": 131072,
       "supports_image_input": false,
       "supports_pdf_input": true,
       "supports_reasoning": false
@@ -1769,13 +1720,6 @@
       "supports_pdf_input": false,
       "supports_reasoning": false
     },
-    "mistralai/mistral-7b-instruct-v0.1": {
-      "context_window": 2824,
-      "max_output_tokens": 2824,
-      "supports_image_input": false,
-      "supports_pdf_input": false,
-      "supports_reasoning": false
-    },
     "mistralai/mistral-large": {
       "context_window": 128000,
       "max_output_tokens": 128000,
@@ -1784,13 +1728,6 @@
       "supports_reasoning": false
     },
     "mistralai/mistral-large-2407": {
-      "context_window": 131072,
-      "max_output_tokens": 131072,
-      "supports_image_input": false,
-      "supports_pdf_input": true,
-      "supports_reasoning": false
-    },
-    "mistralai/mistral-large-2411": {
       "context_window": 131072,
       "max_output_tokens": 131072,
       "supports_image_input": false,
@@ -1874,13 +1811,6 @@
       "supports_pdf_input": true,
       "supports_reasoning": false
     },
-    "mistralai/pixtral-large-2411": {
-      "context_window": 131072,
-      "max_output_tokens": 131072,
-      "supports_image_input": true,
-      "supports_pdf_input": true,
-      "supports_reasoning": false
-    },
     "mistralai/voxtral-small-24b-2507": {
       "context_window": 32000,
       "max_output_tokens": 32000,
@@ -1917,8 +1847,15 @@
       "supports_reasoning": true
     },
     "moonshotai/kimi-k2.6": {
-      "context_window": 262142,
-      "max_output_tokens": 262142,
+      "context_window": 262144,
+      "max_output_tokens": 262144,
+      "supports_image_input": true,
+      "supports_pdf_input": false,
+      "supports_reasoning": true
+    },
+    "moonshotai/kimi-k2.6:free": {
+      "context_window": 262144,
+      "max_output_tokens": 262144,
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -2028,6 +1965,27 @@
       "supports_pdf_input": false,
       "supports_reasoning": true
     },
+    "nvidia/nemotron-3-ultra-550b-a55b": {
+      "context_window": 262144,
+      "max_output_tokens": 16384,
+      "supports_image_input": false,
+      "supports_pdf_input": false,
+      "supports_reasoning": true
+    },
+    "nvidia/nemotron-3-ultra-550b-a55b:free": {
+      "context_window": 1000000,
+      "max_output_tokens": 65536,
+      "supports_image_input": false,
+      "supports_pdf_input": false,
+      "supports_reasoning": true
+    },
+    "nvidia/nemotron-3.5-content-safety:free": {
+      "context_window": 128000,
+      "max_output_tokens": 8192,
+      "supports_image_input": true,
+      "supports_pdf_input": false,
+      "supports_reasoning": true
+    },
     "nvidia/nemotron-nano-12b-v2-vl:free": {
       "context_window": 128000,
       "max_output_tokens": 128000,
@@ -2078,13 +2036,6 @@
       "supports_reasoning": false
     },
     "openai/gpt-4": {
-      "context_window": 8191,
-      "max_output_tokens": 4096,
-      "supports_image_input": false,
-      "supports_pdf_input": false,
-      "supports_reasoning": false
-    },
-    "openai/gpt-4-0314": {
       "context_window": 8191,
       "max_output_tokens": 4096,
       "supports_image_input": false,
@@ -2159,13 +2110,6 @@
       "max_output_tokens": 16384,
       "supports_image_input": true,
       "supports_pdf_input": true,
-      "supports_reasoning": false
-    },
-    "openai/gpt-4o-audio-preview": {
-      "context_window": 128000,
-      "max_output_tokens": 16384,
-      "supports_image_input": false,
-      "supports_pdf_input": false,
       "supports_reasoning": false
     },
     "openai/gpt-4o-mini": {
@@ -2525,6 +2469,13 @@
       "supports_pdf_input": false,
       "supports_reasoning": true
     },
+    "openrouter/fusion": {
+      "context_window": 128000,
+      "max_output_tokens": 128000,
+      "supports_image_input": false,
+      "supports_pdf_input": false,
+      "supports_reasoning": false
+    },
     "openrouter/owl-alpha": {
       "context_window": 1048756,
       "max_output_tokens": 262144,
@@ -2673,8 +2624,8 @@
       "supports_reasoning": false
     },
     "qwen/qwen3-235b-a22b-thinking-2507": {
-      "context_window": 131072,
-      "max_output_tokens": 81920,
+      "context_window": 262144,
+      "max_output_tokens": 262144,
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -2687,8 +2638,8 @@
       "supports_reasoning": true
     },
     "qwen/qwen3-30b-a3b-instruct-2507": {
-      "context_window": 262144,
-      "max_output_tokens": 262144,
+      "context_window": 128000,
+      "max_output_tokens": 32000,
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -2856,7 +2807,7 @@
     },
     "qwen/qwen3.5-35b-a3b": {
       "context_window": 262144,
-      "max_output_tokens": 81920,
+      "max_output_tokens": 262144,
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -2938,6 +2889,13 @@
       "supports_pdf_input": false,
       "supports_reasoning": true
     },
+    "qwen/qwen3.7-plus": {
+      "context_window": 1000000,
+      "max_output_tokens": 65536,
+      "supports_image_input": true,
+      "supports_pdf_input": false,
+      "supports_reasoning": true
+    },
     "rekaai/reka-edge": {
       "context_window": 16384,
       "max_output_tokens": 16384,
@@ -3005,6 +2963,13 @@
       "context_window": 262144,
       "max_output_tokens": 16384,
       "supports_image_input": false,
+      "supports_pdf_input": false,
+      "supports_reasoning": true
+    },
+    "stepfun/step-3.7-flash": {
+      "context_window": 256000,
+      "max_output_tokens": 256000,
+      "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
     },
@@ -3113,20 +3078,6 @@
       "supports_pdf_input": false,
       "supports_reasoning": true
     },
-    "xiaomi/mimo-v2-omni": {
-      "context_window": 262144,
-      "max_output_tokens": 65536,
-      "supports_image_input": true,
-      "supports_pdf_input": false,
-      "supports_reasoning": true
-    },
-    "xiaomi/mimo-v2-pro": {
-      "context_window": 1048576,
-      "max_output_tokens": 131072,
-      "supports_image_input": false,
-      "supports_pdf_input": false,
-      "supports_reasoning": true
-    },
     "xiaomi/mimo-v2.5": {
       "context_window": 1048576,
       "max_output_tokens": 131072,
@@ -3206,7 +3157,7 @@
     },
     "z-ai/glm-5": {
       "context_window": 202752,
-      "max_output_tokens": 131000,
+      "max_output_tokens": 16384,
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -3220,7 +3171,7 @@
     },
     "z-ai/glm-5.1": {
       "context_window": 202752,
-      "max_output_tokens": 202800,
+      "max_output_tokens": 131072,
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -3268,8 +3219,8 @@
       "supports_reasoning": true
     },
     "~moonshotai/kimi-latest": {
-      "context_window": 262142,
-      "max_output_tokens": 262142,
+      "context_window": 262144,
+      "max_output_tokens": 262144,
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
