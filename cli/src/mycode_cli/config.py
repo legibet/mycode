@@ -364,7 +364,9 @@ def _validate_model_config_entries(name: str, raw: Any) -> dict[str, dict[str, A
         if overrides is None:
             out[key] = {}
         elif isinstance(overrides, dict):
-            out[key] = {k: v for k, v in overrides.items() if k in MODEL_OVERRIDE_KEYS and v is not None}
+            out[key] = {
+                k: v for k, v in overrides.items() if isinstance(k, str) and k in MODEL_OVERRIDE_KEYS and v is not None
+            }
         else:
             raise ValueError(f"provider {name!r}: model {key!r} config must be an object")
     return out

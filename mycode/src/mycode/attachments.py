@@ -6,6 +6,7 @@ same content blocks for the same input.
 
 from __future__ import annotations
 
+import builtins
 import html
 from base64 import b64encode
 from collections.abc import Sequence
@@ -29,7 +30,7 @@ class Attachment:
     bare ``Attachment("notes.txt")`` from silently becoming text instead of a path.
     """
 
-    source: Path | bytes | str
+    source: Path | builtins.bytes | str
     media_type: str | None = None
     name: str | None = None
 
@@ -40,7 +41,7 @@ class Attachment:
         return cls(source=Path(path), name=name)
 
     @classmethod
-    def bytes(cls, data: bytes, *, media_type: str, name: str | None = None) -> Self:
+    def bytes(cls, data: builtins.bytes, *, media_type: str, name: str | None = None) -> Self:
         """``media_type`` must be a supported image type or ``application/pdf``."""
 
         if not media_type:

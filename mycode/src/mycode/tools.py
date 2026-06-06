@@ -29,6 +29,7 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from difflib import SequenceMatcher, unified_diff
 from pathlib import Path
+from types import FunctionType
 from typing import Any, TextIO, cast, overload
 
 from griffe import Docstring, DocstringSectionKind, Parser
@@ -235,7 +236,7 @@ def _kill_proc_tree(proc: subprocess.Popen[str]) -> None:
 
 @overload
 def tool(
-    function: Callable[..., Any],
+    function: FunctionType,
     *,
     name: str | None = None,
     description: str | None = None,
@@ -252,17 +253,17 @@ def tool(
     description: str | None = None,
     parameters: Mapping[str, str] | None = None,
     streams_output: bool = False,
-) -> Callable[[Callable[..., Any]], ToolSpec]: ...
+) -> Callable[[FunctionType], ToolSpec]: ...
 
 
 def tool(
-    function: Callable[..., Any] | None = None,
+    function: FunctionType | None = None,
     *,
     name: str | None = None,
     description: str | None = None,
     parameters: Mapping[str, str] | None = None,
     streams_output: bool = False,
-) -> ToolSpec | Callable[[Callable[..., Any]], ToolSpec]:
+) -> ToolSpec | Callable[[FunctionType], ToolSpec]:
     """Wrap a sync or async Python function as a :class:`ToolSpec`."""
 
     current_frame = inspect.currentframe()
@@ -271,7 +272,7 @@ def tool(
     del current_frame
     del caller_frame
 
-    def wrap(fn: Callable[..., Any]) -> ToolSpec:
+    def wrap(fn: FunctionType) -> ToolSpec:
         tool_name = name or fn.__name__
         signature = inspect.signature(fn)
         signature_parameters = list(signature.parameters.values())

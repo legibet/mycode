@@ -460,8 +460,9 @@ class Agent:
 
         self._cancel_event.clear()
 
+        user_message: ConversationMessage
         if isinstance(user_input, str):
-            user_message: ConversationMessage = user_text_message(user_input)
+            user_message = user_text_message(user_input)
         else:
             if (user_input.get("role") or "user") != "user":
                 yield Event("error", {"message": "user input must be a user message"})
