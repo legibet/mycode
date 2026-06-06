@@ -23,11 +23,11 @@ classifiers = [
 ]
 keywords = ["agent", "llm", "anthropic", "openai", "gemini", "sdk"]
 dependencies = [
-    "anthropic>=0.102.0",
-    "google-genai>=2.3.0",
-    "griffelib>=2.0.2",
-    "openai>=2.36.0",
-    "pydantic>=2.13.4",
+    "anthropic>=0.106.0",
+    "google-genai>=2.8.0",
+    "griffelib>=2.0.0",
+    "openai>=2.41.0",
+    "pydantic>=2.13.0",
 ]
 
 [project.urls]
