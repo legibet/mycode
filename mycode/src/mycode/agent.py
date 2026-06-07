@@ -232,18 +232,12 @@ class Agent:
         yield Event("tool_start", {"tool_call": {"id": tool_id, "name": name, "input": args}})
 
         if self._cancel_event.is_set():
-            yield self._tool_done_event(
-                tool_id,
-                ToolExecutionResult(output="error: cancelled", is_error=True),
-            )
+            yield self._error_done(tool_id, "error: cancelled")
             return
 
         spec = self.tools.get(name)
         if spec is None:
-            yield self._tool_done_event(
-                tool_id,
-                ToolExecutionResult(output=f"error: unknown tool: {name}", is_error=True),
-            )
+            yield self._error_done(tool_id, f"error: unknown tool: {name}")
             return
 
         hook_ctx = ToolHookContext(
@@ -259,10 +253,7 @@ class Agent:
         try:
             result = await self.hooks.run_before_tool(hook_ctx)
         except Exception as exc:
-            yield self._tool_done_event(
-                tool_id,
-                ToolExecutionResult(output=f"error: tool hook failed: {exc}", is_error=True),
-            )
+            yield self._error_done(tool_id, f"error: tool hook failed: {exc}")
             return
 
         if result is not None:
@@ -270,10 +261,7 @@ class Agent:
             return
 
         if self._cancel_event.is_set():
-            yield self._tool_done_event(
-                tool_id,
-                ToolExecutionResult(output="error: cancelled", is_error=True),
-            )
+            yield self._error_done(tool_id, "error: cancelled")
             return
 
         if spec.streams_output:
@@ -341,8 +329,7 @@ class Agent:
             except Exception:
                 pass
             output = "\n".join([*output_parts, "error: cancelled"]) if output_parts else "error: cancelled"
-            result = ToolExecutionResult(output=output, is_error=True)
-            yield self._tool_done_event(tool_id, result)
+            yield self._error_done(tool_id, output)
             return
         else:
             try:
@@ -398,6 +385,11 @@ class Agent:
             data["content"] = result.content
         return Event("tool_done", data)
 
+    def _error_done(self, tool_id: str, message: str) -> Event:
+        """Build a tool_done event carrying an error result."""
+
+        return self._tool_done_event(tool_id, ToolExecutionResult(output=message, is_error=True))
+
     # ------------------------------------------------------------------
     # Provider streaming
     # ------------------------------------------------------------------
@@ -433,6 +425,50 @@ class Agent:
                     await close()
                 except Exception:
                     pass
+
+    def _build_request(
+        self,
+        *,
+        tools: list[dict[str, Any]] | None = None,
+        max_tokens: int | None = None,
+        reasoning_effort: str | None = None,
+        append_messages: Sequence[ConversationMessage] = (),
+    ) -> ProviderRequest:
+        """Build a ProviderRequest from the agent's current state."""
+
+        return ProviderRequest(
+            provider=self.provider,
+            model=self.model,
+            session_id=self.session_id,
+            messages=self.messages,
+            system=self.system,
+            tools=self.tools.definitions if tools is None else tools,
+            max_tokens=self.max_tokens if max_tokens is None else max_tokens,
+            temperature=self.temperature,
+            api_key=self.api_key,
+            api_base=self.api_base,
+            reasoning_effort=reasoning_effort,
+            supports_image_input=self.supports_image_input,
+            supports_pdf_input=self.supports_pdf_input,
+            transcript_path=self.transcript_path,
+            append_messages=list(append_messages),
+        )
+
+    @staticmethod
+    def _elapsed_ms(start: float) -> int:
+        return max(0, int((time.monotonic() - start) * 1000))
+
+    @staticmethod
+    def _stamp_thinking_duration(content: list[Any], duration_ms: int) -> None:
+        """Merge duration_ms onto the last thinking block in content, if any."""
+
+        for block in reversed(content):
+            if not isinstance(block, dict) or block.get("type") != "thinking":
+                continue
+            raw_meta = block.get("meta")
+            meta = raw_meta if isinstance(raw_meta, dict) else {}
+            block["meta"] = {**meta, "duration_ms": duration_ms}
+            return
 
     # ------------------------------------------------------------------
     # Public entry points
@@ -480,16 +516,15 @@ class Agent:
             user_message["content"] = list(user_message.get("content") or []) + blocks
 
         content_blocks = user_message.get("content") or []
-        if not self.supports_image_input and any(
-            isinstance(block, dict) and block.get("type") == "image" for block in content_blocks
+        for block_type, supported, label in (
+            ("image", self.supports_image_input, "image input"),
+            ("document", self.supports_pdf_input, "PDF input"),
         ):
-            yield Event("error", {"message": "current model does not support image input"})
-            return
-        if not self.supports_pdf_input and any(
-            isinstance(block, dict) and block.get("type") == "document" for block in content_blocks
-        ):
-            yield Event("error", {"message": "current model does not support PDF input"})
-            return
+            if not supported and any(
+                isinstance(block, dict) and block.get("type") == block_type for block in content_blocks
+            ):
+                yield Event("error", {"message": f"current model does not support {label}"})
+                return
 
         self.messages.append(user_message)
         await persist(user_message)
@@ -508,22 +543,7 @@ class Agent:
             thinking_started_at: float | None = None
             thinking_duration_ms: int | None = None
             provider_cancelled = False
-            request = ProviderRequest(
-                provider=self.provider,
-                model=self.model,
-                session_id=self.session_id,
-                messages=self.messages,
-                system=self.system,
-                tools=self.tools.definitions,
-                max_tokens=self.max_tokens,
-                temperature=self.temperature,
-                api_key=self.api_key,
-                api_base=self.api_base,
-                reasoning_effort=self.reasoning_effort,
-                supports_image_input=self.supports_image_input,
-                supports_pdf_input=self.supports_pdf_input,
-                transcript_path=self.transcript_path,
-            )
+            request = self._build_request(reasoning_effort=self.reasoning_effort)
 
             try:
                 async for provider_event in self._stream_provider_turn(adapter, request):
@@ -547,7 +567,7 @@ class Agent:
                         delta_text = str(provider_event.data.get("text") or "")
                         if delta_text:
                             if thinking_started_at is not None and thinking_duration_ms is None:
-                                thinking_duration_ms = max(0, int((time.monotonic() - thinking_started_at) * 1000))
+                                thinking_duration_ms = self._elapsed_ms(thinking_started_at)
                                 yield Event("reasoning_done", {"duration_ms": thinking_duration_ms})
                             if partial_content and partial_content[-1].get("type") == "text":
                                 partial_content[-1]["text"] = f"{partial_content[-1].get('text') or ''}{delta_text}"
@@ -563,7 +583,7 @@ class Agent:
                         continue
 
                     if thinking_started_at is not None and thinking_duration_ms is None:
-                        thinking_duration_ms = max(0, int((time.monotonic() - thinking_started_at) * 1000))
+                        thinking_duration_ms = self._elapsed_ms(thinking_started_at)
                         yield Event("reasoning_done", {"duration_ms": thinking_duration_ms})
 
                     message = provider_event.data.get("message")
@@ -580,15 +600,9 @@ class Agent:
             if provider_cancelled:
                 if partial_content:
                     if thinking_started_at is not None and thinking_duration_ms is None:
-                        thinking_duration_ms = max(0, int((time.monotonic() - thinking_started_at) * 1000))
+                        thinking_duration_ms = self._elapsed_ms(thinking_started_at)
                     if thinking_duration_ms is not None:
-                        for block in reversed(partial_content):
-                            if block.get("type") != "thinking":
-                                continue
-                            raw_meta = block.get("meta")
-                            meta = cast(dict[str, Any], raw_meta) if isinstance(raw_meta, dict) else {}
-                            block["meta"] = {**meta, "duration_ms": thinking_duration_ms}
-                            break
+                        self._stamp_thinking_duration(partial_content, thinking_duration_ms)
                     cancelled_message = build_message(
                         "assistant",
                         [dict(block) for block in partial_content],
@@ -608,13 +622,7 @@ class Agent:
                 return
 
             if thinking_duration_ms is not None:
-                for block in reversed(assistant_message.get("content") or []):
-                    if not isinstance(block, dict) or block.get("type") != "thinking":
-                        continue
-                    raw_meta = block.get("meta")
-                    meta = cast(dict[str, Any], raw_meta) if isinstance(raw_meta, dict) else {}
-                    block["meta"] = {**meta, "duration_ms": thinking_duration_ms}
-                    break
+                self._stamp_thinking_duration(assistant_message.get("content") or [], thinking_duration_ms)
 
             # Stamp context_window onto the persisted assistant message so
             # rewinds and refreshed clients can render token-usage % without
@@ -650,16 +658,13 @@ class Agent:
                             continue
 
                         d = event.data
-                        output = str(d.get("output") or "")
-                        metadata = d.get("metadata") if isinstance(d.get("metadata"), dict) else None
-                        content = d.get("content")
                         tool_results.append(
                             tool_result_block(
-                                tool_use_id=str(d.get("tool_use_id") or ""),
-                                output=output,
-                                metadata=metadata,
-                                is_error=bool(d.get("is_error")),
-                                content=content if isinstance(content, list) else None,
+                                tool_use_id=d["tool_use_id"],
+                                output=d["output"],
+                                metadata=d.get("metadata"),
+                                is_error=d["is_error"],
+                                content=d.get("content"),
                             )
                         )
 
@@ -736,20 +741,9 @@ class Agent:
     ) -> None:
         """Ask the provider for a summary, persist the compact event, append it."""
 
-        request = ProviderRequest(
-            provider=self.provider,
-            model=self.model,
-            session_id=self.session_id,
-            messages=self.messages,
-            system=self.system,
+        request = self._build_request(
             tools=[],
             max_tokens=min(self.max_tokens, 8192),
-            temperature=self.temperature,
-            api_key=self.api_key,
-            api_base=self.api_base,
-            supports_image_input=self.supports_image_input,
-            supports_pdf_input=self.supports_pdf_input,
-            transcript_path=self.transcript_path,
             append_messages=[user_text_message(COMPACT_SUMMARY_PROMPT)],
         )
 

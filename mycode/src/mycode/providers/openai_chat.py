@@ -19,6 +19,7 @@ from mycode.providers.base import (
     get_native_meta,
     load_document_block_payload,
     load_image_block_payload,
+    native_block_meta,
 )
 from mycode.utils import omit_none, parse_tool_arguments
 
@@ -109,7 +110,7 @@ class OpenAIChatAdapter(ProviderAdapter):
             blocks.append(
                 thinking_block(
                     "".join(thinking_parts),
-                    meta={"native": thinking_native_meta} if thinking_native_meta else None,
+                    meta=native_block_meta(thinking_native_meta),
                 )
             )
         if text_parts:
@@ -248,13 +249,15 @@ class OpenAIChatAdapter(ProviderAdapter):
         if role != "assistant":
             return []
 
-        text_parts = [str(block.get("text") or "") for block in blocks if block.get("type") == "text"]
+        text_parts = [
+            str(block.get("text") or "") for block in blocks if block.get("type") == "text" and block.get("text")
+        ]
         thinking_blocks = [block for block in blocks if block.get("type") == "thinking"]
         tool_use_blocks = [block for block in blocks if block.get("type") == "tool_use"]
 
         payload: dict[str, Any] = {
             "role": "assistant",
-            "content": "\n".join(part for part in text_parts if part),
+            "content": "\n".join(text_parts),
         }
 
         if tool_use_blocks:

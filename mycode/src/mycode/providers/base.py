@@ -68,6 +68,12 @@ def get_native_meta(block: dict[str, Any]) -> dict[str, Any]:
     return {}
 
 
+def native_block_meta(native: dict[str, Any]) -> dict[str, Any] | None:
+    """Wrap accumulated native values as block meta, or None when empty."""
+
+    return {"native": native} if native else None
+
+
 class ProviderAdapter(ABC):
     """Base class for provider adapters.
 

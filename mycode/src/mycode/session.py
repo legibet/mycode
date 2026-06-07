@@ -85,6 +85,12 @@ SessionMetaDict = dict[str, object]
 SessionIndex = dict[str, SessionMetaDict]
 
 
+def _project_meta(raw: dict[str, object]) -> SessionMetaDict:
+    """Keep only the known session-meta keys."""
+
+    return {key: raw[key] for key in META_KEYS if key in raw}
+
+
 class SessionData(TypedDict):
     session: SessionMetaDict
     messages: list[ConversationMessage]
@@ -138,10 +144,10 @@ class SessionStore:
             return None
         if not isinstance(raw, dict):
             return None
-        return {key: raw[key] for key in META_KEYS if key in raw}
+        return _project_meta(raw)
 
     def _write_meta(self, session_id: str, meta: SessionMetaDict) -> None:
-        meta = {key: meta[key] for key in META_KEYS if key in meta}
+        meta = _project_meta(meta)
         self.meta_path(session_id).write_text(json.dumps(meta, indent=2, ensure_ascii=False), encoding="utf-8")
         index = self._read_index()
         index[session_id] = dict(meta)
@@ -154,11 +160,7 @@ class SessionStore:
             return self._rebuild_index()
         if not isinstance(raw, dict):
             return self._rebuild_index()
-        return {
-            str(session_id): {key: meta[key] for key in META_KEYS if key in meta}
-            for session_id, meta in raw.items()
-            if isinstance(meta, dict)
-        }
+        return {str(session_id): _project_meta(meta) for session_id, meta in raw.items() if isinstance(meta, dict)}
 
     def _write_index(self, index: SessionIndex) -> None:
         self.index_path().write_text(json.dumps(index, indent=2, ensure_ascii=False), encoding="utf-8")
@@ -228,7 +230,6 @@ class SessionStore:
         if meta is None:
             return None
 
-        # Read the raw append-only log first. Replay happens after that.
         raw_messages: list[ConversationMessage] = []
         try:
             with self.messages_path(session_id).open("r", encoding="utf-8") as handle:
@@ -238,10 +239,10 @@ class SessionStore:
                         continue
                     try:
                         msg = json.loads(line)
-                        if isinstance(msg, dict):
-                            raw_messages.append(cast(ConversationMessage, msg))
                     except ValueError:
                         continue
+                    if isinstance(msg, dict):
+                        raw_messages.append(cast(ConversationMessage, msg))
         except FileNotFoundError:
             pass
 

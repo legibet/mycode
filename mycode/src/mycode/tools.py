@@ -422,7 +422,7 @@ def _coerce_tool_result(value: Any) -> ToolExecutionResult:
     if isinstance(value, str):
         return ToolExecutionResult(output=value)
     try:
-        text = json.dumps(value, ensure_ascii=False)
+        text = json.dumps(value, ensure_ascii=False, default=str)
     except TypeError:
         text = str(value)
     return ToolExecutionResult(output=text)

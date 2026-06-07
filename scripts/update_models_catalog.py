@@ -7,6 +7,8 @@ from pathlib import Path
 from typing import Any
 from urllib.request import Request, urlopen
 
+from mycode.utils import as_bool, as_int
+
 MODELS_DEV_URL = "https://models.dev/api.json"
 TARGET_PATH = Path(__file__).resolve().parents[1] / "mycode" / "src" / "mycode" / "models_catalog.json"
 PROVIDERS = (
@@ -56,13 +58,9 @@ def main() -> None:
             supports_pdf_input = isinstance(input_modalities, list) and "pdf" in input_modalities
 
             models[model_id] = {
-                "context_window": context_window
-                if isinstance(context_window, int) and not isinstance(context_window, bool)
-                else None,
-                "max_output_tokens": max_output_tokens
-                if isinstance(max_output_tokens, int) and not isinstance(max_output_tokens, bool)
-                else None,
-                "supports_reasoning": supports_reasoning if isinstance(supports_reasoning, bool) else None,
+                "context_window": as_int(context_window),
+                "max_output_tokens": as_int(max_output_tokens),
+                "supports_reasoning": as_bool(supports_reasoning),
                 "supports_image_input": supports_image_input,
                 "supports_pdf_input": supports_pdf_input,
             }

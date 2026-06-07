@@ -24,6 +24,7 @@ from mycode.providers.base import (
     get_native_meta,
     load_document_block_payload,
     load_image_block_payload,
+    native_block_meta,
     tool_result_content_blocks,
 )
 
@@ -175,7 +176,7 @@ class AnthropicLikeAdapter(ProviderAdapter):
                 blocks.append(
                     thinking_block(
                         getattr(block, "thinking", ""),
-                        meta={"native": native_meta} if native_meta else None,
+                        meta=native_block_meta(native_meta),
                     )
                 )
                 continue
@@ -185,9 +186,7 @@ class AnthropicLikeAdapter(ProviderAdapter):
                 citations = getattr(block, "citations", None)
                 if citations:
                     native_meta["citations"] = dump_model(citations)
-                blocks.append(
-                    text_block(getattr(block, "text", ""), meta={"native": native_meta} if native_meta else None)
-                )
+                blocks.append(text_block(getattr(block, "text", ""), meta=native_block_meta(native_meta)))
                 continue
 
             if block_type == "tool_use":
@@ -200,7 +199,7 @@ class AnthropicLikeAdapter(ProviderAdapter):
                         tool_id=getattr(block, "id", ""),
                         name=getattr(block, "name", ""),
                         input=getattr(block, "input", None),
-                        meta={"native": native_meta} if native_meta else None,
+                        meta=native_block_meta(native_meta),
                     )
                 )
                 continue

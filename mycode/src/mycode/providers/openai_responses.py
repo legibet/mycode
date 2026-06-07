@@ -18,6 +18,7 @@ from mycode.providers.base import (
     dump_model,
     load_document_block_payload,
     load_image_block_payload,
+    native_block_meta,
     tool_result_content_blocks,
 )
 from mycode.utils import omit_none, parse_tool_arguments
@@ -285,7 +286,7 @@ class OpenAIResponsesAdapter(ProviderAdapter):
                 blocks.append(
                     thinking_block(
                         "".join(text_parts),
-                        meta={"native": item_meta} if item_meta else None,
+                        meta=native_block_meta(item_meta),
                     )
                 )
                 continue
@@ -301,7 +302,7 @@ class OpenAIResponsesAdapter(ProviderAdapter):
                     blocks.append(
                         text_block(
                             getattr(part, "text", ""),
-                            meta={"native": native_meta} if native_meta else None,
+                            meta=native_block_meta(native_meta),
                         )
                     )
                 continue
@@ -327,7 +328,7 @@ class OpenAIResponsesAdapter(ProviderAdapter):
                         tool_id=getattr(item, "call_id", ""),
                         name=getattr(item, "name", ""),
                         input=tool_input,
-                        meta={"native": item_meta} if item_meta else None,
+                        meta=native_block_meta(item_meta),
                     )
                 )
 
