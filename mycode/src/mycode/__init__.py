@@ -1,11 +1,4 @@
-"""mycode — multi-turn tool-calling agent runtime.
-
-Public API for embedding the agent loop in other Python applications. The
-runtime ships four built-in coding tools (``read``, ``write``, ``edit``,
-``bash``) exposed as :data:`read_tool`, :data:`write_tool`, :data:`edit_tool`,
-:data:`bash_tool` — pick the ones you want via ``tools=[...]`` rather than
-silently exposing file system and shell access.
-"""
+"""mycode — multi-turn tool-calling agent runtime."""
 
 from importlib import metadata
 

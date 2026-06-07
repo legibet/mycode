@@ -60,15 +60,20 @@ exclude = [".venv", "venv", "__pycache__", ".git"]
 
 [tool.ruff.lint]
 select = [
-    "E",  # pycodestyle errors
-    "W",  # pycodestyle warnings
-    "F",  # pyflakes
-    "I",  # isort
-    "B",  # flake8-bugbear
-    "C4", # flake8-comprehensions
-    "UP", # pyupgrade
+    "E",     # pycodestyle errors
+    "W",     # pycodestyle warnings
+    "F",     # pyflakes
+    "I",     # isort
+    "B",     # flake8-bugbear
+    "C4",    # flake8-comprehensions
+    "ASYNC", # flake8-async
+    "PT",    # flake8-pytest
+    "SIM",   # flake8-simplify
+    "UP",    # pyupgrade
+    "FAST",  # fastapi-specific rules
+    "FURB"   # refurb
 ]
-ignore = ["E501", "E731"]
+ignore = ["E501", "E731", "SIM108", "ASYNC240"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["mycode", "mycode_cli"]

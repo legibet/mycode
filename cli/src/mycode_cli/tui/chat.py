@@ -6,6 +6,7 @@ import asyncio
 import re
 import shlex
 from collections.abc import Iterable
+from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, override
@@ -528,10 +529,8 @@ class TerminalChat:
                 # Python 3.11+: uncancel the task so the loop can continue after Ctrl+C.
                 task = asyncio.current_task()
                 if task is not None:
-                    try:
+                    with suppress(AttributeError):
                         task.uncancel()
-                    except AttributeError:
-                        pass  # Python < 3.11
             finally:
                 self._current_renderer = None
 

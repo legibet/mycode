@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
+from contextlib import suppress
 from typing import Any, override
 from urllib.parse import urlparse
 
@@ -88,10 +89,8 @@ class GoogleGeminiAdapter(ProviderAdapter):
         except APIError as exc:
             raise ValueError(str(exc)) from exc
         finally:
-            try:
+            with suppress(Exception):
                 await client.aio.aclose()
-            except Exception:
-                pass
 
         raw_usage = usage or {}
         total_tokens = raw_usage.get("total_token_count") or None

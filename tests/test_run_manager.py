@@ -7,7 +7,7 @@ import asyncio
 import pytest
 
 from mycode.agent import Event
-from mycode_cli.server.run_manager import ActiveRunError, RunManager
+from mycode_cli.server.run_manager import ActiveRunError, RunManager, RunState
 
 pytestmark = pytest.mark.asyncio
 
@@ -38,6 +38,14 @@ class SimpleAgent:
         yield Event("text", {"delta": f"reply:{text}"})
 
 
+async def _wait_for_run_task(manager: RunManager, run_id: str) -> RunState:
+    state = await manager.get_run(run_id)
+    assert state is not None
+    assert state.task is not None
+    await state.task
+    return state
+
+
 async def test_snapshot_includes_user_message_and_pending_events() -> None:
     manager = RunManager()
     agent = BlockingAgent()
@@ -65,9 +73,7 @@ async def test_snapshot_includes_user_message_and_pending_events() -> None:
     assert snapshot["pending_events"] == [{"seq": 1, "type": "text", "delta": "reply:build feature"}]
 
     agent.release.set()
-    state = await manager.get_run(run["id"])
-    assert state is not None and state.task is not None
-    await state.task
+    await _wait_for_run_task(manager, run["id"])
 
 
 async def test_stream_events_respects_after_and_finishes() -> None:
@@ -80,9 +86,7 @@ async def test_stream_events_respects_after_and_finishes() -> None:
         agent=SimpleAgent(),
     )
 
-    state = await manager.get_run(run["id"])
-    assert state is not None and state.task is not None
-    await state.task
+    await _wait_for_run_task(manager, run["id"])
 
     events = [event async for event in manager.stream_events(run["id"], after=0)]
     assert events == [{"seq": 1, "type": "text", "delta": "reply:done"}]
@@ -110,10 +114,8 @@ async def test_same_session_cannot_start_second_run() -> None:
             agent=BlockingAgent(),
         )
 
-    state = await manager.get_run(first["id"])
-    assert state is not None and state.task is not None
     first_agent.release.set()
-    await state.task
+    await _wait_for_run_task(manager, first["id"])
 
 
 async def test_cancel_only_marks_target_run_cancelled() -> None:
@@ -139,9 +141,7 @@ async def test_cancel_only_marks_target_run_cancelled() -> None:
     assert cancelled["status"] == "cancelled"
     assert not await manager.has_active_run("session-1")
 
-    first_state = await manager.get_run(first["id"])
-    assert first_state is not None and first_state.task is not None
-    await first_state.task
+    await _wait_for_run_task(manager, first["id"])
 
     updated_first = await manager.get_run(first["id"])
     updated_second = await manager.get_run(second["id"])
@@ -182,9 +182,7 @@ async def test_cancelled_error_in_agent_still_finalizes_run() -> None:
         agent=agent,
     )
 
-    state = await manager.get_run(run["id"])
-    assert state is not None and state.task is not None
-    await state.task
+    await _wait_for_run_task(manager, run["id"])
 
     final = await manager.get_run(run["id"])
     assert final is not None
@@ -248,9 +246,7 @@ async def test_request_decision_allow_resumes_agent() -> None:
     resolved = await manager.resolve_decision(run["id"], str(request["request_id"]), "allow")
     assert resolved is True
 
-    state = await manager.get_run(run["id"])
-    assert state is not None and state.task is not None
-    await state.task
+    state = await _wait_for_run_task(manager, run["id"])
 
     assert agent.decision == "allow"
     types = [event["type"] for event in state.events]
@@ -275,9 +271,7 @@ async def test_request_decision_deny_returns_deny() -> None:
     request = await _wait_for_event(manager, run["id"], "permission_request")
     assert await manager.resolve_decision(run["id"], str(request["request_id"]), "deny") is True
 
-    state = await manager.get_run(run["id"])
-    assert state is not None and state.task is not None
-    await state.task
+    state = await _wait_for_run_task(manager, run["id"])
 
     assert agent.decision == "deny"
     assert agent.cancelled is True
@@ -301,9 +295,7 @@ async def test_cancel_run_unblocks_pending_decision_as_deny() -> None:
     await _wait_for_event(manager, run["id"], "permission_request")
     await manager.cancel_run(run["id"])
 
-    state = await manager.get_run(run["id"])
-    assert state is not None and state.task is not None
-    await state.task
+    state = await _wait_for_run_task(manager, run["id"])
 
     assert agent.cancelled is True
     assert agent.decision == "deny"
@@ -329,7 +321,8 @@ async def test_resolve_decision_returns_false_for_unknown_request() -> None:
 
     # Resolve the real one so the run can finish cleanly.
     state = await manager.get_run(run["id"])
-    assert state is not None and state.task is not None
+    assert state is not None
+    assert state.task is not None
     request = next(event for event in state.events if event["type"] == "permission_request")
     await manager.resolve_decision(run["id"], str(request["request_id"]), "allow")
     await state.task
@@ -345,9 +338,7 @@ async def test_finished_run_stays_available_for_reconnect_window() -> None:
         agent=SimpleAgent(),
     )
 
-    state = await manager.get_run(run["id"])
-    assert state is not None and state.task is not None
-    await state.task
+    await _wait_for_run_task(manager, run["id"])
 
     finished = await manager.get_run(run["id"])
     assert finished is not None

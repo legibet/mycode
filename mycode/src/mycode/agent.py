@@ -13,6 +13,7 @@ import os
 import tempfile
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
+from contextlib import suppress
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, cast
@@ -324,10 +325,8 @@ class Agent:
                 yield Event("tool_output", {"tool_use_id": tool_id, "output": output})
 
         if was_cancelled:
-            try:
+            with suppress(Exception):
                 await task
-            except Exception:
-                pass
             output = "\n".join([*output_parts, "error: cancelled"]) if output_parts else "error: cancelled"
             yield self._error_done(tool_id, output)
             return
@@ -421,10 +420,8 @@ class Agent:
         finally:
             close = cast(Callable[[], Awaitable[None]] | None, getattr(provider_stream, "aclose", None))
             if close is not None:
-                try:
+                with suppress(Exception):
                     await close()
-                except Exception:
-                    pass
 
     def _build_request(
         self,

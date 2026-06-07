@@ -26,6 +26,7 @@ import typing
 from base64 import b64encode
 from collections import deque
 from collections.abc import Callable, Mapping, Sequence
+from contextlib import suppress
 from dataclasses import dataclass
 from difflib import SequenceMatcher, unified_diff
 from pathlib import Path
@@ -223,10 +224,8 @@ def _kill_proc_tree(proc: subprocess.Popen[str]) -> None:
         else:
             proc.kill()
     except Exception:
-        try:
+        with suppress(Exception):
             proc.kill()
-        except Exception:
-            pass
 
 
 # ---------------------------------------------------------------------------
@@ -902,10 +901,8 @@ def bash_tool(ctx: ToolContext, command: str, timeout: int | None = None) -> Too
         return ToolExecutionResult(output=f"error: {exc}", is_error=True)
     finally:
         if log_file is not None:
-            try:
+            with suppress(Exception):
                 log_file.close()
-            except Exception:
-                pass
         if proc is not None:
             ctx.untrack_proc(proc)
             if proc.poll() is None:

@@ -11,6 +11,7 @@ import copy
 import json
 import os
 import tempfile
+from contextlib import suppress
 from pathlib import Path
 from typing import Any
 
@@ -137,10 +138,8 @@ def _atomic_write(path: Path, payload: dict[str, Any]) -> None:
             fh.write("\n")
         os.replace(tmp_name, path)
     except Exception:
-        try:
+        with suppress(OSError):
             os.unlink(tmp_name)
-        except OSError:
-            pass
         raise
 
 

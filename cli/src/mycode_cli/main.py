@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import os
 import sys
+from contextlib import suppress
 from dataclasses import dataclass, replace
 from typing import Annotated, Any
 from uuid import uuid4
@@ -250,7 +251,7 @@ def chat(
     if setup.resolved_session.mode == "resumed":
         setup.view.print_history_preview(setup.resolved_session.messages)
 
-    try:
+    with suppress(KeyboardInterrupt):
         asyncio.run(
             TerminalChat(
                 agent=setup.agent,
@@ -260,8 +261,6 @@ def chat(
                 view=setup.view,
             ).run()
         )
-    except KeyboardInterrupt:
-        pass
 
 
 @app.command()

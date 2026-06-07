@@ -49,7 +49,7 @@ async def _send_attachments(agent: Agent, attachments: list[Any]) -> _Capture:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "filename,payload,expected_type,expected_mime",
+    ("filename", "payload", "expected_type", "expected_mime"),
     [
         ("pic.png", PNG, "image", "image/png"),
         ("paper.pdf", PDF, "document", "application/pdf"),
@@ -76,7 +76,7 @@ async def test_text_path_attachment_is_visible_to_model(tmp_path: Path) -> None:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "data,media_type,expected_type",
+    ("data", "media_type", "expected_type"),
     [
         (PNG, "image/png", "image"),
         (PDF, "application/pdf", "document"),
@@ -113,7 +113,7 @@ def test_bytes_without_media_type_is_rejected_at_construction() -> None:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "capability,payload,error_word",
+    ("capability", "payload", "error_word"),
     [
         ("supports_image_input", PNG, "image"),
         ("supports_pdf_input", PDF, "PDF"),

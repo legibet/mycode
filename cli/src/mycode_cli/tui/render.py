@@ -126,7 +126,7 @@ def format_local_timestamp(value: str, display_format: str) -> str:
     if not value:
         return ""
     try:
-        timestamp = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        timestamp = datetime.fromisoformat(value)
         return timestamp.astimezone().strftime(display_format)
     except ValueError:
         return value[:16].replace("T", " ")
