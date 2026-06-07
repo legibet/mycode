@@ -102,7 +102,7 @@ When `SessionStore.load_session` runs:
 1. Read all JSONL lines into a raw list
 2. `apply_rewind()` — scan sequentially; when a rewind record is found, truncate the accumulated list to `meta.rewind_to` and continue
 
-`load_session` returns the raw timeline (minus rewound tails) as the visible history. `compact` records stay in place as inline markers — UIs render them as dividers, and `Agent` substitutes the summary into provider context lazily on each request via `_project_for_provider`. Orphan `tool_use` blocks left by an interrupted run are closed by the provider adapter when the messages are replayed, not by the loader.
+`load_session` returns the raw timeline (minus rewound tails) as the visible history. `compact` records stay in place as inline markers — UIs render them as dividers, and the provider adapter substitutes the summary into provider context lazily on each request in `prepare_messages` (via `compact.apply_compact_replay`). Orphan `tool_use` blocks left by an interrupted run are closed by the provider adapter when the messages are replayed, not by the loader.
 
 ## Context Compaction
 
@@ -110,7 +110,7 @@ Checked after every completed assistant turn (with or without tools), always at
 a full `assistant`/`tool_result` boundary.
 
 1. `should_compact()` — true when the latest assistant message's `total_tokens` ≥ `context_window × compact_threshold` (default `0.8`). Tool outputs appended this turn aren't reflected in that figure until the next API call's usage; the `(1 - threshold)` headroom absorbs them.
-2. Ask the same provider/model for a summary with the normal system prompt, the current provider-projected messages (`_project_for_provider`), no tools, text only, and `max_tokens = min(agent.max_tokens, 8192)`
+2. Ask the same provider/model for a summary with the normal system prompt, the current provider-projected messages (`prepare_messages`), no tools, text only, and `max_tokens = min(agent.max_tokens, 8192)`
 3. Build a compact event with the summary text and the summary call's `total_tokens` when available
 4. Persist the compact event and append it to `agent.messages` (append-only — original messages stay in JSONL and in the visible list)
 5. Emit the `compact` stream event to the caller (empty payload — clients use it as the cue to insert their inline divider)
@@ -125,7 +125,7 @@ If the summary request fails or returns no text, the agent logs a warning and ke
 
 ### Provider projection
 
-Visible state preserves pre-compact history and `compact` markers. Before each provider request, `Agent._project_for_provider` rebuilds a provider-facing view:
+Visible state preserves pre-compact history and `compact` markers. Before each provider request, the provider adapter's `prepare_messages` (via `compact.apply_compact_replay`) rebuilds a provider-facing view:
 
 - finds the last `compact` marker in `self.messages`
 - replaces everything up to and including that marker with one synthetic `user` message that frames the continuation, embeds the summary text, and points at the original JSONL transcript
@@ -134,7 +134,7 @@ Visible state preserves pre-compact history and `compact` markers. Before each p
   - tail empty or starts with `assistant` → no ack; the summary `user` message ends with a resume instruction so the LLM continues directly
   - tail starts with `user` (a real follow-up prompt) → a short synthetic `assistant` ack (`Acknowledged.`) is inserted between the summary and the tail to preserve user/assistant alternation
 
-The visible list seen by UIs and used by rewind never contains these synthetic substitutes — they exist only inside `ProviderRequest.messages`.
+The visible list seen by UIs and used by rewind never contains these synthetic substitutes — they exist only in the provider-projected messages produced by `prepare_messages`.
 
 ## Rewind
 

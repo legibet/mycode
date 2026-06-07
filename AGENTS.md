@@ -60,7 +60,7 @@ scripts/
 
 A single block-based JSON format is used at runtime and persisted to JSONL. Block types: `text` · `image` · `thinking` · `tool_use` · `tool_result`. Persisted message roles: `user` · `assistant` · `compact` · `rewind`; the last two are inline timeline markers (`compact` carries the summary text and stays visible to UIs; `rewind` carries an index into the visible list and is consumed at load time).
 
-`thinking` blocks are first-class session data — persisted, replayed to providers, and shown in UI. Provider-specific extras live in `meta.native` on messages and `block.meta.native` on blocks. Tool results are stored as `user` messages whose `tool_result` blocks carry the replayed `output` plus structured UI `metadata`. Compact substitution (replacing pre-compact history with a summary continuation) happens lazily inside `Agent._project_for_provider` per request; visible state and JSONL keep the real history.
+`thinking` blocks are first-class session data — persisted, replayed to providers, and shown in UI. Provider-specific extras live in `meta.native` on messages and `block.meta.native` on blocks. Tool results are stored as `user` messages whose `tool_result` blocks carry the replayed `output` plus structured UI `metadata`. Compact substitution (replacing pre-compact history with a summary continuation) happens lazily in the provider adapter's `prepare_messages` (via `compact.apply_compact_replay`) per request; visible state and JSONL keep the real history.
 
 Cancelled provider streams may persist partial assistant `thinking`/`text`. Cancelled streaming tools append `error: cancelled` to emitted output.
 
