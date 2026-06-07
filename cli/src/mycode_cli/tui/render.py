@@ -353,7 +353,6 @@ class ReplyRenderer:
         self._tool_output_count = 0
         self._tool_name: str = ""
         self._tool_args: dict[str, Any] = {}
-        self._tool_buffered = False
         self._tool_header_printed = False
         self._tool_live: Live | None = None
         # Stats reported by the agent's `usage` event for the latest turn.
@@ -444,11 +443,9 @@ class ReplyRenderer:
             # Bash streams output. Defer the header until the first output line
             # actually arrives so a hook (e.g. permission review) can interject
             # without leaving an orphan header above the prompt.
-            self._tool_buffered = False
             return
 
         # Other tools are fast — show spinner until tool_done.
-        self._tool_buffered = True
         self._tool_live = Live(
             self._build_tool_spinner(name, args),
             console=self._console,
@@ -479,37 +476,26 @@ class ReplyRenderer:
         metadata: dict[str, Any] | None = None,
     ) -> None:
         """Render the final tool result."""
-        shown_text = output
 
-        if self._tool_buffered:
-            self._stop_tool_live()
-            self._tool_buffered = False
-            if is_error:
-                self._print_tool_header(self._tool_name, self._tool_args)
-                self._tool_header_printed = True
-                first_line = shown_text.split("\n", 1)[0][:100]
-                self._console.print(Text(f"    {first_line}", style=ERROR))
-            else:
-                suffix = self._format_tool_suffix(self._tool_name, self._tool_args, metadata)
-                self._print_tool_header(self._tool_name, self._tool_args, suffix=suffix)
-                self._tool_header_printed = True
+        # A spinner means a buffered (non-streaming) tool; its success carries an
+        # inline header suffix. Bash and every error path use a plain header.
+        was_buffered = self._tool_live is not None
+        self._stop_tool_live()
+
+        suffix = None
+        if was_buffered and not is_error:
+            suffix = self._format_tool_suffix(self._tool_name, self._tool_args, metadata)
+        if not self._tool_header_printed:
+            self._print_tool_header(self._tool_name, self._tool_args, suffix=suffix)
+            self._tool_header_printed = True
+
+        if is_error and self._tool_output_count == 0:
+            first_line = output.split("\n", 1)[0][:100]
+            self._console.print(Text(f"    {first_line}", style=ERROR))
         else:
-            # Bash: streaming. Print the deferred header now if no output ever
-            # arrived (e.g. instant deny, instant exit).
-            if not self._tool_header_printed:
-                self._print_tool_header(self._tool_name, self._tool_args)
-                self._tool_header_printed = True
-
-            if is_error and self._tool_output_count == 0:
-                first_line = shown_text.split("\n", 1)[0][:100]
-                self._console.print(Text(f"    {first_line}", style=ERROR))
-            else:
-                parts: list[str] = []
-                truncated = self._tool_output_count - _TOOL_OUTPUT_MAX_LINES
-                if truncated > 0:
-                    parts.append(f"+{truncated} lines")
-                if parts:
-                    self._console.print(Text(f"    {' · '.join(parts)}", style=MUTED))
+            truncated = self._tool_output_count - _TOOL_OUTPUT_MAX_LINES
+            if truncated > 0:
+                self._console.print(Text(f"    +{truncated} lines", style=MUTED))
 
         self._had_prior_output = True
 

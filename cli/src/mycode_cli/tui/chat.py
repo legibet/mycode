@@ -33,7 +33,7 @@ from mycode.attachments import (
     detect_image_mime_type,
     unsupported_attachment_block,
 )
-from mycode.messages import build_message, text_block
+from mycode.messages import build_message, flatten_message_text, text_block
 from mycode.providers import (
     get_provider_adapter,
     list_env_discoverable_providers,
@@ -139,56 +139,62 @@ class _PromptCompleter(Completer):
     def get_completions(self, document: Document, complete_event: CompleteEvent) -> Iterable[Completion]:
         del complete_event
         text_before_cursor = document.text_before_cursor
-        text = text_before_cursor.lstrip()
         if self._cwd:
             match = _AT_PATH_RE.search(text_before_cursor)
             if match:
-                if (query := match.group("single")) is not None:
-                    quote = "'"
-                elif (query := match.group("double")) is not None:
-                    quote = '"'
-                else:
-                    quote = ""
-                    query = str(match.group("plain") or "")
-                # Complete only real paths under the current working directory.
-                if query == "~":
-                    base_prefix = "~/"
-                    partial = ""
-                    base_dir = Path("~").expanduser()
-                elif query.endswith("/"):
-                    base_prefix = query
-                    partial = ""
-                    base_dir = Path(resolve_path(query or ".", cwd=self._cwd))
-                else:
-                    head, sep, tail = query.rpartition("/")
-                    base_prefix = f"{head}{sep}" if sep else ""
-                    partial = tail if sep else query
-                    base_dir = Path(resolve_path(base_prefix or ".", cwd=self._cwd))
-
-                if base_dir.is_dir():
-                    for entry in sorted(base_dir.iterdir(), key=lambda item: (not item.is_dir(), item.name.lower())):
-                        if partial and not entry.name.startswith(partial):
-                            continue
-                        candidate = f"{base_prefix}{entry.name}{'/' if entry.is_dir() else ''}"
-                        if quote:
-                            replacement = f"@{quote}{candidate}{quote}"
-                        elif any(ch.isspace() for ch in candidate):
-                            replacement = "@" + shlex.quote(candidate)
-                        else:
-                            replacement = "@" + candidate
-                        yield Completion(
-                            replacement,
-                            start_position=-len(match.group(0)),
-                            display="@" + candidate,
-                            display_meta="dir" if entry.is_dir() else "file",
-                        )
+                yield from self._complete_path(match, self._cwd)
                 return
 
+        text = text_before_cursor.lstrip()
         if not text.startswith("/"):
             return
         for cmd, desc in self._COMMANDS.items():
             if cmd.startswith(text) and cmd != text:
                 yield Completion(cmd, start_position=-len(text), display_meta=desc)
+
+    def _complete_path(self, match: re.Match[str], cwd: str) -> Iterable[Completion]:
+        """Yield `@path` completions for real entries under the working directory."""
+
+        if (query := match.group("single")) is not None:
+            quote = "'"
+        elif (query := match.group("double")) is not None:
+            quote = '"'
+        else:
+            quote = ""
+            query = str(match.group("plain") or "")
+
+        if query == "~":
+            base_prefix = "~/"
+            partial = ""
+            base_dir = Path("~").expanduser()
+        elif query.endswith("/"):
+            base_prefix = query
+            partial = ""
+            base_dir = Path(resolve_path(query or ".", cwd=cwd))
+        else:
+            head, sep, tail = query.rpartition("/")
+            base_prefix = f"{head}{sep}" if sep else ""
+            partial = tail if sep else query
+            base_dir = Path(resolve_path(base_prefix or ".", cwd=cwd))
+
+        if not base_dir.is_dir():
+            return
+        for entry in sorted(base_dir.iterdir(), key=lambda item: (not item.is_dir(), item.name.lower())):
+            if partial and not entry.name.startswith(partial):
+                continue
+            candidate = f"{base_prefix}{entry.name}{'/' if entry.is_dir() else ''}"
+            if quote:
+                replacement = f"@{quote}{candidate}{quote}"
+            elif any(ch.isspace() for ch in candidate):
+                replacement = "@" + shlex.quote(candidate)
+            else:
+                replacement = "@" + candidate
+            yield Completion(
+                replacement,
+                start_position=-len(match.group(0)),
+                display="@" + candidate,
+                display_meta="dir" if entry.is_dir() else "file",
+            )
 
 
 def _rewrite_pasted_file_paths(text: str) -> str | None:
@@ -216,19 +222,23 @@ async def _restart_completion(buffer: Buffer) -> None:
     buffer.start_completion(select_first=True)
 
 
+def resolve_slash_command(command: str) -> str | None:
+    """Return the canonical slash command for an exact or unique-prefix match."""
+
+    if command in _SLASH_COMMANDS:
+        return command
+    matches = [candidate for candidate in _SLASH_COMMANDS if candidate.startswith(command)]
+    return matches[0] if len(matches) == 1 else None
+
+
 def _matched_slash_command(text_before_cursor: str) -> tuple[str, str] | None:
     text = text_before_cursor.lstrip()
     if not text.startswith("/"):
         return None
 
     command, _, _argument = text.partition(" ")
-    if command in _SLASH_COMMANDS:
-        return command, command
-
-    matches = [candidate for candidate in _SLASH_COMMANDS if candidate.startswith(command)]
-    if len(matches) == 1:
-        return command, matches[0]
-    return None
+    resolved = resolve_slash_command(command)
+    return (command, resolved) if resolved else None
 
 
 def _replace_slash_command(buffer: Buffer, command: str, replacement: str) -> None:
@@ -581,9 +591,7 @@ class TerminalChat:
 
         command, _, argument = text.partition(" ")
         argument = argument.strip()
-        matches = [candidate for candidate in _SLASH_COMMANDS if candidate.startswith(command)]
-        if len(matches) == 1:
-            command = matches[0]
+        command = resolve_slash_command(command) or command
 
         match command:
             case "/q":
@@ -682,15 +690,15 @@ class TerminalChat:
             self.view.console.print("[dim]nothing to rewind[/dim]")
             return None
 
-        # Collect real user text messages (skip tool-result-only user messages).
+        # Collect real user text turns, skipping tool-result-only and attachment
+        # blocks via the shared flattener (same view as the history preview).
         user_turns: dict[int, str] = {}  # message_index -> text
         for i, msg in enumerate(messages):
             if msg.get("role") != "user":
                 continue
-            for b in msg.get("content") or []:
-                if isinstance(b, dict) and b.get("type") == "text" and b.get("text"):
-                    user_turns[i] = str(b["text"]).strip()
-                    break
+            text = flatten_message_text(msg, include_thinking=False)
+            if text:
+                user_turns[i] = text
 
         if not user_turns:
             self.view.console.print("[dim]no user messages to rewind to[/dim]")

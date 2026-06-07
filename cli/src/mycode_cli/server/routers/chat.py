@@ -33,6 +33,7 @@ from mycode.utils import resolve_path
 from mycode_cli.config import (
     REASONING_EFFORT_OPTIONS,
     ResolvedProvider,
+    gate_reasoning_effort,
     get_settings,
     normalize_reasoning_effort,
     resolve_provider,
@@ -40,7 +41,7 @@ from mycode_cli.config import (
 )
 from mycode_cli.permissions import ToolReviewDecision, ToolReviewRequest
 from mycode_cli.runtime import build_agent
-from mycode_cli.server.deps import RunManagerDep, StoreDep
+from mycode_cli.server.deps import RunManagerDep, StoreDep, resolve_workspace_cwd
 from mycode_cli.server.run_manager import ActiveRunError, RunManager
 from mycode_cli.server.schemas import (
     CancelRunResponse,
@@ -74,11 +75,13 @@ async def _build_user_message(chat: ChatRequest, cwd: str) -> ConversationMessag
                 blocks.append(text_block(text))
             continue
 
+        # block.type is "image" or "document" from here on.
+        factory = document_block if block.type == "document" else image_block
+
         # Inline base64 from the web client.
         if block.data:
             mime_type = block.mime_type or "application/pdf"
             default_name = "document.pdf" if block.type == "document" else "image"
-            factory = document_block if block.type == "document" else image_block
             blocks.append(factory(block.data, mime_type=mime_type, name=block.name or default_name))
             continue
 
@@ -92,7 +95,6 @@ async def _build_user_message(chat: ChatRequest, cwd: str) -> ConversationMessag
         if not mime_type or (block.type == "document" and mime_type != "application/pdf"):
             raise HTTPException(status_code=400, detail=f"unsupported {block.type} file: {block.path}")
         data = b64encode(await asyncio.to_thread(path.read_bytes)).decode("utf-8")
-        factory = image_block if block.type == "image" else document_block
         blocks.append(factory(data, mime_type=mime_type, name=block.name or path.name))
 
     if not blocks:
@@ -132,9 +134,7 @@ def _validate_rewind_request(
 
 @router.post("/chat")
 async def chat(chat: ChatRequest, store: StoreDep, runs: RunManagerDep) -> ChatResponse:
-    cwd = os.path.abspath(chat.cwd or os.getcwd())
-    if not os.path.isdir(cwd):
-        raise HTTPException(status_code=400, detail=f"Working directory does not exist: {cwd}")
+    cwd = resolve_workspace_cwd(chat.cwd)
     settings = await asyncio.to_thread(get_settings, cwd)
     resolved = resolve_provider(
         settings,
@@ -168,10 +168,10 @@ async def chat(chat: ChatRequest, store: StoreDep, runs: RunManagerDep) -> ChatR
 
     adapter = get_provider_adapter(resolved.provider)
     configured_effort = request_effort if request_effort is not None else resolved.reasoning_effort
-    reasoning_effort = (
-        configured_effort
-        if configured_effort is not None and model_meta.supports_reasoning is True and adapter.supports_reasoning_effort
-        else None
+    reasoning_effort = gate_reasoning_effort(
+        configured_effort,
+        supports_reasoning=model_meta.supports_reasoning,
+        adapter_supports_effort=adapter.supports_reasoning_effort,
     )
 
     async with runs.session_operation(session_id):

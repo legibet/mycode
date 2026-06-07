@@ -123,7 +123,7 @@ class RunManager:
             return {
                 "run": state.info(),
                 "messages": messages,
-                "pending_events": copy.deepcopy(state.events),
+                "pending_events": list(state.events),
             }
 
     @asynccontextmanager
@@ -152,7 +152,7 @@ class RunManager:
         last_seq = max(0, after)
         while True:
             async with state.condition:
-                pending = [copy.deepcopy(event) for event in state.events if int(event.get("seq") or 0) > last_seq]
+                pending = [event for event in state.events if int(event.get("seq") or 0) > last_seq]
                 finished = state.status != "running"
 
                 if not pending and not finished:

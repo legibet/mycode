@@ -2,14 +2,24 @@
 
 from __future__ import annotations
 
+import os
 from functools import lru_cache
 from typing import Annotated
 
-from fastapi import Depends
+from fastapi import Depends, HTTPException
 
 from mycode.session import SessionStore
 from mycode_cli.config import resolve_sessions_dir
 from mycode_cli.server.run_manager import RunManager
+
+
+def resolve_workspace_cwd(raw: str | None) -> str:
+    """Resolve a request cwd to an absolute path, rejecting a non-directory."""
+
+    cwd = os.path.abspath(raw or os.getcwd())
+    if not os.path.isdir(cwd):
+        raise HTTPException(status_code=400, detail=f"Working directory does not exist: {cwd}")
+    return cwd
 
 
 @lru_cache

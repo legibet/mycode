@@ -128,14 +128,10 @@ def project_dirs(cwd: str, project: str | Path | None = None) -> list[Path]:
     else:
         project_path = Path(project).expanduser().resolve(strict=False)
 
-    dirs = [cwd_path]
-    while dirs[-1] != project_path:
-        parent = dirs[-1].parent
-        if parent == dirs[-1]:
-            break
-        dirs.append(parent)
-
-    return list(reversed(dirs))
+    ancestors = [cwd_path, *cwd_path.parents]
+    if project_path in ancestors:
+        ancestors = ancestors[: ancestors.index(project_path) + 1]
+    return list(reversed(ancestors))
 
 
 def _candidate_config_paths(cwd: str, project: str | Path) -> list[Path]:
@@ -188,6 +184,19 @@ def normalize_reasoning_effort(value: Any) -> str | None:
         return effort
     supported = ", ".join(REASONING_EFFORT_OPTIONS)
     raise ValueError(f"unsupported reasoning_effort {value!r}; supported: {supported}")
+
+
+def gate_reasoning_effort(
+    effort: str | None,
+    *,
+    supports_reasoning: bool | None,
+    adapter_supports_effort: bool,
+) -> str | None:
+    """Return effort only when the model reasons and the adapter accepts the effort knob."""
+
+    if effort is not None and supports_reasoning is True and adapter_supports_effort:
+        return effort
+    return None
 
 
 def normalize_permission_level(value: Any) -> PermissionLevel:
@@ -572,7 +581,7 @@ def resolve_provider(
     if refs:
         return _resolve_provider_runtime(
             settings,
-            selected_name=refs[0][0],
+            selected_name=refs[0],
             model=model,
             api_key=api_key,
             api_base=api_base,
@@ -596,7 +605,7 @@ def resolve_provider_choices(settings: Settings) -> list[ResolvedProvider]:
     """Return currently selectable providers in stable selection order."""
 
     choices: list[ResolvedProvider] = []
-    for selected_name, _ in _available_provider_references(settings):
+    for selected_name in _available_provider_references(settings):
         try:
             choices.append(_resolve_provider_runtime(settings, selected_name=selected_name))
         except ValueError:
@@ -618,10 +627,10 @@ def _config_api_key_from_env_var(provider: ProviderConfig, *, require: bool = Fa
     return None
 
 
-def _available_provider_references(settings: Settings) -> list[tuple[str, ProviderConfig | None]]:
-    """Return usable provider references with the configured default first."""
+def _available_provider_references(settings: Settings) -> list[str]:
+    """Return usable provider names with the configured default first."""
 
-    available: list[tuple[str, ProviderConfig | None]] = []
+    available: list[str] = []
     seen: set[str] = set()
     configured_types_with_credentials: set[str] = set()
 
@@ -643,7 +652,7 @@ def _available_provider_references(settings: Settings) -> list[tuple[str, Provid
             return
 
         seen.add(cleaned)
-        available.append((cleaned, provider_config))
+        available.append(cleaned)
 
     add(settings.default_provider)
 
@@ -706,10 +715,10 @@ def _resolve_provider_runtime(
         supports_reasoning=model_config.supports_reasoning if model_config else None,
     )
     adapter = get_provider_adapter(provider_type)
-    reasoning_effort = (
-        configured_effort
-        if configured_effort is not None and meta.supports_reasoning is True and adapter.supports_reasoning_effort
-        else None
+    reasoning_effort = gate_reasoning_effort(
+        configured_effort,
+        supports_reasoning=meta.supports_reasoning,
+        adapter_supports_effort=adapter.supports_reasoning_effort,
     )
 
     resolved_api_key = api_key

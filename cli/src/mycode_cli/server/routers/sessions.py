@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 from typing import Annotated, Any
 from uuid import uuid4
 
@@ -10,7 +9,7 @@ from fastapi import APIRouter, HTTPException, Query
 from fastapi import Path as PathParam
 
 from mycode.messages import ConversationMessage
-from mycode_cli.server.deps import RunManagerDep, StoreDep
+from mycode_cli.server.deps import RunManagerDep, StoreDep, resolve_workspace_cwd
 from mycode_cli.server.schemas import SessionCreateRequest, StatusResponse
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
@@ -32,9 +31,7 @@ def _redact_document_data(messages: list[ConversationMessage]) -> list[dict[str,
 
 @router.post("")
 async def create_session(req: SessionCreateRequest, store: StoreDep) -> dict[str, Any]:
-    cwd = os.path.abspath(req.cwd or os.getcwd())
-    if not os.path.isdir(cwd):
-        raise HTTPException(status_code=400, detail=f"Working directory does not exist: {cwd}")
+    cwd = resolve_workspace_cwd(req.cwd)
     session_id = uuid4().hex
     data = await store.create_session(session_id, cwd=cwd)
     return {"session": data["session"], "messages": data["messages"]}
