@@ -12,6 +12,8 @@ Always-loaded context for agent runs on this branch. Detailed specs live in `doc
 
 Current sync: Python `main` provider behavior reviewed through `2bdabcb`.
 
+This branch is `mycode-go-wails`. It adds the Wails desktop adapter on top of `mycode-go` and owns only desktop-specific entry points, build files, and the web transport adapter.
+
 ## Project Layout
 
 ```text
@@ -35,13 +37,19 @@ Current sync: Python `main` provider behavior reviewed through `2bdabcb`.
   internal/prompt/            # system prompt, AGENTS discovery, skills discovery
   internal/server/            # HTTP adapter and SSE framing
 
+  app.go                      # Wails bindings and runtime event bridge
+  main.go                     # Wails desktop entry point
+  wails.json                  # Wails project config
+
 web/src/                      # shared React + Vite UI from Python main
-  hooks/useChat.ts            # chat state + SSE streaming
-  utils/messages.ts           # canonical blocks -> UI messages
+  hooks/useChat.ts            # chat state + SSE/Wails streaming
+  utils/messages.ts           # canonical blocks → UI messages
+  utils/transport.ts          # HTTP/Wails transport selection
 
 scripts/
   update_models_catalog.py    # regenerates provider/models_catalog.json
   sync_web_dist.sh            # copies web/dist into Go's embedded webdist directory
+  build_wails_frontend.sh     # builds web/ and copies assets for Wails embed
 ```
 
 ## Message Model
@@ -74,7 +82,9 @@ Adapter ids: `anthropic`, `moonshotai`, `minimax`, `google`, `openai`, `openai_c
 
 `GET /api/runs/{run_id}/stream` event types: `reasoning`, `reasoning_done`, `text`, `tool_start`, `tool_output`, `tool_done`, `compact`, `error`, `permission_request`, `permission_resolved`, `usage`. Every event carries a monotonically increasing `seq`.
 
-Event names and payload shapes are a cross-component contract. Changes need to land in server and web UI together. Full payload fields and reconnect semantics live in `docs/api.md`.
+Event names and payload shapes are a cross-component contract. Changes need to land in server, desktop bridge, and web UI together. Full payload fields and reconnect semantics live in `docs/api.md`.
+
+Wails live run updates use runtime event `mycode:run_event`. The event payload is `{run_id, session_id, event}`. The nested `event` follows the SSE event contract, plus `type="done"` when a run finishes.
 
 ## Detailed Specs
 
@@ -88,6 +98,7 @@ Read the relevant doc before related changes.
 | `internal/core`, `internal/server`, SSE events, or routes            | `docs/api.md`                                      |
 | `internal/config`, `internal/prompt`, `internal/permissions`, models | `docs/config.md`                                   |
 | `web/src/**`                                                         | `docs/web.md`                                      |
+| Wails entry points, bindings, desktop build, or desktop transport    | `docs/wails.md`                                    |
 | Cross-cutting contract changes                                       | `docs/api.md` + `docs/sessions.md` + `docs/web.md` |
 
 For third-party SDKs and APIs touched by adapter or runtime code, prefer `context7` lookups over assumptions.
@@ -98,32 +109,13 @@ CLI commands: `mycode-go <message>`, `mycode-go run "..."`, `mycode-go web [--de
 
 Server routes are mounted under `/api`: chat runs, run stream/cancel/decide, config, settings, sessions, and workspaces. Endpoint schemas and run lifecycle details live in `docs/api.md`.
 
-## Sync Rules
+Desktop bindings:
 
-Sync direction: `main` -> `mycode-go` -> `mycode-go-wails`.
-
-- `main` — Python implementation; source of truth for `web/`, message/session formats, HTTP API, and SSE contracts.
-- `mycode-go` — this Go rewrite; tracks `main`, keeps Go internals idiomatic, and stays free of Wails code.
-- `mycode-go-wails` — Wails desktop adapter on top of `mycode-go`.
-
-Current sync: Python `main` reviewed through `0f931a5`; `web/` is aligned through `36bf9ae`; Go backend behavior is aligned through `0f931a5` where it affects external SDK/CLI/API/session/provider behavior.
-
-When syncing from Python `main`:
-
-- Fetch `main` into `refs/remotes/local-main/main`.
-- Directly cherry-pick `web/` commits.
-- Sync external behavior. Keep Go implementation idiomatic.
-- Use Python `mycode-sdk` as the scope reference for Go SDK behavior; Go API shape may differ when that is the clearer Go design.
-- Reimplement backend commits in Go when they affect SDK-visible behavior, CLI behavior, API/SSE contracts, message/session formats, tools, providers, config, models, prompts, permissions, or web expectations.
-- Skip Python-only release/package/TUI work unless it changes shared external behavior.
-- Keep `web/` commits separate from Go backend, config, model, and docs commits.
-
-Useful checks:
-
-```bash
-git log --reverse --oneline <last-sync>..refs/remotes/local-main/main -- web/
-git diff --stat refs/remotes/local-main/main -- web
-```
+- `GetConfig`, `Settings`, `UpdateSettings`
+- `ListSessions`, `LoadSession`, `DeleteSession`, `ClearSession`
+- `StartChat`, `CancelRun`, `DecideRun`
+- `SelectFiles`
+- `WorkspaceRoots`, `BrowseWorkspace`
 
 ## Commit Conventions
 
@@ -134,9 +126,8 @@ Scopes:
 - `web` — changes under `web/` only
 - `backend` — Go backend changes only
 - `cli` — CLI changes only
+- `wails` — desktop entry points, Wails config, and desktop build workflow
 - `docs` — documentation only
-
-When a sync needs both web and backend/docs/model changes, make separate commits.
 
 ## Dev Workflow
 
@@ -164,6 +155,14 @@ pnpm --dir web test:run
 pnpm --dir web dev
 pnpm --dir web build
 ./scripts/sync_web_dist.sh
+```
+
+Desktop:
+
+```bash
+make wails-install
+make wails-dev
+make wails-build
 ```
 
 Update bundled model metadata with:
