@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - mycode-go
+      - mycode-go-wails
     paths:
       - ".github/workflows/go-ci.yml"
       - ".golangci.yml"
@@ -13,7 +14,14 @@ on:
       - "go.sum"
       - "cmd/**"
       - "internal/**"
+      - "app.go"
+      - "main.go"
+      - "wails.json"
+      - "build/**"
+      - "frontend/**"
       - "scripts/sync_web_dist.sh"
+      - "scripts/build_wails_app.sh"
+      - "scripts/build_wails_frontend.sh"
       - "web/**"
   workflow_dispatch:
 

@@ -1,6 +1,12 @@
 WEB_DIR := web
 DIST_DIR := $(CURDIR)/dist
 BIN := $(DIST_DIR)/mycode-go
+WEB_EMBED_TAG := embedweb
+WAILS_VERSION := v2.12.0
+WAILS_BIN := $(shell GOWORK=off go env GOPATH)/bin/wails
+WAILS_FRONTEND_DIST := frontend/dist
+WAILS_FLAGS ?=
+WAILS_DEV_FLAGS ?=
 
 .DEFAULT_GOAL := help
 
@@ -19,6 +25,9 @@ help:
 		'  make test         Run Go tests.' \
 		'  make check        Run all Go and web checks.' \
 		'  make build        Build the embedded binary.' \
+		'  make wails-install Install the Wails CLI.' \
+		'  make wails-dev    Start the Wails desktop app.' \
+		'  make wails-build  Build the Wails desktop app.' \
 		'  make clean        Remove build outputs.'
 
 .PHONY: dev
@@ -73,9 +82,35 @@ check:
 .PHONY: build
 build: web-build
 	mkdir -p $(DIST_DIR)
-	go build -tags embedweb -o $(BIN) ./cmd/mycode-go
+	go build -tags $(WEB_EMBED_TAG) -o $(BIN) ./cmd/mycode-go
+
+.PHONY: wails-install
+wails-install:
+	GOWORK=off go install github.com/wailsapp/wails/v2/cmd/wails@$(WAILS_VERSION)
+
+.PHONY: wails-doctor
+wails-doctor:
+	$(WAILS_BIN) doctor
+
+.PHONY: wails-dev
+wails-dev:
+	GOWORK=off $(WAILS_BIN) dev $(WAILS_DEV_FLAGS)
+
+.PHONY: wails-frontend
+wails-frontend:
+	./scripts/build_wails_frontend.sh
+
+.PHONY: wails-build
+wails-build:
+	./scripts/build_wails_app.sh $(WAILS_FLAGS)
+
+.PHONY: wails-clean
+wails-clean:
+	rm -rf build/bin
+	mkdir -p $(WAILS_FRONTEND_DIST)
+	find $(WAILS_FRONTEND_DIST) -mindepth 1 -maxdepth 1 ! -name '.gitkeep' -exec rm -rf {} +
 
 .PHONY: clean
-clean:
+clean: wails-clean
 	rm -rf $(DIST_DIR)
 	rm -rf internal/server/webdist
