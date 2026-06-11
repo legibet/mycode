@@ -321,6 +321,37 @@ export interface ChatErrorResponse {
       };
 }
 
+export interface ChatInputBlock {
+  type: "text" | "image" | "document";
+  text?: string | undefined;
+  path?: string | undefined;
+  data?: string | undefined;
+  mime_type?: string | undefined;
+  name?: string | undefined;
+  is_attachment?: boolean | undefined;
+}
+
+export interface ChatRequest {
+  session_id: string;
+  message?: string | undefined;
+  input?: ChatInputBlock[] | undefined;
+  provider?: string | undefined;
+  model?: string | undefined;
+  cwd: string;
+  api_key?: string | undefined;
+  api_base?: string | undefined;
+  reasoning_effort?: string | undefined;
+  rewind_to?: number | undefined;
+}
+
+export interface RunEventPayload {
+  run_id: string;
+  session_id: string;
+  event:
+    | StreamEvent
+    | ({ type: "done"; status?: string; error?: string } & StreamEventBase);
+}
+
 export interface WorkspaceEntry {
   name: string;
   path: string;

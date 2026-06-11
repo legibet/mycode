@@ -176,6 +176,36 @@
   }
 }
 
+/* Keep Wails desktop chrome rules outside Tailwind layers so they override
+   component utility classes like h-12 and pt-5 after Tailwind v4 sync. */
+.wails-window-drag-region {
+  display: none;
+}
+
+html[data-mycode-desktop="wails"] .wails-window-drag-region {
+  --wails-draggable: drag;
+  display: block;
+  position: fixed;
+  inset: 0 0 auto 0;
+  height: 28px;
+  z-index: 60;
+}
+
+html[data-mycode-desktop="wails"] button:not(:disabled),
+html[data-mycode-desktop="wails"] [role="button"]:not(:disabled) {
+  cursor: default;
+}
+
+html[data-mycode-desktop="wails"] .sidebar-brand {
+  padding-top: 36px;
+}
+
+html[data-mycode-desktop="wails"] .mobile-header,
+html[data-mycode-desktop="wails"] .fullscreen-panel-header {
+  height: 72px;
+  padding-top: 24px;
+}
+
 /* ── Scrollbar ── */
 ::-webkit-scrollbar {
   width: 4px;

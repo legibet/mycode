@@ -24,6 +24,7 @@ import type {
 } from "../../types";
 import { cn } from "../../utils/cn";
 import { isReasoningEffort } from "../../utils/config";
+import { transport } from "../../utils/transport";
 import { useTheme } from "../ThemeProvider";
 import { Field, NativeSelect, Section, Segmented, TextInput } from "./controls";
 import { ProviderCard, type ProviderDraft } from "./ProviderCard";
@@ -316,22 +317,9 @@ export function SettingsPanel({
     setSaving(true);
     setError(null);
     try {
-      const res = await fetch("/api/settings", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          config: buildPayload(draft, defaultProvider),
-        }),
-      });
-      if (!res.ok) {
-        let message = `Save failed (${res.status})`;
-        try {
-          const data = (await res.json()) as { detail?: string };
-          if (data?.detail) message = data.detail;
-        } catch {}
-        throw new Error(message);
-      }
-      const updated = (await res.json()) as SettingsResponse;
+      const updated = await transport.updateSettings(
+        buildPayload(draft, defaultProvider),
+      );
       setDraft(buildDraft(updated));
       onSettingsSaved?.(updated);
       onClose();
@@ -358,6 +346,7 @@ export function SettingsPanel({
           "px-4 md:px-6 h-12 md:h-14",
           "max-md:pt-[env(safe-area-inset-top)]",
           "max-md:h-[calc(3rem+env(safe-area-inset-top))]",
+          !isDesktop && "fullscreen-panel-header",
         )}
       >
         <h2 className="text-[14px] font-semibold text-foreground">Settings</h2>

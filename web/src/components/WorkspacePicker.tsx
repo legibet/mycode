@@ -19,13 +19,10 @@ import useSWR from "swr";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
-import type {
-  WorkspaceBrowseResponse,
-  WorkspaceEntry,
-  WorkspaceRootsResponse,
-} from "../types";
+import type { WorkspaceBrowseResponse, WorkspaceEntry } from "../types";
 import { cn } from "../utils/cn";
 import { shouldAutoFocusTextInputOnOpen } from "../utils/focus";
+import { transport } from "../utils/transport";
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
@@ -70,17 +67,16 @@ const rootLabel = (value: string): string => {
 
 // ─── data fetching ──────────────────────────────────────────────────────────
 
-async function rootsFetcher(url: string): Promise<string[]> {
-  const res = await fetch(url);
-  if (!res.ok) throw new Error("Failed to load roots");
-  const data = (await res.json()) as WorkspaceRootsResponse;
+async function rootsFetcher(): Promise<string[]> {
+  const data = await transport.workspaceRoots();
   return data.roots ?? [];
 }
 
-async function browseFetcher(url: string): Promise<WorkspaceBrowseResponse> {
-  const res = await fetch(url);
-  if (!res.ok) throw new Error("Failed to browse directory");
-  const data = (await res.json()) as WorkspaceBrowseResponse;
+type BrowseKey = readonly ["workspace:browse", string, string];
+
+async function browseFetcher(key: BrowseKey): Promise<WorkspaceBrowseResponse> {
+  const [, root, path] = key;
+  const data = await transport.browseWorkspace(root, path);
   if (data.error) throw new Error(data.error);
   return data;
 }
@@ -90,11 +86,9 @@ const BROWSE_OPTS = { revalidateOnFocus: false } as const;
 
 function buildBrowseKey(
   target: { root: string; path: string } | null,
-): string | null {
+): BrowseKey | null {
   if (!target?.root) return null;
-  const params = new URLSearchParams({ root: target.root });
-  if (target.path) params.set("path", target.path);
-  return `/api/workspaces/browse?${params.toString()}`;
+  return ["workspace:browse", target.root, target.path] as const;
 }
 
 function getErrorMessage(error: unknown): string {
@@ -142,7 +136,7 @@ export function WorkspacePicker({
     data: roots = [],
     error: rootsError,
     isLoading: rootsLoading,
-  } = useSWR<string[]>("/api/workspaces/roots", rootsFetcher, ROOTS_OPTS);
+  } = useSWR<string[]>("workspace:roots", rootsFetcher, ROOTS_OPTS);
 
   const [targetOverride, setTargetOverride] = useState<{
     root: string;
@@ -233,9 +227,8 @@ export function WorkspacePicker({
           path: toRelativePath(matched, cwd),
         });
         if (!key) return false;
-        const res = await fetch(key);
-        if (!res.ok) return false;
-        const data = (await res.json()) as WorkspaceBrowseResponse;
+        const [, root, path] = key;
+        const data = await transport.browseWorkspace(root, path);
         return Boolean(data.current && !data.error);
       } catch {
         return false;

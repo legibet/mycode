@@ -46,21 +46,7 @@ import {
   saveHistory,
   saveSidebarWidth,
 } from "./utils/storage";
-
-async function fetchJson<T>(url: string): Promise<T> {
-  const response = await fetch(url);
-  if (!response.ok) {
-    let message = `Request failed with status ${response.status}`;
-    try {
-      const data = await response.json();
-      if (typeof data?.detail === "string" && data.detail) {
-        message = data.detail;
-      }
-    } catch {}
-    throw new Error(message);
-  }
-  return response.json() as Promise<T>;
-}
+import { transport } from "./utils/transport";
 
 function modelSupports(
   remoteConfig: RemoteConfig | null,
@@ -136,6 +122,7 @@ function AppContent() {
     getMaxSidebarWidth,
     () => SIDEBAR_MAX_WIDTH,
   );
+  const [workspaceOpenRequest, setWorkspaceOpenRequest] = useState(0);
 
   const handleOpenSettings = useCallback(() => {
     setSettingsOpen(true);
@@ -159,21 +146,26 @@ function AppContent() {
     SIDEBAR_MIN_WIDTH,
     Math.min(maxSidebarWidth, sidebarWidth),
   );
-  const configUrl = `/api/config?cwd=${encodeURIComponent(localConfig.cwd)}`;
   const {
     data: remoteConfig = null,
     error: remoteConfigError,
     mutate: mutateRemoteConfig,
-  } = useSWR<RemoteConfig, Error>(configUrl, fetchJson<RemoteConfig>, {
-    keepPreviousData: true,
-  });
+  } = useSWR<RemoteConfig, Error>(
+    ["config", localConfig.cwd],
+    () => transport.getConfig(localConfig.cwd),
+    {
+      keepPreviousData: true,
+      onError: (error) => {
+        console.error("Failed to load config:", error);
+      },
+    },
+  );
   const {
     data: settingsResponse = null,
     error: settingsError,
     mutate: mutateSettings,
-  } = useSWR<SettingsResponse, Error>(
-    "/api/settings",
-    fetchJson<SettingsResponse>,
+  } = useSWR<SettingsResponse, Error>("settings", () =>
+    transport.getSettings(),
   );
 
   const config = useMemo(
@@ -305,6 +297,26 @@ function AppContent() {
     clearAttachments();
   }, [createSession, clearAttachments]);
 
+  useEffect(() => {
+    return transport.onDesktopCommand((command) => {
+      if (command === "new_chat") {
+        handleCreateSession();
+      } else if (command === "select_workspace") {
+        setSidebarOpen(true);
+        setWorkspaceOpenRequest((value) => value + 1);
+      } else if (command === "open_settings") {
+        setSettingsOpen(true);
+      }
+    });
+  }, [handleCreateSession]);
+
+  useEffect(() => {
+    const title = activeSession?.title
+      ? `mycode - ${activeSession.title}`
+      : "mycode";
+    transport.setWindowTitle(title);
+  }, [activeSession?.title]);
+
   const handleDeleteSession = useCallback(
     async (id: string) => {
       const isActive = activeSession?.id === id;
@@ -318,6 +330,7 @@ function AppContent() {
 
   return (
     <Layout>
+      <div className="wails-window-drag-region" aria-hidden="true" />
       <div className="relative flex h-full min-h-0 overflow-hidden">
         {/* Mounted exclusively to avoid duplicate SWR / WorkspacePicker state. */}
         {isDesktop ? (
@@ -335,6 +348,7 @@ function AppContent() {
               onRemoveHistory={handleRemoveHistory}
               onOpenSettings={handleOpenSettings}
               workspaceMissing={workspaceMissing}
+              workspaceOpenRequest={workspaceOpenRequest}
               width={displayedSidebarWidth}
               onResize={handleResizeSidebar}
               onResizeReset={handleResetSidebarWidth}
@@ -362,6 +376,7 @@ function AppContent() {
                 onRemoveHistory={handleRemoveHistory}
                 onOpenSettings={handleOpenSettings}
                 workspaceMissing={workspaceMissing}
+                workspaceOpenRequest={workspaceOpenRequest}
                 width={260}
                 className="h-full"
               />

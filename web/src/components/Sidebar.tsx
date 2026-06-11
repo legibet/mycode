@@ -9,7 +9,14 @@
  */
 
 import { Plus, Settings as SettingsIcon, Terminal, Trash2 } from "lucide-react";
-import { type CSSProperties, memo, useMemo, useRef, useState } from "react";
+import {
+  type CSSProperties,
+  memo,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import type { LocalConfig, RemoteConfig, SessionSummary } from "../types";
 import { cn } from "../utils/cn";
 import {
@@ -88,6 +95,7 @@ interface SidebarProps {
   onRemoveHistory: (cwd: string) => void;
   onOpenSettings: () => void;
   workspaceMissing?: boolean;
+  workspaceOpenRequest?: number;
   width: number;
   onResize?: (width: number) => void;
   onResizeReset?: () => void;
@@ -190,6 +198,7 @@ export const Sidebar = memo(function Sidebar({
   onRemoveHistory,
   onOpenSettings,
   workspaceMissing = false,
+  workspaceOpenRequest = 0,
   width,
   onResize,
   onResizeReset,
@@ -201,6 +210,10 @@ export const Sidebar = memo(function Sidebar({
     config.cwd === "." ? remoteConfig?.cwd || "." : config.cwd;
   const wsName = basename(resolvedCwd);
   const wsPath = prettyPath(resolvedCwd);
+
+  useEffect(() => {
+    if (workspaceOpenRequest > 0) setWorkspaceOpen(true);
+  }, [workspaceOpenRequest]);
 
   const groups = useMemo(() => {
     const now = new Date();
@@ -236,7 +249,7 @@ export const Sidebar = memo(function Sidebar({
       style={{ "--sidebar-width": `${width}px` } as CSSProperties}
     >
       {/* Brand */}
-      <div className="shrink-0 flex items-center gap-2.5 px-5 pt-5 pb-5">
+      <div className="sidebar-brand shrink-0 flex items-center gap-2.5 px-5 pt-5 pb-5">
         <Terminal className="size-4 text-foreground" aria-hidden="true" />
         <span className="font-display text-[15px] leading-none tracking-tight text-foreground font-medium">
           mycode

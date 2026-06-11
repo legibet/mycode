@@ -16,7 +16,7 @@ export function MobileHeader({
   onCreateSession,
 }: MobileHeaderProps) {
   return (
-    <header className="flex md:hidden h-12 shrink-0 items-center justify-between px-4 border-b border-border/40 bg-background">
+    <header className="mobile-header flex md:hidden h-12 shrink-0 items-center justify-between px-4 border-b border-border/40 bg-background">
       <button
         type="button"
         aria-label="Toggle menu"

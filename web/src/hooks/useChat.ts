@@ -15,15 +15,16 @@ import {
 import type {
   AttachedFile,
   ChatErrorResponse,
+  ChatInputBlock,
   ChatMessage,
-  ChatResponse,
+  ChatRequest,
   LocalConfig,
   MessageMeta,
   PermissionRequest,
+  RunEventPayload,
   RunInfo,
   SessionResponse,
   SessionSummary,
-  SessionsResponse,
   StreamEvent,
   ToolRuntime,
 } from "../types";
@@ -44,6 +45,7 @@ import {
   removeActiveSession,
   saveActiveSession,
 } from "../utils/storage";
+import { APIError, transport } from "../utils/transport";
 import {
   isCurrentSendRequest,
   isCurrentWorkspaceRequest,
@@ -78,10 +80,10 @@ function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "Unknown error";
 }
 
-function getErrorDetail(
-  data: ChatResponse | ChatErrorResponse,
-): ChatErrorResponse["detail"] {
-  return "detail" in data ? data.detail : undefined;
+function getErrorDetail(error: unknown): ChatErrorResponse["detail"] {
+  return error instanceof APIError
+    ? (error.detail as ChatErrorResponse["detail"])
+    : undefined;
 }
 
 function getRunFromDetail(detail: ChatErrorResponse["detail"]): RunInfo | null {
@@ -333,9 +335,7 @@ export function useChat(config: LocalConfig) {
     if (!runId) return;
 
     try {
-      await fetch(`/api/runs/${encodeURIComponent(runId)}/cancel`, {
-        method: "POST",
-      });
+      await transport.cancelRun(runId);
     } catch (e) {
       console.error("Failed to cancel:", e);
     }
@@ -346,11 +346,7 @@ export function useChat(config: LocalConfig) {
     if (requestCwd !== cwdRef.current) return [];
 
     try {
-      const res = await fetch(
-        `/api/sessions?cwd=${encodeURIComponent(requestCwd)}`,
-      );
-      if (!res.ok) throw new Error("Failed to load sessions");
-      const data = (await res.json()) as SessionsResponse;
+      const data = await transport.listSessions(requestCwd);
       if (requestCwd !== cwdRef.current) {
         return [];
       }
@@ -388,6 +384,33 @@ export function useChat(config: LocalConfig) {
     setPendingPermissions([]);
   }, []);
 
+  const applyRunEvent = useCallback((event: StreamEvent) => {
+    if (event.type === "permission_request") {
+      const next: PermissionRequest = {
+        request_id: event.request_id,
+        tool_use_id: event.tool_use_id,
+        tool_name: event.tool_name,
+        preview: event.preview,
+      };
+      setPendingPermissions((prev) =>
+        prev.some((p) => p.request_id === next.request_id)
+          ? prev
+          : [...prev, next],
+      );
+      return;
+    }
+
+    if (event.type === "permission_resolved") {
+      const requestId = event.request_id;
+      setPendingPermissions((prev) =>
+        prev.filter((p) => p.request_id !== requestId),
+      );
+      return;
+    }
+
+    dispatch({ type: "apply_event", event });
+  }, []);
+
   const streamRun = useCallback(
     async (run: RunInfo, sessionId: string, after = 0): Promise<void> => {
       const runId = run?.id;
@@ -401,6 +424,11 @@ export function useChat(config: LocalConfig) {
       streamAbortRef.current = controller;
       activeRunRef.current = run;
       setLoading(true);
+
+      if (transport.isWails()) {
+        streamAbortRef.current = null;
+        return;
+      }
 
       const recoverSession = async () => {
         if (
@@ -461,28 +489,7 @@ export function useChat(config: LocalConfig) {
               ) {
                 continue;
               }
-              if (event.type === "permission_request") {
-                const next: PermissionRequest = {
-                  request_id: event.request_id,
-                  tool_use_id: event.tool_use_id,
-                  tool_name: event.tool_name,
-                  preview: event.preview,
-                };
-                setPendingPermissions((prev) =>
-                  prev.some((p) => p.request_id === next.request_id)
-                    ? prev
-                    : [...prev, next],
-                );
-                continue;
-              }
-              if (event.type === "permission_resolved") {
-                const requestId = event.request_id;
-                setPendingPermissions((prev) =>
-                  prev.filter((p) => p.request_id !== requestId),
-                );
-                continue;
-              }
-              dispatch({ type: "apply_event", event });
+              applyRunEvent(event);
             } catch (e) {
               console.error("Parse error:", e);
             }
@@ -525,7 +532,7 @@ export function useChat(config: LocalConfig) {
         }
       }
     },
-    [fetchSessions],
+    [applyRunEvent, fetchSessions],
   );
 
   const loadSession = useCallback(
@@ -546,10 +553,7 @@ export function useChat(config: LocalConfig) {
 
       if (!isStillCurrent()) return null;
 
-      const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}`);
-      if (!res.ok) throw new Error("Failed to load session");
-
-      const data = (await res.json()) as SessionResponse;
+      const data = await transport.loadSession(sessionId);
       if (!isStillCurrent()) return null;
       if (!data.session) return null;
 
@@ -610,6 +614,33 @@ export function useChat(config: LocalConfig) {
     loadSessionRef.current = loadSession;
   }, [loadSession]);
 
+  useEffect(() => {
+    if (!transport.isWails()) return;
+
+    const off = transport.onRunEvent((payload: RunEventPayload) => {
+      const run = activeRunRef.current;
+      if (!run?.id || payload.run_id !== run.id) return;
+      if (
+        payload.session_id !== activeSessionRef.current.id ||
+        payload.session_id !== run.session_id
+      ) {
+        return;
+      }
+
+      const event = payload.event;
+      if (event.type === "done") {
+        activeRunRef.current = null;
+        streamAbortRef.current = null;
+        setLoading(false);
+        fetchSessions();
+        return;
+      }
+      applyRunEvent(event);
+    });
+
+    return off;
+  }, [applyRunEvent, fetchSessions]);
+
   const send = useCallback(
     async (input: string, attachments?: AttachedFile[]) => {
       const content = input.trim();
@@ -641,38 +672,31 @@ export function useChat(config: LocalConfig) {
       };
 
       // Use structured `input` blocks when attachments are present.
-      const body = attachments?.length
-        ? {
-            ...commonFields,
-            input: [
-              ...(content ? [{ type: "text", text: content }] : []),
-              ...attachments.map((attachment) =>
-                attachment.kind === "text"
-                  ? {
-                      type: "text",
-                      text: attachment.text,
-                      name: attachment.name,
-                      is_attachment: true,
-                    }
-                  : {
-                      type: attachment.kind === "image" ? "image" : "document",
-                      data: attachment.data,
-                      mime_type: attachment.mime_type,
-                      name: attachment.name,
-                    },
-              ),
-            ],
-          }
+      const inputBlocks: ChatInputBlock[] = [
+        ...(content ? [{ type: "text" as const, text: content }] : []),
+        ...(attachments || []).map(
+          (attachment): ChatInputBlock =>
+            attachment.kind === "text"
+              ? {
+                  type: "text",
+                  text: attachment.text,
+                  name: attachment.name,
+                  is_attachment: true,
+                }
+              : {
+                  type: attachment.kind === "image" ? "image" : "document",
+                  data: attachment.data,
+                  mime_type: attachment.mime_type,
+                  name: attachment.name,
+                },
+        ),
+      ];
+      const body: ChatRequest = attachments?.length
+        ? { ...commonFields, input: inputBlocks }
         : { ...commonFields, message: content };
 
       try {
-        const res = await fetch("/api/chat", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
-        });
-
-        const data = (await res.json()) as ChatResponse | ChatErrorResponse;
+        const chatData = await transport.startChat(body);
         const isCurrentRequest = isCurrentSendRequest({
           pendingRequestToken: pendingRequestTokenRef.current,
           requestToken,
@@ -682,27 +706,11 @@ export function useChat(config: LocalConfig) {
           requestCwd,
         });
 
-        if (!res.ok) {
-          const detail = getErrorDetail(data);
-          const existingRun = getRunFromDetail(detail);
-          if (res.status === 409 && existingRun?.id) {
-            if (isCurrentRequest) {
-              pendingRequestTokenRef.current = 0;
-              dispatch({ type: "rollback" });
-              streamRun(existingRun, sessionId, existingRun.last_seq || 0);
-            }
-            return;
-          }
-          throw new Error(getMessageFromDetail(detail, "Failed to start task"));
-        }
-
         pendingRequestTokenRef.current = 0;
 
         if (!isCurrentRequest) {
           return;
         }
-
-        const chatData = data as ChatResponse;
 
         // Update active session from backend response (has real title, id, etc.)
         if (chatData.session) {
@@ -720,11 +728,23 @@ export function useChat(config: LocalConfig) {
           pendingRequestTokenRef.current === requestToken &&
           activeSessionRef.current.id === sessionId
         ) {
+          const detail = getErrorDetail(e);
+          const existingRun = getRunFromDetail(detail);
+          if (e instanceof APIError && e.status === 409 && existingRun?.id) {
+            pendingRequestTokenRef.current = 0;
+            dispatch({ type: "rollback" });
+            streamRun(existingRun, sessionId, existingRun.last_seq || 0);
+            return;
+          }
+
           pendingRequestTokenRef.current = 0;
           setLoading(false);
           dispatch({
             type: "apply_event",
-            event: { type: "error", message: getErrorMessage(e) },
+            event: {
+              type: "error",
+              message: getMessageFromDetail(detail, getErrorMessage(e)),
+            },
           });
         }
       }
@@ -755,24 +775,18 @@ export function useChat(config: LocalConfig) {
       setLoading(true);
 
       try {
-        const res = await fetch("/api/chat", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            session_id: sessionId,
-            message: content,
-            rewind_to: rewindTo,
-            provider: config.provider || undefined,
-            model: config.model || undefined,
-            cwd: config.cwd,
-            reasoning_effort:
-              config.reasoningEffort && config.reasoningEffort !== "auto"
-                ? config.reasoningEffort
-                : undefined,
-          }),
+        const chatData = await transport.startChat({
+          session_id: sessionId,
+          message: content,
+          rewind_to: rewindTo,
+          provider: config.provider || undefined,
+          model: config.model || undefined,
+          cwd: config.cwd,
+          reasoning_effort:
+            config.reasoningEffort && config.reasoningEffort !== "auto"
+              ? config.reasoningEffort
+              : undefined,
         });
-
-        const data = (await res.json()) as ChatResponse | ChatErrorResponse;
         const isCurrentRequest = isCurrentSendRequest({
           pendingRequestToken: pendingRequestTokenRef.current,
           requestToken,
@@ -782,37 +796,9 @@ export function useChat(config: LocalConfig) {
           requestCwd,
         });
 
-        if (!res.ok) {
-          // Restore original messages on failure (rewind was optimistic).
-          if (isCurrentRequest) {
-            pendingRequestTokenRef.current = 0;
-            dispatch({ type: "rollback" });
-
-            // If 409 (active run), attach to the existing run.
-            const detail = getErrorDetail(data);
-            const existingRun = getRunFromDetail(detail);
-            if (res.status === 409 && existingRun?.id) {
-              streamRun(existingRun, sessionId, existingRun.last_seq || 0);
-              return;
-            }
-
-            setLoading(false);
-            dispatch({
-              type: "apply_event",
-              event: {
-                type: "error",
-                message: getMessageFromDetail(detail, "Failed to start task"),
-              },
-            });
-          }
-          return;
-        }
-
         pendingRequestTokenRef.current = 0;
 
         if (!isCurrentRequest) return;
-
-        const chatData = data as ChatResponse;
 
         if (chatData.session) {
           const session = chatData.session;
@@ -827,12 +813,24 @@ export function useChat(config: LocalConfig) {
           pendingRequestTokenRef.current === requestToken &&
           activeSessionRef.current.id === sessionId
         ) {
+          const detail = getErrorDetail(e);
+          const existingRun = getRunFromDetail(detail);
+
           pendingRequestTokenRef.current = 0;
           dispatch({ type: "rollback" });
+
+          if (e instanceof APIError && e.status === 409 && existingRun?.id) {
+            streamRun(existingRun, sessionId, existingRun.last_seq || 0);
+            return;
+          }
+
           setLoading(false);
           dispatch({
             type: "apply_event",
-            event: { type: "error", message: getErrorMessage(e) },
+            event: {
+              type: "error",
+              message: getMessageFromDetail(detail, getErrorMessage(e)),
+            },
           });
         }
       }
@@ -888,20 +886,7 @@ export function useChat(config: LocalConfig) {
       // permission_resolved drives the clear; pre-clearing here would strand
       // the prompt if this POST fails while the server-side wait is still pending.
       try {
-        const res = await fetch(
-          `/api/runs/${encodeURIComponent(runId)}/decide`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              request_id: head.request_id,
-              decision,
-            }),
-          },
-        );
-        if (!res.ok) {
-          console.error(`Decide POST failed: ${res.status}`);
-        }
+        await transport.decideRun(runId, head.request_id, decision);
       } catch (e) {
         console.error("Failed to send decision:", e);
       }
@@ -993,13 +978,7 @@ export function useChat(config: LocalConfig) {
 
       setSessionLoading(true);
       try {
-        const res = await fetch(
-          `/api/sessions/${encodeURIComponent(sessionId)}`,
-          {
-            method: "DELETE",
-          },
-        );
-        if (!res.ok) throw new Error("Failed to delete session");
+        await transport.deleteSession(sessionId);
 
         if (!isDeletingActive) {
           setSessions(remainingSessions);
@@ -1084,11 +1063,7 @@ export function useChat(config: LocalConfig) {
       try {
         if (!isStillCurrent()) return;
         const preferredSessionId = loadActiveSession(requestCwd);
-        const res = await fetch(
-          `/api/sessions?cwd=${encodeURIComponent(requestCwd)}`,
-        );
-        if (!res.ok) throw new Error("Failed to load sessions");
-        const data = (await res.json()) as SessionsResponse;
+        const data = await transport.listSessions(requestCwd);
         if (!isStillCurrent()) return;
 
         const savedSessions = data.sessions || [];

@@ -1,6 +1,11 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { ChatMessage, RenderMessage } from "../types";
+import type {
+  ChatMessage,
+  ChatRequest,
+  RenderMessage,
+  RunEventPayload,
+} from "../types";
 import { isCompactMarker } from "../types";
 import { loadActiveSession, saveActiveSession } from "../utils/storage";
 import { useChat } from "./useChat";
@@ -81,6 +86,8 @@ function mockFetch(
 
 describe("useChat", () => {
   beforeEach(() => {
+    delete window.go;
+    delete window.runtime;
     globalThis.localStorage = createLocalStorage();
     mockFetch({
       "/api/sessions?cwd=": createJsonResponse({ sessions: [] }),
@@ -759,6 +766,113 @@ describe("useChat", () => {
     expect(result.current.pendingPermission?.request_id).toBe("req-1");
 
     streamController.close();
+  });
+
+  it("handles permission events from Wails runtime bindings", async () => {
+    type TestWailsApp = NonNullable<
+      NonNullable<NonNullable<Window["go"]>["main"]>["App"]
+    >;
+
+    const runId = "run-wails";
+    const eventHandlers: ((payload: RunEventPayload) => void)[] = [];
+    const decideRun = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      data: { status: "ok" },
+    }));
+    const app = {
+      ListSessions: vi.fn(async () => ({
+        ok: true,
+        status: 200,
+        data: { sessions: [] },
+      })),
+      StartChat: vi.fn(async (req: ChatRequest) => ({
+        ok: true,
+        status: 200,
+        data: {
+          run: {
+            id: runId,
+            session_id: req.session_id,
+            status: "running",
+            last_seq: 0,
+          },
+          session: { id: req.session_id, title: "Draft" },
+        },
+      })),
+      DecideRun: decideRun,
+    } as Partial<TestWailsApp> as TestWailsApp;
+
+    window.go = { main: { App: app } };
+    window.runtime = {
+      EventsOn: vi.fn(
+        (_name: string, handler: (payload: RunEventPayload) => void) => {
+          eventHandlers.push(handler);
+          return () => {
+            const index = eventHandlers.indexOf(handler);
+            if (index >= 0) eventHandlers.splice(index, 1);
+          };
+        },
+      ),
+    };
+
+    const { result } = renderChatHook();
+
+    await waitFor(() => {
+      expect(result.current.sessionLoading).toBe(false);
+    });
+
+    await result.current.send("run gated command");
+
+    await waitFor(() => {
+      expect(app.StartChat).toHaveBeenCalled();
+    });
+
+    act(() => {
+      eventHandlers.forEach((handler) => {
+        handler({
+          run_id: runId,
+          session_id: result.current.activeSession.id,
+          event: {
+            type: "permission_request",
+            seq: 1,
+            request_id: "req-wails",
+            tool_use_id: "call-1",
+            tool_name: "bash",
+            preview: "pnpm install",
+          },
+        });
+      });
+    });
+
+    await waitFor(() => {
+      expect(result.current.pendingPermission?.request_id).toBe("req-wails");
+    });
+
+    await result.current.decidePermission("allow");
+
+    expect(decideRun).toHaveBeenCalledWith(runId, {
+      request_id: "req-wails",
+      decision: "allow",
+    });
+
+    act(() => {
+      eventHandlers.forEach((handler) => {
+        handler({
+          run_id: runId,
+          session_id: result.current.activeSession.id,
+          event: {
+            type: "permission_resolved",
+            seq: 2,
+            request_id: "req-wails",
+            decision: "allow",
+          },
+        });
+      });
+    });
+
+    await waitFor(() => {
+      expect(result.current.pendingPermission).toBeNull();
+    });
   });
 
   it("deletes the last active session and falls back to a draft", async () => {
