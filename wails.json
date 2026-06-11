@@ -1,0 +1,19 @@
+{
+  "$schema": "https://wails.io/schemas/config.v2.json",
+  "name": "mycode",
+  "outputfilename": "mycode",
+  "frontend:dir": ".",
+  "frontend:install": "pnpm --dir web install --frozen-lockfile",
+  "frontend:build": "./scripts/build_wails_frontend.sh",
+  "frontend:dev:watcher": "pnpm --dir web dev --host 127.0.0.1",
+  "frontend:dev:serverUrl": "http://127.0.0.1:5173",
+  "author": {
+    "name": "legibet"
+  },
+  "info": {
+    "productName": "mycode",
+    "productVersion": "0.1.0",
+    "copyright": "",
+    "comments": "Personal minimal coding agent, Wails desktop build."
+  }
+}

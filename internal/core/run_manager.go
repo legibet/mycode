@@ -451,6 +451,15 @@ func (m *RunManager) run(ctx context.Context, state *runState) {
 	m.mu.Unlock()
 
 	state.finish(status, lastError)
+
+	doneEvent := map[string]any{
+		"type":   "done",
+		"status": string(status),
+	}
+	if lastError != "" {
+		doneEvent["error"] = lastError
+	}
+	m.emit(state, doneEvent)
 }
 
 func (m *RunManager) pruneFinishedRuns() {

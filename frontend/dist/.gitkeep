@@ -1,0 +1,3 @@
+# Placeholder so `//go:embed all:frontend/dist` can compile before the
+# web bundle has been generated. Run `scripts/build_wails_frontend.sh`
+# to populate this directory with the real production build.

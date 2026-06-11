@@ -78,6 +78,16 @@ legacy/
 /mycode/server/static/
 /internal/server/webdist/*
 /wailsjs/
+!/frontend/
+!/frontend/dist/
+/frontend/dist/*
+!/frontend/dist/.gitkeep
+
+# Wails build templates: un-ignore this directory (the generic `build/`
+# Python rule above otherwise hides appicon.png and darwin/Info.plist*,
+# which wails build needs). Keep the compiled-app output ignored.
+!/build/
+/build/bin/
 
 # Config with secrets (use config.example.json as template)
 config.json
