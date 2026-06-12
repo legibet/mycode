@@ -27,6 +27,7 @@ import type {
   StreamEvent,
   ToolRuntime,
 } from "../types";
+import { randomId } from "../utils/id";
 import {
   appendAssistantDelta,
   appendToolResult,
@@ -104,11 +105,7 @@ function getMessageFromDetail(
 }
 
 function createDraftSession(): SessionSummary {
-  const id =
-    globalThis.crypto?.randomUUID?.() ||
-    `draft-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-
-  return { id, title: DEFAULT_SESSION_TITLE, isDraft: true };
+  return { id: randomId(), title: DEFAULT_SESSION_TITLE, isDraft: true };
 }
 
 function chatReducer(state: ChatState, action: ChatAction): ChatState {

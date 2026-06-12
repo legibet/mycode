@@ -20,6 +20,7 @@ import type {
   SetString,
 } from "../../types";
 import { cn } from "../../utils/cn";
+import { randomId } from "../../utils/id";
 import { EffortTrigger, ModelTrigger } from "./InputPills";
 
 // File pickers only understand MIME types and extensions, so keep the text
@@ -143,7 +144,7 @@ async function processFiles(
       if (file.type.startsWith("image/")) {
         if (!supportsImages) return null;
         return {
-          id: crypto.randomUUID(),
+          id: randomId(),
           kind: "image" as const,
           data: await readFileAsBase64(file),
           mime_type: file.type,
@@ -158,7 +159,7 @@ async function processFiles(
       if (isPdfFile) {
         if (!supportsDocuments) return null;
         return {
-          id: crypto.randomUUID(),
+          id: randomId(),
           kind: "document" as const,
           data: await readFileAsBase64(file),
           mime_type: "application/pdf" as const,
@@ -169,7 +170,7 @@ async function processFiles(
       const text = await readFileAsUtf8(file);
       if (text === null) return null;
       return {
-        id: crypto.randomUUID(),
+        id: randomId(),
         kind: "text" as const,
         text,
         name: file.name,
