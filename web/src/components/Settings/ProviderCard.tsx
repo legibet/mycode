@@ -244,6 +244,7 @@ export const ProviderCard = memo(function ProviderCard({
                 value={modelInput}
                 onChange={(e) => setModelInput(e.target.value)}
                 onKeyDown={handleModelKeyDown}
+                aria-label="Add model"
                 placeholder={
                   draft.models.length === 0 ? "add a model id…" : "add another…"
                 }

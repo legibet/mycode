@@ -342,6 +342,7 @@ export const InputArea = memo(function InputArea({
           type="file"
           accept={accept}
           multiple
+          aria-label="Attach files"
           className="hidden"
           onChange={handleFileChange}
         />

@@ -33,10 +33,9 @@ export default function HighlightedCode({
   } | null>(null);
 
   useEffect(() => {
-    if (!language.trim()) {
-      setHighlight(null);
-      return;
-    }
+    // No setHighlight(null) needed: the render guard below ignores any
+    // highlight whose code/language no longer match the current props.
+    if (!language.trim()) return;
 
     let cancelled = false;
     void highlighterModulePromise

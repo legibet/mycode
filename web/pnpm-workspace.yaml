@@ -1,2 +1,7 @@
 allowBuilds:
   esbuild: true
+minimumReleaseAge: 10080
+trustPolicy: no-downgrade
+# Only check trust downgrades for versions published in the last 90 days;
+# older versions (e.g. reselect@5.1.1 from 2024) predate provenance adoption.
+trustPolicyIgnoreAfter: 129600
