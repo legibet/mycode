@@ -56,6 +56,13 @@
       "supports_pdf_input": true,
       "supports_reasoning": false
     },
+    "claude-fable-5": {
+      "context_window": 1000000,
+      "max_output_tokens": 128000,
+      "supports_image_input": true,
+      "supports_pdf_input": true,
+      "supports_reasoning": true
+    },
     "claude-haiku-4-5": {
       "context_window": 200000,
       "max_output_tokens": 64000,
@@ -263,6 +270,13 @@
       "supports_pdf_input": true,
       "supports_reasoning": true
     },
+    "gemini-3-pro-image-preview": {
+      "context_window": 131072,
+      "max_output_tokens": 32768,
+      "supports_image_input": true,
+      "supports_pdf_input": false,
+      "supports_reasoning": true
+    },
     "gemini-3-pro-preview": {
       "context_window": 1048576,
       "max_output_tokens": 65536,
@@ -443,6 +457,13 @@
       "supports_reasoning": true
     },
     "kimi-k2.6": {
+      "context_window": 262144,
+      "max_output_tokens": 262144,
+      "supports_image_input": true,
+      "supports_pdf_input": false,
+      "supports_reasoning": true
+    },
+    "kimi-k2.7-code": {
       "context_window": 262144,
       "max_output_tokens": 262144,
       "supports_image_input": true,
@@ -731,20 +752,6 @@
       "supports_pdf_input": true,
       "supports_reasoning": true
     },
-    "o1-mini": {
-      "context_window": 128000,
-      "max_output_tokens": 65536,
-      "supports_image_input": false,
-      "supports_pdf_input": false,
-      "supports_reasoning": true
-    },
-    "o1-preview": {
-      "context_window": 128000,
-      "max_output_tokens": 32768,
-      "supports_image_input": false,
-      "supports_pdf_input": false,
-      "supports_reasoning": true
-    },
     "o1-pro": {
       "context_window": 200000,
       "max_output_tokens": 100000,
@@ -915,6 +922,13 @@
       "supports_pdf_input": false,
       "supports_reasoning": false
     },
+    "anthropic/claude-fable-5": {
+      "context_window": 1000000,
+      "max_output_tokens": 128000,
+      "supports_image_input": true,
+      "supports_pdf_input": true,
+      "supports_reasoning": true
+    },
     "anthropic/claude-haiku-4.5": {
       "context_window": 200000,
       "max_output_tokens": 64000,
@@ -1013,20 +1027,6 @@
       "supports_pdf_input": false,
       "supports_reasoning": false
     },
-    "arcee-ai/maestro-reasoning": {
-      "context_window": 131072,
-      "max_output_tokens": 32000,
-      "supports_image_input": false,
-      "supports_pdf_input": false,
-      "supports_reasoning": false
-    },
-    "arcee-ai/spotlight": {
-      "context_window": 131072,
-      "max_output_tokens": 65537,
-      "supports_image_input": true,
-      "supports_pdf_input": false,
-      "supports_reasoning": false
-    },
     "arcee-ai/trinity-large-thinking": {
       "context_window": 262144,
       "max_output_tokens": 262144,
@@ -1047,13 +1047,6 @@
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": false
-    },
-    "baidu/ernie-4.5-vl-28b-a3b": {
-      "context_window": 30000,
-      "max_output_tokens": 8000,
-      "supports_image_input": true,
-      "supports_pdf_input": false,
-      "supports_reasoning": true
     },
     "baidu/ernie-4.5-vl-424b-a47b": {
       "context_window": 123000,
@@ -1175,8 +1168,8 @@
       "supports_reasoning": true
     },
     "deepseek/deepseek-r1-distill-llama-70b": {
-      "context_window": 131072,
-      "max_output_tokens": 16384,
+      "context_window": 8192,
+      "max_output_tokens": 8192,
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -1210,7 +1203,7 @@
       "supports_reasoning": true
     },
     "deepseek/deepseek-v4-flash": {
-      "context_window": 1048576,
+      "context_window": 1048575,
       "max_output_tokens": 131072,
       "supports_image_input": false,
       "supports_pdf_input": false,
@@ -1386,7 +1379,7 @@
     },
     "google/gemma-4-31b-it": {
       "context_window": 262144,
-      "max_output_tokens": 16384,
+      "max_output_tokens": 262144,
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -1532,7 +1525,7 @@
       "supports_reasoning": false
     },
     "meta-llama/llama-3.1-8b-instruct": {
-      "context_window": 16384,
+      "context_window": 131072,
       "max_output_tokens": 16384,
       "supports_image_input": false,
       "supports_pdf_input": false,
@@ -1591,13 +1584,6 @@
       "context_window": 327680,
       "max_output_tokens": 16384,
       "supports_image_input": true,
-      "supports_pdf_input": false,
-      "supports_reasoning": false
-    },
-    "meta-llama/llama-guard-3-8b": {
-      "context_window": 131072,
-      "max_output_tokens": 131072,
-      "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": false
     },
@@ -1840,20 +1826,20 @@
       "supports_reasoning": true
     },
     "moonshotai/kimi-k2.5": {
-      "context_window": 262144,
+      "context_window": 256000,
       "max_output_tokens": 262144,
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
     },
     "moonshotai/kimi-k2.6": {
-      "context_window": 262144,
-      "max_output_tokens": 262144,
+      "context_window": 262142,
+      "max_output_tokens": 262142,
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
     },
-    "moonshotai/kimi-k2.6:free": {
+    "moonshotai/kimi-k2.7-code": {
       "context_window": 262144,
       "max_output_tokens": 262144,
       "supports_image_input": true,
@@ -1874,19 +1860,12 @@
       "supports_pdf_input": false,
       "supports_reasoning": false
     },
-    "nex-agi/deepseek-v3.1-nex-n1": {
-      "context_window": 131072,
-      "max_output_tokens": 163840,
-      "supports_image_input": false,
+    "nex-agi/nex-n2-pro:free": {
+      "context_window": 262144,
+      "max_output_tokens": 262144,
+      "supports_image_input": true,
       "supports_pdf_input": false,
-      "supports_reasoning": false
-    },
-    "nousresearch/hermes-2-pro-llama-3-8b": {
-      "context_window": 8192,
-      "max_output_tokens": 8192,
-      "supports_image_input": false,
-      "supports_pdf_input": false,
-      "supports_reasoning": false
+      "supports_reasoning": true
     },
     "nousresearch/hermes-3-llama-3.1-405b": {
       "context_window": 131072,
@@ -1993,13 +1972,6 @@
       "supports_pdf_input": false,
       "supports_reasoning": true
     },
-    "nvidia/nemotron-nano-9b-v2": {
-      "context_window": 131072,
-      "max_output_tokens": 16384,
-      "supports_image_input": false,
-      "supports_pdf_input": false,
-      "supports_reasoning": true
-    },
     "nvidia/nemotron-nano-9b-v2:free": {
       "context_window": 128000,
       "max_output_tokens": 128000,
@@ -2037,13 +2009,6 @@
     },
     "openai/gpt-4": {
       "context_window": 8191,
-      "max_output_tokens": 4096,
-      "supports_image_input": false,
-      "supports_pdf_input": false,
-      "supports_reasoning": false
-    },
-    "openai/gpt-4-1106-preview": {
-      "context_window": 128000,
       "max_output_tokens": 4096,
       "supports_image_input": false,
       "supports_pdf_input": false,
@@ -2596,8 +2561,8 @@
       "supports_reasoning": true
     },
     "qwen/qwen2.5-vl-72b-instruct": {
-      "context_window": 32000,
-      "max_output_tokens": 8192,
+      "context_window": 128000,
+      "max_output_tokens": 128000,
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -2632,7 +2597,7 @@
     },
     "qwen/qwen3-30b-a3b": {
       "context_window": 40960,
-      "max_output_tokens": 20000,
+      "max_output_tokens": 16384,
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -2821,7 +2786,7 @@
     },
     "qwen/qwen3.5-9b": {
       "context_window": 262144,
-      "max_output_tokens": 81920,
+      "max_output_tokens": 262144,
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -2855,8 +2820,8 @@
       "supports_reasoning": true
     },
     "qwen/qwen3.6-35b-a3b": {
-      "context_window": 262140,
-      "max_output_tokens": 262140,
+      "context_window": 262144,
+      "max_output_tokens": 262144,
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -2920,13 +2885,6 @@
     "relace/relace-search": {
       "context_window": 256000,
       "max_output_tokens": 128000,
-      "supports_image_input": false,
-      "supports_pdf_input": false,
-      "supports_reasoning": false
-    },
-    "sao10k/l3-euryale-70b": {
-      "context_window": 8192,
-      "max_output_tokens": 8192,
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -3092,13 +3050,6 @@
       "supports_pdf_input": false,
       "supports_reasoning": true
     },
-    "z-ai/glm-4-32b": {
-      "context_window": 128000,
-      "max_output_tokens": 128000,
-      "supports_image_input": false,
-      "supports_pdf_input": false,
-      "supports_reasoning": false
-    },
     "z-ai/glm-4.5": {
       "context_window": 131072,
       "max_output_tokens": 98304,
@@ -3109,13 +3060,6 @@
     "z-ai/glm-4.5-air": {
       "context_window": 131070,
       "max_output_tokens": 131070,
-      "supports_image_input": false,
-      "supports_pdf_input": false,
-      "supports_reasoning": true
-    },
-    "z-ai/glm-4.5-air:free": {
-      "context_window": 131072,
-      "max_output_tokens": 96000,
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -3136,7 +3080,7 @@
     },
     "z-ai/glm-4.6v": {
       "context_window": 131072,
-      "max_output_tokens": 24000,
+      "max_output_tokens": 32768,
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -3163,7 +3107,7 @@
       "supports_reasoning": true
     },
     "z-ai/glm-5-turbo": {
-      "context_window": 202752,
+      "context_window": 262144,
       "max_output_tokens": 131072,
       "supports_image_input": false,
       "supports_pdf_input": false,
@@ -3176,11 +3120,11 @@
       "supports_pdf_input": false,
       "supports_reasoning": true
     },
-    "z-ai/glm-5v-turbo": {
-      "context_window": 202752,
-      "max_output_tokens": 131072,
+    "~anthropic/claude-fable-latest": {
+      "context_window": 1000000,
+      "max_output_tokens": 128000,
       "supports_image_input": true,
-      "supports_pdf_input": false,
+      "supports_pdf_input": true,
       "supports_reasoning": true
     },
     "~anthropic/claude-haiku-latest": {
@@ -3219,8 +3163,8 @@
       "supports_reasoning": true
     },
     "~moonshotai/kimi-latest": {
-      "context_window": 262144,
-      "max_output_tokens": 262144,
+      "context_window": 262142,
+      "max_output_tokens": 262142,
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
