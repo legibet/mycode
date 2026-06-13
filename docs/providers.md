@@ -57,8 +57,9 @@ class ProviderAdapter(ABC):
 - SDK: `anthropic` against Moonshot's Anthropic-compatible endpoint
 - Base URL: `https://api.moonshot.ai/anthropic`
 - API key env: `MOONSHOT_API_KEY`
-- Default models: `kimi-k2.6`
+- Default models: `kimi-k2.7-code`, `kimi-k2.6`
 - `supports_reasoning_effort`: true (maps to manual `budget_tokens`)
+- For `kimi-k2.7-code`, `none` is mapped to `low` because the model does not support disabled thinking
 - Prior reasoning must be replayed on later tool-loop turns when thinking is enabled
 - Shares Anthropic-like ephemeral cache markers and tool call ID projection
 - Same image format as `anthropic`
@@ -69,7 +70,7 @@ class ProviderAdapter(ABC):
 - SDK: `anthropic` against MiniMax's Anthropic-compatible endpoint
 - Base URL: `https://api.minimax.io/anthropic`
 - API key env: `MINIMAX_API_KEY`
-- Default models: `MiniMax-M2.7`, `MiniMax-M2.7-highspeed`
+- Default models: `MiniMax-M3`
 - `supports_reasoning_effort`: true (maps to manual `budget_tokens`)
 - Preserves provider-native thinking signatures in `block.meta.native`
 - Shares Anthropic-like ephemeral cache markers and tool call ID projection
@@ -148,8 +149,8 @@ class ProviderAdapter(ABC):
 - SDK: `openai` against Z.AI's OpenAI-compatible endpoint
 - Base URL: `https://api.z.ai/api/paas/v4/`
 - API key env: `ZAI_API_KEY`
-- Default models: `glm-5.1`, `glm-5-turbo`
-- `supports_reasoning_effort`: false; thinking enabled by default via `thinking: {type: "enabled", clear_thinking: false}`
+- Default models: `glm-5.2`
+- `supports_reasoning_effort`: true; thinking enabled by default via `thinking: {type: "enabled", clear_thinking: false}`; `glm-5.2` maps `low`/`medium`/`high` to `high` and `xhigh` to `max`
 - `auto_discoverable`: true
 - `clear_thinking: false` preserves reasoning across multi-turn tool loops; historical `reasoning_content` must be replayed unmodified
 

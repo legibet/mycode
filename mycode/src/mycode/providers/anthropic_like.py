@@ -365,11 +365,14 @@ class MoonshotAIAdapter(AnthropicLikeAdapter):
     label = "Moonshot"
     default_base_url = "https://api.moonshot.ai/anthropic"
     env_api_key_names = ("MOONSHOT_API_KEY",)
-    default_models = ("kimi-k2.6",)
+    default_models = ("kimi-k2.7-code", "kimi-k2.6")
     supports_reasoning_effort = True
 
     @override
     def thinking_config(self, request: ProviderRequest) -> dict[str, Any] | None:
+        if request.model.lower() == "kimi-k2.7-code" and request.reasoning_effort == "none":
+            # Kimi K2.7 Code rejects disabled thinking, so keep the lowest enabled thinking mode.
+            return self.manual_thinking_config("low")
         return self.manual_thinking_config(request.reasoning_effort)
 
 
@@ -385,7 +388,7 @@ class MiniMaxAdapter(AnthropicLikeAdapter):
     label = "MiniMax"
     default_base_url = "https://api.minimax.io/anthropic"
     env_api_key_names = ("MINIMAX_API_KEY",)
-    default_models = ("MiniMax-M2.7", "MiniMax-M2.7-highspeed")
+    default_models = ("MiniMax-M3",)
     supports_reasoning_effort = True
 
     @override

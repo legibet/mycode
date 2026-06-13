@@ -366,12 +366,19 @@ class ZAIAdapter(OpenAIChatAdapter):
     label = "Z.AI"
     default_base_url = "https://api.z.ai/api/paas/v4/"
     env_api_key_names = ("ZAI_API_KEY",)
-    default_models = ("glm-5.1", "glm-5-turbo")
+    default_models = ("glm-5.2",)
     auto_discoverable = True
+    supports_reasoning_effort = True
 
     @override
     def _build_provider_payload_overrides(self, request: ProviderRequest) -> dict[str, Any]:
-        return {"extra_body": {"thinking": {"type": "enabled", "clear_thinking": False}}}
+        payload: dict[str, Any] = {"extra_body": {"thinking": {"type": "enabled", "clear_thinking": False}}}
+        if request.model.lower().startswith("glm-5.2"):
+            if request.reasoning_effort in {"low", "medium", "high"}:
+                payload["reasoning_effort"] = "high"
+            elif request.reasoning_effort == "xhigh":
+                payload["reasoning_effort"] = "max"
+        return payload
 
 
 class OpenRouterAdapter(OpenAIChatAdapter):
