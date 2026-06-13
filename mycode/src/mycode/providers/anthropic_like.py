@@ -28,9 +28,6 @@ from mycode.providers.base import (
     tool_result_content_blocks,
 )
 
-# Maps reasoning_effort values to extended thinking budget_tokens.
-_THINKING_BUDGETS: dict[str, int] = {"low": 2048, "medium": 8192, "high": 24576, "xhigh": 32768}
-
 
 class AnthropicLikeAdapter(ProviderAdapter):
     """Shared Messages adapter for Anthropic-compatible providers."""
@@ -43,14 +40,6 @@ class AnthropicLikeAdapter(ProviderAdapter):
         del request
         return None
 
-    def manual_thinking_config(self, effort: str | None) -> dict[str, Any] | None:
-        if not effort:
-            return None
-        if effort == "none":
-            return {"type": "disabled"}
-        budget = _THINKING_BUDGETS.get(effort)
-        return {"type": "enabled", "budget_tokens": budget} if budget else None
-
     def _build_request_payload(self, request: ProviderRequest) -> dict[str, Any]:
         messages = [self._serialize_message(message) for message in self.prepare_messages(request)]
         self._apply_cache_control(messages)
@@ -59,9 +48,9 @@ class AnthropicLikeAdapter(ProviderAdapter):
         payload: dict[str, Any] = {
             "model": request.model,
             "max_tokens": request.max_tokens,
-            "temperature": request.temperature,
             "messages": messages,
         }
+        # Anthropic-compatible providers use provider-default sampling; temperature is intentionally omitted.
         if request.system:
             payload["system"] = [
                 {
@@ -315,7 +304,7 @@ class AnthropicAdapter(AnthropicLikeAdapter):
     label = "Anthropic"
     default_base_url = "https://api.anthropic.com"
     env_api_key_names = ("ANTHROPIC_API_KEY",)
-    default_models = ("claude-sonnet-4-6", "claude-opus-4-7")
+    default_models = ("claude-sonnet-4-6", "claude-opus-4-8")
     supports_reasoning_effort = True
 
     @override
@@ -326,12 +315,10 @@ class AnthropicAdapter(AnthropicLikeAdapter):
         if effort == "none":
             return {"type": "disabled"}
         normalized = request.model.lower()
-        if normalized.startswith(("claude-opus-4-7", "claude-opus-4-6", "claude-sonnet-4-6")):
-            thinking: dict[str, Any] = {"type": "adaptive"}
-            if normalized.startswith("claude-opus-4-7"):
-                thinking["display"] = "summarized"
-            return thinking
-        return self.manual_thinking_config(effort)
+        thinking: dict[str, Any] = {"type": "adaptive"}
+        if normalized.startswith(("claude-opus-4-7", "claude-opus-4-8")):
+            thinking["display"] = "summarized"
+        return thinking
 
     @override
     def output_config(self, request: ProviderRequest) -> dict[str, Any] | None:
@@ -340,7 +327,7 @@ class AnthropicAdapter(AnthropicLikeAdapter):
             return None
 
         normalized = request.model.lower()
-        if normalized.startswith("claude-opus-4-7"):
+        if normalized.startswith(("claude-opus-4-7", "claude-opus-4-8")):
             return {"effort": effort}
 
         if normalized.startswith("claude-sonnet-4-6"):
@@ -370,10 +357,17 @@ class MoonshotAIAdapter(AnthropicLikeAdapter):
 
     @override
     def thinking_config(self, request: ProviderRequest) -> dict[str, Any] | None:
-        if request.model.lower() == "kimi-k2.7-code" and request.reasoning_effort == "none":
-            # Kimi K2.7 Code rejects disabled thinking, so keep the lowest enabled thinking mode.
-            return self.manual_thinking_config("low")
-        return self.manual_thinking_config(request.reasoning_effort)
+        if not request.reasoning_effort:
+            return None
+        if request.reasoning_effort == "none" and request.model.lower() != "kimi-k2.7-code":
+            return {"type": "disabled"}
+        return {"type": "adaptive"}
+
+    @override
+    def output_config(self, request: ProviderRequest) -> dict[str, Any] | None:
+        if not request.reasoning_effort or request.reasoning_effort == "none":
+            return None
+        return {"effort": request.reasoning_effort}
 
 
 class MiniMaxAdapter(AnthropicLikeAdapter):
@@ -389,8 +383,8 @@ class MiniMaxAdapter(AnthropicLikeAdapter):
     default_base_url = "https://api.minimax.io/anthropic"
     env_api_key_names = ("MINIMAX_API_KEY",)
     default_models = ("MiniMax-M3",)
-    supports_reasoning_effort = True
+    supports_reasoning_effort = False
 
     @override
     def thinking_config(self, request: ProviderRequest) -> dict[str, Any] | None:
-        return self.manual_thinking_config(request.reasoning_effort)
+        return {"type": "adaptive"}

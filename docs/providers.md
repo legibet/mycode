@@ -42,11 +42,11 @@ class ProviderAdapter(ABC):
 - API: Anthropic Messages API
 - Base URL: `https://api.anthropic.com`
 - API key env: `ANTHROPIC_API_KEY`
-- Default models: `claude-sonnet-4-6`, `claude-opus-4-7`
+- Default models: `claude-sonnet-4-6`, `claude-opus-4-8`
 - `supports_reasoning_effort`: true
-- Adaptive thinking for `claude-sonnet-4-6` / `claude-opus-4-6` / `claude-opus-4-7`; manual `budget_tokens` for older reasoning models
-- `claude-opus-4-7` only accepts adaptive thinking; manual `budget_tokens` returns a 400 upstream
-- `reasoning_effort=xhigh` maps to `high` for sonnet-4-6, `max` for opus-4-6, and stays `xhigh` for opus-4-7
+- Reasoning efforts use adaptive thinking; `claude-opus-4-7` / `claude-opus-4-8` request summarized thinking output
+- `claude-opus-4-7` / `claude-opus-4-8` use `output_config.effort`
+- Omits `temperature`; Anthropic-compatible providers use provider-default sampling
 - Adds ephemeral `cache_control` to system prompt block and last user content block
 - Tool call IDs projected to ASCII-safe format (letters, numbers, underscores, dashes, max 64 chars) with SHA1 collision suffix
 - Images serialize as Anthropic `image` blocks with base64 `source`
@@ -58,8 +58,9 @@ class ProviderAdapter(ABC):
 - Base URL: `https://api.moonshot.ai/anthropic`
 - API key env: `MOONSHOT_API_KEY`
 - Default models: `kimi-k2.7-code`, `kimi-k2.6`
-- `supports_reasoning_effort`: true (maps to manual `budget_tokens`)
-- For `kimi-k2.7-code`, `none` is mapped to `low` because the model does not support disabled thinking
+- `supports_reasoning_effort`: true (maps enabled efforts to adaptive thinking and forwards `output_config.effort`)
+- For `kimi-k2.7-code`, `none` is mapped to adaptive thinking because the model does not support disabled thinking
+- Omits `temperature`; Anthropic-compatible providers use provider-default sampling
 - Prior reasoning must be replayed on later tool-loop turns when thinking is enabled
 - Shares Anthropic-like ephemeral cache markers and tool call ID projection
 - Same image format as `anthropic`
@@ -71,7 +72,9 @@ class ProviderAdapter(ABC):
 - Base URL: `https://api.minimax.io/anthropic`
 - API key env: `MINIMAX_API_KEY`
 - Default models: `MiniMax-M3`
-- `supports_reasoning_effort`: true (maps to manual `budget_tokens`)
+- `supports_reasoning_effort`: false
+- `MiniMax-M3` uses adaptive thinking by default; MiniMax Anthropic endpoint does not support effort depth
+- Omits `temperature`; Anthropic-compatible providers use provider-default sampling
 - Preserves provider-native thinking signatures in `block.meta.native`
 - Shares Anthropic-like ephemeral cache markers and tool call ID projection
 - Same image format as `anthropic`
@@ -168,13 +171,15 @@ class ProviderAdapter(ABC):
 
 ## Reasoning Effort Mapping
 
-| effort   | anthropic / moonshotai / minimax       | google (3.x)          | openai / openrouter |
-| -------- | -------------------------------------- | --------------------- | ------------------- |
-| `none`   | thinking disabled                      | `LOW`/`MINIMAL` level | `none`              |
-| `low`    | low `budget_tokens`                    | `LOW`/`MINIMAL` level | `low`               |
-| `medium` | medium `budget_tokens`                 | `MEDIUM` level        | `medium`            |
-| `high`   | high `budget_tokens`                   | `HIGH` level          | `high`              |
-| `xhigh`  | `high` (sonnet) / `max` (opus) effort  | `HIGH` level          | `xhigh`             |
+| effort   | anthropic / moonshotai                          | google (3.x)          | openai / openrouter |
+| -------- | ----------------------------------------------- | --------------------- | ------------------- |
+| `none`   | thinking disabled                               | `LOW`/`MINIMAL` level | `none`              |
+| `low`    | adaptive thinking                               | `LOW`/`MINIMAL` level | `low`               |
+| `medium` | adaptive thinking                               | `MEDIUM` level        | `medium`            |
+| `high`   | adaptive thinking                               | `HIGH` level          | `high`              |
+| `xhigh`  | adaptive thinking; provider max where supported | `HIGH` level          | `xhigh`             |
+
+MiniMax is not listed in the effort mapping table because its Anthropic endpoint does not support effort depth; `MiniMax-M3` always sends adaptive thinking.
 
 Config-resolved `reasoning_effort` is only applied when both `adapter.supports_reasoning_effort` and `model_metadata.supports_reasoning` (from the bundled catalog) are true.
 
