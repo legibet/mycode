@@ -577,7 +577,7 @@ wheels = [
 
 [[package]]
 name = "mycode-cli"
-version = "0.9.0"
+version = "0.9.1"
 source = { editable = "cli" }
 dependencies = [
     { name = "fastapi" },
@@ -602,7 +602,7 @@ requires-dist = [
 
 [[package]]
 name = "mycode-sdk"
-version = "0.9.0"
+version = "0.9.1"
 source = { editable = "mycode" }
 dependencies = [
     { name = "anthropic" },
