@@ -41,7 +41,11 @@ class AnthropicLikeAdapter(ProviderAdapter):
         return None
 
     def _build_request_payload(self, request: ProviderRequest) -> dict[str, Any]:
-        messages = [self._serialize_message(message) for message in self.prepare_messages(request)]
+        messages = []
+        for replay_message in self.prepare_messages(request):
+            message = self._serialize_message(replay_message)
+            if message["content"]:
+                messages.append(message)
         self._apply_cache_control(messages)
         thinking = self.thinking_config(request)
 
@@ -229,11 +233,24 @@ class AnthropicLikeAdapter(ProviderAdapter):
         }
 
     def _serialize_message(self, message: ConversationMessage) -> dict[str, Any]:
+        role = str(message.get("role") or "user")
+        raw_meta = message.get("meta")
+        source_provider = raw_meta.get("provider") if isinstance(raw_meta, dict) else None
+        content = []
+        for block in message.get("content") or []:
+            if not isinstance(block, dict):
+                continue
+            if (
+                self.provider_id == "anthropic"
+                and role == "assistant"
+                and block.get("type") == "thinking"
+                and (source_provider != self.provider_id or not get_native_meta(block).get("signature"))
+            ):
+                continue
+            content.append(self._serialize_block(block))
         return {
-            "role": str(message.get("role") or "user"),
-            "content": [
-                self._serialize_block(block) for block in message.get("content") or [] if isinstance(block, dict)
-            ],
+            "role": role,
+            "content": content,
         }
 
     def _serialize_block(self, block: dict[str, Any]) -> dict[str, Any]:

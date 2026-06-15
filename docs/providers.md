@@ -47,6 +47,7 @@ class ProviderAdapter(ABC):
 - Reasoning efforts use adaptive thinking; `claude-opus-4-7` / `claude-opus-4-8` request summarized thinking output
 - `claude-opus-4-7` / `claude-opus-4-8` use `output_config.effort`
 - Omits `temperature`; Anthropic-compatible providers use provider-default sampling
+- Replays only Claude-origin thinking blocks that include Anthropic's native `signature`; foreign or unsigned `thinking` blocks are skipped before request serialization
 - Adds ephemeral `cache_control` to system prompt block and last user content block
 - Tool call IDs projected to ASCII-safe format (letters, numbers, underscores, dashes, max 64 chars) with SHA1 collision suffix
 - Images serialize as Anthropic `image` blocks with base64 `source`
@@ -200,6 +201,7 @@ For OpenAI-compatible chat providers, empty `thinking` blocks with `block.meta.n
 
 Upstream behavior references:
 
+- Anthropic: extended thinking with tool use requires returning Claude's thinking blocks complete and unmodified, including their `signature`; foreign or unsigned reasoning text is not a valid Anthropic thinking block.
 - OpenAI Chat/SDK: additive response fields are allowed by the [API compatibility policy](https://developers.openai.com/api/reference/overview#backwards-compatibility), and the official Python SDK exposes undocumented response properties through [`model_extra`](https://github.com/openai/openai-python#undocumented-request-params).
 - OpenRouter: [reasoning tokens](https://openrouter.ai/docs/guides/best-practices/reasoning-tokens#preserving-reasoning) can be returned and replayed as `reasoning`, `reasoning_content`, or structured `reasoning_details`; `reasoning_details` must be preserved unmodified.
 - Z.AI: [preserved/interleaved thinking](https://docs.z.ai/guides/capabilities/thinking-mode#preserved-thinking) requires returning historical `reasoning_content` unmodified when `clear_thinking: false` is used.

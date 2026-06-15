@@ -1394,6 +1394,7 @@ def test_anthropic_replays_native_block_metadata() -> None:
                             "meta": {"native": {"caller": "server"}},
                         },
                     ],
+                    "meta": {"provider": "anthropic", "model": "claude-sonnet-4-6"},
                 }
             ],
         )
@@ -1406,11 +1407,35 @@ def test_anthropic_replays_native_block_metadata() -> None:
     assert payload["content"][1]["caller"] == "server"
 
 
-@pytest.mark.parametrize("adapter", [MoonshotAIAdapter(), AnthropicAdapter()])
-def test_anthropic_like_replays_unsigned_thinking_without_signature(adapter) -> None:
-    payload = adapter._build_request_payload(
+def test_anthropic_skips_moonshot_thinking_during_replay() -> None:
+    messages = AnthropicAdapter()._build_request_payload(
         request_obj(
             model="claude-sonnet-4-6",
+            messages=[
+                {"role": "user", "content": [{"type": "text", "text": "Inspect x.py"}]},
+                {
+                    "role": "assistant",
+                    "content": [
+                        {"type": "thinking", "text": "Need the tool result first."},
+                        {"type": "tool_use", "id": "call_1", "name": "read", "input": {}},
+                    ],
+                    "meta": {"provider": "moonshotai", "model": "kimi-k2-thinking"},
+                },
+                {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "call_1", "output": "done"}]},
+            ],
+        )
+    )["messages"]
+
+    assert messages[1]["role"] == "assistant"
+    assert messages[1]["content"] == [{"type": "tool_use", "id": "call_1", "name": "read", "input": {}}]
+    assert messages[2]["content"][0]["type"] == "tool_result"
+    assert messages[2]["content"][0]["tool_use_id"] == "call_1"
+
+
+def test_moonshot_replays_unsigned_thinking_without_signature() -> None:
+    payload = MoonshotAIAdapter()._build_request_payload(
+        request_obj(
+            model="kimi-k2-thinking",
             messages=[
                 {
                     "role": "assistant",
