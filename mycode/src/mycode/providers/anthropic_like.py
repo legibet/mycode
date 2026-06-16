@@ -185,16 +185,11 @@ class AnthropicLikeAdapter(ProviderAdapter):
                 continue
 
             if block_type == "tool_use":
-                native_meta = {}
-                caller = getattr(block, "caller", None)
-                if caller is not None:
-                    native_meta["caller"] = caller
                 blocks.append(
                     tool_use_block(
                         tool_id=getattr(block, "id", ""),
                         name=getattr(block, "name", ""),
                         input=getattr(block, "input", None),
-                        meta=native_block_meta(native_meta),
                     )
                 )
                 continue
@@ -270,16 +265,12 @@ class AnthropicLikeAdapter(ProviderAdapter):
             return payload
 
         if block_type == "tool_use":
-            native_meta = get_native_meta(block)
-            payload = {
+            return {
                 "type": "tool_use",
                 "id": block.get("id"),
                 "name": block.get("name"),
                 "input": block.get("input") if isinstance(block.get("input"), dict) else {},
             }
-            if native_meta.get("caller") is not None:
-                payload["caller"] = native_meta["caller"]
-            return payload
 
         if block_type == "image":
             mime_type, data = load_image_block_payload(block)

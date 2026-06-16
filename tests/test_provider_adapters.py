@@ -1375,7 +1375,7 @@ def test_anthropic_serializes_image_tool_result_content(tmp_path) -> None:
     assert content[1]["source"]["media_type"] == "image/png"
 
 
-def test_anthropic_replays_native_block_metadata() -> None:
+def test_anthropic_replays_thinking_signature_without_tool_use_caller() -> None:
     adapter = AnthropicAdapter()
 
     payload = adapter._build_request_payload(
@@ -1391,7 +1391,7 @@ def test_anthropic_replays_native_block_metadata() -> None:
                             "id": "call_1",
                             "name": "read",
                             "input": {},
-                            "meta": {"native": {"caller": "server"}},
+                            "meta": {"native": {"caller": {"tool_id": "", "type": ""}}},
                         },
                     ],
                     "meta": {"provider": "anthropic", "model": "claude-sonnet-4-6"},
@@ -1402,9 +1402,7 @@ def test_anthropic_replays_native_block_metadata() -> None:
 
     assert payload["role"] == "assistant"
     assert payload["content"][0] == {"type": "thinking", "thinking": "think", "signature": "sig_1"}
-    assert payload["content"][1]["type"] == "tool_use"
-    assert payload["content"][1]["id"] == "call_1"
-    assert payload["content"][1]["caller"] == "server"
+    assert payload["content"][1] == {"type": "tool_use", "id": "call_1", "name": "read", "input": {}}
 
 
 def test_anthropic_skips_moonshot_thinking_during_replay() -> None:
