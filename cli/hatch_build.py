@@ -65,5 +65,9 @@ class CustomMetadataHook(MetadataHookInterface):
 
 class CustomBuildHook(BuildHookInterface[Any]):
     def initialize(self, version: str, build_data: dict[str, Any]) -> None:
-        del version, build_data
+        del build_data
+        # Editable installs (uv sync) don't bundle web assets, so skip the build
+        # and its web/ submodule + pnpm requirements. Wheel/sdist builds use "standard".
+        if version == "editable":
+            return
         _build_web_assets(Path(self.root))
