@@ -123,8 +123,10 @@ Interactive slash commands: `/new` `/resume` `/rewind` `/provider` `/model` `/ef
 
 ## Development
 
+The `web/` UI is a git submodule from [`legibet/mycode-web`](https://github.com/legibet/mycode-web); `--recurse-submodules` fetches it.
+
 ```bash
-git clone https://github.com/legibet/mycode.git && cd mycode
+git clone --recurse-submodules https://github.com/legibet/mycode.git && cd mycode
 uv sync --dev
 uv run mycode
 ```

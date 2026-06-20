@@ -9,15 +9,7 @@ Always-loaded context for agent runs on this project. Detailed specs live in `do
 - `mycode-sdk` (import `mycode`) — the runtime: agent loop, message format, session store, provider adapters, and built-in tools. Lightweight, suitable for embedding the agent in other Python apps.
 - `mycode-cli` (import `mycode_cli`) — the interactive CLI and FastAPI web server built on top of the SDK.
 
-Priorities: small readable core · one message model · one agent loop · append-only sessions · provider adapters at the boundary.
-
-## Guardrails
-
-- 4 built-in tools only: `read`, `write`, `edit`, `bash`.
-- Provider-specific behavior stays inside adapters, never in the agent loop.
-- Sessions stay append-only and human-inspectable.
-
-When in doubt, prefer the simpler and more explicit design.
+The web UI lives in a separate repo, [`legibet/mycode-web`](https://github.com/legibet/mycode-web), included as the `web/` git submodule. Develop UI there; this repo only builds it into the packaged static assets.
 
 ## Project Layout
 
@@ -137,6 +129,7 @@ When a feature requires both web and CLI/SDK changes, make two commits.
 ## Dev Workflow
 
 ```bash
+git submodule update --init                            # fetch web/ (legibet/mycode-web)
 uv sync --dev                                          # install/update Python deps
 pnpm --dir web install                                 # install web deps
 
@@ -156,10 +149,11 @@ uv build --package mycode-cli                          # build CLI package
 Useful shortcuts:
 
 ```bash
+just setup                                             # init submodule + install all deps
 just dev                                               # backend API + Vite dev together
-just check                                             # ruff check, basedpyright, web typecheck, biome check
-just test                                              # Python + web tests
-just fmt                                               # ruff fix/format + biome check --write
+just check                                             # ruff check, basedpyright
+just test                                              # Python tests
+just fmt                                               # ruff fix/format
 ```
 
 Releases are cut by `scripts/release.sh`, which bumps the `mycode-sdk` and `mycode-cli` versions in their `pyproject.toml`, refreshes the CLI's pin on `mycode-sdk`, builds both wheels, and tags the repo.
