@@ -82,19 +82,27 @@ Per-adapter SDK, base URL, env vars, reasoning effort mapping, image/PDF seriali
 
 Event names and payload shapes are a cross-component contract — changes need to land in server, CLI, and web UI together. Full payload fields, reconnect semantics (`after=<seq>`), and the permission request/resolve flow live in `docs/api.md`. SDK-level event variants (used by SDK embedders) live in `docs/sdk.md`.
 
+## Web UI
+
+`web/` is the `legibet/mycode-web` submodule; UI internals (components, state model, streaming, config) live in `web/AGENTS.md`.
+
+- `mycode web` — serves packaged assets from `cli/src/mycode_cli/server/static/`; missing at startup → API-only with a warning.
+- `mycode web --dev` — API-only (pair with `pnpm --dir web dev`); CORS allows only the Vite dev origin.
+- `uv build --package mycode-cli` — builds web and packages `static/` via `cli/hatch_build.py` (editable installs skip it).
+
 ## Detailed Specs
 
 Read the relevant doc before related changes.
 
-| Area                                                                            | Doc                                           |
-| ------------------------------------------------------------------------------- | --------------------------------------------- |
-| `mycode/src/mycode/agent.py`, `messages.py`, `tools.py`, `hooks.py`, public SDK | `docs/sdk.md`                                 |
-| `mycode/src/mycode/session.py` or anything touching JSONL / compact / rewind    | `docs/sessions.md`                            |
-| `mycode/src/mycode/providers/*`                                                 | `docs/providers.md`                           |
-| `cli/src/mycode_cli/server/**` or any SSE event / route                         | `docs/api.md`                                 |
-| `cli/src/mycode_cli/config.py`, `system_prompt.py`, `permissions.py`            | `docs/config.md`                              |
-| `web/src/**`                                                                    | `docs/web.md`                                 |
-| Cross-cutting changes (e.g. a new SSE event)                                    | `docs/api.md` + `docs/sdk.md` + `docs/web.md` |
+| Area                                                                            | Doc                                             |
+| ------------------------------------------------------------------------------- | ----------------------------------------------- |
+| `mycode/src/mycode/agent.py`, `messages.py`, `tools.py`, `hooks.py`, public SDK | `docs/sdk.md`                                   |
+| `mycode/src/mycode/session.py` or anything touching JSONL / compact / rewind    | `docs/sessions.md`                              |
+| `mycode/src/mycode/providers/*`                                                 | `docs/providers.md`                             |
+| `cli/src/mycode_cli/server/**` or any SSE event / route                         | `docs/api.md`                                   |
+| `cli/src/mycode_cli/config.py`, `system_prompt.py`, `permissions.py`            | `docs/config.md`                                |
+| `web/src/**`                                                                    | `web/AGENTS.md`                                 |
+| Cross-cutting changes (e.g. a new SSE event)                                    | `docs/api.md` + `docs/sdk.md` + `web/AGENTS.md` |
 
 ## Interfaces
 
@@ -110,21 +118,19 @@ Format: `type(scope): description`.
 
 Scopes:
 
-- `web` — changes under `web/` only
+- `web` — `web/` submodule pointer bumps
 - `sdk` — SDK package (`mycode/`) only
 - `cli` — CLI/server package (`cli/`) only
 
 Examples:
 
 ```text
-feat(web): add tool duration display
+chore(web): bump mycode-web
 fix(sdk): handle empty tool result in compact
 feat(sdk): add tool decorator
 refactor(cli): unify provider switcher
 docs: update SSE contract in AGENTS.md
 ```
-
-When a feature requires both web and CLI/SDK changes, make two commits.
 
 ## Dev Workflow
 
