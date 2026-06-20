@@ -27,10 +27,13 @@ def _build_web_assets(project_root: Path) -> None:
     web_dist_dir = web_dir / "dist"
     static_dir = project_root / "src" / "mycode_cli" / "server" / "static"
 
-    if not web_dir.is_dir():
+    if not (web_dir / "package.json").is_file():
         if static_dir.is_dir():
             return
-        raise RuntimeError(f"web source directory not found: {web_dir}")
+        raise RuntimeError(
+            f"web sources not found at {web_dir}; the web/ submodule is not "
+            "initialized. Run: git submodule update --init --recursive"
+        )
 
     _run_pnpm(["install", "--frozen-lockfile"], cwd=web_dir)
     _run_pnpm(["build"], cwd=web_dir)

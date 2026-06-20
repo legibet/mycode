@@ -20,18 +20,6 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@v7
 
-      - name: Install pnpm
-        uses: pnpm/action-setup@v5
-        with:
-          version: 10
-
-      - name: Install Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version: 24
-          cache: pnpm
-          cache-dependency-path: web/pnpm-lock.yaml
-
       - name: Install Python
         run: uv python install 3.12
 
@@ -47,41 +35,13 @@ jobs:
       - name: Run Python tests
         run: uv run pytest
 
-  web:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Install pnpm
-        uses: pnpm/action-setup@v5
-        with:
-          version: 10
-
-      - name: Install Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version: 24
-          cache: pnpm
-          cache-dependency-path: web/pnpm-lock.yaml
-
-      - name: Install web dependencies
-        run: pnpm --dir web install --frozen-lockfile
-
-      - name: Lint web
-        run: pnpm --dir web check
-
-      - name: Typecheck web
-        run: pnpm --dir web typecheck
-
-      - name: Run web tests
-        run: pnpm --dir web test:run
-
   package:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          submodules: recursive
 
       - name: Install uv
         uses: astral-sh/setup-uv@v7

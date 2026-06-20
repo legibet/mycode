@@ -47,7 +47,7 @@ cli/src/mycode_cli/       # CLI + FastAPI web server
   tui/                    # interactive terminal chat (chat.py, render.py, theme.py)
   server/                 # FastAPI app, routers, run_manager, schemas; settings router validates config writes
 
-web/src/                  # React + Vite UI
+web/                      # React + Vite UI (git submodule: legibet/mycode-web)
   hooks/useChat.ts        # chat state + SSE streaming
   utils/messages.ts       # buildRenderMessages(): canonical blocks → UI messages
 

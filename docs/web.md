@@ -1,6 +1,6 @@
 # Web UI
 
-React + Vite app in `web/`. Built assets are copied to `cli/src/mycode_cli/server/static/` for packaged serving.
+React + Vite app in the `web/` git submodule (source of truth: [legibet/mycode-web](https://github.com/legibet/mycode-web)). Run `git submodule update --init --recursive` after cloning. Built assets are copied to `cli/src/mycode_cli/server/static/` for packaged serving.
 
 ## Serving Modes
 
