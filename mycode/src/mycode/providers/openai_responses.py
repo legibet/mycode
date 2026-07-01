@@ -19,9 +19,10 @@ from mycode.providers.base import (
     load_document_block_payload,
     load_image_block_payload,
     native_block_meta,
+    parse_tool_call_input,
     tool_result_content_blocks,
 )
-from mycode.utils import omit_none, parse_tool_arguments
+from mycode.utils import omit_none
 
 
 class OpenAIResponsesAdapter(ProviderAdapter):
@@ -308,19 +309,12 @@ class OpenAIResponsesAdapter(ProviderAdapter):
                 continue
 
             if item_type == "function_call":
-                raw_arguments = getattr(item, "arguments", "") or ""
-                parsed_arguments = parse_tool_arguments(raw_arguments)
-                if parsed_arguments is None:
-                    tool_input = {}
-                    raw_args_entry: dict[str, Any] = {"raw_arguments": raw_arguments}
-                else:
-                    tool_input = parsed_arguments
-                    raw_args_entry = {}
+                tool_input, extra_native = parse_tool_call_input(getattr(item, "arguments", "") or "")
                 item_meta = omit_none(
                     {
                         "item_id": getattr(item, "id", None),
                         "status": getattr(item, "status", None),
-                        **raw_args_entry,
+                        **extra_native,
                     }
                 )
                 blocks.append(

@@ -16,6 +16,7 @@ from typing import Any
 from mycode.attachments import unsupported_attachment_block
 from mycode.compact import apply_compact_replay
 from mycode.messages import ConversationMessage, build_message, text_block, tool_result_block
+from mycode.utils import parse_tool_arguments
 
 DEFAULT_REQUEST_TIMEOUT = 300.0
 
@@ -72,6 +73,20 @@ def native_block_meta(native: dict[str, Any]) -> dict[str, Any] | None:
     """Wrap accumulated native values as block meta, or None when empty."""
 
     return {"native": native} if native else None
+
+
+def parse_tool_call_input(raw_arguments: str) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Parse a streamed/native tool-call JSON arguments string.
+
+    Returns ``(input, extra_native_fields)``. On parse failure, ``input`` is
+    empty and ``extra_native_fields`` preserves the raw text under
+    ``raw_arguments`` so it stays inspectable in ``block.meta.native``.
+    """
+
+    parsed = parse_tool_arguments(raw_arguments)
+    if parsed is None:
+        return {}, {"raw_arguments": raw_arguments}
+    return parsed, {}
 
 
 class ProviderAdapter(ABC):

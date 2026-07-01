@@ -20,8 +20,9 @@ from mycode.providers.base import (
     load_document_block_payload,
     load_image_block_payload,
     native_block_meta,
+    parse_tool_call_input,
 )
-from mycode.utils import omit_none, parse_tool_arguments
+from mycode.utils import omit_none
 
 
 @dataclass
@@ -118,21 +119,13 @@ class OpenAIChatAdapter(ProviderAdapter):
 
         for index in sorted(tool_calls):
             state = tool_calls[index]
-            raw_arguments = state.arguments_text
-            parsed_arguments = parse_tool_arguments(raw_arguments)
-            if parsed_arguments is None:
-                tool_input = {}
-                meta = {"native": {"raw_arguments": raw_arguments}}
-            else:
-                tool_input = parsed_arguments
-                meta = None
-
+            tool_input, extra_native = parse_tool_call_input(state.arguments_text)
             blocks.append(
                 tool_use_block(
                     tool_id=state.tool_id or f"tool_call_{index}",
                     name=state.name,
                     input=tool_input,
-                    meta=meta,
+                    meta=native_block_meta(extra_native),
                 )
             )
 
