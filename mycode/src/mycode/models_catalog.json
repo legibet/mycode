@@ -1,19 +1,5 @@
 {
   "anthropic": {
-    "claude-3-5-haiku-20241022": {
-      "context_window": 200000,
-      "max_output_tokens": 8192,
-      "supports_image_input": true,
-      "supports_pdf_input": true,
-      "supports_reasoning": false
-    },
-    "claude-3-5-haiku-latest": {
-      "context_window": 200000,
-      "max_output_tokens": 8192,
-      "supports_image_input": true,
-      "supports_pdf_input": true,
-      "supports_reasoning": false
-    },
     "claude-3-5-sonnet-20240620": {
       "context_window": 200000,
       "max_output_tokens": 8192,
@@ -171,6 +157,13 @@
     "claude-sonnet-4-6": {
       "context_window": 1000000,
       "max_output_tokens": 64000,
+      "supports_image_input": true,
+      "supports_pdf_input": true,
+      "supports_reasoning": true
+    },
+    "claude-sonnet-5": {
+      "context_window": 1000000,
+      "max_output_tokens": 128000,
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -360,20 +353,6 @@
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
-    },
-    "gemma-4-E2B-it": {
-      "context_window": 131072,
-      "max_output_tokens": 8192,
-      "supports_image_input": true,
-      "supports_pdf_input": false,
-      "supports_reasoning": true
-    },
-    "gemma-4-E4B-it": {
-      "context_window": 131072,
-      "max_output_tokens": 8192,
-      "supports_image_input": true,
-      "supports_pdf_input": false,
-      "supports_reasoning": true
     }
   },
   "minimax": {
@@ -420,7 +399,7 @@
       "supports_reasoning": true
     },
     "MiniMax-M3": {
-      "context_window": 512000,
+      "context_window": 1000000,
       "max_output_tokens": 128000,
       "supports_image_input": true,
       "supports_pdf_input": false,
@@ -766,6 +745,13 @@
       "supports_pdf_input": false,
       "supports_reasoning": false
     },
+    "gpt-image-2": {
+      "context_window": 0,
+      "max_output_tokens": 0,
+      "supports_image_input": true,
+      "supports_pdf_input": false,
+      "supports_reasoning": false
+    },
     "o1": {
       "context_window": 200000,
       "max_output_tokens": 100000,
@@ -936,13 +922,6 @@
       "supports_pdf_input": false,
       "supports_reasoning": false
     },
-    "anthropic/claude-3.5-haiku": {
-      "context_window": 200000,
-      "max_output_tokens": 8192,
-      "supports_image_input": true,
-      "supports_pdf_input": false,
-      "supports_reasoning": false
-    },
     "anthropic/claude-haiku-4.5": {
       "context_window": 200000,
       "max_output_tokens": 64000,
@@ -972,13 +951,6 @@
       "supports_reasoning": true
     },
     "anthropic/claude-opus-4.6": {
-      "context_window": 1000000,
-      "max_output_tokens": 128000,
-      "supports_image_input": true,
-      "supports_pdf_input": true,
-      "supports_reasoning": true
-    },
-    "anthropic/claude-opus-4.6-fast": {
       "context_window": 1000000,
       "max_output_tokens": 128000,
       "supports_image_input": true,
@@ -1034,6 +1006,13 @@
       "supports_pdf_input": true,
       "supports_reasoning": true
     },
+    "anthropic/claude-sonnet-5": {
+      "context_window": 1000000,
+      "max_output_tokens": 128000,
+      "supports_image_input": true,
+      "supports_pdf_input": true,
+      "supports_reasoning": true
+    },
     "arcee-ai/coder-large": {
       "context_window": 32768,
       "max_output_tokens": 32768,
@@ -1043,7 +1022,7 @@
     },
     "arcee-ai/trinity-large-thinking": {
       "context_window": 262144,
-      "max_output_tokens": 262144,
+      "max_output_tokens": 80000,
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -1139,6 +1118,13 @@
       "supports_pdf_input": false,
       "supports_reasoning": false
     },
+    "cohere/north-mini-code:free": {
+      "context_window": 256000,
+      "max_output_tokens": 64000,
+      "supports_image_input": false,
+      "supports_pdf_input": false,
+      "supports_reasoning": true
+    },
     "deepcogito/cogito-v2.1-671b": {
       "context_window": 128000,
       "max_output_tokens": 128000,
@@ -1223,13 +1209,6 @@
       "supports_pdf_input": false,
       "supports_reasoning": true
     },
-    "essentialai/rnj-1-instruct": {
-      "context_window": 32768,
-      "max_output_tokens": 32768,
-      "supports_image_input": false,
-      "supports_pdf_input": false,
-      "supports_reasoning": false
-    },
     "google/gemini-2.5-flash": {
       "context_window": 1048576,
       "max_output_tokens": 65535,
@@ -1281,9 +1260,16 @@
     },
     "google/gemini-3-flash-preview": {
       "context_window": 1048576,
-      "max_output_tokens": 65536,
+      "max_output_tokens": 65535,
       "supports_image_input": true,
       "supports_pdf_input": true,
+      "supports_reasoning": true
+    },
+    "google/gemini-3-pro-image": {
+      "context_window": 65536,
+      "max_output_tokens": 32768,
+      "supports_image_input": true,
+      "supports_pdf_input": false,
       "supports_reasoning": true
     },
     "google/gemini-3-pro-image-preview": {
@@ -1293,9 +1279,16 @@
       "supports_pdf_input": false,
       "supports_reasoning": true
     },
+    "google/gemini-3.1-flash-image": {
+      "context_window": 131072,
+      "max_output_tokens": 32768,
+      "supports_image_input": true,
+      "supports_pdf_input": false,
+      "supports_reasoning": true
+    },
     "google/gemini-3.1-flash-image-preview": {
-      "context_window": 65536,
-      "max_output_tokens": 65536,
+      "context_window": 131072,
+      "max_output_tokens": 32768,
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -1305,6 +1298,13 @@
       "max_output_tokens": 65536,
       "supports_image_input": true,
       "supports_pdf_input": true,
+      "supports_reasoning": true
+    },
+    "google/gemini-3.1-flash-lite-image": {
+      "context_window": 65536,
+      "max_output_tokens": 66000,
+      "supports_image_input": true,
+      "supports_pdf_input": false,
       "supports_reasoning": true
     },
     "google/gemini-3.1-flash-lite-preview": {
@@ -1378,7 +1378,7 @@
       "supports_reasoning": true
     },
     "google/gemma-4-26b-a4b-it:free": {
-      "context_window": 262144,
+      "context_window": 131072,
       "max_output_tokens": 32768,
       "supports_image_input": true,
       "supports_pdf_input": false,
@@ -1393,7 +1393,7 @@
     },
     "google/gemma-4-31b-it:free": {
       "context_window": 262144,
-      "max_output_tokens": 32768,
+      "max_output_tokens": 8192,
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -1510,13 +1510,6 @@
       "supports_pdf_input": false,
       "supports_reasoning": false
     },
-    "meta-llama/llama-3-70b-instruct": {
-      "context_window": 8192,
-      "max_output_tokens": 8000,
-      "supports_image_input": false,
-      "supports_pdf_input": false,
-      "supports_reasoning": false
-    },
     "meta-llama/llama-3-8b-instruct": {
       "context_window": 8192,
       "max_output_tokens": 8192,
@@ -1608,13 +1601,6 @@
       "supports_pdf_input": false,
       "supports_reasoning": false
     },
-    "microsoft/phi-4-mini-instruct": {
-      "context_window": 128000,
-      "max_output_tokens": 128000,
-      "supports_image_input": false,
-      "supports_pdf_input": false,
-      "supports_reasoning": false
-    },
     "microsoft/wizardlm-2-8x22b": {
       "context_window": 65535,
       "max_output_tokens": 8000,
@@ -1666,7 +1652,7 @@
     },
     "minimax/minimax-m2.7": {
       "context_window": 196608,
-      "max_output_tokens": 131072,
+      "max_output_tokens": 196608,
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -1813,14 +1799,14 @@
     },
     "moonshotai/kimi-k2": {
       "context_window": 131072,
-      "max_output_tokens": 32768,
+      "max_output_tokens": 100352,
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": false
     },
     "moonshotai/kimi-k2-0905": {
       "context_window": 262144,
-      "max_output_tokens": 262144,
+      "max_output_tokens": 100352,
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -1834,21 +1820,21 @@
     },
     "moonshotai/kimi-k2.5": {
       "context_window": 256000,
-      "max_output_tokens": 262144,
+      "max_output_tokens": 256000,
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
     },
     "moonshotai/kimi-k2.6": {
-      "context_window": 262142,
-      "max_output_tokens": 262142,
+      "context_window": 262144,
+      "max_output_tokens": 262144,
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
     },
     "moonshotai/kimi-k2.7-code": {
       "context_window": 262144,
-      "max_output_tokens": 262144,
+      "max_output_tokens": 16384,
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -1867,7 +1853,7 @@
       "supports_pdf_input": false,
       "supports_reasoning": false
     },
-    "nex-agi/nex-n2-pro:free": {
+    "nex-agi/nex-n2-pro": {
       "context_window": 262144,
       "max_output_tokens": 262144,
       "supports_image_input": true,
@@ -1939,7 +1925,7 @@
     },
     "nvidia/nemotron-3-super-120b-a12b": {
       "context_window": 262144,
-      "max_output_tokens": 262144,
+      "max_output_tokens": 16384,
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -2317,7 +2303,7 @@
     },
     "openai/gpt-oss-120b": {
       "context_window": 131072,
-      "max_output_tokens": 32768,
+      "max_output_tokens": 131072,
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -2338,7 +2324,7 @@
     },
     "openai/gpt-oss-20b:free": {
       "context_window": 131072,
-      "max_output_tokens": 8192,
+      "max_output_tokens": 32768,
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -2448,13 +2434,6 @@
       "supports_pdf_input": false,
       "supports_reasoning": false
     },
-    "openrouter/owl-alpha": {
-      "context_window": 1048756,
-      "max_output_tokens": 262144,
-      "supports_image_input": false,
-      "supports_pdf_input": false,
-      "supports_reasoning": false
-    },
     "openrouter/pareto-code": {
       "context_window": 2000000,
       "max_output_tokens": 200000,
@@ -2504,7 +2483,21 @@
       "supports_pdf_input": false,
       "supports_reasoning": true
     },
+    "poolside/laguna-m.1": {
+      "context_window": 262144,
+      "max_output_tokens": 32768,
+      "supports_image_input": false,
+      "supports_pdf_input": false,
+      "supports_reasoning": true
+    },
     "poolside/laguna-m.1:free": {
+      "context_window": 262144,
+      "max_output_tokens": 32768,
+      "supports_image_input": false,
+      "supports_pdf_input": false,
+      "supports_reasoning": true
+    },
+    "poolside/laguna-xs.2": {
       "context_window": 262144,
       "max_output_tokens": 32768,
       "supports_image_input": false,
@@ -2514,13 +2507,6 @@
     "poolside/laguna-xs.2:free": {
       "context_window": 262144,
       "max_output_tokens": 32768,
-      "supports_image_input": false,
-      "supports_pdf_input": false,
-      "supports_reasoning": true
-    },
-    "prime-intellect/intellect-3": {
-      "context_window": 131072,
-      "max_output_tokens": 131072,
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -2596,7 +2582,7 @@
       "supports_reasoning": false
     },
     "qwen/qwen3-235b-a22b-thinking-2507": {
-      "context_window": 262144,
+      "context_window": 131072,
       "max_output_tokens": 262144,
       "supports_image_input": false,
       "supports_pdf_input": false,
@@ -2786,7 +2772,7 @@
     },
     "qwen/qwen3.5-397b-a17b": {
       "context_window": 131072,
-      "max_output_tokens": 65536,
+      "max_output_tokens": 64000,
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -2896,6 +2882,13 @@
       "supports_pdf_input": false,
       "supports_reasoning": false
     },
+    "sakana/fugu-ultra": {
+      "context_window": 1000000,
+      "max_output_tokens": 128000,
+      "supports_image_input": true,
+      "supports_pdf_input": false,
+      "supports_reasoning": true
+    },
     "sao10k/l3-lunaris-8b": {
       "context_window": 8192,
       "max_output_tokens": 16384,
@@ -2926,7 +2919,7 @@
     },
     "stepfun/step-3.5-flash": {
       "context_window": 262144,
-      "max_output_tokens": 16384,
+      "max_output_tokens": 65536,
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -3026,7 +3019,7 @@
       "context_window": 1000000,
       "max_output_tokens": 1000000,
       "supports_image_input": true,
-      "supports_pdf_input": false,
+      "supports_pdf_input": true,
       "supports_reasoning": true
     },
     "x-ai/grok-build-0.1": {
@@ -3036,15 +3029,8 @@
       "supports_pdf_input": false,
       "supports_reasoning": true
     },
-    "xiaomi/mimo-v2-flash": {
-      "context_window": 262144,
-      "max_output_tokens": 65536,
-      "supports_image_input": false,
-      "supports_pdf_input": false,
-      "supports_reasoning": true
-    },
     "xiaomi/mimo-v2.5": {
-      "context_window": 1048576,
+      "context_window": 32000,
       "max_output_tokens": 131072,
       "supports_image_input": true,
       "supports_pdf_input": false,
@@ -3065,8 +3051,8 @@
       "supports_reasoning": true
     },
     "z-ai/glm-4.5-air": {
-      "context_window": 131070,
-      "max_output_tokens": 131070,
+      "context_window": 131072,
+      "max_output_tokens": 98304,
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -3108,7 +3094,7 @@
     },
     "z-ai/glm-5": {
       "context_window": 202752,
-      "max_output_tokens": 16384,
+      "max_output_tokens": 128000,
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -3121,16 +3107,23 @@
       "supports_reasoning": true
     },
     "z-ai/glm-5.1": {
-      "context_window": 202752,
-      "max_output_tokens": 131072,
+      "context_window": 65536,
+      "max_output_tokens": 128000,
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
     },
     "z-ai/glm-5.2": {
       "context_window": 1048576,
-      "max_output_tokens": 131072,
+      "max_output_tokens": 32768,
       "supports_image_input": false,
+      "supports_pdf_input": false,
+      "supports_reasoning": true
+    },
+    "z-ai/glm-5v-turbo": {
+      "context_window": 202752,
+      "max_output_tokens": 131072,
+      "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
     },
@@ -3177,8 +3170,8 @@
       "supports_reasoning": true
     },
     "~moonshotai/kimi-latest": {
-      "context_window": 262142,
-      "max_output_tokens": 262142,
+      "context_window": 262144,
+      "max_output_tokens": 262144,
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -3278,6 +3271,13 @@
     },
     "glm-5.1": {
       "context_window": 200000,
+      "max_output_tokens": 131072,
+      "supports_image_input": false,
+      "supports_pdf_input": false,
+      "supports_reasoning": true
+    },
+    "glm-5.2": {
+      "context_window": 1000000,
       "max_output_tokens": 131072,
       "supports_image_input": false,
       "supports_pdf_input": false,
