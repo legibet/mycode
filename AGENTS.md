@@ -1,6 +1,6 @@
 # mycode — Agent Context
 
-Always-loaded context for agent runs on this project. Detailed specs live in `docs/`; this file points at them rather than duplicating their content.
+Always-loaded context for agent runs on this project. Detailed specs live in `docs/`.
 
 ## Product
 
@@ -9,7 +9,7 @@ Always-loaded context for agent runs on this project. Detailed specs live in `do
 - `mycode-sdk` (import `mycode`) — the runtime: agent loop, message format, session store, provider adapters, and built-in tools. Lightweight, suitable for embedding the agent in other Python apps.
 - `mycode-cli` (import `mycode_cli`) — the interactive CLI and FastAPI web server built on top of the SDK.
 
-The web UI lives in a separate repo, [`legibet/mycode-web`](https://github.com/legibet/mycode-web), included as the `web/` git submodule. Develop UI there; this repo only builds it into the packaged static assets.
+The web UI lives in a separate repo, [`legibet/mycode-web`](https://github.com/legibet/mycode-web), included as the `web/` git submodule.
 
 ## Project Layout
 
