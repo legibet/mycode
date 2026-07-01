@@ -25,18 +25,20 @@ ContentBlock = dict[str, Any]
 ConversationMessage = dict[str, Any]
 
 
-def text_block(text: str, *, meta: dict[str, Any] | None = None) -> ContentBlock:
-    block: ContentBlock = {"type": "text", "text": text}
+def _set_meta(block: dict[str, Any], meta: dict[str, Any] | None) -> dict[str, Any]:
+    """Attach a copy of ``meta`` under the shared ``meta`` key, if non-empty."""
+
     if meta:
         block["meta"] = dict(meta)
     return block
+
+
+def text_block(text: str, *, meta: dict[str, Any] | None = None) -> ContentBlock:
+    return _set_meta({"type": "text", "text": text}, meta)
 
 
 def thinking_block(text: str, *, meta: dict[str, Any] | None = None) -> ContentBlock:
-    block: ContentBlock = {"type": "thinking", "text": text}
-    if meta:
-        block["meta"] = dict(meta)
-    return block
+    return _set_meta({"type": "thinking", "text": text}, meta)
 
 
 def image_block(
@@ -49,9 +51,7 @@ def image_block(
     block: ContentBlock = {"type": "image", "data": data, "mime_type": mime_type}
     if name:
         block["name"] = name
-    if meta:
-        block["meta"] = dict(meta)
-    return block
+    return _set_meta(block, meta)
 
 
 def document_block(
@@ -64,9 +64,7 @@ def document_block(
     block: ContentBlock = {"type": "document", "data": data, "mime_type": mime_type}
     if name:
         block["name"] = name
-    if meta:
-        block["meta"] = dict(meta)
-    return block
+    return _set_meta(block, meta)
 
 
 def tool_use_block(
@@ -82,9 +80,7 @@ def tool_use_block(
         "name": name,
         "input": dict(input or {}),
     }
-    if meta:
-        block["meta"] = dict(meta)
-    return block
+    return _set_meta(block, meta)
 
 
 def tool_result_block(
@@ -114,9 +110,7 @@ def tool_result_block(
         block["metadata"] = dict(metadata)
     if content:
         block["content"] = [dict(item) for item in content]
-    if meta:
-        block["meta"] = dict(meta)
-    return block
+    return _set_meta(block, meta)
 
 
 def user_text_message(text: str, *, meta: dict[str, Any] | None = None) -> ConversationMessage:
@@ -129,10 +123,7 @@ def build_message(
     *,
     meta: dict[str, Any] | None = None,
 ) -> ConversationMessage:
-    message: ConversationMessage = {"role": role, "content": blocks}
-    if meta:
-        message["meta"] = dict(meta)
-    return message
+    return _set_meta({"role": role, "content": blocks}, meta)
 
 
 def assistant_message(
