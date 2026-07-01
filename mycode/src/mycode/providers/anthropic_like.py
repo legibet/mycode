@@ -312,7 +312,7 @@ class AnthropicAdapter(AnthropicLikeAdapter):
     label = "Anthropic"
     default_base_url = "https://api.anthropic.com"
     env_api_key_names = ("ANTHROPIC_API_KEY",)
-    default_models = ("claude-sonnet-4-6", "claude-opus-4-8")
+    default_models = ("claude-sonnet-5", "claude-opus-4-8")
     supports_reasoning_effort = True
 
     @override
@@ -338,12 +338,12 @@ class AnthropicAdapter(AnthropicLikeAdapter):
         if normalized.startswith(("claude-opus-4-7", "claude-opus-4-8")):
             return {"effort": effort}
 
-        if normalized.startswith("claude-sonnet-4-6"):
-            mapped_effort = "high" if effort == "xhigh" else effort
-            return {"effort": mapped_effort}
-
         if normalized.startswith("claude-opus-4-6"):
             mapped_effort = "max" if effort == "xhigh" else effort
+            return {"effort": mapped_effort}
+
+        if normalized.startswith(("claude-sonnet-4-6", "claude-sonnet-5")):
+            mapped_effort = "high" if effort == "xhigh" else effort
             return {"effort": mapped_effort}
 
         return None

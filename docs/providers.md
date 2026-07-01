@@ -42,10 +42,10 @@ class ProviderAdapter(ABC):
 - API: Anthropic Messages API
 - Base URL: `https://api.anthropic.com`
 - API key env: `ANTHROPIC_API_KEY`
-- Default models: `claude-sonnet-4-6`, `claude-opus-4-8`
+- Default models: `claude-sonnet-5`, `claude-opus-4-8`
 - `supports_reasoning_effort`: true
 - Reasoning efforts use adaptive thinking; `claude-opus-4-7` / `claude-opus-4-8` request summarized thinking output
-- `claude-opus-4-7` / `claude-opus-4-8` use `output_config.effort`
+- `claude-sonnet-4-6` / `claude-sonnet-5` / `claude-opus-4-6` and newer Opus models use `output_config.effort`
 - Omits `temperature`; Anthropic-compatible providers use provider-default sampling
 - Replays only Claude-origin thinking blocks that include Anthropic's native `signature`; foreign or unsigned `thinking` blocks are skipped before request serialization
 - Adds ephemeral `cache_control` to system prompt block and last user content block
