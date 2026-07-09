@@ -393,7 +393,7 @@ class TestResolveProvider:
 
         assert resolved.provider_name == "openai"
         assert resolved.provider == "openai"
-        assert resolved.model == "gpt-5.5"
+        assert resolved.model == "gpt-5.6-sol"
         assert resolved.api_key == "openai-env-key"
 
     def test_auto_discovery_prefers_configured_provider_with_credentials(
@@ -479,7 +479,7 @@ class TestResolveProvider:
         agent = build_test_agent(tmp_path, workspace, settings, resolved)
 
         assert resolved.provider == "openai"
-        assert resolved.model == "gpt-5.5"
+        assert resolved.model == "gpt-5.6-sol"
         assert agent.max_tokens == 16_384
         assert agent.context_window == 128_000
 
