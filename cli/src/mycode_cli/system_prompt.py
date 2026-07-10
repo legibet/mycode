@@ -303,11 +303,13 @@ def discover_skills(cwd: str) -> list[Skill]:
     return sorted(skills_by_name.values(), key=lambda skill: skill.name)
 
 
-def format_skills_for_prompt(skills: list[Skill]) -> str:
-    """Format discovered skills as an <available_skills> block."""
+def load_skills_prompt(cwd: str) -> str:
+    """Discover skills and format them as an <available_skills> block."""
 
+    skills = discover_skills(cwd)
     if not skills:
         return ""
+    logger.info("Discovered %d skill(s): %s", len(skills), ", ".join(skill.name for skill in skills))
 
     lines = [
         "When a task matches a skill's description, prefer it over manual alternatives — use the read tool to load the file at <location> and follow the instructions inside.",
@@ -322,12 +324,3 @@ def format_skills_for_prompt(skills: list[Skill]) -> str:
         lines.append("  </skill>")
     lines.append("</available_skills>")
     return "\n".join(lines)
-
-
-def load_skills_prompt(cwd: str) -> str:
-    """Discover skills and return the formatted prompt block."""
-
-    skills = discover_skills(cwd)
-    if skills:
-        logger.info("Discovered %d skill(s): %s", len(skills), ", ".join(skill.name for skill in skills))
-    return format_skills_for_prompt(skills)
