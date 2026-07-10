@@ -29,7 +29,6 @@ from mycode.utils import omit_none
 class _ChatToolCallState:
     """Accumulate one streamed tool call from chat-completions deltas."""
 
-    index: int
     tool_id: str | None = None
     name: str = ""
     arguments_text: str = ""
@@ -93,7 +92,7 @@ class OpenAIChatAdapter(ProviderAdapter):
 
                         for tool_call in delta.tool_calls or []:
                             index = tool_call.index or 0
-                            state = tool_calls.setdefault(index, _ChatToolCallState(index=index))
+                            state = tool_calls.setdefault(index, _ChatToolCallState())
                             if tool_call.id:
                                 state.tool_id = tool_call.id
                             function = tool_call.function
@@ -184,27 +183,26 @@ class OpenAIChatAdapter(ProviderAdapter):
         if role == "user":
             payload_messages: list[dict[str, Any]] = []
             has_media = any(block.get("type") in {"image", "document"} for block in blocks)
+            user_content: str | list[dict[str, Any]]
             if has_media:
-                user_content: str | list[dict[str, Any]] | None = []
+                media_parts: list[dict[str, Any]] = []
                 for block in blocks:
                     block_type = block.get("type")
                     if block_type == "text":
                         text = str(block.get("text") or "")
                         if text:
-                            user_content.append({"type": "text", "text": text})
-                        continue
-                    if block_type == "image":
+                            media_parts.append({"type": "text", "text": text})
+                    elif block_type == "image":
                         mime_type, data = load_image_block_payload(block)
-                        user_content.append(
+                        media_parts.append(
                             {
                                 "type": "image_url",
                                 "image_url": {"url": f"data:{mime_type};base64,{data}"},
                             }
                         )
-                        continue
-                    if block_type == "document":
+                    elif block_type == "document":
                         mime_type, data, name = load_document_block_payload(block)
-                        user_content.append(
+                        media_parts.append(
                             {
                                 "type": "file",
                                 "file": {
@@ -213,16 +211,13 @@ class OpenAIChatAdapter(ProviderAdapter):
                                 },
                             }
                         )
-                if not user_content:
-                    user_content = None
+                user_content = media_parts
             else:
-                text_parts = [
+                user_content = "\n".join(
                     str(block.get("text") or "")
                     for block in blocks
                     if block.get("type") == "text" and block.get("text")
-                ]
-                text = "\n".join(text_parts)
-                user_content = text or None
+                )
 
             if user_content:
                 payload_messages.append({"role": "user", "content": user_content})
