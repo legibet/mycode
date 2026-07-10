@@ -152,16 +152,10 @@ class Agent:
         # (e.g. bash spill files) live next to the session JSONL; without a
         # session, fall back to a tempdir scoped to ``session_id``.
         if session_dir is not None:
-            tool_output_dir = session_dir / self.session_id / "tool-output"
+            self.tool_output_dir = session_dir / self.session_id / "tool-output"
         else:
-            tool_output_dir = Path(tempfile.gettempdir()) / "mycode" / self.session_id / "tool-output"
+            self.tool_output_dir = Path(tempfile.gettempdir()) / "mycode" / self.session_id / "tool-output"
         self.tools = ToolExecutor(tools)
-        self.tool_ctx = ToolContext(
-            executor=self.tools,
-            cwd=self.cwd,
-            tool_output_dir=tool_output_dir,
-            supports_image_input=False,
-        )
 
         self.refresh_capabilities(
             max_tokens=max_tokens,
@@ -201,7 +195,6 @@ class Agent:
         self.supports_reasoning: bool | None = meta.supports_reasoning
         self.supports_image_input: bool = bool(meta.supports_image_input)
         self.supports_pdf_input: bool = bool(meta.supports_pdf_input)
-        self.tool_ctx.supports_image_input = self.supports_image_input
 
     def cancel(self) -> None:
         """Request cancellation of the in-flight turn."""
@@ -330,11 +323,11 @@ class Agent:
             output = "\n".join([*output_parts, "error: cancelled"]) if output_parts else "error: cancelled"
             yield self._error_done(tool_id, output)
             return
-        else:
-            try:
-                result = await task
-            except Exception as exc:  # pragma: no cover - defensive
-                result = ToolExecutionResult(output=f"error: {exc}", is_error=True)
+
+        try:
+            result = await task
+        except Exception as exc:  # pragma: no cover - defensive
+            result = ToolExecutionResult(output=f"error: {exc}", is_error=True)
 
         yield await self._finish_tool_call(tool_id, hook_ctx, result)
 
@@ -360,13 +353,11 @@ class Agent:
         *,
         emit: Callable[[str], None] | None = None,
     ) -> ToolContext:
-        """Build a per-call ToolContext from the base context."""
-
         return ToolContext(
             executor=self.tools,
-            cwd=self.tool_ctx.cwd,
-            tool_output_dir=self.tool_ctx.tool_output_dir,
-            supports_image_input=self.tool_ctx.supports_image_input,
+            cwd=self.cwd,
+            tool_output_dir=self.tool_output_dir,
+            supports_image_input=self.supports_image_input,
             tool_call_id=tool_id,
             emit=emit,
         )
@@ -402,15 +393,12 @@ class Agent:
 
         provider_stream: AsyncIterator[ProviderStreamEvent] = adapter.stream_turn(request)
 
-        async def next_provider_event() -> ProviderStreamEvent:
-            return await anext(provider_stream)
-
         try:
             while True:
                 if self._cancel_event.is_set():
                     raise asyncio.CancelledError
 
-                self._provider_event_task = asyncio.create_task(next_provider_event())
+                self._provider_event_task = asyncio.ensure_future(anext(provider_stream))
                 try:
                     yield await self._provider_event_task
                 except StopAsyncIteration:
@@ -529,7 +517,10 @@ class Agent:
         adapter = get_provider_adapter(self.provider)
 
         turn_number = 0
-        while self.max_turns is None or turn_number < self.max_turns:
+        while True:
+            if self.max_turns is not None and turn_number >= self.max_turns:
+                yield Event("error", {"message": "max_turns reached"})
+                return
             turn_number += 1
             if self._cancel_event.is_set():
                 yield Event("error", {"message": "cancelled"})
@@ -632,13 +623,15 @@ class Agent:
 
             total_tokens = meta.get("total_tokens")
             if total_tokens:
-                payload: dict[str, Any] = {
-                    "total_tokens": total_tokens,
-                    "model": meta.get("model") or self.model,
-                    "provider": meta.get("provider") or self.provider,
-                    "context_window": meta["context_window"],
-                }
-                yield Event("usage", payload)
+                yield Event(
+                    "usage",
+                    {
+                        "total_tokens": total_tokens,
+                        "model": meta.get("model") or self.model,
+                        "provider": meta.get("provider") or self.provider,
+                        "context_window": meta["context_window"],
+                    },
+                )
 
             tool_calls = [
                 block
@@ -665,11 +658,10 @@ class Agent:
                             )
                         )
 
-                        if self._cancel_event.is_set():
-                            tool_result_message = build_message("user", tool_results)
-                            self.messages.append(tool_result_message)
-                            await persist(tool_result_message)
-                            return
+                    if self._cancel_event.is_set():
+                        # Skip remaining tool calls; the results collected so
+                        # far are still persisted below.
+                        break
 
                 tool_result_message = build_message("user", tool_results)
                 self.messages.append(tool_result_message)
@@ -693,11 +685,7 @@ class Agent:
                     )
 
             if not tool_calls:
-                break
-
-        else:
-            yield Event("error", {"message": "max_turns reached"})
-            return
+                return
 
     def run(
         self,

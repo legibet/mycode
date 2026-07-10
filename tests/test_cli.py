@@ -19,7 +19,7 @@ from rich.console import Console
 
 from mycode.agent import Event
 from mycode.session import SessionStore
-from mycode.tools import ToolContext, ToolExecutor, bash_tool, edit_tool, read_tool, write_tool
+from mycode.tools import ToolExecutor, bash_tool, edit_tool, read_tool, write_tool
 from mycode_cli.config import ResolvedProvider, Settings
 from mycode_cli.main import app, resolve_session, run_noninteractive
 from mycode_cli.permissions import PERMISSION_DENIED_BY_USER_OUTPUT, PERMISSION_DENIED_OUTPUT
@@ -51,7 +51,6 @@ class _AttachmentAgent:
         self,
         *,
         cwd: str,
-        session_dir: Path,
         supports_image_input: bool = True,
         supports_pdf_input: bool = True,
     ) -> None:
@@ -59,12 +58,6 @@ class _AttachmentAgent:
         self.supports_image_input = supports_image_input
         self.supports_pdf_input = supports_pdf_input
         self.tools = ToolExecutor(_TOOLS)
-        self.tool_ctx = ToolContext(
-            executor=self.tools,
-            cwd=cwd,
-            tool_output_dir=session_dir,
-            supports_image_input=supports_image_input,
-        )
 
     def cancel(self) -> None:
         return None
@@ -480,7 +473,7 @@ class TestAttachments:
         image_file.write_bytes(b"\x89PNG\r\n\x1a\nrest")
 
         chat = TerminalChat(
-            agent=cast(Any, _AttachmentAgent(cwd=str(tmp_path), session_dir=tmp_path / ".session")),
+            agent=cast(Any, _AttachmentAgent(cwd=str(tmp_path))),
             settings=settings_for(str(tmp_path)),
             store=cast(Any, object()),
             session_id="test-session",
@@ -504,7 +497,7 @@ class TestAttachments:
         pdf_file.write_bytes(b"%PDF-1.7\nrest")
 
         chat = TerminalChat(
-            agent=cast(Any, _AttachmentAgent(cwd=str(tmp_path), session_dir=tmp_path / ".session")),
+            agent=cast(Any, _AttachmentAgent(cwd=str(tmp_path))),
             settings=settings_for(str(tmp_path)),
             store=cast(Any, object()),
             session_id="test-session",
@@ -552,7 +545,7 @@ class TestAttachments:
         chat = TerminalChat(
             agent=cast(
                 Any,
-                _AttachmentAgent(cwd=str(tmp_path), session_dir=tmp_path / ".session", **agent_kwargs),
+                _AttachmentAgent(cwd=str(tmp_path), **agent_kwargs),
             ),
             settings=settings_for(str(tmp_path)),
             store=cast(Any, object()),
@@ -579,7 +572,7 @@ class TestAttachments:
         chat = TerminalChat(
             agent=cast(
                 Any,
-                _AttachmentAgent(cwd=str(tmp_path), session_dir=tmp_path / ".session", supports_pdf_input=False),
+                _AttachmentAgent(cwd=str(tmp_path), supports_pdf_input=False),
             ),
             settings=settings_for(str(tmp_path)),
             store=cast(Any, object()),
@@ -597,7 +590,7 @@ class TestAttachments:
         binary_file.write_bytes(b"\x00\x01\x02\xff\xfe")
 
         chat = TerminalChat(
-            agent=cast(Any, _AttachmentAgent(cwd=str(tmp_path), session_dir=tmp_path / ".session")),
+            agent=cast(Any, _AttachmentAgent(cwd=str(tmp_path))),
             settings=settings_for(str(tmp_path)),
             store=cast(Any, object()),
             session_id="test-session",
