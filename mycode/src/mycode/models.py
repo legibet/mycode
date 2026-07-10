@@ -66,16 +66,26 @@ def resolve_model_metadata(
     *,
     provider: str,
     model: str,
-    **overrides: Any,
+    context_window: int | None = None,
+    max_output_tokens: int | None = None,
+    supports_reasoning: bool | None = None,
+    supports_image_input: bool | None = None,
+    supports_pdf_input: bool | None = None,
 ) -> ModelMetadata:
     """Return catalog metadata for ``(provider, model)`` with non-None overrides layered on top.
 
-    Override keys must match :class:`ModelMetadata` fields. Missing overrides
-    and an absent catalog entry both leave the corresponding fields at ``None``
-    so callers can apply their own fallback defaults.
+    Missing overrides and an absent catalog entry both leave the corresponding
+    fields at ``None`` so callers can apply their own fallback defaults.
     """
 
     base = lookup_model_metadata(provider_type=provider, model=model) or ModelMetadata(provider=provider, model=model)
+    overrides = {
+        "context_window": context_window,
+        "max_output_tokens": max_output_tokens,
+        "supports_reasoning": supports_reasoning,
+        "supports_image_input": supports_image_input,
+        "supports_pdf_input": supports_pdf_input,
+    }
     return replace(base, **{k: v for k, v in overrides.items() if v is not None})
 
 

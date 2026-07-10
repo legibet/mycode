@@ -15,7 +15,7 @@ import asyncio
 import json
 import os
 import shutil
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TypedDict, cast
@@ -23,6 +23,9 @@ from typing import TypedDict, cast
 from mycode.messages import ConversationMessage, flatten_message_text
 
 DEFAULT_SESSION_TITLE = "New chat"
+# Session meta keeps only these stable fields. Per-turn state like provider /
+# model / api_base lives on each ConversationMessage and would drift after
+# ``/model`` switches.
 META_KEYS = ("cwd", "title", "created_at", "updated_at")
 
 
@@ -65,20 +68,6 @@ def apply_rewind(messages: list[ConversationMessage]) -> list[ConversationMessag
 # ---------------------------------------------------------------------
 # Session metadata
 # ---------------------------------------------------------------------
-
-
-@dataclass
-class SessionMeta:
-    """Session metadata persisted to meta.json.
-
-    Excludes per-turn state like provider / model / api_base — those live on
-    each ConversationMessage and would drift after ``/model`` switches.
-    """
-
-    cwd: str
-    title: str
-    created_at: str
-    updated_at: str
 
 
 SessionMetaDict = dict[str, object]
@@ -184,14 +173,12 @@ class SessionStore:
         """Create the on-disk session directory with a fresh meta.json."""
 
         now = _now()
-        meta = asdict(
-            SessionMeta(
-                cwd=os.path.abspath(cwd),
-                title=DEFAULT_SESSION_TITLE,
-                created_at=now,
-                updated_at=now,
-            )
-        )
+        meta: SessionMetaDict = {
+            "cwd": os.path.abspath(cwd),
+            "title": DEFAULT_SESSION_TITLE,
+            "created_at": now,
+            "updated_at": now,
+        }
 
         def write_files() -> None:
             session_dir = self.session_dir(session_id)

@@ -7,6 +7,7 @@ before sending a request upstream.
 
 from __future__ import annotations
 
+import json
 import os
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
@@ -16,7 +17,6 @@ from typing import Any
 from mycode.attachments import unsupported_attachment_block
 from mycode.compact import apply_compact_replay
 from mycode.messages import ConversationMessage, build_message, text_block, tool_result_block
-from mycode.utils import parse_tool_arguments
 
 DEFAULT_REQUEST_TIMEOUT = 300.0
 
@@ -83,10 +83,15 @@ def parse_tool_call_input(raw_arguments: str) -> tuple[dict[str, Any], dict[str,
     ``raw_arguments`` so it stays inspectable in ``block.meta.native``.
     """
 
-    parsed = parse_tool_arguments(raw_arguments)
-    if parsed is None:
-        return {}, {"raw_arguments": raw_arguments}
-    return parsed, {}
+    if not raw_arguments.strip():
+        return {}, {}
+    try:
+        parsed = json.loads(raw_arguments)
+    except json.JSONDecodeError:
+        parsed = None
+    if isinstance(parsed, dict):
+        return parsed, {}
+    return {}, {"raw_arguments": raw_arguments}
 
 
 class ProviderAdapter(ABC):
