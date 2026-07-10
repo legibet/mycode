@@ -226,7 +226,6 @@ class TerminalView:
         sessions: list[dict[str, Any]],
         *,
         include_cwd: bool = False,
-        current_session_id: str | None = None,
         heading: str = "sessions",
     ) -> None:
         """Print saved sessions in a compact table for selection commands."""
@@ -242,7 +241,6 @@ class TerminalView:
         cwd_limit = 32 if include_cwd else 48
 
         table = Table(box=None, show_header=False, padding=(0, 2, 0, 0), expand=False)
-        table.add_column(no_wrap=True)  # marker
         table.add_column(no_wrap=True)  # index
         table.add_column(no_wrap=True)  # session id
         table.add_column(no_wrap=True)  # timestamp
@@ -252,15 +250,12 @@ class TerminalView:
 
         for index, session in enumerate(sessions, start=1):
             session_id = str(session.get("id") or "-")
-            is_current = bool(current_session_id and session_id == current_session_id)
-
-            marker = Text("●", style=SUCCESS) if is_current else Text(" ")
             idx = Text(str(index), style=MUTED)
             sid = Text(session_id[:12], style=MUTED)
             ts = Text(self._format_timestamp(str(session.get("updated_at") or "")), style=MUTED)
             title = Text(self._shorten(str(session.get("title") or "New chat"), limit=title_limit))
 
-            row: list[Any] = [marker, idx, sid, ts, title]
+            row: list[Any] = [idx, sid, ts, title]
             if include_cwd:
                 cwd = str(session.get("cwd") or "")
                 row.append(Text(self._shorten(cwd, limit=cwd_limit), style=MUTED))

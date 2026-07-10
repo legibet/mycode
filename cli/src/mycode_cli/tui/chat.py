@@ -463,9 +463,6 @@ class TerminalChat:
         )
         self.agent.hooks = build_permission_hooks(self.settings, review=self._review_tool_call)
 
-    def _cancel_active_agent(self) -> None:
-        self.agent.cancel()
-
     async def _review_tool_call(self, request: ToolReviewRequest) -> ToolReviewDecision:
         if self._current_renderer is not None:
             self._current_renderer.prepare_interaction()
@@ -482,7 +479,7 @@ class TerminalChat:
         selected = await choose([("allow", "Allow"), ("deny", "Deny")], default="allow")
         if selected == "allow":
             return "allow"
-        self._cancel_active_agent()
+        self.agent.cancel()
         return "deny"
 
     async def run(self) -> None:

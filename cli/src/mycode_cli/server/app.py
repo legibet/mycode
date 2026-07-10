@@ -63,6 +63,3 @@ def create_web_app() -> FastAPI:
 def create_api_app() -> FastAPI:
     """Create the API-only app."""
     return create_app(serve_web=False, cors_origins=DEV_CORS_ORIGINS)
-
-
-app = create_app()

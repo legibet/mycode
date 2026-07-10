@@ -225,8 +225,7 @@ def chat(
 ) -> None:
     """Interactive coding agent."""
 
-    if version:
-        return
+    del version  # Consumed by the eager --version callback before the body runs.
 
     if ctx.invoked_subcommand is not None:
         return
