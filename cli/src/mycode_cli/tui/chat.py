@@ -61,17 +61,18 @@ from .theme import MUTED, PROMPT_CHAR, TERMINAL_THEME, TOOL_MARKER, WARNING
 
 _PROMPT = ANSI(f"\033[1m\033[34m{PROMPT_CHAR}\033[0m ")
 
-_COMMAND_HELP = (
-    ("/clear", "Clear conversation"),
-    ("/new", "New session"),
-    ("/resume", "Switch session"),
-    ("/rewind", "Rewind to a previous message"),
-    ("/provider", "Switch provider"),
-    ("/model", "Switch model"),
-    ("/effort", "Set reasoning effort"),
-    ("/q", "Quit"),
+# (command, help usage, description) — the completer offers `command`, help prints `usage`.
+_COMMANDS = (
+    ("/clear", "/c, /clear", "Clear conversation"),
+    ("/new", "/new", "New session"),
+    ("/resume", "/resume", "Switch session"),
+    ("/rewind", "/rewind", "Rewind to a previous message"),
+    ("/provider", "/provider [name]", "Switch provider"),
+    ("/model", "/model [name]", "Switch model"),
+    ("/effort", "/effort [level]", "Set reasoning effort"),
+    ("/q", "/q", "Quit"),
 )
-_SLASH_COMMANDS = tuple(command for command, _ in _COMMAND_HELP)
+_SLASH_COMMANDS = tuple(command for command, _, _ in _COMMANDS)
 # Only treat `@path` as a reference when it starts a standalone token.
 _AT_PATH_RE = re.compile(r"""(?<!\S)@(?:'(?P<single>[^']*)'?$|"(?P<double>[^"]*)"?$|(?P<plain>[^\s'"]*))$""")
 
@@ -131,8 +132,6 @@ async def choose[T](options: list[tuple[T, str]], *, default: T | None = None) -
 class _PromptCompleter(Completer):
     """Complete slash commands and explicit `@path` references for the prompt."""
 
-    _COMMANDS = dict(_COMMAND_HELP)
-
     def __init__(self, *, cwd: str | None = None) -> None:
         self._cwd = cwd
 
@@ -149,7 +148,7 @@ class _PromptCompleter(Completer):
         text = text_before_cursor.lstrip()
         if not text.startswith("/"):
             return
-        for cmd, desc in self._COMMANDS.items():
+        for cmd, _usage, desc in _COMMANDS:
             if cmd.startswith(text) and cmd != text:
                 yield Completion(cmd, start_position=-len(text), display_meta=desc)
 
@@ -626,20 +625,10 @@ class TerminalChat:
         return True
 
     def _print_help(self) -> None:
-        commands = [
-            ("/c, /clear", "Clear conversation"),
-            ("/new", "New session"),
-            ("/resume", "Switch session"),
-            ("/rewind", "Rewind to a previous message"),
-            ("/provider [name]", "Switch provider"),
-            ("/model [name]", "Switch model"),
-            ("/effort [level]", "Set reasoning effort"),
-            ("/q", "Quit"),
-        ]
         self.view.console.print()
-        for cmd, desc in commands:
+        for _command, usage, desc in _COMMANDS:
             line = Text()
-            line.append(f"  {cmd:<20}", style="bold")
+            line.append(f"  {usage:<20}", style="bold")
             line.append(desc, style=MUTED)
             self.view.console.print(line)
 
