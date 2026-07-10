@@ -6,7 +6,7 @@ import asyncio
 import copy
 import time
 from collections.abc import AsyncGenerator, AsyncIterator
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass, field
 from typing import Any, Literal, Protocol
 from uuid import uuid4
@@ -156,10 +156,9 @@ class RunManager:
                 finished = state.status != "running"
 
                 if not pending and not finished:
-                    try:
+                    # Wake on the next event or re-poll after the timeout; both just re-loop.
+                    with suppress(TimeoutError):
                         await asyncio.wait_for(state.condition.wait(), timeout=0.5)
-                    except TimeoutError:
-                        continue
                     continue
 
             for payload in pending:

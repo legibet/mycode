@@ -42,7 +42,7 @@ from mycode_cli.config import (
 from mycode_cli.permissions import ToolReviewDecision, ToolReviewRequest
 from mycode_cli.runtime import build_agent
 from mycode_cli.server.deps import RunManagerDep, StoreDep, resolve_workspace_cwd
-from mycode_cli.server.run_manager import ActiveRunError, RunManager
+from mycode_cli.server.run_manager import ActiveRunError
 from mycode_cli.server.schemas import (
     CancelRunResponse,
     ChatRequest,
@@ -196,6 +196,15 @@ async def chat(chat: ChatRequest, store: StoreDep, runs: RunManagerDep) -> ChatR
             created = await store.create_session(session_id, cwd=cwd)
             session = created["session"]
 
+        async def review(request: ToolReviewRequest) -> ToolReviewDecision:
+            # Bridge before_tool review waits to SSE events on the active run.
+            return await runs.request_decision(
+                session_id=session_id,
+                tool_call_id=request.tool_call_id,
+                tool_name=request.tool_name,
+                preview=request.preview,
+            )
+
         agent = await asyncio.to_thread(
             build_agent,
             store=store,
@@ -204,7 +213,7 @@ async def chat(chat: ChatRequest, store: StoreDep, runs: RunManagerDep) -> ChatR
             resolved_provider=resolved,
             session_id=session_id,
             reasoning_effort=reasoning_effort,
-            review=_make_review(runs, session_id),
+            review=review,
         )
 
         try:
@@ -266,20 +275,6 @@ async def decide_run(
     if not resolved:
         raise HTTPException(status_code=404, detail="permission request not found")
     return StatusResponse(status="ok")
-
-
-def _make_review(runs: RunManager, session_id: str):
-    """Bridge before_tool review waits to SSE events on the active run."""
-
-    async def review(request: ToolReviewRequest) -> ToolReviewDecision:
-        return await runs.request_decision(
-            session_id=session_id,
-            tool_call_id=request.tool_call_id,
-            tool_name=request.tool_name,
-            preview=request.preview,
-        )
-
-    return review
 
 
 @router.get("/config")

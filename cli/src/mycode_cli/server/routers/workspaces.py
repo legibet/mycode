@@ -43,14 +43,8 @@ def browse_workspaces(
     path: Annotated[str | None, Query()] = None,
 ) -> dict[str, object]:
     """Browse directories within a workspace root."""
-    root_path = None
-    requested_root = Path(root).expanduser().resolve(strict=False)
-    for allowed_root in _parse_workspace_roots():
-        if requested_root == allowed_root:
-            root_path = allowed_root
-            break
-
-    if not root_path:
+    root_path = Path(root).expanduser().resolve(strict=False)
+    if root_path not in _parse_workspace_roots():
         return {"root": root, "path": "", "current": "", "entries": [], "error": "Invalid root"}
 
     rel_path = Path(path) if path else Path()
