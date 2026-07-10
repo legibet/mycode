@@ -413,7 +413,7 @@ def get_settings(cwd: str | None = None) -> Settings:
             if "type" in raw:
                 merged["type"] = raw.get("type") or "anthropic"
             if "models" in raw:
-                merged["models"] = _normalize_models(raw.get("models"))
+                merged["models"] = raw.get("models")
             if "api_key" in raw:
                 api_key, api_key_env_var = _parse_config_api_key(raw.get("api_key"))
                 merged["api_key"] = api_key
@@ -483,9 +483,6 @@ def _normalize_models(value: Any) -> dict[str, ModelConfig]:
         model_id = model.strip()
         if not model_id:
             continue
-        if isinstance(raw, ModelConfig):
-            models[model_id] = raw
-            continue
         raw_config = raw if isinstance(raw, dict) else {}
         models[model_id] = ModelConfig(
             context_window=as_int(raw_config.get("context_window")),
@@ -548,7 +545,7 @@ def provider_has_api_key(provider: ProviderConfig) -> bool:
     """Return whether a configured provider can authenticate right now."""
 
     if provider.api_key_env_var:
-        return bool(_config_api_key_from_env_var(provider))
+        return bool((os.environ.get(provider.api_key_env_var) or "").strip())
     return bool(provider.api_key or provider_api_key_from_env(provider.type))
 
 
@@ -611,20 +608,6 @@ def resolve_provider_choices(settings: Settings) -> list[ResolvedProvider]:
         except ValueError:
             continue
     return choices
-
-
-def _config_api_key_from_env_var(provider: ProviderConfig, *, require: bool = False) -> str | None:
-    env_name = provider.api_key_env_var
-    if not env_name:
-        return None
-
-    value = (os.environ.get(env_name) or "").strip()
-    if value:
-        return value
-
-    if require:
-        raise ValueError(f"missing API key env var {env_name!r} referenced by provider {provider.name!r}")
-    return None
 
 
 def _available_provider_references(settings: Settings) -> list[str]:
@@ -723,8 +706,12 @@ def _resolve_provider_runtime(
 
     resolved_api_key = api_key
     if not resolved_api_key and provider_config:
-        if provider_config.api_key_env_var:
-            resolved_api_key = _config_api_key_from_env_var(provider_config, require=True)
+        if env_name := provider_config.api_key_env_var:
+            resolved_api_key = (os.environ.get(env_name) or "").strip()
+            if not resolved_api_key:
+                raise ValueError(
+                    f"missing API key env var {env_name!r} referenced by provider {provider_config.name!r}"
+                )
         elif provider_config.api_key:
             resolved_api_key = provider_config.api_key
     if not resolved_api_key:
