@@ -785,7 +785,6 @@ def bash_tool(ctx: ToolContext, command: str, timeout: int | None = None) -> Too
             stderr=subprocess.STDOUT,
             text=True,
             bufsize=1,
-            universal_newlines=True,
             start_new_session=os.name == "posix",
         )
         ctx.track_proc(proc)
@@ -823,10 +822,10 @@ def bash_tool(ctx: ToolContext, command: str, timeout: int | None = None) -> Too
 
             line = line.rstrip("\n")
             total_line_count += 1
-            kept_bytes += len(line.encode("utf-8")) + 1
 
             if log_file is None:
                 kept_lines.append(line)
+                kept_bytes += len(line.encode("utf-8")) + 1
                 if kept_bytes > _BASH_MAX_IN_MEMORY_BYTES:
                     # Spill to disk. Create the output dir lazily on first
                     # spill so runs that stay in memory never touch the FS.
@@ -864,7 +863,7 @@ def bash_tool(ctx: ToolContext, command: str, timeout: int | None = None) -> Too
 
         # If truncation happened but we never spilled, save the full output
         # now so the user can inspect it via the "Full output" hint.
-        if log_file is None and trunc.truncated:
+        if log_file is None and trunc.truncated_by:
             try:
                 ctx.tool_output_dir.mkdir(parents=True, exist_ok=True)
                 log_path.write_text(raw_output, encoding="utf-8")
@@ -874,7 +873,7 @@ def bash_tool(ctx: ToolContext, command: str, timeout: int | None = None) -> Too
 
         result = content
         shown_lines = trunc.output_lines
-        was_truncated = log_file is not None or trunc.truncated
+        was_truncated = log_file is not None or trunc.truncated_by is not None
         if was_truncated:
             if trunc.truncated_by == "bytes":
                 if total_line_count <= 1:
@@ -980,10 +979,9 @@ def _atomic_write_text(path: Path, content: str, *, newline: str | None = None) 
 
 @dataclass(frozen=True)
 class Truncation:
-    truncated: bool
+    # "lines" or "bytes"; None when nothing was cut.
     truncated_by: str | None
     output_lines: int
-    output_bytes: int
 
 
 def truncate_text(
@@ -1020,26 +1018,14 @@ def truncate_text(
         encoded = target.encode("utf-8")
         sliced = encoded[-max_bytes:] if tail else encoded[:max_bytes]
         content = sliced.decode("utf-8", errors="ignore")
-        return content, Truncation(
-            truncated=True,
-            truncated_by="bytes",
-            output_lines=1,
-            output_bytes=len(sliced),
-        )
+        return content, Truncation(truncated_by="bytes", output_lines=1)
 
     content = "\n".join(out_lines)
-    truncated = len(out_lines) < len(lines) or out_bytes < total_bytes
 
     truncated_by: str | None = None
-    if truncated:
-        if len(out_lines) < len(lines):
-            truncated_by = "lines" if len(out_lines) == max_lines else "bytes"
-        else:
-            truncated_by = "bytes"
+    if len(out_lines) < len(lines):
+        truncated_by = "lines" if len(out_lines) == max_lines else "bytes"
+    elif out_bytes < total_bytes:
+        truncated_by = "bytes"
 
-    return content, Truncation(
-        truncated=truncated,
-        truncated_by=truncated_by,
-        output_lines=len(out_lines),
-        output_bytes=out_bytes,
-    )
+    return content, Truncation(truncated_by=truncated_by, output_lines=len(out_lines))
