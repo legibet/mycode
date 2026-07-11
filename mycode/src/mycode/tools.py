@@ -129,12 +129,6 @@ class ToolContext:
 
         return self.executor.execute(name, args, self)
 
-    def track_proc(self, proc: subprocess.Popen[str]) -> None:
-        self.executor.track_proc(proc)
-
-    def untrack_proc(self, proc: subprocess.Popen[str]) -> None:
-        self.executor.untrack_proc(proc)
-
 
 # ---------------------------------------------------------------------------
 # ToolExecutor
@@ -202,6 +196,9 @@ class ToolExecutor:
 # agents may run concurrently in the same process); this module-level set is
 # a shutdown-time safety net exposed as ``cancel_all_tools``.
 
+_ACTIVE_PROCS: set[subprocess.Popen[str]] = set()
+_ACTIVE_PROCS_LOCK = threading.Lock()
+
 
 def cancel_all_tools() -> None:
     """Terminate every running bash subprocess in the current process."""
@@ -211,10 +208,6 @@ def cancel_all_tools() -> None:
         _ACTIVE_PROCS.clear()
     for proc in procs:
         _kill_proc_tree(proc)
-
-
-_ACTIVE_PROCS: set[subprocess.Popen[str]] = set()
-_ACTIVE_PROCS_LOCK = threading.Lock()
 
 
 def _kill_proc_tree(proc: subprocess.Popen[str]) -> None:
@@ -479,8 +472,8 @@ def read_tool(
             ],
         )
 
-    start_line = offset if isinstance(offset, int) and offset > 0 else 1
-    line_limit = limit if isinstance(limit, int) and limit > 0 else DEFAULT_MAX_LINES
+    start_line = offset if offset is not None and offset > 0 else 1
+    line_limit = limit if limit is not None and limit > 0 else DEFAULT_MAX_LINES
     lines: list[str] = []
     total_lines = 0
     next_offset: int | None = None
@@ -764,7 +757,7 @@ def bash_tool(ctx: ToolContext, command: str, timeout: int | None = None) -> Too
     again by :func:`truncate_text` to the display limits.
     """
 
-    timeout_seconds = int(timeout) if isinstance(timeout, int) and timeout > 0 else BASH_TIMEOUT_SECONDS
+    timeout_seconds = timeout if timeout is not None and timeout > 0 else BASH_TIMEOUT_SECONDS
 
     proc: subprocess.Popen[str] | None = None
     log_path = ctx.tool_output_dir / f"bash-{ctx.tool_call_id or 'call'}.log"
@@ -787,7 +780,7 @@ def bash_tool(ctx: ToolContext, command: str, timeout: int | None = None) -> Too
             bufsize=1,
             start_new_session=os.name == "posix",
         )
-        ctx.track_proc(proc)
+        ctx.executor.track_proc(proc)
 
         stdout = cast(TextIO, proc.stdout)
         output_queue: queue.Queue[str | None] = queue.Queue()
@@ -903,7 +896,7 @@ def bash_tool(ctx: ToolContext, command: str, timeout: int | None = None) -> Too
             with suppress(Exception):
                 log_file.close()
         if proc is not None:
-            ctx.untrack_proc(proc)
+            ctx.executor.untrack_proc(proc)
             if proc.poll() is None:
                 _kill_proc_tree(proc)
 

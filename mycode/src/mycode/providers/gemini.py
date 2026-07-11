@@ -84,7 +84,7 @@ class GoogleGeminiAdapter(ProviderAdapter):
                 finish_message = getattr(candidate, "finish_message", None) or finish_message
 
                 for part in getattr(getattr(candidate, "content", None), "parts", None) or []:
-                    for event in self._consume_part(blocks, part):
+                    if event := self._consume_part(blocks, part):
                         yield event
         except APIError as exc:
             raise ValueError(str(exc)) from exc
@@ -223,7 +223,7 @@ class GoogleGeminiAdapter(ProviderAdapter):
         return contents
 
     def _build_config(self, request: ProviderRequest) -> types.GenerateContentConfig:
-        tools: list[types.Tool | Any] | None = None
+        tools: list[types.Tool] | None = None
         if request.tools:
             tools = [
                 types.Tool(
@@ -262,7 +262,7 @@ class GoogleGeminiAdapter(ProviderAdapter):
             thinking_config=thinking_config,
         )
 
-    def _consume_part(self, blocks: list[dict[str, Any]], part: Any) -> list[ProviderStreamEvent]:
+    def _consume_part(self, blocks: list[dict[str, Any]], part: Any) -> ProviderStreamEvent | None:
         native_part = _to_json(part) or {}
         if native_part.get("thought") is False:
             native_part.pop("thought", None)
@@ -278,12 +278,12 @@ class GoogleGeminiAdapter(ProviderAdapter):
                     meta={"native": {"part": native_part}},
                 )
             )
-            return []
+            return None
 
         text = getattr(part, "text", None)
         if text is None or text == "":
             if not native_part.get("thought_signature"):
-                return []
+                return None
 
             # Gemini may put the final thought signature into an empty-text part.
             # Keep it as a separate empty block so replay preserves the original
@@ -291,7 +291,7 @@ class GoogleGeminiAdapter(ProviderAdapter):
             part_meta = {"native": {"part": native_part}}
             is_thought = getattr(part, "thought", False)
             blocks.append(thinking_block("", meta=part_meta) if is_thought else text_block("", meta=part_meta))
-            return []
+            return None
 
         is_thought = bool(getattr(part, "thought", False))
         event = ProviderStreamEvent("thinking_delta" if is_thought else "text_delta", {"text": str(text)})
@@ -310,10 +310,10 @@ class GoogleGeminiAdapter(ProviderAdapter):
                     last_part["text"] = f"{last_part.get('text') or ''}{text}"
                     if current_signature and not last_signature:
                         last_part["thought_signature"] = current_signature
-                    return [event]
+                    return event
 
         part_meta = {"native": {"part": native_part}}
         blocks.append(
             thinking_block(str(text), meta=part_meta) if is_thought else text_block(str(text), meta=part_meta)
         )
-        return [event]
+        return event

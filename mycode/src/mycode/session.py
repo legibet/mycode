@@ -139,7 +139,7 @@ class SessionStore:
         meta = _project_meta(meta)
         self.meta_path(session_id).write_text(json.dumps(meta, indent=2, ensure_ascii=False), encoding="utf-8")
         index = self._read_index()
-        index[session_id] = dict(meta)
+        index[session_id] = meta
         self._write_index(index)
 
     def _read_index(self) -> SessionIndex:
@@ -161,7 +161,7 @@ class SessionStore:
                 continue
             meta = self._read_meta(entry.name)
             if meta is not None:
-                index[entry.name] = dict(meta)
+                index[entry.name] = meta
         self._write_index(index)
         return index
 
@@ -246,9 +246,7 @@ class SessionStore:
 
     async def delete_session(self, session_id: str) -> None:
         def delete() -> None:
-            sdir = self.session_dir(session_id)
-            if sdir.exists():
-                shutil.rmtree(sdir, ignore_errors=True)
+            shutil.rmtree(self.session_dir(session_id), ignore_errors=True)
             index = self._read_index()
             index.pop(session_id, None)
             self._write_index(index)
@@ -285,8 +283,7 @@ class SessionStore:
 
         def append() -> None:
             with self.messages_path(session_id).open("a", encoding="utf-8") as handle:
-                handle.write(json.dumps(message, ensure_ascii=False))
-                handle.write("\n")
+                handle.write(json.dumps(message, ensure_ascii=False) + "\n")
 
             meta = self._read_meta(session_id)
             if meta is None:

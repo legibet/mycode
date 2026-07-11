@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-import functools
 import json
 from dataclasses import dataclass, replace
+from functools import cache
 from pathlib import Path
 from typing import Any
 
@@ -30,14 +30,14 @@ class ModelMetadata:
     supports_pdf_input: bool | None = None
 
 
-@functools.cache
+@cache
 def load_models_catalog() -> dict[str, Any] | None:
     """Load the bundled model catalog from disk once per process."""
 
     try:
         data = json.loads(_MODELS_CATALOG_PATH.read_text(encoding="utf-8"))
-    except Exception:
-        data = None
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return None
     return data if isinstance(data, dict) else None
 
 

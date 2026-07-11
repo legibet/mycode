@@ -111,8 +111,9 @@ class AnthropicLikeAdapter(ProviderAdapter):
             if not isinstance(content, list):
                 return
 
-            blocks: list[dict[str, Any]] = [cast(dict[str, Any], block) for block in content if isinstance(block, dict)]
-            for block in reversed(blocks):
+            for block in reversed(content):
+                if not isinstance(block, dict):
+                    continue
                 block_type = str(block.get("type") or "")
                 if block_type not in {"text", "image", "document", "tool_result"}:
                     continue

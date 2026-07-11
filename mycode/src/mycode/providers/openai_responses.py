@@ -102,9 +102,8 @@ class OpenAIResponsesAdapter(ProviderAdapter):
             raise ValueError(str(exc)) from exc
 
     def _build_request_payload(self, request: ProviderRequest) -> dict[str, Any]:
-        prepared_messages = self.prepare_messages(request)
         input_items: list[dict[str, Any]] = []
-        for message in prepared_messages:
+        for message in self.prepare_messages(request):
             role = message.get("role")
             if role == "user":
                 input_items.extend(self._serialize_user_message(message))
@@ -262,7 +261,7 @@ class OpenAIResponsesAdapter(ProviderAdapter):
         response: Any,
         *,
         output_items: list[Any] | None = None,
-    ) -> dict[str, Any]:
+    ) -> ConversationMessage:
         raw_output = output_items if output_items is not None else (getattr(response, "output", None) or [])
         dumped_output_items = dump_model(raw_output)
         blocks: list[dict[str, Any]] = []
@@ -357,8 +356,8 @@ def _normalize_strict_schema(schema: Any) -> None:
 
     properties = schema.get("properties")
     if isinstance(properties, dict):
-        required_names = {str(name) for name in schema.get("required", []) if isinstance(name, str)}
-        for name, property_schema in list(properties.items()):
+        required_names = {name for name in schema.get("required", []) if isinstance(name, str)}
+        for name, property_schema in properties.items():
             _normalize_strict_schema(property_schema)
             if name not in required_names:
                 properties[name] = _nullable_schema(property_schema)

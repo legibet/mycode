@@ -88,7 +88,7 @@ def parse_tool_call_input(raw_arguments: str) -> tuple[dict[str, Any], dict[str,
     try:
         parsed = json.loads(raw_arguments)
     except json.JSONDecodeError:
-        parsed = None
+        return {}, {"raw_arguments": raw_arguments}
     if isinstance(parsed, dict):
         return parsed, {}
     return {}, {"raw_arguments": raw_arguments}

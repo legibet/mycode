@@ -9,7 +9,7 @@ from typing import Any, override
 
 from openai import APIError, AsyncOpenAI
 
-from mycode.messages import assistant_message, text_block, thinking_block, tool_use_block
+from mycode.messages import ConversationMessage, assistant_message, text_block, thinking_block, tool_use_block
 from mycode.providers.base import (
     DEFAULT_REQUEST_TIMEOUT,
     ProviderAdapter,
@@ -174,7 +174,7 @@ class OpenAIChatAdapter(ProviderAdapter):
             },
         }
 
-    def _serialize_message(self, message: dict[str, Any]) -> list[dict[str, Any]]:
+    def _serialize_message(self, message: ConversationMessage) -> list[dict[str, Any]]:
         """Convert one canonical message into Chat Completions wire messages."""
 
         role = str(message.get("role") or "user")
