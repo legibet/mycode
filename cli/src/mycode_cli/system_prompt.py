@@ -104,7 +104,7 @@ def load_instructions_prompt(cwd: str, settings: Settings | None = None) -> str:
     for path in discover_instruction_files(cwd, resolved):
         try:
             text = path.read_text(encoding="utf-8").strip()
-        except Exception:
+        except (OSError, UnicodeError):
             logger.warning("Failed to read instruction file: %s", path)
             continue
 
@@ -167,7 +167,7 @@ def _parse_skill_md(path: Path, source: str, fallback_name: str | None = None) -
 
     try:
         text = path.read_text(encoding="utf-8")
-    except Exception:
+    except (OSError, UnicodeError):
         logger.warning("Failed to read skill file: %s", path)
         return None
 

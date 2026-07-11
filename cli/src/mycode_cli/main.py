@@ -7,7 +7,7 @@ import os
 import sys
 from contextlib import suppress
 from dataclasses import dataclass, replace
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 from uuid import uuid4
 
 import typer
@@ -44,8 +44,8 @@ class ResolvedSession:
 
     session_id: str
     session: dict[str, Any]
-    messages: list[dict[str, Any]]
-    mode: str
+    messages: list[ConversationMessage]
+    mode: Literal["new", "resumed"]
 
 
 async def resolve_session(
@@ -59,26 +59,26 @@ async def resolve_session(
 
     if requested_session_id:
         data = await store.load_session(requested_session_id)
-        if not data or not data.get("session"):
+        if data is None:
             raise ValueError(f"Unknown session: {requested_session_id}")
         return ResolvedSession(
             requested_session_id,
-            data.get("session") or {},
-            data.get("messages") or [],
+            data["session"],
+            data["messages"],
             "resumed",
         )
 
     if continue_last:
         latest = await store.latest_session(cwd=cwd)
-        if latest and latest.get("id"):
+        if latest:
             session_id = str(latest["id"])
             data = await store.load_session(session_id)
-            if not data:
+            if data is None:
                 raise ValueError(f"Unknown session: {session_id}")
             return ResolvedSession(
                 session_id,
-                data.get("session") or latest,
-                data.get("messages") or [],
+                data["session"],
+                data["messages"],
                 "resumed",
             )
 

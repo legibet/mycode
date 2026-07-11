@@ -3,9 +3,8 @@
 from __future__ import annotations
 
 import time
-from collections.abc import Awaitable, Callable
 from datetime import datetime
-from typing import Any, override
+from typing import Any, ClassVar, override
 
 from rich.console import Console, ConsoleOptions, RenderResult
 from rich.live import Live
@@ -18,8 +17,8 @@ from rich.table import Table
 from rich.text import Text
 from rich.theme import Theme
 
-from mycode.agent import Agent
-from mycode.messages import flatten_message_text
+from mycode.agent import Agent, PersistCallback
+from mycode.messages import ConversationMessage, flatten_message_text
 
 from .theme import (
     ACCENT,
@@ -88,7 +87,7 @@ class _CleanCodeBlock(_RichCodeBlock):
 class _LeftMarkdown(Markdown):
     """Markdown subclass with left-aligned headings and clean code blocks."""
 
-    elements = {
+    elements: ClassVar[dict[str, type[Any]]] = {
         **Markdown.elements,
         "heading_open": _LeftHeading,
         "fence": _CleanCodeBlock,
@@ -252,7 +251,8 @@ class TerminalView:
             session_id = str(session.get("id") or "-")
             idx = Text(str(index), style=MUTED)
             sid = Text(session_id[:12], style=MUTED)
-            ts = Text(self._format_timestamp(str(session.get("updated_at") or "")), style=MUTED)
+            timestamp = format_local_timestamp(str(session.get("updated_at") or ""), "%Y-%m-%d %H:%M") or "-"
+            ts = Text(timestamp, style=MUTED)
             title = Text(self._shorten(str(session.get("title") or "New chat"), limit=title_limit))
 
             row: list[Any] = [idx, sid, ts, title]
@@ -326,10 +326,6 @@ class TerminalView:
             return text
         return text[: limit - 1] + "…"
 
-    @staticmethod
-    def _format_timestamp(value: str) -> str:
-        return format_local_timestamp(value, "%Y-%m-%d %H:%M") or "-"
-
 
 class ReplyRenderer:
     """Render one assistant reply, including thinking and tool output."""
@@ -356,9 +352,9 @@ class ReplyRenderer:
     async def render(
         self,
         agent: Agent,
-        message: str | dict[str, Any],
+        message: str | ConversationMessage,
         *,
-        on_persist: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
+        on_persist: PersistCallback | None = None,
     ) -> int:
         """Stream one assistant turn to the terminal and return its exit code."""
 
@@ -684,8 +680,5 @@ class ReplyRenderer:
                 return Spinner("dots", text=Text(f" {preview}", style=THINKING), style="dim")
             return Spinner("dots", text=Text(" thinking…", style=THINKING), style="dim")
 
-        # Text streaming: render as markdown (thinking already collapsed)
-        if self._text:
-            return _LeftMarkdown("".join(self._text), code_theme=CODE_THEME)
-
-        return Spinner("dots", style="dim")
+        # Text streaming: render as markdown (thinking already collapsed).
+        return _LeftMarkdown("".join(self._text), code_theme=CODE_THEME)

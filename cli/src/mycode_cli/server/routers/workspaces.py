@@ -50,9 +50,7 @@ def browse_workspaces(
     rel_path = Path(path) if path else Path()
     target = (root_path / rel_path).resolve(strict=False)
 
-    try:
-        target.relative_to(root_path)
-    except ValueError:
+    if not target.is_relative_to(root_path):
         return {
             "root": str(root_path),
             "path": "",

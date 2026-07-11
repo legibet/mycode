@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from functools import lru_cache
+from functools import cache
 from typing import Annotated
 
 from fastapi import Depends, HTTPException
@@ -22,14 +22,14 @@ def resolve_workspace_cwd(raw: str | None) -> str:
     return cwd
 
 
-@lru_cache
+@cache
 def get_store() -> SessionStore:
     """Return the shared session store for server requests."""
 
     return SessionStore(data_dir=resolve_sessions_dir())
 
 
-@lru_cache
+@cache
 def get_run_manager() -> RunManager:
     """Return the shared in-process run manager."""
 

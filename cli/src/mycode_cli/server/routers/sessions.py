@@ -45,7 +45,7 @@ async def list_sessions(
 ) -> dict[str, Any]:
     sessions = await store.list_sessions(cwd=cwd)
     for session in sessions:
-        session_id = str(session.get("id") or "")
+        session_id = str(session["id"])
         session["is_running"] = await runs.has_active_run(session_id)
     return {"sessions": sessions}
 
@@ -57,22 +57,21 @@ async def load_session(
     """Load a session, overlaying any active in-memory run state."""
 
     data = await store.load_session(session_id)
-    session = data.get("session") if data else None
     active = await runs.snapshot_session(session_id)
     if active:
         return {
-            "session": session,
+            "session": data["session"] if data else None,
             "messages": _redact_document_data(active["messages"]),
             "active_run": active["run"],
             "pending_events": active["pending_events"],
         }
 
-    if not data:
+    if data is None:
         return {"session": None, "messages": [], "active_run": None, "pending_events": []}
 
     return {
-        "session": session,
-        "messages": _redact_document_data(data.get("messages") or []),
+        "session": data["session"],
+        "messages": _redact_document_data(data["messages"]),
         "active_run": None,
         "pending_events": [],
     }

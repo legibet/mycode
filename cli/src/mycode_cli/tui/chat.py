@@ -34,7 +34,7 @@ from mycode.attachments import (
     detect_image_mime_type,
     unsupported_attachment_block,
 )
-from mycode.messages import build_message, flatten_message_text, text_block
+from mycode.messages import ConversationMessage, build_message, flatten_message_text, text_block
 from mycode.providers import (
     get_provider_adapter,
     list_env_discoverable_providers,
@@ -530,7 +530,7 @@ class TerminalChat:
             finally:
                 self._current_renderer = None
 
-    def _build_user_message(self, text: str) -> dict[str, Any]:
+    def _build_user_message(self, text: str) -> ConversationMessage:
         """Build one user message: the raw prompt plus any `@path` attachments, in input order."""
 
         blocks: list[dict[str, Any]] = [text_block(text)]
@@ -597,7 +597,7 @@ class TerminalChat:
                 self.agent.clear()
                 self.view.console.print(f"[green]{TOOL_MARKER}[/green] [dim]cleared[/dim]")
             case "/new":
-                await self._start_new_session()
+                self._start_new_session()
             case "/rewind":
                 prefill = await self._rewind()
                 if prefill:
@@ -606,12 +606,12 @@ class TerminalChat:
                 await self._resume_session()
             case "/provider":
                 if argument:
-                    await self._apply_provider_change(argument)
+                    self._apply_provider_change(argument)
                 else:
                     await self._switch_provider()
             case "/model":
                 if argument:
-                    await self._apply_model_change(argument)
+                    self._apply_model_change(argument)
                 else:
                     await self._switch_model()
             case "/effort":
@@ -648,7 +648,7 @@ class TerminalChat:
         self.view.console.print("[dim]current model does not support reasoning effort[/dim]")
         return False
 
-    async def _start_new_session(self) -> None:
+    def _start_new_session(self) -> None:
         """Start a fresh session while keeping the current runtime settings."""
 
         self.session_id = uuid4().hex
@@ -701,7 +701,7 @@ class TerminalChat:
         if selected is None:
             return None
 
-        original_text = user_turns.get(selected, "")
+        original_text = user_turns[selected]
 
         # Persist the rewind event and truncate in-memory messages.
         await self.store.append_rewind(self.session_id, selected)
@@ -735,13 +735,13 @@ class TerminalChat:
         if session is None:
             return
 
-        self.session_id = str(session.get("id") or "")
+        self.session_id = str(session["id"])
         data = await self.store.load_session(self.session_id)
-        if not data:
+        if data is None:
             self.view.console.print("[red]failed to load session[/red]")
             return
-        messages = data.get("messages") or []
-        loaded_session = data.get("session") or session
+        messages = data["messages"]
+        loaded_session = data["session"]
         self.agent = clone_agent(self.agent, store=self.store, session_id=self.session_id)
         self.view.print_header(
             provider=self.agent.provider,
@@ -768,7 +768,7 @@ class TerminalChat:
 
         selected = await choose(choices, default=current.name if current else None)
         if selected is not None:
-            await self._apply_provider_change(selected)
+            self._apply_provider_change(selected)
 
     async def _switch_model(self) -> None:
         """Prompt for a model supported by the current provider runtime."""
@@ -779,16 +779,12 @@ class TerminalChat:
             api_base=self.agent.api_base,
             current_model=self.agent.model,
         )
-        if not models:
-            self.view.console.print("[dim]no configured models for the current provider[/dim]")
-            return
-
         choices = [(m, m) for m in models]
         selected = await choose(choices, default=self.agent.model)
         if selected is not None:
-            await self._apply_model_change(selected)
+            self._apply_model_change(selected)
 
-    async def _apply_provider_change(self, provider_name: str) -> None:
+    def _apply_provider_change(self, provider_name: str) -> None:
         """Switch the active provider, keeping session history unchanged."""
 
         self.settings = get_settings(self.agent.cwd)
@@ -804,7 +800,7 @@ class TerminalChat:
             label += f" [effort: {self.agent.reasoning_effort}]"
         self._print_runtime_status("provider/model", label, changed=changed)
 
-    async def _apply_model_change(self, model_name: str) -> None:
+    def _apply_model_change(self, model_name: str) -> None:
         """Switch the active model for the current provider runtime."""
 
         self.settings = get_settings(self.agent.cwd)

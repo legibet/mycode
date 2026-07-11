@@ -105,12 +105,13 @@ def _env_presence(raw: dict[str, Any]) -> dict[str, bool]:
 
 def _build_response(path: Path) -> dict[str, Any]:
     raw = _read_raw_config(path)
+    provider_types = list_supported_providers()
     return {
         "path": str(path),
         "exists": path.is_file(),
         "config": _present_config(raw),
         "options": {
-            "provider_types": list(list_supported_providers()),
+            "provider_types": provider_types,
             "permission_levels": list(PERMISSION_LEVEL_OPTIONS),
             "permission_modes": list(PERMISSION_MODE_OPTIONS),
             "reasoning_efforts": list(REASONING_EFFORT_OPTIONS),
@@ -118,13 +119,11 @@ def _build_response(path: Path) -> dict[str, Any]:
         "env": _env_presence(raw),
         "provider_type_env_vars": {
             ptype: list(provider_env_api_key_names(ptype))
-            for ptype in list_supported_providers()
+            for ptype in provider_types
             if provider_env_api_key_names(ptype)
         },
         "provider_type_default_models": {
-            ptype: list(provider_default_models(ptype))
-            for ptype in list_supported_providers()
-            if provider_default_models(ptype)
+            ptype: list(provider_default_models(ptype)) for ptype in provider_types if provider_default_models(ptype)
         },
     }
 
