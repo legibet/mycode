@@ -56,6 +56,32 @@ from mycode_cli.server.schemas import (
 router = APIRouter()
 
 
+def _resolve_workspace_attachment_path(rel_path: str, *, cwd: str) -> Path:
+    base = Path(resolve_path(".", cwd=cwd))
+    path = Path(resolve_path(rel_path, cwd=cwd))
+    if base != path and not path.is_relative_to(base):
+        raise HTTPException(status_code=400, detail=f"path outside workspace: {rel_path}")
+    return path
+
+
+def _read_workspace_text_attachment(rel_path: str, *, name: str | None, cwd: str) -> list[dict[str, Any]]:
+    """Read a workspace text file selected via the @ menu into a `<file>` block.
+
+    Re-validates the path at send time: it must resolve inside ``cwd`` (guards
+    against a symlink swapped in after selection), be a regular file, and be
+    UTF-8 text (image/PDF go through image/document path blocks instead).
+    """
+    path = _resolve_workspace_attachment_path(rel_path, cwd=cwd)
+    if not path.is_file():
+        raise HTTPException(status_code=400, detail=f"text file not found: {rel_path}")
+    if detect_image_mime_type(path) or detect_document_mime_type(path):
+        raise HTTPException(status_code=400, detail=f"not a text file: {rel_path}")
+    try:
+        return build_attachment_blocks([Attachment.path(path, name=name or rel_path)], cwd=cwd)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 async def _build_user_message(chat: ChatRequest, cwd: str) -> ConversationMessage:
     if not chat.input:
         return build_message("user", [text_block(str(chat.message or "").strip())])
@@ -63,6 +89,9 @@ async def _build_user_message(chat: ChatRequest, cwd: str) -> ConversationMessag
     blocks: list[dict[str, Any]] = []
     for block in chat.input:
         if block.type == "text":
+            if block.path:
+                blocks.extend(_read_workspace_text_attachment(block.path, name=block.name, cwd=cwd))
+                continue
             text = block.text or ""
             if block.is_attachment:
                 blocks.extend(
@@ -87,7 +116,12 @@ async def _build_user_message(chat: ChatRequest, cwd: str) -> ConversationMessag
 
         # Server-side path: read the bytes and validate the sniffed MIME matches
         # the declared block.type so a request for an "image" can't ship a PDF.
-        path = Path(resolve_path(cast(str, block.path), cwd=cwd))
+        rel_path = cast(str, block.path)
+        path = (
+            _resolve_workspace_attachment_path(rel_path, cwd=cwd)
+            if block.is_attachment
+            else Path(resolve_path(rel_path, cwd=cwd))
+        )
         if not path.is_file():
             raise HTTPException(status_code=400, detail=f"{block.type} file not found: {block.path}")
         detect = detect_image_mime_type if block.type == "image" else detect_document_mime_type

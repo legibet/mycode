@@ -50,8 +50,9 @@ Structured `input` uses `ChatInputBlock`:
 
 - `type: "text"` — uses `text`
 - `type: "text"` with `is_attachment=true` — wraps UTF-8 file content as the same `<file ...>` attachment text used by CLI `@file`
-- `type: "image"` — uses `path` or inline base64 `data`
-- `type: "document"` — uses `path` or inline base64 `data`
+- `type: "text"` with `path` (and `is_attachment=true`, no `text`) — server reads the workspace file at `path` (resolved under `cwd`) into the same `<file ...>` snapshot; the path is re-checked at send time (inside `cwd`, regular file, UTF-8, not image/PDF)
+- `type: "image"` — uses `path` or inline base64 `data`; workspace-relative `path` attachments set `is_attachment=true` so the server confines them to `cwd`
+- `type: "document"` — uses `path` or inline base64 `data`; workspace-relative `path` attachments use the same `is_attachment=true` boundary
 - `mime_type` is required when `data` is provided
 - `path` accepts `image/png`, `image/jpeg`, `image/gif`, `image/webp`
 - `path` accepts `application/pdf` for `type: "document"`
@@ -303,6 +304,25 @@ Response:
 Returns current working directory of the server process.
 
 Response: `{cwd: "...", exists: true}`
+
+### `GET /api/workspaces/files?cwd=...&dir=...&prefix=...`
+
+List files and directories under `cwd/dir` for `@` attachment completion. Directories first, then files, both sorted case-insensitively by name. Dotfiles are included. Entries are filtered by `prefix` on the server, then capped at 100 with a `truncated` flag. `kind` is a coarse attachment classification (`directory`, `image`, `document`, `text`) by magic bytes / extension.
+
+Response:
+
+```json
+{
+  "entries": [
+    {"name": "components", "path": "src/components/", "kind": "directory"},
+    {"name": "config.ts", "path": "src/config.ts", "kind": "text"}
+  ],
+  "truncated": false,
+  "error": ""
+}
+```
+
+`error` is non-empty (and `entries` empty) when `cwd` does not exist, `dir` resolves outside `cwd`, or the target is not a directory.
 
 ## SSE Contract
 

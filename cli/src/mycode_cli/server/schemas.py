@@ -21,6 +21,13 @@ class ChatInputBlock(BaseModel):
     @model_validator(mode="after")
     def validate_shape(self) -> Self:
         if self.type == "text":
+            # A text block is either inline text or a server-side file path
+            # (attachment), never both, and a path must be an attachment.
+            if self.path is not None:
+                if self.text is not None:
+                    raise ValueError("text block: text and path are mutually exclusive")
+                if not self.is_attachment:
+                    raise ValueError("text block with path requires is_attachment")
             return self
 
         if not self.path and not self.data:

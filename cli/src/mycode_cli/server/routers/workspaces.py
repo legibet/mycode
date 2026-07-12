@@ -6,7 +6,12 @@ from typing import Annotated
 
 from fastapi import APIRouter, Query
 
+from mycode.attachments import detect_document_mime_type, detect_image_mime_type
+
 router = APIRouter(prefix="/workspaces", tags=["workspaces"])
+
+# Cap on entries returned by /files so a huge directory can't flood the client.
+_FILE_LIST_LIMIT = 100
 
 
 def _parse_workspace_roots() -> list[Path]:
@@ -87,3 +92,66 @@ def get_cwd() -> dict[str, object]:
     """Get current working directory."""
     cwd = os.getcwd()
     return {"cwd": cwd, "exists": Path(cwd).exists()}
+
+
+def _classify_entry(path: Path) -> str:
+    """Coarse attachment kind by magic bytes / extension for the @ menu."""
+    if detect_image_mime_type(path):
+        return "image"
+    if detect_document_mime_type(path):
+        return "document"
+    return "text"
+
+
+@router.get("/files")
+def list_workspace_files(
+    cwd: Annotated[str, Query(min_length=1)],
+    dir: Annotated[str, Query()] = "",
+    prefix: Annotated[str, Query()] = "",
+) -> dict[str, object]:
+    """List files and directories under ``cwd/dir`` for @ attachment completion.
+
+    Directories first, then files, both sorted by name. Dotfiles are included
+    (`.env`, `.github` matter when coding). Entries are filtered by ``prefix``
+    on the server, then capped at 100 with a ``truncated`` flag.
+    """
+    base = Path(cwd).expanduser().resolve(strict=False)
+    if not base.is_dir():
+        return {"entries": [], "truncated": False, "error": "cwd does not exist"}
+
+    target = (base / dir).resolve(strict=False)
+    # Reject traversal outside cwd after resolving symlinks.
+    if target != base and not target.is_relative_to(base):
+        return {"entries": [], "truncated": False, "error": "path outside workspace"}
+    if not target.is_dir():
+        return {"entries": [], "truncated": False, "error": "not a directory"}
+
+    matches: list[tuple[Path, bool]] = []
+    try:
+        for entry in target.iterdir():
+            if prefix and not entry.name.startswith(prefix):
+                continue
+            try:
+                resolved = entry.resolve()
+                if resolved != base and not resolved.is_relative_to(base):
+                    continue
+                is_dir = entry.is_dir()
+            except OSError:
+                continue
+            matches.append((entry, is_dir))
+    except OSError as exc:
+        return {"entries": [], "truncated": False, "error": str(exc)}
+
+    matches.sort(key=lambda item: (not item[1], item[0].name.lower()))
+    truncated = len(matches) > _FILE_LIST_LIMIT
+    entries = []
+    for entry, is_dir in matches[:_FILE_LIST_LIMIT]:
+        rel = entry.relative_to(base).as_posix()
+        entries.append(
+            {
+                "name": entry.name,
+                "path": f"{rel}/" if is_dir else rel,
+                "kind": "directory" if is_dir else _classify_entry(entry),
+            }
+        )
+    return {"entries": entries, "truncated": truncated, "error": ""}

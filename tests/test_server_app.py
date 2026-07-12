@@ -82,6 +82,8 @@ def test_api_dev_app_allows_only_local_vite_cors() -> None:
         {"input": [{"type": "image", "data": "abc"}]},
         {"input": [{"type": "document", "data": "abc", "mime_type": "text/plain"}]},
         {"input": [{"type": "image"}]},
+        {"input": [{"type": "text", "text": "x", "path": "a.py", "is_attachment": True}]},
+        {"input": [{"type": "text", "path": "a.py"}]},
     ],
 )
 def test_chat_request_shape_validation(payload: dict[str, object]) -> None:
