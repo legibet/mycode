@@ -18,6 +18,7 @@ from pathlib import Path
 
 import yaml
 
+from mycode.messages import ContentBlock, text_block
 from mycode_cli.config import Settings, get_settings, project_dirs, resolve_mycode_home, resolve_project
 
 logger = logging.getLogger(__name__)
@@ -27,6 +28,8 @@ _MAX_DIRS_PER_ROOT = 200
 _SKIP_DIRS = frozenset({"node_modules", "__pycache__", ".git"})
 _NAME_RE = re.compile(r"^[a-zA-Z0-9_-]+$")
 _NAME_MAX_LEN = 64
+_BUILTIN_SLASH_NAMES = ("clear", "new", "resume", "rewind", "provider", "model", "effort", "q")
+_RESERVED_SLASH_NAMES = frozenset(name[:length] for name in _BUILTIN_SLASH_NAMES for length in range(1, len(name) + 1))
 
 _BASE_PROMPT = """\
 You are mycode, an expert coding assistant.
@@ -131,6 +134,7 @@ class Skill:
     description: str
     path: str
     source: str
+    body: str
 
 
 # ---------------------------------------------------------------------
@@ -138,8 +142,8 @@ class Skill:
 # ---------------------------------------------------------------------
 
 
-def _parse_frontmatter(text: str) -> dict[str, object] | None:
-    """Extract YAML frontmatter between --- delimiters."""
+def _parse_frontmatter(text: str) -> tuple[dict[str, object], str] | None:
+    """Extract YAML frontmatter and the instruction body."""
 
     lines = text.splitlines()
     if not lines or lines[0].strip() != "---":
@@ -159,7 +163,9 @@ def _parse_frontmatter(text: str) -> dict[str, object] | None:
     except yaml.YAMLError:
         return None
 
-    return parsed if isinstance(parsed, dict) else None
+    if not isinstance(parsed, dict):
+        return None
+    return parsed, "\n".join(lines[closing_index + 1 :]).strip()
 
 
 def _parse_skill_md(path: Path, source: str, fallback_name: str | None = None) -> Skill | None:
@@ -171,10 +177,11 @@ def _parse_skill_md(path: Path, source: str, fallback_name: str | None = None) -
         logger.warning("Failed to read skill file: %s", path)
         return None
 
-    frontmatter = _parse_frontmatter(text)
-    if not frontmatter:
+    parsed = _parse_frontmatter(text)
+    if not parsed:
         logger.debug("No valid frontmatter in %s", path)
         return None
+    frontmatter, body = parsed
 
     name: str | None = None
     for candidate in (frontmatter.get("name"), fallback_name):
@@ -200,6 +207,7 @@ def _parse_skill_md(path: Path, source: str, fallback_name: str | None = None) -
         description=raw_description.strip(),
         path=str(path.resolve()),
         source=source,
+        body=body,
     )
 
 
@@ -231,11 +239,7 @@ def _scan_skill_root(root: Path, source: str) -> list[Skill]:
             skills.append(skill)
 
     dirs_scanned = 0
-    pending_dirs = deque(
-        (entry, 1)
-        for entry in root_entries
-        if entry.name not in _SKIP_DIRS and entry.is_dir() and not entry.is_symlink()
-    )
+    pending_dirs = deque((entry, 1) for entry in root_entries if entry.name not in _SKIP_DIRS and entry.is_dir())
 
     while pending_dirs and dirs_scanned < _MAX_DIRS_PER_ROOT:
         current, depth = pending_dirs.popleft()
@@ -250,7 +254,7 @@ def _scan_skill_root(root: Path, source: str) -> list[Skill]:
                 if skill:
                     skills.append(skill)
 
-        if depth >= _MAX_SCAN_DEPTH:
+        if current.is_symlink() or depth >= _MAX_SCAN_DEPTH:
             continue
 
         try:
@@ -263,7 +267,7 @@ def _scan_skill_root(root: Path, source: str) -> list[Skill]:
             continue
 
         for entry in child_entries:
-            if entry.is_dir() and not entry.is_symlink():
+            if entry.is_dir():
                 pending_dirs.append((entry, depth + 1))
 
     return skills
@@ -301,6 +305,38 @@ def discover_skills(cwd: str) -> list[Skill]:
             skills_by_name[skill.name] = skill
 
     return sorted(skills_by_name.values(), key=lambda skill: skill.name)
+
+
+def discover_slash_skills(cwd: str) -> list[Skill]:
+    """Return skills whose names do not collide with built-in slash commands."""
+
+    return [skill for skill in discover_skills(cwd) if skill.name not in _RESERVED_SLASH_NAMES]
+
+
+def build_skill_snapshot_blocks(text: str, cwd: str) -> list[ContentBlock]:
+    """Expand standalone ``/<skill-name>`` references in first-use order."""
+
+    skills = {skill.name: skill for skill in discover_slash_skills(cwd)}
+    blocks: list[ContentBlock] = []
+    seen: set[str] = set()
+    for token in text.split():
+        if not token.startswith("/"):
+            continue
+        name = token[1:]
+        skill = skills.get(name)
+        if not skill or name in seen:
+            continue
+        seen.add(name)
+        base_dir = str(Path(skill.path).parent)
+        snapshot = (
+            f'<skill name="{skill.name}" location="{skill.path}">\n'
+            f"Base directory: {base_dir}\n"
+            "Relative paths in this skill resolve from the base directory.\n\n"
+            f"{skill.body}\n"
+            "</skill>"
+        )
+        blocks.append(text_block(snapshot, meta={"skill_snapshot": True}))
+    return blocks
 
 
 def load_skills_prompt(cwd: str) -> str:

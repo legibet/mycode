@@ -55,6 +55,7 @@ from mycode_cli.config import (
     resolve_provider,
 )
 from mycode_cli.permissions import ToolReviewDecision, ToolReviewRequest, build_permission_hooks
+from mycode_cli.system_prompt import build_skill_snapshot_blocks, discover_slash_skills
 
 from .render import ReplyRenderer, TerminalView, format_local_timestamp
 from .theme import MUTED, PROMPT_CHAR, TERMINAL_THEME, TOOL_MARKER, WARNING
@@ -75,6 +76,7 @@ _COMMANDS = (
 _SLASH_COMMANDS = tuple(command for command, _, _ in _COMMANDS)
 # Only treat `@path` as a reference when it starts a standalone token.
 _AT_PATH_RE = re.compile(r"""(?<!\S)@(?:'(?P<single>[^']*)'?$|"(?P<double>[^"]*)"?$|(?P<plain>[^\s'"]*))$""")
+_SKILL_TOKEN_RE = re.compile(r"(?<!\S)/(?P<name>[a-zA-Z0-9_-]*)$")
 
 
 # Style for the focused row in the inline selector.
@@ -130,10 +132,11 @@ async def choose[T](options: list[tuple[T, str]], *, default: T | None = None) -
 
 
 class _PromptCompleter(Completer):
-    """Complete slash commands and explicit `@path` references for the prompt."""
+    """Complete built-in commands, skill references, and `@path` references."""
 
     def __init__(self, *, cwd: str | None = None) -> None:
         self._cwd = cwd
+        self._skills = discover_slash_skills(cwd) if cwd else []
 
     @override
     def get_completions(self, document: Document, complete_event: CompleteEvent) -> Iterable[Completion]:
@@ -146,11 +149,23 @@ class _PromptCompleter(Completer):
                 return
 
         text = text_before_cursor.lstrip()
-        if not text.startswith("/"):
+        if re.fullmatch(r"/\S*", text):
+            for cmd, _usage, desc in _COMMANDS:
+                if cmd.startswith(text):
+                    yield Completion(cmd, start_position=-len(text), display_meta=desc)
+
+        skill_match = _SKILL_TOKEN_RE.search(text_before_cursor)
+        if not skill_match:
             return
-        for cmd, _usage, desc in _COMMANDS:
-            if cmd.startswith(text) and cmd != text:
-                yield Completion(cmd, start_position=-len(text), display_meta=desc)
+        query = skill_match.group("name")
+        for skill in self._skills:
+            if skill.name.startswith(query):
+                yield Completion(
+                    f"/{skill.name}",
+                    start_position=-len(skill_match.group(0)),
+                    display=f"/{skill.name}",
+                    display_meta=skill.description,
+                )
 
     def _complete_path(self, match: re.Match[str], cwd: str) -> Iterable[Completion]:
         """Yield `@path` completions for real entries under the working directory."""
@@ -282,7 +297,9 @@ def _build_chat_key_bindings() -> KeyBindings:
 
         completion = state.current_completion or state.completions[0]
         buffer.apply_completion(completion)
-        if completion.display_meta_text == "dir":
+        if completion.text.startswith("/"):
+            buffer.insert_text(" ")
+        elif completion.display_meta_text == "dir":
             get_app().create_background_task(_restart_completion(buffer))
 
     # Esc+Enter (Meta+Enter) inserts a newline for multiline input.
@@ -531,9 +548,9 @@ class TerminalChat:
                 self._current_renderer = None
 
     def _build_user_message(self, text: str) -> ConversationMessage:
-        """Build one user message: the raw prompt plus any `@path` attachments, in input order."""
+        """Build one user message with skill snapshots and `@path` attachments."""
 
-        blocks: list[dict[str, Any]] = [text_block(text)]
+        blocks: list[dict[str, Any]] = [*build_skill_snapshot_blocks(text, self.agent.cwd), text_block(text)]
         try:
             tokens = shlex.split(text.replace("\r\n", "\n").replace("\r", "\n"), posix=True)
         except ValueError:
@@ -620,7 +637,7 @@ class TerminalChat:
                 else:
                     await self._switch_effort()
             case _:
-                self._print_help()
+                return False
 
         return True
 

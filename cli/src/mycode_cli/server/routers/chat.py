@@ -52,6 +52,7 @@ from mycode_cli.server.schemas import (
     StatusResponse,
     StreamEvent,
 )
+from mycode_cli.system_prompt import build_skill_snapshot_blocks, discover_slash_skills
 
 router = APIRouter()
 
@@ -84,9 +85,12 @@ def _read_workspace_text_attachment(rel_path: str, *, name: str | None, cwd: str
 
 async def _build_user_message(chat: ChatRequest, cwd: str) -> ConversationMessage:
     if not chat.input:
-        return build_message("user", [text_block(str(chat.message or "").strip())])
+        text = str(chat.message or "").strip()
+        snapshots = await asyncio.to_thread(build_skill_snapshot_blocks, text, cwd)
+        return build_message("user", [*snapshots, text_block(text)])
 
     blocks: list[dict[str, Any]] = []
+    visible_text: list[str] = []
     for block in chat.input:
         if block.type == "text":
             if block.path:
@@ -101,6 +105,7 @@ async def _build_user_message(chat: ChatRequest, cwd: str) -> ConversationMessag
                     )
                 )
             elif text:
+                visible_text.append(text)
                 blocks.append(text_block(text))
             continue
 
@@ -133,6 +138,8 @@ async def _build_user_message(chat: ChatRequest, cwd: str) -> ConversationMessag
 
     if not blocks:
         raise HTTPException(status_code=400, detail="input must include at least one non-empty block")
+    snapshots = await asyncio.to_thread(build_skill_snapshot_blocks, "\n".join(visible_text), cwd)
+    blocks[:0] = snapshots
     return build_message("user", blocks)
 
 
@@ -315,6 +322,7 @@ async def decide_run(
 async def get_config(cwd: Annotated[str | None, Query()] = None) -> dict[str, Any]:
     resolved_cwd = os.path.abspath(cwd or os.getcwd())
     settings = await asyncio.to_thread(get_settings, resolved_cwd)
+    skills = await asyncio.to_thread(discover_slash_skills, resolved_cwd)
     resolved: ResolvedProvider | None = None
     setup_error: dict[str, str] | None = None
     try:
@@ -389,5 +397,6 @@ async def get_config(cwd: Annotated[str | None, Query()] = None) -> dict[str, An
         "cwd_exists": os.path.isdir(resolved_cwd),
         "project": settings.project,
         "config_paths": settings.config_paths,
+        "skills": [{"name": skill.name, "description": skill.description} for skill in skills],
         "setup_error": setup_error,
     }

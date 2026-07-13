@@ -55,6 +55,9 @@ def test_discovers_supported_layouts_and_ignores_invalid_skill_files(skill_home:
     write_file(root / "plain" / "SKILL.md", "# Just a markdown file\nNo YAML frontmatter here.\n")
     write_file(root / "a" / "b" / "c" / "SKILL.md", skill_text(name="depth-three", description="Allowed depth."))
     write_file(root / "a" / "b" / "c" / "d" / "SKILL.md", skill_text(name="too-deep", description="Too deep."))
+    linked_skill = workspace / "linked-skill" / "SKILL.md"
+    write_file(linked_skill, skill_text(name="linked", description="Linked skill."))
+    (root / "linked").symlink_to(linked_skill.parent, target_is_directory=True)
 
     skills = discover_skills(str(workspace))
 
@@ -63,6 +66,7 @@ def test_discovers_supported_layouts_and_ignores_invalid_skill_files(skill_home:
         "deploy",
         "depth-three",
         "lint",
+        "linked",
         "test-skill",
     }
     assert all(skill.source == "project" for skill in skills)

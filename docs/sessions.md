@@ -64,6 +64,8 @@ Standard `user` or `assistant` message in the internal block format.
 
 `tool_result.content` may store `text` and `image` blocks.
 
+Each matching `/<skill-name>` token prepends a text block with `meta.skill_snapshot=true` before the original user text. The snapshot contains the frontmatter-free `SKILL.md` body, source path, and base directory. The session persists it for provider replay. Session titles and TUI/Web history use the original text.
+
 `assistant.meta.total_tokens` is the canonical token count for the call: prompt plus everything the model produced this turn (text, tool calls, reasoning). It also equals the prompt floor of the next API call (history accumulated up to and including this turn), which is what `should_compact` and the consumed-context UI both compare against `context_window`.
 
 `assistant.meta.context_window` is the model's full context window for the call, resolved from the catalog at runtime. Stamped onto the message so clients can render the consumed-context percentage without re-deriving model metadata. Absent when unavailable.

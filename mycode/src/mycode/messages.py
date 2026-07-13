@@ -165,8 +165,8 @@ def flatten_message_text(message: ConversationMessage, *, include_thinking: bool
             continue
         raw_meta = block.get("meta")
         meta = raw_meta if isinstance(raw_meta, dict) else {}
-        # Attached file snapshots should not become session titles or history labels.
-        if meta.get("attachment"):
+        # Local payload blocks should not become session titles or history labels.
+        if meta.get("attachment") or meta.get("skill_snapshot"):
             continue
         btype = block.get("type")
         if btype == "text" or (include_thinking and btype == "thinking"):

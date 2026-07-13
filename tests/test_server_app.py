@@ -1,17 +1,34 @@
-"""Tests for FastAPI app startup behavior."""
+"""Tests for FastAPI app behavior."""
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
 from pathlib import Path
 
 import pytest
 from starlette.testclient import TestClient
 
+from mycode.messages import ConversationMessage
 from mycode.models import ModelMetadata
+from mycode.providers.base import ProviderRequest, ProviderStreamEvent
 from mycode.session import SessionStore
 from mycode_cli.server.app import create_api_app, create_app
 from mycode_cli.server.deps import get_run_manager, get_store
 from mycode_cli.server.run_manager import RunManager
+
+
+class _CaptureAdapter:
+    supports_reasoning_effort = False
+
+    def __init__(self) -> None:
+        self.messages: list[ConversationMessage] | None = None
+
+    async def stream_turn(self, request: ProviderRequest) -> AsyncIterator[ProviderStreamEvent]:
+        self.messages = list(request.messages)
+        yield ProviderStreamEvent(
+            "message_done",
+            {"message": {"role": "assistant", "content": [{"type": "text", "text": "ok"}]}},
+        )
 
 
 @pytest.mark.parametrize(
@@ -129,3 +146,50 @@ def test_chat_capability_failure_does_not_create_session(
     assert response.status_code == 400
     assert response.json()["detail"] == "current model does not support image input"
     assert store.load_session_sync("new-session") is None
+
+
+def test_chat_skill_reference_reaches_provider_and_keeps_visible_title(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    monkeypatch.setenv("MYCODE_HOME", str(tmp_path / "home"))
+    skill_dir = tmp_path / ".mycode" / "skills" / "ui"
+    skill_dir.mkdir(parents=True)
+    skill_dir.joinpath("SKILL.md").write_text(
+        "---\nname: ui\ndescription: Design interfaces.\n---\n\nReview the interface carefully.\n",
+        encoding="utf-8",
+    )
+    adapter = _CaptureAdapter()
+    monkeypatch.setattr("mycode.agent.get_provider_adapter", lambda _provider: adapter)
+    monkeypatch.setattr("mycode_cli.server.routers.chat.get_provider_adapter", lambda _provider: adapter)
+    store = SessionStore(data_dir=tmp_path / "sessions")
+    runs = RunManager()
+    app = create_api_app()
+    app.dependency_overrides[get_store] = lambda: store
+    app.dependency_overrides[get_run_manager] = lambda: runs
+    prompt = "Use /ui to polish this page"
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/chat",
+            json={
+                "session_id": "skill-session",
+                "cwd": str(tmp_path),
+                "message": prompt,
+                "provider": "anthropic",
+                "model": "claude-sonnet-4-6",
+            },
+        )
+        assert response.status_code == 200
+        run_id = response.json()["run"]["id"]
+        with client.stream("GET", f"/api/runs/{run_id}/stream") as stream:
+            list(stream.iter_lines())
+        session = client.get("/api/sessions/skill-session").json()
+
+    assert adapter.messages is not None
+    user_blocks = adapter.messages[0]["content"]
+    assert "Review the interface carefully." in user_blocks[0]["text"]
+    assert "description: Design interfaces." not in user_blocks[0]["text"]
+    assert user_blocks[-1]["text"] == prompt
+    assert session["session"]["title"] == prompt

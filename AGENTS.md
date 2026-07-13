@@ -54,6 +54,8 @@ A single block-based JSON format is used at runtime and persisted to JSONL. Bloc
 
 `thinking` blocks are first-class session data — persisted, replayed to providers, and shown in UI. Provider-specific extras live in `meta.native` on messages and `block.meta.native` on blocks. Tool results are stored as `user` messages whose `tool_result` blocks carry the replayed `output` plus structured UI `metadata`. Compact substitution (replacing pre-compact history with a summary continuation) happens lazily in the provider adapter's `prepare_messages` (via `compact.apply_compact_replay`) per request; visible state and JSONL keep the real history.
 
+Skill snapshots use text blocks with `meta.skill_snapshot=true`. Providers receive the snapshot; titles and UIs use the original user text.
+
 Cancelled provider streams may persist partial assistant `thinking`/`text`. Cancelled streaming tools append `error: cancelled` to emitted output.
 
 Full schema, JSONL record types, replay rules, and the rewind/compact projection live in `docs/sessions.md`. The SDK-level event surface and `Agent` API live in `docs/sdk.md`.
@@ -106,7 +108,7 @@ Read the relevant doc before related changes.
 
 ## Interfaces
 
-CLI commands: `mycode` (interactive), `mycode run "..."` (non-interactive), `mycode web [--dev]`, `mycode session list`. Inside the TUI: `@path` attaches files (text → `<file>` snapshots, images/PDFs → structured blocks); slash commands `/clear` `/new` `/resume` `/rewind` `/provider` `/model` `/effort` `/q`.
+CLI commands: `mycode` (interactive), `mycode run "..."` (non-interactive), `mycode web [--dev]`, `mycode session list`. Inside the TUI: `@path` attaches files (text → `<file>` snapshots, images/PDFs → structured blocks); built-in slash commands are `/clear` `/new` `/resume` `/rewind` `/provider` `/model` `/effort` `/q`. A standalone `/<skill-name>` token references a discovered skill.
 
 Server routes are mounted under `/api`: chat (`/api/chat`, `/api/runs/...`), sessions, settings, workspaces, config. Endpoint schemas, error codes, and the run manager's lifecycle live in `docs/api.md`.
 

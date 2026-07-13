@@ -34,6 +34,7 @@ Exactly one of `message` or `input` is required.
 - `provider` — provider id or configured alias name
 - `reasoning_effort` — overrides config for this request only; `null`/`"auto"` means use config default
 - `rewind_to` — visible message index to rewind to before sending the new message; target must be a real user message
+- A standalone `/<skill-name>` token adds the matching skill for `cwd`. The message prepends a hidden snapshot containing the frontmatter-free skill body, source path, and base directory, then keeps the original user text. Other slash tokens are sent as text.
 
 Structured `input` uses `ChatInputBlock`:
 
@@ -139,11 +140,12 @@ Response:
   "cwd_exists": true,
   "project": "...",
   "config_paths": [...],
+  "skills": [{"name": "fastapi", "description": "..."}],
   "setup_error": null
 }
 ```
 
-`reasoning_models` is returned only when `supports_reasoning_effort` is true. `image_input_models` lists models with `supports_image_input=true`. `pdf_input_models` lists models with `supports_pdf_input=true`. `setup_error` is `{ "message": "..." }` when no provider is usable (response stays `200`, `providers` is `{}`, `default` fields are empty strings); otherwise `null`.
+`skills` lists the name and description used by slash completion. Skill paths and contents stay on the server. Providers with `supports_reasoning_effort=true` include `reasoning_models`. `image_input_models` lists models with image input. `pdf_input_models` lists models with PDF input. A provider setup error returns status `200`, an empty `providers` object, empty `default` fields, and `setup_error: {"message": "..."}`. A ready setup returns `setup_error: null`.
 
 ## Settings
 

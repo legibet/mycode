@@ -173,7 +173,13 @@ Scan roots (lowest to highest priority):
 
 Each `SKILL.md` requires YAML frontmatter with `name` and `description`. Later roots override earlier ones by skill name. Max scan depth: 3 directory levels, max 200 directories per root.
 
-The model uses the `read` tool to load full skill content on demand from the skill `path`.
+A symlinked skill directory contributes its top-level `SKILL.md`. Recursive scanning follows physical directories.
+
+The model uses the `read` tool to load full skill content from the skill `path`.
+
+A standalone `/<skill-name>` token references a discovered skill, for example `Use /fastapi to review this route`. Each matching skill prepends one snapshot containing the frontmatter-free `SKILL.md` body, file location, and base directory. Repeated references share one snapshot. Other slash tokens are sent as text.
+
+Slash completion reserves these built-in command names and their prefixes: `clear`, `new`, `resume`, `rewind`, `provider`, `model`, `effort`, and `q`. Skill names outside this set are available for completion.
 
 ## Instructions Discovery
 
