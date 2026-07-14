@@ -6,6 +6,8 @@ from typing import Any, Literal, Self
 
 from pydantic import BaseModel, Field, model_validator
 
+RunKind = Literal["chat", "compact"]
+
 
 class ChatInputBlock(BaseModel):
     """One user input block for /chat."""
@@ -122,9 +124,17 @@ class RunInfo(BaseModel):
 
     id: str
     session_id: str
+    kind: RunKind
     status: Literal["running", "completed", "failed", "cancelled"]
     last_seq: int
     error: str | None = None
+
+
+class CompactRequest(BaseModel):
+    """Request body for POST /sessions/{session_id}/compact."""
+
+    provider: str | None = None  # provider id, or a configured provider alias
+    model: str | None = None
 
 
 class ChatResponse(BaseModel):
@@ -132,6 +142,12 @@ class ChatResponse(BaseModel):
 
     run: RunInfo
     session: dict[str, Any]
+
+
+class CompactResponse(BaseModel):
+    """Response for POST /sessions/{session_id}/compact."""
+
+    run: RunInfo
 
 
 class StatusResponse(BaseModel):

@@ -28,7 +28,7 @@ _MAX_DIRS_PER_ROOT = 200
 _SKIP_DIRS = frozenset({"node_modules", "__pycache__", ".git"})
 _NAME_RE = re.compile(r"^[a-zA-Z0-9_-]+$")
 _NAME_MAX_LEN = 64
-_BUILTIN_SLASH_NAMES = ("clear", "new", "resume", "rewind", "provider", "model", "effort", "q")
+_BUILTIN_SLASH_NAMES = ("clear", "compact", "new", "resume", "rewind", "provider", "model", "effort", "q")
 _RESERVED_SLASH_NAMES = frozenset(name[:length] for name in _BUILTIN_SLASH_NAMES for length in range(1, len(name) + 1))
 
 _BASE_PROMPT = """\

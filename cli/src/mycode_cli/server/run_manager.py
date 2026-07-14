@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import copy
 import time
-from collections.abc import AsyncGenerator, AsyncIterator
+from collections.abc import AsyncGenerator, AsyncIterator, Awaitable
 from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass, field
 from typing import Any, Literal, Protocol
@@ -16,6 +16,7 @@ from mycode.messages import ConversationMessage
 from mycode_cli.permissions import ToolReviewDecision
 
 RunStatus = Literal["running", "completed", "failed", "cancelled"]
+RunKind = Literal["chat", "compact"]
 FINISHED_RUN_TTL_SECONDS = 300
 RUN_EVENT_BUFFER_SIZE = 2000
 
@@ -33,6 +34,8 @@ class RunAgent(Protocol):
 
     def achat(self, user_input: str | ConversationMessage) -> AsyncIterator[Event]: ...
 
+    def acompact(self) -> Awaitable[ConversationMessage]: ...
+
 
 @dataclass
 class RunState:
@@ -40,9 +43,10 @@ class RunState:
 
     id: str
     session_id: str
-    user_message: ConversationMessage
     base_messages: list[ConversationMessage]
     agent: RunAgent
+    kind: RunKind = "chat"
+    user_message: ConversationMessage | None = None
     status: RunStatus = "running"
     error: str | None = None
     events: list[dict[str, Any]] = field(default_factory=list)
@@ -59,6 +63,7 @@ class RunState:
         payload = {
             "id": self.id,
             "session_id": self.session_id,
+            "kind": self.kind,
             "status": self.status,
             "last_seq": self.next_seq - 1,
         }
@@ -84,6 +89,38 @@ class RunManager:
         base_messages: list[ConversationMessage],
         agent: RunAgent,
     ) -> dict[str, Any]:
+        return await self._start(
+            session_id=session_id,
+            kind="chat",
+            user_message=user_message,
+            base_messages=base_messages,
+            agent=agent,
+        )
+
+    async def start_compact(
+        self,
+        *,
+        session_id: str,
+        base_messages: list[ConversationMessage],
+        agent: RunAgent,
+    ) -> dict[str, Any]:
+        return await self._start(
+            session_id=session_id,
+            kind="compact",
+            user_message=None,
+            base_messages=base_messages,
+            agent=agent,
+        )
+
+    async def _start(
+        self,
+        *,
+        session_id: str,
+        kind: RunKind,
+        user_message: ConversationMessage | None,
+        base_messages: list[ConversationMessage],
+        agent: RunAgent,
+    ) -> dict[str, Any]:
         await self._prune_finished_runs()
 
         async with self._lock:
@@ -94,6 +131,7 @@ class RunManager:
             state = RunState(
                 id=uuid4().hex,
                 session_id=session_id,
+                kind=kind,
                 user_message=copy.deepcopy(user_message),
                 base_messages=copy.deepcopy(base_messages),
                 agent=agent,
@@ -119,7 +157,8 @@ class RunManager:
 
         async with state.condition:
             messages = copy.deepcopy(state.base_messages)
-            messages.append(copy.deepcopy(state.user_message))
+            if state.user_message is not None:
+                messages.append(copy.deepcopy(state.user_message))
             return {
                 "run": state.info(),
                 "messages": messages,
@@ -261,16 +300,24 @@ class RunManager:
         last_error: str | None = None
 
         try:
-            async for event in state.agent.achat(state.user_message):
-                if event.type == "error":
-                    last_error = str(event.data.get("message") or "unknown error")
-                await self._append_event(state, event)
+            if state.kind == "compact":
+                # The agent persists the compact marker before this returns.
+                await state.agent.acompact()
+                await self._append_event(state, Event("compact", {}))
+            else:
+                assert state.user_message is not None
+                async for event in state.agent.achat(state.user_message):
+                    if event.type == "error":
+                        last_error = str(event.data.get("message") or "unknown error")
+                    await self._append_event(state, event)
         except asyncio.CancelledError:
             # BaseException, not caught by ``except Exception`` — without this
             # branch ``_finish_run`` never runs and the active-session lock
             # leaks (next /api/chat returns 409).
             last_error = "cancelled"
-        except Exception as exc:  # pragma: no cover - defensive
+        except Exception as exc:
+            # Reached by compact failures (e.g. nothing to compact, provider
+            # errors); chat runs surface errors as events instead.
             last_error = str(exc)
             await self._append_event(state, Event("error", {"message": last_error}))
 

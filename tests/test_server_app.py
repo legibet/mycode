@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import json
 from collections.abc import AsyncIterator
 from pathlib import Path
 
@@ -193,3 +195,114 @@ def test_chat_skill_reference_reaches_provider_and_keeps_visible_title(
     assert "description: Design interfaces." not in user_blocks[0]["text"]
     assert user_blocks[-1]["text"] == prompt
     assert session["session"]["title"] == prompt
+
+
+def _seed_session(store: SessionStore, session_id: str, cwd: str) -> None:
+    async def seed() -> None:
+        await store.create_session(session_id, cwd=cwd)
+        await store.append_message(session_id, {"role": "user", "content": [{"type": "text", "text": "hello"}]})
+        await store.append_message(session_id, {"role": "assistant", "content": [{"type": "text", "text": "hi"}]})
+
+    asyncio.run(seed())
+
+
+def test_compact_endpoint_persists_marker_without_synthetic_turns(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    monkeypatch.setenv("MYCODE_HOME", str(tmp_path / "home"))
+    adapter = _CaptureAdapter()
+    monkeypatch.setattr("mycode.agent.get_provider_adapter", lambda _provider: adapter)
+    store = SessionStore(data_dir=tmp_path / "sessions")
+    runs = RunManager()
+    app = create_api_app()
+    app.dependency_overrides[get_store] = lambda: store
+    app.dependency_overrides[get_run_manager] = lambda: runs
+    _seed_session(store, "s1", str(tmp_path))
+
+    with TestClient(app) as client:
+        missing = client.post("/api/sessions/missing/compact", json={})
+        assert missing.status_code == 404
+
+        response = client.post(
+            "/api/sessions/s1/compact",
+            json={"provider": "anthropic", "model": "claude-sonnet-4-6"},
+        )
+        assert response.status_code == 200
+        run = response.json()["run"]
+        assert run["kind"] == "compact"
+        assert run["status"] == "running"
+
+        with client.stream("GET", f"/api/runs/{run['id']}/stream") as stream:
+            events = [
+                json.loads(line[6:])
+                for line in stream.iter_lines()
+                if line.startswith("data:") and line != "data: [DONE]"
+            ]
+        assert [event["type"] for event in events] == ["compact"]
+
+        session = client.get("/api/sessions/s1").json()
+
+        # Immediately repeating compact finds no new context.
+        repeat = client.post("/api/sessions/s1/compact", json={})
+        assert repeat.status_code == 400
+        assert repeat.json()["detail"] == "nothing to compact"
+
+    roles = [message["role"] for message in session["messages"]]
+    assert roles == ["user", "assistant", "compact"]
+    assert session["messages"][-1]["content"][0]["text"] == "ok"
+    assert session["active_run"] is None
+    # The summary request replayed the seeded history for the requested model.
+    assert adapter.messages is not None
+    assert adapter.messages[0]["content"][0]["text"] == "hello"
+
+
+def test_compact_endpoint_conflicts_and_cancel_write_no_marker(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    monkeypatch.setenv("MYCODE_HOME", str(tmp_path / "home"))
+
+    class _HangingAdapter:
+        supports_reasoning_effort = False
+
+        async def stream_turn(self, request: ProviderRequest) -> AsyncIterator[ProviderStreamEvent]:
+            del request
+            await asyncio.sleep(30)
+            yield ProviderStreamEvent("message_done", {"message": {}})
+
+    monkeypatch.setattr("mycode.agent.get_provider_adapter", lambda _provider: _HangingAdapter())
+    store = SessionStore(data_dir=tmp_path / "sessions")
+    runs = RunManager()
+    app = create_api_app()
+    app.dependency_overrides[get_store] = lambda: store
+    app.dependency_overrides[get_run_manager] = lambda: runs
+    _seed_session(store, "s1", str(tmp_path))
+
+    with TestClient(app) as client:
+        response = client.post("/api/sessions/s1/compact", json={})
+        assert response.status_code == 200
+        run = response.json()["run"]
+
+        # While compacting: reconnect sees the compact run without an optimistic
+        # turn, and both compact and chat starts conflict.
+        session = client.get("/api/sessions/s1").json()
+        assert session["active_run"]["kind"] == "compact"
+        assert [message["role"] for message in session["messages"]] == ["user", "assistant"]
+
+        conflict = client.post("/api/sessions/s1/compact", json={})
+        assert conflict.status_code == 409
+        assert conflict.json()["detail"]["run"]["id"] == run["id"]
+
+        chat_conflict = client.post("/api/chat", json={"session_id": "s1", "message": "hi"})
+        assert chat_conflict.status_code == 409
+
+        cancelled = client.post(f"/api/runs/{run['id']}/cancel")
+        assert cancelled.status_code == 200
+        assert cancelled.json()["run"]["status"] == "cancelled"
+
+        session = client.get("/api/sessions/s1").json()
+
+    assert [message["role"] for message in session["messages"]] == ["user", "assistant"]

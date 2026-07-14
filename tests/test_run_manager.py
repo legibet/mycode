@@ -3,16 +3,25 @@
 from __future__ import annotations
 
 import asyncio
+from typing import override
 
 import pytest
 
 from mycode.agent import Event
+from mycode.messages import ConversationMessage
 from mycode_cli.server.run_manager import ActiveRunError, RunManager, RunState
 
 pytestmark = pytest.mark.asyncio
 
 
-class BlockingAgent:
+class ChatOnlyAgent:
+    """Base for chat fakes; compact runs never reach them."""
+
+    async def acompact(self) -> ConversationMessage:
+        raise NotImplementedError
+
+
+class BlockingAgent(ChatOnlyAgent):
     def __init__(self) -> None:
         self.cancelled = False
         self.release = asyncio.Event()
@@ -29,7 +38,7 @@ class BlockingAgent:
             yield Event("error", {"message": "cancelled"})
 
 
-class SimpleAgent:
+class SimpleAgent(ChatOnlyAgent):
     def cancel(self) -> None:
         return None
 
@@ -155,7 +164,7 @@ async def test_cancel_only_marks_target_run_cancelled() -> None:
     await updated_second.task
 
 
-class CancelledAchatAgent:
+class CancelledAchatAgent(ChatOnlyAgent):
     """Agent whose achat raises ``CancelledError`` mid-stream.
 
     Mirrors the historical ``_compact`` cancellation path that used to leak
@@ -191,7 +200,7 @@ async def test_cancelled_error_in_agent_still_finalizes_run() -> None:
     assert not await manager.has_active_run("session-1")
 
 
-class ReviewAgent:
+class ReviewAgent(ChatOnlyAgent):
     """Fake agent that requests one permission decision mid-stream."""
 
     def __init__(self, manager: RunManager, session_id: str) -> None:
@@ -344,3 +353,105 @@ async def test_finished_run_stays_available_for_reconnect_window() -> None:
     assert finished is not None
     assert finished.status == "completed"
     assert await manager.snapshot_session("session-1") is None
+
+
+class CompactAgent:
+    """Fake compact agent that resolves once released, honoring cancel."""
+
+    def __init__(self) -> None:
+        self.cancelled = False
+        self.compacted = False
+        self.release = asyncio.Event()
+
+    def cancel(self) -> None:
+        self.cancelled = True
+        self.release.set()
+
+    async def achat(self, user_input):
+        del user_input
+        raise NotImplementedError
+        yield  # unreached; makes this an async generator
+
+    async def acompact(self) -> ConversationMessage:
+        await self.release.wait()
+        if self.cancelled:
+            raise asyncio.CancelledError
+        self.compacted = True
+        return {"role": "compact", "content": [{"type": "text", "text": "SUMMARY"}]}
+
+
+async def test_compact_run_snapshot_has_kind_and_no_user_message() -> None:
+    manager = RunManager()
+    agent = CompactAgent()
+    base = [{"role": "user", "content": [{"type": "text", "text": "earlier"}]}]
+
+    run = await manager.start_compact(session_id="session-1", base_messages=base, agent=agent)
+    assert run["kind"] == "compact"
+    assert run["status"] == "running"
+
+    snapshot = await manager.snapshot_session("session-1")
+    assert snapshot is not None
+    assert snapshot["run"]["kind"] == "compact"
+    assert snapshot["messages"] == base
+    assert snapshot["pending_events"] == []
+
+    agent.release.set()
+    state = await _wait_for_run_task(manager, run["id"])
+
+    assert agent.compacted is True
+    assert state.status == "completed"
+    assert state.events == [{"seq": 1, "type": "compact"}]
+    assert not await manager.has_active_run("session-1")
+
+
+async def test_compact_run_failure_emits_error_and_fails() -> None:
+    manager = RunManager()
+
+    class FailingCompactAgent(CompactAgent):
+        @override
+        async def acompact(self) -> ConversationMessage:
+            raise ValueError("nothing to compact")
+
+    run = await manager.start_compact(session_id="session-1", base_messages=[], agent=FailingCompactAgent())
+    state = await _wait_for_run_task(manager, run["id"])
+
+    assert state.status == "failed"
+    assert state.error == "nothing to compact"
+    assert state.events == [{"seq": 1, "type": "error", "message": "nothing to compact"}]
+    assert not await manager.has_active_run("session-1")
+
+
+async def test_compact_run_cancellation_emits_no_compact_event() -> None:
+    manager = RunManager()
+    agent = CompactAgent()
+
+    run = await manager.start_compact(session_id="session-1", base_messages=[], agent=agent)
+    cancelled = await manager.cancel_run(run["id"])
+    assert cancelled is not None
+    assert cancelled["status"] == "cancelled"
+    assert cancelled["kind"] == "compact"
+
+    state = await _wait_for_run_task(manager, run["id"])
+    assert agent.compacted is False
+    assert state.events == []
+    assert not await manager.has_active_run("session-1")
+
+
+async def test_chat_and_compact_conflict_on_same_session() -> None:
+    manager = RunManager()
+    agent = CompactAgent()
+
+    run = await manager.start_compact(session_id="session-1", base_messages=[], agent=agent)
+
+    with pytest.raises(ActiveRunError):
+        await manager.start_run(
+            session_id="session-1",
+            user_message={"role": "user", "content": [{"type": "text", "text": "hi"}]},
+            base_messages=[],
+            agent=SimpleAgent(),
+        )
+    with pytest.raises(ActiveRunError):
+        await manager.start_compact(session_id="session-1", base_messages=[], agent=CompactAgent())
+
+    agent.release.set()
+    await _wait_for_run_task(manager, run["id"])

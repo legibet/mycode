@@ -34,6 +34,7 @@ from mycode.attachments import (
     detect_image_mime_type,
     unsupported_attachment_block,
 )
+from mycode.compact import NothingToCompactError
 from mycode.messages import ConversationMessage, build_message, flatten_message_text, text_block
 from mycode.providers import (
     get_provider_adapter,
@@ -58,13 +59,14 @@ from mycode_cli.permissions import ToolReviewDecision, ToolReviewRequest, build_
 from mycode_cli.system_prompt import build_skill_snapshot_blocks, discover_slash_skills
 
 from .render import ReplyRenderer, TerminalView, format_local_timestamp
-from .theme import MUTED, PROMPT_CHAR, TERMINAL_THEME, TOOL_MARKER, WARNING
+from .theme import ERROR, ERROR_MARKER, MUTED, PROMPT_CHAR, TERMINAL_THEME, TOOL_MARKER, WARNING
 
 _PROMPT = ANSI(f"\033[1m\033[34m{PROMPT_CHAR}\033[0m ")
 
 # (command, help usage, description) — the completer offers `command`, help prints `usage`.
 _COMMANDS = (
     ("/clear", "/c, /clear", "Clear conversation"),
+    ("/compact", "/compact", "Compact conversation context"),
     ("/new", "/new", "New session"),
     ("/resume", "/resume", "Switch session"),
     ("/rewind", "/rewind", "Rewind to a previous message"),
@@ -613,6 +615,11 @@ class TerminalChat:
                 await self.store.clear_session(self.session_id)
                 self.agent.clear()
                 self.view.console.print(f"[green]{TOOL_MARKER}[/green] [dim]cleared[/dim]")
+            case "/compact":
+                if argument:
+                    # `/compact <text>` is not a command; send it as user text.
+                    return False
+                await self._compact_session()
             case "/new":
                 self._start_new_session()
             case "/rewind":
@@ -664,6 +671,31 @@ class TerminalChat:
             return True
         self.view.console.print("[dim]current model does not support reasoning effort[/dim]")
         return False
+
+    async def _compact_session(self) -> None:
+        """Compact the conversation now and print the ``compacted`` divider."""
+
+        try:
+            with self.view.console.status(Text("Compacting…", style=MUTED), spinner="dots"):
+                await self.agent.acompact()
+        except NothingToCompactError:
+            self.view.console.print(Text("nothing to compact", style=MUTED))
+            return
+        except (KeyboardInterrupt, asyncio.CancelledError):
+            self.agent.cancel()
+            # Python 3.11+: uncancel the task so the loop can continue after Ctrl+C.
+            task = asyncio.current_task()
+            if task is not None:
+                with suppress(AttributeError):
+                    task.uncancel()
+            self.view.console.print(Text("cancelled", style=MUTED))
+            return
+        except Exception as exc:
+            text = Text(f"{ERROR_MARKER} ", style=ERROR)
+            text.append(str(exc), style=ERROR)
+            self.view.console.print(text)
+            return
+        self.view.print_compact_marker()
 
     def _start_new_session(self) -> None:
         """Start a fresh session while keeping the current runtime settings."""

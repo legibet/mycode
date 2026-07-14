@@ -64,10 +64,12 @@ Response:
 
 ```json
 {
-  "run": { "id": "...", "session_id": "...", "status": "running", "last_seq": 0 },
+  "run": { "id": "...", "session_id": "...", "kind": "chat", "status": "running", "last_seq": 0 },
   "session": { "id": "...", "title": "...", ... }
 }
 ```
+
+`run.kind` is `"chat"` for `/api/chat` runs and `"compact"` for `/api/sessions/{id}/compact` runs.
 
 Error responses:
 
@@ -107,6 +109,37 @@ Request body (`DecideRequest`, `cli/src/mycode_cli/server/schemas.py`):
 - `request_id` — from the matching `permission_request` SSE event.
 
 Returns `{status: "ok"}` on success, `404` if the run or `request_id` is unknown.
+
+### `POST /api/sessions/{session_id}/compact`
+
+Start a compact run: ask the provider for a summary of the session and append one `compact` marker. No user or assistant turn is created. The run streams over the normal `GET /api/runs/{run_id}/stream` endpoint; success emits a single `compact` event after the marker is persisted.
+
+Request body (`CompactRequest`, `cli/src/mycode_cli/server/schemas.py`):
+
+```json
+{
+  "provider": "anthropic",
+  "model": "claude-sonnet-4-6"
+}
+```
+
+Both fields are optional (config defaults apply). The working directory comes from the session metadata; the summary request carries no tools and no reasoning effort.
+
+Response (`CompactResponse`):
+
+```json
+{
+  "run": { "id": "...", "session_id": "...", "kind": "compact", "status": "running", "last_seq": 0 }
+}
+```
+
+Error responses:
+
+- `404` — session not found
+- `400` — `{"detail": "nothing to compact"}` when no new user/assistant message follows the latest compact marker
+- `409` — session already has a running task; body is `{"detail": {"message": "...", "run": {...}}}`
+
+Cancellation (`POST /api/runs/{run_id}/cancel`) and summary failure write no marker; failures surface as one `error` event and `status: "failed"`.
 
 ### `GET /api/config?cwd=...`
 
@@ -267,6 +300,8 @@ Load session with full message history. If the session has an active run, overla
 
 `pending_events` contains the active run's buffered SSE events. The web UI reapplies them, then reconnects with `after=<last seq>`.
 
+`active_run.kind` distinguishes chat and compact runs. While a compact run is active, `messages` is the pre-run history with no optimistic turn appended; the web UI uses `kind` to restore its `Compacting…` state after a refresh.
+
 ### `DELETE /api/sessions/{id}`
 
 Delete session. Returns `409` if session has a running task.
@@ -354,7 +389,9 @@ Every event also carries `seq: int` for reconnect support. The web UI uses `afte
 
 `cli/src/mycode_cli/server/run_manager.py` manages concurrent runs:
 
-- One active run per session (enforced by `ActiveRunError` on conflict)
+- One active run per session (enforced by `ActiveRunError` on conflict, regardless of kind)
+- Two run kinds share the lifecycle: `start_run()` iterates `agent.achat(user_message)`; `start_compact()` awaits `agent.acompact()` and emits one `compact` event after the marker is persisted
+- Compact runs carry no `user_message`; snapshots return `base_messages` unchanged
 - `RunState` tracks events, condition variable for streaming, and cleanup
 - Explicit permission `deny` marks the run as cancelled and calls `agent.cancel()`
 - `cancel_run()` waits for the agent task to finish before returning the final run info

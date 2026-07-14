@@ -108,7 +108,7 @@ Read the relevant doc before related changes.
 
 ## Interfaces
 
-CLI commands: `mycode` (interactive), `mycode run "..."` (non-interactive), `mycode web [--dev]`, `mycode session list`. Inside the TUI: `@path` attaches files (text → `<file>` snapshots, images/PDFs → structured blocks); built-in slash commands are `/clear` `/new` `/resume` `/rewind` `/provider` `/model` `/effort` `/q`. A standalone `/<skill-name>` token references a discovered skill.
+CLI commands: `mycode` (interactive), `mycode run "..."` (non-interactive), `mycode web [--dev]`, `mycode session list`. Inside the TUI: `@path` attaches files (text → `<file>` snapshots, images/PDFs → structured blocks); built-in slash commands are `/clear` `/compact` `/new` `/resume` `/rewind` `/provider` `/model` `/effort` `/q`. A standalone `/<skill-name>` token references a discovered skill.
 
 Server routes are mounted under `/api`: chat (`/api/chat`, `/api/runs/...`), sessions, settings, workspaces, config. Endpoint schemas, error codes, and the run manager's lifecycle live in `docs/api.md`.
 

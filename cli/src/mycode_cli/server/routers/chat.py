@@ -20,6 +20,7 @@ from mycode.attachments import (
     detect_document_mime_type,
     detect_image_mime_type,
 )
+from mycode.compact import has_compactable_history
 from mycode.messages import (
     ConversationMessage,
     build_message,
@@ -47,6 +48,8 @@ from mycode_cli.server.schemas import (
     CancelRunResponse,
     ChatRequest,
     ChatResponse,
+    CompactRequest,
+    CompactResponse,
     DecideRequest,
     RunInfo,
     StatusResponse,
@@ -316,6 +319,58 @@ async def decide_run(
     if not resolved:
         raise HTTPException(status_code=404, detail="permission request not found")
     return StatusResponse(status="ok")
+
+
+@router.post("/sessions/{session_id}/compact")
+async def compact_session(
+    session_id: Annotated[str, PathParam(min_length=1)],
+    body: CompactRequest,
+    store: StoreDep,
+    runs: RunManagerDep,
+) -> CompactResponse:
+    """Start a compact run: summarize the session and append one compact marker."""
+
+    async with runs.session_operation(session_id):
+        active = await runs.active_run_info(session_id)
+        if active:
+            raise HTTPException(
+                status_code=409,
+                detail={"message": "session already has a running task", "run": active},
+            )
+
+        data = await store.load_session(session_id)
+        if data is None:
+            raise HTTPException(status_code=404, detail="session not found")
+        if not has_compactable_history(data["messages"]):
+            raise HTTPException(status_code=400, detail="nothing to compact")
+
+        cwd = str(data["session"]["cwd"])
+        settings = await asyncio.to_thread(get_settings, cwd)
+        resolved = resolve_provider(settings, provider_name=body.provider, model=body.model)
+
+        agent = await asyncio.to_thread(
+            build_agent,
+            store=store,
+            cwd=cwd,
+            settings=settings,
+            resolved_provider=resolved,
+            session_id=session_id,
+        )
+
+        try:
+            run = await runs.start_compact(
+                session_id=session_id,
+                base_messages=agent.messages,
+                agent=agent,
+            )
+        except ActiveRunError as exc:
+            existing = await runs.get_run(exc.run_id)
+            detail: dict[str, Any] = {"message": "session already has a running task"}
+            if existing:
+                detail["run"] = existing.info()
+            raise HTTPException(status_code=409, detail=detail) from exc
+
+    return CompactResponse(run=RunInfo.model_validate(run))
 
 
 @router.get("/config")

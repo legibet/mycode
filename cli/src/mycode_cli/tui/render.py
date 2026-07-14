@@ -145,6 +145,11 @@ class TerminalView:
     def __init__(self, output: Console | None = None) -> None:
         self.console = output or console
 
+    def print_compact_marker(self) -> None:
+        """Print the inline ``compacted`` divider."""
+
+        self.console.print(_compact_marker_text(self.console.size.width))
+
     def print_header(
         self,
         *,
