@@ -141,6 +141,18 @@ When a turn reaches a full assistant/tool-result boundary the agent compares the
 
 Compaction is best-effort: a failed summary call is logged and the turn continues with the uncompacted history. The exception is a user-initiated cancel inside the summary call, which ends the turn with `error` `message="cancelled"`.
 
+#### Manual compaction
+
+`await agent.acompact()` (and the synchronous `agent.compact()` wrapper) compacts on demand, independent of `compact_threshold`. Both run the same summary request and persistence path as automatic compaction and **return the persisted `compact` marker** (a `ConversationMessage`); they append no user or assistant turn. Pass `on_persist=coro` to stage the marker alongside your own store, exactly as `achat` does.
+
+Manual compaction requires new context past the latest marker — otherwise it raises `NothingToCompactError` (exported from `mycode`) before any provider request, so repeated `compact()` calls cannot re-summarize the same summary. A `cancel()` during the summary call raises `asyncio.CancelledError` and writes no marker. `compact()` raises `RuntimeError` inside a running event loop, matching `run()`.
+
+```python
+agent.run("Review the project")
+marker = agent.compact()
+agent.run("Continue with the next task")   # sends summary replay, not full history
+```
+
 See `docs/sessions.md` for the on-disk record format, the projection rule that builds the provider-facing view, and the replay rules applied by `SessionStore.load_session`.
 
 ## Tools

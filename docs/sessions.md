@@ -125,6 +125,10 @@ headroom the compact call needs to fit.
 
 If the summary request fails or returns no text, the agent logs a warning and keeps the full in-memory history. No `compact` record is persisted in that case, and the next threshold check will try compaction again — compaction is best-effort and never aborts the turn. A user-initiated cancel inside compaction is the one exception: it ends the turn immediately by emitting an `error` event with message `"cancelled"`, mirroring how phase 1 handles cancellation.
 
+### Manual compaction
+
+`Agent.acompact()` / `Agent.compact()` run steps 2–4 above on demand, ignoring the threshold in step 1. They share the same summary request and persistence path, so the on-disk record is identical to an automatic compaction. The one added precondition is `has_compactable_history()` — there must be a non-empty `user`/`assistant` message past the latest `compact` marker, or the call raises `NothingToCompactError` before any provider request. This is what stops a second immediate `/compact` from re-summarizing the previous summary. See `docs/sdk.md` for the public API and the CLI's `/compact` command.
+
 ### Provider projection
 
 Visible state preserves pre-compact history and `compact` markers. Before each provider request, the provider adapter's `prepare_messages` (via `compact.apply_compact_replay`) rebuilds a provider-facing view:

@@ -4,6 +4,7 @@ from importlib import metadata
 
 from mycode.agent import Agent, Event, PersistCallback, RunResult
 from mycode.attachments import Attachment
+from mycode.compact import NothingToCompactError
 from mycode.hooks import AfterToolHook, BeforeToolHook, HookResult, Hooks, ToolHookContext
 from mycode.messages import (
     ContentBlock,
@@ -45,6 +46,7 @@ __all__ = [
     "BeforeToolHook",
     "HookResult",
     "Hooks",
+    "NothingToCompactError",
     "PersistCallback",
     "RunResult",
     "SessionStore",

@@ -2,18 +2,26 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
+from collections.abc import AsyncIterator
 from pathlib import Path
+from typing import Any
+from unittest.mock import patch
 
 import pytest
 
 from mycode.agent import Agent
 from mycode.compact import (
+    COMPACT_SUMMARY_PROMPT,
     DEFAULT_COMPACT_THRESHOLD,
+    NothingToCompactError,
     apply_compact_replay,
     build_compact_event,
+    has_compactable_history,
     should_compact,
 )
+from mycode.providers.base import ProviderStreamEvent
 from mycode.session import SessionStore
 from mycode_cli.config import get_settings
 
@@ -154,3 +162,140 @@ def test_compact_replay_uses_latest_summary_and_transcript_hint() -> None:
 def test_agent_uses_default_compact_threshold(tmp_path: Path) -> None:
     agent = make_agent(tmp_path)
     assert agent.compact_threshold == DEFAULT_COMPACT_THRESHOLD
+
+
+def test_has_compactable_history_requires_content_after_latest_marker() -> None:
+    user = {"role": "user", "content": [{"type": "text", "text": "hi"}]}
+    marker = build_compact_event("summary", provider="p", model="m")
+
+    assert has_compactable_history([]) is False
+    assert has_compactable_history([user]) is True
+    assert has_compactable_history([user, marker]) is False
+    assert (
+        has_compactable_history([user, marker, {"role": "assistant", "content": [{"type": "text", "text": "tail"}]}])
+        is True
+    )
+    assert has_compactable_history([user, marker, {"role": "user", "content": []}]) is False
+
+
+class _RecordingAdapter:
+    """Streams one canned summary per turn and records every request."""
+
+    def __init__(self, summaries: list[str]):
+        self.requests: list[Any] = []
+        self._summaries = list(summaries)
+
+    async def stream_turn(self, request: Any) -> AsyncIterator[ProviderStreamEvent]:
+        self.requests.append(request)
+        text = self._summaries.pop(0)
+        yield ProviderStreamEvent(
+            "message_done",
+            {"message": {"role": "assistant", "content": [{"type": "text", "text": text}]}},
+        )
+
+
+@pytest.mark.asyncio
+async def test_acompact_persists_marker_and_next_turn_replays_summary(tmp_path: Path) -> None:
+    agent = make_agent(tmp_path)
+    persisted: list[dict[str, Any]] = []
+    store_lines_at_callback: list[int] = []
+    messages_path = SessionStore(data_dir=tmp_path).messages_path(agent.session_id)
+
+    async def on_persist(message: dict[str, Any]) -> None:
+        persisted.append(message)
+        text = messages_path.read_text(encoding="utf-8") if messages_path.exists() else ""
+        store_lines_at_callback.append(len(text.strip().splitlines()) if text.strip() else 0)
+
+    # First canned text answers the chat turn; the second one is the summary.
+    adapter = _RecordingAdapter(["chat reply", "THE_SUMMARY"])
+    with patch("mycode.agent.get_provider_adapter", return_value=adapter):
+        async for _ in agent.achat("hello there"):
+            pass
+        marker = await agent.acompact(on_persist=on_persist)
+
+    assert marker["role"] == "compact"
+    assert marker["content"][0]["text"] == "THE_SUMMARY"
+
+    # The summary request carries no tools and no reasoning effort.
+    compact_request = adapter.requests[1]
+    assert compact_request.tools == []
+    assert compact_request.reasoning_effort is None
+    assert compact_request.append_messages[-1]["content"][0]["text"] == COMPACT_SUMMARY_PROMPT
+
+    # on_persist ran before the SDK store write.
+    assert persisted == [marker]
+    assert store_lines_at_callback == [2]
+
+    # Marker is appended to memory and disk exactly once.
+    assert agent.messages[-1] is marker
+    raw_roles = [json.loads(line)["role"] for line in messages_path.read_text(encoding="utf-8").strip().splitlines()]
+    assert raw_roles == ["user", "assistant", "compact"]
+
+    # The next provider request replays the summary instead of the full history.
+    projected = apply_compact_replay(agent.messages)
+    assert [m["role"] for m in projected] == ["user"]
+    assert "THE_SUMMARY" in projected[0]["content"][0]["text"]
+    assert "hello there" not in projected[0]["content"][0]["text"]
+
+
+@pytest.mark.asyncio
+async def test_acompact_ignores_compact_threshold(tmp_path: Path) -> None:
+    agent = Agent(model="m", provider="anthropic", cwd="/tmp", session_dir=tmp_path, compact_threshold=0)
+    agent.messages.append({"role": "user", "content": [{"type": "text", "text": "hi"}]})
+
+    adapter = _RecordingAdapter(["SUMMARY"])
+    with patch("mycode.agent.get_provider_adapter", return_value=adapter):
+        marker = await agent.acompact()
+
+    assert marker["content"][0]["text"] == "SUMMARY"
+
+
+@pytest.mark.asyncio
+async def test_acompact_without_new_context_raises_before_provider_request(tmp_path: Path) -> None:
+    agent = make_agent(tmp_path)
+    agent.messages.append({"role": "user", "content": [{"type": "text", "text": "hi"}]})
+    agent.messages.append(build_compact_event("summary", provider="p", model="m"))
+
+    adapter = _RecordingAdapter([])
+    with patch("mycode.agent.get_provider_adapter", return_value=adapter), pytest.raises(NothingToCompactError):
+        await agent.acompact()
+
+    assert adapter.requests == []
+
+
+@pytest.mark.asyncio
+async def test_acompact_cancellation_writes_no_marker(tmp_path: Path) -> None:
+    agent = make_agent(tmp_path)
+    agent.messages.append({"role": "user", "content": [{"type": "text", "text": "hi"}]})
+    messages_path = SessionStore(data_dir=tmp_path).messages_path(agent.session_id)
+
+    class _CancellingAdapter:
+        async def stream_turn(self, _request: Any) -> AsyncIterator[ProviderStreamEvent]:
+            agent.cancel()
+            yield ProviderStreamEvent(
+                "message_done",
+                {"message": {"role": "assistant", "content": [{"type": "text", "text": "SUMMARY"}]}},
+            )
+
+    with (
+        patch("mycode.agent.get_provider_adapter", return_value=_CancellingAdapter()),
+        pytest.raises(asyncio.CancelledError),
+    ):
+        await agent.acompact()
+
+    assert all(m.get("role") != "compact" for m in agent.messages)
+    assert not messages_path.exists()
+
+
+def test_sync_compact_returns_marker(tmp_path: Path) -> None:
+    agent = make_agent(tmp_path)
+    agent.messages.append({"role": "user", "content": [{"type": "text", "text": "hi"}]})
+
+    adapter = _RecordingAdapter(["SUMMARY"])
+    with patch("mycode.agent.get_provider_adapter", return_value=adapter):
+        marker = agent.compact()
+
+    assert marker["role"] == "compact"
+    assert marker["content"] == [{"type": "text", "text": "SUMMARY"}]
+    assert marker["meta"]["provider"] == "anthropic"
+    assert marker["meta"]["model"] == "m"

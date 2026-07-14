@@ -23,7 +23,9 @@ from mycode.attachments import AttachmentLike, build_attachment_blocks
 from mycode.compact import (
     COMPACT_SUMMARY_PROMPT,
     DEFAULT_COMPACT_THRESHOLD,
+    NothingToCompactError,
     build_compact_event,
+    has_compactable_history,
     should_compact,
 )
 from mycode.hooks import Hooks, ToolHookContext
@@ -455,6 +457,23 @@ class Agent:
             block["meta"] = {**meta, "duration_ms": duration_ms}
             return
 
+    async def _persist_message(
+        self,
+        message: ConversationMessage,
+        on_persist: PersistCallback | None,
+    ) -> None:
+        """Persist one message: caller callback first, then the SDK session store."""
+
+        if on_persist is not None:
+            # Callers may need to write related records before the SDK
+            # appends this message to its own session log.
+            await on_persist(message)
+        if self._store is None:
+            return
+        if not self._store.session_exists(self.session_id):
+            await self._store.create_session(self.session_id, cwd=self.cwd)
+        await self._store.append_message(self.session_id, message)
+
     # ------------------------------------------------------------------
     # Public entry points
     # ------------------------------------------------------------------
@@ -469,15 +488,7 @@ class Agent:
         """Run the full agent loop for one user message."""
 
         async def persist(message: ConversationMessage) -> None:
-            if on_persist is not None:
-                # Callers may need to write related records before the SDK
-                # appends this message to its own session log.
-                await on_persist(message)
-            if self._store is None:
-                return
-            if not self._store.session_exists(self.session_id):
-                await self._store.create_session(self.session_id, cwd=self.cwd)
-            await self._store.append_message(self.session_id, message)
+            await self._persist_message(message, on_persist)
 
         self._cancel_event.clear()
 
@@ -671,7 +682,7 @@ class Agent:
                 return
             if should_compact(total_tokens, self.context_window, self.compact_threshold):
                 try:
-                    await self._compact(adapter, persist)
+                    await self._compact(adapter, on_persist)
                     yield Event("compact", {})
                 except asyncio.CancelledError:
                     yield Event("error", {"message": "cancelled"})
@@ -719,12 +730,47 @@ class Agent:
     # Context compaction
     # ------------------------------------------------------------------
 
+    async def acompact(
+        self,
+        *,
+        on_persist: PersistCallback | None = None,
+    ) -> ConversationMessage:
+        """Compact the conversation now and return the persisted compact marker.
+
+        Raises :class:`NothingToCompactError` when no new context follows the
+        latest compact marker, and :class:`asyncio.CancelledError` when
+        :meth:`cancel` stops the summary request.
+        """
+
+        self._cancel_event.clear()
+        adapter = get_provider_adapter(self.provider)
+        return await self._compact(adapter, on_persist)
+
+    def compact(
+        self,
+        *,
+        on_persist: PersistCallback | None = None,
+    ) -> ConversationMessage:
+        """Compact the conversation synchronously; see :meth:`acompact`."""
+
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            pass
+        else:
+            raise RuntimeError("Agent.compact() cannot run inside an active event loop; use Agent.acompact() instead")
+
+        return asyncio.run(self.acompact(on_persist=on_persist))
+
     async def _compact(
         self,
         adapter: ProviderAdapter,
-        persist: PersistCallback,
-    ) -> None:
-        """Ask the provider for a summary, persist the compact event, append it."""
+        on_persist: PersistCallback | None,
+    ) -> ConversationMessage:
+        """Ask the provider for a summary, persist and append the compact marker."""
+
+        if not has_compactable_history(self.messages):
+            raise NothingToCompactError("nothing to compact")
 
         request = self._build_request(
             tools=[],
@@ -746,6 +792,9 @@ class Agent:
         if not summary_text:
             raise ValueError("compaction produced empty summary")
 
+        if self._cancel_event.is_set():
+            raise asyncio.CancelledError
+
         summary_total_tokens = (summary_message.get("meta") or {}).get("total_tokens")
         compact_event = build_compact_event(
             summary_text,
@@ -754,5 +803,6 @@ class Agent:
             total_tokens=summary_total_tokens,
         )
 
-        await persist(compact_event)
+        await self._persist_message(compact_event, on_persist)
         self.messages.append(compact_event)
+        return compact_event

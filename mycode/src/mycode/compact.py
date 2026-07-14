@@ -8,6 +8,11 @@ from mycode.messages import ConversationMessage, build_message, text_block
 
 DEFAULT_COMPACT_THRESHOLD = 0.8
 
+
+class NothingToCompactError(ValueError):
+    """Raised when there is no new context to compact past the latest marker."""
+
+
 COMPACT_SUMMARY_PROMPT = """\
 Summarize this conversation to create a continuation document. \
 This summary will replace the full conversation history, so it must \
@@ -63,6 +68,20 @@ def should_compact(
     if not last_total_tokens or not context_window or threshold <= 0:
         return False
     return last_total_tokens >= context_window * threshold
+
+
+def has_compactable_history(messages: list[ConversationMessage]) -> bool:
+    """True when at least one non-empty user/assistant message follows the latest compact marker."""
+
+    last_compact = -1
+    for i, message in enumerate(messages):
+        if message.get("role") == "compact":
+            last_compact = i
+
+    return any(
+        message.get("role") in ("user", "assistant") and message.get("content")
+        for message in messages[last_compact + 1 :]
+    )
 
 
 def build_compact_event(
