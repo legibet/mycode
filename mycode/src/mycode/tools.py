@@ -13,6 +13,7 @@ facades on :class:`ToolContext`::
 from __future__ import annotations
 
 import asyncio
+import functools
 import inspect
 import json
 import os
@@ -25,7 +26,7 @@ import time
 import typing
 from base64 import b64encode
 from collections import deque
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Coroutine, Mapping, Sequence
 from contextlib import suppress
 from dataclasses import dataclass
 from difflib import SequenceMatcher, unified_diff
@@ -71,7 +72,19 @@ class ToolExecutionResult:
     is_error: bool = False
 
 
-ToolRunner = Callable[["ToolContext", dict[str, Any]], ToolExecutionResult]
+SyncToolRunner = Callable[["ToolContext", dict[str, Any]], ToolExecutionResult]
+AsyncToolRunner = Callable[["ToolContext", dict[str, Any]], Coroutine[Any, Any, ToolExecutionResult]]
+ToolRunner = SyncToolRunner | AsyncToolRunner
+
+
+def _is_async_callable(runner: ToolRunner) -> bool:
+    current: Any = runner
+    while True:
+        current = inspect.unwrap(current)
+        if isinstance(current, functools.partial):
+            current = current.func
+            continue
+        return inspect.iscoroutinefunction(current) or inspect.iscoroutinefunction(type(current).__call__)
 
 
 @dataclass(frozen=True)
@@ -84,6 +97,10 @@ class ToolSpec:
     runner: ToolRunner
     # Streaming tools push incremental output through ToolContext.emit.
     streams_output: bool = False
+
+    @property
+    def is_async(self) -> bool:
+        return _is_async_callable(self.runner)
 
 
 # ---------------------------------------------------------------------------
@@ -115,19 +132,47 @@ class ToolContext:
     ) -> ToolExecutionResult:
         return self.call("read", {"path": path, "offset": offset, "limit": limit})
 
+    async def aread(
+        self,
+        path: str,
+        *,
+        offset: int | None = None,
+        limit: int | None = None,
+    ) -> ToolExecutionResult:
+        return await self.acall("read", {"path": path, "offset": offset, "limit": limit})
+
     def write(self, path: str, content: str) -> ToolExecutionResult:
         return self.call("write", {"path": path, "content": content})
+
+    async def awrite(self, path: str, content: str) -> ToolExecutionResult:
+        return await self.acall("write", {"path": path, "content": content})
 
     def edit(self, path: str, edits: list[dict[str, str]]) -> ToolExecutionResult:
         return self.call("edit", {"path": path, "edits": edits})
 
+    async def aedit(self, path: str, edits: list[dict[str, str]]) -> ToolExecutionResult:
+        return await self.acall("edit", {"path": path, "edits": edits})
+
     def bash(self, command: str, *, timeout: int | None = None) -> ToolExecutionResult:
         return self.call("bash", {"command": command, "timeout": timeout})
+
+    async def abash(
+        self,
+        command: str,
+        *,
+        timeout: int | None = None,  # noqa: ASYNC109
+    ) -> ToolExecutionResult:
+        return await self.acall("bash", {"command": command, "timeout": timeout})
 
     def call(self, name: str, args: dict[str, Any]) -> ToolExecutionResult:
         """Dispatch through the registry, including from custom tool wrappers."""
 
         return self.executor.execute(name, args, self)
+
+    async def acall(self, name: str, args: dict[str, Any]) -> ToolExecutionResult:
+        """Asynchronously dispatch through the registry."""
+
+        return await self.executor.aexecute(name, args, self)
 
 
 # ---------------------------------------------------------------------------
@@ -160,7 +205,21 @@ class ToolExecutor:
         spec = self._tools.get(name)
         if spec is None:
             return ToolExecutionResult(output=f"error: unknown tool: {name}", is_error=True)
-        return spec.runner(ctx, args)
+        if spec.is_async:
+            runner = cast(AsyncToolRunner, spec.runner)
+            return asyncio.run(runner(ctx, args))
+        runner = cast(SyncToolRunner, spec.runner)
+        return runner(ctx, args)
+
+    async def aexecute(self, name: str, args: dict[str, Any], ctx: ToolContext) -> ToolExecutionResult:
+        spec = self._tools.get(name)
+        if spec is None:
+            return ToolExecutionResult(output=f"error: unknown tool: {name}", is_error=True)
+        if spec.is_async:
+            runner = cast(AsyncToolRunner, spec.runner)
+            return await runner(ctx, args)
+        runner = cast(SyncToolRunner, spec.runner)
+        return await asyncio.to_thread(runner, ctx, args)
 
     # Subprocess tracking: register with both this executor (per-session
     # cancel) and the process-global set (shutdown cleanup).
@@ -319,7 +378,7 @@ def tool(
 
         is_async = inspect.iscoroutinefunction(fn)
 
-        def runner(context: ToolContext, args: dict[str, Any]) -> ToolExecutionResult:
+        def prepare_args(args: dict[str, Any]) -> dict[str, Any] | ToolExecutionResult:
             # Strict providers send explicit null for an omitted optional field;
             # drop it so the parameter default applies instead of failing validation.
             validation_args = {
@@ -332,14 +391,29 @@ def tool(
             except ValidationError as exc:
                 return ToolExecutionResult(output=f"error: invalid tool input: {exc}", is_error=True)
 
-            call_args = {name: getattr(parsed_args, name) for name in tool_param_names}
-            if is_async:
-                # The executor runs on a worker thread, so spinning a fresh
-                # event loop here is safe.
-                value = asyncio.run(fn(context, **call_args) if wants_context else fn(**call_args))
-            else:
+            return {name: getattr(parsed_args, name) for name in tool_param_names}
+
+        if is_async:
+
+            async def async_runner(context: ToolContext, args: dict[str, Any]) -> ToolExecutionResult:
+                call_args = prepare_args(args)
+                if isinstance(call_args, ToolExecutionResult):
+                    return call_args
+                value = await (fn(context, **call_args) if wants_context else fn(**call_args))
+                return _coerce_tool_result(value)
+
+            runner: ToolRunner = async_runner
+
+        else:
+
+            def sync_runner(context: ToolContext, args: dict[str, Any]) -> ToolExecutionResult:
+                call_args = prepare_args(args)
+                if isinstance(call_args, ToolExecutionResult):
+                    return call_args
                 value = fn(context, **call_args) if wants_context else fn(**call_args)
-            return _coerce_tool_result(value)
+                return _coerce_tool_result(value)
+
+            runner = sync_runner
 
         return ToolSpec(
             name=tool_name,

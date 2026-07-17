@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
+import functools
+import threading
 from collections.abc import AsyncIterator
 from copy import deepcopy
 from pathlib import Path
+from typing import Any
 from unittest.mock import patch
 
 import pytest
@@ -14,7 +18,9 @@ from mycode import (
     Agent,
     SessionStore,
     ToolContext,
+    ToolExecutionResult,
     ToolExecutor,
+    ToolSpec,
     bash_tool,
     edit_tool,
     read_tool,
@@ -62,8 +68,9 @@ class _StreamingAdapter:
 
 
 class _ToolLoopAdapter:
-    def __init__(self) -> None:
+    def __init__(self, tool_name: str = "read_back") -> None:
         self.requests = []
+        self.tool_name = tool_name
 
     async def stream_turn(self, request) -> AsyncIterator[ProviderStreamEvent]:
         self.requests.append(request)
@@ -77,7 +84,7 @@ class _ToolLoopAdapter:
                             {
                                 "type": "tool_use",
                                 "id": "call_1",
-                                "name": "read_back",
+                                "name": self.tool_name,
                                 "input": {"path": "note.txt"},
                             }
                         ],
@@ -97,6 +104,16 @@ def read_back(context: ToolContext, path: str) -> str:
     """Read a file through the built-in read tool."""
 
     return context.read(path).output
+
+
+@tool(streams_output=True)
+async def read_back_async(context: ToolContext, path: str) -> str:
+    """Read a file through the async built-in read tool."""
+
+    output = (await context.aread(path)).output
+    if context.emit:
+        context.emit(output)
+    return output
 
 
 def _new_agent(tmp_path: Path, **overrides) -> Agent:
@@ -210,6 +227,100 @@ class TestAsyncAgentBehavior:
         assert [event.type for event in events] == ["tool_start", "tool_done"]
         assert events[1].data["output"] == "hello from sdk"
 
+    async def test_async_custom_tools_can_reuse_and_stream_builtin_output(self, tmp_path: Path) -> None:
+        note_path = tmp_path / "note.txt"
+        note_path.write_text("hello from async sdk\n", encoding="utf-8")
+
+        agent = _new_agent(tmp_path, tools=[read_tool, read_back_async])
+        adapter = _ToolLoopAdapter("read_back_async")
+
+        with patch("mycode.agent.get_provider_adapter", return_value=adapter):
+            events = [event async for event in agent.achat("Read note.txt and repeat it.")]
+
+        assert [event.type for event in events] == ["tool_start", "tool_output", "tool_done"]
+        assert events[1].data["output"] == "hello from async sdk"
+        assert events[2].data["output"] == "hello from async sdk"
+
+
+class TestToolExecutor:
+    @pytest.mark.asyncio
+    async def test_async_tool_can_use_loop_bound_resource(self, tmp_path: Path) -> None:
+        loop = asyncio.get_running_loop()
+        response = loop.create_future()
+        loop.call_later(0.01, response.set_result, "ready")
+
+        @tool
+        async def wait_for_response() -> str:
+            """Wait for an event-loop-bound response."""
+
+            return await response
+
+        executor = ToolExecutor([wait_for_response])
+        ctx = ToolContext(executor=executor, cwd=".", tool_output_dir=tmp_path / "_p")
+
+        result = await executor.aexecute("wait_for_response", {}, ctx)
+
+        assert result.output == "ready"
+
+    def test_sync_executor_runs_async_tool(self, tmp_path: Path) -> None:
+        @tool
+        async def greet() -> str:
+            """Return a greeting."""
+
+            await asyncio.sleep(0)
+            return "hello"
+
+        executor = ToolExecutor([greet])
+        ctx = ToolContext(executor=executor, cwd=".", tool_output_dir=tmp_path / "_p")
+
+        result = executor.execute("greet", {}, ctx)
+
+        assert result.output == "hello"
+
+    @pytest.mark.asyncio
+    async def test_executor_awaits_wrapped_async_callable_runner(self, tmp_path: Path) -> None:
+        class AsyncRunner:
+            async def __call__(self, _ctx: ToolContext, args: dict[str, Any]) -> ToolExecutionResult:
+                await asyncio.sleep(0)
+                return ToolExecutionResult(output=str(args["value"]))
+
+        spec = ToolSpec(
+            name="echo",
+            description="Echo a value.",
+            input_schema={"type": "object"},
+            runner=functools.partial(AsyncRunner()),
+        )
+        executor = ToolExecutor([spec])
+        ctx = ToolContext(executor=executor, cwd=".", tool_output_dir=tmp_path / "_p")
+
+        result = await executor.aexecute("echo", {"value": "async callable"}, ctx)
+
+        assert result.output == "async callable"
+
+    @pytest.mark.asyncio
+    async def test_sync_tool_does_not_block_event_loop(self, tmp_path: Path) -> None:
+        started = threading.Event()
+        release = threading.Event()
+
+        @tool
+        def wait_for_release() -> str:
+            """Wait until the test releases the tool."""
+
+            started.set()
+            release.wait(timeout=1)
+            return "released"
+
+        executor = ToolExecutor([wait_for_release])
+        ctx = ToolContext(executor=executor, cwd=".", tool_output_dir=tmp_path / "_p")
+        task = asyncio.create_task(executor.aexecute("wait_for_release", {}, ctx))
+
+        assert await asyncio.to_thread(started.wait, 1)
+        assert not task.done()
+        release.set()
+        result = await task
+
+        assert result.output == "released"
+
 
 class TestToolDecorator:
     def test_infers_json_schema_from_signature(self) -> None:
@@ -250,7 +361,7 @@ class TestToolDecorator:
 
         executor = ToolExecutor([show])
         ctx = ToolContext(executor=executor, cwd=".", tool_output_dir=tmp_path / "_p")
-        result = show.runner(ctx, {"target": "/etc/hosts"})
+        result = executor.execute("show", {"target": "/etc/hosts"}, ctx)
 
         assert show.input_schema["properties"]["target"] == {"type": "string"}
         assert isinstance(captured["value"], Path)
@@ -266,7 +377,7 @@ class TestToolDecorator:
 
         executor = ToolExecutor([lookup])
         ctx = ToolContext(executor=executor, cwd=".", tool_output_dir=tmp_path / "_p")
-        result = lookup.runner(ctx, {"key": "a", "limit": None})
+        result = executor.execute("lookup", {"key": "a", "limit": None}, ctx)
 
         assert result.output == "a:10"
         assert result.is_error is False
@@ -326,7 +437,7 @@ class TestToolDecorator:
 
         executor = ToolExecutor([replace])
         ctx = ToolContext(executor=executor, cwd=".", tool_output_dir=tmp_path / "_p")
-        result = replace.runner(ctx, {"path": "x.txt", "edits": [{"oldText": "a", "newText": "b"}]})
+        result = executor.execute("replace", {"path": "x.txt", "edits": [{"oldText": "a", "newText": "b"}]}, ctx)
 
         assert result.output == "x.txt"
         assert isinstance(captured["edit"], EditEntry)

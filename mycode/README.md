@@ -44,7 +44,7 @@ print(result.text)
 
 ## Multi-turn conversations
 
-Call `achat()` or `run()` again on the same `Agent` — history accumulates automatically:
+Call `achat()` or `run()` again on the same `Agent` to continue the conversation:
 
 ```python
 agent = Agent(model="claude-sonnet-4-6", api_key="...")
@@ -90,7 +90,7 @@ agent = Agent(
 )
 ```
 
-Construct another `Agent` with the same `(session_dir, session_id)` later to resume the conversation — the history is loaded automatically.
+Construct another `Agent` with the same `(session_dir, session_id)` to load the conversation history.
 
 ## Built-in tools
 
@@ -139,6 +139,8 @@ def summarize_file(ctx: ToolContext, path: str) -> str:
     result = ctx.read(path)
     return result.output.splitlines()[0] if result.output else ""
 ```
+
+Async tools use `await ctx.aread()`, `await ctx.awrite()`, `await ctx.aedit()`, and `await ctx.abash()`. Use `await ctx.acall(name, args)` to call another registered tool by name.
 
 ## Tool hooks
 

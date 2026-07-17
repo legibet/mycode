@@ -131,7 +131,9 @@ class Agent:
         self.system = system
         self.hooks = hooks or Hooks()
         self._cancel_event = asyncio.Event()
+        self._event_loop: asyncio.AbstractEventLoop | None = None
         self._provider_event_task: asyncio.Future[ProviderStreamEvent] | None = None
+        self._active_tool_task: asyncio.Task[ToolExecutionResult] | None = None
 
         # History resolution:
         # - messages is None → auto-resume from disk if the session exists
@@ -201,10 +203,24 @@ class Agent:
     def cancel(self) -> None:
         """Request cancellation of the in-flight turn."""
 
+        try:
+            running_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            running_loop = None
+
+        loop = self._event_loop
+        if loop is not None and loop.is_running() and running_loop is not loop:
+            loop.call_soon_threadsafe(self._cancel_in_loop)
+            return
+        self._cancel_in_loop()
+
+    def _cancel_in_loop(self) -> None:
         self._cancel_event.set()
         self.tools.cancel_active()
         if self._provider_event_task and not self._provider_event_task.done():
             self._provider_event_task.cancel()
+        if self._active_tool_task and not self._active_tool_task.done():
+            self._active_tool_task.cancel()
 
     def clear(self) -> None:
         """Drop the in-memory conversation history."""
@@ -214,6 +230,23 @@ class Agent:
     # ------------------------------------------------------------------
     # Tool execution
     # ------------------------------------------------------------------
+
+    async def _execute_tool(
+        self,
+        spec: ToolSpec,
+        args: dict[str, Any],
+        ctx: ToolContext,
+    ) -> ToolExecutionResult:
+        if not spec.is_async:
+            return await self.tools.aexecute(spec.name, args, ctx)
+
+        task = asyncio.create_task(self.tools.aexecute(spec.name, args, ctx))
+        self._active_tool_task = task
+        try:
+            return await task
+        finally:
+            if self._active_tool_task is task:
+                self._active_tool_task = None
 
     async def _run_tool_call(self, tool_use: dict[str, Any]) -> AsyncIterator[Event]:
         """Run one tool call and emit the standard tool events."""
@@ -261,13 +294,23 @@ class Agent:
             return
 
         if spec.streams_output:
-            async for event in self._run_streaming_tool(tool_id=tool_id, name=name, args=args, hook_ctx=hook_ctx):
+            async for event in self._run_streaming_tool(
+                tool_id=tool_id,
+                spec=spec,
+                args=args,
+                hook_ctx=hook_ctx,
+            ):
                 yield event
             return
 
         try:
             ctx = self._ctx_for_call(tool_id)
-            result = await asyncio.to_thread(self.tools.execute, name, args, ctx)
+            result = await self._execute_tool(spec, args, ctx)
+        except asyncio.CancelledError:
+            if self._cancel_event.is_set():
+                yield self._error_done(tool_id, "error: cancelled")
+                return
+            raise
         except Exception as exc:  # pragma: no cover - defensive
             result = ToolExecutionResult(output=f"error: {exc}", is_error=True)
 
@@ -277,7 +320,7 @@ class Agent:
         self,
         *,
         tool_id: str,
-        name: str,
+        spec: ToolSpec,
         args: dict[str, Any],
         hook_ctx: ToolHookContext,
     ) -> AsyncIterator[Event]:
@@ -291,13 +334,13 @@ class Agent:
 
         ctx = self._ctx_for_call(tool_id, emit=on_output)
 
-        async def run_in_thread() -> ToolExecutionResult:
+        async def run_tool() -> ToolExecutionResult:
             try:
-                return await asyncio.to_thread(self.tools.execute, name, args, ctx)
+                return await self._execute_tool(spec, args, ctx)
             finally:
                 loop.call_soon_threadsafe(output_queue.put_nowait, None)
 
-        task = asyncio.create_task(run_in_thread())
+        task = asyncio.create_task(run_tool())
         was_cancelled = False
         output_parts: list[str] = []
 
@@ -319,8 +362,8 @@ class Agent:
                 output_parts.append(output)
                 yield Event("tool_output", {"tool_use_id": tool_id, "output": output})
 
-        if was_cancelled:
-            with suppress(Exception):
+        if was_cancelled or (self._cancel_event.is_set() and task.cancelled()):
+            with suppress(asyncio.CancelledError, Exception):
                 await task
             output = "\n".join([*output_parts, "error: cancelled"]) if output_parts else "error: cancelled"
             yield self._error_done(tool_id, output)
@@ -490,6 +533,7 @@ class Agent:
         async def persist(message: ConversationMessage) -> None:
             await self._persist_message(message, on_persist)
 
+        self._event_loop = asyncio.get_running_loop()
         self._cancel_event.clear()
 
         user_message: ConversationMessage
@@ -742,6 +786,7 @@ class Agent:
         :meth:`cancel` stops the summary request.
         """
 
+        self._event_loop = asyncio.get_running_loop()
         self._cancel_event.clear()
         adapter = get_provider_adapter(self.provider)
         return await self._compact(adapter, on_persist)

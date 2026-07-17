@@ -2,15 +2,16 @@
 
 import asyncio
 import tempfile
+import threading
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 
-from mycode.agent import Agent
+from mycode.agent import Agent, RunResult
 from mycode.messages import ConversationMessage
 from mycode.providers.base import ProviderStreamEvent
-from mycode.tools import ToolContext, ToolExecutionResult, ToolSpec
+from mycode.tools import ToolContext, ToolExecutionResult, ToolSpec, tool
 
 
 class _FakeProviderAdapter:
@@ -346,6 +347,85 @@ class TestCustomTools:
                 "output": "pong: hello",
                 "is_error": False,
             }
+
+    @pytest.mark.parametrize(
+        ("streams_output", "event_types", "cancelled_output"),
+        [
+            (False, ["tool_start", "tool_done"], "error: cancelled"),
+            (True, ["tool_start", "tool_output", "tool_done"], "working\nerror: cancelled"),
+        ],
+    )
+    def test_cancel_stops_async_tool_from_another_thread(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        streams_output: bool,
+        event_types: list[str],
+        cancelled_output: str,
+    ) -> None:
+        monkeypatch.setenv("PYTHONASYNCIODEBUG", "1")
+        started = threading.Event()
+        cleaned_up = threading.Event()
+
+        @tool(streams_output=streams_output)
+        async def wait_forever(ctx: ToolContext) -> None:
+            """Wait until the tool is cancelled."""
+
+            if ctx.emit:
+                ctx.emit("working")
+                await asyncio.sleep(0)
+            started.set()
+            try:
+                await asyncio.Event().wait()
+            finally:
+                cleaned_up.set()
+
+        agent = Agent(
+            model="gpt-5.5",
+            provider="openai",
+            cwd=str(tmp_path),
+            tools=[wait_forever],
+        )
+        adapter = _FakeProviderAdapter(
+            [
+                [
+                    ProviderStreamEvent(
+                        "message_done",
+                        {
+                            "message": {
+                                "role": "assistant",
+                                "content": [
+                                    {
+                                        "type": "tool_use",
+                                        "id": "call-1",
+                                        "name": "wait_forever",
+                                        "input": {},
+                                    }
+                                ],
+                            }
+                        },
+                    )
+                ]
+            ]
+        )
+        results: list[RunResult] = []
+        run_thread = threading.Thread(target=lambda: results.append(agent.run("start")), daemon=True)
+
+        with patch("mycode.agent.get_provider_adapter", return_value=adapter):
+            run_thread.start()
+            assert started.wait(timeout=1)
+            agent.cancel()
+            run_thread.join(timeout=1)
+
+        assert not run_thread.is_alive()
+        assert cleaned_up.is_set()
+        assert len(results) == 1
+        assert [event.type for event in results[0].events] == event_types
+        assert results[0].events[-1].data == {
+            "tool_use_id": "call-1",
+            "output": cancelled_output,
+            "is_error": True,
+        }
 
     @pytest.mark.asyncio
     async def test_cancel_after_assistant_persist_still_emits_tool_start(self):
