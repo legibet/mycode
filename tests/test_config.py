@@ -177,7 +177,7 @@ class TestGetSettings:
 
         settings = get_settings(str(workspace.resolve()))
 
-        assert list(settings.providers["moonshotai"].models) == ["kimi-k2.7-code", "kimi-k2.6"]
+        assert list(settings.providers["moonshotai"].models) == ["kimi-k3", "kimi-k2.6"]
 
     def test_builtin_provider_alias_can_omit_type(
         self, workspace: Path, config_home: Path, monkeypatch: pytest.MonkeyPatch

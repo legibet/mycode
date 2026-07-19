@@ -361,20 +361,26 @@ class MoonshotAIAdapter(AnthropicLikeAdapter):
     label = "Moonshot"
     default_base_url = "https://api.moonshot.ai/anthropic"
     env_api_key_names = ("MOONSHOT_API_KEY",)
-    default_models = ("kimi-k2.7-code", "kimi-k2.6")
+    default_models = ("kimi-k3", "kimi-k2.6")
     supports_reasoning_effort = True
 
     @override
     def thinking_config(self, request: ProviderRequest) -> dict[str, Any] | None:
         if not request.reasoning_effort:
             return None
+        if request.model.lower() == "kimi-k3":
+            return {"type": "adaptive"}
         if request.reasoning_effort == "none" and request.model.lower() != "kimi-k2.7-code":
             return {"type": "disabled"}
         return {"type": "adaptive"}
 
     @override
     def output_config(self, request: ProviderRequest) -> dict[str, Any] | None:
-        if not request.reasoning_effort or request.reasoning_effort == "none":
+        if not request.reasoning_effort:
+            return None
+        if request.model.lower() == "kimi-k3":
+            return {"effort": "max"}
+        if request.reasoning_effort == "none":
             return None
         return {"effort": request.reasoning_effort}
 
