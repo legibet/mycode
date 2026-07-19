@@ -29,7 +29,7 @@ from mycode.messages import (
     text_block,
 )
 from mycode.models import resolve_model_metadata
-from mycode.providers import get_provider_adapter, provider_default_models
+from mycode.providers import provider_default_models
 from mycode.utils import resolve_path
 from mycode_cli.config import (
     REASONING_EFFORT_OPTIONS,
@@ -210,12 +210,11 @@ async def chat(chat: ChatRequest, store: StoreDep, runs: RunManagerDep) -> ChatR
     if "document" in content_types and not model_meta.supports_pdf_input:
         raise HTTPException(status_code=400, detail="current model does not support PDF input")
 
-    adapter = get_provider_adapter(resolved.provider)
     configured_effort = request_effort if request_effort is not None else resolved.reasoning_effort
     reasoning_effort = gate_reasoning_effort(
         configured_effort,
         supports_reasoning=model_meta.supports_reasoning,
-        adapter_supports_effort=adapter.supports_reasoning_effort,
+        adapter_supports_effort=resolved.supports_reasoning_effort,
     )
 
     async with runs.session_operation(session_id):
@@ -408,7 +407,6 @@ async def get_config(cwd: Annotated[str | None, Query()] = None) -> dict[str, An
         image_models: list[str] = []
         pdf_models: list[str] = []
         reasoning_models: list[str] = []
-        adapter = get_provider_adapter(provider.provider)
         for model in models:
             model_config = provider_config.models.get(model) if provider_config else None
             model_meta = resolve_model_metadata(
@@ -425,7 +423,7 @@ async def get_config(cwd: Annotated[str | None, Query()] = None) -> dict[str, An
             if model_meta.supports_pdf_input:
                 pdf_models.append(model)
 
-        if adapter.supports_reasoning_effort:
+        if provider.supports_reasoning_effort:
             info["supports_reasoning_effort"] = True
             info["reasoning_models"] = reasoning_models
             info["reasoning_effort"] = provider.reasoning_effort

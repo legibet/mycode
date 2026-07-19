@@ -11,6 +11,7 @@ from typing import Any, Literal
 
 from mycode.models import resolve_model_metadata
 from mycode.providers import (
+    OpenAIChatAdapter,
     get_provider_adapter,
     is_supported_provider,
     list_env_discoverable_providers,
@@ -61,6 +62,9 @@ class ProviderConfig:
     api_key_env_var: str | None = None
     base_url: str | None = None
     reasoning_effort: str | None = None
+    # Opt-in for generic openai_chat endpoints that accept the standard
+    # top-level reasoning_effort param. Ignored for other provider types.
+    supports_reasoning_effort: bool = False
 
 
 @dataclass(frozen=True)
@@ -94,6 +98,7 @@ class ResolvedProvider:
     reasoning_effort: str | None
     provider_name: str | None = None
     model_config: ModelConfig | None = None
+    supports_reasoning_effort: bool = False
 
 
 def resolve_mycode_home() -> Path:
@@ -347,6 +352,12 @@ def _validate_provider_config(name: str, raw: Any) -> dict[str, Any]:
         normalize_reasoning_effort(effort)
         out["reasoning_effort"] = effort
 
+    supports_effort = raw.get("supports_reasoning_effort")
+    if supports_effort is not None:
+        if not isinstance(supports_effort, bool):
+            raise ValueError(f"provider {name!r}: supports_reasoning_effort must be a boolean")
+        out["supports_reasoning_effort"] = supports_effort
+
     raw_models = raw.get("models")
     if raw_models is not None:
         models = _validate_model_config_entries(name, raw_models)
@@ -422,6 +433,8 @@ def get_settings(cwd: str | None = None) -> Settings:
                 merged["base_url"] = raw.get("base_url") or None
             if "reasoning_effort" in raw:
                 merged["reasoning_effort"] = raw.get("reasoning_effort") or None
+            if "supports_reasoning_effort" in raw:
+                merged["supports_reasoning_effort"] = raw.get("supports_reasoning_effort")
 
             raw_providers[name] = merged
 
@@ -536,6 +549,7 @@ def _build_providers(raw_providers: dict[str, dict[str, Any]]) -> dict[str, Prov
             api_key_env_var=raw.get("api_key_env_var") or None,
             base_url=raw.get("base_url") or None,
             reasoning_effort=normalize_reasoning_effort(raw.get("reasoning_effort")),
+            supports_reasoning_effort=bool(as_bool(raw.get("supports_reasoning_effort"))),
         )
 
     return providers
@@ -698,10 +712,15 @@ def _resolve_provider_runtime(
         supports_reasoning=model_config.supports_reasoning if model_config else None,
     )
     adapter = get_provider_adapter(provider_type)
+    # Whether this endpoint accepts the effort knob: the adapter declares it
+    # natively, or a generic openai_chat provider opts in via config.
+    supports_effort = adapter.supports_reasoning_effort or bool(
+        provider_config and provider_config.supports_reasoning_effort and isinstance(adapter, OpenAIChatAdapter)
+    )
     reasoning_effort = gate_reasoning_effort(
         configured_effort,
         supports_reasoning=meta.supports_reasoning,
-        adapter_supports_effort=adapter.supports_reasoning_effort,
+        adapter_supports_effort=supports_effort,
     )
 
     resolved_api_key = api_key
@@ -729,4 +748,5 @@ def _resolve_provider_runtime(
         api_base=resolved_api_base,
         reasoning_effort=reasoning_effort,
         model_config=model_config,
+        supports_reasoning_effort=supports_effort,
     )

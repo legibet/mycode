@@ -37,7 +37,6 @@ from mycode.attachments import (
 from mycode.compact import NothingToCompactError
 from mycode.messages import ConversationMessage, build_message, flatten_message_text, text_block
 from mycode.providers import (
-    get_provider_adapter,
     list_env_discoverable_providers,
     provider_api_key_from_env,
     provider_default_models,
@@ -417,7 +416,7 @@ def list_model_options(settings: Settings, *, provider: str, api_base: str | Non
 def supports_reasoning_effort(agent: Agent) -> bool:
     """Return whether the current agent provider+model supports reasoning effort."""
 
-    return agent.supports_reasoning is True and get_provider_adapter(agent.provider).supports_reasoning_effort
+    return agent.supports_reasoning is True and agent.supports_reasoning_effort
 
 
 def apply_resolved_provider(agent: Agent, resolved: ResolvedProvider) -> bool:
@@ -441,6 +440,7 @@ def apply_resolved_provider(agent: Agent, resolved: ResolvedProvider) -> bool:
     agent.api_key = resolved.api_key
     agent.api_base = resolved.api_base
     agent.reasoning_effort = resolved.reasoning_effort
+    agent.supports_reasoning_effort = resolved.supports_reasoning_effort
 
     if runtime_changed:
         model_config = resolved.model_config

@@ -74,6 +74,7 @@ file and adapts it for the UI.
 - `providers.<name>.api_key` — literal value or `${ENV_NAME}` reference
 - `providers.<name>.base_url` — override the adapter's default base URL
 - `providers.<name>.reasoning_effort` — per-provider override of the global default
+- `providers.<name>.supports_reasoning_effort` — opt-in (default `false`) for a generic `openai_chat` endpoint that accepts the standard top-level `reasoning_effort`. Ignored for other provider types, which declare effort support in their adapter
 
 ## API Key Resolution Order
 
@@ -112,7 +113,7 @@ Options: `auto` (default) · `none` · `low` · `medium` · `high` · `xhigh`
 
 - `auto` — do not send any effort parameter; let the provider decide
 - `none` — explicitly disable thinking
-- Config-derived effort is applied only when `adapter.supports_reasoning_effort` AND `model_metadata.supports_reasoning` (from the bundled catalog) are both true
+- Config-derived effort is applied only when `model_metadata.supports_reasoning` is true AND effort is supported — either `adapter.supports_reasoning_effort`, or an `openai_chat` provider with `supports_reasoning_effort: true`
 - CLI `/effort` command and web sidebar allow per-request overrides without changing config
 - See `docs/providers.md` for per-adapter mapping details
 

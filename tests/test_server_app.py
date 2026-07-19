@@ -24,9 +24,11 @@ class _CaptureAdapter:
 
     def __init__(self) -> None:
         self.messages: list[ConversationMessage] | None = None
+        self.reasoning_effort: str | None = None
 
     async def stream_turn(self, request: ProviderRequest) -> AsyncIterator[ProviderStreamEvent]:
         self.messages = list(request.messages)
+        self.reasoning_effort = request.reasoning_effort
         yield ProviderStreamEvent(
             "message_done",
             {"message": {"role": "assistant", "content": [{"type": "text", "text": "ok"}]}},
@@ -164,7 +166,6 @@ def test_chat_skill_reference_reaches_provider_and_keeps_visible_title(
     )
     adapter = _CaptureAdapter()
     monkeypatch.setattr("mycode.agent.get_provider_adapter", lambda _provider: adapter)
-    monkeypatch.setattr("mycode_cli.server.routers.chat.get_provider_adapter", lambda _provider: adapter)
     store = SessionStore(data_dir=tmp_path / "sessions")
     runs = RunManager()
     app = create_api_app()
@@ -195,6 +196,63 @@ def test_chat_skill_reference_reaches_provider_and_keeps_visible_title(
     assert "description: Design interfaces." not in user_blocks[0]["text"]
     assert user_blocks[-1]["text"] == prompt
     assert session["session"]["title"] == prompt
+
+
+@pytest.mark.parametrize(("opt_in", "expected_effort"), [(True, "low"), (False, None)])
+def test_chat_per_request_effort_follows_openai_chat_opt_in(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    opt_in: bool,
+    expected_effort: str | None,
+) -> None:
+    # A per-request effort override reaches the provider only when the generic
+    # openai_chat endpoint opts in; without it the effort is dropped.
+    home = tmp_path / "home" / ".mycode"
+    home.mkdir(parents=True)
+    monkeypatch.setenv("XAI_API_KEY", "test-key")
+    monkeypatch.setenv("MYCODE_HOME", str(home))
+    home.joinpath("config.json").write_text(
+        json.dumps(
+            {
+                "providers": {
+                    "custom": {
+                        "type": "openai_chat",
+                        "api_key": "${XAI_API_KEY}",
+                        "base_url": "https://api.x.ai/v1",
+                        "supports_reasoning_effort": opt_in,
+                        "models": {"grok-4.5": {}},
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    adapter = _CaptureAdapter()
+    monkeypatch.setattr("mycode.agent.get_provider_adapter", lambda _provider: adapter)
+    store = SessionStore(data_dir=tmp_path / "sessions")
+    runs = RunManager()
+    app = create_api_app()
+    app.dependency_overrides[get_store] = lambda: store
+    app.dependency_overrides[get_run_manager] = lambda: runs
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/chat",
+            json={
+                "session_id": "effort-session",
+                "cwd": str(tmp_path),
+                "provider": "custom",
+                "model": "grok-4.5",
+                "message": "hi",
+                "reasoning_effort": "low",
+            },
+        )
+        assert response.status_code == 200
+        run_id = response.json()["run"]["id"]
+        with client.stream("GET", f"/api/runs/{run_id}/stream") as stream:
+            list(stream.iter_lines())
+
+    assert adapter.reasoning_effort == expected_effort
 
 
 def _seed_session(store: SessionStore, session_id: str, cwd: str) -> None:

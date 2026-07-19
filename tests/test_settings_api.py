@@ -128,6 +128,34 @@ class TestSettingsApi:
         assert response.status_code == 400
         assert "unsupported" in response.json()["detail"]
 
+    def test_put_round_trip_preserves_supports_reasoning_effort(self, client: TestClient, home: Path) -> None:
+        response = client.put(
+            "/api/settings",
+            json={
+                "config": {
+                    "providers": {
+                        "custom": {
+                            "type": "openai_chat",
+                            "base_url": "https://api.x.ai/v1",
+                            "supports_reasoning_effort": True,
+                        }
+                    }
+                }
+            },
+        )
+        assert response.status_code == 200
+
+        on_disk = json.loads((home / "config.json").read_text(encoding="utf-8"))
+        assert on_disk["providers"]["custom"]["supports_reasoning_effort"] is True
+
+    def test_put_returns_400_on_non_boolean_supports_reasoning_effort(self, client: TestClient, home: Path) -> None:
+        response = client.put(
+            "/api/settings",
+            json={"config": {"providers": {"custom": {"type": "openai_chat", "supports_reasoning_effort": "yes"}}}},
+        )
+        assert response.status_code == 400
+        assert "supports_reasoning_effort" in response.json()["detail"]
+
 
 class TestSettingsWriteNormalization:
     """Edge cases that the round-trip API tests don't directly exercise."""
