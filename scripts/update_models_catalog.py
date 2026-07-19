@@ -20,6 +20,7 @@ PROVIDERS = (
     "openai",
     "openai_chat",
     "openrouter",
+    "xai",
     "zai",
 )
 

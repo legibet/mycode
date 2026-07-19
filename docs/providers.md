@@ -126,7 +126,8 @@ class ProviderAdapter(ABC):
 
 - SDK: `openai` (official)
 - API: OpenAI Chat Completions
-- `supports_reasoning_effort`: false
+- `supports_reasoning_effort`: false by default; set it `true` in config (see `docs/config.md`) for endpoints that accept the standard top-level `reasoning_effort`
+- When enabled, clamps effort to `low`/`medium`/`high` (`none` → `low`, `xhigh` → `high`, `auto` unset); honored only for `openai_chat`-type providers
 - `auto_discoverable`: false (base class only, not used directly)
 - Intended for third-party OpenAI-compatible providers when Responses API is unavailable
 - Preserves third-party reasoning extensions from SDK extras:
@@ -170,15 +171,30 @@ class ProviderAdapter(ABC):
 - Same image format as `openai_chat`
 - Same PDF format as `openai_chat`
 
+### `xai` — `openai_chat.py`
+
+- SDK: `openai` against xAI's OpenAI-compatible Chat Completions endpoint
+- Base URL: `https://api.x.ai/v1`
+- API key env: `XAI_API_KEY`
+- Default models: `grok-4.5`
+- `supports_reasoning_effort`: true; shares the `openai_chat` clamped mapping. Grok reasoning cannot be disabled, so `none` → `low` and `xhigh` → `high`
+- `auto_discoverable`: true
+- Grok reasoning streams as `reasoning_content`, replayed by the shared `openai_chat` reasoning handling
+- Model metadata resolves through the OpenRouter suffix fallback for the shared `grok-*` aliases
+- Same image format as `openai_chat`
+- Same PDF format as `openai_chat`
+
 ## Reasoning Effort Mapping
 
-| effort   | anthropic / moonshotai                          | google (3.x)          | openai / openrouter |
-| -------- | ----------------------------------------------- | --------------------- | ------------------- |
-| `none`   | thinking disabled                               | `LOW`/`MINIMAL` level | `none`              |
-| `low`    | adaptive thinking                               | `LOW`/`MINIMAL` level | `low`               |
-| `medium` | adaptive thinking                               | `MEDIUM` level        | `medium`            |
-| `high`   | adaptive thinking                               | `HIGH` level          | `high`              |
-| `xhigh`  | adaptive thinking; provider max where supported | `HIGH` level          | `xhigh`             |
+| effort   | anthropic / moonshotai                          | google (3.x)          | openai / openrouter | xai / openai_chat |
+| -------- | ----------------------------------------------- | --------------------- | ------------------- | ----------------- |
+| `none`   | thinking disabled                               | `LOW`/`MINIMAL` level | `none`              | `low`             |
+| `low`    | adaptive thinking                               | `LOW`/`MINIMAL` level | `low`               | `low`             |
+| `medium` | adaptive thinking                               | `MEDIUM` level        | `medium`            | `medium`          |
+| `high`   | adaptive thinking                               | `HIGH` level          | `high`              | `high`            |
+| `xhigh`  | adaptive thinking; provider max where supported | `HIGH` level          | `xhigh`             | `high`            |
+
+The `openai_chat` column applies to `xai` and to any `openai_chat` provider with `supports_reasoning_effort: true`.
 
 MiniMax is not listed in the effort mapping table because its Anthropic endpoint does not support effort depth; `MiniMax-M3` always sends adaptive thinking.
 

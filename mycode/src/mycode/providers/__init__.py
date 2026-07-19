@@ -5,7 +5,13 @@ from __future__ import annotations
 from mycode.providers.anthropic_like import AnthropicAdapter, MiniMaxAdapter, MoonshotAIAdapter
 from mycode.providers.base import ProviderAdapter
 from mycode.providers.gemini import GoogleGeminiAdapter
-from mycode.providers.openai_chat import DeepSeekAdapter, OpenAIChatAdapter, OpenRouterAdapter, ZAIAdapter
+from mycode.providers.openai_chat import (
+    DeepSeekAdapter,
+    OpenAIChatAdapter,
+    OpenRouterAdapter,
+    XAIAdapter,
+    ZAIAdapter,
+)
 from mycode.providers.openai_responses import OpenAIResponsesAdapter
 
 _PROVIDERS: dict[str, ProviderAdapter] = {
@@ -19,6 +25,7 @@ _PROVIDERS: dict[str, ProviderAdapter] = {
         MoonshotAIAdapter(),
         MiniMaxAdapter(),
         OpenRouterAdapter(),
+        XAIAdapter(),
         OpenAIChatAdapter(),
     )
 }
@@ -75,6 +82,7 @@ __all__ = [
     "OpenAIChatAdapter",
     "OpenAIResponsesAdapter",
     "OpenRouterAdapter",
+    "XAIAdapter",
     "ZAIAdapter",
     "get_provider_adapter",
     "list_env_discoverable_providers",

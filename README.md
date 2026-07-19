@@ -50,6 +50,7 @@ API keys are discovered automatically from environment variables (see Providers)
 | DeepSeek          | `deepseek`    | `DEEPSEEK_API_KEY`   |
 | Z.AI              | `zai`         | `ZAI_API_KEY`        |
 | OpenRouter        | `openrouter`  | `OPENROUTER_API_KEY` |
+| xAI               | `xai`         | `XAI_API_KEY`        |
 | OpenAI-compatible | `openai_chat` | —                    |
 
 Run `/model` in tui to see the available models.

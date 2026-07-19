@@ -16,6 +16,7 @@ from mycode.providers import (
     OpenAIChatAdapter,
     OpenAIResponsesAdapter,
     OpenRouterAdapter,
+    XAIAdapter,
 )
 from mycode.providers.base import repair_messages_for_replay
 from mycode.tools import tool as define_tool
@@ -1148,6 +1149,30 @@ def test_openai_chat_replays_reasoning_by_default() -> None:
     )["messages"]
 
     assert payload_messages[0]["reasoning_content"] == "think"
+
+
+@pytest.mark.parametrize(
+    "adapter",
+    [OpenAIChatAdapter(), XAIAdapter()],
+    ids=["openai_chat", "xai"],
+)
+@pytest.mark.parametrize(
+    ("effort", "expected"),
+    [
+        ("low", "low"),
+        ("medium", "medium"),
+        ("high", "high"),
+        ("xhigh", "high"),
+        ("none", "low"),
+        (None, None),
+    ],
+)
+def test_openai_chat_clamps_reasoning_effort_to_wire_payload(
+    adapter: OpenAIChatAdapter, effort: str | None, expected: str | None
+) -> None:
+    payload = adapter._build_request_payload(request_obj(model="grok-4.5", reasoning_effort=effort))
+
+    assert payload.get("reasoning_effort") == expected
 
 
 def test_thinking_duration_metadata_is_not_sent_to_providers() -> None:

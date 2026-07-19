@@ -87,6 +87,7 @@ class Agent:
         compact_threshold: float | None = None,
         reasoning_effort: str | None = None,
         supports_reasoning: bool | None = None,
+        supports_reasoning_effort: bool = False,
         supports_image_input: bool | None = None,
         supports_pdf_input: bool | None = None,
         system: str = "",
@@ -127,6 +128,9 @@ class Agent:
         self.temperature = float(temperature)
         self.compact_threshold = compact_threshold if compact_threshold is not None else DEFAULT_COMPACT_THRESHOLD
         self.reasoning_effort = reasoning_effort
+        # Whether the endpoint accepts the effort knob. Comes from provider
+        # config, not the catalog, so it stays out of refresh_capabilities.
+        self.supports_reasoning_effort = supports_reasoning_effort
 
         self.system = system
         self.hooks = hooks or Hooks()

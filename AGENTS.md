@@ -28,7 +28,7 @@ mycode/src/mycode/        # SDK package
     anthropic_like.py     # anthropic, moonshotai, minimax
     gemini.py             # google
     openai_responses.py   # openai
-    openai_chat.py        # openai_chat, deepseek, zai, openrouter
+    openai_chat.py        # openai_chat, deepseek, zai, openrouter, xai
 
 cli/src/mycode_cli/       # CLI + FastAPI web server
   main.py                 # Typer entrypoint, slash commands, session resolution
@@ -74,7 +74,7 @@ Per user turn (`mycode/src/mycode/agent.py`):
 
 ## Provider Adapters
 
-Adapter ids: `anthropic`, `moonshotai`, `minimax`, `google`, `openai`, `openai_chat`, `deepseek`, `zai`, `openrouter`. All implement `ProviderAdapter.stream_turn()`; canonical → wire-format projection lives in `prepare_messages()`.
+Adapter ids: `anthropic`, `moonshotai`, `minimax`, `google`, `openai`, `openai_chat`, `deepseek`, `zai`, `openrouter`, `xai`. All implement `ProviderAdapter.stream_turn()`; canonical → wire-format projection lives in `prepare_messages()`.
 
 Per-adapter SDK, base URL, env vars, reasoning effort mapping, image/PDF serialization, and replay quirks live in `docs/providers.md`. Most adapter regressions come from missing replay shapes (native thought signatures, empty `reasoning_content` markers, function-call id matching).
 
