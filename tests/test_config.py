@@ -260,7 +260,7 @@ class TestResolveProvider:
         ("provider_name", "env_name", "env_value", "model", "expected_model"),
         [
             ("moonshotai", "MOONSHOT_API_KEY", "moonshot-env-key", "kimi-k2-thinking", "kimi-k2-thinking"),
-            ("google", "GEMINI_API_KEY", "gemini-env-key", None, "gemini-3.5-flash"),
+            ("google", "GEMINI_API_KEY", "gemini-env-key", None, "gemini-3.6-flash"),
         ],
     )
     def test_accepts_raw_supported_providers(
