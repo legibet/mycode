@@ -313,7 +313,7 @@ class AnthropicAdapter(AnthropicLikeAdapter):
     label = "Anthropic"
     default_base_url = "https://api.anthropic.com"
     env_api_key_names = ("ANTHROPIC_API_KEY",)
-    default_models = ("claude-sonnet-5", "claude-opus-4-8")
+    default_models = ("claude-sonnet-5", "claude-opus-5")
     supports_reasoning_effort = True
 
     @override
@@ -325,7 +325,7 @@ class AnthropicAdapter(AnthropicLikeAdapter):
             return {"type": "disabled"}
         normalized = request.model.lower()
         thinking: dict[str, Any] = {"type": "adaptive"}
-        if normalized.startswith(("claude-opus-4-7", "claude-opus-4-8")):
+        if normalized.startswith(("claude-opus-4-7", "claude-opus-4-8", "claude-opus-5")):
             thinking["display"] = "summarized"
         return thinking
 
@@ -336,7 +336,7 @@ class AnthropicAdapter(AnthropicLikeAdapter):
             return None
 
         normalized = request.model.lower()
-        if normalized.startswith(("claude-opus-4-7", "claude-opus-4-8")):
+        if normalized.startswith(("claude-opus-4-7", "claude-opus-4-8", "claude-opus-5")):
             return {"effort": effort}
 
         if normalized.startswith("claude-opus-4-6"):
