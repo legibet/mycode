@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "mycode-cli"
-version = "0.11.1"
+version = "0.11.2"
 description = "Minimal coding agent CLI and web UI built on mycode-sdk."
 requires-python = ">=3.12"
 license = "MIT"
@@ -26,7 +26,7 @@ classifiers = [
 ]
 keywords = ["agent", "cli", "llm", "coding-agent", "fastapi"]
 dependencies = [
-    "mycode-sdk==0.11.1",
+    "mycode-sdk==0.11.2",
     "fastapi>=0.139.0",
     "uvicorn[standard]>=0.51.0",
     "rich>=15.0.0",
