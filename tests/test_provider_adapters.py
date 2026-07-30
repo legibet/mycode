@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import json
 from typing import Any, Literal, cast
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -63,6 +64,21 @@ def request_obj(**overrides: Any) -> Any:
     }
     data.update(overrides)
     return cast(Any, _Obj(**data))
+
+
+def _async_context_mock() -> MagicMock:
+    mock = MagicMock()
+    mock.__aenter__ = AsyncMock(return_value=mock)
+    mock.__aexit__ = AsyncMock(return_value=None)
+    return mock
+
+
+def _stream_mock(items: list[Any], *, final_message: Any = None) -> MagicMock:
+    stream = _async_context_mock()
+    stream.__aiter__.return_value = iter(items)
+    if final_message is not None:
+        stream.get_final_message = AsyncMock(return_value=final_message)
+    return stream
 
 
 # User media block wire shapes
@@ -1151,6 +1167,92 @@ def test_openai_chat_replays_reasoning_by_default() -> None:
     assert payload_messages[0]["reasoning_content"] == "think"
 
 
+async def test_openrouter_preserves_structured_reasoning_across_turns(monkeypatch: pytest.MonkeyPatch) -> None:
+    adapter = OpenRouterAdapter()
+    reasoning_details = [
+        {
+            "type": "reasoning.text",
+            "text": "first",
+            "signature": "signature",
+            "id": "reasoning-1",
+            "format": "anthropic-claude-v1",
+            "index": 0,
+        },
+        {
+            "type": "reasoning.encrypted",
+            "data": "encrypted",
+            "id": "reasoning-2",
+            "format": "anthropic-claude-v1",
+            "index": 1,
+        },
+    ]
+
+    chunks = [
+        _Obj(
+            id="response-1",
+            model="anthropic/claude-sonnet-4.6",
+            usage=None,
+            choices=[
+                _Obj(
+                    finish_reason=None,
+                    delta=_Obj(
+                        reasoning="first",
+                        reasoning_details=[reasoning_details[0]],
+                        content=None,
+                        tool_calls=[],
+                    ),
+                )
+            ],
+        ),
+        _Obj(
+            id="response-1",
+            model="anthropic/claude-sonnet-4.6",
+            usage=None,
+            choices=[
+                _Obj(
+                    finish_reason="stop",
+                    delta=_Obj(
+                        reasoning=" second",
+                        reasoning_details=[reasoning_details[1]],
+                        content="answer",
+                        tool_calls=[],
+                    ),
+                )
+            ],
+        ),
+    ]
+    clients = []
+
+    def fake_client(**_kwargs: Any) -> MagicMock:
+        client = _async_context_mock()
+        stream = _stream_mock(chunks if not clients else [])
+        client.chat.completions.create = AsyncMock(return_value=stream)
+        clients.append(client)
+        return client
+
+    monkeypatch.setattr("mycode.providers.openai_chat.AsyncOpenAI", fake_client)
+
+    first_events = [
+        event
+        async for event in adapter.stream_turn(request_obj(api_key="test-key", model="anthropic/claude-sonnet-4.6"))
+    ]
+    stored_message = first_events[-1].data["message"]
+    assert stored_message["content"][0]["text"] == "first second"
+
+    _ = [
+        event
+        async for event in adapter.stream_turn(
+            request_obj(
+                api_key="test-key",
+                model="anthropic/claude-sonnet-4.6",
+                messages=[stored_message, {"role": "user", "content": [{"type": "text", "text": "continue"}]}],
+            )
+        )
+    ]
+    replayed_messages = clients[1].chat.completions.create.await_args.kwargs["messages"]
+    assert replayed_messages[0]["reasoning_details"] == reasoning_details
+
+
 @pytest.mark.parametrize(
     "adapter",
     [OpenAIChatAdapter(), XAIAdapter()],
@@ -1428,6 +1530,68 @@ def test_anthropic_replays_thinking_signature_without_tool_use_caller() -> None:
     assert payload["role"] == "assistant"
     assert payload["content"][0] == {"type": "thinking", "thinking": "think", "signature": "sig_1"}
     assert payload["content"][1] == {"type": "tool_use", "id": "call_1", "name": "read", "input": {}}
+
+
+async def test_anthropic_preserves_native_thinking_blocks_across_tool_turns(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    adapter = AnthropicAdapter()
+    first_response = _Obj(
+        id="msg_1",
+        model="claude-sonnet-5",
+        stop_reason="tool_use",
+        stop_sequence=None,
+        service_tier=None,
+        usage=_Obj(input_tokens=10, output_tokens=5),
+        content=[
+            _Obj(type="thinking", thinking="Think", signature="signature"),
+            _Obj(type="redacted_thinking", data="encrypted"),
+            _Obj(type="tool_use", id="call_1", name="read", input={}),
+        ],
+    )
+    second_response = _Obj(
+        id="msg_2",
+        model="claude-sonnet-5",
+        stop_reason="end_turn",
+        stop_sequence=None,
+        service_tier=None,
+        usage=_Obj(input_tokens=20, output_tokens=3),
+        content=[_Obj(type="text", text="done", citations=[])],
+    )
+
+    client = _async_context_mock()
+    streams = [_stream_mock([], final_message=response) for response in (first_response, second_response)]
+    client.messages.stream.side_effect = streams
+    monkeypatch.setattr("mycode.providers.anthropic_like.AsyncAnthropic", lambda **_kwargs: client)
+
+    first_events = [
+        event async for event in adapter.stream_turn(request_obj(api_key="test-key", model="claude-sonnet-5"))
+    ]
+    stored_message = first_events[-1].data["message"]
+    assert stored_message["content"][0]["text"] == "Think"
+
+    _ = [
+        event
+        async for event in adapter.stream_turn(
+            request_obj(
+                api_key="test-key",
+                model="claude-sonnet-5",
+                messages=[
+                    stored_message,
+                    {
+                        "role": "user",
+                        "content": [{"type": "tool_result", "tool_use_id": "call_1", "output": "done"}],
+                    },
+                ],
+            )
+        )
+    ]
+    replayed_request = client.messages.stream.call_args_list[1].kwargs
+    assert replayed_request["messages"][0]["content"][:2] == [
+        {"type": "thinking", "thinking": "Think", "signature": "signature"},
+        {"type": "redacted_thinking", "data": "encrypted"},
+    ]
+    assert replayed_request["thinking"]["display"] == "summarized"
 
 
 def test_anthropic_skips_moonshot_thinking_during_replay() -> None:

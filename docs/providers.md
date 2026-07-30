@@ -44,10 +44,11 @@ class ProviderAdapter(ABC):
 - API key env: `ANTHROPIC_API_KEY`
 - Default models: `claude-sonnet-5`, `claude-opus-5`
 - `supports_reasoning_effort`: true
-- Reasoning efforts use adaptive thinking; `claude-opus-4-7` / `claude-opus-4-8` / `claude-opus-5` request summarized thinking output
+- Default-on Claude 5 models and explicitly enabled thinking request summarized output
 - `claude-sonnet-4-6` / `claude-sonnet-5` / `claude-opus-4-6` and newer Opus models use `output_config.effort`
 - Omits `temperature`; Anthropic-compatible providers use provider-default sampling
-- Replays only Claude-origin thinking blocks that include Anthropic's native `signature`; foreign or unsigned `thinking` blocks are skipped before request serialization
+- Replays native `thinking` and `redacted_thinking` blocks unchanged; legacy signature-only blocks remain supported
+- Skips foreign or unsigned thinking
 - Adds ephemeral `cache_control` to system prompt block and last user content block
 - Tool call IDs projected to ASCII-safe format (letters, numbers, underscores, dashes, max 64 chars) with SHA1 collision suffix
 - Images serialize as Anthropic `image` blocks with base64 `source`
@@ -62,7 +63,7 @@ class ProviderAdapter(ABC):
 - `supports_reasoning_effort`: true (maps enabled efforts to adaptive thinking and forwards `output_config.effort`)
 - For `kimi-k2.7-code`, `none` is mapped to adaptive thinking because the model does not support disabled thinking
 - Omits `temperature`; Anthropic-compatible providers use provider-default sampling
-- Prior reasoning must be replayed on later tool-loop turns when thinking is enabled
+- Replays native thinking blocks unchanged across tool loops
 - Shares Anthropic-like ephemeral cache markers and tool call ID projection
 - Same image format as `anthropic`
 - Same PDF format as `anthropic`
@@ -76,7 +77,7 @@ class ProviderAdapter(ABC):
 - `supports_reasoning_effort`: false
 - `MiniMax-M3` uses adaptive thinking by default; MiniMax Anthropic endpoint does not support effort depth
 - Omits `temperature`; Anthropic-compatible providers use provider-default sampling
-- Preserves provider-native thinking signatures in `block.meta.native`
+- Replays native thinking blocks unchanged across tool loops
 - Shares Anthropic-like ephemeral cache markers and tool call ID projection
 - Same image format as `anthropic`
 - Same PDF format as `anthropic`
@@ -168,6 +169,7 @@ class ProviderAdapter(ABC):
 - `supports_reasoning_effort`: true (forwarded through `extra_body.reasoning.effort`)
 - `auto_discoverable`: true
 - Supports OpenRouter reasoning replay shapes: `reasoning`, `reasoning_content` alias, and `reasoning_details`
+- Keeps plaintext for display and appends streamed `reasoning_details` in order for replay
 - Same image format as `openai_chat`
 - Same PDF format as `openai_chat`
 
@@ -217,7 +219,7 @@ For OpenAI-compatible chat providers, empty `thinking` blocks with `block.meta.n
 
 Upstream behavior references:
 
-- Anthropic: extended thinking with tool use requires returning Claude's thinking blocks complete and unmodified, including their `signature`; foreign or unsigned reasoning text is not a valid Anthropic thinking block.
+- Anthropic [thinking](https://platform.claude.com/docs/en/build-with-claude/thinking): replay every `thinking` and `redacted_thinking` block unchanged and in order.
 - OpenAI Chat/SDK: additive response fields are allowed by the [API compatibility policy](https://developers.openai.com/api/reference/overview#backwards-compatibility), and the official Python SDK exposes undocumented response properties through [`model_extra`](https://github.com/openai/openai-python#undocumented-request-params).
-- OpenRouter: [reasoning tokens](https://openrouter.ai/docs/guides/best-practices/reasoning-tokens#preserving-reasoning) can be returned and replayed as `reasoning`, `reasoning_content`, or structured `reasoning_details`; `reasoning_details` must be preserved unmodified.
+- OpenRouter: [reasoning tokens](https://openrouter.ai/docs/guides/best-practices/reasoning-tokens#preserving-reasoning) can be returned and replayed as `reasoning`, `reasoning_content`, or structured `reasoning_details`; streamed `reasoning_details` chunks must be concatenated in order and replayed unmodified.
 - Z.AI: [preserved/interleaved thinking](https://docs.z.ai/guides/capabilities/thinking-mode#preserved-thinking) requires returning historical `reasoning_content` unmodified when `clear_thinking: false` is used.

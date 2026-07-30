@@ -79,11 +79,12 @@ class OpenAIChatAdapter(ProviderAdapter):
                             finish_reason = choice.finish_reason
 
                         delta = choice.delta
-                        reasoning_delta, reasoning_meta_update = self._extract_reasoning_delta(delta)
-                        if reasoning_meta_update:
-                            thinking_native_meta.update(reasoning_meta_update)
+                        reasoning_delta = self._consume_reasoning_delta(
+                            thinking_parts,
+                            thinking_native_meta,
+                            delta,
+                        )
                         if reasoning_delta:
-                            thinking_parts.append(reasoning_delta)
                             yield ProviderStreamEvent("thinking_delta", {"text": reasoning_delta})
 
                         if delta.content:
@@ -293,30 +294,53 @@ class OpenAIChatAdapter(ProviderAdapter):
             return {"reasoning_content": thinking_text or None}
         return {"reasoning_content": thinking_text} if thinking_text else {}
 
-    def _extract_reasoning_delta(self, delta: Any) -> tuple[str, dict[str, Any]]:
+    def _consume_reasoning_delta(
+        self,
+        thinking_parts: list[str],
+        native_meta: dict[str, Any],
+        delta: Any,
+    ) -> str:
         # Third-party providers surface reasoning through non-standard extras.
         # We check both the delta root and model_extra to cover both patterns.
         # Known fields: reasoning, reasoning_content, reasoning_details.
+        values: dict[str, Any] = {}
         for source in (delta, getattr(delta, "model_extra", None) or {}):
             for field in ("reasoning", "reasoning_content", "reasoning_details"):
+                if field in values:
+                    continue
                 if isinstance(source, dict):
                     if field not in source:
                         continue
-                    value = source[field]
-                elif hasattr(source, field):
-                    value = getattr(source, field, None)
-                else:
+                    values[field] = source[field]
                     continue
+                value = getattr(source, field, None)
+                if value is not None:
+                    values[field] = value
 
-                if field == "reasoning_details":
-                    if not isinstance(value, list):
-                        continue
-                    text = "".join(str(item.get("text") or "") for item in value if isinstance(item, dict))
-                    return text, {"reasoning_field": "reasoning_details", "reasoning_details": value}
+        raw_details = dump_model(values.get("reasoning_details"))
+        details = [item for item in raw_details if isinstance(item, dict)] if isinstance(raw_details, list) else None
+        if details:
+            stored_details = native_meta.setdefault("reasoning_details", [])
+            stored_details.extend(details)
+            native_meta["reasoning_field"] = "reasoning_details"
+        elif native_meta.get("reasoning_field") != "reasoning_details":
+            for field in ("reasoning", "reasoning_content"):
+                if field in values:
+                    native_meta["reasoning_field"] = field
+                    break
 
-                return (value if isinstance(value, str) else "", {"reasoning_field": field})
+        text = ""
+        for field in ("reasoning", "reasoning_content"):
+            value = values.get(field)
+            if isinstance(value, str):
+                text = value
+                break
+        if not text and details:
+            text = "".join(str(item.get("text") or item.get("summary") or "") for item in details)
 
-        return "", {}
+        if text:
+            thinking_parts.append(text)
+        return text
 
 
 class DeepSeekAdapter(OpenAIChatAdapter):

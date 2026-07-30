@@ -164,15 +164,11 @@ class AnthropicLikeAdapter(ProviderAdapter):
         for block in getattr(message, "content", []) or []:
             block_type = getattr(block, "type", None)
 
-            if block_type == "thinking":
-                native_meta = {}
-                signature = getattr(block, "signature", None)
-                if signature:
-                    native_meta["signature"] = signature
+            if block_type in {"thinking", "redacted_thinking"}:
                 blocks.append(
                     thinking_block(
-                        getattr(block, "thinking", ""),
-                        meta=native_block_meta(native_meta),
+                        getattr(block, "thinking", "") if block_type == "thinking" else "",
+                        meta=native_block_meta({"anthropic_block": dump_model(block)}),
                     )
                 )
                 continue
@@ -236,11 +232,16 @@ class AnthropicLikeAdapter(ProviderAdapter):
         for block in message.get("content") or []:
             if not isinstance(block, dict):
                 continue
+            native_meta = get_native_meta(block)
+            native_block = native_meta.get("anthropic_block")
+            has_native_thinking = native_meta.get("signature") or (
+                isinstance(native_block, dict) and native_block.get("type") in {"thinking", "redacted_thinking"}
+            )
             if (
                 self.provider_id == "anthropic"
                 and role == "assistant"
                 and block.get("type") == "thinking"
-                and (source_provider != self.provider_id or not get_native_meta(block).get("signature"))
+                and (source_provider != self.provider_id or not has_native_thinking)
             ):
                 continue
             content.append(self._serialize_block(block))
@@ -257,6 +258,10 @@ class AnthropicLikeAdapter(ProviderAdapter):
 
         if block_type == "thinking":
             native_meta = get_native_meta(block)
+            native_block = native_meta.get("anthropic_block")
+            if isinstance(native_block, dict) and native_block.get("type") in {"thinking", "redacted_thinking"}:
+                return dict(native_block)
+
             payload: dict[str, Any] = {
                 "type": "thinking",
                 "thinking": str(block.get("text") or ""),
@@ -319,15 +324,14 @@ class AnthropicAdapter(AnthropicLikeAdapter):
     @override
     def thinking_config(self, request: ProviderRequest) -> dict[str, Any] | None:
         effort = request.reasoning_effort
+        normalized = request.model.lower()
         if not effort:
+            if normalized.startswith(("claude-opus-5", "claude-sonnet-5")):
+                return {"type": "adaptive", "display": "summarized"}
             return None
         if effort == "none":
             return {"type": "disabled"}
-        normalized = request.model.lower()
-        thinking: dict[str, Any] = {"type": "adaptive"}
-        if normalized.startswith(("claude-opus-4-7", "claude-opus-4-8", "claude-opus-5")):
-            thinking["display"] = "summarized"
-        return thinking
+        return {"type": "adaptive", "display": "summarized"}
 
     @override
     def output_config(self, request: ProviderRequest) -> dict[str, Any] | None:
