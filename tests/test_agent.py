@@ -1,24 +1,41 @@
-"""Tests for agent tool loops, persistence, and cancellation."""
+"""Tests for Agent construction, execution, persistence, and cancellation."""
 
 import asyncio
 import tempfile
 import threading
+from copy import deepcopy
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 
-from mycode.agent import Agent, RunResult
-from mycode.messages import ConversationMessage
+from mycode import (
+    Agent,
+    ConversationMessage,
+    RunResult,
+    SessionStore,
+    ToolContext,
+    ToolExecutionResult,
+    ToolSpec,
+    bash_tool,
+    edit_tool,
+    read_tool,
+    text_block,
+    tool,
+    write_tool,
+)
 from mycode.providers.base import ProviderStreamEvent
-from mycode.tools import ToolContext, ToolExecutionResult, ToolSpec, tool
 
 
 class _FakeProviderAdapter:
     def __init__(self, turns: list[list[ProviderStreamEvent]]):
         self._turns = list(turns)
+        self.requests = []
+        self.message_snapshots = []
 
     async def stream_turn(self, request):
+        self.requests.append(request)
+        self.message_snapshots.append(deepcopy(request.messages))
         events = self._turns.pop(0) if self._turns else []
         for event in events:
             yield event
@@ -42,6 +59,61 @@ _PING_TOOL = ToolSpec(
 )
 
 
+def _assistant_turn(
+    *blocks: dict[str, object],
+    meta: dict[str, object] | None = None,
+) -> list[ProviderStreamEvent]:
+    message: dict[str, object] = {"role": "assistant", "content": list(blocks)}
+    if meta is not None:
+        message["meta"] = meta
+    return [ProviderStreamEvent("message_done", {"message": message})]
+
+
+def _text_turn(text: str = "done", *, meta: dict[str, object] | None = None) -> list[ProviderStreamEvent]:
+    return _assistant_turn({"type": "text", "text": text}, meta=meta)
+
+
+def _tool_turn(
+    call_id: str,
+    *,
+    name: str = "read",
+    tool_input: dict[str, object] | None = None,
+) -> list[ProviderStreamEvent]:
+    return _assistant_turn(
+        {
+            "type": "tool_use",
+            "id": call_id,
+            "name": name,
+            "input": {"path": "test.txt"} if tool_input is None else tool_input,
+        }
+    )
+
+
+@tool
+def read_back(context: ToolContext, path: str) -> str:
+    """Read a file through the built-in read tool."""
+
+    return context.read(path).output
+
+
+@tool(streams_output=True)
+async def read_back_async(context: ToolContext, path: str) -> str:
+    """Read a file through the async built-in read tool."""
+
+    output = (await context.aread(path)).output
+    if context.emit:
+        context.emit(output)
+    return output
+
+
+def _new_agent(tmp_path: Path, **overrides) -> Agent:
+    overrides.setdefault("model", "gpt-5.5")
+    overrides.setdefault("cwd", str(tmp_path))
+    overrides.setdefault("session_dir", tmp_path)
+    overrides.setdefault("session_id", "session")
+    return Agent(**overrides)
+
+
 class _SlowProviderAdapter:
     def __init__(self):
         self.closed = asyncio.Event()
@@ -52,6 +124,169 @@ class _SlowProviderAdapter:
             await asyncio.sleep(10)
         finally:
             self.closed.set()
+
+
+class _CancelledCompactAdapter:
+    def __init__(self):
+        self.requests = 0
+
+    async def stream_turn(self, _request):
+        self.requests += 1
+        if self.requests == 1:
+            yield _text_turn(meta={"total_tokens": 90})[0]
+            return
+        raise asyncio.CancelledError
+
+
+def test_agent_forwards_runtime_configuration_to_provider(tmp_path: Path) -> None:
+    default_adapter = _FakeProviderAdapter([_text_turn()])
+    with patch("mycode.agent.get_provider_adapter", return_value=default_adapter):
+        _new_agent(tmp_path).run("hello")
+
+    configured_adapter = _FakeProviderAdapter([_text_turn()])
+    configured_agent = _new_agent(
+        tmp_path,
+        session_id="configured-session",
+        system="Use this exact system prompt.",
+        tools=[read_tool, write_tool, edit_tool, bash_tool],
+    )
+    with patch("mycode.agent.get_provider_adapter", return_value=configured_adapter):
+        configured_agent.run("hello")
+
+    assert default_adapter.requests[0].tools == []
+    request = configured_adapter.requests[0]
+    assert request.session_id == "configured-session"
+    assert request.system == "Use this exact system prompt."
+    assert {tool_definition["name"] for tool_definition in request.tools} == {
+        "bash",
+        "edit",
+        "read",
+        "write",
+    }
+
+
+def test_agent_requires_explicit_provider_for_unknown_models(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="could not infer provider"):
+        _new_agent(tmp_path, model="not-a-real-model")
+
+
+def test_agent_run_collects_stream_events(tmp_path: Path) -> None:
+    adapter = _FakeProviderAdapter(
+        [
+            [
+                ProviderStreamEvent("thinking_delta", {"text": "plan "}),
+                ProviderStreamEvent("text_delta", {"text": "hello"}),
+                *_assistant_turn(
+                    {"type": "thinking", "text": "plan "},
+                    {"type": "text", "text": "hello"},
+                ),
+            ]
+        ]
+    )
+
+    with patch("mycode.agent.get_provider_adapter", return_value=adapter):
+        result = _new_agent(tmp_path).run("hi")
+
+    assert result.text == "hello"
+    assert result.error is None
+    assert [event.type for event in result.events] == ["reasoning", "reasoning_done", "text"]
+    assert result.events[0].data == {"delta": "plan "}
+    assert isinstance(result.events[1].data.get("duration_ms"), int)
+    assert result.events[2].data == {"delta": "hello"}
+
+
+def test_agent_run_rejects_non_user_messages(tmp_path: Path) -> None:
+    adapter = _FakeProviderAdapter([_text_turn()])
+    with patch("mycode.agent.get_provider_adapter", return_value=adapter):
+        result = _new_agent(tmp_path).run({"role": "assistant", "content": [text_block("bad")]})
+
+    assert result.text == ""
+    assert result.error == "user input must be a user message"
+    assert [event.type for event in result.events] == ["error"]
+    assert adapter.requests == []
+
+
+@pytest.mark.asyncio
+class TestAgentSessions:
+    async def test_achat_persists_messages_to_the_session_store(self, tmp_path: Path) -> None:
+        agent = _new_agent(tmp_path, session_id="s1")
+
+        with patch("mycode.agent.get_provider_adapter", return_value=_FakeProviderAdapter([_text_turn("first reply")])):
+            _ = [event async for event in agent.achat("first question")]
+
+        loaded = await SessionStore(data_dir=tmp_path).load_session("s1")
+
+        assert loaded is not None
+        assert [message["role"] for message in loaded["messages"]] == ["user", "assistant"]
+
+    async def test_achat_resumes_existing_session_history(self, tmp_path: Path) -> None:
+        first = _new_agent(tmp_path, session_id="s2")
+        with patch("mycode.agent.get_provider_adapter", return_value=_FakeProviderAdapter([_text_turn("first reply")])):
+            _ = [event async for event in first.achat("first question")]
+
+        second = _new_agent(tmp_path, session_id="s2")
+        adapter = _FakeProviderAdapter([_text_turn("second reply")])
+
+        with patch("mycode.agent.get_provider_adapter", return_value=adapter):
+            _ = [event async for event in second.achat("second question")]
+
+        assert [message["content"][0]["text"] for message in adapter.message_snapshots[0]] == [
+            "first question",
+            "first reply",
+            "second question",
+        ]
+
+    async def test_rejects_explicit_messages_for_existing_sessions(self, tmp_path: Path) -> None:
+        agent = _new_agent(tmp_path, session_id="s3")
+        with patch("mycode.agent.get_provider_adapter", return_value=_FakeProviderAdapter([_text_turn()])):
+            _ = [event async for event in agent.achat("hi")]
+
+        with pytest.raises(ValueError, match="already exists"):
+            _new_agent(tmp_path, session_id="s3", messages=[])
+
+        with pytest.raises(ValueError, match="already exists"):
+            _new_agent(
+                tmp_path,
+                session_id="s3",
+                messages=[{"role": "user", "content": [text_block("fake history")]}],
+            )
+
+
+@pytest.mark.asyncio
+async def test_custom_tools_can_reuse_builtin_tools(tmp_path: Path) -> None:
+    (tmp_path / "note.txt").write_text("hello from sdk\n", encoding="utf-8")
+    adapter = _FakeProviderAdapter(
+        [
+            _tool_turn("call_1", name="read_back", tool_input={"path": "note.txt"}),
+            _text_turn(),
+        ]
+    )
+
+    with patch("mycode.agent.get_provider_adapter", return_value=adapter):
+        events = [event async for event in _new_agent(tmp_path, tools=[read_tool, read_back]).achat("Read note.txt")]
+
+    assert [event.type for event in events] == ["tool_start", "tool_done"]
+    assert events[1].data["output"] == "hello from sdk"
+
+
+@pytest.mark.asyncio
+async def test_async_custom_tools_can_reuse_and_stream_builtin_output(tmp_path: Path) -> None:
+    (tmp_path / "note.txt").write_text("hello from async sdk\n", encoding="utf-8")
+    adapter = _FakeProviderAdapter(
+        [
+            _tool_turn("call_1", name="read_back_async", tool_input={"path": "note.txt"}),
+            _text_turn(),
+        ]
+    )
+
+    with patch("mycode.agent.get_provider_adapter", return_value=adapter):
+        events = [
+            event async for event in _new_agent(tmp_path, tools=[read_tool, read_back_async]).achat("Read note.txt")
+        ]
+
+    assert [event.type for event in events] == ["tool_start", "tool_output", "tool_done"]
+    assert events[1].data["output"] == "hello from async sdk"
+    assert events[2].data["output"] == "hello from async sdk"
 
 
 class TestAgentReasoningPersistence:
@@ -75,17 +310,9 @@ class TestAgentReasoningPersistence:
                     [
                         ProviderStreamEvent("thinking_delta", {"text": "hidden "}),
                         ProviderStreamEvent("text_delta", {"text": "Visible answer"}),
-                        ProviderStreamEvent(
-                            "message_done",
-                            {
-                                "message": {
-                                    "role": "assistant",
-                                    "content": [
-                                        {"type": "thinking", "text": "hidden "},
-                                        {"type": "text", "text": "Visible answer"},
-                                    ],
-                                }
-                            },
+                        *_assistant_turn(
+                            {"type": "thinking", "text": "hidden "},
+                            {"type": "text", "text": "Visible answer"},
                         ),
                     ]
                 ]
@@ -122,35 +349,8 @@ class TestAgentReasoningPersistence:
 
             adapter = _FakeProviderAdapter(
                 [
-                    [
-                        ProviderStreamEvent(
-                            "message_done",
-                            {
-                                "message": {
-                                    "role": "assistant",
-                                    "content": [
-                                        {
-                                            "type": "tool_use",
-                                            "id": "call-1",
-                                            "name": "read",
-                                            "input": {"path": "test.txt"},
-                                        }
-                                    ],
-                                }
-                            },
-                        )
-                    ],
-                    [
-                        ProviderStreamEvent(
-                            "message_done",
-                            {
-                                "message": {
-                                    "role": "assistant",
-                                    "content": [{"type": "text", "text": "done"}],
-                                }
-                            },
-                        )
-                    ],
+                    _tool_turn("call-1"),
+                    _text_turn(),
                 ]
             )
 
@@ -189,42 +389,7 @@ class TestAgentTurnLimits:
                 session_dir=Path(tmpdir),
             )
 
-            adapter = _FakeProviderAdapter(
-                [
-                    [
-                        ProviderStreamEvent(
-                            "message_done",
-                            {
-                                "message": {
-                                    "role": "assistant",
-                                    "content": [
-                                        {
-                                            "type": "tool_use",
-                                            "id": f"call-{idx}",
-                                            "name": "read",
-                                            "input": {"path": "test.txt"},
-                                        }
-                                    ],
-                                }
-                            },
-                        )
-                    ]
-                    for idx in range(1, 22)
-                ]
-                + [
-                    [
-                        ProviderStreamEvent(
-                            "message_done",
-                            {
-                                "message": {
-                                    "role": "assistant",
-                                    "content": [{"type": "text", "text": "done"}],
-                                }
-                            },
-                        )
-                    ]
-                ]
-            )
+            adapter = _FakeProviderAdapter([_tool_turn(f"call-{idx}") for idx in range(1, 22)] + [_text_turn()])
 
             with patch("mycode.agent.get_provider_adapter", return_value=adapter):
                 events = [event async for event in agent.achat("hello")]
@@ -245,42 +410,8 @@ class TestAgentTurnLimits:
 
             adapter = _FakeProviderAdapter(
                 [
-                    [
-                        ProviderStreamEvent(
-                            "message_done",
-                            {
-                                "message": {
-                                    "role": "assistant",
-                                    "content": [
-                                        {
-                                            "type": "tool_use",
-                                            "id": "call-1",
-                                            "name": "read",
-                                            "input": {"path": "test.txt"},
-                                        }
-                                    ],
-                                }
-                            },
-                        )
-                    ],
-                    [
-                        ProviderStreamEvent(
-                            "message_done",
-                            {
-                                "message": {
-                                    "role": "assistant",
-                                    "content": [
-                                        {
-                                            "type": "tool_use",
-                                            "id": "call-2",
-                                            "name": "read",
-                                            "input": {"path": "test.txt"},
-                                        }
-                                    ],
-                                }
-                            },
-                        )
-                    ],
+                    _tool_turn("call-1"),
+                    _tool_turn("call-2"),
                 ]
             )
 
@@ -306,35 +437,8 @@ class TestCustomTools:
 
             adapter = _FakeProviderAdapter(
                 [
-                    [
-                        ProviderStreamEvent(
-                            "message_done",
-                            {
-                                "message": {
-                                    "role": "assistant",
-                                    "content": [
-                                        {
-                                            "type": "tool_use",
-                                            "id": "call-1",
-                                            "name": "ping",
-                                            "input": {"text": "hello"},
-                                        }
-                                    ],
-                                }
-                            },
-                        )
-                    ],
-                    [
-                        ProviderStreamEvent(
-                            "message_done",
-                            {
-                                "message": {
-                                    "role": "assistant",
-                                    "content": [{"type": "text", "text": "done"}],
-                                }
-                            },
-                        )
-                    ],
+                    _tool_turn("call-1", name="ping", tool_input={"text": "hello"}),
+                    _text_turn(),
                 ]
             )
 
@@ -388,24 +492,7 @@ class TestCustomTools:
         )
         adapter = _FakeProviderAdapter(
             [
-                [
-                    ProviderStreamEvent(
-                        "message_done",
-                        {
-                            "message": {
-                                "role": "assistant",
-                                "content": [
-                                    {
-                                        "type": "tool_use",
-                                        "id": "call-1",
-                                        "name": "wait_forever",
-                                        "input": {},
-                                    }
-                                ],
-                            }
-                        },
-                    )
-                ]
+                _tool_turn("call-1", name="wait_forever", tool_input={}),
             ]
         )
         results: list[RunResult] = []
@@ -444,24 +531,7 @@ class TestCustomTools:
 
             adapter = _FakeProviderAdapter(
                 [
-                    [
-                        ProviderStreamEvent(
-                            "message_done",
-                            {
-                                "message": {
-                                    "role": "assistant",
-                                    "content": [
-                                        {
-                                            "type": "tool_use",
-                                            "id": "call-1",
-                                            "name": "ping",
-                                            "input": {"text": "hello"},
-                                        }
-                                    ],
-                                }
-                            },
-                        )
-                    ]
+                    _tool_turn("call-1", name="ping", tool_input={"text": "hello"}),
                 ]
             )
 
@@ -485,12 +555,7 @@ class TestCustomTools:
 
 class TestAgentCancel:
     @pytest.mark.asyncio
-    async def test_cancelled_compaction_emits_error(self):
-        """A cancellation inside _compact must surface as an error event, not
-        propagate CancelledError out of achat — otherwise the run manager's
-        ``except Exception`` would not catch it and the run would never reach
-        ``_finish_run`` (leaving the session locked behind a 409 forever)."""
-
+    async def test_cancelled_automatic_compaction_emits_error(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             agent = Agent(
                 model="gpt-5.5",
@@ -501,35 +566,14 @@ class TestAgentCancel:
                 compact_threshold=0.8,
             )
 
-            adapter = _FakeProviderAdapter(
-                [
-                    [
-                        ProviderStreamEvent(
-                            "message_done",
-                            {
-                                "message": {
-                                    "role": "assistant",
-                                    "content": [{"type": "text", "text": "done"}],
-                                    "meta": {"total_tokens": 90},
-                                }
-                            },
-                        )
-                    ]
-                ]
-            )
+            adapter = _CancelledCompactAdapter()
 
-            async def cancelled_compact(*_args, **_kwargs):
-                raise asyncio.CancelledError
-
-            with (
-                patch("mycode.agent.get_provider_adapter", return_value=adapter),
-                patch.object(agent, "_compact", cancelled_compact),
-            ):
+            with patch("mycode.agent.get_provider_adapter", return_value=adapter):
                 events = [event async for event in agent.achat("hello")]
 
-            error_events = [e for e in events if e.type == "error"]
-            assert error_events
-            assert error_events[-1].data.get("message") == "cancelled"
+            assert adapter.requests == 2
+            assert events[-1].type == "error"
+            assert events[-1].data == {"message": "cancelled"}
 
     @pytest.mark.asyncio
     async def test_cancel_stops_inflight_provider_stream(self):

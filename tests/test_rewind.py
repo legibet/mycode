@@ -62,20 +62,6 @@ async def test_rewind_replaces_the_visible_tail_without_rewriting_the_log(store:
 
 
 @pytest.mark.asyncio
-async def test_rewind_can_discard_the_entire_visible_history(store: SessionStore) -> None:
-    await store.create_session("s1", cwd="/tmp")
-    await store.append_message("s1", text_message("user", "old start"))
-
-    await store.append_rewind("s1", 0)
-    await store.append_message("s1", text_message("user", "fresh start"))
-
-    loaded = await store.load_session("s1")
-
-    assert loaded is not None
-    assert message_texts(loaded["messages"]) == ["fresh start"]
-
-
-@pytest.mark.asyncio
 async def test_multiple_rewinds_are_applied_in_order(store: SessionStore) -> None:
     await store.create_session("s1", cwd="/tmp")
     await append_messages(store, "s1", [text_message("user", "a"), text_message("assistant", "b")])
@@ -93,31 +79,25 @@ async def test_multiple_rewinds_are_applied_in_order(store: SessionStore) -> Non
 
 
 @pytest.mark.asyncio
-async def test_rewind_before_a_compact_marker_drops_the_marker(store: SessionStore) -> None:
-    await store.create_session("s1", cwd="/tmp")
-    await append_messages(
-        store,
-        "s1",
-        [
-            text_message("user", "hello"),
-            text_message("assistant", "hi"),
-            build_compact_event("summary", provider="p", model="m"),
-            text_message("user", "explain X"),
-        ],
-    )
-
-    await store.append_rewind("s1", 0)
-    await store.append_message("s1", text_message("user", "fresh start"))
-
-    loaded = await store.load_session("s1")
-
-    assert loaded is not None
-    assert [message["role"] for message in loaded["messages"]] == ["user"]
-    assert message_texts(loaded["messages"]) == ["fresh start"]
-
-
-@pytest.mark.asyncio
-async def test_rewind_after_a_compact_marker_keeps_the_marker(store: SessionStore) -> None:
+@pytest.mark.parametrize(
+    ("rewind_to", "replacement", "expected_roles", "expected_texts"),
+    [
+        (0, "fresh start", ["user"], ["fresh start"]),
+        (
+            3,
+            "explain Y instead",
+            ["user", "assistant", "compact", "user"],
+            ["hello", "hi", "summary", "explain Y instead"],
+        ),
+    ],
+)
+async def test_rewind_keeps_only_compact_markers_before_the_target(
+    store: SessionStore,
+    rewind_to: int,
+    replacement: str,
+    expected_roles: list[str],
+    expected_texts: list[str],
+) -> None:
     await store.create_session("s1", cwd="/tmp")
     await append_messages(
         store,
@@ -131,38 +111,14 @@ async def test_rewind_after_a_compact_marker_keeps_the_marker(store: SessionStor
         ],
     )
 
-    await store.append_rewind("s1", 3)
-    await store.append_message("s1", text_message("user", "explain Y instead"))
+    await store.append_rewind("s1", rewind_to)
+    await store.append_message("s1", text_message("user", replacement))
 
     loaded = await store.load_session("s1")
 
     assert loaded is not None
-    assert [message["role"] for message in loaded["messages"]] == ["user", "assistant", "compact", "user"]
-    assert message_texts(loaded["messages"]) == ["hello", "hi", "summary", "explain Y instead"]
-
-
-@pytest.mark.asyncio
-async def test_rewind_removes_an_interrupted_tool_call_from_visible_history(store: SessionStore) -> None:
-    await store.create_session("s1", cwd="/tmp")
-    await append_messages(
-        store,
-        "s1",
-        [
-            text_message("user", "hello"),
-            text_message("assistant", "hi"),
-            {
-                "role": "assistant",
-                "content": [{"type": "tool_use", "id": "call_1", "name": "read", "input": {"path": "x.py"}}],
-            },
-        ],
-    )
-
-    await store.append_rewind("s1", 2)
-
-    loaded = await store.load_session("s1")
-
-    assert loaded is not None
-    assert message_texts(loaded["messages"]) == ["hello", "hi"]
+    assert [message["role"] for message in loaded["messages"]] == expected_roles
+    assert message_texts(loaded["messages"]) == expected_texts
 
 
 def test_chat_rejects_rewind_to_compact_marker(tmp_path: Path, monkeypatch) -> None:

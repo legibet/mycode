@@ -80,7 +80,7 @@ class TestGetSettings:
                         "models": {"gpt-5-mini": {}},
                     }
                 },
-                "default": {"provider": "shared", "model": "gpt-5-mini"},
+                "default": {"provider": "shared", "model": "gpt-5-mini", "compact_threshold": 0.7},
             },
         )
         write_json(
@@ -91,6 +91,7 @@ class TestGetSettings:
                         "base_url": "https://root.example/v1",
                     }
                 },
+                "default": {"compact_threshold": 0.9},
             },
         )
         write_json(
@@ -111,6 +112,7 @@ class TestGetSettings:
         assert settings.project == str(project.resolve())
         assert settings.default_provider == "shared"
         assert settings.default_model == "gpt-5.5"
+        assert settings.compact_threshold == 0.9
         assert settings.providers["shared"].api_key == "global-key"
         assert settings.providers["shared"].base_url == "https://root.example/v1"
         assert list(settings.providers["shared"].models) == ["gpt-5.5"]
@@ -468,20 +470,6 @@ class TestResolveProvider:
     def test_errors_when_no_providers_are_available(self, workspace: Path, config_home: Path) -> None:
         with pytest.raises(ValueError, match="no available providers found"):
             resolve_provider(get_settings(str(workspace.resolve())))
-
-    def test_raw_provider_uses_builtin_agent_defaults_without_catalog_metadata(
-        self, tmp_path: Path, workspace: Path, config_home: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        monkeypatch.setenv("OPENAI_API_KEY", "env-key")
-
-        settings = get_settings(str(workspace.resolve()))
-        resolved = resolve_provider(settings, provider_name="openai")
-        agent = build_test_agent(tmp_path, workspace, settings, resolved)
-
-        assert resolved.provider == "openai"
-        assert resolved.model == "gpt-5.6-sol"
-        assert agent.max_tokens == 16_384
-        assert agent.context_window == 128_000
 
 
 class TestAgentCapabilities:

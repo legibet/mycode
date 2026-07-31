@@ -20,14 +20,13 @@ from rich.console import Console
 from mycode.agent import Event
 from mycode.session import SessionStore
 from mycode.tools import ToolExecutor, bash_tool, edit_tool, read_tool, write_tool
-from mycode_cli.config import ResolvedProvider, Settings
+from mycode_cli.config import Settings
 from mycode_cli.main import app, resolve_session, run_noninteractive
 from mycode_cli.permissions import PERMISSION_DENIED_BY_USER_OUTPUT, PERMISSION_DENIED_OUTPUT
 from mycode_cli.tui.chat import (
     TerminalChat,
     _build_chat_key_bindings,
     _PromptCompleter,
-    apply_resolved_provider,
 )
 from mycode_cli.tui.render import ReplyRenderer, TerminalView
 
@@ -105,25 +104,6 @@ class _PermissionDeniedThenReplyAgent:
                     "content": [{"type": "text", "text": "Permission was denied. Use --permission standard."}],
                 }
             )
-
-
-class _RuntimeAgent:
-    def __init__(self, *, cwd: str) -> None:
-        self.cwd = cwd
-        self.provider = "anthropic"
-        self.model = "claude-sonnet-4-6"
-        self.api_key = None
-        self.api_base = None
-        self.reasoning_effort = None
-        self.max_tokens = 16_384
-        self.context_window = 128_000
-        self.supports_reasoning: bool | None = None
-        self.supports_image_input = False
-        self.supports_pdf_input = False
-        self.tools = ToolExecutor(_TOOLS)
-
-    def refresh_capabilities(self, **_: Any) -> None:
-        return None
 
 
 @pytest.fixture
@@ -599,23 +579,3 @@ class TestAttachments:
 
         assert len(message["content"]) == 1
         assert message["content"][0]["type"] == "text"
-
-
-def test_apply_resolved_provider_updates_agent_runtime(tmp_path: Path) -> None:
-    agent = _RuntimeAgent(cwd=str(tmp_path))
-    resolved = ResolvedProvider(
-        provider="openai",
-        model="gpt-5.4",
-        api_key="test-key",
-        api_base="https://api.openai.com/v1",
-        reasoning_effort="medium",
-    )
-
-    changed = apply_resolved_provider(cast(Any, agent), resolved)
-
-    assert changed is True
-    assert agent.provider == "openai"
-    assert agent.model == "gpt-5.4"
-    assert agent.api_key == "test-key"
-    assert agent.api_base == "https://api.openai.com/v1"
-    assert agent.reasoning_effort == "medium"

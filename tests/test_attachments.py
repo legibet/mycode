@@ -60,7 +60,8 @@ async def test_path_attachment_picks_block_by_content(
 ) -> None:
     (tmp_path / filename).write_bytes(payload)
     cap = await _send_attachments(_agent(tmp_path), [filename])
-    block = cap.user_content[-1]
+    assert [block["type"] for block in cap.user_content] == ["text", expected_type]
+    block = cap.user_content[1]
     assert block["type"] == expected_type
     assert block["mime_type"] == expected_mime
 
@@ -69,9 +70,10 @@ async def test_path_attachment_picks_block_by_content(
 async def test_text_path_attachment_is_visible_to_model(tmp_path: Path) -> None:
     (tmp_path / "n.txt").write_text("hello world", encoding="utf-8")
     cap = await _send_attachments(_agent(tmp_path), ["n.txt"])
-    block = cap.user_content[-1]
-    assert block["type"] == "text"
-    assert "hello world" in block["text"]
+    assert len(cap.user_content) == 2
+    assert cap.user_content[0] == {"type": "text", "text": "go"}
+    assert cap.user_content[1]["type"] == "text"
+    assert cap.user_content[1]["text"] == '<file name="n.txt">\nhello world\n</file>'
 
 
 @pytest.mark.asyncio
@@ -139,12 +141,3 @@ async def test_unsupported_media_emits_error_event_without_calling_provider(
     assert called is False
     assert [e.type for e in events] == ["error"]
     assert error_word in events[0].data["message"]
-
-
-def test_run_forwards_attachments(tmp_path: Path) -> None:
-    (tmp_path / "n.txt").write_text("sync hello", encoding="utf-8")
-    cap = _Capture()
-    with patch("mycode.agent.get_provider_adapter", return_value=cap):
-        result = _agent(tmp_path).run("x", attachments=["n.txt"])
-    assert result.error is None
-    assert "sync hello" in cap.user_content[-1]["text"]

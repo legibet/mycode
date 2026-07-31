@@ -14,21 +14,12 @@ import pytest
 from mycode.agent import Agent
 from mycode.compact import (
     COMPACT_SUMMARY_PROMPT,
-    DEFAULT_COMPACT_THRESHOLD,
     NothingToCompactError,
     apply_compact_replay,
     build_compact_event,
-    has_compactable_history,
-    should_compact,
 )
 from mycode.providers.base import ProviderStreamEvent
 from mycode.session import SessionStore
-from mycode_cli.config import get_settings
-
-
-def write_file(path: Path, content: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(content, encoding="utf-8")
 
 
 @pytest.fixture
@@ -38,29 +29,6 @@ def store(tmp_path: Path) -> SessionStore:
 
 def make_agent(tmp_path: Path) -> Agent:
     return Agent(model="m", provider="anthropic", cwd="/tmp", session_dir=tmp_path)
-
-
-def test_workspace_config_overrides_global_compact_threshold(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    home = tmp_path / "home" / ".mycode"
-    project = tmp_path / "project"
-    project.mkdir(parents=True)
-    (project / ".git").mkdir()
-    monkeypatch.setenv("MYCODE_HOME", str(home))
-
-    write_file(home / "config.json", json.dumps({"default": {"compact_threshold": 0.7}}))
-    write_file(project / ".mycode" / "config.json", json.dumps({"default": {"compact_threshold": 0.9}}))
-
-    settings = get_settings(str(project))
-
-    assert settings.compact_threshold == 0.9
-
-
-def test_should_compact_respects_threshold_boundaries() -> None:
-    assert should_compact(80_000, 100_000, 0.8) is True
-    assert should_compact(79_999, 100_000, 0.8) is False
-    assert should_compact(99_999, 100_000, 0.0) is False
-    assert should_compact(None, 100_000, 0.8) is False
-    assert should_compact(50_000, None, 0.8) is False
 
 
 @pytest.mark.asyncio
@@ -159,25 +127,6 @@ def test_compact_replay_uses_latest_summary_and_transcript_hint() -> None:
     assert "/sessions/s1/messages.jsonl" in summary_user_text
 
 
-def test_agent_uses_default_compact_threshold(tmp_path: Path) -> None:
-    agent = make_agent(tmp_path)
-    assert agent.compact_threshold == DEFAULT_COMPACT_THRESHOLD
-
-
-def test_has_compactable_history_requires_content_after_latest_marker() -> None:
-    user = {"role": "user", "content": [{"type": "text", "text": "hi"}]}
-    marker = build_compact_event("summary", provider="p", model="m")
-
-    assert has_compactable_history([]) is False
-    assert has_compactable_history([user]) is True
-    assert has_compactable_history([user, marker]) is False
-    assert (
-        has_compactable_history([user, marker, {"role": "assistant", "content": [{"type": "text", "text": "tail"}]}])
-        is True
-    )
-    assert has_compactable_history([user, marker, {"role": "user", "content": []}]) is False
-
-
 class _RecordingAdapter:
     """Streams one canned summary per turn and records every request."""
 
@@ -194,9 +143,63 @@ class _RecordingAdapter:
         )
 
 
+class _UsageAdapter:
+    def __init__(self, total_tokens: int):
+        self.total_tokens = total_tokens
+        self.requests: list[Any] = []
+
+    async def stream_turn(self, request: Any) -> AsyncIterator[ProviderStreamEvent]:
+        self.requests.append(request)
+        message: dict[str, Any] = {
+            "role": "assistant",
+            "content": [{"type": "text", "text": "reply" if len(self.requests) == 1 else "summary"}],
+        }
+        if len(self.requests) == 1:
+            message["meta"] = {"total_tokens": self.total_tokens}
+        yield ProviderStreamEvent("message_done", {"message": message})
+
+
 @pytest.mark.asyncio
-async def test_acompact_persists_marker_and_next_turn_replays_summary(tmp_path: Path) -> None:
-    agent = make_agent(tmp_path)
+@pytest.mark.parametrize(
+    ("total_tokens", "compact_threshold", "expected_compaction"),
+    [
+        pytest.param(80_000, None, True, id="default-threshold-reached"),
+        pytest.param(79_999, None, False, id="below-default-threshold"),
+        pytest.param(99_999, 0, False, id="disabled"),
+    ],
+)
+async def test_achat_automatically_compacts_at_the_configured_threshold(
+    tmp_path: Path,
+    total_tokens: int,
+    compact_threshold: float | None,
+    expected_compaction: bool,
+) -> None:
+    agent = Agent(
+        model="m",
+        provider="anthropic",
+        cwd="/tmp",
+        context_window=100_000,
+        compact_threshold=compact_threshold,
+    )
+    adapter = _UsageAdapter(total_tokens)
+
+    with patch("mycode.agent.get_provider_adapter", return_value=adapter):
+        events = [event async for event in agent.achat("hello")]
+
+    assert ("compact" in [event.type for event in events]) is expected_compaction
+    assert len(adapter.requests) == (2 if expected_compaction else 1)
+    assert (agent.messages[-1]["role"] == "compact") is expected_compaction
+
+
+@pytest.mark.asyncio
+async def test_acompact_persists_marker_and_uses_manual_request_contract(tmp_path: Path) -> None:
+    agent = Agent(
+        model="m",
+        provider="anthropic",
+        cwd="/tmp",
+        session_dir=tmp_path,
+        compact_threshold=0,
+    )
     persisted: list[dict[str, Any]] = []
     store_lines_at_callback: list[int] = []
     messages_path = SessionStore(data_dir=tmp_path).messages_path(agent.session_id)
@@ -230,24 +233,6 @@ async def test_acompact_persists_marker_and_next_turn_replays_summary(tmp_path: 
     assert agent.messages[-1] is marker
     raw_roles = [json.loads(line)["role"] for line in messages_path.read_text(encoding="utf-8").strip().splitlines()]
     assert raw_roles == ["user", "assistant", "compact"]
-
-    # The next provider request replays the summary instead of the full history.
-    projected = apply_compact_replay(agent.messages)
-    assert [m["role"] for m in projected] == ["user"]
-    assert "THE_SUMMARY" in projected[0]["content"][0]["text"]
-    assert "hello there" not in projected[0]["content"][0]["text"]
-
-
-@pytest.mark.asyncio
-async def test_acompact_ignores_compact_threshold(tmp_path: Path) -> None:
-    agent = Agent(model="m", provider="anthropic", cwd="/tmp", session_dir=tmp_path, compact_threshold=0)
-    agent.messages.append({"role": "user", "content": [{"type": "text", "text": "hi"}]})
-
-    adapter = _RecordingAdapter(["SUMMARY"])
-    with patch("mycode.agent.get_provider_adapter", return_value=adapter):
-        marker = await agent.acompact()
-
-    assert marker["content"][0]["text"] == "SUMMARY"
 
 
 @pytest.mark.asyncio
@@ -285,17 +270,3 @@ async def test_acompact_cancellation_writes_no_marker(tmp_path: Path) -> None:
 
     assert all(m.get("role") != "compact" for m in agent.messages)
     assert not messages_path.exists()
-
-
-def test_sync_compact_returns_marker(tmp_path: Path) -> None:
-    agent = make_agent(tmp_path)
-    agent.messages.append({"role": "user", "content": [{"type": "text", "text": "hi"}]})
-
-    adapter = _RecordingAdapter(["SUMMARY"])
-    with patch("mycode.agent.get_provider_adapter", return_value=adapter):
-        marker = agent.compact()
-
-    assert marker["role"] == "compact"
-    assert marker["content"] == [{"type": "text", "text": "SUMMARY"}]
-    assert marker["meta"]["provider"] == "anthropic"
-    assert marker["meta"]["model"] == "m"

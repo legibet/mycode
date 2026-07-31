@@ -55,6 +55,9 @@ async def _wait_for_run_task(manager: RunManager, run_id: str) -> RunState:
     return state
 
 
+# Chat runs and reconnect state
+
+
 async def test_snapshot_includes_user_message_and_pending_events() -> None:
     manager = RunManager()
     agent = BlockingAgent()
@@ -198,6 +201,9 @@ async def test_cancelled_error_in_agent_still_finalizes_run() -> None:
     assert final.status == "cancelled"
     # Active-session lock must be released so the next /api/chat does not 409.
     assert not await manager.has_active_run("session-1")
+
+
+# Permission decisions
 
 
 class ReviewAgent(ChatOnlyAgent):
@@ -353,6 +359,9 @@ async def test_finished_run_stays_available_for_reconnect_window() -> None:
     assert finished is not None
     assert finished.status == "completed"
     assert await manager.snapshot_session("session-1") is None
+
+
+# Compact runs
 
 
 class CompactAgent:

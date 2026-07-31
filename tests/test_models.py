@@ -14,7 +14,14 @@ def test_lookup_model_metadata_prefers_provider_specific_match(monkeypatch) -> N
         monkeypatch,
         {
             "openai": {"gpt-5": {"max_output_tokens": 128_000, "supports_reasoning": True}},
-            "openrouter": {"openai/gpt-5": {"max_output_tokens": 64_000, "supports_reasoning": True}},
+            "openrouter": {
+                "openai/gpt-5": {
+                    "max_output_tokens": 64_000,
+                    "supports_reasoning": True,
+                    "supports_image_input": True,
+                    "supports_pdf_input": True,
+                }
+            },
         },
     )
 
@@ -23,6 +30,8 @@ def test_lookup_model_metadata_prefers_provider_specific_match(monkeypatch) -> N
     assert metadata is not None
     assert metadata.provider == "openrouter"
     assert metadata.max_output_tokens == 64_000
+    assert metadata.supports_image_input is True
+    assert metadata.supports_pdf_input is True
 
 
 def test_lookup_model_metadata_falls_back_across_provider_families(monkeypatch) -> None:
@@ -78,25 +87,3 @@ def test_lookup_model_metadata_requires_query_provider(monkeypatch) -> None:
 
     assert lookup_model_metadata(provider_type=None, model="some-niche-model") is None
     assert lookup_model_metadata(provider_type=None, model="gpt-5") is None
-
-
-def test_lookup_model_metadata_reads_capability_flags(monkeypatch) -> None:
-    patch_catalog(
-        monkeypatch,
-        {
-            "openai": {
-                "gpt-5.4": {
-                    "max_output_tokens": 128_000,
-                    "supports_reasoning": True,
-                    "supports_image_input": True,
-                    "supports_pdf_input": True,
-                }
-            }
-        },
-    )
-
-    metadata = lookup_model_metadata(provider_type="openai", model="gpt-5.4")
-
-    assert metadata is not None
-    assert metadata.supports_image_input is True
-    assert metadata.supports_pdf_input is True

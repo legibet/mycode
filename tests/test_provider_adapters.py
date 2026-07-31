@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import base64
 import json
-from typing import Any, Literal, cast
+from dataclasses import replace
+from typing import Any, Literal
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -20,7 +21,7 @@ from mycode.providers import (
     XAIAdapter,
     ZAIAdapter,
 )
-from mycode.providers.base import repair_messages_for_replay
+from mycode.providers.base import ProviderRequest, repair_messages_for_replay
 from mycode.tools import tool as define_tool
 
 _PNG_1X1 = base64.b64decode(
@@ -46,25 +47,20 @@ class _Obj:
         return {key: _dump(value) for key, value in self.__dict__.items()}
 
 
-def request_obj(**overrides: Any) -> Any:
-    data = {
-        "model": "test-model",
-        "session_id": None,
-        "messages": [],
-        "system": "",
-        "tools": [],
-        "max_tokens": 4096,
-        "temperature": 1.0,
-        "reasoning_effort": None,
-        "api_key": None,
-        "api_base": None,
-        "supports_image_input": True,
-        "supports_pdf_input": True,
-        "transcript_path": None,
-        "append_messages": [],
-    }
-    data.update(overrides)
-    return cast(Any, _Obj(**data))
+def request_obj(**overrides: Any) -> ProviderRequest:
+    request = ProviderRequest(
+        provider="test",
+        model="test-model",
+        session_id=None,
+        messages=[],
+        system="",
+        tools=[],
+        max_tokens=4096,
+        temperature=1.0,
+        api_key=None,
+        api_base=None,
+    )
+    return replace(request, **overrides)
 
 
 def _async_context_mock() -> MagicMock:
@@ -273,6 +269,9 @@ def test_repair_messages_for_replay_downgrades_pdf_for_unsupported_models() -> N
 
 
 # OpenAI Responses adapter
+
+
+# Request replay and media
 
 
 def test_openai_responses_replays_native_output_items_for_tool_results() -> None:
@@ -503,6 +502,9 @@ def test_openai_responses_build_request_payload_includes_prompt_cache_key() -> N
     assert "previous_response_id" not in payload
 
 
+# Response conversion
+
+
 def test_openai_responses_converts_final_response_blocks() -> None:
     adapter = OpenAIResponsesAdapter()
     response = _Obj(
@@ -607,6 +609,9 @@ def test_openai_responses_preserves_invalid_tool_arguments() -> None:
             "meta": {"native": {"item_id": "fc_1", "status": "completed", "raw_arguments": "{not json"}},
         }
     ]
+
+
+# Strict tool schemas
 
 
 def test_openai_responses_serializes_strict_tool_schemas() -> None:
@@ -1464,27 +1469,6 @@ def test_thinking_duration_metadata_is_not_sent_to_providers() -> None:
 
     for payload in payloads:
         assert "duration_ms" not in json.dumps(payload)
-
-
-def test_replay_preserves_empty_native_reasoning_blocks() -> None:
-    messages = [
-        {
-            "role": "assistant",
-            "content": [
-                {"type": "thinking", "text": "", "meta": {"native": {"reasoning_field": "reasoning_content"}}},
-                {"type": "text", "text": "done"},
-            ],
-        },
-        {"role": "user", "content": [{"type": "text", "text": "next question"}]},
-    ]
-
-    repaired = repair_messages_for_replay(messages, supports_image_input=True, supports_pdf_input=True)
-
-    assert repaired[0]["content"][0] == {
-        "type": "thinking",
-        "text": "",
-        "meta": {"native": {"reasoning_field": "reasoning_content"}},
-    }
 
 
 @pytest.mark.parametrize(

@@ -17,7 +17,10 @@ def store(tmp_path: Path) -> SessionStore:
     return SessionStore(data_dir=tmp_path / "sessions")
 
 
-async def test_create_session_persists_metadata(store: SessionStore) -> None:
+async def test_session_lifecycle_preserves_metadata_and_messages(store: SessionStore) -> None:
+    assert await store.list_sessions() == []
+    assert await store.load_session("s1") is None
+
     result = await store.create_session("s1", cwd="/home/user/project")
 
     session = result["session"]
@@ -28,34 +31,46 @@ async def test_create_session_persists_metadata(store: SessionStore) -> None:
     assert result["messages"] == []
     assert [item["id"] for item in await store.list_sessions()] == ["s1"]
 
+    messages = [
+        {"role": "user", "content": [{"type": "text", "text": "How do I write a Python function?"}]},
+        {"role": "assistant", "content": [{"type": "text", "text": "Start with def."}]},
+    ]
+    for message in messages:
+        await store.append_message("s1", message)
 
-async def test_list_sessions_empty(store: SessionStore) -> None:
+    loaded = await store.load_session("s1")
+    assert loaded is not None
+    assert loaded["messages"] == messages
+    assert loaded["session"]["title"] == "How do I write a Python function?"
+
+    await store.clear_session("s1")
+
+    cleared = await store.load_session("s1")
+    assert cleared is not None
+    assert cleared["messages"] == []
+    assert cleared["session"]["cwd"] == "/home/user/project"
+    assert cleared["session"]["title"] == "New chat"
+
+    await store.delete_session("s1")
+    assert await store.load_session("s1") is None
     assert await store.list_sessions() == []
 
 
-async def test_list_sessions_returns_newest_first(store: SessionStore) -> None:
-    await store.create_session("first", cwd="/tmp")
-    await store.create_session("second", cwd="/tmp")
-    await store.append_message("first", {"role": "user", "content": [{"type": "text", "text": "first"}]})
-    await store.append_message("second", {"role": "user", "content": [{"type": "text", "text": "second"}]})
-
-    sessions = await store.list_sessions()
-
-    assert [session["id"] for session in sessions] == ["second", "first"]
-    assert str(sessions[0]["updated_at"]) >= str(sessions[1]["updated_at"])
-
-
-async def test_list_sessions_filters_by_workspace(store: SessionStore, tmp_path: Path) -> None:
+async def test_session_listing_filters_and_orders_by_recent_activity(store: SessionStore, tmp_path: Path) -> None:
     current_cwd = str(tmp_path / "project-a")
     other_cwd = str(tmp_path / "project-b")
-    await store.create_session("current", cwd=current_cwd)
+    await store.create_session("first", cwd=current_cwd)
+    await store.create_session("second", cwd=current_cwd)
     await store.create_session("other", cwd=other_cwd)
+    await store.append_message("first", {"role": "user", "content": [{"type": "text", "text": "bump first"}]})
 
     current = await store.list_sessions(cwd=current_cwd)
-    all_sessions = await store.list_sessions(cwd=None)
+    latest = await store.latest_session(cwd=current_cwd)
 
-    assert [session["id"] for session in current] == ["current"]
-    assert {session["id"] for session in all_sessions} == {"current", "other"}
+    assert [session["id"] for session in current] == ["first", "second"]
+    assert latest is not None
+    assert latest["id"] == "first"
+    assert {session["id"] for session in await store.list_sessions()} == {"first", "second", "other"}
 
 
 @pytest.mark.parametrize("index_state", ["missing", "damaged"])
@@ -73,35 +88,6 @@ async def test_list_sessions_recovers_when_index_is_unavailable(
     sessions = await store.list_sessions(cwd="/tmp")
 
     assert [(session["id"], session["title"]) for session in sessions] == [("s1", "Hello")]
-
-
-async def test_latest_session_returns_most_recent_match(store: SessionStore) -> None:
-    await store.create_session("first", cwd="/tmp")
-    await store.create_session("second", cwd="/tmp")
-    await store.append_message("first", {"role": "user", "content": [{"type": "text", "text": "bump first"}]})
-
-    latest = await store.latest_session(cwd="/tmp")
-
-    assert latest is not None
-    assert latest["id"] == "first"
-
-
-async def test_load_session_returns_none_for_missing_session(store: SessionStore) -> None:
-    assert await store.load_session("missing") is None
-
-
-async def test_load_session_restores_persisted_messages(store: SessionStore) -> None:
-    await store.create_session("s1", cwd="/tmp")
-    await store.append_message("s1", {"role": "user", "content": [{"type": "text", "text": "Hello"}]})
-    await store.append_message("s1", {"role": "assistant", "content": [{"type": "text", "text": "Hi there"}]})
-
-    loaded = await store.load_session("s1")
-
-    assert loaded is not None
-    assert loaded["messages"] == [
-        {"role": "user", "content": [{"type": "text", "text": "Hello"}]},
-        {"role": "assistant", "content": [{"type": "text", "text": "Hi there"}]},
-    ]
 
 
 async def test_load_session_preserves_orphan_tool_use(store: SessionStore) -> None:
@@ -130,42 +116,3 @@ async def test_load_session_preserves_orphan_tool_use(store: SessionStore) -> No
     assert loaded["messages"] == expected_messages
     assert loaded_again is not None
     assert loaded_again["messages"] == expected_messages
-
-
-async def test_load_session_derives_title_from_first_user_message(store: SessionStore) -> None:
-    await store.create_session("s1", cwd="/tmp")
-    await store.append_message(
-        "s1",
-        {"role": "user", "content": [{"type": "text", "text": "How do I write a Python function?"}]},
-    )
-
-    loaded = await store.load_session("s1")
-    sessions = await store.list_sessions(cwd="/tmp")
-
-    assert loaded is not None
-    assert loaded["session"]["title"] == "How do I write a Python function?"
-    assert sessions[0]["title"] == "How do I write a Python function?"
-
-
-async def test_clear_session_keeps_metadata(store: SessionStore) -> None:
-    await store.create_session("s1", cwd="/tmp")
-    await store.append_message("s1", {"role": "user", "content": [{"type": "text", "text": "Hello"}]})
-
-    await store.clear_session("s1")
-    loaded = await store.load_session("s1")
-    sessions = await store.list_sessions(cwd="/tmp")
-
-    assert loaded is not None
-    assert loaded["messages"] == []
-    assert loaded["session"]["cwd"] == "/tmp"
-    assert sessions[0]["title"] == "New chat"
-
-
-async def test_delete_session_removes_all_files(store: SessionStore) -> None:
-    await store.create_session("s1", cwd="/tmp")
-    await store.append_message("s1", {"role": "user", "content": [{"type": "text", "text": "Hello"}]})
-
-    await store.delete_session("s1")
-
-    assert await store.load_session("s1") is None
-    assert await store.list_sessions(cwd="/tmp") == []

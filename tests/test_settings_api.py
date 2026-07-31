@@ -97,17 +97,19 @@ class TestSettingsApi:
         on_disk = json.loads((home / "config.json").read_text(encoding="utf-8"))
         assert on_disk["providers"]["anthropic"].get("api_key") == expected
 
-    def test_put_round_trip_writes_models_as_dict(self, client: TestClient, home: Path) -> None:
+    def test_put_normalizes_ui_config_for_storage(self, client: TestClient, home: Path) -> None:
         response = client.put(
             "/api/settings",
             json={
                 "config": {
-                    "default": {"provider": "anthropic", "model": "claude-sonnet-4-6"},
+                    "default": {"provider": "custom", "model": "custom-model"},
                     "providers": {
-                        "anthropic": {
-                            "type": "anthropic",
-                            "models": ["claude-sonnet-4-6"],
+                        "custom": {
+                            "type": "openai_chat",
+                            "base_url": "https://example.test/v1",
+                            "models": ["custom-model"],
                             "api_key": "sk",
+                            "supports_reasoning_effort": True,
                         }
                     },
                 }
@@ -116,45 +118,32 @@ class TestSettingsApi:
         assert response.status_code == 200
 
         on_disk = json.loads((home / "config.json").read_text(encoding="utf-8"))
-        # UI sends models as a list; storage normalises to the dict form expected
-        # by the rest of the codebase (so model-metadata overrides keep working).
-        assert on_disk["providers"]["anthropic"]["models"] == {"claude-sonnet-4-6": {}}
-
-    def test_put_returns_400_on_invalid_input(self, client: TestClient, home: Path) -> None:
-        response = client.put(
-            "/api/settings",
-            json={"config": {"providers": {"weird": {"type": "not-a-real-provider"}}}},
-        )
-        assert response.status_code == 400
-        assert "unsupported" in response.json()["detail"]
-
-    def test_put_round_trip_preserves_supports_reasoning_effort(self, client: TestClient, home: Path) -> None:
-        response = client.put(
-            "/api/settings",
-            json={
-                "config": {
-                    "providers": {
-                        "custom": {
-                            "type": "openai_chat",
-                            "base_url": "https://api.x.ai/v1",
-                            "supports_reasoning_effort": True,
-                        }
-                    }
-                }
-            },
-        )
-        assert response.status_code == 200
-
-        on_disk = json.loads((home / "config.json").read_text(encoding="utf-8"))
+        assert on_disk["providers"]["custom"]["models"] == {"custom-model": {}}
         assert on_disk["providers"]["custom"]["supports_reasoning_effort"] is True
 
-    def test_put_returns_400_on_non_boolean_supports_reasoning_effort(self, client: TestClient, home: Path) -> None:
+    @pytest.mark.parametrize(
+        ("config", "error"),
+        [
+            ({"providers": {"weird": {"type": "not-a-real-provider"}}}, "unsupported"),
+            (
+                {"providers": {"custom": {"type": "openai_chat", "supports_reasoning_effort": "yes"}}},
+                "supports_reasoning_effort",
+            ),
+        ],
+    )
+    def test_put_rejects_invalid_input(
+        self,
+        client: TestClient,
+        home: Path,
+        config: dict[str, object],
+        error: str,
+    ) -> None:
         response = client.put(
             "/api/settings",
-            json={"config": {"providers": {"custom": {"type": "openai_chat", "supports_reasoning_effort": "yes"}}}},
+            json={"config": config},
         )
         assert response.status_code == 400
-        assert "supports_reasoning_effort" in response.json()["detail"]
+        assert error in response.json()["detail"]
 
 
 class TestSettingsWriteNormalization:

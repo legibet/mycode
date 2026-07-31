@@ -35,6 +35,9 @@ class _CaptureAdapter:
         )
 
 
+# App serving and CORS
+
+
 @pytest.mark.parametrize(
     ("factory", "has_static", "expected_status"),
     [
@@ -93,6 +96,9 @@ def test_api_dev_app_allows_only_local_vite_cors() -> None:
 
     assert allowed.headers["access-control-allow-origin"] == "http://localhost:5173"
     assert "access-control-allow-origin" not in denied.headers
+
+
+# Chat API
 
 
 @pytest.mark.parametrize(
@@ -253,6 +259,9 @@ def test_chat_per_request_effort_follows_openai_chat_opt_in(
             list(stream.iter_lines())
 
     assert adapter.reasoning_effort == expected_effort
+
+
+# Compact API
 
 
 def _seed_session(store: SessionStore, session_id: str, cwd: str) -> None:

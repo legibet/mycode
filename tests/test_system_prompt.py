@@ -1,4 +1,4 @@
-"""Tests for skill discovery and prompt formatting."""
+"""Tests for instruction and skill discovery."""
 
 from __future__ import annotations
 
@@ -6,8 +6,11 @@ from pathlib import Path
 
 import pytest
 
+from mycode_cli.config import get_settings
 from mycode_cli.system_prompt import (
+    discover_instruction_files,
     discover_skills,
+    load_instructions_prompt,
     load_skills_prompt,
 )
 
@@ -28,7 +31,7 @@ def skill_text(*, name: str | None = "test-skill", description: str | None = "A 
 
 
 @pytest.fixture
-def skill_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+def home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     home = tmp_path / "home"
     monkeypatch.setenv("MYCODE_HOME", str(home / ".mycode"))
     monkeypatch.setattr("mycode_cli.system_prompt.Path.home", lambda: home)
@@ -42,7 +45,7 @@ def workspace(tmp_path: Path) -> Path:
     return path
 
 
-def test_discovers_supported_layouts_and_ignores_invalid_skill_files(skill_home: Path, workspace: Path) -> None:
+def test_discovers_supported_layouts_and_ignores_invalid_skill_files(home: Path, workspace: Path) -> None:
     root = workspace / ".mycode" / "skills"
     write_file(root / "deploy.md", skill_text(name="deploy", description="Deploy things."))
     write_file(root / "lint.md", skill_text(name="lint", description="Lint things."))
@@ -73,13 +76,13 @@ def test_discovers_supported_layouts_and_ignores_invalid_skill_files(skill_home:
 
 
 class TestDiscoverSkills:
-    def test_prefers_current_native_root_over_compat_and_global(self, skill_home: Path, workspace: Path) -> None:
+    def test_prefers_current_native_root_over_compat_and_global(self, home: Path, workspace: Path) -> None:
         write_file(
-            skill_home / ".agents" / "skills" / "shared" / "SKILL.md",
+            home / ".agents" / "skills" / "shared" / "SKILL.md",
             skill_text(name="shared", description="Compat global."),
         )
         write_file(
-            skill_home / ".mycode" / "skills" / "shared" / "SKILL.md",
+            home / ".mycode" / "skills" / "shared" / "SKILL.md",
             skill_text(name="shared", description="Native global."),
         )
         write_file(
@@ -97,7 +100,7 @@ class TestDiscoverSkills:
         assert skills[0].description == "Native project."
         assert skills[0].source == "project"
 
-    def test_loads_project_skill_roots_from_project_to_cwd(self, tmp_path: Path, skill_home: Path) -> None:
+    def test_loads_project_skill_roots_from_project_to_cwd(self, tmp_path: Path, home: Path) -> None:
         project = tmp_path / "project"
         nested_cwd = project / "apps" / "api"
         nested_cwd.mkdir(parents=True)
@@ -120,7 +123,7 @@ class TestDiscoverSkills:
         assert {skill.name for skill in skills} == {"parent", "shared"}
         assert [skill for skill in skills if skill.name == "shared"][0].description == "Nearest project skill."
 
-    def test_does_not_load_parent_skill_roots_when_no_git_is_found(self, tmp_path: Path, skill_home: Path) -> None:
+    def test_does_not_load_parent_skill_roots_when_no_git_is_found(self, tmp_path: Path, home: Path) -> None:
         project = tmp_path / "project"
         nested_cwd = project / "apps" / "api"
         nested_cwd.mkdir(parents=True)
@@ -134,15 +137,77 @@ class TestDiscoverSkills:
         assert skills == []
 
 
-class TestLoadSkillsPrompt:
-    def test_formats_discovered_skills_into_prompt(self, skill_home: Path, workspace: Path) -> None:
-        write_file(
-            skill_home / ".mycode" / "skills" / "greet" / "SKILL.md",
-            skill_text(name="greet", description="Greeting skill."),
-        )
+def test_formats_discovered_skills_into_prompt(home: Path, workspace: Path) -> None:
+    write_file(
+        home / ".mycode" / "skills" / "greet" / "SKILL.md",
+        skill_text(name="greet", description="Greeting skill."),
+    )
 
-        result = load_skills_prompt(str(workspace))
+    result = load_skills_prompt(str(workspace))
 
-        assert "<available_skills>" in result
-        assert "<name>greet</name>" in result
-        assert "<description>Greeting skill.</description>" in result
+    assert "<available_skills>" in result
+    assert "<name>greet</name>" in result
+    assert "<description>Greeting skill.</description>" in result
+
+
+def test_prefers_native_global_agents_and_current_cwd_agents(tmp_path: Path, home: Path) -> None:
+    project = tmp_path / "project"
+    cwd = project / "apps" / "api"
+    cwd.mkdir(parents=True)
+
+    write_file(home / ".agents" / "AGENTS.md", "Global compat")
+    write_file(home / ".mycode" / "AGENTS.md", "Global native")
+    write_file(cwd / "AGENTS.md", "Current cwd")
+
+    settings = get_settings(str(cwd))
+    files = discover_instruction_files(str(cwd), settings)
+    prompt = load_instructions_prompt(str(cwd), settings)
+
+    assert [str(path.resolve()) for path in files] == [
+        str((home / ".mycode" / "AGENTS.md").resolve()),
+        str((cwd / "AGENTS.md").resolve()),
+    ]
+    assert "Global native" in prompt
+    assert "Current cwd" in prompt
+    assert "Global compat" not in prompt
+
+
+def test_loads_project_agents_from_project_to_cwd(tmp_path: Path, home: Path) -> None:
+    project = tmp_path / "project"
+    cwd = project / "apps" / "api"
+    cwd.mkdir(parents=True)
+    (project / ".git").mkdir()
+    write_file(project / "AGENTS.md", "Parent project")
+    write_file(cwd.parent / "AGENTS.md", "Nested project")
+    write_file(cwd / "AGENTS.md", "Current cwd")
+
+    files = discover_instruction_files(str(cwd))
+    prompt = load_instructions_prompt(str(cwd))
+
+    assert [str(path.resolve()) for path in files] == [
+        str((project / "AGENTS.md").resolve()),
+        str((cwd.parent / "AGENTS.md").resolve()),
+        str((cwd / "AGENTS.md").resolve()),
+    ]
+    assert prompt.index("Parent project") < prompt.index("Nested project") < prompt.index("Current cwd")
+
+
+def test_does_not_load_parent_agents_when_no_git_is_found(tmp_path: Path, home: Path) -> None:
+    project = tmp_path / "project"
+    cwd = project / "apps" / "api"
+    cwd.mkdir(parents=True)
+    write_file(project / "AGENTS.md", "Parent project")
+
+    prompt = load_instructions_prompt(str(cwd))
+
+    assert "Parent project" not in prompt
+
+
+def test_uses_compat_global_agents_when_native_is_missing(tmp_path: Path, home: Path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    write_file(home / ".agents" / "AGENTS.md", "Compat global")
+
+    prompt = load_instructions_prompt(str(workspace))
+
+    assert "Compat global" in prompt

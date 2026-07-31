@@ -111,13 +111,6 @@ class TestBashTruncation:
 
 
 class TestBashExitCode:
-    def test_bash_nonzero_exit_code_reported(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            result = _ctx(tmpdir, tool_call_id="exit-1").bash("exit 1")
-
-            assert "[exit code: 1]" in result.output
-            assert result.is_error is False
-
     def test_bash_zero_exit_code_not_reported(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             result = _ctx(tmpdir, tool_call_id="exit-0").bash("echo ok")
