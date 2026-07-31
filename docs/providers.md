@@ -47,8 +47,7 @@ class ProviderAdapter(ABC):
 - Default-on Claude 5 models and explicitly enabled thinking request summarized output
 - `claude-sonnet-4-6` / `claude-sonnet-5` / `claude-opus-4-6` and newer Opus models use `output_config.effort`
 - Omits `temperature`; Anthropic-compatible providers use provider-default sampling
-- Replays native `thinking` and `redacted_thinking` blocks unchanged; legacy signature-only blocks remain supported
-- Skips foreign or unsigned thinking
+- Replays same-model native `thinking` and `redacted_thinking` unchanged; legacy signature-only blocks remain supported
 - Adds ephemeral `cache_control` to system prompt block and last user content block
 - Tool call IDs projected to ASCII-safe format (letters, numbers, underscores, dashes, max 64 chars) with SHA1 collision suffix
 - Images serialize as Anthropic `image` blocks with base64 `source`
@@ -95,7 +94,7 @@ class ProviderAdapter(ABC):
   - `low` → `LOW`
   - `medium` → `MEDIUM`
   - `high`/`xhigh` → `HIGH`
-- Replays `Part` metadata through `block.meta.native.part`, preserving function-call ids and thought signatures
+- Replays original parts with their function-call ids and thought signatures
 - Cross-provider tool-loop fallback: adds documented dummy thought signature to avoid 400 errors
 - Empty-text streaming parts that carry thought signatures must still be persisted
 - Gemini validates function_call id/name match between function_call and function_response pairs
@@ -116,8 +115,8 @@ class ProviderAdapter(ABC):
 - When reasoning is enabled, requests `reasoning.summary=auto`; streams `response.reasoning_summary_text.delta` as canonical thinking and does not surface raw `response.reasoning_text.delta`
 - Final reasoning items use `summary` text for the canonical thinking block and retain full native output items for replay
 - OpenAI recommends reserving at least ~25k `max_output_tokens` for reasoning + output when first tuning reasoning models to avoid incomplete responses during reasoning
-- Streaming turns persist completed output items from `response.output_item.done` under `assistant.meta.native.output_items` and replay them directly
-- Tool results replay as `function_call_output`; foreign thinking never converted to OpenAI reasoning items
+- Replays complete native output items for the same model
+- Tool results replay as `function_call_output`
 - Passes `prompt_cache_key` using current session id
 - Tool schemas use `strict: true` with nullable optional parameters
 - Images serialize as `input_image`
@@ -131,7 +130,7 @@ class ProviderAdapter(ABC):
 - When enabled, clamps effort to `low`/`medium`/`high` (`none` → `low`, `xhigh` → `high`, `auto` unset); honored only for `openai_chat`-type providers
 - `auto_discoverable`: false (base class only, not used directly)
 - Intended for third-party OpenAI-compatible providers when Responses API is unavailable
-- Preserves third-party reasoning extensions from SDK extras:
+- Preserves same-model reasoning extensions from SDK extras:
   - `reasoning` replays as `reasoning`
   - `reasoning_content` replays as `reasoning_content`, including empty field markers
   - `reasoning_details` replays as `reasoning_details`
@@ -148,7 +147,7 @@ class ProviderAdapter(ABC):
 - Default models: `deepseek-v4-pro`, `deepseek-v4-flash`
 - `supports_reasoning_effort`: true; `none` sends `thinking: {type: "disabled"}`, `low`/`medium`/`high` map to `reasoning_effort=high`, and `xhigh` maps to `reasoning_effort=max`
 - `auto_discoverable`: true
-- Stored `reasoning_content` is replayed on later requests, including empty markers after tool turns
+- Same-model `reasoning_content` is replayed on later requests, including empty markers after tool turns
 
 ### `zai` — `openai_chat.py`
 
@@ -158,7 +157,7 @@ class ProviderAdapter(ABC):
 - Default models: `glm-5.2`
 - `supports_reasoning_effort`: true; thinking enabled by default via `thinking: {type: "enabled", clear_thinking: false}`; `glm-5.2` maps `low`/`medium`/`high` to `high` and `xhigh` to `max`
 - `auto_discoverable`: true
-- `clear_thinking: false` preserves reasoning across multi-turn tool loops; historical `reasoning_content` must be replayed unmodified
+- `clear_thinking: false` preserves same-model reasoning across tool loops; historical `reasoning_content` is replayed unmodified
 
 ### `openrouter` — `openai_chat.py`
 
@@ -168,8 +167,8 @@ class ProviderAdapter(ABC):
 - Default models: `openrouter/auto`
 - `supports_reasoning_effort`: true (forwarded through `extra_body.reasoning.effort`)
 - `auto_discoverable`: true
-- Supports OpenRouter reasoning replay shapes: `reasoning`, `reasoning_content` alias, and `reasoning_details`
-- Keeps plaintext for display and appends streamed `reasoning_details` in order for replay
+- Replays `reasoning_details` unchanged across OpenRouter models
+- Accepts `reasoning` and `reasoning_content`; foreign readable thinking uses `reasoning`
 - Same image format as `openai_chat`
 - Same PDF format as `openai_chat`
 
@@ -181,7 +180,7 @@ class ProviderAdapter(ABC):
 - Default models: `grok-4.5`
 - `supports_reasoning_effort`: true; shares the `openai_chat` clamped mapping. Grok reasoning cannot be disabled, so `none` → `low` and `xhigh` → `high`
 - `auto_discoverable`: true
-- Grok reasoning streams as `reasoning_content`, replayed by the shared `openai_chat` reasoning handling
+- Grok reasoning streams as `reasoning_content`, replayed for the same model by the shared `openai_chat` handling
 - Model metadata resolves through the OpenRouter suffix fallback for the shared `grok-*` aliases
 - Same image format as `openai_chat`
 - Same PDF format as `openai_chat`
@@ -204,22 +203,24 @@ Config-resolved `reasoning_effort` is only applied when both `adapter.supports_r
 
 ## Message Replay
 
-`prepare_messages()` in the base class handles the canonical → provider wire format projection:
+Before serialization, replay history is normalized:
 
 1. Skip assistant messages with `stop_reason` in `{error, aborted, cancelled}`
 2. Project tool call IDs to provider-safe format (only Anthropic-like adapters override this)
-3. Preserve `block.meta.native` for provider-specific replay data (signatures, output items, part metadata); local metadata such as `duration_ms` is not sent upstream
-4. Replace replay images with a short text notice when `request.supports_image_input` is false
-5. Replace replay PDFs with a short text notice when `request.supports_pdf_input` is false
+3. Preserve native reasoning data only when the source provider and selected model match the target
+4. Replay readable foreign or different-model thinking as assistant text and drop opaque native state
+5. Replace unsupported replay images and PDFs with short text notices
 6. Insert synthetic error tool results when pending tool calls would otherwise make replay invalid
 
-Provider-specific replay logic lives inside each adapter's serialization methods (e.g., Gemini's `_build_contents` replays native `Part` metadata, OpenAI's `_native_output_items` replays stored output items). These run after `prepare_messages()` produces the canonical replay transcript.
+OpenRouter is the documented exception: its `reasoning_details` remains portable across models within OpenRouter, and readable foreign thinking uses OpenRouter's normalized `reasoning` field.
 
 For OpenAI-compatible chat providers, empty `thinking` blocks with `block.meta.native` are intentionally preserved. Some providers require a reasoning field to be returned even when its value is empty or null.
 
 Upstream behavior references:
 
-- Anthropic [thinking](https://platform.claude.com/docs/en/build-with-claude/thinking): replay every `thinking` and `redacted_thinking` block unchanged and in order.
+- Anthropic [thinking](https://platform.claude.com/docs/en/build-with-claude/thinking): replay native blocks unchanged and strip them when switching models.
+- Gemini [thought signatures](https://ai.google.dev/gemini-api/docs/generate-content/thought-signatures): replay signatures in their original parts; use the documented dummy signature for transferred tool traces.
+- OpenAI [reasoning](https://developers.openai.com/api/docs/guides/reasoning#preserve-reasoning-without-stored-responses): stateless Responses requests replay the complete native output items.
 - OpenAI Chat/SDK: additive response fields are allowed by the [API compatibility policy](https://developers.openai.com/api/reference/overview#backwards-compatibility), and the official Python SDK exposes undocumented response properties through [`model_extra`](https://github.com/openai/openai-python#undocumented-request-params).
 - OpenRouter: [reasoning tokens](https://openrouter.ai/docs/guides/best-practices/reasoning-tokens#preserving-reasoning) can be returned and replayed as `reasoning`, `reasoning_content`, or structured `reasoning_details`; streamed `reasoning_details` chunks must be concatenated in order and replayed unmodified.
 - Z.AI: [preserved/interleaved thinking](https://docs.z.ai/guides/capabilities/thinking-mode#preserved-thinking) requires returning historical `reasoning_content` unmodified when `clear_thinking: false` is used.

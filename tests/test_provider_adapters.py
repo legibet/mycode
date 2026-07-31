@@ -18,6 +18,7 @@ from mycode.providers import (
     OpenAIResponsesAdapter,
     OpenRouterAdapter,
     XAIAdapter,
+    ZAIAdapter,
 )
 from mycode.providers.base import repair_messages_for_replay
 from mycode.tools import tool as define_tool
@@ -389,41 +390,70 @@ def test_openai_responses_serializes_tool_result_images(tmp_path) -> None:
     assert input_items[1]["output"][1]["image_url"].startswith("data:image/png;base64,")
 
 
-def test_openai_responses_falls_back_to_full_replay_for_cross_provider_history() -> None:
+async def test_openai_responses_replays_foreign_thinking_as_assistant_text(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     adapter = OpenAIResponsesAdapter()
-    request = request_obj(
-        model="gpt-5.4",
-        messages=[
-            {"role": "user", "content": [{"type": "text", "text": "double 21"}]},
-            {
-                "role": "assistant",
-                "content": [
-                    {"type": "thinking", "text": "Need the tool first."},
-                    {"type": "tool_use", "id": "call_1", "name": "read", "input": {"path": "x.py"}},
-                ],
-                "meta": {"provider": "anthropic", "model": "claude-sonnet-4-6"},
-            },
-            {
-                "role": "user",
-                "content": [
-                    {
-                        "type": "tool_result",
-                        "tool_use_id": "call_1",
-                        "output": "42",
-                    }
-                ],
-            },
-        ],
+    client = _async_context_mock()
+    client.responses.create = AsyncMock(
+        return_value=_stream_mock(
+            [
+                _Obj(
+                    type="response.completed",
+                    response=_Obj(
+                        id="resp_1",
+                        model="gpt-5.4",
+                        status="completed",
+                        usage=_Obj(input_tokens=20, output_tokens=2, total_tokens=22),
+                        output=[],
+                    ),
+                )
+            ]
+        )
     )
+    monkeypatch.setattr("mycode.providers.openai_responses.AsyncOpenAI", lambda **_kwargs: client)
 
-    input_items = adapter._build_request_payload(request)["input"]
+    _ = [
+        event
+        async for event in adapter.stream_turn(
+            request_obj(
+                api_key="test-key",
+                model="gpt-5.4",
+                messages=[
+                    {"role": "user", "content": [{"type": "text", "text": "double 21"}]},
+                    {
+                        "role": "assistant",
+                        "content": [
+                            {"type": "thinking", "text": "Need the tool first."},
+                            {"type": "text", "text": "I will inspect the file."},
+                            {"type": "tool_use", "id": "call_1", "name": "read", "input": {"path": "x.py"}},
+                        ],
+                        "meta": {"provider": "anthropic", "model": "claude-sonnet-4-6"},
+                    },
+                    {
+                        "role": "user",
+                        "content": [{"type": "tool_result", "tool_use_id": "call_1", "output": "42"}],
+                    },
+                ],
+            )
+        )
+    ]
 
-    assert [item["type"] for item in input_items] == ["message", "function_call", "function_call_output"]
-    assert input_items[0]["role"] == "user"
-    assert input_items[0]["content"][0]["text"] == "double 21"
-    assert input_items[1]["call_id"] == "call_1"
-    assert input_items[1]["arguments"] == '{"path": "x.py"}'
-    assert input_items[2]["output"] == "42"
+    request_call = client.responses.create.await_args
+    assert request_call is not None
+    input_items = request_call.kwargs["input"]
+    assert [item["type"] for item in input_items] == [
+        "message",
+        "message",
+        "function_call",
+        "function_call_output",
+    ]
+    assert input_items[1]["role"] == "assistant"
+    assert input_items[1]["content"] == [
+        {"type": "output_text", "text": "Need the tool first.\nI will inspect the file."}
+    ]
+    assert input_items[2]["call_id"] == "call_1"
+    assert input_items[3]["output"] == "42"
 
 
 def test_openai_responses_fallback_replay_skips_reasoning_blocks() -> None:
@@ -697,42 +727,113 @@ def test_openai_responses_rejects_dynamic_object_schemas() -> None:
 # Gemini adapter
 
 
-def test_google_gemini_falls_back_to_full_replay_for_cross_provider_history() -> None:
+async def test_google_gemini_replays_foreign_thinking_as_plain_model_text(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     adapter = GoogleGeminiAdapter()
-    request = request_obj(
-        model="gemini-3-flash-preview",
-        messages=[
-            {"role": "user", "content": [{"type": "text", "text": "double 21"}]},
-            {
-                "role": "assistant",
-                "content": [
-                    {"type": "thinking", "text": "Need the tool first."},
-                    {"type": "text", "text": "I will inspect the file."},
-                    {"type": "tool_use", "id": "call_1", "name": "read", "input": {"path": "x.py"}},
-                ],
-                "meta": {"provider": "anthropic", "model": "claude-sonnet-4-6"},
-            },
-            {
-                "role": "user",
-                "content": [
+    client = MagicMock()
+    client.aio.models.generate_content_stream = AsyncMock(return_value=_stream_mock([]))
+    client.aio.aclose = AsyncMock()
+    monkeypatch.setattr("mycode.providers.gemini.genai.Client", lambda **_kwargs: client)
+
+    _ = [
+        event
+        async for event in adapter.stream_turn(
+            request_obj(
+                api_key="test-key",
+                model="gemini-3-flash-preview",
+                messages=[
+                    {"role": "user", "content": [{"type": "text", "text": "double 21"}]},
                     {
-                        "type": "tool_result",
-                        "tool_use_id": "call_1",
-                        "output": "42",
-                    }
+                        "role": "assistant",
+                        "content": [
+                            {"type": "thinking", "text": "Need the tool first."},
+                            {"type": "text", "text": "I will inspect the file."},
+                            {"type": "tool_use", "id": "call_1", "name": "read", "input": {"path": "x.py"}},
+                        ],
+                        "meta": {"provider": "anthropic", "model": "claude-sonnet-4-6"},
+                    },
+                    {
+                        "role": "user",
+                        "content": [{"type": "tool_result", "tool_use_id": "call_1", "output": "42"}],
+                    },
                 ],
-            },
-        ],
-    )
+            )
+        )
+    ]
 
-    contents = adapter._build_contents(request)
-
+    request_call = client.aio.models.generate_content_stream.await_args
+    assert request_call is not None
+    contents = request_call.kwargs["contents"]
     assert [content["role"] for content in contents] == ["user", "model", "user"]
-    assert contents[0]["parts"][0]["text"] == "double 21"
-    assert contents[1]["parts"][0] == {"text": "Need the tool first.", "thought": True}
+    assert contents[1]["parts"][0] == {"text": "Need the tool first."}
     assert contents[1]["parts"][2]["function_call"] == {"id": "call_1", "name": "read", "args": {"path": "x.py"}}
     assert contents[1]["parts"][2]["thought_signature"] == "skip_thought_signature_validator"
     assert contents[2]["parts"][0]["function_response"]["response"] == {"result": "42"}
+
+
+async def test_google_gemini_replaces_native_signatures_after_model_switch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = MagicMock()
+    client.aio.models.generate_content_stream = AsyncMock(return_value=_stream_mock([]))
+    client.aio.aclose = AsyncMock()
+    monkeypatch.setattr("mycode.providers.gemini.genai.Client", lambda **_kwargs: client)
+
+    _ = [
+        event
+        async for event in GoogleGeminiAdapter().stream_turn(
+            request_obj(
+                api_key="test-key",
+                model="gemini-3.6-flash",
+                messages=[
+                    {
+                        "role": "assistant",
+                        "content": [
+                            {
+                                "type": "thinking",
+                                "text": "Need the tool result first.",
+                                "meta": {
+                                    "native": {
+                                        "part": {
+                                            "text": "Need the tool result first.",
+                                            "thought": True,
+                                            "thought_signature": "old-thinking-signature",
+                                        }
+                                    }
+                                },
+                            },
+                            {
+                                "type": "tool_use",
+                                "id": "call_1",
+                                "name": "read",
+                                "input": {},
+                                "meta": {
+                                    "native": {
+                                        "part": {
+                                            "function_call": {"id": "call_1", "name": "read", "args": {}},
+                                            "thought_signature": "old-tool-signature",
+                                        }
+                                    }
+                                },
+                            },
+                        ],
+                        "meta": {"provider": "google", "model": "gemini-3.1-pro-preview"},
+                    },
+                    {
+                        "role": "user",
+                        "content": [{"type": "tool_result", "tool_use_id": "call_1", "output": "done"}],
+                    },
+                ],
+            )
+        )
+    ]
+
+    request_call = client.aio.models.generate_content_stream.await_args
+    assert request_call is not None
+    parts = request_call.kwargs["contents"][0]["parts"]
+    assert parts[0] == {"text": "Need the tool result first."}
+    assert parts[1]["thought_signature"] == "skip_thought_signature_validator"
 
 
 def test_google_gemini_replays_native_parts_for_same_provider_history() -> None:
@@ -1146,28 +1247,86 @@ def test_anthropic_prepare_messages_normalizes_tool_ids() -> None:
 # OpenAI Chat compatible reasoning
 
 
-def test_openai_chat_replays_reasoning_by_default() -> None:
-    adapter = OpenAIChatAdapter()
+@pytest.mark.parametrize(
+    "adapter",
+    [
+        pytest.param(OpenAIChatAdapter(), id="openai-chat"),
+        pytest.param(DeepSeekAdapter(), id="deepseek"),
+        pytest.param(ZAIAdapter(), id="zai"),
+        pytest.param(XAIAdapter(), id="xai"),
+    ],
+)
+async def test_chat_targets_replay_foreign_thinking_as_assistant_content(
+    monkeypatch: pytest.MonkeyPatch,
+    adapter: OpenAIChatAdapter,
+) -> None:
+    client = _async_context_mock()
+    client.chat.completions.create = AsyncMock(return_value=_stream_mock([]))
+    monkeypatch.setattr("mycode.providers.openai_chat.AsyncOpenAI", lambda **_kwargs: client)
 
-    payload_messages = adapter._build_request_payload(
-        request_obj(
-            max_tokens=2048,
-            messages=[
-                {
-                    "role": "assistant",
-                    "content": [
-                        {"type": "thinking", "text": "think"},
-                        {"type": "text", "text": "answer"},
-                    ],
-                }
-            ],
+    _ = [
+        event
+        async for event in adapter.stream_turn(
+            request_obj(
+                api_key="test-key",
+                model="target-model",
+                messages=[
+                    {
+                        "role": "assistant",
+                        "content": [
+                            {"type": "thinking", "text": "Need the tool first."},
+                            {"type": "text", "text": "I will inspect the file."},
+                        ],
+                        "meta": {"provider": "anthropic", "model": "claude-sonnet-4-6"},
+                    }
+                ],
+            )
         )
-    )["messages"]
+    ]
 
-    assert payload_messages[0]["reasoning_content"] == "think"
+    request_call = client.chat.completions.create.await_args
+    assert request_call is not None
+    replayed = request_call.kwargs["messages"][0]
+    assert replayed["content"] == "Need the tool first.\nI will inspect the file."
+    assert not {"reasoning", "reasoning_content", "reasoning_details"} & replayed.keys()
 
 
-async def test_openrouter_preserves_structured_reasoning_across_turns(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_openrouter_replays_foreign_thinking_through_reasoning_channel(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    adapter = OpenRouterAdapter()
+    client = _async_context_mock()
+    client.chat.completions.create = AsyncMock(return_value=_stream_mock([]))
+    monkeypatch.setattr("mycode.providers.openai_chat.AsyncOpenAI", lambda **_kwargs: client)
+
+    _ = [
+        event
+        async for event in adapter.stream_turn(
+            request_obj(
+                api_key="test-key",
+                model="openai/gpt-5.6",
+                messages=[
+                    {
+                        "role": "assistant",
+                        "content": [
+                            {"type": "thinking", "text": "Need the tool first."},
+                            {"type": "text", "text": "I will inspect the file."},
+                        ],
+                        "meta": {"provider": "anthropic", "model": "claude-sonnet-4-6"},
+                    }
+                ],
+            )
+        )
+    ]
+
+    request_call = client.chat.completions.create.await_args
+    assert request_call is not None
+    replayed = request_call.kwargs["messages"][0]
+    assert replayed["reasoning"] == "Need the tool first."
+    assert replayed["content"] == "I will inspect the file."
+
+
+async def test_openrouter_preserves_structured_reasoning_across_models(monkeypatch: pytest.MonkeyPatch) -> None:
     adapter = OpenRouterAdapter()
     reasoning_details = [
         {
@@ -1244,7 +1403,7 @@ async def test_openrouter_preserves_structured_reasoning_across_turns(monkeypatc
         async for event in adapter.stream_turn(
             request_obj(
                 api_key="test-key",
-                model="anthropic/claude-sonnet-4.6",
+                model="openai/gpt-5.6",
                 messages=[stored_message, {"role": "user", "content": [{"type": "text", "text": "continue"}]}],
             )
         )
@@ -1328,60 +1487,6 @@ def test_replay_preserves_empty_native_reasoning_blocks() -> None:
     }
 
 
-def test_deepseek_replays_reasoning_across_turns() -> None:
-    adapter = DeepSeekAdapter()
-
-    payload_messages = adapter._build_request_payload(
-        request_obj(
-            max_tokens=2048,
-            messages=[
-                {
-                    "role": "assistant",
-                    "content": [
-                        {
-                            "type": "thinking",
-                            "text": "think",
-                            "meta": {"native": {"reasoning_field": "reasoning_content"}},
-                        },
-                        {"type": "tool_use", "id": "call_1", "name": "read", "input": {"path": "x.py"}},
-                    ],
-                },
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "tool_result",
-                            "tool_use_id": "call_1",
-                            "output": "done",
-                        }
-                    ],
-                },
-            ],
-        )
-    )["messages"]
-    assert payload_messages[0]["reasoning_content"] == "think"
-    payload_messages = adapter._build_request_payload(
-        request_obj(
-            max_tokens=2048,
-            messages=[
-                {
-                    "role": "assistant",
-                    "content": [
-                        {
-                            "type": "thinking",
-                            "text": "think",
-                            "meta": {"native": {"reasoning_field": "reasoning_content"}},
-                        },
-                        {"type": "text", "text": "done"},
-                    ],
-                },
-                {"role": "user", "content": [{"type": "text", "text": "next question"}]},
-            ],
-        )
-    )["messages"]
-    assert payload_messages[0]["reasoning_content"] == "think"
-
-
 @pytest.mark.parametrize(
     ("reasoning_field", "thinking_text", "expected_value"),
     [
@@ -1389,73 +1494,108 @@ def test_deepseek_replays_reasoning_across_turns() -> None:
         ("reasoning", "think", "think"),
     ],
 )
-def test_openai_chat_replays_native_reasoning_field(
+async def test_openai_chat_replays_its_native_reasoning_field(
+    monkeypatch: pytest.MonkeyPatch,
     reasoning_field: str,
     thinking_text: str,
     expected_value: str | None,
 ) -> None:
     adapter = OpenAIChatAdapter()
+    clients = []
 
-    payload_messages = adapter._build_request_payload(
-        request_obj(
-            max_tokens=2048,
-            messages=[
-                {
-                    "role": "assistant",
-                    "content": [
-                        {
-                            "type": "thinking",
-                            "text": thinking_text,
-                            "meta": {"native": {"reasoning_field": reasoning_field}},
-                        },
-                        {"type": "text", "text": "done"},
-                    ],
-                },
-                {"role": "user", "content": [{"type": "text", "text": "next question"}]},
-            ],
+    def fake_client(**_kwargs: Any) -> MagicMock:
+        client = _async_context_mock()
+        delta = _Obj(content="done", tool_calls=[], **{reasoning_field: thinking_text})
+        chunks = [
+            _Obj(
+                id="response-1",
+                model="resolved-model-version",
+                usage=None,
+                choices=[_Obj(finish_reason="stop", delta=delta)],
+            )
+        ]
+        client.chat.completions.create = AsyncMock(return_value=_stream_mock(chunks if not clients else []))
+        clients.append(client)
+        return client
+
+    monkeypatch.setattr("mycode.providers.openai_chat.AsyncOpenAI", fake_client)
+
+    first_events = [event async for event in adapter.stream_turn(request_obj(api_key="test-key", model="test-model"))]
+    stored_message = first_events[-1].data["message"]
+
+    _ = [
+        event
+        async for event in adapter.stream_turn(
+            request_obj(
+                api_key="test-key",
+                model="test-model",
+                messages=[stored_message, {"role": "user", "content": [{"type": "text", "text": "continue"}]}],
+            )
         )
-    )["messages"]
+    ]
 
-    assert payload_messages[0][reasoning_field] == expected_value
+    replayed = clients[1].chat.completions.create.await_args.kwargs["messages"][0]
+    assert replayed[reasoning_field] == expected_value
 
 
-def test_deepseek_replays_empty_reasoning_content_after_tool_turn() -> None:
+@pytest.mark.parametrize(
+    ("thinking_text", "expected_value"),
+    [
+        pytest.param("Need to run tests.", "Need to run tests.", id="text"),
+        pytest.param("", None, id="empty-marker"),
+    ],
+)
+async def test_deepseek_replays_native_reasoning_across_turns(
+    monkeypatch: pytest.MonkeyPatch,
+    thinking_text: str,
+    expected_value: str | None,
+) -> None:
     adapter = DeepSeekAdapter()
+    clients = []
 
-    payload_messages = adapter._build_request_payload(
-        request_obj(
-            max_tokens=2048,
-            messages=[
-                {
-                    "role": "assistant",
-                    "content": [
-                        {
-                            "type": "thinking",
-                            "text": "Need to run tests.",
-                            "meta": {"native": {"reasoning_field": "reasoning_content"}},
-                        },
-                        {"type": "tool_use", "id": "call_1", "name": "bash", "input": {"command": "pytest"}},
-                    ],
-                },
-                {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "call_1", "output": "ok"}]},
-                {
-                    "role": "assistant",
-                    "content": [
-                        {
-                            "type": "thinking",
-                            "text": "",
-                            "meta": {"native": {"reasoning_field": "reasoning_content"}},
-                        },
-                        {"type": "text", "text": "All tests passed."},
-                    ],
-                },
-                {"role": "user", "content": [{"type": "text", "text": "continue"}]},
-            ],
+    def fake_client(**_kwargs: Any) -> MagicMock:
+        client = _async_context_mock()
+        chunks = [
+            _Obj(
+                id="response-1",
+                model="deepseek-v4-pro",
+                usage=None,
+                choices=[
+                    _Obj(
+                        finish_reason="stop",
+                        delta=_Obj(
+                            reasoning_content=thinking_text,
+                            content="All tests passed.",
+                            tool_calls=[],
+                        ),
+                    )
+                ],
+            )
+        ]
+        client.chat.completions.create = AsyncMock(return_value=_stream_mock(chunks if not clients else []))
+        clients.append(client)
+        return client
+
+    monkeypatch.setattr("mycode.providers.openai_chat.AsyncOpenAI", fake_client)
+
+    first_events = [
+        event async for event in adapter.stream_turn(request_obj(api_key="test-key", model="deepseek-v4-pro"))
+    ]
+    stored_message = first_events[-1].data["message"]
+
+    _ = [
+        event
+        async for event in adapter.stream_turn(
+            request_obj(
+                api_key="test-key",
+                model="deepseek-v4-pro",
+                messages=[stored_message, {"role": "user", "content": [{"type": "text", "text": "continue"}]}],
+            )
         )
-    )["messages"]
+    ]
 
-    assert payload_messages[0]["reasoning_content"] == "Need to run tests."
-    assert payload_messages[2]["reasoning_content"] is None
+    replayed = clients[1].chat.completions.create.await_args.kwargs["messages"][0]
+    assert replayed["reasoning_content"] == expected_value
 
 
 # Anthropic-like adapters
@@ -1538,7 +1678,7 @@ async def test_anthropic_preserves_native_thinking_blocks_across_tool_turns(
     adapter = AnthropicAdapter()
     first_response = _Obj(
         id="msg_1",
-        model="claude-sonnet-5",
+        model="claude-sonnet-5-20260701",
         stop_reason="tool_use",
         stop_sequence=None,
         service_tier=None,
@@ -1551,7 +1691,7 @@ async def test_anthropic_preserves_native_thinking_blocks_across_tool_turns(
     )
     second_response = _Obj(
         id="msg_2",
-        model="claude-sonnet-5",
+        model="claude-sonnet-5-20260701",
         stop_reason="end_turn",
         stop_sequence=None,
         service_tier=None,
@@ -1594,51 +1734,183 @@ async def test_anthropic_preserves_native_thinking_blocks_across_tool_turns(
     assert replayed_request["thinking"]["display"] == "summarized"
 
 
-def test_anthropic_skips_moonshot_thinking_during_replay() -> None:
-    messages = AnthropicAdapter()._build_request_payload(
-        request_obj(
-            model="claude-sonnet-4-6",
-            messages=[
-                {"role": "user", "content": [{"type": "text", "text": "Inspect x.py"}]},
-                {
-                    "role": "assistant",
-                    "content": [
-                        {"type": "thinking", "text": "Need the tool result first."},
-                        {"type": "tool_use", "id": "call_1", "name": "read", "input": {}},
-                    ],
-                    "meta": {"provider": "moonshotai", "model": "kimi-k2-thinking"},
-                },
-                {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "call_1", "output": "done"}]},
-            ],
+@pytest.mark.parametrize(
+    ("adapter", "model"),
+    [
+        pytest.param(AnthropicAdapter(), "claude-sonnet-4-6", id="anthropic"),
+        pytest.param(MoonshotAIAdapter(), "kimi-k2.7-code", id="moonshotai"),
+        pytest.param(MiniMaxAdapter(), "MiniMax-M3", id="minimax"),
+    ],
+)
+async def test_anthropic_like_targets_replay_foreign_thinking_as_assistant_text(
+    monkeypatch: pytest.MonkeyPatch,
+    adapter: Any,
+    model: str,
+) -> None:
+    client = _async_context_mock()
+    client.messages.stream.return_value = _stream_mock(
+        [],
+        final_message=_Obj(
+            id="msg_2",
+            model=model,
+            stop_reason="end_turn",
+            stop_sequence=None,
+            service_tier=None,
+            usage=_Obj(input_tokens=20, output_tokens=3),
+            content=[_Obj(type="text", text="done", citations=[])],
+        ),
+    )
+    monkeypatch.setattr("mycode.providers.anthropic_like.AsyncAnthropic", lambda **_kwargs: client)
+
+    _ = [
+        event
+        async for event in adapter.stream_turn(
+            request_obj(
+                api_key="test-key",
+                model=model,
+                messages=[
+                    {"role": "user", "content": [{"type": "text", "text": "Inspect x.py"}]},
+                    {
+                        "role": "assistant",
+                        "content": [
+                            {"type": "thinking", "text": "Need the tool result first."},
+                            {"type": "text", "text": "I will inspect the file."},
+                            {"type": "tool_use", "id": "call_1", "name": "read", "input": {}},
+                        ],
+                        "meta": {"provider": "openai", "model": "gpt-5.6"},
+                    },
+                    {
+                        "role": "user",
+                        "content": [{"type": "tool_result", "tool_use_id": "call_1", "output": "done"}],
+                    },
+                ],
+            )
         )
-    )["messages"]
+    ]
 
-    assert messages[1]["role"] == "assistant"
-    assert messages[1]["content"] == [{"type": "tool_use", "id": "call_1", "name": "read", "input": {}}]
-    assert messages[2]["content"][0]["type"] == "tool_result"
-    assert messages[2]["content"][0]["tool_use_id"] == "call_1"
+    replayed = client.messages.stream.call_args.kwargs["messages"][1]
+    assert replayed["content"][:2] == [
+        {"type": "text", "text": "Need the tool result first."},
+        {"type": "text", "text": "I will inspect the file."},
+    ]
+    assert replayed["content"][2]["type"] == "tool_use"
 
 
-def test_moonshot_replays_unsigned_thinking_without_signature() -> None:
-    payload = MoonshotAIAdapter()._build_request_payload(
-        request_obj(
-            model="kimi-k2-thinking",
-            messages=[
-                {
-                    "role": "assistant",
-                    "content": [
-                        {"type": "thinking", "text": "Need the tool result first."},
-                        {"type": "tool_use", "id": "call_1", "name": "read", "input": {}},
-                    ],
-                }
-            ],
+async def test_anthropic_does_not_reuse_thinking_signature_after_model_switch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = _async_context_mock()
+    client.messages.stream.return_value = _stream_mock(
+        [],
+        final_message=_Obj(
+            id="msg_2",
+            model="claude-sonnet-5",
+            stop_reason="end_turn",
+            stop_sequence=None,
+            service_tier=None,
+            usage=_Obj(input_tokens=20, output_tokens=3),
+            content=[_Obj(type="text", text="done", citations=[])],
+        ),
+    )
+    monkeypatch.setattr("mycode.providers.anthropic_like.AsyncAnthropic", lambda **_kwargs: client)
+
+    _ = [
+        event
+        async for event in AnthropicAdapter().stream_turn(
+            request_obj(
+                api_key="test-key",
+                model="claude-sonnet-5",
+                messages=[
+                    {
+                        "role": "assistant",
+                        "content": [
+                            {
+                                "type": "thinking",
+                                "text": "Need the tool result first.",
+                                "meta": {
+                                    "native": {
+                                        "anthropic_block": {
+                                            "type": "thinking",
+                                            "thinking": "Need the tool result first.",
+                                            "signature": "old-signature",
+                                        }
+                                    }
+                                },
+                            },
+                            {"type": "tool_use", "id": "call_1", "name": "read", "input": {}},
+                        ],
+                        "meta": {"provider": "anthropic", "model": "claude-sonnet-4-6"},
+                    },
+                    {
+                        "role": "user",
+                        "content": [{"type": "tool_result", "tool_use_id": "call_1", "output": "done"}],
+                    },
+                ],
+            )
         )
-    )["messages"][0]
+    ]
 
-    assert payload["role"] == "assistant"
-    assert payload["content"][0] == {"type": "thinking", "thinking": "Need the tool result first."}
-    assert payload["content"][1]["type"] == "tool_use"
-    assert payload["content"][1]["id"] == "call_1"
+    replayed = client.messages.stream.call_args.kwargs["messages"][0]
+    assert replayed["content"][0] == {"type": "text", "text": "Need the tool result first."}
+
+
+async def test_moonshot_replays_native_unsigned_thinking(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    adapter = MoonshotAIAdapter()
+    first_response = _Obj(
+        id="msg_1",
+        model="kimi-k2.7-code",
+        stop_reason="tool_use",
+        stop_sequence=None,
+        service_tier=None,
+        usage=_Obj(input_tokens=10, output_tokens=5),
+        content=[
+            _Obj(type="thinking", thinking="Need the tool result first."),
+            _Obj(type="tool_use", id="call_1", name="read", input={}),
+        ],
+    )
+    second_response = _Obj(
+        id="msg_2",
+        model="kimi-k2.7-code",
+        stop_reason="end_turn",
+        stop_sequence=None,
+        service_tier=None,
+        usage=_Obj(input_tokens=20, output_tokens=3),
+        content=[_Obj(type="text", text="done", citations=[])],
+    )
+
+    client = _async_context_mock()
+    client.messages.stream.side_effect = [
+        _stream_mock([], final_message=response) for response in (first_response, second_response)
+    ]
+    monkeypatch.setattr("mycode.providers.anthropic_like.AsyncAnthropic", lambda **_kwargs: client)
+
+    first_events = [
+        event async for event in adapter.stream_turn(request_obj(api_key="test-key", model="kimi-k2.7-code"))
+    ]
+    stored_message = first_events[-1].data["message"]
+
+    _ = [
+        event
+        async for event in adapter.stream_turn(
+            request_obj(
+                api_key="test-key",
+                model="kimi-k2.7-code",
+                messages=[
+                    stored_message,
+                    {
+                        "role": "user",
+                        "content": [{"type": "tool_result", "tool_use_id": "call_1", "output": "done"}],
+                    },
+                ],
+            )
+        )
+    ]
+
+    replayed = client.messages.stream.call_args_list[1].kwargs["messages"][0]
+    assert replayed["content"][0] == {"type": "thinking", "thinking": "Need the tool result first."}
+    assert replayed["content"][1]["type"] == "tool_use"
 
 
 @pytest.mark.parametrize(

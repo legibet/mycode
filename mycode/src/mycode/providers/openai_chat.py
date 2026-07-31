@@ -52,7 +52,6 @@ class OpenAIChatAdapter(ProviderAdapter):
         thinking_parts: list[str] = []
         thinking_native_meta: dict[str, Any] = {}
         response_id: str | None = None
-        response_model: str | None = None
         finish_reason: str | None = None
         usage: Any = None
 
@@ -66,7 +65,6 @@ class OpenAIChatAdapter(ProviderAdapter):
                 async with stream:
                     async for chunk in stream:
                         response_id = response_id or getattr(chunk, "id", None)
-                        response_model = response_model or getattr(chunk, "model", None)
 
                         if getattr(chunk, "usage", None) is not None:
                             usage = chunk.usage
@@ -135,7 +133,7 @@ class OpenAIChatAdapter(ProviderAdapter):
         final_message = assistant_message(
             blocks,
             provider=self.provider_id,
-            model=response_model or request.model,
+            model=request.model,
             provider_message_id=response_id,
             stop_reason=finish_reason,
             total_tokens=total_tokens,
@@ -426,6 +424,24 @@ class OpenRouterAdapter(OpenAIChatAdapter):
     default_models = ("openrouter/auto",)
     auto_discoverable = True
     supports_reasoning_effort = True
+
+    @override
+    def _can_replay_native_history(self, message: ConversationMessage, request: ProviderRequest) -> bool:
+        raw_meta = message.get("meta")
+        return bool(isinstance(raw_meta, dict) and raw_meta.get("provider") == self.provider_id)
+
+    @override
+    def _project_incompatible_thinking(self, block: dict[str, Any]) -> dict[str, Any] | None:
+        text = str(block.get("text") or "")
+        return thinking_block(text) if text else None
+
+    @override
+    def _serialize_reasoning(self, thinking_blocks: list[dict[str, Any]]) -> dict[str, Any]:
+        if get_native_meta(thinking_blocks[0]):
+            return super()._serialize_reasoning(thinking_blocks)
+
+        thinking_text = "\n".join(str(block.get("text") or "") for block in thinking_blocks if block.get("text"))
+        return {"reasoning": thinking_text} if thinking_text else {}
 
     @override
     def _build_provider_payload_overrides(self, request: ProviderRequest) -> dict[str, Any]:

@@ -75,6 +75,23 @@ def native_block_meta(native: dict[str, Any]) -> dict[str, Any] | None:
     return {"native": native} if native else None
 
 
+def _without_native_meta(value: dict[str, Any]) -> dict[str, Any]:
+    """Copy a canonical value without provider-specific replay metadata."""
+
+    result = dict(value)
+    raw_meta = result.get("meta")
+    if not isinstance(raw_meta, dict) or "native" not in raw_meta:
+        return result
+
+    meta = dict(raw_meta)
+    meta.pop("native")
+    if meta:
+        result["meta"] = meta
+    else:
+        result.pop("meta")
+    return result
+
+
 def parse_tool_call_input(raw_arguments: str) -> tuple[dict[str, Any], dict[str, Any]]:
     """Parse a streamed/native tool-call JSON arguments string.
 
@@ -137,12 +154,24 @@ class ProviderAdapter(ABC):
         used_tool_call_ids: set[str] = set()
 
         for message in repaired_messages:
+            portable_replay = message.get("role") == "assistant" and not self._can_replay_native_history(
+                message, request
+            )
             projected_blocks: list[dict[str, Any]] = []
             for raw_block in message.get("content") or []:
                 if not isinstance(raw_block, dict):
                     continue
 
                 block = dict(raw_block)
+                if portable_replay:
+                    if block.get("type") == "thinking":
+                        projected_thinking = self._project_incompatible_thinking(block)
+                        if projected_thinking is None:
+                            continue
+                        block = projected_thinking
+                    else:
+                        block = _without_native_meta(block)
+
                 if block.get("type") == "tool_use":
                     tool_use_id = str(block.get("id") or "")
                     if tool_use_id and tool_use_id not in tool_id_map:
@@ -159,9 +188,27 @@ class ProviderAdapter(ABC):
 
             projected_message = dict(message)
             projected_message["content"] = projected_blocks
+            if portable_replay:
+                projected_message = _without_native_meta(projected_message)
             prepared_messages.append(projected_message)
 
         return prepared_messages
+
+    def _can_replay_native_history(self, message: ConversationMessage, request: ProviderRequest) -> bool:
+        """Return whether provider-native history is valid for the target model."""
+
+        raw_meta = message.get("meta")
+        return bool(
+            isinstance(raw_meta, dict)
+            and raw_meta.get("provider") == self.provider_id
+            and raw_meta.get("model") == request.model
+        )
+
+    def _project_incompatible_thinking(self, block: dict[str, Any]) -> dict[str, Any] | None:
+        """Keep readable thinking without replaying incompatible native state."""
+
+        text = str(block.get("text") or "")
+        return text_block(text) if text else None
 
     def project_tool_call_id(self, tool_call_id: str, used_tool_call_ids: set[str]) -> str:
         """Project one canonical tool call ID into a provider-safe ID.

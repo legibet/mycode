@@ -8,7 +8,7 @@ Metadata layout:
 - assistant message ``meta`` keeps only normalized top-level fields:
   ``provider``, ``model``, ``provider_message_id``, ``stop_reason``,
   ``total_tokens``, ``context_window`` (see docs/sessions.md for
-  ``total_tokens`` semantics)
+  ``total_tokens`` semantics); ``model`` records the selected request model
 - provider-specific extras live under ``meta.native`` on messages and
   ``block.meta.native`` on blocks
 - local display metadata such as ``block.meta.duration_ms`` is never sent

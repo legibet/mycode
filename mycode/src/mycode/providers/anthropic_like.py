@@ -155,11 +155,11 @@ class AnthropicLikeAdapter(ProviderAdapter):
         yield ProviderStreamEvent(
             "message_done",
             {
-                "message": self._convert_final_message(final_message),
+                "message": self._convert_final_message(final_message, request_model=request.model),
             },
         )
 
-    def _convert_final_message(self, message: Any) -> ConversationMessage:
+    def _convert_final_message(self, message: Any, *, request_model: str | None = None) -> ConversationMessage:
         blocks = []
         for block in getattr(message, "content", []) or []:
             block_type = getattr(block, "type", None)
@@ -210,7 +210,7 @@ class AnthropicLikeAdapter(ProviderAdapter):
         return assistant_message(
             blocks,
             provider=self.provider_id,
-            model=getattr(message, "model", None),
+            model=request_model or getattr(message, "model", None),
             provider_message_id=getattr(message, "id", None),
             stop_reason=getattr(message, "stop_reason", None),
             total_tokens=total_tokens,
@@ -226,8 +226,6 @@ class AnthropicLikeAdapter(ProviderAdapter):
 
     def _serialize_message(self, message: ConversationMessage) -> dict[str, Any]:
         role = str(message.get("role") or "user")
-        raw_meta = message.get("meta")
-        source_provider = raw_meta.get("provider") if isinstance(raw_meta, dict) else None
         content = []
         for block in message.get("content") or []:
             if not isinstance(block, dict):
@@ -241,7 +239,7 @@ class AnthropicLikeAdapter(ProviderAdapter):
                 self.provider_id == "anthropic"
                 and role == "assistant"
                 and block.get("type") == "thinking"
-                and (source_provider != self.provider_id or not has_native_thinking)
+                and not has_native_thinking
             ):
                 continue
             content.append(self._serialize_block(block))

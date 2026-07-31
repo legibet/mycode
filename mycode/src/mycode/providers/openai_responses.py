@@ -95,6 +95,7 @@ class OpenAIResponsesAdapter(ProviderAdapter):
                                 final_response,
                                 output_items=[streamed_output_items[index] for index in sorted(streamed_output_items)]
                                 or None,
+                                request_model=request.model,
                             )
                         },
                     )
@@ -198,7 +199,7 @@ class OpenAIResponsesAdapter(ProviderAdapter):
         """Replay stored OpenAI output items when history already came from Responses."""
 
         raw_meta = message.get("meta")
-        if not isinstance(raw_meta, dict) or raw_meta.get("provider") != self.provider_id:
+        if not isinstance(raw_meta, dict):
             return None
 
         native_meta = raw_meta.get("native")
@@ -261,6 +262,7 @@ class OpenAIResponsesAdapter(ProviderAdapter):
         response: Any,
         *,
         output_items: list[Any] | None = None,
+        request_model: str | None = None,
     ) -> ConversationMessage:
         raw_output = output_items if output_items is not None else (getattr(response, "output", None) or [])
         dumped_output_items = dump_model(raw_output)
@@ -331,7 +333,7 @@ class OpenAIResponsesAdapter(ProviderAdapter):
         return assistant_message(
             blocks,
             provider=self.provider_id,
-            model=getattr(response, "model", None),
+            model=request_model or getattr(response, "model", None),
             provider_message_id=getattr(response, "id", None),
             stop_reason=getattr(response, "status", None),
             total_tokens=total_tokens,

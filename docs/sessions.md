@@ -62,6 +62,8 @@ Standard `user` or `assistant` message in the internal block format.
 {"role": "assistant", "content": [{"type": "thinking", "text": "...", "meta": {"duration_ms": 1200}}, {"type": "text", "text": "..."}, {"type": "tool_use", "id": "...", "name": "...", "input": {...}}], "meta": {"provider": "...", "model": "...", "stop_reason": "...", "total_tokens": 1456, "context_window": 200000}}
 ```
 
+`assistant.meta.model` records the selected request model, not a provider-returned alias or routed model name.
+
 `tool_result.content` may store `text` and `image` blocks.
 
 Each matching `/<skill-name>` token prepends a text block with `meta.skill_snapshot=true` before the original user text. The snapshot contains the frontmatter-free `SKILL.md` body, source path, and base directory. The session persists it for provider replay. Session titles and TUI/Web history use the original text.

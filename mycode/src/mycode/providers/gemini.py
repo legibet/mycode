@@ -59,7 +59,6 @@ class GoogleGeminiAdapter(ProviderAdapter):
 
         blocks: list[dict[str, Any]] = []
         response_id: str | None = None
-        response_model: str | None = None
         finish_reason: str | None = None
         finish_message: str | None = None
         usage: dict[str, Any] | None = None
@@ -72,7 +71,6 @@ class GoogleGeminiAdapter(ProviderAdapter):
             )
             async for chunk in stream:
                 response_id = response_id or getattr(chunk, "response_id", None)
-                response_model = response_model or getattr(chunk, "model_version", None)
                 usage = _to_json(getattr(chunk, "usage_metadata", None)) or usage
 
                 candidates = getattr(chunk, "candidates", None) or []
@@ -101,7 +99,7 @@ class GoogleGeminiAdapter(ProviderAdapter):
                 "message": assistant_message(
                     blocks,
                     provider=self.provider_id,
-                    model=response_model or request.model,
+                    model=request.model,
                     provider_message_id=response_id,
                     stop_reason=str(finish_reason) if finish_reason else None,
                     total_tokens=total_tokens,
