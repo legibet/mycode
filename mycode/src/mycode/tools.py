@@ -502,13 +502,12 @@ def _coerce_tool_result(value: Any) -> ToolExecutionResult:
 @tool(
     name="read",
     description=(
-        "Read a UTF-8 text file or supported image file. Returns up to 2000 lines for text files. "
-        "Use offset/limit for large files. Very long lines are shortened."
+        "Read a UTF-8 text file or supported image. Use offset and limit to read large text files in sections."
     ),
     parameters={
-        "path": "File path (relative or absolute).",
-        "offset": "Line number to start from (1-indexed).",
-        "limit": "Maximum number of lines to return.",
+        "path": "File path, relative to the working directory or absolute.",
+        "offset": "1-indexed starting line. Defaults to 1.",
+        "limit": "Maximum number of lines to return. Defaults to 2000.",
     },
 )
 def read_tool(
@@ -619,9 +618,12 @@ def read_tool(
 
 @tool(
     name="write",
-    description="Write a file (create or overwrite).",
+    description=(
+        "Create or completely overwrite a UTF-8 text file, creating parent directories as needed. "
+        "Use edit for targeted changes to existing files."
+    ),
     parameters={
-        "path": "File path (relative or absolute).",
+        "path": "File path, relative to the working directory or absolute.",
         "content": "File content.",
     },
 )
@@ -645,20 +647,21 @@ class EditEntry(BaseModel):
 
     model_config = ConfigDict(extra="forbid", validate_by_name=True, validate_by_alias=True)
 
-    old_text: str = Field(alias="oldText", description="Exact text to find (must be unique in the file).")
-    new_text: str = Field(alias="newText", description="Replacement text.")
+    old_text: str = Field(alias="oldText", description="Text to replace; it must be unique in the original file.")
+    new_text: str = Field(alias="newText", description="Replacement text. Empty text deletes the match.")
 
 
 @tool(
     name="edit",
     description=(
-        "Edit a file by replacing text snippets. "
-        "Each edits[].oldText must match uniquely in the original file. "
+        "Apply one or more non-overlapping replacements to a UTF-8 text file. "
+        "Each oldText must identify one unique region in the original file, "
+        "and all replacements are applied together. "
         "For multiple disjoint changes in one file, use one call with multiple edits."
     ),
     parameters={
-        "path": "File path (relative or absolute).",
-        "edits": "Replacements to apply. All matched against the original file, not incrementally.",
+        "path": "File path, relative to the working directory or absolute.",
+        "edits": "Replacements to apply.",
     },
 )
 def edit_tool(ctx: ToolContext, path: str, edits: list[EditEntry]) -> ToolExecutionResult:
@@ -816,7 +819,7 @@ def edit_tool(ctx: ToolContext, path: str, edits: list[EditEntry]) -> ToolExecut
     ),
     parameters={
         "command": "Shell command.",
-        "timeout": "Timeout in seconds (optional).",
+        "timeout": "Timeout in seconds. Defaults to 120.",
     },
     streams_output=True,
 )

@@ -32,15 +32,12 @@ _BUILTIN_SLASH_NAMES = ("clear", "compact", "new", "resume", "rewind", "provider
 _RESERVED_SLASH_NAMES = frozenset(name[:length] for name in _BUILTIN_SLASH_NAMES for length in range(1, len(name) + 1))
 
 _BASE_PROMPT = """\
-You are mycode, an expert coding assistant.
+You are mycode, a coding agent working in the user's workspace.
 
-You have four tools: read, write, edit, bash.
-
-- Use bash for file operations and exploration like `ls`, `find`, `rg`, etc.
-- Always set offset/limit when reading large files.
-- Always read files before editing them.
-- Use write only for new files or complete rewrites.
-- Your response should be concise and relevant.\
+- Use read to inspect existing files before editing them.
+- Use bash to explore the workspace and run commands.
+- Use edit for targeted changes and write only for new files or complete rewrites.
+- Be concise and relevant.\
 """
 
 
@@ -329,11 +326,7 @@ def build_skill_snapshot_blocks(text: str, cwd: str) -> list[ContentBlock]:
         seen.add(name)
         base_dir = str(Path(skill.path).parent)
         snapshot = (
-            f'<skill name="{skill.name}" location="{skill.path}">\n'
-            f"Base directory: {base_dir}\n"
-            "Relative paths in this skill resolve from the base directory.\n\n"
-            f"{skill.body}\n"
-            "</skill>"
+            f'<skill name="{skill.name}" location="{skill.path}">\nBase directory: {base_dir}\n\n{skill.body}\n</skill>'
         )
         blocks.append(text_block(snapshot, meta={"skill_snapshot": True}))
     return blocks
@@ -348,7 +341,7 @@ def load_skills_prompt(cwd: str) -> str:
     logger.info("Discovered %d skill(s): %s", len(skills), ", ".join(skill.name for skill in skills))
 
     lines = [
-        "When a task matches a skill's description, prefer it over manual alternatives — use the read tool to load the file at <location> and follow the instructions inside.",
+        "When a task matches a skill's description, prefer the skill over manual alternatives. Read its <location> and follow the instructions.",
         "Relative paths inside a skill file resolve against the skill's directory (dirname of <location>).",
         "<available_skills>",
     ]
