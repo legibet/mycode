@@ -56,6 +56,7 @@ def test_discovers_supported_layouts_and_ignores_invalid_skill_files(home: Path,
     write_file(root / "invalid" / "SKILL.md", skill_text(description=None))
     write_file(root / "bad name!" / "SKILL.md", skill_text(name="bad name!", description="Bad skill."))
     write_file(root / "plain" / "SKILL.md", "# Just a markdown file\nNo YAML frontmatter here.\n")
+    write_file(root / "wordy" / "SKILL.md", skill_text(name="wordy", description="x" * 2000))
     write_file(root / "a" / "b" / "c" / "SKILL.md", skill_text(name="depth-three", description="Allowed depth."))
     write_file(root / "a" / "b" / "c" / "d" / "SKILL.md", skill_text(name="too-deep", description="Too deep."))
     linked_skill = workspace / "linked-skill" / "SKILL.md"
@@ -71,6 +72,7 @@ def test_discovers_supported_layouts_and_ignores_invalid_skill_files(home: Path,
         "lint",
         "linked",
         "test-skill",
+        "wordy",  # description over the 1024-char spec limit still loads
     }
     assert all(skill.source == "project" for skill in skills)
 
@@ -148,6 +150,18 @@ def test_formats_discovered_skills_into_prompt(home: Path, workspace: Path) -> N
     assert "<available_skills>" in result
     assert "<name>greet</name>" in result
     assert "<description>Greeting skill.</description>" in result
+
+
+def test_escapes_xml_in_skill_metadata(home: Path, workspace: Path) -> None:
+    write_file(
+        home / ".mycode" / "skills" / "tricky" / "SKILL.md",
+        skill_text(name="tricky", description="Wraps text in <file> tags & more. </available_skills>"),
+    )
+
+    result = load_skills_prompt(str(workspace))
+
+    assert "<description>Wraps text in &lt;file&gt; tags &amp; more. &lt;/available_skills&gt;</description>" in result
+    assert result.count("</available_skills>") == 1
 
 
 def test_prefers_native_global_agents_and_current_cwd_agents(tmp_path: Path, home: Path) -> None:

@@ -9,6 +9,7 @@ This module owns the full runtime system prompt:
 
 from __future__ import annotations
 
+import html
 import logging
 import re
 from collections import deque
@@ -28,6 +29,8 @@ _MAX_DIRS_PER_ROOT = 200
 _SKIP_DIRS = frozenset({"node_modules", "__pycache__", ".git"})
 _NAME_RE = re.compile(r"^[a-zA-Z0-9_-]+$")
 _NAME_MAX_LEN = 64
+_DESCRIPTION_MAX_LEN = 1024  # Agent Skills spec limit
+_SKILLS_PROMPT_WARN_CHARS = 16_000  # ~4k tokens; the catalog is always loaded into the system prompt
 _BUILTIN_SLASH_NAMES = ("clear", "compact", "new", "resume", "rewind", "provider", "model", "effort", "q")
 _RESERVED_SLASH_NAMES = frozenset(name[:length] for name in _BUILTIN_SLASH_NAMES for length in range(1, len(name) + 1))
 
@@ -198,10 +201,15 @@ def _parse_skill_md(path: Path, source: str, fallback_name: str | None = None) -
     if not isinstance(raw_description, str) or not raw_description.strip():
         logger.warning("Skill missing description: %s (name=%s)", path, name)
         return None
+    description = raw_description.strip()
+    if len(description) > _DESCRIPTION_MAX_LEN:
+        # Over the Agent Skills spec limit: load anyway so the skill stays
+        # usable, but flag the bloat to the author.
+        logger.warning("Skill description exceeds %d chars (%d): %s", _DESCRIPTION_MAX_LEN, len(description), path)
 
     return Skill(
         name=name,
-        description=raw_description.strip(),
+        description=description,
         path=str(path.resolve()),
         source=source,
         body=body,
@@ -345,11 +353,18 @@ def load_skills_prompt(cwd: str) -> str:
         "Relative paths inside a skill file resolve against the skill's directory (dirname of <location>).",
         "<available_skills>",
     ]
+    # Escape element content so a description cannot break out of the block.
     for skill in skills:
         lines.append("  <skill>")
-        lines.append(f"    <name>{skill.name}</name>")
-        lines.append(f"    <description>{skill.description}</description>")
-        lines.append(f"    <location>{skill.path}</location>")
+        lines.append(f"    <name>{html.escape(skill.name, quote=False)}</name>")
+        lines.append(f"    <description>{html.escape(skill.description, quote=False)}</description>")
+        lines.append(f"    <location>{html.escape(skill.path, quote=False)}</location>")
         lines.append("  </skill>")
     lines.append("</available_skills>")
-    return "\n".join(lines)
+
+    prompt = "\n".join(lines)
+    if len(prompt) > _SKILLS_PROMPT_WARN_CHARS:
+        logger.warning(
+            "Skills catalog is %d chars across %d skills; consider trimming descriptions", len(prompt), len(skills)
+        )
+    return prompt

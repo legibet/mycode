@@ -172,7 +172,9 @@ Scan roots (lowest to highest priority):
 3. `.agents/skills/` from `project` to `cwd` — compatibility project roots
 4. `.mycode/skills/` from `project` to `cwd` — project roots
 
-Each `SKILL.md` requires YAML frontmatter with `name` and `description`. Later roots override earlier ones by skill name. Max scan depth: 3 directory levels, max 200 directories per root.
+Each `SKILL.md` requires YAML frontmatter with `name` and `description`. `name` must match `[a-zA-Z0-9_-]+` and be ≤ 64 chars, or the skill is skipped. A `description` over the Agent Skills spec limit of 1024 chars loads with a logged warning, as does a catalog over 16k chars. Later roots override earlier ones by skill name. Max scan depth: 3 directory levels, max 200 directories per root.
+
+Skill metadata is XML-escaped in the `<available_skills>` block; the `/<skill-name>` snapshot body is not escaped.
 
 A symlinked skill directory contributes its top-level `SKILL.md`. Recursive scanning follows physical directories.
 
