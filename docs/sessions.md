@@ -59,7 +59,7 @@ Standard `user` or `assistant` message in the internal block format.
 
 ```json
 {"role": "user", "content": [{"type": "text", "text": "..."}], "meta": {...}}
-{"role": "assistant", "content": [{"type": "thinking", "text": "...", "meta": {"duration_ms": 1200}}, {"type": "text", "text": "..."}, {"type": "tool_use", "id": "...", "name": "...", "input": {...}}], "meta": {"provider": "...", "model": "...", "stop_reason": "...", "total_tokens": 1456, "context_window": 200000}}
+{"role": "assistant", "content": [{"type": "thinking", "text": "...", "meta": {"duration_ms": 1200}}, {"type": "text", "text": "..."}, {"type": "tool_use", "id": "...", "name": "...", "input": {...}}], "meta": {"provider": "...", "model": "...", "stop_reason": "...", "usage": {"total_tokens": 1456, "input_tokens": 1400, "cache_read_tokens": 1200, "cache_write_tokens": 100, "output_tokens": 56, "reasoning_tokens": 20}, "context_window": 200000, "native": {"usage": {...}}}}
 ```
 
 `assistant.meta.model` records the selected request model, not a provider-returned alias or routed model name.
@@ -70,28 +70,40 @@ Each matching `/<skill-name>` token prepends a text block with `meta.skill_snaps
 
 Snapshots stay in the session timeline across compaction, but a snapshot before the last `compact` marker reaches providers only through the summary; its `location` lets the model re-read the skill file.
 
-`assistant.meta.total_tokens` is the canonical token count for the call: prompt plus everything the model produced this turn (text, tool calls, reasoning). It also equals the prompt floor of the next API call (history accumulated up to and including this turn), which is what `should_compact` and the consumed-context UI both compare against `context_window`.
+`assistant.meta.usage` holds the canonical token facts for the single provider request that produced the message. Fields are `int | None`; a missing key means the upstream did not report it — readers must not substitute 0. `meta.native.usage` keeps the raw upstream usage object verbatim for later re-mapping.
+
+| field                | semantics                                                              |
+| -------------------- | ---------------------------------------------------------------------- |
+| `total_tokens`       | upstream official total, else `input_tokens + output_tokens`           |
+| `input_tokens`       | full effective input, **including** cache reads and writes             |
+| `cache_read_tokens`  | subset of `input_tokens`                                               |
+| `cache_write_tokens` | subset of `input_tokens`                                               |
+| `output_tokens`      | full output, **including** reasoning                                   |
+| `reasoning_tokens`   | subset of `output_tokens`                                              |
+| `cost_usd`           | upstream-reported charge only (OpenRouter); never a computed estimate  |
+
+`usage.total_tokens` is the context metric: prompt plus everything the model produced this request, which also equals the prompt floor of the next API call. `should_compact` and the consumed-context UI compare it against `context_window`. (Pre-usage sessions carried a top-level `meta.total_tokens`; new code ignores it, so a resumed old session has no context percentage until its first new turn.)
 
 `assistant.meta.context_window` is the model's full context window for the call, resolved from the catalog at runtime. Stamped onto the message so clients can render the consumed-context percentage without re-deriving model metadata. Absent when unavailable.
 
-Cancelled provider streams can append a partial assistant message before the final cancelled error. It contains streamed `thinking`/`text` blocks plus `meta.provider`, `meta.model`, and `meta.context_window`.
+Cancelled provider streams can append a partial assistant message before the final cancelled error. It contains streamed `thinking`/`text` blocks plus `meta.provider`, `meta.model`, and `meta.context_window` — no `usage` (the final usage never arrived; the spend is unknown, not zero).
 
-Adapter normalization for `total_tokens`:
+Adapter normalization (canonical ← raw; missing raw fields stay unknown; provider quirks in docs/providers.md):
 
-| provider       | source                                                  |
-| -------------- | ------------------------------------------------------- |
-| `anthropic*`   | `input_tokens + cache_* + output_tokens` (no `total`)   |
-| `openai`       | `total_tokens`                                          |
-| `openai_chat*` | `total_tokens`                                          |
-| `google`       | `total_token_count` (includes thoughts and tool prompt) |
+| provider       | input                                              | cache read / write                                            | output                                          | reasoning                                    |
+| -------------- | -------------------------------------------------- | ------------------------------------------------------------- | ----------------------------------------------- | -------------------------------------------- |
+| `anthropic*`   | `input_tokens + cache_creation_* + cache_read_*`   | `cache_read_input_tokens` / `cache_creation_input_tokens`     | `output_tokens`                                 | `output_tokens_details.thinking_tokens`      |
+| `openai`       | `input_tokens`                                     | `input_tokens_details.cached_tokens` / `.cache_write_tokens`  | `output_tokens`                                 | `output_tokens_details.reasoning_tokens`     |
+| `openai_chat*` | `prompt_tokens`                                    | `prompt_tokens_details.cached_tokens` / `.cache_write_tokens` | `completion_tokens`                             | `completion_tokens_details.reasoning_tokens` |
+| `google`       | `prompt_token_count + tool_use_prompt_token_count` | `cached_content_token_count` / not reported                   | `candidates_token_count + thoughts_token_count` | `thoughts_token_count`                       |
 
 ### Compact event
 
 ```json
-{"role": "compact", "content": [{"type": "text", "text": "<summary>"}], "meta": {"provider": "...", "model": "...", "total_tokens": 48000}}
+{"role": "compact", "content": [{"type": "text", "text": "<summary>"}], "meta": {"provider": "...", "model": "...", "usage": {...}, "native": {"usage": {...}}}}
 ```
 
-Inline marker written when token usage ≥ `compact_threshold × context_window`. The summary text is persisted in the marker; UIs render it as a divider in the visible history. `meta.total_tokens` is the summary call's usage when the provider reports it. See "Context Compaction" below.
+Inline marker written when token usage ≥ `compact_threshold × context_window`. The summary text is persisted in the marker; UIs render it as a divider in the visible history. `meta.usage` is the summary call's own canonical usage when the provider reports it — the summary request is a billed provider request, so the agent also folds it into the current turn's cumulative usage. See "Context Compaction" below.
 
 ### Rewind event
 
@@ -115,9 +127,9 @@ When `SessionStore.load_session` runs:
 Checked after every completed assistant turn (with or without tools), always at
 a full `assistant`/`tool_result` boundary.
 
-1. `should_compact()` — true when the latest assistant message's `total_tokens` ≥ `context_window × compact_threshold` (default `0.8`). Tool outputs appended this turn aren't reflected in that figure until the next API call's usage; the `(1 - threshold)` headroom absorbs them.
+1. `should_compact()` — true when the latest assistant message's `usage.total_tokens` ≥ `context_window × compact_threshold` (default `0.8`). Tool outputs appended this turn aren't reflected in that figure until the next API call's usage; the `(1 - threshold)` headroom absorbs them.
 2. Ask the same provider/model for a summary with the normal system prompt, the current provider-projected messages (`prepare_messages`), no tools, text only, and `max_tokens = min(agent.max_tokens, 8192)`
-3. Build a compact event with the summary text and the summary call's `total_tokens` when available
+3. Build a compact event with the summary text and the summary call's `meta.usage` / `meta.native.usage` when available
 4. Persist the compact event and append it to `agent.messages` (append-only — original messages stay in JSONL and in the visible list)
 5. Emit the `compact` stream event to the caller (empty payload — clients use it as the cue to insert their inline divider)
 

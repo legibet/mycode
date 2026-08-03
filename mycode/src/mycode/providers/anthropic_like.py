@@ -11,6 +11,7 @@ from anthropic import APIError, AsyncAnthropic
 from mycode.messages import (
     ConversationMessage,
     assistant_message,
+    build_usage,
     text_block,
     thinking_block,
     tool_use_block,
@@ -197,15 +198,20 @@ class AnthropicLikeAdapter(ProviderAdapter):
         if service_tier := getattr(message, "service_tier", None):
             message_native_meta["service_tier"] = service_tier
 
-        # No `total_tokens` field — compute it from input + cache + output parts.
         raw_usage = dump_model(getattr(message, "usage", None)) or {}
-        prompt_tokens = (
-            (raw_usage.get("input_tokens") or 0)
-            + (raw_usage.get("cache_creation_input_tokens") or 0)
-            + (raw_usage.get("cache_read_input_tokens") or 0)
-        )
-        output_tokens = raw_usage.get("output_tokens") or 0
-        total_tokens = prompt_tokens + output_tokens or None
+        if raw_usage:
+            message_native_meta["usage"] = raw_usage
+
+        # `input_tokens` excludes cache tokens on this protocol; the canonical
+        # input is the sum of all three. A compatible upstream omitting cache
+        # fields leaves the sum unknown rather than understated.
+        base_input = raw_usage.get("input_tokens")
+        cache_write = raw_usage.get("cache_creation_input_tokens")
+        cache_read = raw_usage.get("cache_read_input_tokens")
+        if base_input is None or cache_write is None or cache_read is None:
+            input_tokens = None
+        else:
+            input_tokens = base_input + cache_write + cache_read
 
         return assistant_message(
             blocks,
@@ -213,7 +219,13 @@ class AnthropicLikeAdapter(ProviderAdapter):
             model=request_model or getattr(message, "model", None),
             provider_message_id=getattr(message, "id", None),
             stop_reason=getattr(message, "stop_reason", None),
-            total_tokens=total_tokens,
+            usage=build_usage(
+                input_tokens=input_tokens,
+                cache_read_tokens=cache_read,
+                cache_write_tokens=cache_write,
+                output_tokens=raw_usage.get("output_tokens"),
+                reasoning_tokens=(raw_usage.get("output_tokens_details") or {}).get("thinking_tokens"),
+            ),
             native_meta=message_native_meta,
         )
 

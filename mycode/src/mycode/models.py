@@ -19,6 +19,13 @@ class ModelMetadata:
 
     ``provider`` and ``model`` keep the original query identity. Other fields
     may come from a fallback catalog entry.
+
+    ``cost`` holds models.dev prices in USD per 1M tokens — keys ``input``,
+    ``output``, ``cache_read``, ``cache_write``, ``reasoning`` plus optional
+    ``tiers`` (long-context price overrides, ``[{"size": ..., <prices>}]``).
+    Capability fields may come from the OpenRouter suffix fallback, but
+    ``cost`` never does: prices apply only when the catalog entry belongs to
+    the requested provider or the inferred official provider.
     """
 
     provider: str
@@ -28,6 +35,7 @@ class ModelMetadata:
     supports_reasoning: bool | None = None
     supports_image_input: bool | None = None
     supports_pdf_input: bool | None = None
+    cost: dict[str, Any] | None = None
 
 
 @cache
@@ -117,12 +125,15 @@ def lookup_model_metadata(
     if catalog_entry is None and inferred_provider and inferred_provider != provider_type:
         catalog_entry = _get_catalog_entry(catalog, inferred_provider, model_name)
 
+    from_suffix_fallback = False
     if catalog_entry is None:
         catalog_entry = _get_openrouter_suffix_entry(catalog, model_name)
+        from_suffix_fallback = catalog_entry is not None
 
     if catalog_entry is None:
         return None
 
+    cost = catalog_entry.get("cost")
     return ModelMetadata(
         provider=provider_type,
         model=requested_model,
@@ -131,7 +142,86 @@ def lookup_model_metadata(
         supports_reasoning=as_bool(catalog_entry.get("supports_reasoning")),
         supports_image_input=as_bool(catalog_entry.get("supports_image_input")),
         supports_pdf_input=as_bool(catalog_entry.get("supports_pdf_input")),
+        cost=cost if isinstance(cost, dict) and not from_suffix_fallback else None,
     )
+
+
+_PRICE_KEYS = ("input", "output", "cache_read", "cache_write", "reasoning")
+
+
+def estimate_cost(usage: dict[str, Any], cost: dict[str, Any] | None) -> float | None:
+    """Estimate the USD cost of one provider request.
+
+    ``usage`` is a message's canonical ``meta.usage`` dict; ``cost`` is
+    :attr:`ModelMetadata.cost`. Returns the upstream-reported cost when
+    present, otherwise a models.dev-based estimate — or None when the
+    available token/price data cannot produce a trustworthy figure. There are
+    no partial results: a priced category with unknown tokens, an unpriced
+    category with nonzero tokens, or inconsistent subsets all yield None
+    rather than a silently wrong number.
+    """
+
+    reported = usage.get("cost_usd")
+    if reported is not None:
+        return float(reported)
+    if not cost:
+        return None
+
+    input_tokens = usage.get("input_tokens")
+    output_tokens = usage.get("output_tokens")
+    if input_tokens is None or output_tokens is None:
+        return None
+
+    prices: dict[str, float | None] = {key: cost.get(key) for key in _PRICE_KEYS}
+    # Long-context pricing: the highest tier the full input (incl. cache)
+    # exceeds overrides the base prices; fields missing on a tier inherit.
+    for tier in cost.get("tiers") or []:
+        if input_tokens > tier["size"]:
+            prices.update({key: tier[key] for key in _PRICE_KEYS if tier.get(key) is not None})
+
+    # A cache category the upstream didn't report counts as 0 — unless it has
+    # a nonzero price different from plain input, making the split
+    # load-bearing. A free (0-priced) category substituted with 0 can only
+    # bill those tokens at the input rate, never understate.
+    cache_read = usage.get("cache_read_tokens")
+    if cache_read is None:
+        if prices["cache_read"] and prices["cache_read"] != prices["input"]:
+            return None
+        cache_read = 0
+    cache_write = usage.get("cache_write_tokens")
+    if cache_write is None:
+        if prices["cache_write"] and prices["cache_write"] != prices["input"]:
+            return None
+        cache_write = 0
+
+    uncached_input = input_tokens - cache_read - cache_write
+    if uncached_input < 0:
+        return None
+
+    reasoning = usage.get("reasoning_tokens")
+    if reasoning is not None and reasoning > output_tokens:
+        return None
+    reasoning_price = prices["reasoning"] if prices["reasoning"] is not None else prices["output"]
+    if reasoning_price == prices["output"]:
+        # Same effective rate — bill the full output without needing the split.
+        reasoning = 0
+    elif reasoning is None:
+        return None
+
+    total = 0.0
+    for tokens, price in (
+        (uncached_input, prices["input"]),
+        (cache_read, prices["cache_read"]),
+        (cache_write, prices["cache_write"]),
+        (output_tokens - reasoning, prices["output"]),
+        (reasoning, reasoning_price),
+    ):
+        if not tokens:
+            continue
+        if price is None:
+            return None
+        total += tokens * price
+    return total / 1_000_000
 
 
 def _get_catalog_entry(

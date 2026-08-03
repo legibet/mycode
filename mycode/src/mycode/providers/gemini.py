@@ -11,7 +11,7 @@ from google import genai
 from google.genai import types
 from google.genai.errors import APIError
 
-from mycode.messages import assistant_message, text_block, thinking_block, tool_use_block
+from mycode.messages import assistant_message, build_usage, text_block, thinking_block, tool_use_block
 from mycode.providers.base import (
     DEFAULT_REQUEST_TIMEOUT,
     ProviderAdapter,
@@ -91,7 +91,20 @@ class GoogleGeminiAdapter(ProviderAdapter):
                 await client.aio.aclose()
 
         raw_usage = usage or {}
-        total_tokens = raw_usage.get("total_token_count") or None
+        # Gemini omits zero-valued counts (proto3), so once a usage payload
+        # arrived at all, absent optional counts normalize to 0, not unknown.
+        if raw_usage:
+            normalized_usage = build_usage(
+                total_tokens=raw_usage.get("total_token_count"),
+                input_tokens=(raw_usage.get("prompt_token_count") or 0)
+                + (raw_usage.get("tool_use_prompt_token_count") or 0),
+                cache_read_tokens=raw_usage.get("cached_content_token_count") or 0,
+                output_tokens=(raw_usage.get("candidates_token_count") or 0)
+                + (raw_usage.get("thoughts_token_count") or 0),
+                reasoning_tokens=raw_usage.get("thoughts_token_count") or 0,
+            )
+        else:
+            normalized_usage = {}
 
         yield ProviderStreamEvent(
             "message_done",
@@ -102,8 +115,11 @@ class GoogleGeminiAdapter(ProviderAdapter):
                     model=request.model,
                     provider_message_id=response_id,
                     stop_reason=str(finish_reason) if finish_reason else None,
-                    total_tokens=total_tokens,
-                    native_meta={"finish_message": str(finish_message)} if finish_message else None,
+                    usage=normalized_usage,
+                    native_meta={
+                        "finish_message": str(finish_message) if finish_message else None,
+                        "usage": raw_usage or None,
+                    },
                 )
             },
         )

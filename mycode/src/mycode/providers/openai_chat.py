@@ -9,7 +9,14 @@ from typing import Any, override
 
 from openai import APIError, AsyncOpenAI
 
-from mycode.messages import ConversationMessage, assistant_message, text_block, thinking_block, tool_use_block
+from mycode.messages import (
+    ConversationMessage,
+    assistant_message,
+    build_usage,
+    text_block,
+    thinking_block,
+    tool_use_block,
+)
 from mycode.providers.base import (
     DEFAULT_REQUEST_TIMEOUT,
     ProviderAdapter,
@@ -128,7 +135,12 @@ class OpenAIChatAdapter(ProviderAdapter):
             )
 
         raw_usage = dump_model(usage) or {}
-        total_tokens = raw_usage.get("total_tokens") or None
+        prompt_details = raw_usage.get("prompt_tokens_details") or {}
+        completion_details = raw_usage.get("completion_tokens_details") or {}
+        cache_read_tokens = prompt_details.get("cached_tokens")
+        if cache_read_tokens is None:
+            # DeepSeek reports cache hits as a top-level extension field.
+            cache_read_tokens = raw_usage.get("prompt_cache_hit_tokens")
 
         final_message = assistant_message(
             blocks,
@@ -136,7 +148,17 @@ class OpenAIChatAdapter(ProviderAdapter):
             model=request.model,
             provider_message_id=response_id,
             stop_reason=finish_reason,
-            total_tokens=total_tokens,
+            usage=build_usage(
+                total_tokens=raw_usage.get("total_tokens"),
+                input_tokens=raw_usage.get("prompt_tokens"),
+                cache_read_tokens=cache_read_tokens,
+                cache_write_tokens=prompt_details.get("cache_write_tokens"),
+                output_tokens=raw_usage.get("completion_tokens"),
+                reasoning_tokens=completion_details.get("reasoning_tokens"),
+                # OpenRouter reports the actually charged cost in USD.
+                cost_usd=raw_usage.get("cost"),
+            ),
+            native_meta={"usage": raw_usage or None},
         )
         yield ProviderStreamEvent("message_done", {"message": final_message})
 
@@ -445,6 +467,9 @@ class OpenRouterAdapter(OpenAIChatAdapter):
 
     @override
     def _build_provider_payload_overrides(self, request: ProviderRequest) -> dict[str, Any]:
-        if not request.reasoning_effort:
-            return {}
-        return {"extra_body": {"reasoning": {"effort": request.reasoning_effort}}}
+        # usage.include makes OpenRouter report the charged cost and cache
+        # details in the final usage chunk.
+        extra_body: dict[str, Any] = {"usage": {"include": True}}
+        if request.reasoning_effort:
+            extra_body["reasoning"] = {"effort": request.reasoning_effort}
+        return {"extra_body": extra_body}

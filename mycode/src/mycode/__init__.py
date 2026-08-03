@@ -11,6 +11,7 @@ from mycode.messages import (
     ConversationMessage,
     assistant_message,
     build_message,
+    build_usage,
     document_block,
     flatten_message_text,
     image_block,
@@ -20,6 +21,7 @@ from mycode.messages import (
     tool_use_block,
     user_text_message,
 )
+from mycode.models import ModelMetadata, estimate_cost, resolve_model_metadata
 from mycode.session import SessionStore
 from mycode.tools import (
     ToolContext,
@@ -46,6 +48,7 @@ __all__ = [
     "BeforeToolHook",
     "HookResult",
     "Hooks",
+    "ModelMetadata",
     "NothingToCompactError",
     "PersistCallback",
     "RunResult",
@@ -59,12 +62,15 @@ __all__ = [
     "assistant_message",
     "bash_tool",
     "build_message",
+    "build_usage",
     "cancel_all_tools",
     "document_block",
     "edit_tool",
+    "estimate_cost",
     "flatten_message_text",
     "image_block",
     "read_tool",
+    "resolve_model_metadata",
     "text_block",
     "thinking_block",
     "tool",

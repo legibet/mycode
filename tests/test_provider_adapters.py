@@ -1948,3 +1948,188 @@ def test_anthropic_like_build_request_payload_adds_cache_control(adapter) -> Non
     ]
     assert "cache_control" not in payload["messages"][0]["content"][0]
     assert payload["messages"][3]["content"][1]["cache_control"] == {"type": "ephemeral"}
+
+
+# Usage normalization
+
+
+def test_anthropic_normalizes_usage_details() -> None:
+    message = _Obj(
+        id="msg_1",
+        model="claude-sonnet-4-5",
+        stop_reason="end_turn",
+        content=[_Obj(type="text", text="hi", citations=None)],
+        usage=_Obj(
+            input_tokens=1_000,
+            cache_creation_input_tokens=200,
+            cache_read_input_tokens=10_000,
+            output_tokens=900,
+            output_tokens_details=_Obj(thinking_tokens=600),
+        ),
+    )
+
+    converted = AnthropicAdapter()._convert_final_message(message)
+
+    assert converted["meta"]["usage"] == {
+        "total_tokens": 12_100,
+        "input_tokens": 11_200,
+        "cache_read_tokens": 10_000,
+        "cache_write_tokens": 200,
+        "output_tokens": 900,
+        "reasoning_tokens": 600,
+    }
+    assert converted["meta"]["native"]["usage"]["cache_read_input_tokens"] == 10_000
+
+
+def test_anthropic_missing_cache_fields_leave_input_unknown() -> None:
+    # Unverified compatible upstream reporting only the base counters: the
+    # effective input must stay unknown rather than silently understated.
+    message = _Obj(
+        id="msg_1",
+        model="kimi-latest",
+        stop_reason="end_turn",
+        content=[],
+        usage=_Obj(input_tokens=100, output_tokens=5),
+    )
+
+    converted = MoonshotAIAdapter()._convert_final_message(message)
+
+    assert converted["meta"]["usage"] == {"output_tokens": 5}
+
+
+def test_openai_responses_normalizes_usage_details() -> None:
+    response = _Obj(
+        id="resp_1",
+        model="gpt-5.4",
+        status="completed",
+        usage=_Obj(
+            input_tokens=1_000,
+            input_tokens_details=_Obj(cached_tokens=800, cache_write_tokens=100),
+            output_tokens=50,
+            output_tokens_details=_Obj(reasoning_tokens=30),
+            total_tokens=1_050,
+        ),
+        output=[],
+    )
+
+    converted = OpenAIResponsesAdapter()._convert_final_response(response)
+
+    assert converted["meta"]["usage"] == {
+        "total_tokens": 1_050,
+        "input_tokens": 1_000,
+        "cache_read_tokens": 800,
+        "cache_write_tokens": 100,
+        "output_tokens": 50,
+        "reasoning_tokens": 30,
+    }
+    assert converted["meta"]["native"]["usage"]["input_tokens_details"] == {
+        "cached_tokens": 800,
+        "cache_write_tokens": 100,
+    }
+
+
+async def test_openai_chat_normalizes_usage_details(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = _async_context_mock()
+    chunks = [
+        _Obj(
+            id="response-1",
+            usage=_Obj(
+                prompt_tokens=1_000,
+                prompt_tokens_details=_Obj(cached_tokens=700),
+                completion_tokens=80,
+                completion_tokens_details=_Obj(reasoning_tokens=60),
+                total_tokens=1_080,
+            ),
+            choices=[_Obj(finish_reason="stop", delta=_Obj(content="done", tool_calls=[]))],
+        )
+    ]
+    client.chat.completions.create = AsyncMock(return_value=_stream_mock(chunks))
+    monkeypatch.setattr("mycode.providers.openai_chat.AsyncOpenAI", lambda **_kwargs: client)
+
+    events = [event async for event in OpenAIChatAdapter().stream_turn(request_obj(api_key="k", model="m"))]
+
+    assert events[-1].data["message"]["meta"]["usage"] == {
+        "total_tokens": 1_080,
+        "input_tokens": 1_000,
+        "cache_read_tokens": 700,
+        "output_tokens": 80,
+        "reasoning_tokens": 60,
+    }
+
+
+async def test_deepseek_falls_back_to_its_cache_hit_extension_field(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = _async_context_mock()
+    chunks = [
+        _Obj(
+            id="response-1",
+            usage=_Obj(
+                prompt_tokens=100,
+                prompt_cache_hit_tokens=80,
+                prompt_cache_miss_tokens=20,
+                completion_tokens=10,
+                total_tokens=110,
+            ),
+            choices=[_Obj(finish_reason="stop", delta=_Obj(content="done", tool_calls=[]))],
+        )
+    ]
+    client.chat.completions.create = AsyncMock(return_value=_stream_mock(chunks))
+    monkeypatch.setattr("mycode.providers.openai_chat.AsyncOpenAI", lambda **_kwargs: client)
+
+    events = [event async for event in DeepSeekAdapter().stream_turn(request_obj(api_key="k", model="deepseek-chat"))]
+
+    usage = events[-1].data["message"]["meta"]["usage"]
+    assert usage["cache_read_tokens"] == 80
+    assert usage["input_tokens"] == 100
+
+
+async def test_openrouter_requests_and_stores_the_charged_cost(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = _async_context_mock()
+    chunks = [
+        _Obj(
+            id="response-1",
+            usage=_Obj(prompt_tokens=100, completion_tokens=10, total_tokens=110, cost=0.0123),
+            choices=[_Obj(finish_reason="stop", delta=_Obj(content="done", tool_calls=[]))],
+        )
+    ]
+    client.chat.completions.create = AsyncMock(return_value=_stream_mock(chunks))
+    monkeypatch.setattr("mycode.providers.openai_chat.AsyncOpenAI", lambda **_kwargs: client)
+
+    events = [event async for event in OpenRouterAdapter().stream_turn(request_obj(api_key="k", model="vendor/model"))]
+
+    request_call = client.chat.completions.create.await_args
+    assert request_call is not None
+    assert request_call.kwargs["extra_body"]["usage"] == {"include": True}
+    assert events[-1].data["message"]["meta"]["usage"]["cost_usd"] == 0.0123
+
+
+async def test_gemini_normalizes_usage_details(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = MagicMock()
+    chunks = [
+        _Obj(
+            response_id="resp-1",
+            usage_metadata=_Obj(
+                prompt_token_count=100,
+                cached_content_token_count=40,
+                candidates_token_count=20,
+                thoughts_token_count=15,
+                total_token_count=135,
+            ),
+            candidates=[],
+        )
+    ]
+    client.aio.models.generate_content_stream = AsyncMock(return_value=_stream_mock(chunks))
+    client.aio.aclose = AsyncMock()
+    monkeypatch.setattr("mycode.providers.gemini.genai.Client", lambda **_kwargs: client)
+
+    events = [
+        event async for event in GoogleGeminiAdapter().stream_turn(request_obj(api_key="k", model="gemini-3.6-flash"))
+    ]
+
+    # Output includes thoughts; the absent tool-use prompt count means zero.
+    assert events[-1].data["message"]["meta"]["usage"] == {
+        "total_tokens": 135,
+        "input_tokens": 100,
+        "cache_read_tokens": 40,
+        "output_tokens": 35,
+        "reasoning_tokens": 15,
+    }

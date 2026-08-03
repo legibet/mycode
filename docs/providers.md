@@ -34,6 +34,17 @@ class ProviderAdapter(ABC):
 
 `ProviderRequest` carries: provider, model, session_id, messages, system, tools, max_tokens, api_key, api_base, reasoning_effort, supports_image_input, supports_pdf_input.
 
+## Usage Normalization
+
+Every adapter maps its wire-format usage into the canonical `meta.usage` dict and stores the raw upstream object under `meta.native.usage` (field semantics and mapping table in docs/sessions.md). Fields the upstream did not report stay missing — never coerced to 0 — so cost estimation refuses to guess instead of understating.
+
+Provider quirks:
+
+- Gemini omits zero-valued counts (proto3): once a usage payload arrived, absent optional counts normalize to 0, not unknown.
+- DeepSeek: `prompt_tokens_details.cached_tokens` wins; top-level `prompt_cache_hit_tokens` is the fallback.
+- OpenRouter: the request opts into usage accounting (`extra_body.usage.include`); the reported `usage.cost` (USD) lands in `usage.cost_usd` and takes priority over any estimate.
+- Anthropic-compatible upstreams that omit cache fields leave the effective input unknown rather than understated.
+
 ## Adapters
 
 ### `anthropic` — `anthropic_like.py`

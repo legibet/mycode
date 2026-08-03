@@ -9,7 +9,14 @@ from typing import Any, cast, override
 
 from openai import APIError, AsyncOpenAI
 
-from mycode.messages import ConversationMessage, assistant_message, text_block, thinking_block, tool_use_block
+from mycode.messages import (
+    ConversationMessage,
+    assistant_message,
+    build_usage,
+    text_block,
+    thinking_block,
+    tool_use_block,
+)
 from mycode.providers.base import (
     DEFAULT_REQUEST_TIMEOUT,
     ProviderAdapter,
@@ -328,7 +335,8 @@ class OpenAIResponsesAdapter(ProviderAdapter):
                 )
 
         raw_usage = dump_model(getattr(response, "usage", None)) or {}
-        total_tokens = raw_usage.get("total_tokens") or None
+        input_details = raw_usage.get("input_tokens_details") or {}
+        output_details = raw_usage.get("output_tokens_details") or {}
 
         return assistant_message(
             blocks,
@@ -336,8 +344,18 @@ class OpenAIResponsesAdapter(ProviderAdapter):
             model=request_model or getattr(response, "model", None),
             provider_message_id=getattr(response, "id", None),
             stop_reason=getattr(response, "status", None),
-            total_tokens=total_tokens,
-            native_meta={"output_items": dumped_output_items} if dumped_output_items else None,
+            usage=build_usage(
+                total_tokens=raw_usage.get("total_tokens"),
+                input_tokens=raw_usage.get("input_tokens"),
+                cache_read_tokens=input_details.get("cached_tokens"),
+                cache_write_tokens=input_details.get("cache_write_tokens"),
+                output_tokens=raw_usage.get("output_tokens"),
+                reasoning_tokens=output_details.get("reasoning_tokens"),
+            ),
+            native_meta={
+                "output_items": dumped_output_items or None,
+                "usage": raw_usage or None,
+            },
         )
 
 

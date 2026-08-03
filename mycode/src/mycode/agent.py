@@ -30,6 +30,7 @@ from mycode.compact import (
 )
 from mycode.hooks import Hooks, ToolHookContext
 from mycode.messages import (
+    USAGE_TOKEN_KEYS,
     ConversationMessage,
     build_message,
     flatten_message_text,
@@ -38,7 +39,7 @@ from mycode.messages import (
     tool_result_block,
     user_text_message,
 )
-from mycode.models import infer_provider_from_model, resolve_model_metadata
+from mycode.models import estimate_cost, infer_provider_from_model, resolve_model_metadata
 from mycode.providers import get_provider_adapter
 from mycode.providers.base import ProviderAdapter, ProviderRequest, ProviderStreamEvent
 from mycode.session import SessionStore
@@ -64,6 +65,31 @@ class RunResult:
     text: str = ""
     events: list[Event] = field(default_factory=list)
     error: str | None = None
+    usage: dict[str, Any] | None = None
+
+
+def _accumulate_usage(
+    turn_usage: dict[str, Any],
+    turn_cost: float | None,
+    usage: dict[str, Any],
+    cost: dict[str, Any] | None,
+) -> float | None:
+    """Fold one provider request's usage into the turn accumulator.
+
+    Mutates ``turn_usage`` and returns the updated turn cost. A token class
+    (or the cost) any request could not report stays None for the whole turn —
+    an unknown part must not make the sum look complete.
+    """
+
+    for key in USAGE_TOKEN_KEYS:
+        if key in turn_usage and turn_usage[key] is None:
+            continue
+        value = usage.get(key)
+        turn_usage[key] = None if value is None else turn_usage.get(key, 0) + value
+    if turn_cost is None:
+        return None
+    request_cost = estimate_cost(usage, cost)
+    return None if request_cost is None else turn_cost + request_cost
 
 
 class Agent:
@@ -200,6 +226,7 @@ class Agent:
         )
         self.max_tokens: int = meta.max_output_tokens or 16_384
         self.context_window: int = meta.context_window or 128_000
+        self.model_cost: dict[str, Any] | None = meta.cost
         self.supports_reasoning: bool | None = meta.supports_reasoning
         self.supports_image_input: bool = bool(meta.supports_image_input)
         self.supports_pdf_input: bool = bool(meta.supports_pdf_input)
@@ -504,6 +531,26 @@ class Agent:
             block["meta"] = {**meta, "duration_ms": duration_ms}
             return
 
+    def _usage_event(
+        self,
+        context_tokens: int | None,
+        turn_usage: dict[str, Any],
+        turn_cost: float | None,
+    ) -> Event:
+        """Build a usage event: turn-cumulative billing facts + context metric."""
+
+        return Event(
+            "usage",
+            {
+                "context_tokens": context_tokens,
+                "context_window": self.context_window,
+                "model": self.model,
+                "provider": self.provider,
+                "turn_usage": dict(turn_usage),
+                "cost_usd": turn_cost,
+            },
+        )
+
     async def _persist_message(
         self,
         message: ConversationMessage,
@@ -575,6 +622,9 @@ class Agent:
 
         adapter = get_provider_adapter(self.provider)
 
+        turn_usage: dict[str, Any] = {}
+        turn_cost: float | None = 0.0
+        context_tokens: int | None = None
         turn_number = 0
         while True:
             if self.max_turns is not None and turn_number >= self.max_turns:
@@ -680,17 +730,10 @@ class Agent:
             self.messages.append(assistant_message)
             await persist(assistant_message)
 
-            total_tokens = meta.get("total_tokens")
-            if total_tokens:
-                yield Event(
-                    "usage",
-                    {
-                        "total_tokens": total_tokens,
-                        "model": meta.get("model") or self.model,
-                        "provider": meta.get("provider") or self.provider,
-                        "context_window": meta["context_window"],
-                    },
-                )
+            request_usage = cast(dict[str, Any], meta.get("usage") or {})
+            context_tokens = request_usage.get("total_tokens")
+            turn_cost = _accumulate_usage(turn_usage, turn_cost, request_usage, self.model_cost)
+            yield self._usage_event(context_tokens, turn_usage, turn_cost)
 
             tool_calls = [
                 block
@@ -728,16 +771,25 @@ class Agent:
 
             if self._cancel_event.is_set():
                 return
-            if should_compact(total_tokens, self.context_window, self.compact_threshold):
+            if should_compact(context_tokens, self.context_window, self.compact_threshold):
                 try:
-                    await self._compact(adapter, on_persist)
+                    compact_marker = await self._compact(adapter, on_persist)
                     yield Event("compact", {})
+                    # The summary call is a billed provider request; its total
+                    # is not the post-compact context size, so context_tokens
+                    # keeps the last normal request's value.
+                    compact_usage = cast(dict[str, Any], (compact_marker.get("meta") or {}).get("usage") or {})
+                    turn_cost = _accumulate_usage(turn_usage, turn_cost, compact_usage, self.model_cost)
+                    yield self._usage_event(context_tokens, turn_usage, turn_cost)
                 except asyncio.CancelledError:
                     yield Event("error", {"message": "cancelled"})
                     return
                 except Exception:
                     # Compaction must not block the current answer; the full
-                    # transcript is still available for the next turn.
+                    # transcript is still available for the next turn. The
+                    # failed request's spend is unknown — poison the turn.
+                    turn_usage.update(dict.fromkeys(USAGE_TOKEN_KEYS))
+                    turn_cost = None
                     logger.warning(
                         "Context compaction failed, continuing without compaction",
                         exc_info=True,
@@ -768,6 +820,8 @@ class Agent:
                 result.events.append(event)
                 if event.type == "text":
                     result.text += str(event.data.get("delta") or "")
+                elif event.type == "usage":
+                    result.usage = event.data
                 elif event.type == "error" and result.error is None:
                     result.error = str(event.data.get("message") or "")
             return result
@@ -844,12 +898,13 @@ class Agent:
         if self._cancel_event.is_set():
             raise asyncio.CancelledError
 
-        summary_total_tokens = (summary_message.get("meta") or {}).get("total_tokens")
+        summary_meta = cast(dict[str, Any], summary_message.get("meta") or {})
         compact_event = build_compact_event(
             summary_text,
             provider=self.provider,
             model=self.model,
-            total_tokens=summary_total_tokens,
+            usage=summary_meta.get("usage"),
+            native_usage=(summary_meta.get("native") or {}).get("usage"),
         )
 
         await self._persist_message(compact_event, on_persist)

@@ -56,7 +56,7 @@ An unknown path, directory, unsupported binary, or missing or unsupported `media
 
 ### `run()` synchronous wrapper
 
-`run()` is a thin wrapper around `achat()`. It consumes the stream via `asyncio.run`, concatenates the `text` deltas into `RunResult.text`, stashes every event in `RunResult.events`, and captures the first error message in `RunResult.error`:
+`run()` is a thin wrapper around `achat()`. It consumes the stream via `asyncio.run`, concatenates the `text` deltas into `RunResult.text`, stashes every event in `RunResult.events`, captures the first error message in `RunResult.error`, and keeps the last `usage` event's payload as `RunResult.usage` (the whole turn's final cumulative usage and cost):
 
 ```python
 result = agent.run("Hello")
@@ -99,7 +99,31 @@ A synchronous function already running in a worker thread continues until it ret
 | `tool_output`    | `{"tool_use_id", "output"}`; only for tools with `streams_output=True`   |
 | `tool_done`      | `{"tool_use_id", "output", "is_error", "metadata"?, "content"?}`         |
 | `compact`        | `{}`; emitted right after a compact marker is appended                   |
+| `usage`          | see below; emitted after every provider request                          |
 | `error`          | `{"message"}`; fatal for the turn, then the iterator stops               |
+
+### Usage and cost
+
+A `usage` event follows every completed provider request in the turn — including the auto-compact summary request — with cumulative turn totals:
+
+```python
+{
+    "context_tokens": 1456,        # latest normal request's usage.total_tokens; feeds context-% and compaction
+    "context_window": 200000,
+    "model": "...",
+    "provider": "...",
+    "turn_usage": {                # summed across this turn's provider requests
+        "total_tokens": 2912, "input_tokens": 2800,
+        "cache_read_tokens": None, "cache_write_tokens": None,
+        "output_tokens": 112, "reasoning_tokens": None,
+    },
+    "cost_usd": 0.0123,            # cumulative estimate, or None
+}
+```
+
+`context_tokens` and `turn_usage` are different metrics — the latest request's context occupancy vs. the turn's cumulative billing volume — never add them. A token class (or the cost) any request could not report is `None` for the whole turn; an unknown part must not make the sum look complete. Per-request facts live on each persisted assistant message (`meta.usage`, see docs/sessions.md).
+
+Costs come from the exported `estimate_cost(usage, cost)`: canonical usage dict × `ModelMetadata.cost` prices (models.dev, USD per 1M tokens, long-context tiers applied per request). It returns the upstream-reported cost when present, otherwise an estimate, or `None` when the data cannot produce a trustworthy figure — never a partial or silently wrong number. `resolve_model_metadata()` exposes the bundled prices; the OpenRouter suffix fallback never carries prices, so unknown models on custom endpoints get no cost rather than someone else's.
 
 ## Sessions
 
@@ -139,7 +163,7 @@ Construct an `Agent` with the same `(session_dir, session_id)` to resume across 
 
 ### Compaction
 
-When a turn reaches a full assistant/tool-result boundary the agent compares the latest assistant message's `meta.total_tokens` against `context_window * compact_threshold` (default `0.8`; pass `0` to disable). If over, it asks the same provider/model for a text-only summary capped at `max_tokens=8192`, persists a `compact` marker, and appends it inline to `agent.messages`. The pre-compact messages stay in place; only the next provider request sees the summary substitution.
+When a turn reaches a full assistant/tool-result boundary the agent compares the latest assistant message's `meta.usage.total_tokens` against `context_window * compact_threshold` (default `0.8`; pass `0` to disable). If over, it asks the same provider/model for a text-only summary capped at `max_tokens=8192`, persists a `compact` marker, and appends it inline to `agent.messages`. The pre-compact messages stay in place; only the next provider request sees the summary substitution.
 
 Compaction is best-effort: a failed summary call is logged and the turn continues with the uncompacted history. The exception is a user-initiated cancel inside the summary call, which ends the turn with `error` `message="cancelled"`.
 

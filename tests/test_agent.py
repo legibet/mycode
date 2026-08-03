@@ -12,6 +12,7 @@ import pytest
 from mycode import (
     Agent,
     ConversationMessage,
+    Event,
     RunResult,
     SessionStore,
     ToolContext,
@@ -106,6 +107,12 @@ async def read_back_async(context: ToolContext, path: str) -> str:
     return output
 
 
+def _chat_events(events: list[Event]) -> list[Event]:
+    """Drop the per-request usage events; usage flows have dedicated tests."""
+
+    return [event for event in events if event.type != "usage"]
+
+
 def _new_agent(tmp_path: Path, **overrides) -> Agent:
     overrides.setdefault("model", "gpt-5.5")
     overrides.setdefault("cwd", str(tmp_path))
@@ -133,7 +140,7 @@ class _CancelledCompactAdapter:
     async def stream_turn(self, _request):
         self.requests += 1
         if self.requests == 1:
-            yield _text_turn(meta={"total_tokens": 90})[0]
+            yield _text_turn(meta={"usage": {"total_tokens": 90}})[0]
             return
         raise asyncio.CancelledError
 
@@ -189,10 +196,11 @@ def test_agent_run_collects_stream_events(tmp_path: Path) -> None:
 
     assert result.text == "hello"
     assert result.error is None
-    assert [event.type for event in result.events] == ["reasoning", "reasoning_done", "text"]
-    assert result.events[0].data == {"delta": "plan "}
-    assert isinstance(result.events[1].data.get("duration_ms"), int)
-    assert result.events[2].data == {"delta": "hello"}
+    events = _chat_events(result.events)
+    assert [event.type for event in events] == ["reasoning", "reasoning_done", "text"]
+    assert events[0].data == {"delta": "plan "}
+    assert isinstance(events[1].data.get("duration_ms"), int)
+    assert events[2].data == {"delta": "hello"}
 
 
 def test_agent_run_rejects_non_user_messages(tmp_path: Path) -> None:
@@ -263,7 +271,9 @@ async def test_custom_tools_can_reuse_builtin_tools(tmp_path: Path) -> None:
     )
 
     with patch("mycode.agent.get_provider_adapter", return_value=adapter):
-        events = [event async for event in _new_agent(tmp_path, tools=[read_tool, read_back]).achat("Read note.txt")]
+        events = _chat_events(
+            [event async for event in _new_agent(tmp_path, tools=[read_tool, read_back]).achat("Read note.txt")]
+        )
 
     assert [event.type for event in events] == ["tool_start", "tool_done"]
     assert events[1].data["output"] == "hello from sdk"
@@ -280,9 +290,9 @@ async def test_async_custom_tools_can_reuse_and_stream_builtin_output(tmp_path: 
     )
 
     with patch("mycode.agent.get_provider_adapter", return_value=adapter):
-        events = [
-            event async for event in _new_agent(tmp_path, tools=[read_tool, read_back_async]).achat("Read note.txt")
-        ]
+        events = _chat_events(
+            [event async for event in _new_agent(tmp_path, tools=[read_tool, read_back_async]).achat("Read note.txt")]
+        )
 
     assert [event.type for event in events] == ["tool_start", "tool_output", "tool_done"]
     assert events[1].data["output"] == "hello from async sdk"
@@ -319,7 +329,7 @@ class TestAgentReasoningPersistence:
             )
 
             with patch("mycode.agent.get_provider_adapter", return_value=adapter):
-                events = [event async for event in agent.achat("hello", on_persist=on_persist)]
+                events = _chat_events([event async for event in agent.achat("hello", on_persist=on_persist)])
 
             assert [event.type for event in events] == ["reasoning", "reasoning_done", "text"]
             assert events[0].data == {"delta": "hidden "}
@@ -355,7 +365,7 @@ class TestAgentReasoningPersistence:
             )
 
             with patch("mycode.agent.get_provider_adapter", return_value=adapter):
-                events = [event async for event in agent.achat("hello", on_persist=on_persist)]
+                events = _chat_events([event async for event in agent.achat("hello", on_persist=on_persist)])
 
             assert [event.type for event in events] == ["tool_start", "tool_done"]
             assert events[0].data == {"tool_call": {"id": "call-1", "name": "read", "input": {"path": "test.txt"}}}
@@ -392,7 +402,7 @@ class TestAgentTurnLimits:
             adapter = _FakeProviderAdapter([_tool_turn(f"call-{idx}") for idx in range(1, 22)] + [_text_turn()])
 
             with patch("mycode.agent.get_provider_adapter", return_value=adapter):
-                events = [event async for event in agent.achat("hello")]
+                events = _chat_events([event async for event in agent.achat("hello")])
 
             assert events[-1].type == "tool_done"
             assert all(event.data.get("message") != "max_turns reached" for event in events)
@@ -416,7 +426,7 @@ class TestAgentTurnLimits:
             )
 
             with patch("mycode.agent.get_provider_adapter", return_value=adapter):
-                events = [event async for event in agent.achat("hello")]
+                events = _chat_events([event async for event in agent.achat("hello")])
 
             assert events[-1].type == "error"
             assert events[-1].data == {"message": "max_turns reached"}
@@ -443,7 +453,7 @@ class TestCustomTools:
             )
 
             with patch("mycode.agent.get_provider_adapter", return_value=adapter):
-                events = [event async for event in agent.achat("hello")]
+                events = _chat_events([event async for event in agent.achat("hello")])
 
             assert [event.type for event in events] == ["tool_start", "tool_done"]
             assert events[1].data == {
@@ -507,8 +517,9 @@ class TestCustomTools:
         assert not run_thread.is_alive()
         assert cleaned_up.is_set()
         assert len(results) == 1
-        assert [event.type for event in results[0].events] == event_types
-        assert results[0].events[-1].data == {
+        events = _chat_events(results[0].events)
+        assert [event.type for event in events] == event_types
+        assert events[-1].data == {
             "tool_use_id": "call-1",
             "output": cancelled_output,
             "is_error": True,
@@ -536,7 +547,7 @@ class TestCustomTools:
             )
 
             with patch("mycode.agent.get_provider_adapter", return_value=adapter):
-                events = [event async for event in agent.achat("hello", on_persist=on_persist)]
+                events = _chat_events([event async for event in agent.achat("hello", on_persist=on_persist)])
 
             assert [event.type for event in events] == ["tool_start", "tool_done"]
             assert events[0].data == {
@@ -569,7 +580,7 @@ class TestAgentCancel:
             adapter = _CancelledCompactAdapter()
 
             with patch("mycode.agent.get_provider_adapter", return_value=adapter):
-                events = [event async for event in agent.achat("hello")]
+                events = _chat_events([event async for event in agent.achat("hello")])
 
             assert adapter.requests == 2
             assert events[-1].type == "error"
@@ -605,3 +616,74 @@ class TestAgentCancel:
             ]
             assert agent.messages[-1]["meta"]["provider"] == "openai"
             assert agent.messages[-1]["meta"]["model"] == "gpt-5.5"
+
+
+class TestTurnUsage:
+    def test_usage_events_accumulate_across_tool_turns(self, tmp_path: Path) -> None:
+        adapter = _FakeProviderAdapter(
+            [
+                _assistant_turn(
+                    {"type": "tool_use", "id": "call-1", "name": "ping", "input": {"text": "hi"}},
+                    meta={"usage": {"total_tokens": 100, "input_tokens": 90, "output_tokens": 10}},
+                ),
+                _text_turn(meta={"usage": {"total_tokens": 150, "input_tokens": 130, "output_tokens": 20}}),
+            ]
+        )
+        agent = _new_agent(tmp_path, tools=[_PING_TOOL])
+        agent.model_cost = {"input": 1.0, "output": 2.0}
+
+        with patch("mycode.agent.get_provider_adapter", return_value=adapter):
+            result = agent.run("hello")
+
+        first, second = [event.data for event in result.events if event.type == "usage"]
+        assert first == {
+            "context_tokens": 100,
+            "context_window": agent.context_window,
+            "model": agent.model,
+            "provider": "openai",
+            "turn_usage": {
+                "total_tokens": 100,
+                "input_tokens": 90,
+                "cache_read_tokens": None,
+                "cache_write_tokens": None,
+                "output_tokens": 10,
+                "reasoning_tokens": None,
+            },
+            "cost_usd": pytest.approx((90 * 1.0 + 10 * 2.0) / 1_000_000),
+        }
+        assert second["context_tokens"] == 150
+        assert second["turn_usage"]["total_tokens"] == 250
+        assert second["turn_usage"]["input_tokens"] == 220
+        assert second["turn_usage"]["output_tokens"] == 30
+        assert second["cost_usd"] == pytest.approx((220 * 1.0 + 30 * 2.0) / 1_000_000)
+        assert result.usage == second
+
+    def test_request_without_usage_poisons_turn_totals(self, tmp_path: Path) -> None:
+        adapter = _FakeProviderAdapter(
+            [
+                _assistant_turn(
+                    {"type": "tool_use", "id": "call-1", "name": "ping", "input": {"text": "hi"}},
+                    meta={"usage": {"total_tokens": 100, "input_tokens": 90, "output_tokens": 10}},
+                ),
+                _text_turn(),
+            ]
+        )
+        agent = _new_agent(tmp_path, tools=[_PING_TOOL])
+        agent.model_cost = {"input": 1.0, "output": 2.0}
+
+        with patch("mycode.agent.get_provider_adapter", return_value=adapter):
+            result = agent.run("hello")
+
+        assert result.usage is not None
+        assert result.usage["context_tokens"] is None
+        assert result.usage["turn_usage"] == dict.fromkeys(
+            (
+                "total_tokens",
+                "input_tokens",
+                "cache_read_tokens",
+                "cache_write_tokens",
+                "output_tokens",
+                "reasoning_tokens",
+            )
+        )
+        assert result.usage["cost_usd"] is None

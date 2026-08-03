@@ -10,9 +10,15 @@ from unittest.mock import patch
 
 import pytest
 
-from mycode import Agent, Hooks, ToolExecutionResult, ToolHookContext
+from mycode import Agent, Event, Hooks, ToolExecutionResult, ToolHookContext
 from mycode.providers.base import ProviderStreamEvent
 from mycode.tools import ToolContext, ToolSpec
+
+
+def _chat_events(events: list[Event]) -> list[Event]:
+    """Drop the per-request usage events; usage flows have dedicated tests."""
+
+    return [event for event in events if event.type != "usage"]
 
 
 class _ToolUseAdapter:
@@ -93,7 +99,7 @@ async def test_before_tool_blocks_execution_and_after_hooks_see_result(tmp_path:
     adapter = _ToolUseAdapter("ping", {})
 
     with patch("mycode.agent.get_provider_adapter", return_value=adapter):
-        events = [event async for event in agent.achat("run ping")]
+        events = _chat_events([event async for event in agent.achat("run ping")])
 
     assert calls == []
     assert seen == ["blocked"]
@@ -123,7 +129,7 @@ async def test_after_tool_hooks_replace_results_in_order(tmp_path: Path) -> None
     adapter = _ToolUseAdapter("ping", {})
 
     with patch("mycode.agent.get_provider_adapter", return_value=adapter):
-        events = [event async for event in agent.achat("run ping")]
+        events = _chat_events([event async for event in agent.achat("run ping")])
 
     assert seen == ["tool", "tool+first"]
     assert events[1].data == {"tool_use_id": "call-1", "output": "tool+first+second", "is_error": False}
@@ -152,7 +158,7 @@ async def test_tool_hook_context_input_is_readonly(tmp_path: Path) -> None:
     adapter = _ToolUseAdapter("ping", {"text": "hello", "items": [{"value": "original"}]})
 
     with patch("mycode.agent.get_provider_adapter", return_value=adapter):
-        events = [event async for event in agent.achat("run ping")]
+        events = _chat_events([event async for event in agent.achat("run ping")])
 
     assert events[1].data == {"tool_use_id": "call-1", "output": "ok", "is_error": False}
 
@@ -179,7 +185,7 @@ async def test_hook_errors_become_tool_errors(tmp_path: Path) -> None:
     adapter = _ToolUseAdapter("ping", {})
 
     with patch("mycode.agent.get_provider_adapter", return_value=adapter):
-        events = [event async for event in agent.achat("run ping")]
+        events = _chat_events([event async for event in agent.achat("run ping")])
 
     assert calls == []
     assert after_calls == []
@@ -205,7 +211,7 @@ async def test_after_tool_hook_errors_keep_tool_result(tmp_path: Path) -> None:
     adapter = _ToolUseAdapter("ping", {})
 
     with patch("mycode.agent.get_provider_adapter", return_value=adapter):
-        events = [event async for event in agent.achat("run ping")]
+        events = _chat_events([event async for event in agent.achat("run ping")])
 
     assert events[1].data == {"tool_use_id": "call-1", "output": "tool ran", "is_error": False}
 
@@ -233,7 +239,7 @@ async def test_cancellation_after_before_hooks_cannot_be_replaced(tmp_path: Path
     adapter = _ToolUseAdapter("ping", {})
 
     with patch("mycode.agent.get_provider_adapter", return_value=adapter):
-        events = [event async for event in agent.achat("run ping")]
+        events = _chat_events([event async for event in agent.achat("run ping")])
 
     assert calls == []
     assert after_calls == []
@@ -271,7 +277,7 @@ async def test_before_tool_blocks_streaming_tool_without_live_output(tmp_path: P
     adapter = _ToolUseAdapter("ping", {})
 
     with patch("mycode.agent.get_provider_adapter", return_value=adapter):
-        events = [event async for event in agent.achat("run ping")]
+        events = _chat_events([event async for event in agent.achat("run ping")])
 
     assert calls == []
     assert [event.type for event in events] == ["tool_start", "tool_done"]
@@ -304,7 +310,7 @@ async def test_after_tool_can_replace_streaming_tool_result(tmp_path: Path) -> N
     adapter = _ToolUseAdapter("ping", {})
 
     with patch("mycode.agent.get_provider_adapter", return_value=adapter):
-        events = [event async for event in agent.achat("run ping")]
+        events = _chat_events([event async for event in agent.achat("run ping")])
 
     assert [event.type for event in events] == ["tool_start", "tool_output", "tool_done"]
     assert events[1].data == {"tool_use_id": "call-1", "output": "live"}
@@ -340,6 +346,7 @@ async def test_streaming_cancellation_cannot_be_replaced(tmp_path: Path) -> None
 
     with patch("mycode.agent.get_provider_adapter", return_value=adapter):
         stream = agent.achat("run ping")
+        assert (await anext(stream)).type == "usage"
         first = await anext(stream)
         second = await anext(stream)
         agent.cancel()

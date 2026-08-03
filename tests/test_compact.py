@@ -155,7 +155,7 @@ class _UsageAdapter:
             "content": [{"type": "text", "text": "reply" if len(self.requests) == 1 else "summary"}],
         }
         if len(self.requests) == 1:
-            message["meta"] = {"total_tokens": self.total_tokens}
+            message["meta"] = {"usage": {"total_tokens": self.total_tokens}}
         yield ProviderStreamEvent("message_done", {"message": message})
 
 
@@ -270,3 +270,74 @@ async def test_acompact_cancellation_writes_no_marker(tmp_path: Path) -> None:
 
     assert all(m.get("role") != "compact" for m in agent.messages)
     assert not messages_path.exists()
+
+
+class _UsageDetailAdapter:
+    """First request nears the window; the summary request reports its own usage."""
+
+    def __init__(self) -> None:
+        self.requests = 0
+
+    async def stream_turn(self, _request: Any) -> AsyncIterator[ProviderStreamEvent]:
+        self.requests += 1
+        if self.requests == 1:
+            meta = {"usage": {"total_tokens": 80_000, "input_tokens": 79_000, "output_tokens": 1_000}}
+            text = "reply"
+        else:
+            meta = {"usage": {"total_tokens": 80_500, "input_tokens": 80_000, "output_tokens": 500}}
+            text = "summary"
+        yield ProviderStreamEvent(
+            "message_done",
+            {"message": {"role": "assistant", "content": [{"type": "text", "text": text}], "meta": meta}},
+        )
+
+
+@pytest.mark.asyncio
+async def test_auto_compact_usage_counts_into_the_turn() -> None:
+    agent = Agent(model="m", provider="anthropic", cwd="/tmp", context_window=100_000)
+    adapter = _UsageDetailAdapter()
+
+    with patch("mycode.agent.get_provider_adapter", return_value=adapter):
+        events = [event async for event in agent.achat("hello")]
+
+    assert [event.type for event in events] == ["usage", "compact", "usage"]
+    final_usage = events[-1].data
+    # The summary call is billed into the turn, but the context metric keeps
+    # the last normal request's total — the summary total is not context size.
+    assert final_usage["context_tokens"] == 80_000
+    assert final_usage["turn_usage"]["total_tokens"] == 160_500
+    assert final_usage["turn_usage"]["input_tokens"] == 159_000
+    assert final_usage["turn_usage"]["output_tokens"] == 1_500
+
+    marker = agent.messages[-1]
+    assert marker["role"] == "compact"
+    assert marker["meta"]["usage"] == {"total_tokens": 80_500, "input_tokens": 80_000, "output_tokens": 500}
+
+
+class _LegacyMetaAdapter:
+    """Simulates pre-usage assistant messages that only carry meta.total_tokens."""
+
+    async def stream_turn(self, _request: Any) -> AsyncIterator[ProviderStreamEvent]:
+        yield ProviderStreamEvent(
+            "message_done",
+            {
+                "message": {
+                    "role": "assistant",
+                    "content": [{"type": "text", "text": "reply"}],
+                    "meta": {"total_tokens": 90_000},
+                }
+            },
+        )
+
+
+@pytest.mark.asyncio
+async def test_legacy_total_tokens_meta_is_ignored() -> None:
+    # meta.total_tokens intentionally no longer feeds compaction or the
+    # context metric; only meta.usage does.
+    agent = Agent(model="m", provider="anthropic", cwd="/tmp", context_window=100_000)
+
+    with patch("mycode.agent.get_provider_adapter", return_value=_LegacyMetaAdapter()):
+        events = [event async for event in agent.achat("hello")]
+
+    assert [event.type for event in events] == ["usage"]
+    assert events[0].data["context_tokens"] is None

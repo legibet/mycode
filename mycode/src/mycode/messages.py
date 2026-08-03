@@ -7,8 +7,8 @@ Metadata layout:
 
 - assistant message ``meta`` keeps only normalized top-level fields:
   ``provider``, ``model``, ``provider_message_id``, ``stop_reason``,
-  ``total_tokens``, ``context_window`` (see docs/sessions.md for
-  ``total_tokens`` semantics); ``model`` records the selected request model
+  ``usage``, ``context_window`` (see docs/sessions.md for ``usage``
+  semantics); ``model`` records the selected request model
 - provider-specific extras live under ``meta.native`` on messages and
   ``block.meta.native`` on blocks
 - local display metadata such as ``block.meta.duration_ms`` is never sent
@@ -126,6 +126,51 @@ def build_message(
     return _set_meta({"role": role, "content": blocks}, meta)
 
 
+USAGE_TOKEN_KEYS = (
+    "total_tokens",
+    "input_tokens",
+    "cache_read_tokens",
+    "cache_write_tokens",
+    "output_tokens",
+    "reasoning_tokens",
+)
+
+
+def build_usage(
+    *,
+    total_tokens: int | None = None,
+    input_tokens: int | None = None,
+    cache_read_tokens: int | None = None,
+    cache_write_tokens: int | None = None,
+    output_tokens: int | None = None,
+    reasoning_tokens: int | None = None,
+    cost_usd: float | None = None,
+) -> dict[str, Any]:
+    """Build a canonical usage dict from one provider request.
+
+    ``input_tokens`` is the full effective input including cache reads and
+    writes; ``output_tokens`` includes reasoning; ``cache_*_tokens`` and
+    ``reasoning_tokens`` are subsets of their respective totals. A missing key
+    means the upstream did not report it — readers must not substitute 0.
+    ``cost_usd`` is an upstream-reported charge (e.g. OpenRouter), never a
+    computed estimate.
+    """
+
+    if total_tokens is None and input_tokens is not None and output_tokens is not None:
+        total_tokens = input_tokens + output_tokens
+    return omit_none(
+        {
+            "total_tokens": total_tokens,
+            "input_tokens": input_tokens,
+            "cache_read_tokens": cache_read_tokens,
+            "cache_write_tokens": cache_write_tokens,
+            "output_tokens": output_tokens,
+            "reasoning_tokens": reasoning_tokens,
+            "cost_usd": cost_usd,
+        }
+    )
+
+
 def assistant_message(
     blocks: list[ContentBlock],
     *,
@@ -133,7 +178,7 @@ def assistant_message(
     model: str | None = None,
     provider_message_id: str | None = None,
     stop_reason: str | None = None,
-    total_tokens: int | None = None,
+    usage: dict[str, Any] | None = None,
     native_meta: dict[str, Any] | None = None,
 ) -> ConversationMessage:
     """Build a normalized assistant message with shared metadata fields."""
@@ -147,8 +192,8 @@ def assistant_message(
         meta["provider_message_id"] = provider_message_id
     if stop_reason:
         meta["stop_reason"] = stop_reason
-    if total_tokens is not None:
-        meta["total_tokens"] = total_tokens
+    if usage:
+        meta["usage"] = dict(usage)
     if native_meta:
         native = omit_none(native_meta)
         if native:
