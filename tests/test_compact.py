@@ -314,6 +314,40 @@ async def test_auto_compact_usage_counts_into_the_turn() -> None:
     assert marker["meta"]["usage"] == {"total_tokens": 80_500, "input_tokens": 80_000, "output_tokens": 500}
 
 
+class _FailingSummaryAdapter:
+    """First request nears the window; the summary request fails."""
+
+    def __init__(self) -> None:
+        self.requests = 0
+
+    async def stream_turn(self, _request: Any) -> AsyncIterator[ProviderStreamEvent]:
+        self.requests += 1
+        if self.requests > 1:
+            raise ValueError("summary failed")
+        meta = {"usage": {"total_tokens": 80_000, "input_tokens": 79_000, "output_tokens": 1_000}}
+        yield ProviderStreamEvent(
+            "message_done",
+            {"message": {"role": "assistant", "content": [{"type": "text", "text": "reply"}], "meta": meta}},
+        )
+
+
+@pytest.mark.asyncio
+async def test_failed_auto_compact_poisons_and_emits_turn_usage() -> None:
+    agent = Agent(model="m", provider="anthropic", cwd="/tmp", context_window=100_000)
+
+    with patch("mycode.agent.get_provider_adapter", return_value=_FailingSummaryAdapter()):
+        events = [event async for event in agent.achat("hello")]
+
+    # The turn still finishes, but the failed summary request's spend is
+    # unknown — the second usage event carries poisoned cumulative totals.
+    assert [event.type for event in events] == ["usage", "usage"]
+    final_usage = events[-1].data
+    assert final_usage["context_tokens"] == 80_000
+    assert set(final_usage["turn_usage"].values()) == {None}
+    assert final_usage["cost_usd"] is None
+    assert all(message.get("role") != "compact" for message in agent.messages)
+
+
 class _LegacyMetaAdapter:
     """Simulates pre-usage assistant messages that only carry meta.total_tokens."""
 

@@ -121,7 +121,7 @@ A `usage` event follows every completed provider request in the turn — includi
 }
 ```
 
-`context_tokens` and `turn_usage` are different metrics — the latest request's context occupancy vs. the turn's cumulative billing volume — never add them. A token class (or the cost) any request could not report is `None` for the whole turn; an unknown part must not make the sum look complete. Per-request facts live on each persisted assistant message (`meta.usage`, see docs/sessions.md).
+`context_tokens` and `turn_usage` are different metrics — the latest request's context occupancy vs. the turn's cumulative billing volume — never add them. A token class (or the cost) any request could not report is `None` for the whole turn; an unknown part must not make the sum look complete. The same rule covers requests that never finish: a provider failure, a cancellation, or a failed compact summary emits one more `usage` event with every `turn_usage` field and `cost_usd` set to `None` (that request's spend is unknown) before the turn errors out or continues. Per-request facts live on each persisted assistant message (`meta.usage`, see docs/sessions.md).
 
 Costs come from the exported `estimate_cost(usage, cost)`: canonical usage dict × `ModelMetadata.cost` prices (models.dev, USD per 1M tokens, long-context tiers applied per request). It returns the upstream-reported cost when present, otherwise an estimate, or `None` when the data cannot produce a trustworthy figure — never a partial or silently wrong number. `resolve_model_metadata()` exposes the bundled prices; the OpenRouter suffix fallback never carries prices, so unknown models on custom endpoints get no cost rather than someone else's.
 

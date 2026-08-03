@@ -155,8 +155,10 @@ class OpenAIChatAdapter(ProviderAdapter):
                 cache_write_tokens=prompt_details.get("cache_write_tokens"),
                 output_tokens=raw_usage.get("completion_tokens"),
                 reasoning_tokens=completion_details.get("reasoning_tokens"),
-                # OpenRouter reports the actually charged cost in USD.
-                cost_usd=raw_usage.get("cost"),
+                # Only OpenRouter's `cost` extension is known to mean the
+                # actually charged USD amount; other upstreams' same-named
+                # fields must not short-circuit the estimate.
+                cost_usd=raw_usage.get("cost") if self.provider_id == "openrouter" else None,
             ),
             native_meta={"usage": raw_usage or None},
         )
@@ -467,9 +469,6 @@ class OpenRouterAdapter(OpenAIChatAdapter):
 
     @override
     def _build_provider_payload_overrides(self, request: ProviderRequest) -> dict[str, Any]:
-        # usage.include makes OpenRouter report the charged cost and cache
-        # details in the final usage chunk.
-        extra_body: dict[str, Any] = {"usage": {"include": True}}
         if request.reasoning_effort:
-            extra_body["reasoning"] = {"effort": request.reasoning_effort}
-        return {"extra_body": extra_body}
+            return {"extra_body": {"reasoning": {"effort": request.reasoning_effort}}}
+        return {}

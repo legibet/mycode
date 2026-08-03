@@ -113,6 +113,19 @@ def _chat_events(events: list[Event]) -> list[Event]:
     return [event for event in events if event.type != "usage"]
 
 
+# What turn_usage looks like after a request with unknown spend poisons it.
+_POISONED_TURN_USAGE = dict.fromkeys(
+    (
+        "total_tokens",
+        "input_tokens",
+        "cache_read_tokens",
+        "cache_write_tokens",
+        "output_tokens",
+        "reasoning_tokens",
+    )
+)
+
+
 def _new_agent(tmp_path: Path, **overrides) -> Agent:
     overrides.setdefault("model", "gpt-5.5")
     overrides.setdefault("cwd", str(tmp_path))
@@ -580,10 +593,13 @@ class TestAgentCancel:
             adapter = _CancelledCompactAdapter()
 
             with patch("mycode.agent.get_provider_adapter", return_value=adapter):
-                events = _chat_events([event async for event in agent.achat("hello")])
+                events = [event async for event in agent.achat("hello")]
 
             assert adapter.requests == 2
-            assert events[-1].type == "error"
+            assert [event.type for event in events] == ["usage", "usage", "error"]
+            # The cancelled summary request's spend is unknown.
+            assert events[-2].data["turn_usage"] == _POISONED_TURN_USAGE
+            assert events[-2].data["cost_usd"] is None
             assert events[-1].data == {"message": "cancelled"}
 
     @pytest.mark.asyncio
@@ -606,9 +622,13 @@ class TestAgentCancel:
                 agent.cancel()
                 remaining_events = [event async for event in stream]
 
-            assert len(remaining_events) == 1
-            assert remaining_events[0].type == "error"
-            assert remaining_events[0].data == {"message": "cancelled"}
+            usage_event, error_event = remaining_events
+            # The cancelled request's spend is unknown.
+            assert usage_event.type == "usage"
+            assert usage_event.data["turn_usage"] == _POISONED_TURN_USAGE
+            assert usage_event.data["cost_usd"] is None
+            assert error_event.type == "error"
+            assert error_event.data == {"message": "cancelled"}
             assert adapter.closed.is_set()
             assert agent.messages[-1]["role"] == "assistant"
             assert agent.messages[-1]["content"] == [
@@ -676,14 +696,35 @@ class TestTurnUsage:
 
         assert result.usage is not None
         assert result.usage["context_tokens"] is None
-        assert result.usage["turn_usage"] == dict.fromkeys(
-            (
-                "total_tokens",
-                "input_tokens",
-                "cache_read_tokens",
-                "cache_write_tokens",
-                "output_tokens",
-                "reasoning_tokens",
-            )
-        )
+        assert result.usage["turn_usage"] == _POISONED_TURN_USAGE
+        assert result.usage["cost_usd"] is None
+
+    def test_failed_followup_request_poisons_and_emits_final_usage(self, tmp_path: Path) -> None:
+        class _FailingSecondRequestAdapter:
+            def __init__(self) -> None:
+                self.requests = 0
+
+            async def stream_turn(self, _request):
+                self.requests += 1
+                if self.requests == 1:
+                    yield _assistant_turn(
+                        {"type": "tool_use", "id": "call-1", "name": "ping", "input": {"text": "hi"}},
+                        meta={"usage": {"total_tokens": 100, "input_tokens": 90, "output_tokens": 10}},
+                    )[0]
+                    return
+                raise ValueError("boom")
+
+        agent = _new_agent(tmp_path, tools=[_PING_TOOL])
+        agent.model_cost = {"input": 1.0, "output": 2.0}
+
+        with patch("mycode.agent.get_provider_adapter", return_value=_FailingSecondRequestAdapter()):
+            result = agent.run("hello")
+
+        assert result.error == "boom"
+        assert [event.type for event in result.events[-2:]] == ["usage", "error"]
+        # The failed request's spend is unknown: the cumulative totals poison,
+        # while the context metric keeps the last successful request's value.
+        assert result.usage is not None
+        assert result.usage["context_tokens"] == 100
+        assert result.usage["turn_usage"] == _POISONED_TURN_USAGE
         assert result.usage["cost_usd"] is None

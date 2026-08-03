@@ -42,7 +42,7 @@ Provider quirks:
 
 - Gemini omits zero-valued counts (proto3): once a usage payload arrived, absent optional counts normalize to 0, not unknown.
 - DeepSeek: `prompt_tokens_details.cached_tokens` wins; top-level `prompt_cache_hit_tokens` is the fallback.
-- OpenRouter: the request opts into usage accounting (`extra_body.usage.include`); the reported `usage.cost` (USD) lands in `usage.cost_usd` and takes priority over any estimate.
+- OpenRouter: the reported `usage.cost` (USD) lands in `usage.cost_usd` and takes priority over any estimate. Only OpenRouter's `cost` field has this meaning — other Chat Completions upstreams' same-named extensions are ignored.
 - Anthropic-compatible upstreams that omit cache fields leave the effective input unknown rather than understated.
 
 ## Adapters

@@ -2039,6 +2039,9 @@ async def test_openai_chat_normalizes_usage_details(monkeypatch: pytest.MonkeyPa
                 completion_tokens=80,
                 completion_tokens_details=_Obj(reasoning_tokens=60),
                 total_tokens=1_080,
+                # A non-OpenRouter `cost` extension has unknown semantics and
+                # must not surface as cost_usd (the exact match below proves it).
+                cost=0.0123,
             ),
             choices=[_Obj(finish_reason="stop", delta=_Obj(content="done", tool_calls=[]))],
         )
@@ -2082,7 +2085,7 @@ async def test_deepseek_falls_back_to_its_cache_hit_extension_field(monkeypatch:
     assert usage["input_tokens"] == 100
 
 
-async def test_openrouter_requests_and_stores_the_charged_cost(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_openrouter_stores_the_charged_cost(monkeypatch: pytest.MonkeyPatch) -> None:
     client = _async_context_mock()
     chunks = [
         _Obj(
@@ -2096,9 +2099,10 @@ async def test_openrouter_requests_and_stores_the_charged_cost(monkeypatch: pyte
 
     events = [event async for event in OpenRouterAdapter().stream_turn(request_obj(api_key="k", model="vendor/model"))]
 
+    # Usage accounting is on by default at OpenRouter; no opt-in is sent.
     request_call = client.chat.completions.create.await_args
     assert request_call is not None
-    assert request_call.kwargs["extra_body"]["usage"] == {"include": True}
+    assert "extra_body" not in request_call.kwargs
     assert events[-1].data["message"]["meta"]["usage"]["cost_usd"] == 0.0123
 
 

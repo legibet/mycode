@@ -691,6 +691,11 @@ class Agent:
                 provider_cancelled = True
             except Exception as exc:
                 logger.exception("Provider request failed")
+                # The failed request may have billed tokens but never reported
+                # final usage — the turn's cumulative spend is now unknown.
+                turn_usage.update(dict.fromkeys(USAGE_TOKEN_KEYS))
+                turn_cost = None
+                yield self._usage_event(context_tokens, turn_usage, turn_cost)
                 yield Event("error", {"message": str(exc)})
                 return
 
@@ -711,10 +716,16 @@ class Agent:
                     )
                     self.messages.append(cancelled_message)
                     await persist(cancelled_message)
+                turn_usage.update(dict.fromkeys(USAGE_TOKEN_KEYS))
+                turn_cost = None
+                yield self._usage_event(context_tokens, turn_usage, turn_cost)
                 yield Event("error", {"message": "cancelled"})
                 return
 
             if not assistant_message:
+                turn_usage.update(dict.fromkeys(USAGE_TOKEN_KEYS))
+                turn_cost = None
+                yield self._usage_event(context_tokens, turn_usage, turn_cost)
                 yield Event("error", {"message": "provider produced no assistant message"})
                 return
 
@@ -782,6 +793,9 @@ class Agent:
                     turn_cost = _accumulate_usage(turn_usage, turn_cost, compact_usage, self.model_cost)
                     yield self._usage_event(context_tokens, turn_usage, turn_cost)
                 except asyncio.CancelledError:
+                    turn_usage.update(dict.fromkeys(USAGE_TOKEN_KEYS))
+                    turn_cost = None
+                    yield self._usage_event(context_tokens, turn_usage, turn_cost)
                     yield Event("error", {"message": "cancelled"})
                     return
                 except Exception:
@@ -790,6 +804,7 @@ class Agent:
                     # failed request's spend is unknown — poison the turn.
                     turn_usage.update(dict.fromkeys(USAGE_TOKEN_KEYS))
                     turn_cost = None
+                    yield self._usage_event(context_tokens, turn_usage, turn_cost)
                     logger.warning(
                         "Context compaction failed, continuing without compaction",
                         exc_info=True,
