@@ -185,6 +185,7 @@ Cancelled streaming tools persist emitted output plus `error: cancelled`.
 - `create_session(session_id, *, cwd)` — write `meta.json` and touch `messages.jsonl`
 - `list_sessions(*, cwd=None)` — filter by workspace, sorted by `updated_at` desc; derived `title` / `updated_at` included per entry
 - `load_session(session_id)` — load with full replay pipeline (returns `None` when absent)
+- `load_raw_messages(session_id)` — raw JSONL timeline as-is, rewound tails and markers included (`[]` when absent); the append-only record for consumers like the CLI's session cost fold
 - `delete_session(session_id)` — recursive directory delete
 - `clear_session(session_id)` — truncate `messages.jsonl`, reset `title` to the default and bump `updated_at`
 - `append_message(session_id, message)` — append one line; refresh meta's `updated_at` and promote `title` on the first user message

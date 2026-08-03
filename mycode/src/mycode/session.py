@@ -210,12 +210,12 @@ class SessionStore:
         sessions = await self.list_sessions(cwd=cwd)
         return sessions[0] if sessions else None
 
-    def load_session_sync(self, session_id: str) -> SessionData | None:
-        """Synchronous variant of :meth:`load_session`."""
+    def load_raw_messages_sync(self, session_id: str) -> list[ConversationMessage]:
+        """Read the raw JSONL timeline — rewound tails included; [] when absent.
 
-        meta = self._read_meta(session_id)
-        if meta is None:
-            return None
+        This exposes the append-only record as-is; callers needing the visible
+        history should use :meth:`load_session` instead.
+        """
 
         raw_messages: list[ConversationMessage] = []
         try:
@@ -232,12 +232,23 @@ class SessionStore:
                         raw_messages.append(cast(ConversationMessage, msg))
         except FileNotFoundError:
             pass
+        return raw_messages
+
+    async def load_raw_messages(self, session_id: str) -> list[ConversationMessage]:
+        return await asyncio.to_thread(self.load_raw_messages_sync, session_id)
+
+    def load_session_sync(self, session_id: str) -> SessionData | None:
+        """Synchronous variant of :meth:`load_session`."""
+
+        meta = self._read_meta(session_id)
+        if meta is None:
+            return None
 
         # Visible state = raw JSONL minus rewound tails. `compact` markers
         # stay inline; the agent substitutes them when calling the provider.
         # Orphan tool_use blocks (e.g. left open by a server crash) are
         # closed by the provider adapter at replay time, not here.
-        visible_messages = apply_rewind(raw_messages)
+        visible_messages = apply_rewind(self.load_raw_messages_sync(session_id))
 
         return {"session": self._summary(session_id, meta), "messages": visible_messages}
 

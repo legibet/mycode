@@ -56,6 +56,26 @@ async def test_session_lifecycle_preserves_metadata_and_messages(store: SessionS
     assert await store.list_sessions() == []
 
 
+async def test_load_raw_messages_keeps_rewound_tails(store: SessionStore) -> None:
+    assert await store.load_raw_messages("s1") == []
+
+    await store.create_session("s1", cwd="/tmp")
+    records = [
+        {"role": "user", "content": [{"type": "text", "text": "hi"}]},
+        {"role": "assistant", "content": [{"type": "text", "text": "rewound reply"}]},
+    ]
+    for record in records:
+        await store.append_message("s1", record)
+    await store.append_rewind("s1", 0)
+
+    loaded = await store.load_session("s1")
+    assert loaded is not None
+    assert loaded["messages"] == []
+
+    raw = await store.load_raw_messages("s1")
+    assert [record.get("role") for record in raw] == ["user", "assistant", "rewind"]
+
+
 async def test_session_listing_filters_and_orders_by_recent_activity(store: SessionStore, tmp_path: Path) -> None:
     current_cwd = str(tmp_path / "project-a")
     other_cwd = str(tmp_path / "project-b")
