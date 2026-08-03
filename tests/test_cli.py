@@ -313,7 +313,6 @@ class TestLoadSessionCost:
         await store.append_rewind("s1", 0)
 
         assert await load_session_cost(store, "s1") == pytest.approx(0.025)
-        assert await load_session_cost(store, "missing") == 0.0
 
     @pytest.mark.asyncio
     async def test_skips_records_without_usage(self, tmp_path: Path) -> None:

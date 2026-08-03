@@ -301,9 +301,9 @@ Load session with full message history. If the session has an active run, overla
 
 `pending_events` contains the active run's buffered SSE events. The web UI reapplies them, then reconnects with `after=<last seq>`.
 
-`session_cost_usd` is the estimated cumulative cost of every provider request persisted in the session JSONL — tool loops, compact summaries, and turns discarded by rewind included. Records without usage (cancelled partials, pre-usage sessions) are skipped; `null` when a recorded request's usage cannot be priced (unknown model), and the UI then omits the cost. During an active run, `session_cost_usd` from `usage` SSE events supersedes this value.
+`session_cost_usd` estimates every request in the raw JSONL timeline, including tool loops, compaction, and rewound turns. Records without usage are skipped; an unpriceable usage record makes the total `null`. During an active run, the value from `usage` SSE events takes precedence.
 
-Each returned assistant/compact message additionally carries a response-only `meta.request_cost_usd` — that request's estimated cost, priced server-side from `meta.usage`. Absent when the request cannot be priced; never persisted. The web UI sums it per turn for the per-reply cost.
+Returned assistant and compact messages may carry response-only `meta.request_cost_usd`. It is omitted when the request cannot be priced and is never persisted. The web UI sums it per turn.
 
 `active_run.kind` distinguishes chat and compact runs. While a compact run is active, `messages` is the pre-run history with no optimistic turn appended; the web UI uses `kind` to restore its `Compacting…` state after a refresh.
 
@@ -388,7 +388,7 @@ Response:
 
 `permission_request` and `permission_resolved` bracket a wait inside the agent's `before_tool` hook. Clients respond via `POST /api/runs/{run_id}/decide`; `permission_resolved` lets reconnecting or second-tab clients dismiss the prompt.
 
-The `usage` payload mirrors the SDK usage event (see docs/sdk.md): `context_tokens` is the latest request's context occupancy, `turn_usage`/`cost_usd` are the turn's cumulative billing facts. `session_cost_usd` is composed by the run manager: the pre-run session cost (folded from the session JSONL by `mycode_cli.runtime.load_session_cost`) plus the turn's `cost_usd`. SSE serialization drops `None` fields — an absent field means unknown, and the UI shows nothing for it.
+The `usage` payload mirrors the SDK event described in docs/sdk.md. `context_tokens` is the latest request's context usage; `turn_usage` and `cost_usd` are cumulative for the turn; `session_cost_usd` adds the pre-run session cost. SSE omits `None` fields, so absence means unknown.
 
 Every event also carries `seq: int` for reconnect support. The web UI uses `after` parameter to resume from a specific seq number.
 

@@ -36,14 +36,14 @@ class ProviderAdapter(ABC):
 
 ## Usage Normalization
 
-Every adapter maps its wire-format usage into the canonical `meta.usage` dict and stores the raw upstream object under `meta.native.usage` (field semantics and mapping table in docs/sessions.md). Fields the upstream did not report stay missing — never coerced to 0 — so cost estimation refuses to guess instead of understating.
+Every adapter maps wire usage to `meta.usage` and keeps the raw object in `meta.native.usage`. Field semantics and mappings are documented in docs/sessions.md. Missing fields remain unknown unless the protocol defines absence as zero.
 
 Provider quirks:
 
-- Gemini omits zero-valued counts (proto3): once a usage payload arrived, absent optional counts normalize to 0, not unknown.
+- Gemini proto3 omits zero-valued counts, so absent optional counts become 0 after a usage payload arrives.
 - DeepSeek: `prompt_tokens_details.cached_tokens` wins; top-level `prompt_cache_hit_tokens` is the fallback.
-- OpenRouter: the reported `usage.cost` (USD) lands in `usage.cost_usd` and takes priority over any estimate. Only OpenRouter's `cost` field has this meaning — other Chat Completions upstreams' same-named extensions are ignored.
-- Anthropic-compatible upstreams that omit cache fields leave the effective input unknown rather than understated.
+- OpenRouter: `usage.cost` is stored as `usage.cost_usd` and takes priority over estimates. Other Chat Completions providers' `cost` extensions are ignored.
+- Anthropic-compatible providers need all input and cache counters to compute effective input.
 
 ## Adapters
 

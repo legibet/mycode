@@ -70,7 +70,7 @@ Each matching `/<skill-name>` token prepends a text block with `meta.skill_snaps
 
 Snapshots stay in the session timeline across compaction, but a snapshot before the last `compact` marker reaches providers only through the summary; its `location` lets the model re-read the skill file.
 
-`assistant.meta.usage` holds the canonical token facts for the single provider request that produced the message. Fields are `int | None`; a missing key means the upstream did not report it — readers must not substitute 0. `meta.native.usage` keeps the raw upstream usage object verbatim for later re-mapping.
+`assistant.meta.usage` holds token facts for one provider request. A missing key means unknown. `meta.native.usage` keeps the raw upstream object.
 
 | field                | semantics                                                              |
 | -------------------- | ---------------------------------------------------------------------- |
@@ -80,15 +80,15 @@ Snapshots stay in the session timeline across compaction, but a snapshot before 
 | `cache_write_tokens` | subset of `input_tokens`                                               |
 | `output_tokens`      | full output, **including** reasoning                                   |
 | `reasoning_tokens`   | subset of `output_tokens`                                              |
-| `cost_usd`           | upstream-reported charge only (OpenRouter); never a computed estimate  |
+| `cost_usd`           | upstream-reported charge only; currently OpenRouter                    |
 
-`usage.total_tokens` is the context metric: prompt plus everything the model produced this request, which also equals the prompt floor of the next API call. `should_compact` and the consumed-context UI compare it against `context_window`. (Pre-usage sessions carried a top-level `meta.total_tokens`; new code ignores it, so a resumed old session has no context percentage until its first new turn.)
+`usage.total_tokens` is the request's context metric. Compaction and context displays compare it with `context_window`.
 
-`assistant.meta.context_window` is the model's full context window for the call, resolved from the catalog at runtime. Stamped onto the message so clients can render the consumed-context percentage without re-deriving model metadata. Absent when unavailable.
+`assistant.meta.context_window` is the model's context window for the request, resolved from the catalog. It is absent when unavailable.
 
-Cancelled provider streams can append a partial assistant message before the final cancelled error. It contains streamed `thinking`/`text` blocks plus `meta.provider`, `meta.model`, and `meta.context_window` — no `usage` (the final usage never arrived; the spend is unknown, not zero).
+Cancelled streams may persist partial assistant content without `usage` because final usage never arrived.
 
-Adapter normalization (canonical ← raw; missing raw fields stay unknown; provider quirks in docs/providers.md):
+Adapter normalization (canonical ← raw; missing fields stay unknown unless noted in docs/providers.md):
 
 | provider       | input                                              | cache read / write                                            | output                                          | reasoning                                    |
 | -------------- | -------------------------------------------------- | ------------------------------------------------------------- | ----------------------------------------------- | -------------------------------------------- |
@@ -103,7 +103,7 @@ Adapter normalization (canonical ← raw; missing raw fields stay unknown; provi
 {"role": "compact", "content": [{"type": "text", "text": "<summary>"}], "meta": {"provider": "...", "model": "...", "usage": {...}, "native": {"usage": {...}}}}
 ```
 
-Inline marker written when token usage ≥ `compact_threshold × context_window`. The summary text is persisted in the marker; UIs render it as a divider in the visible history. `meta.usage` is the summary call's own canonical usage when the provider reports it — the summary request is a billed provider request, so the agent also folds it into the current turn's cumulative usage. See "Context Compaction" below.
+The marker stores the summary and its request usage. Automatic compaction also includes that request in the turn's cumulative usage. See "Context Compaction" below.
 
 ### Rewind event
 
@@ -185,7 +185,7 @@ Cancelled streaming tools persist emitted output plus `error: cancelled`.
 - `create_session(session_id, *, cwd)` — write `meta.json` and touch `messages.jsonl`
 - `list_sessions(*, cwd=None)` — filter by workspace, sorted by `updated_at` desc; derived `title` / `updated_at` included per entry
 - `load_session(session_id)` — load with full replay pipeline (returns `None` when absent)
-- `load_raw_messages(session_id)` — raw JSONL timeline as-is, rewound tails and markers included (`[]` when absent); the append-only record for consumers like the CLI's session cost fold
+- `load_raw_messages(session_id)` — raw append-only JSONL, including rewound tails and markers; returns `[]` when absent
 - `delete_session(session_id)` — recursive directory delete
 - `clear_session(session_id)` — truncate `messages.jsonl`, reset `title` to the default and bump `updated_at`
 - `append_message(session_id, message)` — append one line; refresh meta's `updated_at` and promote `title` on the first user message

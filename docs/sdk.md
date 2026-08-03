@@ -104,26 +104,29 @@ A synchronous function already running in a worker thread continues until it ret
 
 ### Usage and cost
 
-A `usage` event follows every completed provider request in the turn — including the auto-compact summary request — with cumulative turn totals:
+A `usage` event follows each provider request, including automatic compaction. It reports the latest context occupancy and cumulative billing for the turn:
 
 ```python
 {
-    "context_tokens": 1456,        # latest normal request's usage.total_tokens; feeds context-% and compaction
+    "context_tokens": 1456,        # latest normal request's usage.total_tokens
     "context_window": 200000,
     "model": "...",
     "provider": "...",
-    "turn_usage": {                # summed across this turn's provider requests
+    "turn_usage": {                # cumulative for the turn
         "total_tokens": 2912, "input_tokens": 2800,
         "cache_read_tokens": None, "cache_write_tokens": None,
         "output_tokens": 112, "reasoning_tokens": None,
     },
-    "cost_usd": 0.0123,            # cumulative estimate, or None
+    "cost_usd": 0.0123,
 }
 ```
 
-`context_tokens` and `turn_usage` are different metrics — the latest request's context occupancy vs. the turn's cumulative billing volume — never add them. A token class (or the cost) any request could not report is `None` for the whole turn; an unknown part must not make the sum look complete. The same rule covers requests that never finish: a provider failure, a cancellation, or a failed compact summary emits one more `usage` event with every `turn_usage` field and `cost_usd` set to `None` (that request's spend is unknown) before the turn errors out or continues. Per-request facts live on each persisted assistant message (`meta.usage`, see docs/sessions.md).
+- `context_tokens` is the latest normal request's context usage. It is not cumulative.
+- `turn_usage` and `cost_usd` accumulate all provider requests in the turn.
+- If any request has unknown usage or cost, the affected cumulative values become `None`.
+- A failed or cancelled request emits this unknown state before the turn stops or continues.
 
-Costs come from the exported `estimate_cost(usage, cost)`: canonical usage dict × `ModelMetadata.cost` prices (models.dev, USD per 1M tokens, long-context tiers applied per request). It returns the upstream-reported cost when present, otherwise an estimate, or `None` when the data cannot produce a trustworthy figure — never a partial or silently wrong number. `resolve_model_metadata()` exposes the bundled prices; the OpenRouter suffix fallback never carries prices, so unknown models on custom endpoints get no cost rather than someone else's.
+Per-request facts are persisted in `meta.usage`; see docs/sessions.md. `estimate_cost(usage, cost)` uses `ModelMetadata.cost` prices from models.dev, applies long-context tiers per request, and prefers an upstream-reported cost. It returns `None` when the available usage or prices are insufficient. OpenRouter suffix fallback metadata never supplies prices.
 
 ## Sessions
 
