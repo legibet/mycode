@@ -9,6 +9,7 @@ from fastapi import APIRouter, HTTPException, Query
 from fastapi import Path as PathParam
 
 from mycode.messages import ConversationMessage
+from mycode_cli.runtime import load_session_cost
 from mycode_cli.server.deps import RunManagerDep, StoreDep, resolve_workspace_cwd
 from mycode_cli.server.schemas import SessionCreateRequest, StatusResponse
 
@@ -57,21 +58,26 @@ async def load_session(
     """Load a session, overlaying any active in-memory run state."""
 
     data = await store.load_session(session_id)
+    # Folded from the raw JSONL: counts everything persisted so far, including
+    # rewound-away turns. During an active run the SSE usage events supersede it.
+    session_cost = await load_session_cost(store, session_id)
     active = await runs.snapshot_session(session_id)
     if active:
         return {
             "session": data["session"] if data else None,
             "messages": _redact_document_data(active["messages"]),
+            "session_cost_usd": session_cost,
             "active_run": active["run"],
             "pending_events": active["pending_events"],
         }
 
     if data is None:
-        return {"session": None, "messages": [], "active_run": None, "pending_events": []}
+        return {"session": None, "messages": [], "session_cost_usd": None, "active_run": None, "pending_events": []}
 
     return {
         "session": data["session"],
         "messages": _redact_document_data(data["messages"]),
+        "session_cost_usd": session_cost,
         "active_run": None,
         "pending_events": [],
     }

@@ -23,6 +23,7 @@ from mycode.tools import ToolExecutor, bash_tool, edit_tool, read_tool, write_to
 from mycode_cli.config import Settings
 from mycode_cli.main import app, resolve_session, run_noninteractive
 from mycode_cli.permissions import PERMISSION_DENIED_BY_USER_OUTPUT, PERMISSION_DENIED_OUTPUT
+from mycode_cli.runtime import load_session_cost
 from mycode_cli.tui.chat import (
     TerminalChat,
     _build_chat_key_bindings,
@@ -255,6 +256,77 @@ class TestReplyRenderer:
         renderer.finish()
 
         assert "final answer" in output.getvalue()
+
+    def test_finish_prints_context_and_session_cost(self) -> None:
+        output = StringIO()
+        renderer = ReplyRenderer(
+            Console(file=output, force_terminal=False, color_system=None, width=120),
+            session_cost_base=0.40,
+        )
+        renderer._stats = {
+            "context_tokens": 34_210,
+            "context_window": 128_000,
+            "model": "gpt-5.5",
+            "cost_usd": 0.02,
+        }
+
+        renderer.finish()
+
+        assert "gpt-5.5  34,210 tokens (27%) · $0.42" in output.getvalue()
+
+    @pytest.mark.parametrize(
+        ("session_cost_base", "turn_cost"),
+        [
+            pytest.param(None, 0.02, id="unknown-history"),
+            pytest.param(0.40, None, id="poisoned-turn"),
+        ],
+    )
+    def test_finish_omits_the_cost_when_either_side_is_unknown(
+        self, session_cost_base: float | None, turn_cost: float | None
+    ) -> None:
+        output = StringIO()
+        renderer = ReplyRenderer(
+            Console(file=output, force_terminal=False, color_system=None, width=120),
+            session_cost_base=session_cost_base,
+        )
+        renderer._stats = {"context_tokens": 100, "context_window": 1_000, "model": "m", "cost_usd": turn_cost}
+
+        renderer.finish()
+
+        rendered = output.getvalue()
+        assert "100 tokens (10%)" in rendered
+        assert "$" not in rendered
+
+
+class TestLoadSessionCost:
+    @pytest.mark.asyncio
+    async def test_folds_the_raw_timeline_including_rewound_turns(self, tmp_path: Path) -> None:
+        store = SessionStore(data_dir=tmp_path)
+        await store.create_session("s1", cwd="/tmp")
+        records = [
+            {"role": "user", "content": [{"type": "text", "text": "hi"}]},
+            {"role": "assistant", "content": [], "meta": {"provider": "p", "model": "m", "usage": {"cost_usd": 0.02}}},
+            {"role": "compact", "content": [], "meta": {"provider": "p", "model": "m", "usage": {"cost_usd": 0.005}}},
+        ]
+        for record in records:
+            await store.append_message("s1", record)
+        await store.append_rewind("s1", 0)
+
+        assert await load_session_cost(store, "s1") == pytest.approx(0.025)
+        assert await load_session_cost(store, "missing") == 0.0
+
+    @pytest.mark.asyncio
+    async def test_returns_none_when_any_recorded_request_is_unpriced(self, tmp_path: Path) -> None:
+        store = SessionStore(data_dir=tmp_path)
+        await store.create_session("s1", cwd="/tmp")
+        await store.append_message(
+            "s1",
+            {"role": "assistant", "content": [], "meta": {"provider": "p", "model": "m", "usage": {"cost_usd": 0.02}}},
+        )
+        # A cancelled stream persists an assistant message without usage.
+        await store.append_message("s1", {"role": "assistant", "content": [], "meta": {"provider": "p", "model": "m"}})
+
+        assert await load_session_cost(store, "s1") is None
 
 
 def test_cli_rejects_non_positive_max_turns() -> None:

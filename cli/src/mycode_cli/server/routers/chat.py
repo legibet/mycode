@@ -41,7 +41,7 @@ from mycode_cli.config import (
     resolve_provider_choices,
 )
 from mycode_cli.permissions import ToolReviewDecision, ToolReviewRequest
-from mycode_cli.runtime import build_agent
+from mycode_cli.runtime import build_agent, load_session_cost
 from mycode_cli.server.deps import RunManagerDep, StoreDep, resolve_workspace_cwd
 from mycode_cli.server.run_manager import ActiveRunError
 from mycode_cli.server.schemas import (
@@ -265,6 +265,7 @@ async def chat(chat: ChatRequest, store: StoreDep, runs: RunManagerDep) -> ChatR
                 user_message=user_message,
                 base_messages=agent.messages,
                 agent=agent,
+                session_cost_base=await load_session_cost(store, session_id),
             )
         except ActiveRunError as exc:
             existing = await runs.get_run(exc.run_id)

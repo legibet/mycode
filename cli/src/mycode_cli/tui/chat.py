@@ -55,6 +55,7 @@ from mycode_cli.config import (
     resolve_provider,
 )
 from mycode_cli.permissions import ToolReviewDecision, ToolReviewRequest, build_permission_hooks
+from mycode_cli.runtime import load_session_cost
 from mycode_cli.system_prompt import build_skill_snapshot_blocks, discover_slash_skills
 
 from .render import ReplyRenderer, TerminalView, format_local_timestamp
@@ -533,7 +534,10 @@ class TerminalChat:
                 continue
 
             self.view.console.print()
-            renderer = ReplyRenderer(self.view.console)
+            # Fold the session JSONL fresh each turn: covers resume, /clear,
+            # /new, /rewind, and manual /compact without tracking state.
+            session_cost = await load_session_cost(self.store, self.session_id)
+            renderer = ReplyRenderer(self.view.console, session_cost_base=session_cost)
             self._current_renderer = renderer
             user_message = self._build_user_message(user_input)
             try:

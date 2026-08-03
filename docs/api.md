@@ -293,12 +293,15 @@ Load session with full message history. If the session has an active run, overla
 {
   "session": {...},
   "messages": [...],
+  "session_cost_usd": 0.42,
   "active_run": {...} | null,
   "pending_events": [...]
 }
 ```
 
 `pending_events` contains the active run's buffered SSE events. The web UI reapplies them, then reconnects with `after=<last seq>`.
+
+`session_cost_usd` is the estimated cumulative cost of every provider request persisted in the session JSONL — tool loops, compact summaries, and turns discarded by rewind included. `null` when any recorded request cannot be priced; the UI then omits the cost. During an active run, `session_cost_usd` from `usage` SSE events supersedes this value.
 
 `active_run.kind` distinguishes chat and compact runs. While a compact run is active, `messages` is the pre-run history with no optimistic turn appended; the web UI uses `kind` to restore its `Compacting…` state after a refresh.
 
@@ -367,21 +370,23 @@ Response:
 
 **Do not change event names or payload shapes without updating server, CLI, and web UI.**
 
-| event                 | payload fields                                                               |
-| --------------------- | ---------------------------------------------------------------------------- |
-| `reasoning`           | `delta: str`                                                                 |
-| `reasoning_done`      | `duration_ms: int`                                                           |
-| `text`                | `delta: str`                                                                 |
-| `tool_start`          | `tool_call: {id, name, input}`                                               |
-| `tool_output`         | `tool_use_id: str`, `output: str`                                            |
-| `tool_done`           | `tool_use_id: str`, `output: str`, `is_error: bool`, `metadata?`, `content?` |
-| `compact`             | _empty payload_                                                              |
-| `error`               | `message: str`                                                               |
-| `permission_request`  | `request_id: str`, `tool_use_id: str`, `tool_name: str`, `preview: str`      |
-| `permission_resolved` | `request_id: str`, `decision: "allow" \| "deny"`                             |
-| `usage`               | `total_tokens`, `model?`, `provider?`, `context_window?`                     |
+| event                 | payload fields                                                                                               |
+| --------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `reasoning`           | `delta: str`                                                                                                 |
+| `reasoning_done`      | `duration_ms: int`                                                                                           |
+| `text`                | `delta: str`                                                                                                 |
+| `tool_start`          | `tool_call: {id, name, input}`                                                                               |
+| `tool_output`         | `tool_use_id: str`, `output: str`                                                                            |
+| `tool_done`           | `tool_use_id: str`, `output: str`, `is_error: bool`, `metadata?`, `content?`                                 |
+| `compact`             | _empty payload_                                                                                              |
+| `error`               | `message: str`                                                                                               |
+| `permission_request`  | `request_id: str`, `tool_use_id: str`, `tool_name: str`, `preview: str`                                      |
+| `permission_resolved` | `request_id: str`, `decision: "allow" \| "deny"`                                                             |
+| `usage`               | `context_tokens?`, `context_window?`, `model?`, `provider?`, `turn_usage?`, `cost_usd?`, `session_cost_usd?` |
 
 `permission_request` and `permission_resolved` bracket a wait inside the agent's `before_tool` hook. Clients respond via `POST /api/runs/{run_id}/decide`; `permission_resolved` lets reconnecting or second-tab clients dismiss the prompt.
+
+The `usage` payload mirrors the SDK usage event (see docs/sdk.md): `context_tokens` is the latest request's context occupancy, `turn_usage`/`cost_usd` are the turn's cumulative billing facts. `session_cost_usd` is composed by the run manager: the pre-run session cost (folded from the session JSONL by `mycode_cli.runtime.load_session_cost`) plus the turn's `cost_usd`. SSE serialization drops `None` fields — an absent field means unknown, and the UI shows nothing for it.
 
 Every event also carries `seq: int` for reconnect support. The web UI uses `after` parameter to resume from a specific seq number.
 

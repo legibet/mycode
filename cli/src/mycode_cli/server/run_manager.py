@@ -47,6 +47,9 @@ class RunState:
     agent: RunAgent
     kind: RunKind = "chat"
     user_message: ConversationMessage | None = None
+    # Session cost before this run (folded from the session JSONL by the chat
+    # router); None means unknown. Composed with each usage event's turn cost.
+    session_cost_base: float | None = None
     status: RunStatus = "running"
     error: str | None = None
     events: list[dict[str, Any]] = field(default_factory=list)
@@ -88,6 +91,7 @@ class RunManager:
         user_message: ConversationMessage,
         base_messages: list[ConversationMessage],
         agent: RunAgent,
+        session_cost_base: float | None = None,
     ) -> dict[str, Any]:
         return await self._start(
             session_id=session_id,
@@ -95,6 +99,7 @@ class RunManager:
             user_message=user_message,
             base_messages=base_messages,
             agent=agent,
+            session_cost_base=session_cost_base,
         )
 
     async def start_compact(
@@ -120,6 +125,7 @@ class RunManager:
         user_message: ConversationMessage | None,
         base_messages: list[ConversationMessage],
         agent: RunAgent,
+        session_cost_base: float | None = None,
     ) -> dict[str, Any]:
         await self._prune_finished_runs()
 
@@ -133,6 +139,7 @@ class RunManager:
                 session_id=session_id,
                 kind=kind,
                 user_message=copy.deepcopy(user_message),
+                session_cost_base=session_cost_base,
                 base_messages=copy.deepcopy(base_messages),
                 agent=agent,
             )
@@ -309,6 +316,17 @@ class RunManager:
                 async for event in state.agent.achat(state.user_message):
                     if event.type == "error":
                         last_error = str(event.data.get("message") or "unknown error")
+                    elif event.type == "usage":
+                        # The SDK's cost_usd is the turn's cumulative cost;
+                        # compose it with the pre-run session base. Either
+                        # side unknown → unknown.
+                        turn_cost = event.data.get("cost_usd")
+                        session_cost = (
+                            None
+                            if state.session_cost_base is None or turn_cost is None
+                            else state.session_cost_base + turn_cost
+                        )
+                        event = Event("usage", {**event.data, "session_cost_usd": session_cost})
                     await self._append_event(state, event)
         except asyncio.CancelledError:
             # BaseException, not caught by ``except Exception`` — without this

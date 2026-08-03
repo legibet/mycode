@@ -55,6 +55,34 @@ async def _wait_for_run_task(manager: RunManager, run_id: str) -> RunState:
     return state
 
 
+class UsageAgent(ChatOnlyAgent):
+    def cancel(self) -> None:
+        return None
+
+    async def achat(self, user_input):
+        del user_input
+        yield Event("usage", {"context_tokens": 100, "cost_usd": 0.01})
+        yield Event("usage", {"context_tokens": 100, "cost_usd": None})
+
+
+async def test_usage_events_compose_session_cost_from_the_run_base() -> None:
+    manager = RunManager()
+
+    run = await manager.start_run(
+        session_id="session-1",
+        user_message={"role": "user", "content": [{"type": "text", "text": "hi"}]},
+        base_messages=[],
+        agent=UsageAgent(),
+        session_cost_base=0.40,
+    )
+    state = await _wait_for_run_task(manager, run["id"])
+
+    usage_events = [event for event in state.events if event["type"] == "usage"]
+    assert usage_events[0]["session_cost_usd"] == pytest.approx(0.41)
+    # A poisoned turn cost keeps the session total unknown.
+    assert usage_events[1]["session_cost_usd"] is None
+
+
 # Chat runs and reconnect state
 
 
