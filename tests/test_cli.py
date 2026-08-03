@@ -316,15 +316,37 @@ class TestLoadSessionCost:
         assert await load_session_cost(store, "missing") == 0.0
 
     @pytest.mark.asyncio
-    async def test_returns_none_when_any_recorded_request_is_unpriced(self, tmp_path: Path) -> None:
+    async def test_skips_records_without_usage(self, tmp_path: Path) -> None:
         store = SessionStore(data_dir=tmp_path)
         await store.create_session("s1", cwd="/tmp")
         await store.append_message(
             "s1",
             {"role": "assistant", "content": [], "meta": {"provider": "p", "model": "m", "usage": {"cost_usd": 0.02}}},
         )
-        # A cancelled stream persists an assistant message without usage.
+        # A cancelled stream persists an assistant message without usage; the
+        # one-off gap must not hide the estimate for the rest of the session.
         await store.append_message("s1", {"role": "assistant", "content": [], "meta": {"provider": "p", "model": "m"}})
+
+        assert await load_session_cost(store, "s1") == pytest.approx(0.02)
+
+    @pytest.mark.asyncio
+    async def test_returns_none_when_a_recorded_request_cannot_be_priced(self, tmp_path: Path) -> None:
+        store = SessionStore(data_dir=tmp_path)
+        await store.create_session("s1", cwd="/tmp")
+        await store.append_message(
+            "s1",
+            {"role": "assistant", "content": [], "meta": {"provider": "p", "model": "m", "usage": {"cost_usd": 0.02}}},
+        )
+        # Usage recorded but the model has no catalog price: summing around it
+        # would present a partial figure as the total.
+        await store.append_message(
+            "s1",
+            {
+                "role": "assistant",
+                "content": [],
+                "meta": {"provider": "unknown", "model": "unknown", "usage": {"input_tokens": 10, "output_tokens": 5}},
+            },
+        )
 
         assert await load_session_cost(store, "s1") is None
 

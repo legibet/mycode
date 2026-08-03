@@ -17,9 +17,12 @@ async def load_session_cost(store: SessionStore, session_id: str) -> float | Non
     Every persisted provider request counts: tool loops, compact summaries,
     and turns discarded by rewind (billed is billed). Each assistant/compact
     record is priced by its own ``meta.provider``/``meta.model`` through the
-    SDK catalog; an upstream-reported ``cost_usd`` wins. Returns None when any
-    recorded request cannot be priced (no usage, unknown model) — a partial
-    sum must not look like the total.
+    SDK catalog; an upstream-reported ``cost_usd`` wins.
+
+    Records without a usage dict (cancelled partials, pre-usage sessions) are
+    skipped — a one-off gap must not permanently hide the estimate. A record
+    whose usage cannot be priced (unknown model) still returns None: summing
+    around it would present a partial figure as the total.
     """
 
     total = 0.0
@@ -29,7 +32,7 @@ async def load_session_cost(store: SessionStore, session_id: str) -> float | Non
         meta = message.get("meta") or {}
         usage = meta.get("usage")
         if not isinstance(usage, dict):
-            return None
+            continue
         metadata = resolve_model_metadata(provider=str(meta.get("provider") or ""), model=str(meta.get("model") or ""))
         request_cost = estimate_cost(usage, metadata.cost)
         if request_cost is None:
