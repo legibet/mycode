@@ -303,6 +303,8 @@ Load session with full message history. If the session has an active run, overla
 
 `session_cost_usd` is the estimated cumulative cost of every provider request persisted in the session JSONL — tool loops, compact summaries, and turns discarded by rewind included. Records without usage (cancelled partials, pre-usage sessions) are skipped; `null` when a recorded request's usage cannot be priced (unknown model), and the UI then omits the cost. During an active run, `session_cost_usd` from `usage` SSE events supersedes this value.
 
+Each returned assistant/compact message additionally carries a response-only `meta.request_cost_usd` — that request's estimated cost, priced server-side from `meta.usage`. Absent when the request cannot be priced; never persisted. The web UI sums it per turn for the per-reply cost.
+
 `active_run.kind` distinguishes chat and compact runs. While a compact run is active, `messages` is the pre-run history with no optimistic turn appended; the web UI uses `kind` to restore its `Compacting…` state after a refresh.
 
 ### `DELETE /api/sessions/{id}`

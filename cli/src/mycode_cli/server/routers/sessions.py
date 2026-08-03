@@ -9,6 +9,7 @@ from fastapi import APIRouter, HTTPException, Query
 from fastapi import Path as PathParam
 
 from mycode.messages import ConversationMessage
+from mycode.models import estimate_cost, resolve_model_metadata
 from mycode_cli.runtime import load_session_cost
 from mycode_cli.server.deps import RunManagerDep, StoreDep, resolve_workspace_cwd
 from mycode_cli.server.schemas import SessionCreateRequest, StatusResponse
@@ -28,6 +29,29 @@ def _redact_document_data(messages: list[ConversationMessage]) -> list[dict[str,
             content.append(block)
         redacted.append({**message, "content": content})
     return redacted
+
+
+def _with_request_costs(messages: list[ConversationMessage]) -> list[ConversationMessage]:
+    """Stamp the response-only ``meta.request_cost_usd`` on priced records.
+
+    The UI sums these per turn to show a per-reply cost; pricing stays
+    server-side. A record whose usage cannot be priced keeps no field —
+    absent means unknown. Nothing is persisted.
+    """
+
+    enriched: list[ConversationMessage] = []
+    for message in messages:
+        meta = message.get("meta") or {}
+        usage = meta.get("usage")
+        if message.get("role") in {"assistant", "compact"} and isinstance(usage, dict):
+            metadata = resolve_model_metadata(
+                provider=str(meta.get("provider") or ""), model=str(meta.get("model") or "")
+            )
+            cost = estimate_cost(usage, metadata.cost)
+            if cost is not None:
+                message = {**message, "meta": {**meta, "request_cost_usd": cost}}
+        enriched.append(message)
+    return enriched
 
 
 @router.post("")
@@ -65,7 +89,7 @@ async def load_session(
     if active:
         return {
             "session": data["session"] if data else None,
-            "messages": _redact_document_data(active["messages"]),
+            "messages": _redact_document_data(_with_request_costs(active["messages"])),
             "session_cost_usd": session_cost,
             "active_run": active["run"],
             "pending_events": active["pending_events"],
@@ -76,7 +100,7 @@ async def load_session(
 
     return {
         "session": data["session"],
-        "messages": _redact_document_data(data["messages"]),
+        "messages": _redact_document_data(_with_request_costs(data["messages"])),
         "session_cost_usd": session_cost,
         "active_run": None,
         "pending_events": [],

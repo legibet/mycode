@@ -373,3 +373,46 @@ def test_compact_endpoint_conflicts_and_cancel_write_no_marker(
         session = client.get("/api/sessions/s1").json()
 
     assert [message["role"] for message in session["messages"]] == ["user", "assistant"]
+
+
+# Sessions API
+
+
+def test_session_load_stamps_request_costs(tmp_path: Path) -> None:
+    store = SessionStore(data_dir=tmp_path / "sessions")
+
+    async def seed() -> None:
+        await store.create_session("s1", cwd=str(tmp_path))
+        await store.append_message("s1", {"role": "user", "content": [{"type": "text", "text": "hi"}]})
+        await store.append_message(
+            "s1",
+            {
+                "role": "assistant",
+                "content": [{"type": "text", "text": "ok"}],
+                "meta": {"provider": "p", "model": "m", "usage": {"cost_usd": 0.02}},
+            },
+        )
+        # Usage recorded but the model has no catalog price: no stamp, and
+        # the session total stays unknown.
+        await store.append_message(
+            "s1",
+            {
+                "role": "assistant",
+                "content": [{"type": "text", "text": "ok"}],
+                "meta": {"provider": "unknown", "model": "unknown", "usage": {"input_tokens": 10, "output_tokens": 5}},
+            },
+        )
+
+    asyncio.run(seed())
+    app = create_api_app()
+    app.dependency_overrides[get_store] = lambda: store
+    app.dependency_overrides[get_run_manager] = lambda: RunManager()
+
+    with TestClient(app) as client:
+        payload = client.get("/api/sessions/s1").json()
+
+    user_message, priced, unpriced = payload["messages"]
+    assert "request_cost_usd" not in (user_message.get("meta") or {})
+    assert priced["meta"]["request_cost_usd"] == pytest.approx(0.02)
+    assert "request_cost_usd" not in unpriced["meta"]
+    assert payload["session_cost_usd"] is None
