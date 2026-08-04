@@ -61,6 +61,8 @@ def infer_provider_from_model(model: str | None) -> str | None:
         return "google"
     if bare.startswith("glm-"):
         return "zai"
+    if bare.startswith("grok-"):
+        return "xai"
     if bare.startswith(("gpt-", "o1", "o3", "o4")):
         return "openai"
     if bare.startswith("kimi-"):

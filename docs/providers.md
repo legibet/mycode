@@ -192,7 +192,6 @@ Provider quirks:
 - `supports_reasoning_effort`: true; shares the `openai_chat` clamped mapping. Grok reasoning cannot be disabled, so `none` → `low` and `xhigh` → `high`
 - `auto_discoverable`: true
 - Grok reasoning streams as `reasoning_content`, replayed for the same model by the shared `openai_chat` handling
-- Model metadata resolves through the OpenRouter suffix fallback for the shared `grok-*` aliases
 - Same image format as `openai_chat`
 - Same PDF format as `openai_chat`
 
