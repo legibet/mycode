@@ -47,6 +47,14 @@ class SimpleAgent(ChatOnlyAgent):
         yield Event("text", {"delta": f"reply:{text}"})
 
 
+class RetryingAgent(SimpleAgent):
+    @override
+    async def achat(self, user_input):
+        yield Event("retry", {"attempt": 2, "max_attempts": 3})
+        async for event in super().achat(user_input):
+            yield event
+
+
 async def _wait_for_run_task(manager: RunManager, run_id: str) -> RunState:
     state = await manager.get_run(run_id)
     assert state is not None
@@ -123,7 +131,7 @@ async def test_stream_events_respects_after_and_finishes() -> None:
         session_id="session-1",
         user_message={"role": "user", "content": [{"type": "text", "text": "done"}]},
         base_messages=[],
-        agent=SimpleAgent(),
+        agent=RetryingAgent(),
     )
 
     await _wait_for_run_task(manager, run["id"])

@@ -314,6 +314,8 @@ class RunManager:
             else:
                 assert state.user_message is not None
                 async for event in state.agent.achat(state.user_message):
+                    if event.type == "retry":
+                        continue
                     if event.type == "error":
                         last_error = str(event.data.get("message") or "unknown error")
                     elif event.type == "usage":
