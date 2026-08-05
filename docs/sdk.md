@@ -86,6 +86,26 @@ async for _ in agent.achat("follow-up that references the earlier answer"):
 
 A synchronous function already running in a worker thread continues until it returns. Subprocesses started by `bash_tool` are terminated.
 
+### Timeouts and retries
+
+```python
+Agent(
+    request_timeout=300,        # transport timeout per provider attempt, seconds
+    stream_start_timeout=60,    # max wait for the first upstream stream event
+    max_retries=2,              # retries after the initial attempt
+)
+```
+
+Validation: `request_timeout > 0`, `stream_start_timeout > 0`, `max_retries >= 0`. There is no disable semantics.
+
+`stream_start_timeout` bounds everything up to the first upstream event of an attempt: DNS, connect, request upload, response headers, and the wait for the first SSE event or chunk. It triggers on any upstream event (lifecycle events and pings included), so hidden reasoning cannot false-trip it. After the stream has started, only the transport `request_timeout` applies; a stream that keeps sending heartbeats without model output has no automatic deadline and ends only via `cancel()`.
+
+The Agent owns retries; provider SDK retries are disabled. A failed attempt is retried while no output has reached the caller — connection errors, timeouts, stream-start expiry, and retryable HTTP statuses (408/409/429/5xx). Once reasoning or text has been emitted, or a complete assistant message has been formed, failures surface as an `error` event instead; already-streamed reasoning/text is persisted with `meta.stop_reason="error"` (excluded from replay). Partial, unexposed tool-call arguments do not block a retry. User cancellation is never retried, and `cancel()` interrupts a backoff wait immediately.
+
+Backoff is exponential with jitter (0.5s initial, ×2, capped at 8s); a positive `Retry-After` header up to 60s takes precedence. Each retry emits a `retry` event carrying `attempt` (the next 1-based attempt), `max_attempts` (`max_retries + 1`), `delay_seconds`, `reason` (`connection_error` / `request_timeout` / `stream_start_timeout` / `http_status` / `provider_error`), `message`, and `status_code` when applicable. After any failed attempt, the turn's cumulative `turn_usage` and `cost_usd` become `None` and stay unknown even when a later attempt succeeds; a retried compaction likewise drops `usage` from its compact marker.
+
+Adapters raise `ProviderError` (`reason`, `retryable`, `status_code`, `retry_after`); a stream-start expiry that exhausts its retries raises `StreamStartTimeoutError`, a subclass distinct from cancellation. Both are exported from `mycode`.
+
 ### Streaming events
 
 `achat()` yields `Event(type, data)`:
@@ -99,6 +119,7 @@ A synchronous function already running in a worker thread continues until it ret
 | `tool_output`    | `{"tool_use_id", "output"}`; only for tools with `streams_output=True`   |
 | `tool_done`      | `{"tool_use_id", "output", "is_error", "metadata"?, "content"?}`         |
 | `compact`        | `{}`; emitted right after a compact marker is appended                   |
+| `retry`          | fields under Timeouts and retries; emitted before each new attempt       |
 | `usage`          | see below; emitted after every provider request                          |
 | `error`          | `{"message"}`; fatal for the turn, then the iterator stops               |
 

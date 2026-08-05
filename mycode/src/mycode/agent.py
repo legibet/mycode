@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import random
 import tempfile
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
@@ -41,7 +42,14 @@ from mycode.messages import (
 )
 from mycode.models import estimate_cost, infer_provider_from_model, resolve_model_metadata
 from mycode.providers import get_provider_adapter
-from mycode.providers.base import ProviderAdapter, ProviderRequest, ProviderStreamEvent
+from mycode.providers.base import (
+    DEFAULT_REQUEST_TIMEOUT,
+    ProviderAdapter,
+    ProviderError,
+    ProviderRequest,
+    ProviderStreamEvent,
+    StreamStartTimeoutError,
+)
 from mycode.session import SessionStore
 from mycode.tools import ToolContext, ToolExecutionResult, ToolExecutor, ToolSpec
 
@@ -109,6 +117,9 @@ class Agent:
         max_turns: int | None = None,
         max_tokens: int | None = None,
         temperature: float = 1.0,
+        request_timeout: float = DEFAULT_REQUEST_TIMEOUT,
+        stream_start_timeout: float = 60.0,
+        max_retries: int = 2,
         context_window: int | None = None,
         compact_threshold: float | None = None,
         reasoning_effort: str | None = None,
@@ -142,6 +153,15 @@ class Agent:
         self.api_key = api_key
         self.api_base = api_base
         self.max_turns = max_turns
+        if request_timeout <= 0:
+            raise ValueError("request_timeout must be positive")
+        if stream_start_timeout <= 0:
+            raise ValueError("stream_start_timeout must be positive")
+        if max_retries < 0:
+            raise ValueError("max_retries must be >= 0")
+        self.request_timeout = float(request_timeout)
+        self.stream_start_timeout = float(stream_start_timeout)
+        self.max_retries = int(max_retries)
         if not 0 <= temperature <= 1:
             raise ValueError("temperature must be between 0 and 1")
         if (
@@ -465,9 +485,55 @@ class Agent:
         adapter: ProviderAdapter,
         request: ProviderRequest,
     ) -> AsyncIterator[ProviderStreamEvent]:
-        """Iterate one provider turn with best-effort cancellation support."""
+        """Stream one provider turn, retrying failed attempts before any output.
+
+        Yields an internal ``retry`` event before each new attempt. Once a
+        canonical event (thinking/text delta or message_done) has been yielded,
+        a partially consumed stream cannot be replayed safely, so failures
+        propagate instead of retrying. Adapter ``stream_started`` markers are
+        consumed here and never reach the caller.
+        """
+
+        max_attempts = self.max_retries + 1
+        for attempt in range(1, max_attempts + 1):
+            output_emitted = False
+            try:
+                async for event in self._stream_provider_attempt(adapter, request):
+                    if event.type == "stream_started":
+                        continue
+                    output_emitted = True
+                    yield event
+                return
+            except ProviderError as exc:
+                if output_emitted or not exc.retryable or attempt >= max_attempts:
+                    raise
+                delay = self._retry_delay(attempt, exc)
+                retry_data: dict[str, Any] = {
+                    "attempt": attempt + 1,
+                    "max_attempts": max_attempts,
+                    "delay_seconds": round(delay, 3),
+                    "reason": exc.reason,
+                    "message": str(exc),
+                }
+                if exc.status_code is not None:
+                    retry_data["status_code"] = exc.status_code
+                yield ProviderStreamEvent("retry", retry_data)
+                await self._backoff(delay)
+
+    async def _stream_provider_attempt(
+        self,
+        adapter: ProviderAdapter,
+        request: ProviderRequest,
+    ) -> AsyncIterator[ProviderStreamEvent]:
+        """Iterate one provider attempt with cancellation and the start deadline.
+
+        The deadline covers everything up to the first upstream event: DNS,
+        connect, request upload, response headers, and the wait for the first
+        SSE event or chunk.
+        """
 
         provider_stream: AsyncIterator[ProviderStreamEvent] = adapter.stream_turn(request)
+        started = False
 
         try:
             while True:
@@ -476,16 +542,48 @@ class Agent:
 
                 self._provider_event_task = asyncio.ensure_future(anext(provider_stream))
                 try:
-                    yield await self._provider_event_task
+                    if started:
+                        event = await self._provider_event_task
+                    else:
+                        try:
+                            # wait_for cancels the pending anext and awaits its
+                            # cancellation before raising.
+                            event = await asyncio.wait_for(self._provider_event_task, self.stream_start_timeout)
+                        except TimeoutError:
+                            raise StreamStartTimeoutError(
+                                f"no provider stream event received within {self.stream_start_timeout:g}s"
+                            ) from None
                 except StopAsyncIteration:
                     return
                 finally:
                     self._provider_event_task = None
+
+                started = True
+                yield event
         finally:
+            # Runs before the retry loop backs off, so a failed attempt's
+            # stream is closed before the next attempt starts.
             close = cast(Callable[[], Awaitable[None]] | None, getattr(provider_stream, "aclose", None))
             if close is not None:
                 with suppress(Exception):
                     await close()
+
+    def _retry_delay(self, failed_attempts: int, error: ProviderError) -> float:
+        """Backoff before the next attempt: Retry-After when sane, else exponential."""
+
+        if error.retry_after is not None and 0 < error.retry_after <= 60:
+            return error.retry_after
+        base = min(8.0, 0.5 * 2 ** (failed_attempts - 1))
+        return base * (1 - 0.25 * random.random())
+
+    async def _backoff(self, delay: float) -> None:
+        """Wait between attempts; Agent.cancel() interrupts immediately."""
+
+        try:
+            await asyncio.wait_for(self._cancel_event.wait(), timeout=delay)
+        except TimeoutError:
+            return
+        raise asyncio.CancelledError
 
     def _build_request(
         self,
@@ -513,6 +611,7 @@ class Agent:
             supports_pdf_input=self.supports_pdf_input,
             transcript_path=self.transcript_path,
             append_messages=list(append_messages),
+            request_timeout=self.request_timeout,
         )
 
     @staticmethod
@@ -530,6 +629,26 @@ class Agent:
             meta = raw_meta if isinstance(raw_meta, dict) else {}
             block["meta"] = {**meta, "duration_ms": duration_ms}
             return
+
+    def _partial_assistant_message(
+        self,
+        partial_content: list[dict[str, Any]],
+        duration_ms: int | None,
+        *,
+        stop_reason: str | None = None,
+    ) -> ConversationMessage:
+        """Build the assistant message persisted for an interrupted stream."""
+
+        if duration_ms is not None:
+            self._stamp_thinking_duration(partial_content, duration_ms)
+        meta: dict[str, Any] = {
+            "provider": self.provider,
+            "model": self.model,
+            "context_window": self.context_window,
+        }
+        if stop_reason:
+            meta["stop_reason"] = stop_reason
+        return build_message("assistant", [dict(block) for block in partial_content], meta=meta)
 
     def _usage_event(
         self,
@@ -648,6 +767,15 @@ class Agent:
                         provider_cancelled = True
                         break
 
+                    if provider_event.type == "retry":
+                        # The failed attempt may have billed tokens it never
+                        # reported — the turn's spend is unknown from here on,
+                        # and _accumulate_usage keeps None sticky.
+                        turn_usage.update(dict.fromkeys(USAGE_TOKEN_KEYS))
+                        turn_cost = None
+                        yield Event("retry", dict(provider_event.data))
+                        continue
+
                     if provider_event.type == "thinking_delta":
                         delta_text = str(provider_event.data.get("text") or "")
                         if delta_text:
@@ -691,6 +819,17 @@ class Agent:
                 provider_cancelled = True
             except Exception as exc:
                 logger.exception("Provider request failed")
+                if partial_content:
+                    # Output already reached the caller, so the attempt was not
+                    # retried; keep the JSONL consistent with what was shown.
+                    # stop_reason="error" excludes the partial from replay.
+                    if thinking_started_at is not None and thinking_duration_ms is None:
+                        thinking_duration_ms = self._elapsed_ms(thinking_started_at)
+                    failed_message = self._partial_assistant_message(
+                        partial_content, thinking_duration_ms, stop_reason="error"
+                    )
+                    self.messages.append(failed_message)
+                    await persist(failed_message)
                 # The failed request may have billed tokens but never reported
                 # final usage — the turn's cumulative spend is now unknown.
                 turn_usage.update(dict.fromkeys(USAGE_TOKEN_KEYS))
@@ -703,17 +842,7 @@ class Agent:
                 if partial_content:
                     if thinking_started_at is not None and thinking_duration_ms is None:
                         thinking_duration_ms = self._elapsed_ms(thinking_started_at)
-                    if thinking_duration_ms is not None:
-                        self._stamp_thinking_duration(partial_content, thinking_duration_ms)
-                    cancelled_message = build_message(
-                        "assistant",
-                        [dict(block) for block in partial_content],
-                        meta={
-                            "provider": self.provider,
-                            "model": self.model,
-                            "context_window": self.context_window,
-                        },
-                    )
+                    cancelled_message = self._partial_assistant_message(partial_content, thinking_duration_ms)
                     self.messages.append(cancelled_message)
                     await persist(cancelled_message)
                 turn_usage.update(dict.fromkeys(USAGE_TOKEN_KEYS))
@@ -897,8 +1026,11 @@ class Agent:
         )
 
         summary_message: ConversationMessage | None = None
+        retried = False
         async for provider_event in self._stream_provider_turn(adapter, request):
-            if provider_event.type == "message_done":
+            if provider_event.type == "retry":
+                retried = True
+            elif provider_event.type == "message_done":
                 msg = provider_event.data.get("message")
                 if isinstance(msg, dict):
                     summary_message = msg
@@ -914,12 +1046,14 @@ class Agent:
             raise asyncio.CancelledError
 
         summary_meta = cast(dict[str, Any], summary_message.get("meta") or {})
+        # A retried compaction billed attempts it cannot report; recording only
+        # the successful attempt's usage would understate the cost.
         compact_event = build_compact_event(
             summary_text,
             provider=self.provider,
             model=self.model,
-            usage=summary_meta.get("usage"),
-            native_usage=(summary_meta.get("native") or {}).get("usage"),
+            usage=None if retried else summary_meta.get("usage"),
+            native_usage=None if retried else (summary_meta.get("native") or {}).get("usage"),
         )
 
         await self._persist_message(compact_event, on_persist)

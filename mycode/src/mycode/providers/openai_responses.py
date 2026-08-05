@@ -7,6 +7,7 @@ from collections.abc import AsyncIterator
 from copy import deepcopy
 from typing import Any, cast, override
 
+import httpx
 from openai import APIError, AsyncOpenAI
 
 from mycode.messages import (
@@ -18,14 +19,15 @@ from mycode.messages import (
     tool_use_block,
 )
 from mycode.providers.base import (
-    DEFAULT_REQUEST_TIMEOUT,
     ProviderAdapter,
+    ProviderError,
     ProviderRequest,
     ProviderStreamEvent,
     dump_model,
     load_document_block_payload,
     load_image_block_payload,
     native_block_meta,
+    normalize_provider_error,
     parse_tool_call_input,
     tool_result_content_blocks,
 )
@@ -51,7 +53,10 @@ class OpenAIResponsesAdapter(ProviderAdapter):
             async with AsyncOpenAI(
                 api_key=api_key,
                 base_url=self.resolve_base_url(request.api_base),
-                timeout=DEFAULT_REQUEST_TIMEOUT,
+                # connect stays at the SDK's 5s default; retries are owned by
+                # the Agent runtime.
+                timeout=httpx.Timeout(request.request_timeout, connect=5.0),
+                max_retries=0,
             ) as client:
                 stream = await client.responses.create(**payload, stream=True)
                 async with stream:
@@ -61,7 +66,11 @@ class OpenAIResponsesAdapter(ProviderAdapter):
                     # final completed object. Persist the completed items from the
                     # stream so the canonical assistant message stays intact.
                     streamed_output_items: dict[int, Any] = {}
+                    started = False
                     async for event in stream:
+                        if not started:
+                            started = True
+                            yield ProviderStreamEvent("stream_started")
                         event_type = getattr(event, "type", None)
 
                         if event_type == "response.reasoning_summary_text.delta":
@@ -84,16 +93,16 @@ class OpenAIResponsesAdapter(ProviderAdapter):
                             continue
 
                         if event_type == "error":
-                            raise ValueError(str(getattr(event, "message", event)))
+                            raise ProviderError(str(getattr(event, "message", event)))
 
                         if event_type == "response.failed":
-                            raise ValueError(str(getattr(event, "response", None) or event))
+                            raise ProviderError(str(getattr(event, "response", None) or event))
 
                         if event_type == "response.completed":
                             final_response = getattr(event, "response", None)
 
                     if final_response is None:
-                        raise ValueError("OpenAI Responses stream ended before response.completed")
+                        raise ProviderError("OpenAI Responses stream ended before response.completed")
 
                     yield ProviderStreamEvent(
                         "message_done",
@@ -106,8 +115,8 @@ class OpenAIResponsesAdapter(ProviderAdapter):
                             )
                         },
                     )
-        except APIError as exc:
-            raise ValueError(str(exc)) from exc
+        except (APIError, httpx.HTTPError) as exc:
+            raise normalize_provider_error(exc, self.provider_id) from exc
 
     def _build_request_payload(self, request: ProviderRequest) -> dict[str, Any]:
         input_items: list[dict[str, Any]] = []

@@ -617,6 +617,7 @@ dependencies = [
     { name = "anthropic" },
     { name = "google-genai" },
     { name = "griffelib" },
+    { name = "httpx" },
     { name = "openai" },
     { name = "pydantic" },
 ]
@@ -626,6 +627,7 @@ requires-dist = [
     { name = "anthropic", specifier = ">=0.116.0" },
     { name = "google-genai", specifier = ">=2.11.0" },
     { name = "griffelib", specifier = ">=2.1.0" },
+    { name = "httpx", specifier = ">=0.28.0" },
     { name = "openai", specifier = ">=2.45.0" },
     { name = "pydantic", specifier = ">=2.13.4" },
 ]

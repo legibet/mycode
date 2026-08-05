@@ -14,11 +14,95 @@ from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from typing import Any
 
+import httpx
+
 from mycode.attachments import unsupported_attachment_block
 from mycode.compact import apply_compact_replay
 from mycode.messages import ConversationMessage, build_message, text_block, tool_result_block
 
 DEFAULT_REQUEST_TIMEOUT = 300.0
+
+
+class ProviderError(Exception):
+    """Normalized provider failure raised by adapters.
+
+    ``reason`` is one of ``connection_error``, ``request_timeout``,
+    ``http_status``, ``stream_start_timeout``, ``provider_error``. The agent
+    runtime classifies retries on this type only and never inspects
+    SDK-specific exceptions.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        reason: str = "provider_error",
+        retryable: bool = False,
+        status_code: int | None = None,
+        retry_after: float | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.reason = reason
+        self.retryable = retryable
+        self.status_code = status_code
+        self.retry_after = retry_after
+
+
+class StreamStartTimeoutError(ProviderError):
+    """No provider stream event arrived within ``stream_start_timeout``."""
+
+    def __init__(self, message: str) -> None:
+        super().__init__(message, reason="stream_start_timeout", retryable=True)
+
+
+def normalize_provider_error(exc: Exception, provider_id: str) -> ProviderError:
+    """Project one SDK exception onto the shared :class:`ProviderError` shape.
+
+    Works on duck-typed attributes shared by the openai/anthropic SDKs
+    (``status_code``, ``response``) and google-genai (``code``), plus the httpx
+    transport exceptions all three surface directly or as ``__cause__``.
+    """
+
+    raw_status = getattr(exc, "status_code", None)
+    if raw_status is None:
+        raw_status = getattr(exc, "code", None)
+    status_code = raw_status if isinstance(raw_status, int) else None
+
+    # TimeoutException is a TransportError subclass — check it first.
+    timed_out = isinstance(exc, httpx.TimeoutException) or isinstance(exc.__cause__, httpx.TimeoutException)
+    connection_failed = isinstance(exc, httpx.TransportError) or isinstance(exc.__cause__, httpx.TransportError)
+
+    if status_code is not None:
+        reason = "http_status"
+        retryable = status_code in {408, 409, 429} or status_code >= 500
+    elif timed_out:
+        reason = "request_timeout"
+        retryable = True
+    elif connection_failed:
+        reason = "connection_error"
+        retryable = True
+    else:
+        reason = "provider_error"
+        retryable = False
+
+    # str(httpx.ReadTimeout()) is empty — fall back to type and phase.
+    message = str(exc).strip() or f"{type(exc).__name__} while streaming from {provider_id}"
+
+    headers = getattr(getattr(exc, "response", None), "headers", None)
+    retry_after: float | None = None
+    if headers is not None:
+        try:
+            retry_after = float(headers.get("retry-after") or "")
+        except ValueError:
+            retry_after = None
+
+    return ProviderError(
+        message,
+        reason=reason,
+        retryable=retryable,
+        status_code=status_code,
+        retry_after=retry_after,
+    )
 
 
 @dataclass(frozen=True)
@@ -38,6 +122,7 @@ class ProviderRequest:
     supports_pdf_input: bool = True
     transcript_path: str | None = None
     append_messages: list[ConversationMessage] = field(default_factory=list)
+    request_timeout: float = DEFAULT_REQUEST_TIMEOUT
 
 
 @dataclass

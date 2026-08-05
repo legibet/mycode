@@ -7,6 +7,7 @@ from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from typing import Any, override
 
+import httpx
 from openai import APIError, AsyncOpenAI
 
 from mycode.messages import (
@@ -18,7 +19,6 @@ from mycode.messages import (
     tool_use_block,
 )
 from mycode.providers.base import (
-    DEFAULT_REQUEST_TIMEOUT,
     ProviderAdapter,
     ProviderRequest,
     ProviderStreamEvent,
@@ -27,6 +27,7 @@ from mycode.providers.base import (
     load_document_block_payload,
     load_image_block_payload,
     native_block_meta,
+    normalize_provider_error,
     parse_tool_call_input,
 )
 from mycode.utils import omit_none
@@ -66,11 +67,18 @@ class OpenAIChatAdapter(ProviderAdapter):
             async with AsyncOpenAI(
                 api_key=api_key,
                 base_url=self.resolve_base_url(request.api_base),
-                timeout=DEFAULT_REQUEST_TIMEOUT,
+                # connect stays at the SDK's 5s default; retries are owned by
+                # the Agent runtime.
+                timeout=httpx.Timeout(request.request_timeout, connect=5.0),
+                max_retries=0,
             ) as client:
                 stream = await client.chat.completions.create(**self._build_request_payload(request), stream=True)
                 async with stream:
+                    started = False
                     async for chunk in stream:
+                        if not started:
+                            started = True
+                            yield ProviderStreamEvent("stream_started")
                         response_id = response_id or getattr(chunk, "id", None)
 
                         if getattr(chunk, "usage", None) is not None:
@@ -108,8 +116,8 @@ class OpenAIChatAdapter(ProviderAdapter):
                                 state.name = function.name
                             if function.arguments:
                                 state.arguments_text += function.arguments
-        except APIError as exc:
-            raise ValueError(str(exc)) from exc
+        except (APIError, httpx.HTTPError) as exc:
+            raise normalize_provider_error(exc, self.provider_id) from exc
 
         blocks = []
         if thinking_parts or thinking_native_meta:

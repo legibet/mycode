@@ -6,6 +6,7 @@ import hashlib
 from collections.abc import AsyncIterator
 from typing import Any, cast, override
 
+import httpx
 from anthropic import APIError, AsyncAnthropic
 
 from mycode.messages import (
@@ -17,7 +18,6 @@ from mycode.messages import (
     tool_use_block,
 )
 from mycode.providers.base import (
-    DEFAULT_REQUEST_TIMEOUT,
     ProviderAdapter,
     ProviderRequest,
     ProviderStreamEvent,
@@ -26,6 +26,7 @@ from mycode.providers.base import (
     load_document_block_payload,
     load_image_block_payload,
     native_block_meta,
+    normalize_provider_error,
     tool_result_content_blocks,
 )
 
@@ -133,11 +134,18 @@ class AnthropicLikeAdapter(ProviderAdapter):
                 AsyncAnthropic(
                     api_key=api_key,
                     base_url=self.resolve_base_url(request.api_base),
-                    timeout=DEFAULT_REQUEST_TIMEOUT,
+                    # connect stays at the SDK's 5s default; retries are owned
+                    # by the Agent runtime.
+                    timeout=httpx.Timeout(request.request_timeout, connect=5.0),
+                    max_retries=0,
                 ) as client,
                 client.messages.stream(**self._build_request_payload(request)) as stream,
             ):
+                started = False
                 async for event in stream:
+                    if not started:
+                        started = True
+                        yield ProviderStreamEvent("stream_started")
                     event_type = getattr(event, "type", None)
                     if event_type == "thinking":
                         thinking = cast(str | None, getattr(event, "thinking", None))
@@ -150,8 +158,8 @@ class AnthropicLikeAdapter(ProviderAdapter):
                             yield ProviderStreamEvent("text_delta", {"text": text})
 
                 final_message = await stream.get_final_message()
-        except APIError as exc:
-            raise ValueError(str(exc)) from exc
+        except (APIError, httpx.HTTPError) as exc:
+            raise normalize_provider_error(exc, self.provider_id) from exc
 
         yield ProviderStreamEvent(
             "message_done",

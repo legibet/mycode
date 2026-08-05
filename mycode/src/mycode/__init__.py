@@ -22,6 +22,7 @@ from mycode.messages import (
     user_text_message,
 )
 from mycode.models import ModelMetadata, estimate_cost, resolve_model_metadata
+from mycode.providers.base import ProviderError, StreamStartTimeoutError
 from mycode.session import SessionStore
 from mycode.tools import (
     ToolContext,
@@ -51,8 +52,10 @@ __all__ = [
     "ModelMetadata",
     "NothingToCompactError",
     "PersistCallback",
+    "ProviderError",
     "RunResult",
     "SessionStore",
+    "StreamStartTimeoutError",
     "ToolContext",
     "ToolExecutionResult",
     "ToolExecutor",

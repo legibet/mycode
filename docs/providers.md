@@ -28,11 +28,20 @@ class ProviderAdapter(ABC):
 
 `stream_turn()` yields `ProviderStreamEvent` objects:
 
+- `stream_started` — emitted once, on the first upstream SDK event or chunk of any kind; stops the Agent's `stream_start_timeout` timer and never reaches SDK consumers. A `message_done` without a prior marker also counts as stream start.
 - `thinking_delta` — reasoning text
 - `text_delta` — response text
 - `message_done` — final `ConversationMessage` with all blocks and metadata
 
-`ProviderRequest` carries: provider, model, session_id, messages, system, tools, max_tokens, api_key, api_base, reasoning_effort, supports_image_input, supports_pdf_input.
+`ProviderRequest` carries: provider, model, session_id, messages, system, tools, max_tokens, api_key, api_base, reasoning_effort, supports_image_input, supports_pdf_input, request_timeout.
+
+## Timeouts, Retries, and Errors
+
+Retries are owned by the Agent runtime, so provider SDK retries are disabled: openai and anthropic clients are constructed with `max_retries=0`, gemini with an explicit `HttpRetryOptions(attempts=1)` (google-genai defaults to no retries, but flips to multiple attempts once `retry_options` is set at all).
+
+`ProviderRequest.request_timeout` is the per-attempt transport timeout. openai and anthropic clients receive `httpx.Timeout(request_timeout, connect=5)`, keeping the SDKs' 5s connect default. google-genai only takes a scalar per-request timeout (`HttpOptions.timeout`, milliseconds) that overrides any client-level `httpx.Timeout`, so gemini has no separate connect phase; its pre-stream waits are bounded by the Agent's `stream_start_timeout` instead.
+
+Adapters raise `ProviderError` for upstream failures instead of SDK-specific exceptions. `normalize_provider_error()` in `base.py` maps SDK and httpx exceptions to it: `status_code` (from openai/anthropic `status_code` or genai `code`), `retryable` (transport errors, timeouts, HTTP 408/409/429/5xx), `retry_after` (parsed from the response header), and a `reason` used by the Agent's retry events. Empty exception strings (`httpx.ReadTimeout`) get a readable type-based message. The Agent classifies retries on `ProviderError` only and never inspects SDK exceptions.
 
 ## Usage Normalization
 

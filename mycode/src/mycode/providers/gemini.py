@@ -7,19 +7,20 @@ from contextlib import suppress
 from typing import Any, override
 from urllib.parse import urlparse
 
+import httpx
 from google import genai
 from google.genai import types
 from google.genai.errors import APIError
 
 from mycode.messages import assistant_message, build_usage, text_block, thinking_block, tool_use_block
 from mycode.providers.base import (
-    DEFAULT_REQUEST_TIMEOUT,
     ProviderAdapter,
     ProviderRequest,
     ProviderStreamEvent,
     get_native_meta,
     load_document_block_payload,
     load_image_block_payload,
+    normalize_provider_error,
 )
 
 _DUMMY_THOUGHT_SIGNATURE = "skip_thought_signature_validator"
@@ -55,7 +56,7 @@ class GoogleGeminiAdapter(ProviderAdapter):
     @override
     async def stream_turn(self, request: ProviderRequest) -> AsyncIterator[ProviderStreamEvent]:
         api_key = self.require_api_key(request.api_key)
-        client = genai.Client(api_key=api_key, http_options=self._http_options(request.api_base))
+        client = genai.Client(api_key=api_key, http_options=self._http_options(request))
 
         blocks: list[dict[str, Any]] = []
         response_id: str | None = None
@@ -69,7 +70,11 @@ class GoogleGeminiAdapter(ProviderAdapter):
                 contents=self._build_contents(request),
                 config=self._build_config(request),
             )
+            started = False
             async for chunk in stream:
+                if not started:
+                    started = True
+                    yield ProviderStreamEvent("stream_started")
                 response_id = response_id or getattr(chunk, "response_id", None)
                 usage = _to_json(getattr(chunk, "usage_metadata", None)) or usage
 
@@ -84,8 +89,8 @@ class GoogleGeminiAdapter(ProviderAdapter):
                 for part in getattr(getattr(candidate, "content", None), "parts", None) or []:
                     if event := self._consume_part(blocks, part):
                         yield event
-        except APIError as exc:
-            raise ValueError(str(exc)) from exc
+        except (APIError, httpx.HTTPError) as exc:
+            raise normalize_provider_error(exc, self.provider_id) from exc
         finally:
             with suppress(Exception):
                 await client.aio.aclose()
@@ -124,14 +129,23 @@ class GoogleGeminiAdapter(ProviderAdapter):
             },
         )
 
-    def _http_options(self, api_base: str | None) -> types.HttpOptions:
-        base_url = self.resolve_base_url(api_base)
+    def _http_options(self, request: ProviderRequest) -> types.HttpOptions:
+        base_url = self.resolve_base_url(request.api_base)
         api_version = "v1beta"
         if base_url and urlparse(base_url).path.rstrip("/").lower().endswith(("/v1", "/v1beta")):
             api_version = None
-        # google-genai expects milliseconds here; DEFAULT_REQUEST_TIMEOUT is seconds.
-        timeout_ms = int(DEFAULT_REQUEST_TIMEOUT * 1000)
-        return types.HttpOptions(base_url=base_url, api_version=api_version, timeout=timeout_ms)
+        return types.HttpOptions(
+            base_url=base_url,
+            api_version=api_version,
+            # google-genai only takes a scalar per-request timeout (in ms) that
+            # overrides any client-level httpx.Timeout, so connect cannot be
+            # pinned separately; the Agent's stream_start_timeout bounds it.
+            timeout=int(request.request_timeout * 1000),
+            # attempts=1 means no retries; retries are owned by the Agent
+            # runtime, and the SDK default flips to 5 attempts once
+            # retry_options is set at all.
+            retry_options=types.HttpRetryOptions(attempts=1),
+        )
 
     def _build_contents(self, request: ProviderRequest) -> list[dict[str, Any]]:
         """Convert canonical replay messages into Gemini contents."""
