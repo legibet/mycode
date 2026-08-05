@@ -33,6 +33,8 @@ from mycode.providers.base import (
 )
 from mycode.utils import omit_none
 
+_RETRYABLE_RESPONSE_ERROR_CODES = {"rate_limit_exceeded", "server_error"}
+
 
 class OpenAIResponsesAdapter(ProviderAdapter):
     """Adapter for OpenAI's Responses API."""
@@ -92,11 +94,15 @@ class OpenAIResponsesAdapter(ProviderAdapter):
                                 streamed_output_items[output_index] = item
                             continue
 
-                        if event_type == "error":
-                            raise ProviderError(str(getattr(event, "message", event)))
-
-                        if event_type == "response.failed":
-                            raise ProviderError(str(getattr(event, "response", None) or event))
+                        if event_type in {"error", "response.failed"}:
+                            error = event
+                            if event_type == "response.failed":
+                                response = getattr(event, "response", None)
+                                error = getattr(response, "error", None) or response or event
+                            raise ProviderError(
+                                str(getattr(error, "message", None) or error),
+                                retryable=getattr(error, "code", None) in _RETRYABLE_RESPONSE_ERROR_CODES,
+                            )
 
                         if event_type == "response.completed":
                             final_response = getattr(event, "response", None)

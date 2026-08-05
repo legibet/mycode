@@ -66,7 +66,7 @@ def normalize_provider_error(exc: Exception, provider_id: str) -> ProviderError:
     raw_status = getattr(exc, "status_code", None)
     if raw_status is None:
         raw_status = getattr(exc, "code", None)
-    status_code = raw_status if isinstance(raw_status, int) else None
+    status_code = raw_status if isinstance(raw_status, int) and 400 <= raw_status <= 599 else None
 
     # TimeoutException is a TransportError subclass — check it first.
     timed_out = isinstance(exc, httpx.TimeoutException) or isinstance(exc.__cause__, httpx.TimeoutException)

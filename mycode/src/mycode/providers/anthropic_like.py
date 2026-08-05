@@ -30,6 +30,8 @@ from mycode.providers.base import (
     tool_result_content_blocks,
 )
 
+_RETRYABLE_ANTHROPIC_ERROR_TYPES = {"api_error", "overloaded_error", "rate_limit_error", "timeout_error"}
+
 
 class AnthropicLikeAdapter(ProviderAdapter):
     """Shared Messages adapter for Anthropic-compatible providers."""
@@ -159,7 +161,10 @@ class AnthropicLikeAdapter(ProviderAdapter):
 
                 final_message = await stream.get_final_message()
         except (APIError, httpx.HTTPError) as exc:
-            raise normalize_provider_error(exc, self.provider_id) from exc
+            error = normalize_provider_error(exc, self.provider_id)
+            if self.provider_id == "anthropic" and getattr(exc, "type", None) in _RETRYABLE_ANTHROPIC_ERROR_TYPES:
+                error.retryable = True
+            raise error from exc
 
         yield ProviderStreamEvent(
             "message_done",

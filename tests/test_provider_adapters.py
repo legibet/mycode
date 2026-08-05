@@ -6,7 +6,9 @@ from dataclasses import replace
 from typing import Any, Literal
 from unittest.mock import AsyncMock, MagicMock
 
+import httpx
 import pytest
+from anthropic import APIStatusError as AnthropicAPIStatusError
 
 from mycode.compact import build_compact_event
 from mycode.providers import (
@@ -21,7 +23,7 @@ from mycode.providers import (
     XAIAdapter,
     ZAIAdapter,
 )
-from mycode.providers.base import ProviderRequest, repair_messages_for_replay
+from mycode.providers.base import ProviderError, ProviderRequest, repair_messages_for_replay
 from mycode.tools import tool as define_tool
 
 _PNG_1X1 = base64.b64decode(
@@ -453,6 +455,35 @@ async def test_openai_responses_replays_foreign_thinking_as_assistant_text(
     ]
     assert input_items[2]["call_id"] == "call_1"
     assert input_items[3]["output"] == "42"
+
+
+@pytest.mark.parametrize(
+    ("code", "retryable"),
+    [("server_error", True), ("invalid_prompt", False)],
+)
+async def test_openai_responses_classifies_stream_failures(
+    monkeypatch: pytest.MonkeyPatch,
+    code: str,
+    retryable: bool,
+) -> None:
+    client = _async_context_mock()
+    client.responses.create = AsyncMock(
+        return_value=_stream_mock(
+            [
+                _Obj(
+                    type="response.failed",
+                    response=_Obj(error=_Obj(code=code, message="request failed")),
+                )
+            ]
+        )
+    )
+    monkeypatch.setattr("mycode.providers.openai_responses.AsyncOpenAI", lambda **_kwargs: client)
+
+    with pytest.raises(ProviderError) as caught:
+        async for _ in OpenAIResponsesAdapter().stream_turn(request_obj(api_key="test-key")):
+            pass
+
+    assert caught.value.retryable is retryable
 
 
 def test_openai_responses_fallback_replay_skips_reasoning_blocks() -> None:
@@ -1716,6 +1747,34 @@ async def test_anthropic_preserves_native_thinking_blocks_across_tool_turns(
         {"type": "redacted_thinking", "data": "encrypted"},
     ]
     assert replayed_request["thinking"]["display"] == "summarized"
+
+
+@pytest.mark.parametrize(
+    ("error_type", "retryable"),
+    [("overloaded_error", True), ("invalid_request_error", False)],
+)
+async def test_anthropic_classifies_stream_failures(
+    monkeypatch: pytest.MonkeyPatch,
+    error_type: str,
+    retryable: bool,
+) -> None:
+    request = httpx.Request("POST", "https://api.anthropic.com/v1/messages")
+    response = httpx.Response(200, request=request)
+    sdk_error = AnthropicAPIStatusError(
+        "stream failed",
+        response=response,
+        body={"error": {"type": error_type}},
+    )
+    client = _async_context_mock()
+    client.messages.stream.side_effect = sdk_error
+    monkeypatch.setattr("mycode.providers.anthropic_like.AsyncAnthropic", lambda **_kwargs: client)
+
+    with pytest.raises(ProviderError) as caught:
+        async for _ in AnthropicAdapter().stream_turn(request_obj(api_key="test-key")):
+            pass
+
+    assert caught.value.retryable is retryable
+    assert caught.value.status_code is None
 
 
 @pytest.mark.parametrize(
