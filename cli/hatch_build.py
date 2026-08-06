@@ -8,7 +8,6 @@ from pathlib import Path
 from typing import Any
 
 from hatchling.builders.hooks.plugin.interface import BuildHookInterface  # noqa: E402
-from hatchling.metadata.plugin.interface import MetadataHookInterface  # noqa: E402
 
 
 def _run_pnpm(args: list[str], *, cwd: Path) -> None:
@@ -44,23 +43,6 @@ def _build_web_assets(project_root: Path) -> None:
     if static_dir.exists():
         shutil.rmtree(static_dir)
     _ = shutil.copytree(web_dist_dir, static_dir)
-
-
-def _readme_text(project_root: Path) -> str:
-    candidates = [project_root.parent / "README.md", project_root / "README.md"]
-    for path in candidates:
-        if path.is_file():
-            return path.read_text(encoding="utf-8")
-    searched = ", ".join(str(path) for path in candidates)
-    raise RuntimeError(f"README.md not found; checked: {searched}")
-
-
-class CustomMetadataHook(MetadataHookInterface):
-    def update(self, metadata: dict[str, Any]) -> None:
-        metadata["readme"] = {
-            "text": _readme_text(Path(self.root)),
-            "content-type": "text/markdown",
-        }
 
 
 class CustomBuildHook(BuildHookInterface[Any]):
