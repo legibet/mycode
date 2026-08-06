@@ -1,6 +1,6 @@
 # mycode-sdk
 
-Lightweight Python SDK for building AI agents.
+Lightweight Python SDK for building AI agents. Multi-turn conversations, tool calling, session persistence, and streaming events. Provider adapters for Anthropic, OpenAI, Google, and more.
 
 ## Install
 
@@ -35,16 +35,35 @@ asyncio.run(main())
 
 `Agent(...)` infers the provider from the model id. No tools are registered unless you pass `tools=[...]`.
 
-For a simple synchronous call, use `run()`:
+For a synchronous call, use `run()`:
 
 ```python
 result = agent.run("Read pyproject.toml and tell me the project name.")
 print(result.text)
 ```
 
+## Providers
+
+The SDK infers the provider from the model string (`claude-*` to Anthropic, `gpt-*` to OpenAI, etc.). API keys are auto-discovered from environment variables:
+
+| Provider | id | Env var |
+| --- | --- | --- |
+| Anthropic | `anthropic` | `ANTHROPIC_API_KEY` |
+| OpenAI | `openai` | `OPENAI_API_KEY` |
+| Google Gemini | `google` | `GEMINI_API_KEY` |
+| Moonshot | `moonshotai` | `MOONSHOT_API_KEY` |
+| MiniMax | `minimax` | `MINIMAX_API_KEY` |
+| DeepSeek | `deepseek` | `DEEPSEEK_API_KEY` |
+| Z.AI | `zai` | `ZAI_API_KEY` |
+| OpenRouter | `openrouter` | `OPENROUTER_API_KEY` |
+| xAI | `xai` | `XAI_API_KEY` |
+| OpenAI-compatible | `openai_chat` | - |
+
+Pass `api_key=` to override the env var, `api_base=` for a custom endpoint. Model metadata is bundled from [models.dev](https://models.dev); pass `context_window`, `supports_reasoning`, `supports_image_input`, or `supports_pdf_input` to override.
+
 ## Multi-turn conversations
 
-Call `achat()` or `run()` again on the same `Agent` to continue the conversation:
+Call `achat()` or `run()` again on the same `Agent` to continue:
 
 ```python
 agent = Agent(model="claude-sonnet-4-6", api_key="...")
@@ -52,6 +71,8 @@ agent = Agent(model="claude-sonnet-4-6", api_key="...")
 agent.run("What is 2 + 2?")
 agent.run("Now multiply that by 10.")    # remembers the earlier answer
 ```
+
+`agent.clear()` drops in-memory history. `agent.messages` accumulates across calls.
 
 ## Attachments
 
@@ -62,7 +83,7 @@ from mycode import Attachment
 
 agent.run("Describe these.", attachments=["diagram.png", "report.pdf", "notes.txt"])
 
-# Or build them explicitly — raw bytes and inline text never touch the disk:
+# Or build them explicitly:
 agent.run(
     "Review.",
     attachments=[
@@ -73,7 +94,7 @@ agent.run(
 )
 ```
 
-Images support `image/png`, `image/jpeg`, `image/gif`, `image/webp`; documents support `application/pdf`. Sending an image or PDF to a model that lacks that capability yields an `error` event; a bad path or unsupported type raises `ValueError` before the model is called.
+Images support `image/png`, `image/jpeg`, `image/gif`, `image/webp`; documents support `application/pdf`. Sending an image or PDF to a model without that capability yields an `error` event. A bad path or unsupported type raises `ValueError` before the provider is called.
 
 ## Saving sessions
 
@@ -170,4 +191,6 @@ agent = Agent(
 
 `@hooks.after_tool` runs after the tool and can replace the result (audit, redact, etc.).
 
-See [docs/sdk.md](../docs/sdk.md) for the event stream, cancellation, sessions, and the full `Agent` / `@tool` reference.
+## Further reading
+
+See [docs/sdk.md](https://github.com/legibet/mycode/blob/main/docs/sdk.md) for the streaming event API, cancellation, retries, compaction, session internals, and the full `Agent` / `@tool` reference.
