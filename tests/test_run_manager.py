@@ -17,6 +17,9 @@ pytestmark = pytest.mark.asyncio
 class ChatOnlyAgent:
     """Base for chat fakes; compact runs never reach them."""
 
+    model = "test-model"
+    context_window = 1_000
+
     async def acompact(self) -> ConversationMessage:
         raise NotImplementedError
 
@@ -64,31 +67,47 @@ async def _wait_for_run_task(manager: RunManager, run_id: str) -> RunState:
 
 
 class UsageAgent(ChatOnlyAgent):
+    def __init__(self, turn_cost: float | None) -> None:
+        self.turn_cost = turn_cost
+
     def cancel(self) -> None:
         return None
 
     async def achat(self, user_input):
         del user_input
-        yield Event("usage", {"context_tokens": 100, "cost_usd": 0.01})
-        yield Event("usage", {"context_tokens": 100, "cost_usd": None})
+        yield Event("usage", {"context_tokens": 100, "turn_cost_usd": self.turn_cost})
 
 
-async def test_usage_events_compose_session_cost_from_the_run_base() -> None:
+@pytest.mark.parametrize(
+    ("session_cost_base", "turn_cost", "expected"),
+    [
+        (0.40, 0.01, 0.41),
+        (0.40, None, 0.40),
+        (None, 0.01, 0.01),
+        (None, None, None),
+    ],
+)
+async def test_usage_events_compose_known_session_costs(
+    session_cost_base: float | None,
+    turn_cost: float | None,
+    expected: float | None,
+) -> None:
     manager = RunManager()
 
     run = await manager.start_run(
         session_id="session-1",
         user_message={"role": "user", "content": [{"type": "text", "text": "hi"}]},
         base_messages=[],
-        agent=UsageAgent(),
-        session_cost_base=0.40,
+        agent=UsageAgent(turn_cost),
+        session_cost_base=session_cost_base,
     )
     state = await _wait_for_run_task(manager, run["id"])
 
     usage_events = [event for event in state.events if event["type"] == "usage"]
-    assert usage_events[0]["session_cost_usd"] == pytest.approx(0.41)
-    # A poisoned turn cost keeps the session total unknown.
-    assert usage_events[1]["session_cost_usd"] is None
+    expected_cost = pytest.approx(expected) if expected is not None else None
+    assert usage_events[0]["session_cost_usd"] == expected_cost
+    assert usage_events[0]["model"] == "test-model"
+    assert usage_events[0]["context_window"] == 1_000
 
 
 # Chat runs and reconnect state
@@ -402,6 +421,9 @@ async def test_finished_run_stays_available_for_reconnect_window() -> None:
 
 class CompactAgent:
     """Fake compact agent that resolves once released, honoring cancel."""
+
+    model = "test-model"
+    context_window = 1_000
 
     def __init__(self) -> None:
         self.cancelled = False

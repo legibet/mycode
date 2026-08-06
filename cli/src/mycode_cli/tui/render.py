@@ -19,6 +19,7 @@ from rich.theme import Theme
 
 from mycode.agent import Agent, PersistCallback
 from mycode.messages import ConversationMessage, flatten_message_text
+from mycode_cli.runtime import sum_known_costs
 
 from .theme import (
     ACCENT,
@@ -341,10 +342,17 @@ def _format_cost(cost: float) -> str:
 class ReplyRenderer:
     """Render one assistant reply, including thinking and tool output."""
 
-    def __init__(self, output: Console | None = None, *, session_cost_base: float | None = None) -> None:
+    def __init__(
+        self,
+        output: Console | None = None,
+        *,
+        model: str,
+        context_window: int | None,
+        session_cost_base: float | None = None,
+    ) -> None:
         self._console = output or console
-        # Session cost before this turn (folded from the session JSONL);
-        # None hides the cost segment. The stats line adds the turn's cost.
+        self._model = model
+        self._context_window = context_window
         self._session_cost_base = session_cost_base
         self._live: Live | None = None
         self._reasoning: list[str] = []
@@ -614,16 +622,15 @@ class ReplyRenderer:
         self._reset_stream_state()
 
         context_tokens = self._stats.get("context_tokens")
-        model = self._stats.get("model")
-        if context_tokens and model:
+        if context_tokens:
             usage_text = f"{context_tokens:,} tokens"
-            if context_window := self._stats.get("context_window"):
-                usage_text += f" ({round(context_tokens * 100 / context_window)}%)"
+            if self._context_window:
+                usage_text += f" ({round(context_tokens * 100 / self._context_window)}%)"
             parts = [usage_text]
-            turn_cost = self._stats.get("cost_usd")
-            if self._session_cost_base is not None and turn_cost is not None:
-                parts.append(_format_cost(self._session_cost_base + turn_cost))
-            self._console.print(Text(f"  {model}  {' · '.join(parts)}", style=STATS))
+            session_cost = sum_known_costs(self._session_cost_base, self._stats.get("turn_cost_usd"))
+            if session_cost is not None:
+                parts.append(_format_cost(session_cost))
+            self._console.print(Text(f"  {self._model}  {' · '.join(parts)}", style=STATS))
 
     # -- Internal helpers ----------------------------------------------------
 

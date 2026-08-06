@@ -455,11 +455,10 @@ def test_session_load_stamps_request_costs(tmp_path: Path) -> None:
             {
                 "role": "assistant",
                 "content": [{"type": "text", "text": "ok"}],
-                "meta": {"provider": "p", "model": "m", "usage": {"cost_usd": 0.02}},
+                "meta": {"provider": "p", "model": "m", "usage": {"reported_cost_usd": 0.02}},
             },
         )
-        # Usage recorded but the model has no catalog price: no stamp, and
-        # the session total stays unknown.
+        # Usage recorded but the model has no catalog price: no request stamp.
         await store.append_message(
             "s1",
             {
@@ -481,4 +480,4 @@ def test_session_load_stamps_request_costs(tmp_path: Path) -> None:
     assert "request_cost_usd" not in (user_message.get("meta") or {})
     assert priced["meta"]["request_cost_usd"] == pytest.approx(0.02)
     assert "request_cost_usd" not in unpriced["meta"]
-    assert payload["session_cost_usd"] is None
+    assert payload["session_cost_usd"] == pytest.approx(0.02)

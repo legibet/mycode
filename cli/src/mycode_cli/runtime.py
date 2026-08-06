@@ -11,21 +11,22 @@ from mycode_cli.permissions import ToolReviewCallback, build_permission_hooks
 from mycode_cli.system_prompt import build_system_prompt
 
 
+def sum_known_costs(*costs: float | None) -> float | None:
+    known = [cost for cost in costs if cost is not None]
+    return sum(known) if known else None
+
+
 async def load_session_cost(store: SessionStore, session_id: str) -> float | None:
     """Estimate the session's cumulative USD cost from its raw JSONL timeline.
 
     Every persisted provider request counts: tool loops, compact summaries,
     and turns discarded by rewind (billed is billed). Each assistant/compact
     record is priced by its own ``meta.provider``/``meta.model`` through the
-    SDK catalog; an upstream-reported ``cost_usd`` wins.
-
-    Records without a usage dict (cancelled partials, pre-usage sessions) are
-    skipped — a one-off gap must not permanently hide the estimate. A record
-    whose usage cannot be priced (unknown model) still returns None: summing
-    around it would present a partial figure as the total.
+    SDK catalog; an upstream-reported ``reported_cost_usd`` wins. Records
+    without a usable estimate are skipped.
     """
 
-    total = 0.0
+    total: float | None = None
     for message in await store.load_raw_messages(session_id):
         if message.get("role") not in {"assistant", "compact"}:
             continue
@@ -35,9 +36,7 @@ async def load_session_cost(store: SessionStore, session_id: str) -> float | Non
             continue
         metadata = resolve_model_metadata(provider=str(meta.get("provider") or ""), model=str(meta.get("model") or ""))
         request_cost = estimate_cost(usage, metadata.cost)
-        if request_cost is None:
-            return None
-        total += request_cost
+        total = sum_known_costs(total, request_cost)
     return total
 
 

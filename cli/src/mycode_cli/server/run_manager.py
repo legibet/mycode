@@ -14,6 +14,7 @@ from uuid import uuid4
 from mycode.agent import Event
 from mycode.messages import ConversationMessage
 from mycode_cli.permissions import ToolReviewDecision
+from mycode_cli.runtime import sum_known_costs
 
 RunStatus = Literal["running", "completed", "failed", "cancelled"]
 RunKind = Literal["chat", "compact"]
@@ -30,6 +31,9 @@ class ActiveRunError(RuntimeError):
 
 
 class RunAgent(Protocol):
+    model: str
+    context_window: int
+
     def cancel(self) -> None: ...
 
     def achat(self, user_input: str | ConversationMessage) -> AsyncIterator[Event]: ...
@@ -319,16 +323,19 @@ class RunManager:
                     if event.type == "error":
                         last_error = str(event.data.get("message") or "unknown error")
                     elif event.type == "usage":
-                        # The SDK's cost_usd is the turn's cumulative cost;
-                        # compose it with the pre-run session base. Either
-                        # side unknown → unknown.
-                        turn_cost = event.data.get("cost_usd")
-                        session_cost = (
-                            None
-                            if state.session_cost_base is None or turn_cost is None
-                            else state.session_cost_base + turn_cost
+                        session_cost = sum_known_costs(
+                            state.session_cost_base,
+                            event.data.get("turn_cost_usd"),
                         )
-                        event = Event("usage", {**event.data, "session_cost_usd": session_cost})
+                        event = Event(
+                            "usage",
+                            {
+                                **event.data,
+                                "context_window": state.agent.context_window,
+                                "model": state.agent.model,
+                                "session_cost_usd": session_cost,
+                            },
+                        )
                     await self._append_event(state, event)
         except asyncio.CancelledError:
             # BaseException, not caught by ``except Exception`` — without this

@@ -250,7 +250,11 @@ def test_print_history_preview_renders_recent_turns() -> None:
 class TestReplyRenderer:
     def test_finish_keeps_streamed_text_visible(self) -> None:
         output = StringIO()
-        renderer = ReplyRenderer(Console(file=output, force_terminal=False, color_system=None, width=120))
+        renderer = ReplyRenderer(
+            Console(file=output, force_terminal=False, color_system=None, width=120),
+            model="m",
+            context_window=None,
+        )
         renderer.text("final answer")
 
         renderer.finish()
@@ -261,13 +265,13 @@ class TestReplyRenderer:
         output = StringIO()
         renderer = ReplyRenderer(
             Console(file=output, force_terminal=False, color_system=None, width=120),
+            model="gpt-5.5",
+            context_window=128_000,
             session_cost_base=0.40,
         )
         renderer._stats = {
             "context_tokens": 34_210,
-            "context_window": 128_000,
-            "model": "gpt-5.5",
-            "cost_usd": 0.02,
+            "turn_cost_usd": 0.02,
         }
 
         renderer.finish()
@@ -275,27 +279,33 @@ class TestReplyRenderer:
         assert "gpt-5.5  34,210 tokens (27%) · $0.42" in output.getvalue()
 
     @pytest.mark.parametrize(
-        ("session_cost_base", "turn_cost"),
+        ("session_cost_base", "turn_cost", "expected"),
         [
-            pytest.param(None, 0.02, id="unknown-history"),
-            pytest.param(0.40, None, id="poisoned-turn"),
+            pytest.param(None, 0.02, 0.02, id="turn-only"),
+            pytest.param(0.40, None, 0.40, id="history-only"),
+            pytest.param(None, None, None, id="all-unknown"),
         ],
     )
-    def test_finish_omits_the_cost_when_either_side_is_unknown(
-        self, session_cost_base: float | None, turn_cost: float | None
+    def test_finish_combines_known_costs(
+        self, session_cost_base: float | None, turn_cost: float | None, expected: float | None
     ) -> None:
         output = StringIO()
         renderer = ReplyRenderer(
             Console(file=output, force_terminal=False, color_system=None, width=120),
+            model="m",
+            context_window=1_000,
             session_cost_base=session_cost_base,
         )
-        renderer._stats = {"context_tokens": 100, "context_window": 1_000, "model": "m", "cost_usd": turn_cost}
+        renderer._stats = {"context_tokens": 100, "turn_cost_usd": turn_cost}
 
         renderer.finish()
 
         rendered = output.getvalue()
         assert "100 tokens (10%)" in rendered
-        assert "$" not in rendered
+        if expected is None:
+            assert "$" not in rendered
+        else:
+            assert f"${expected:.2f}" in rendered
 
 
 class TestLoadSessionCost:
@@ -305,8 +315,16 @@ class TestLoadSessionCost:
         await store.create_session("s1", cwd="/tmp")
         records = [
             {"role": "user", "content": [{"type": "text", "text": "hi"}]},
-            {"role": "assistant", "content": [], "meta": {"provider": "p", "model": "m", "usage": {"cost_usd": 0.02}}},
-            {"role": "compact", "content": [], "meta": {"provider": "p", "model": "m", "usage": {"cost_usd": 0.005}}},
+            {
+                "role": "assistant",
+                "content": [],
+                "meta": {"provider": "p", "model": "m", "usage": {"reported_cost_usd": 0.02}},
+            },
+            {
+                "role": "compact",
+                "content": [],
+                "meta": {"provider": "p", "model": "m", "usage": {"reported_cost_usd": 0.005}},
+            },
         ]
         for record in records:
             await store.append_message("s1", record)
@@ -320,7 +338,11 @@ class TestLoadSessionCost:
         await store.create_session("s1", cwd="/tmp")
         await store.append_message(
             "s1",
-            {"role": "assistant", "content": [], "meta": {"provider": "p", "model": "m", "usage": {"cost_usd": 0.02}}},
+            {
+                "role": "assistant",
+                "content": [],
+                "meta": {"provider": "p", "model": "m", "usage": {"reported_cost_usd": 0.02}},
+            },
         )
         # A cancelled stream persists an assistant message without usage; the
         # one-off gap must not hide the estimate for the rest of the session.
@@ -329,15 +351,17 @@ class TestLoadSessionCost:
         assert await load_session_cost(store, "s1") == pytest.approx(0.02)
 
     @pytest.mark.asyncio
-    async def test_returns_none_when_a_recorded_request_cannot_be_priced(self, tmp_path: Path) -> None:
+    async def test_skips_a_recorded_request_that_cannot_be_priced(self, tmp_path: Path) -> None:
         store = SessionStore(data_dir=tmp_path)
         await store.create_session("s1", cwd="/tmp")
         await store.append_message(
             "s1",
-            {"role": "assistant", "content": [], "meta": {"provider": "p", "model": "m", "usage": {"cost_usd": 0.02}}},
+            {
+                "role": "assistant",
+                "content": [],
+                "meta": {"provider": "p", "model": "m", "usage": {"reported_cost_usd": 0.02}},
+            },
         )
-        # Usage recorded but the model has no catalog price: summing around it
-        # would present a partial figure as the total.
         await store.append_message(
             "s1",
             {
@@ -347,7 +371,18 @@ class TestLoadSessionCost:
             },
         )
 
-        assert await load_session_cost(store, "s1") is None
+        assert await load_session_cost(store, "s1") == pytest.approx(0.02)
+
+        await store.create_session("s2", cwd="/tmp")
+        await store.append_message(
+            "s2",
+            {
+                "role": "assistant",
+                "content": [],
+                "meta": {"provider": "unknown", "model": "unknown", "usage": {"input_tokens": 10, "output_tokens": 5}},
+            },
+        )
+        assert await load_session_cost(store, "s2") is None
 
 
 def test_cli_rejects_non_positive_max_turns() -> None:

@@ -533,7 +533,12 @@ class TerminalChat:
             # Fold the session JSONL fresh each turn: covers resume, /clear,
             # /new, /rewind, and manual /compact without tracking state.
             session_cost = await load_session_cost(self.store, self.session_id)
-            renderer = ReplyRenderer(self.view.console, session_cost_base=session_cost)
+            renderer = ReplyRenderer(
+                self.view.console,
+                model=self.agent.model,
+                context_window=self.agent.context_window,
+                session_cost_base=session_cost,
+            )
             self._current_renderer = renderer
             user_message = self._build_user_message(user_input)
             try:
