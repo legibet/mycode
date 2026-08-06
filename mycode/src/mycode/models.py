@@ -27,8 +27,9 @@ class ModelMetadata:
     ``cost`` never does: prices apply only when the catalog entry belongs to
     the requested provider or the inferred official provider.
 
-    ``reasoning_efforts`` is ``None`` when the catalog has no effort metadata,
-    an empty tuple when it has no string effort, or the advertised values.
+    ``reasoning_efforts`` is ``None`` when the source has no reasoning options,
+    an empty tuple when it advertises no effort option, or the advertised
+    string effort values.
     """
 
     provider: str

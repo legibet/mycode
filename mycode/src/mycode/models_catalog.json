@@ -220,7 +220,6 @@
       },
       "max_output_tokens": 128000,
       "reasoning_efforts": [
-        "none",
         "low",
         "medium",
         "high",
@@ -270,7 +269,6 @@
       },
       "max_output_tokens": 384000,
       "reasoning_efforts": [
-        "none",
         "low",
         "high",
         "max"
@@ -289,7 +287,6 @@
       },
       "max_output_tokens": 384000,
       "reasoning_efforts": [
-        "none",
         "high",
         "max"
       ],
@@ -393,9 +390,7 @@
         "output": 2.5
       },
       "max_output_tokens": 65536,
-      "reasoning_efforts": [
-        "none"
-      ],
+      "reasoning_efforts": [],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -421,9 +416,7 @@
         "output": 0.4
       },
       "max_output_tokens": 65536,
-      "reasoning_efforts": [
-        "none"
-      ],
+      "reasoning_efforts": [],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -847,9 +840,7 @@
         "output": 5.0
       },
       "max_output_tokens": 65536,
-      "reasoning_efforts": [
-        "none"
-      ],
+      "reasoning_efforts": [],
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -857,9 +848,7 @@
     "gemma-4-26b-a4b-it": {
       "context_window": 262144,
       "max_output_tokens": 32768,
-      "reasoning_efforts": [
-        "none"
-      ],
+      "reasoning_efforts": [],
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -867,9 +856,7 @@
     "gemma-4-31b-it": {
       "context_window": 262144,
       "max_output_tokens": 32768,
-      "reasoning_efforts": [
-        "none"
-      ],
+      "reasoning_efforts": [],
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -1022,9 +1009,7 @@
         ]
       },
       "max_output_tokens": 128000,
-      "reasoning_efforts": [
-        "none"
-      ],
+      "reasoning_efforts": [],
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -1104,9 +1089,7 @@
         "output": 3.0
       },
       "max_output_tokens": 262144,
-      "reasoning_efforts": [
-        "none"
-      ],
+      "reasoning_efforts": [],
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -1119,9 +1102,7 @@
         "output": 4.0
       },
       "max_output_tokens": 262144,
-      "reasoning_efforts": [
-        "none"
-      ],
+      "reasoning_efforts": [],
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -1161,7 +1142,6 @@
       },
       "max_output_tokens": 131072,
       "reasoning_efforts": [
-        "none",
         "low",
         "high",
         "max"
@@ -2150,9 +2130,7 @@
         "output": 5.0
       },
       "max_output_tokens": 64000,
-      "reasoning_efforts": [
-        "none"
-      ],
+      "reasoning_efforts": [],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -2166,9 +2144,7 @@
         "output": 75.0
       },
       "max_output_tokens": 32000,
-      "reasoning_efforts": [
-        "none"
-      ],
+      "reasoning_efforts": [],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -2182,9 +2158,7 @@
         "output": 75.0
       },
       "max_output_tokens": 32000,
-      "reasoning_efforts": [
-        "none"
-      ],
+      "reasoning_efforts": [],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -2199,7 +2173,6 @@
       },
       "max_output_tokens": 64000,
       "reasoning_efforts": [
-        "none",
         "low",
         "medium",
         "high"
@@ -2383,9 +2356,7 @@
         ]
       },
       "max_output_tokens": 64000,
-      "reasoning_efforts": [
-        "none"
-      ],
+      "reasoning_efforts": [],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -2408,9 +2379,7 @@
         ]
       },
       "max_output_tokens": 64000,
-      "reasoning_efforts": [
-        "none"
-      ],
+      "reasoning_efforts": [],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -2716,9 +2685,7 @@
         "output": 0.95
       },
       "max_output_tokens": 32768,
-      "reasoning_efforts": [
-        "none"
-      ],
+      "reasoning_efforts": [],
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -2768,9 +2735,7 @@
         "output": 1.0
       },
       "max_output_tokens": 32768,
-      "reasoning_efforts": [
-        "none"
-      ],
+      "reasoning_efforts": [],
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -2783,9 +2748,7 @@
         "output": 0.4
       },
       "max_output_tokens": 65536,
-      "reasoning_efforts": [
-        "none"
-      ],
+      "reasoning_efforts": [],
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -2797,9 +2760,7 @@
         "output": 0.41
       },
       "max_output_tokens": 65536,
-      "reasoning_efforts": [
-        "none"
-      ],
+      "reasoning_efforts": [],
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -2863,9 +2824,7 @@
         "reasoning": 2.5
       },
       "max_output_tokens": 65535,
-      "reasoning_efforts": [
-        "none"
-      ],
+      "reasoning_efforts": [],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -2894,9 +2853,7 @@
         "reasoning": 0.4
       },
       "max_output_tokens": 65535,
-      "reasoning_efforts": [
-        "none"
-      ],
+      "reasoning_efforts": [],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -3287,9 +3244,7 @@
         "output": 0.34
       },
       "max_output_tokens": 16384,
-      "reasoning_efforts": [
-        "none"
-      ],
+      "reasoning_efforts": [],
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -3301,9 +3256,7 @@
         "output": 0.0
       },
       "max_output_tokens": 32768,
-      "reasoning_efforts": [
-        "none"
-      ],
+      "reasoning_efforts": [],
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -3316,9 +3269,7 @@
         "output": 0.34
       },
       "max_output_tokens": 262144,
-      "reasoning_efforts": [
-        "none"
-      ],
+      "reasoning_efforts": [],
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -3330,9 +3281,7 @@
         "output": 0.0
       },
       "max_output_tokens": 32768,
-      "reasoning_efforts": [
-        "none"
-      ],
+      "reasoning_efforts": [],
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -4220,9 +4169,7 @@
         "output": 3.0
       },
       "max_output_tokens": 131072,
-      "reasoning_efforts": [
-        "none"
-      ],
+      "reasoning_efforts": [],
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -4234,9 +4181,7 @@
         "output": 0.4
       },
       "max_output_tokens": 131072,
-      "reasoning_efforts": [
-        "none"
-      ],
+      "reasoning_efforts": [],
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -5688,9 +5633,7 @@
         "output": 0.91
       },
       "max_output_tokens": 8192,
-      "reasoning_efforts": [
-        "none"
-      ],
+      "reasoning_efforts": [],
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -5702,9 +5645,7 @@
         "output": 1.82
       },
       "max_output_tokens": 8192,
-      "reasoning_efforts": [
-        "none"
-      ],
+      "reasoning_efforts": [],
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -5740,9 +5681,7 @@
         "output": 0.5
       },
       "max_output_tokens": 16384,
-      "reasoning_efforts": [
-        "none"
-      ],
+      "reasoning_efforts": [],
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -5778,9 +5717,7 @@
         "output": 0.28
       },
       "max_output_tokens": 16384,
-      "reasoning_efforts": [
-        "none"
-      ],
+      "reasoning_efforts": [],
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -5792,9 +5729,7 @@
         "output": 0.455
       },
       "max_output_tokens": 8192,
-      "reasoning_efforts": [
-        "none"
-      ],
+      "reasoning_efforts": [],
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -6067,9 +6002,7 @@
         "output": 2.08
       },
       "max_output_tokens": 65536,
-      "reasoning_efforts": [
-        "none"
-      ],
+      "reasoning_efforts": [],
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -6081,9 +6014,7 @@
         "output": 1.56
       },
       "max_output_tokens": 65536,
-      "reasoning_efforts": [
-        "none"
-      ],
+      "reasoning_efforts": [],
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -6095,9 +6026,7 @@
         "output": 1.0
       },
       "max_output_tokens": 262144,
-      "reasoning_efforts": [
-        "none"
-      ],
+      "reasoning_efforts": [],
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -6109,9 +6038,7 @@
         "output": 2.34
       },
       "max_output_tokens": 65536,
-      "reasoning_efforts": [
-        "none"
-      ],
+      "reasoning_efforts": [],
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -6123,9 +6050,7 @@
         "output": 0.15
       },
       "max_output_tokens": 262144,
-      "reasoning_efforts": [
-        "none"
-      ],
+      "reasoning_efforts": [],
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -6137,9 +6062,7 @@
         "output": 0.26
       },
       "max_output_tokens": 65536,
-      "reasoning_efforts": [
-        "none"
-      ],
+      "reasoning_efforts": [],
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -6158,9 +6081,7 @@
         ]
       },
       "max_output_tokens": 65536,
-      "reasoning_efforts": [
-        "none"
-      ],
+      "reasoning_efforts": [],
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -6181,9 +6102,7 @@
         ]
       },
       "max_output_tokens": 65536,
-      "reasoning_efforts": [
-        "none"
-      ],
+      "reasoning_efforts": [],
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -6196,9 +6115,7 @@
         "output": 3.6
       },
       "max_output_tokens": 262144,
-      "reasoning_efforts": [
-        "none"
-      ],
+      "reasoning_efforts": [],
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -6210,9 +6127,7 @@
         "output": 1.0
       },
       "max_output_tokens": 262144,
-      "reasoning_efforts": [
-        "none"
-      ],
+      "reasoning_efforts": [],
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -6233,9 +6148,7 @@
         ]
       },
       "max_output_tokens": 65536,
-      "reasoning_efforts": [
-        "none"
-      ],
+      "reasoning_efforts": [],
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -6256,9 +6169,7 @@
         ]
       },
       "max_output_tokens": 65536,
-      "reasoning_efforts": [
-        "none"
-      ],
+      "reasoning_efforts": [],
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -6279,9 +6190,7 @@
         ]
       },
       "max_output_tokens": 65536,
-      "reasoning_efforts": [
-        "none"
-      ],
+      "reasoning_efforts": [],
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -6325,9 +6234,7 @@
         "output": 4.425
       },
       "max_output_tokens": 131072,
-      "reasoning_efforts": [
-        "none"
-      ],
+      "reasoning_efforts": [],
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -6350,9 +6257,7 @@
         ]
       },
       "max_output_tokens": 131072,
-      "reasoning_efforts": [
-        "none"
-      ],
+      "reasoning_efforts": [],
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -6815,9 +6720,7 @@
         "output": 0.28
       },
       "max_output_tokens": 131072,
-      "reasoning_efforts": [
-        "none"
-      ],
+      "reasoning_efforts": [],
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -6830,9 +6733,7 @@
         "output": 0.87
       },
       "max_output_tokens": 131072,
-      "reasoning_efforts": [
-        "none"
-      ],
+      "reasoning_efforts": [],
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -6845,9 +6746,7 @@
         "output": 2.2
       },
       "max_output_tokens": 98304,
-      "reasoning_efforts": [
-        "none"
-      ],
+      "reasoning_efforts": [],
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -6860,9 +6759,7 @@
         "output": 0.85
       },
       "max_output_tokens": 98304,
-      "reasoning_efforts": [
-        "none"
-      ],
+      "reasoning_efforts": [],
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -6875,9 +6772,7 @@
         "output": 1.8
       },
       "max_output_tokens": 16384,
-      "reasoning_efforts": [
-        "none"
-      ],
+      "reasoning_efforts": [],
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -7031,9 +6926,7 @@
         "output": 5.0
       },
       "max_output_tokens": 64000,
-      "reasoning_efforts": [
-        "none"
-      ],
+      "reasoning_efforts": [],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -7418,9 +7311,7 @@
         "output": 2.2
       },
       "max_output_tokens": 98304,
-      "reasoning_efforts": [
-        "none"
-      ],
+      "reasoning_efforts": [],
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -7434,9 +7325,7 @@
         "output": 1.1
       },
       "max_output_tokens": 98304,
-      "reasoning_efforts": [
-        "none"
-      ],
+      "reasoning_efforts": [],
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -7450,9 +7339,7 @@
         "output": 0.0
       },
       "max_output_tokens": 98304,
-      "reasoning_efforts": [
-        "none"
-      ],
+      "reasoning_efforts": [],
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -7464,9 +7351,7 @@
         "output": 1.8
       },
       "max_output_tokens": 16384,
-      "reasoning_efforts": [
-        "none"
-      ],
+      "reasoning_efforts": [],
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -7480,9 +7365,7 @@
         "output": 2.2
       },
       "max_output_tokens": 131072,
-      "reasoning_efforts": [
-        "none"
-      ],
+      "reasoning_efforts": [],
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -7494,9 +7377,7 @@
         "output": 0.9
       },
       "max_output_tokens": 32768,
-      "reasoning_efforts": [
-        "none"
-      ],
+      "reasoning_efforts": [],
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -7510,9 +7391,7 @@
         "output": 2.2
       },
       "max_output_tokens": 131072,
-      "reasoning_efforts": [
-        "none"
-      ],
+      "reasoning_efforts": [],
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -7526,9 +7405,7 @@
         "output": 0.0
       },
       "max_output_tokens": 131072,
-      "reasoning_efforts": [
-        "none"
-      ],
+      "reasoning_efforts": [],
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -7542,9 +7419,7 @@
         "output": 0.4
       },
       "max_output_tokens": 131072,
-      "reasoning_efforts": [
-        "none"
-      ],
+      "reasoning_efforts": [],
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -7558,9 +7433,7 @@
         "output": 3.2
       },
       "max_output_tokens": 131072,
-      "reasoning_efforts": [
-        "none"
-      ],
+      "reasoning_efforts": [],
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -7574,9 +7447,7 @@
         "output": 4.0
       },
       "max_output_tokens": 131072,
-      "reasoning_efforts": [
-        "none"
-      ],
+      "reasoning_efforts": [],
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -7590,9 +7461,7 @@
         "output": 4.4
       },
       "max_output_tokens": 131072,
-      "reasoning_efforts": [
-        "none"
-      ],
+      "reasoning_efforts": [],
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -7623,9 +7492,7 @@
         "output": 4.0
       },
       "max_output_tokens": 131072,
-      "reasoning_efforts": [
-        "none"
-      ],
+      "reasoning_efforts": [],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true

@@ -62,7 +62,7 @@ def extract_cost(raw_model: dict[str, Any]) -> dict[str, Any] | None:
 
 
 def extract_reasoning_efforts(raw_model: dict[str, Any]) -> list[str] | None:
-    """Extract string efforts, treating a thinking toggle as `none`."""
+    """Extract the string values advertised by effort options."""
 
     raw_options = raw_model.get("reasoning_options")
     if not isinstance(raw_options, list):
@@ -70,14 +70,11 @@ def extract_reasoning_efforts(raw_model: dict[str, Any]) -> list[str] | None:
 
     efforts: list[str] = []
     for option in raw_options:
-        if not isinstance(option, dict):
+        if not isinstance(option, dict) or option.get("type") != "effort":
             continue
-        if option.get("type") == "toggle":
-            efforts.append("none")
-        elif option.get("type") == "effort":
-            values = option.get("values")
-            if isinstance(values, list):
-                efforts.extend(value for value in values if isinstance(value, str))
+        values = option.get("values")
+        if isinstance(values, list):
+            efforts.extend(value for value in values if isinstance(value, str))
     return list(dict.fromkeys(efforts))
 
 
