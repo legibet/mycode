@@ -1,10 +1,10 @@
 # mycode
 
->There are many coding agents, but this one is mine.
+> There are many coding agents, but this one is mine.
 
 A minimal coding agent.
 
-- Minimal：agent core code lines < 5k, total < 10k (backend).
+- Minimal (~10k lines) but complete.
 - Multiple provider support and robust message replay.
 - 4 built-in tools (`read`, `write`, `edit`, `bash`), expanded via skills.
 - Mobile-friendly web UI.
@@ -36,77 +36,13 @@ Single message, non-interactive:
 mycode run "explain how the session store works"
 ```
 
-API keys are discovered automatically from environment variables (see Providers).
+API keys are discovered automatically from environment variables. Run `/model` in the TUI to see available models.
 
 ## Providers
 
-| Provider          | id            | Env var              |
-| ----------------- | ------------- | -------------------- |
-| Anthropic         | `anthropic`   | `ANTHROPIC_API_KEY`  |
-| OpenAI            | `openai`      | `OPENAI_API_KEY`     |
-| Google Gemini     | `google`      | `GEMINI_API_KEY`     |
-| Moonshot          | `moonshotai`  | `MOONSHOT_API_KEY`   |
-| MiniMax           | `minimax`     | `MINIMAX_API_KEY`    |
-| DeepSeek          | `deepseek`    | `DEEPSEEK_API_KEY`   |
-| Z.AI              | `zai`         | `ZAI_API_KEY`        |
-| OpenRouter        | `openrouter`  | `OPENROUTER_API_KEY` |
-| xAI               | `xai`         | `XAI_API_KEY`        |
-| OpenAI-compatible | `openai_chat` | —                    |
+Supports Anthropic, OpenAI, Google Gemini, DeepSeek, Moonshot, MiniMax, Z.AI, OpenRouter, xAI, and any OpenAI-compatible endpoint. Set the provider's env var and you're ready.
 
-Run `/model` in tui to see the available models.
-
-## Configuration
-
-A config file is optional — API keys from the environment are usually sufficient.
-
-Create `~/.mycode/config.json` (global) or `.mycode/config.json` under the current project to:
-
-- set a default provider, model, and reasoning effort
-- expose additional models on an existing provider (e.g. OpenRouter's catalog)
-- register a custom endpoint, such as a private or regional deployment
-
-```json
-{
-  "default": {
-    "provider": "anthropic",
-    "model": "claude-sonnet-4-6",
-    "reasoning_effort": "medium"
-  },
-  "providers": {
-    "openrouter": {
-      "models": {
-        "deepseek/deepseek-v3.2": {},
-        "xiaomi/mimo-v2-pro": {}
-      }
-    },
-    "zhipu-coding-plan": {
-      "type": "zai",
-      "base_url": "https://open.bigmodel.cn/api/coding/paas/v4",
-      "api_key": "${ZHIPU_API_KEY}"
-    },
-    "custom-provider": {
-      "type": "openai_chat",
-      "base_url": "https://custom-endpoint.com/v1",
-      "api_key": "${CUSTOM_API_KEY}",
-      "models": {
-        "custom-model": {
-          "context_window": 128000,
-          "max_output_tokens": 16384,
-          "supports_reasoning": true,
-          "supports_image_input": false
-        }
-      }
-    }
-  }
-}
-```
-
-- To override a built-in provider, reuse its id as the key — no `type` needed. Custom providers must declare a `type` — one of the built-in protocols.
-- `reasoning_effort` controls extended thinking. Available values come from the selected model; `auto` leaves the effort unspecified.
-- API keys in config accept `${ENV_VAR}` references.
-- Model metadata is bundled from [models.dev](https://models.dev) — `{}` is enough for most models. Provide explicit fields only for models not listed there.
-
-> Built-in Moonshot, MiniMax, and Z.AI providers default to international endpoints. Override `base_url` for China endpoints.
+See [cli/README.md](cli/README.md) for the full provider table and configuration.
 
 ## CLI Reference
 
@@ -120,7 +56,7 @@ mycode web --dev                  API only, no static files
 mycode session list               list saved sessions
 ```
 
-Interactive slash commands: `/new` `/resume` `/rewind` `/provider` `/model` `/effort` `/clear` `/q`
+Interactive slash commands: `/new` `/resume` `/rewind` `/provider` `/model` `/effort` `/clear` `/compact` `/q`
 
 ## Development
 
@@ -156,7 +92,7 @@ uv build --package mycode-cli
 
 ## mycode-sdk
 
-Agent core of mycode as a lightweight Python SDK for building custom agents. Install via: `uv add mycode-sdk`
+Agent core of mycode as a lightweight Python SDK for building custom agents. Install via `uv add mycode-sdk`.
 
 ```python
 from mycode import Agent, read_tool
