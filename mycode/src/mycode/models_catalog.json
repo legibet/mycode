@@ -9,6 +9,13 @@
         "output": 50.0
       },
       "max_output_tokens": 128000,
+      "reasoning_efforts": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -22,6 +29,7 @@
         "output": 5.0
       },
       "max_output_tokens": 64000,
+      "reasoning_efforts": [],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -35,32 +43,7 @@
         "output": 5.0
       },
       "max_output_tokens": 64000,
-      "supports_image_input": true,
-      "supports_pdf_input": true,
-      "supports_reasoning": true
-    },
-    "claude-opus-4-1": {
-      "context_window": 200000,
-      "cost": {
-        "cache_read": 1.5,
-        "cache_write": 18.75,
-        "input": 15.0,
-        "output": 75.0
-      },
-      "max_output_tokens": 32000,
-      "supports_image_input": true,
-      "supports_pdf_input": true,
-      "supports_reasoning": true
-    },
-    "claude-opus-4-1-20250805": {
-      "context_window": 200000,
-      "cost": {
-        "cache_read": 1.5,
-        "cache_write": 18.75,
-        "input": 15.0,
-        "output": 75.0
-      },
-      "max_output_tokens": 32000,
+      "reasoning_efforts": [],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -74,6 +57,11 @@
         "output": 25.0
       },
       "max_output_tokens": 64000,
+      "reasoning_efforts": [
+        "low",
+        "medium",
+        "high"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -87,6 +75,11 @@
         "output": 25.0
       },
       "max_output_tokens": 64000,
+      "reasoning_efforts": [
+        "low",
+        "medium",
+        "high"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -100,6 +93,12 @@
         "output": 25.0
       },
       "max_output_tokens": 128000,
+      "reasoning_efforts": [
+        "low",
+        "medium",
+        "high",
+        "max"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -113,6 +112,13 @@
         "output": 25.0
       },
       "max_output_tokens": 128000,
+      "reasoning_efforts": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -126,6 +132,13 @@
         "output": 25.0
       },
       "max_output_tokens": 128000,
+      "reasoning_efforts": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -139,6 +152,13 @@
         "output": 25.0
       },
       "max_output_tokens": 128000,
+      "reasoning_efforts": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -152,6 +172,7 @@
         "output": 15.0
       },
       "max_output_tokens": 64000,
+      "reasoning_efforts": [],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -165,6 +186,7 @@
         "output": 15.0
       },
       "max_output_tokens": 64000,
+      "reasoning_efforts": [],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -178,6 +200,12 @@
         "output": 15.0
       },
       "max_output_tokens": 128000,
+      "reasoning_efforts": [
+        "low",
+        "medium",
+        "high",
+        "max"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -191,6 +219,14 @@
         "output": 10.0
       },
       "max_output_tokens": 128000,
+      "reasoning_efforts": [
+        "none",
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -205,6 +241,7 @@
         "output": 0.28
       },
       "max_output_tokens": 384000,
+      "reasoning_efforts": null,
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -218,6 +255,7 @@
         "reasoning": 0.28
       },
       "max_output_tokens": 384000,
+      "reasoning_efforts": [],
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -231,6 +269,12 @@
         "reasoning": 0.28
       },
       "max_output_tokens": 384000,
+      "reasoning_efforts": [
+        "none",
+        "low",
+        "high",
+        "max"
+      ],
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -244,6 +288,11 @@
         "reasoning": 0.87
       },
       "max_output_tokens": 384000,
+      "reasoning_efforts": [
+        "none",
+        "high",
+        "max"
+      ],
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -266,6 +315,7 @@
         ]
       },
       "max_output_tokens": 65536,
+      "reasoning_efforts": [],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -286,6 +336,7 @@
         ]
       },
       "max_output_tokens": 65536,
+      "reasoning_efforts": [],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -298,6 +349,7 @@
         "output": 0.4
       },
       "max_output_tokens": 8192,
+      "reasoning_efforts": null,
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": false
@@ -309,6 +361,7 @@
         "output": 0.3
       },
       "max_output_tokens": 8192,
+      "reasoning_efforts": null,
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": false
@@ -327,6 +380,7 @@
         ]
       },
       "max_output_tokens": 65536,
+      "reasoning_efforts": [],
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -339,6 +393,9 @@
         "output": 2.5
       },
       "max_output_tokens": 65536,
+      "reasoning_efforts": [
+        "none"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -351,6 +408,7 @@
         "output": 30.0
       },
       "max_output_tokens": 32768,
+      "reasoning_efforts": [],
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -363,6 +421,9 @@
         "output": 0.4
       },
       "max_output_tokens": 65536,
+      "reasoning_efforts": [
+        "none"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -374,6 +435,7 @@
         "output": 10.0
       },
       "max_output_tokens": 16384,
+      "reasoning_efforts": null,
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -394,6 +456,7 @@
         ]
       },
       "max_output_tokens": 65536,
+      "reasoning_efforts": [],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -405,6 +468,7 @@
         "output": 20.0
       },
       "max_output_tokens": 16384,
+      "reasoning_efforts": null,
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -417,6 +481,12 @@
         "output": 3.0
       },
       "max_output_tokens": 65536,
+      "reasoning_efforts": [
+        "minimal",
+        "low",
+        "medium",
+        "high"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -428,6 +498,10 @@
         "output": 120.0
       },
       "max_output_tokens": 32768,
+      "reasoning_efforts": [
+        "low",
+        "high"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -439,6 +513,7 @@
         "output": 120.0
       },
       "max_output_tokens": 32768,
+      "reasoning_efforts": [],
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -459,6 +534,10 @@
         ]
       },
       "max_output_tokens": 65536,
+      "reasoning_efforts": [
+        "low",
+        "high"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -470,6 +549,10 @@
         "output": 60.0
       },
       "max_output_tokens": 65536,
+      "reasoning_efforts": [
+        "minimal",
+        "high"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -481,6 +564,10 @@
         "output": 60.0
       },
       "max_output_tokens": 65536,
+      "reasoning_efforts": [
+        "minimal",
+        "high"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -493,6 +580,12 @@
         "output": 1.5
       },
       "max_output_tokens": 65536,
+      "reasoning_efforts": [
+        "minimal",
+        "low",
+        "medium",
+        "high"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -504,6 +597,10 @@
         "output": 30.0
       },
       "max_output_tokens": 65536,
+      "reasoning_efforts": [
+        "minimal",
+        "high"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -516,6 +613,12 @@
         "output": 1.5
       },
       "max_output_tokens": 65536,
+      "reasoning_efforts": [
+        "minimal",
+        "low",
+        "medium",
+        "high"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -527,6 +630,12 @@
         "output": 4.5
       },
       "max_output_tokens": 65536,
+      "reasoning_efforts": [
+        "minimal",
+        "low",
+        "medium",
+        "high"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -538,6 +647,7 @@
         "output": 20.0
       },
       "max_output_tokens": 16384,
+      "reasoning_efforts": [],
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -558,6 +668,11 @@
         ]
       },
       "max_output_tokens": 65536,
+      "reasoning_efforts": [
+        "low",
+        "medium",
+        "high"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -578,6 +693,11 @@
         ]
       },
       "max_output_tokens": 65536,
+      "reasoning_efforts": [
+        "low",
+        "medium",
+        "high"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -590,6 +710,12 @@
         "output": 9.0
       },
       "max_output_tokens": 65536,
+      "reasoning_efforts": [
+        "minimal",
+        "low",
+        "medium",
+        "high"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -602,6 +728,12 @@
         "output": 2.5
       },
       "max_output_tokens": 65536,
+      "reasoning_efforts": [
+        "minimal",
+        "low",
+        "medium",
+        "high"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -613,6 +745,7 @@
         "output": 21.0
       },
       "max_output_tokens": 32768,
+      "reasoning_efforts": null,
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -625,6 +758,12 @@
         "output": 7.5
       },
       "max_output_tokens": 65536,
+      "reasoning_efforts": [
+        "minimal",
+        "low",
+        "medium",
+        "high"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -636,6 +775,7 @@
         "output": 0.0
       },
       "max_output_tokens": 1,
+      "reasoning_efforts": null,
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -647,6 +787,7 @@
         "output": 0.0
       },
       "max_output_tokens": 1,
+      "reasoning_efforts": null,
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": false
@@ -659,6 +800,12 @@
         "output": 9.0
       },
       "max_output_tokens": 65536,
+      "reasoning_efforts": [
+        "minimal",
+        "low",
+        "medium",
+        "high"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -671,6 +818,12 @@
         "output": 1.5
       },
       "max_output_tokens": 65536,
+      "reasoning_efforts": [
+        "minimal",
+        "low",
+        "medium",
+        "high"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -682,6 +835,7 @@
         "output": 17.5
       },
       "max_output_tokens": 65536,
+      "reasoning_efforts": [],
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -693,6 +847,9 @@
         "output": 5.0
       },
       "max_output_tokens": 65536,
+      "reasoning_efforts": [
+        "none"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -700,6 +857,9 @@
     "gemma-4-26b-a4b-it": {
       "context_window": 262144,
       "max_output_tokens": 32768,
+      "reasoning_efforts": [
+        "none"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -707,6 +867,9 @@
     "gemma-4-31b-it": {
       "context_window": 262144,
       "max_output_tokens": 32768,
+      "reasoning_efforts": [
+        "none"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -718,6 +881,7 @@
         "output": 0.0
       },
       "max_output_tokens": 65536,
+      "reasoning_efforts": null,
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -729,6 +893,7 @@
         "output": 0.0
       },
       "max_output_tokens": 65536,
+      "reasoning_efforts": null,
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -736,6 +901,7 @@
     "veo-3.1-fast-generate-preview": {
       "context_window": 480,
       "max_output_tokens": 8192,
+      "reasoning_efforts": null,
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -743,6 +909,7 @@
     "veo-3.1-generate-preview": {
       "context_window": 480,
       "max_output_tokens": 8192,
+      "reasoning_efforts": null,
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -750,6 +917,7 @@
     "veo-3.1-lite-generate-preview": {
       "context_window": 480,
       "max_output_tokens": 8192,
+      "reasoning_efforts": null,
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -763,6 +931,7 @@
         "output": 1.2
       },
       "max_output_tokens": 128000,
+      "reasoning_efforts": [],
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -776,6 +945,7 @@
         "output": 1.2
       },
       "max_output_tokens": 131072,
+      "reasoning_efforts": [],
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -789,6 +959,7 @@
         "output": 1.2
       },
       "max_output_tokens": 131072,
+      "reasoning_efforts": [],
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -802,6 +973,7 @@
         "output": 2.4
       },
       "max_output_tokens": 131072,
+      "reasoning_efforts": [],
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -815,6 +987,7 @@
         "output": 1.2
       },
       "max_output_tokens": 131072,
+      "reasoning_efforts": [],
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -828,6 +1001,7 @@
         "output": 2.4
       },
       "max_output_tokens": 131072,
+      "reasoning_efforts": [],
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -848,6 +1022,9 @@
         ]
       },
       "max_output_tokens": 128000,
+      "reasoning_efforts": [
+        "none"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -862,6 +1039,7 @@
         "output": 2.5
       },
       "max_output_tokens": 16384,
+      "reasoning_efforts": null,
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -874,6 +1052,7 @@
         "output": 2.5
       },
       "max_output_tokens": 262144,
+      "reasoning_efforts": null,
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -886,6 +1065,7 @@
         "output": 2.5
       },
       "max_output_tokens": 262144,
+      "reasoning_efforts": [],
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -898,6 +1078,7 @@
         "output": 8.0
       },
       "max_output_tokens": 262144,
+      "reasoning_efforts": [],
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -910,6 +1091,7 @@
         "output": 10.0
       },
       "max_output_tokens": 262144,
+      "reasoning_efforts": null,
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -922,6 +1104,9 @@
         "output": 3.0
       },
       "max_output_tokens": 262144,
+      "reasoning_efforts": [
+        "none"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -934,6 +1119,9 @@
         "output": 4.0
       },
       "max_output_tokens": 262144,
+      "reasoning_efforts": [
+        "none"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -946,6 +1134,7 @@
         "output": 4.0
       },
       "max_output_tokens": 262144,
+      "reasoning_efforts": [],
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -958,6 +1147,7 @@
         "output": 8.0
       },
       "max_output_tokens": 262144,
+      "reasoning_efforts": [],
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -970,6 +1160,12 @@
         "output": 15.0
       },
       "max_output_tokens": 131072,
+      "reasoning_efforts": [
+        "none",
+        "low",
+        "high",
+        "max"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -979,6 +1175,7 @@
     "chatgpt-image-latest": {
       "context_window": 0,
       "max_output_tokens": 0,
+      "reasoning_efforts": null,
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -991,6 +1188,7 @@
         "output": 1.5
       },
       "max_output_tokens": 4096,
+      "reasoning_efforts": null,
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -1002,6 +1200,7 @@
         "output": 60.0
       },
       "max_output_tokens": 8192,
+      "reasoning_efforts": null,
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -1013,6 +1212,7 @@
         "output": 30.0
       },
       "max_output_tokens": 4096,
+      "reasoning_efforts": null,
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -1025,6 +1225,7 @@
         "output": 8.0
       },
       "max_output_tokens": 32768,
+      "reasoning_efforts": null,
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": false
@@ -1037,6 +1238,7 @@
         "output": 1.6
       },
       "max_output_tokens": 32768,
+      "reasoning_efforts": null,
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": false
@@ -1049,6 +1251,7 @@
         "output": 0.4
       },
       "max_output_tokens": 32768,
+      "reasoning_efforts": null,
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -1061,6 +1264,7 @@
         "output": 10.0
       },
       "max_output_tokens": 16384,
+      "reasoning_efforts": null,
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": false
@@ -1072,6 +1276,7 @@
         "output": 15.0
       },
       "max_output_tokens": 4096,
+      "reasoning_efforts": null,
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -1084,6 +1289,7 @@
         "output": 10.0
       },
       "max_output_tokens": 16384,
+      "reasoning_efforts": null,
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -1096,6 +1302,7 @@
         "output": 10.0
       },
       "max_output_tokens": 16384,
+      "reasoning_efforts": null,
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -1108,6 +1315,7 @@
         "output": 0.6
       },
       "max_output_tokens": 16384,
+      "reasoning_efforts": null,
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": false
@@ -1120,6 +1328,12 @@
         "output": 10.0
       },
       "max_output_tokens": 128000,
+      "reasoning_efforts": [
+        "minimal",
+        "low",
+        "medium",
+        "high"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -1132,6 +1346,12 @@
         "output": 2.0
       },
       "max_output_tokens": 128000,
+      "reasoning_efforts": [
+        "minimal",
+        "low",
+        "medium",
+        "high"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -1144,6 +1364,12 @@
         "output": 0.4
       },
       "max_output_tokens": 128000,
+      "reasoning_efforts": [
+        "minimal",
+        "low",
+        "medium",
+        "high"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -1155,6 +1381,9 @@
         "output": 120.0
       },
       "max_output_tokens": 272000,
+      "reasoning_efforts": [
+        "high"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -1167,6 +1396,12 @@
         "output": 10.0
       },
       "max_output_tokens": 128000,
+      "reasoning_efforts": [
+        "none",
+        "low",
+        "medium",
+        "high"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -1179,6 +1414,13 @@
         "output": 14.0
       },
       "max_output_tokens": 128000,
+      "reasoning_efforts": [
+        "none",
+        "low",
+        "medium",
+        "high",
+        "xhigh"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -1191,6 +1433,9 @@
         "output": 14.0
       },
       "max_output_tokens": 16384,
+      "reasoning_efforts": [
+        "medium"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -1202,6 +1447,11 @@
         "output": 168.0
       },
       "max_output_tokens": 128000,
+      "reasoning_efforts": [
+        "medium",
+        "high",
+        "xhigh"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -1214,6 +1464,7 @@
         "output": 14.0
       },
       "max_output_tokens": 16384,
+      "reasoning_efforts": null,
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -1226,6 +1477,13 @@
         "output": 14.0
       },
       "max_output_tokens": 128000,
+      "reasoning_efforts": [
+        "none",
+        "low",
+        "medium",
+        "high",
+        "xhigh"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -1238,6 +1496,13 @@
         "output": 14.0
       },
       "max_output_tokens": 32000,
+      "reasoning_efforts": [
+        "none",
+        "low",
+        "medium",
+        "high",
+        "xhigh"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -1258,6 +1523,13 @@
         ]
       },
       "max_output_tokens": 128000,
+      "reasoning_efforts": [
+        "none",
+        "low",
+        "medium",
+        "high",
+        "xhigh"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -1270,6 +1542,13 @@
         "output": 4.5
       },
       "max_output_tokens": 128000,
+      "reasoning_efforts": [
+        "none",
+        "low",
+        "medium",
+        "high",
+        "xhigh"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -1282,6 +1561,13 @@
         "output": 1.25
       },
       "max_output_tokens": 128000,
+      "reasoning_efforts": [
+        "none",
+        "low",
+        "medium",
+        "high",
+        "xhigh"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -1300,6 +1586,11 @@
         ]
       },
       "max_output_tokens": 128000,
+      "reasoning_efforts": [
+        "medium",
+        "high",
+        "xhigh"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -1320,6 +1611,13 @@
         ]
       },
       "max_output_tokens": 128000,
+      "reasoning_efforts": [
+        "none",
+        "low",
+        "medium",
+        "high",
+        "xhigh"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -1338,6 +1636,11 @@
         ]
       },
       "max_output_tokens": 128000,
+      "reasoning_efforts": [
+        "medium",
+        "high",
+        "xhigh"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -1360,6 +1663,14 @@
         ]
       },
       "max_output_tokens": 128000,
+      "reasoning_efforts": [
+        "none",
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -1382,6 +1693,14 @@
         ]
       },
       "max_output_tokens": 128000,
+      "reasoning_efforts": [
+        "none",
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -1404,6 +1723,14 @@
         ]
       },
       "max_output_tokens": 128000,
+      "reasoning_efforts": [
+        "none",
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -1426,6 +1753,14 @@
         ]
       },
       "max_output_tokens": 128000,
+      "reasoning_efforts": [
+        "none",
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -1433,6 +1768,7 @@
     "gpt-image-1": {
       "context_window": 0,
       "max_output_tokens": 0,
+      "reasoning_efforts": null,
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -1440,6 +1776,7 @@
     "gpt-image-1-mini": {
       "context_window": 0,
       "max_output_tokens": 0,
+      "reasoning_efforts": null,
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -1447,6 +1784,7 @@
     "gpt-image-1.5": {
       "context_window": 0,
       "max_output_tokens": 0,
+      "reasoning_efforts": null,
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -1459,6 +1797,7 @@
         "output": 30.0
       },
       "max_output_tokens": 0,
+      "reasoning_efforts": null,
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -1471,6 +1810,13 @@
         "output": 24.0
       },
       "max_output_tokens": 32000,
+      "reasoning_efforts": [
+        "minimal",
+        "low",
+        "medium",
+        "high",
+        "xhigh"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -1483,6 +1829,11 @@
         "output": 60.0
       },
       "max_output_tokens": 100000,
+      "reasoning_efforts": [
+        "low",
+        "medium",
+        "high"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -1494,6 +1845,11 @@
         "output": 600.0
       },
       "max_output_tokens": 100000,
+      "reasoning_efforts": [
+        "low",
+        "medium",
+        "high"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -1506,6 +1862,11 @@
         "output": 8.0
       },
       "max_output_tokens": 100000,
+      "reasoning_efforts": [
+        "low",
+        "medium",
+        "high"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -1518,6 +1879,11 @@
         "output": 4.4
       },
       "max_output_tokens": 100000,
+      "reasoning_efforts": [
+        "low",
+        "medium",
+        "high"
+      ],
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -1529,6 +1895,11 @@
         "output": 80.0
       },
       "max_output_tokens": 100000,
+      "reasoning_efforts": [
+        "low",
+        "medium",
+        "high"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -1541,6 +1912,11 @@
         "output": 4.4
       },
       "max_output_tokens": 100000,
+      "reasoning_efforts": [
+        "low",
+        "medium",
+        "high"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -1552,6 +1928,7 @@
         "output": 0.0
       },
       "max_output_tokens": 3072,
+      "reasoning_efforts": null,
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -1563,6 +1940,7 @@
         "output": 0.0
       },
       "max_output_tokens": 1536,
+      "reasoning_efforts": null,
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -1574,6 +1952,7 @@
         "output": 0.0
       },
       "max_output_tokens": 1536,
+      "reasoning_efforts": null,
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -1587,6 +1966,7 @@
         "output": 8.0
       },
       "max_output_tokens": 4096,
+      "reasoning_efforts": null,
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -1599,6 +1979,7 @@
         "output": 1.6
       },
       "max_output_tokens": 32768,
+      "reasoning_efforts": [],
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -1611,6 +1992,7 @@
         "output": 6.0
       },
       "max_output_tokens": 32768,
+      "reasoning_efforts": [],
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -1623,6 +2005,7 @@
         "output": 1.4
       },
       "max_output_tokens": 32768,
+      "reasoning_efforts": [],
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -1634,6 +2017,7 @@
         "output": 1.6
       },
       "max_output_tokens": 32768,
+      "reasoning_efforts": null,
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -1645,6 +2029,7 @@
         "output": 0.5
       },
       "max_output_tokens": 65536,
+      "reasoning_efforts": [],
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -1656,6 +2041,7 @@
         "output": 2.5
       },
       "max_output_tokens": 65535,
+      "reasoning_efforts": [],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -1667,6 +2053,7 @@
         "output": 0.24
       },
       "max_output_tokens": 5120,
+      "reasoning_efforts": null,
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -1678,6 +2065,7 @@
         "output": 0.14
       },
       "max_output_tokens": 5120,
+      "reasoning_efforts": null,
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -1690,6 +2078,7 @@
         "output": 12.5
       },
       "max_output_tokens": 32000,
+      "reasoning_efforts": null,
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -1701,6 +2090,7 @@
         "output": 3.2
       },
       "max_output_tokens": 5120,
+      "reasoning_efforts": null,
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -1712,6 +2102,7 @@
         "output": 5.0
       },
       "max_output_tokens": 2048,
+      "reasoning_efforts": null,
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -1725,6 +2116,7 @@
         "output": 1.25
       },
       "max_output_tokens": 4096,
+      "reasoning_efforts": null,
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -1738,6 +2130,13 @@
         "output": 50.0
       },
       "max_output_tokens": 128000,
+      "reasoning_efforts": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -1751,6 +2150,9 @@
         "output": 5.0
       },
       "max_output_tokens": 64000,
+      "reasoning_efforts": [
+        "none"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -1764,6 +2166,9 @@
         "output": 75.0
       },
       "max_output_tokens": 32000,
+      "reasoning_efforts": [
+        "none"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -1777,6 +2182,9 @@
         "output": 75.0
       },
       "max_output_tokens": 32000,
+      "reasoning_efforts": [
+        "none"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -1790,6 +2198,12 @@
         "output": 25.0
       },
       "max_output_tokens": 64000,
+      "reasoning_efforts": [
+        "none",
+        "low",
+        "medium",
+        "high"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -1812,6 +2226,12 @@
         ]
       },
       "max_output_tokens": 128000,
+      "reasoning_efforts": [
+        "low",
+        "medium",
+        "high",
+        "max"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -1834,6 +2254,13 @@
         ]
       },
       "max_output_tokens": 128000,
+      "reasoning_efforts": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -1847,6 +2274,13 @@
         "output": 150.0
       },
       "max_output_tokens": 128000,
+      "reasoning_efforts": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -1860,6 +2294,13 @@
         "output": 25.0
       },
       "max_output_tokens": 128000,
+      "reasoning_efforts": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -1873,6 +2314,13 @@
         "output": 50.0
       },
       "max_output_tokens": 128000,
+      "reasoning_efforts": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -1886,6 +2334,13 @@
         "output": 25.0
       },
       "max_output_tokens": 128000,
+      "reasoning_efforts": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -1899,6 +2354,13 @@
         "output": 50.0
       },
       "max_output_tokens": 128000,
+      "reasoning_efforts": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -1921,6 +2383,9 @@
         ]
       },
       "max_output_tokens": 64000,
+      "reasoning_efforts": [
+        "none"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -1943,6 +2408,9 @@
         ]
       },
       "max_output_tokens": 64000,
+      "reasoning_efforts": [
+        "none"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -1965,6 +2433,12 @@
         ]
       },
       "max_output_tokens": 128000,
+      "reasoning_efforts": [
+        "low",
+        "medium",
+        "high",
+        "max"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -1978,6 +2452,13 @@
         "output": 10.0
       },
       "max_output_tokens": 128000,
+      "reasoning_efforts": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -1990,6 +2471,7 @@
         "output": 0.85
       },
       "max_output_tokens": 262144,
+      "reasoning_efforts": [],
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -2001,6 +2483,7 @@
         "output": 1.2
       },
       "max_output_tokens": 64000,
+      "reasoning_efforts": null,
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -2012,6 +2495,7 @@
         "output": 1.25
       },
       "max_output_tokens": 16000,
+      "reasoning_efforts": [],
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -2030,6 +2514,7 @@
         ]
       },
       "max_output_tokens": 32768,
+      "reasoning_efforts": [],
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -2048,6 +2533,7 @@
         ]
       },
       "max_output_tokens": 32768,
+      "reasoning_efforts": [],
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -2066,6 +2552,12 @@
         ]
       },
       "max_output_tokens": 131072,
+      "reasoning_efforts": [
+        "minimal",
+        "low",
+        "medium",
+        "high"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -2084,6 +2576,12 @@
         ]
       },
       "max_output_tokens": 131072,
+      "reasoning_efforts": [
+        "minimal",
+        "low",
+        "medium",
+        "high"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -2096,6 +2594,7 @@
         "output": 0.2
       },
       "max_output_tokens": 2048,
+      "reasoning_efforts": null,
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -2107,6 +2606,7 @@
         "output": 0.9
       },
       "max_output_tokens": 8192,
+      "reasoning_efforts": null,
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -2118,6 +2618,7 @@
         "output": 10.0
       },
       "max_output_tokens": 8192,
+      "reasoning_efforts": null,
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -2129,6 +2630,7 @@
         "output": 0.6
       },
       "max_output_tokens": 4000,
+      "reasoning_efforts": null,
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -2140,6 +2642,7 @@
         "output": 10.0
       },
       "max_output_tokens": 4000,
+      "reasoning_efforts": null,
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -2151,6 +2654,7 @@
         "output": 0.15
       },
       "max_output_tokens": 4000,
+      "reasoning_efforts": null,
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -2162,6 +2666,7 @@
         "output": 0.0
       },
       "max_output_tokens": 64000,
+      "reasoning_efforts": [],
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -2173,6 +2678,7 @@
         "output": 1.25
       },
       "max_output_tokens": 128000,
+      "reasoning_efforts": [],
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -2184,6 +2690,7 @@
         "output": 1.0287
       },
       "max_output_tokens": 16000,
+      "reasoning_efforts": null,
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -2196,6 +2703,7 @@
         "output": 1.12
       },
       "max_output_tokens": 65536,
+      "reasoning_efforts": null,
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -2208,6 +2716,9 @@
         "output": 0.95
       },
       "max_output_tokens": 32768,
+      "reasoning_efforts": [
+        "none"
+      ],
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -2219,6 +2730,7 @@
         "output": 2.5
       },
       "max_output_tokens": 16000,
+      "reasoning_efforts": [],
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -2231,6 +2743,7 @@
         "output": 2.15
       },
       "max_output_tokens": 32768,
+      "reasoning_efforts": [],
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -2242,6 +2755,7 @@
         "output": 0.8
       },
       "max_output_tokens": 8192,
+      "reasoning_efforts": [],
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -2254,6 +2768,9 @@
         "output": 1.0
       },
       "max_output_tokens": 32768,
+      "reasoning_efforts": [
+        "none"
+      ],
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -2266,6 +2783,9 @@
         "output": 0.4
       },
       "max_output_tokens": 65536,
+      "reasoning_efforts": [
+        "none"
+      ],
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -2277,6 +2797,9 @@
         "output": 0.41
       },
       "max_output_tokens": 65536,
+      "reasoning_efforts": [
+        "none"
+      ],
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -2284,11 +2807,15 @@
     "deepseek/deepseek-v4-flash": {
       "context_window": 1048576,
       "cost": {
-        "cache_read": 0.028,
-        "input": 0.14,
-        "output": 0.28
+        "cache_read": 0.01764,
+        "input": 0.0882,
+        "output": 0.1764
       },
-      "max_output_tokens": 393216,
+      "max_output_tokens": 131072,
+      "reasoning_efforts": [
+        "high",
+        "xhigh"
+      ],
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -2301,6 +2828,11 @@
         "output": 0.18
       },
       "max_output_tokens": 65536,
+      "reasoning_efforts": [
+        "low",
+        "high",
+        "max"
+      ],
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -2313,6 +2845,10 @@
         "output": 0.87
       },
       "max_output_tokens": 384000,
+      "reasoning_efforts": [
+        "high",
+        "xhigh"
+      ],
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -2327,6 +2863,9 @@
         "reasoning": 2.5
       },
       "max_output_tokens": 65535,
+      "reasoning_efforts": [
+        "none"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -2340,6 +2879,7 @@
         "output": 2.5
       },
       "max_output_tokens": 8192,
+      "reasoning_efforts": null,
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -2354,6 +2894,9 @@
         "reasoning": 0.4
       },
       "max_output_tokens": 65535,
+      "reasoning_efforts": [
+        "none"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -2376,6 +2919,7 @@
         ]
       },
       "max_output_tokens": 65536,
+      "reasoning_efforts": [],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -2398,6 +2942,7 @@
         ]
       },
       "max_output_tokens": 65536,
+      "reasoning_efforts": [],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -2420,6 +2965,7 @@
         ]
       },
       "max_output_tokens": 65535,
+      "reasoning_efforts": [],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -2434,6 +2980,12 @@
         "reasoning": 3.0
       },
       "max_output_tokens": 65535,
+      "reasoning_efforts": [
+        "minimal",
+        "low",
+        "medium",
+        "high"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -2448,6 +3000,7 @@
         "reasoning": 12.0
       },
       "max_output_tokens": 32768,
+      "reasoning_efforts": [],
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -2462,6 +3015,7 @@
         "reasoning": 12.0
       },
       "max_output_tokens": 32768,
+      "reasoning_efforts": [],
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -2473,6 +3027,10 @@
         "output": 3.0
       },
       "max_output_tokens": 32768,
+      "reasoning_efforts": [
+        "minimal",
+        "high"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -2484,6 +3042,10 @@
         "output": 3.0
       },
       "max_output_tokens": 65536,
+      "reasoning_efforts": [
+        "minimal",
+        "high"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -2498,6 +3060,12 @@
         "reasoning": 1.5
       },
       "max_output_tokens": 65536,
+      "reasoning_efforts": [
+        "minimal",
+        "low",
+        "medium",
+        "high"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -2509,6 +3077,10 @@
         "output": 1.5
       },
       "max_output_tokens": 65536,
+      "reasoning_efforts": [
+        "minimal",
+        "high"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -2523,6 +3095,12 @@
         "reasoning": 1.5
       },
       "max_output_tokens": 65536,
+      "reasoning_efforts": [
+        "minimal",
+        "low",
+        "medium",
+        "high"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -2545,6 +3123,11 @@
         ]
       },
       "max_output_tokens": 65536,
+      "reasoning_efforts": [
+        "low",
+        "medium",
+        "high"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -2567,6 +3150,11 @@
         ]
       },
       "max_output_tokens": 65536,
+      "reasoning_efforts": [
+        "low",
+        "medium",
+        "high"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -2581,6 +3169,12 @@
         "reasoning": 9.0
       },
       "max_output_tokens": 65536,
+      "reasoning_efforts": [
+        "minimal",
+        "low",
+        "medium",
+        "high"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -2595,6 +3189,12 @@
         "reasoning": 2.5
       },
       "max_output_tokens": 65536,
+      "reasoning_efforts": [
+        "minimal",
+        "low",
+        "medium",
+        "high"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -2609,6 +3209,12 @@
         "reasoning": 7.5
       },
       "max_output_tokens": 65536,
+      "reasoning_efforts": [
+        "minimal",
+        "low",
+        "medium",
+        "high"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -2620,6 +3226,7 @@
         "output": 0.65
       },
       "max_output_tokens": 2048,
+      "reasoning_efforts": null,
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -2631,6 +3238,7 @@
         "output": 0.15
       },
       "max_output_tokens": 16384,
+      "reasoning_efforts": null,
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -2643,6 +3251,7 @@
         "output": 0.45
       },
       "max_output_tokens": 131072,
+      "reasoning_efforts": null,
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -2654,6 +3263,7 @@
         "output": 0.1
       },
       "max_output_tokens": 16384,
+      "reasoning_efforts": null,
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -2665,6 +3275,7 @@
         "output": 0.12
       },
       "max_output_tokens": 32768,
+      "reasoning_efforts": null,
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -2676,6 +3287,9 @@
         "output": 0.34
       },
       "max_output_tokens": 16384,
+      "reasoning_efforts": [
+        "none"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -2687,6 +3301,9 @@
         "output": 0.0
       },
       "max_output_tokens": 32768,
+      "reasoning_efforts": [
+        "none"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -2699,6 +3316,9 @@
         "output": 0.34
       },
       "max_output_tokens": 262144,
+      "reasoning_efforts": [
+        "none"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -2710,6 +3330,9 @@
         "output": 0.0
       },
       "max_output_tokens": 32768,
+      "reasoning_efforts": [
+        "none"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -2721,6 +3344,7 @@
         "output": 0.0
       },
       "max_output_tokens": 65536,
+      "reasoning_efforts": null,
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -2732,6 +3356,7 @@
         "output": 0.0
       },
       "max_output_tokens": 65536,
+      "reasoning_efforts": null,
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -2739,10 +3364,11 @@
     "gryphe/mythomax-l2-13b": {
       "context_window": 8192,
       "cost": {
-        "input": 0.06,
-        "output": 0.06
+        "input": 0.08,
+        "output": 0.11
       },
       "max_output_tokens": 4096,
+      "reasoning_efforts": null,
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -2754,6 +3380,7 @@
         "output": 0.112
       },
       "max_output_tokens": 131000,
+      "reasoning_efforts": null,
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -2766,6 +3393,7 @@
         "output": 0.1
       },
       "max_output_tokens": 131072,
+      "reasoning_efforts": null,
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -2778,6 +3406,12 @@
         "output": 0.75
       },
       "max_output_tokens": 50000,
+      "reasoning_efforts": [
+        "none",
+        "low",
+        "medium",
+        "high"
+      ],
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -2790,6 +3424,7 @@
         "output": 0.625
       },
       "max_output_tokens": 32768,
+      "reasoning_efforts": null,
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -2802,9 +3437,23 @@
         "output": 0.03
       },
       "max_output_tokens": 32768,
+      "reasoning_efforts": null,
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": false
+    },
+    "inclusionai/ling-3.0-flash": {
+      "context_window": 131072,
+      "cost": {
+        "cache_read": 0.015,
+        "input": 0.075,
+        "output": 0.22
+      },
+      "max_output_tokens": 16384,
+      "reasoning_efforts": [],
+      "supports_image_input": false,
+      "supports_pdf_input": false,
+      "supports_reasoning": true
     },
     "inclusionai/ling-3.0-flash:free": {
       "context_window": 262144,
@@ -2813,6 +3462,11 @@
         "output": 0.0
       },
       "max_output_tokens": 32768,
+      "reasoning_efforts": [
+        "low",
+        "medium",
+        "high"
+      ],
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -2825,6 +3479,10 @@
         "output": 0.625
       },
       "max_output_tokens": 65536,
+      "reasoning_efforts": [
+        "high",
+        "xhigh"
+      ],
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -2837,6 +3495,7 @@
         "output": 0.6
       },
       "max_output_tokens": 80000,
+      "reasoning_efforts": null,
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -2849,6 +3508,7 @@
         "output": 1.2
       },
       "max_output_tokens": 80000,
+      "reasoning_efforts": null,
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -2861,6 +3521,7 @@
         "output": 2.96
       },
       "max_output_tokens": 80000,
+      "reasoning_efforts": null,
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -2872,6 +3533,7 @@
         "output": 0.75
       },
       "max_output_tokens": 2000,
+      "reasoning_efforts": null,
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -2884,6 +3546,7 @@
         "output": 1.2
       },
       "max_output_tokens": 262144,
+      "reasoning_efforts": [],
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -2895,6 +3558,7 @@
         "output": 0.4
       },
       "max_output_tokens": 16384,
+      "reasoning_efforts": null,
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -2907,6 +3571,7 @@
         "output": 0.08
       },
       "max_output_tokens": 131072,
+      "reasoning_efforts": null,
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -2918,6 +3583,7 @@
         "output": 0.201
       },
       "max_output_tokens": 60000,
+      "reasoning_efforts": null,
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -2929,6 +3595,7 @@
         "output": 0.33
       },
       "max_output_tokens": 131072,
+      "reasoning_efforts": null,
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -2936,10 +3603,11 @@
     "meta-llama/llama-3.3-70b-instruct": {
       "context_window": 131072,
       "cost": {
-        "input": 0.13,
-        "output": 0.4
+        "input": 0.1,
+        "output": 0.32
       },
-      "max_output_tokens": 128000,
+      "max_output_tokens": 16384,
+      "reasoning_efforts": null,
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -2951,6 +3619,7 @@
         "output": 0.8
       },
       "max_output_tokens": 16384,
+      "reasoning_efforts": null,
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -2962,6 +3631,7 @@
         "output": 0.3
       },
       "max_output_tokens": 16384,
+      "reasoning_efforts": null,
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -2973,6 +3643,7 @@
         "output": 0.18
       },
       "max_output_tokens": 16384,
+      "reasoning_efforts": null,
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -2985,6 +3656,32 @@
         "output": 4.25
       },
       "max_output_tokens": 1048576,
+      "reasoning_efforts": [
+        "minimal",
+        "low",
+        "medium",
+        "high",
+        "xhigh"
+      ],
+      "supports_image_input": true,
+      "supports_pdf_input": true,
+      "supports_reasoning": true
+    },
+    "meta/muse-spark-1.2": {
+      "context_window": 1048576,
+      "cost": {
+        "cache_read": 0.15,
+        "input": 1.25,
+        "output": 4.25
+      },
+      "max_output_tokens": 1048576,
+      "reasoning_efforts": [
+        "minimal",
+        "low",
+        "medium",
+        "high",
+        "xhigh"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -2996,6 +3693,7 @@
         "output": 0.14
       },
       "max_output_tokens": 16384,
+      "reasoning_efforts": null,
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -3007,6 +3705,7 @@
         "output": 0.62
       },
       "max_output_tokens": 8000,
+      "reasoning_efforts": null,
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -3018,6 +3717,7 @@
         "output": 1.1
       },
       "max_output_tokens": 1000192,
+      "reasoning_efforts": null,
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -3029,6 +3729,7 @@
         "output": 2.2
       },
       "max_output_tokens": 40000,
+      "reasoning_efforts": [],
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -3040,6 +3741,7 @@
         "output": 1.02
       },
       "max_output_tokens": 131072,
+      "reasoning_efforts": [],
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -3052,6 +3754,7 @@
         "output": 1.2
       },
       "max_output_tokens": 2048,
+      "reasoning_efforts": null,
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -3064,6 +3767,7 @@
         "output": 1.2
       },
       "max_output_tokens": 131072,
+      "reasoning_efforts": [],
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -3072,10 +3776,11 @@
       "context_window": 204800,
       "cost": {
         "cache_read": 0.05,
-        "input": 0.15,
+        "input": 0.22,
         "output": 0.9
       },
       "max_output_tokens": 196608,
+      "reasoning_efforts": [],
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -3083,11 +3788,12 @@
     "minimax/minimax-m2.7": {
       "context_window": 204800,
       "cost": {
-        "cache_read": 0.05,
-        "input": 0.25,
-        "output": 1.0
+        "cache_read": 0.054,
+        "input": 0.27,
+        "output": 1.08
       },
       "max_output_tokens": 131072,
+      "reasoning_efforts": [],
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -3100,6 +3806,7 @@
         "output": 1.2
       },
       "max_output_tokens": 512000,
+      "reasoning_efforts": [],
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -3112,6 +3819,7 @@
         "output": 0.9
       },
       "max_output_tokens": 256000,
+      "reasoning_efforts": null,
       "supports_image_input": false,
       "supports_pdf_input": true,
       "supports_reasoning": false
@@ -3124,6 +3832,7 @@
         "output": 0.2
       },
       "max_output_tokens": 262144,
+      "reasoning_efforts": null,
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -3136,6 +3845,7 @@
         "output": 0.1
       },
       "max_output_tokens": 131072,
+      "reasoning_efforts": null,
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -3148,6 +3858,7 @@
         "output": 0.15
       },
       "max_output_tokens": 262144,
+      "reasoning_efforts": null,
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -3160,6 +3871,7 @@
         "output": 6.0
       },
       "max_output_tokens": 128000,
+      "reasoning_efforts": null,
       "supports_image_input": false,
       "supports_pdf_input": true,
       "supports_reasoning": false
@@ -3172,6 +3884,7 @@
         "output": 6.0
       },
       "max_output_tokens": 131072,
+      "reasoning_efforts": null,
       "supports_image_input": false,
       "supports_pdf_input": true,
       "supports_reasoning": false
@@ -3184,6 +3897,7 @@
         "output": 1.5
       },
       "max_output_tokens": 262144,
+      "reasoning_efforts": null,
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": false
@@ -3196,6 +3910,7 @@
         "output": 2.0
       },
       "max_output_tokens": 131072,
+      "reasoning_efforts": null,
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": false
@@ -3207,6 +3922,10 @@
         "output": 7.5
       },
       "max_output_tokens": 262144,
+      "reasoning_efforts": [
+        "none",
+        "high"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -3219,6 +3938,7 @@
         "output": 2.0
       },
       "max_output_tokens": 262144,
+      "reasoning_efforts": null,
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": false
@@ -3230,6 +3950,7 @@
         "output": 0.03
       },
       "max_output_tokens": 16384,
+      "reasoning_efforts": null,
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -3242,6 +3963,7 @@
         "output": 0.6
       },
       "max_output_tokens": 32768,
+      "reasoning_efforts": null,
       "supports_image_input": false,
       "supports_pdf_input": true,
       "supports_reasoning": false
@@ -3253,6 +3975,7 @@
         "output": 0.08
       },
       "max_output_tokens": 16384,
+      "reasoning_efforts": null,
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -3265,6 +3988,10 @@
         "output": 0.6
       },
       "max_output_tokens": 262144,
+      "reasoning_efforts": [
+        "none",
+        "high"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -3276,6 +4003,7 @@
         "output": 0.555
       },
       "max_output_tokens": 128000,
+      "reasoning_efforts": null,
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -3283,10 +4011,11 @@
     "mistralai/mistral-small-3.2-24b-instruct": {
       "context_window": 256000,
       "cost": {
-        "input": 0.075,
-        "output": 0.2
+        "input": 0.09375,
+        "output": 0.25
       },
       "max_output_tokens": 16384,
+      "reasoning_efforts": null,
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -3299,6 +4028,7 @@
         "output": 6.0
       },
       "max_output_tokens": 65536,
+      "reasoning_efforts": null,
       "supports_image_input": false,
       "supports_pdf_input": true,
       "supports_reasoning": false
@@ -3311,6 +4041,7 @@
         "output": 0.3
       },
       "max_output_tokens": 32000,
+      "reasoning_efforts": null,
       "supports_image_input": false,
       "supports_pdf_input": true,
       "supports_reasoning": false
@@ -3322,6 +4053,7 @@
         "output": 2.3
       },
       "max_output_tokens": 100352,
+      "reasoning_efforts": null,
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -3333,6 +4065,7 @@
         "output": 2.5
       },
       "max_output_tokens": 100352,
+      "reasoning_efforts": null,
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -3345,6 +4078,7 @@
         "output": 2.5
       },
       "max_output_tokens": 100352,
+      "reasoning_efforts": [],
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -3357,6 +4091,7 @@
         "output": 2.85
       },
       "max_output_tokens": 262144,
+      "reasoning_efforts": [],
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -3364,11 +4099,12 @@
     "moonshotai/kimi-k2.6": {
       "context_window": 262144,
       "cost": {
-        "cache_read": 0.2,
-        "input": 0.6,
-        "output": 3.41
+        "cache_read": 0.0992,
+        "input": 0.589,
+        "output": 2.48
       },
       "max_output_tokens": 262144,
+      "reasoning_efforts": [],
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -3377,10 +4113,11 @@
       "context_window": 262144,
       "cost": {
         "cache_read": 0.15,
-        "input": 0.73,
+        "input": 0.7,
         "output": 3.5
       },
       "max_output_tokens": 262144,
+      "reasoning_efforts": [],
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -3393,6 +4130,11 @@
         "output": 15.0
       },
       "max_output_tokens": 1048576,
+      "reasoning_efforts": [
+        "low",
+        "high",
+        "max"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -3404,6 +4146,7 @@
         "output": 1.2
       },
       "max_output_tokens": 38000,
+      "reasoning_efforts": null,
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -3415,6 +4158,7 @@
         "output": 1.9
       },
       "max_output_tokens": 131072,
+      "reasoning_efforts": null,
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -3427,6 +4171,7 @@
         "output": 0.1
       },
       "max_output_tokens": 262144,
+      "reasoning_efforts": [],
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -3439,6 +4184,7 @@
         "output": 1.0
       },
       "max_output_tokens": 262144,
+      "reasoning_efforts": [],
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -3450,6 +4196,7 @@
         "output": 1.0
       },
       "max_output_tokens": 16384,
+      "reasoning_efforts": null,
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -3461,6 +4208,7 @@
         "output": 0.7
       },
       "max_output_tokens": 16384,
+      "reasoning_efforts": null,
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -3472,6 +4220,9 @@
         "output": 3.0
       },
       "max_output_tokens": 131072,
+      "reasoning_efforts": [
+        "none"
+      ],
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -3483,6 +4234,9 @@
         "output": 0.4
       },
       "max_output_tokens": 131072,
+      "reasoning_efforts": [
+        "none"
+      ],
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -3495,6 +4249,7 @@
         "output": 0.2
       },
       "max_output_tokens": 262144,
+      "reasoning_efforts": [],
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -3506,6 +4261,7 @@
         "output": 0.0
       },
       "max_output_tokens": 256000,
+      "reasoning_efforts": [],
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -3517,6 +4273,7 @@
         "output": 0.0
       },
       "max_output_tokens": 65536,
+      "reasoning_efforts": [],
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -3528,6 +4285,10 @@
         "output": 0.4
       },
       "max_output_tokens": 16384,
+      "reasoning_efforts": [
+        "low",
+        "medium"
+      ],
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -3539,6 +4300,10 @@
         "output": 0.0
       },
       "max_output_tokens": 262144,
+      "reasoning_efforts": [
+        "low",
+        "medium"
+      ],
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -3551,6 +4316,10 @@
         "output": 3.6
       },
       "max_output_tokens": 16384,
+      "reasoning_efforts": [
+        "medium",
+        "high"
+      ],
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -3562,6 +4331,10 @@
         "output": 0.0
       },
       "max_output_tokens": 65536,
+      "reasoning_efforts": [
+        "medium",
+        "high"
+      ],
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -3573,6 +4346,7 @@
         "output": 0.0
       },
       "max_output_tokens": 8192,
+      "reasoning_efforts": [],
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -3584,6 +4358,7 @@
         "output": 0.0
       },
       "max_output_tokens": 128000,
+      "reasoning_efforts": [],
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -3595,6 +4370,7 @@
         "output": 0.0
       },
       "max_output_tokens": 128000,
+      "reasoning_efforts": [],
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -3606,6 +4382,7 @@
         "output": 1.5
       },
       "max_output_tokens": 4096,
+      "reasoning_efforts": null,
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -3617,6 +4394,7 @@
         "output": 2.0
       },
       "max_output_tokens": 4096,
+      "reasoning_efforts": null,
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -3628,6 +4406,7 @@
         "output": 4.0
       },
       "max_output_tokens": 4096,
+      "reasoning_efforts": null,
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -3639,6 +4418,7 @@
         "output": 2.0
       },
       "max_output_tokens": 4096,
+      "reasoning_efforts": null,
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -3650,6 +4430,7 @@
         "output": 60.0
       },
       "max_output_tokens": 4096,
+      "reasoning_efforts": null,
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -3661,6 +4442,7 @@
         "output": 30.0
       },
       "max_output_tokens": 4096,
+      "reasoning_efforts": null,
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -3672,6 +4454,7 @@
         "output": 30.0
       },
       "max_output_tokens": 4096,
+      "reasoning_efforts": null,
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -3684,6 +4467,7 @@
         "output": 8.0
       },
       "max_output_tokens": 32768,
+      "reasoning_efforts": null,
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": false
@@ -3696,6 +4480,7 @@
         "output": 1.6
       },
       "max_output_tokens": 32768,
+      "reasoning_efforts": null,
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": false
@@ -3708,6 +4493,7 @@
         "output": 0.4
       },
       "max_output_tokens": 32768,
+      "reasoning_efforts": null,
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": false
@@ -3720,6 +4506,7 @@
         "output": 10.0
       },
       "max_output_tokens": 16384,
+      "reasoning_efforts": null,
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": false
@@ -3731,6 +4518,7 @@
         "output": 15.0
       },
       "max_output_tokens": 4096,
+      "reasoning_efforts": null,
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": false
@@ -3743,6 +4531,7 @@
         "output": 10.0
       },
       "max_output_tokens": 16384,
+      "reasoning_efforts": null,
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": false
@@ -3755,6 +4544,7 @@
         "output": 10.0
       },
       "max_output_tokens": 16384,
+      "reasoning_efforts": null,
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": false
@@ -3767,6 +4557,7 @@
         "output": 0.6
       },
       "max_output_tokens": 16384,
+      "reasoning_efforts": null,
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": false
@@ -3779,6 +4570,7 @@
         "output": 0.6
       },
       "max_output_tokens": 16384,
+      "reasoning_efforts": null,
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": false
@@ -3791,6 +4583,12 @@
         "output": 10.0
       },
       "max_output_tokens": 128000,
+      "reasoning_efforts": [
+        "minimal",
+        "low",
+        "medium",
+        "high"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -3803,6 +4601,7 @@
         "output": 10.0
       },
       "max_output_tokens": 128000,
+      "reasoning_efforts": [],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -3815,6 +4614,7 @@
         "output": 2.0
       },
       "max_output_tokens": 128000,
+      "reasoning_efforts": [],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -3827,6 +4627,12 @@
         "output": 2.0
       },
       "max_output_tokens": 128000,
+      "reasoning_efforts": [
+        "minimal",
+        "low",
+        "medium",
+        "high"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -3839,6 +4645,12 @@
         "output": 0.4
       },
       "max_output_tokens": 128000,
+      "reasoning_efforts": [
+        "minimal",
+        "low",
+        "medium",
+        "high"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -3850,6 +4662,9 @@
         "output": 120.0
       },
       "max_output_tokens": 128000,
+      "reasoning_efforts": [
+        "high"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -3862,6 +4677,12 @@
         "output": 10.0
       },
       "max_output_tokens": 128000,
+      "reasoning_efforts": [
+        "none",
+        "low",
+        "medium",
+        "high"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -3874,6 +4695,11 @@
         "output": 10.0
       },
       "max_output_tokens": 128000,
+      "reasoning_efforts": [
+        "low",
+        "medium",
+        "high"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -3886,6 +4712,12 @@
         "output": 10.0
       },
       "max_output_tokens": 128000,
+      "reasoning_efforts": [
+        "low",
+        "medium",
+        "high",
+        "xhigh"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -3898,6 +4730,11 @@
         "output": 2.0
       },
       "max_output_tokens": 128000,
+      "reasoning_efforts": [
+        "low",
+        "medium",
+        "high"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -3910,6 +4747,13 @@
         "output": 14.0
       },
       "max_output_tokens": 128000,
+      "reasoning_efforts": [
+        "none",
+        "low",
+        "medium",
+        "high",
+        "xhigh"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -3922,6 +4766,7 @@
         "output": 14.0
       },
       "max_output_tokens": 16384,
+      "reasoning_efforts": null,
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": false
@@ -3934,6 +4779,12 @@
         "output": 14.0
       },
       "max_output_tokens": 128000,
+      "reasoning_efforts": [
+        "low",
+        "medium",
+        "high",
+        "xhigh"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -3945,6 +4796,11 @@
         "output": 168.0
       },
       "max_output_tokens": 128000,
+      "reasoning_efforts": [
+        "medium",
+        "high",
+        "xhigh"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -3957,6 +4813,7 @@
         "output": 14.0
       },
       "max_output_tokens": 16384,
+      "reasoning_efforts": null,
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": false
@@ -3969,6 +4826,13 @@
         "output": 14.0
       },
       "max_output_tokens": 128000,
+      "reasoning_efforts": [
+        "none",
+        "low",
+        "medium",
+        "high",
+        "xhigh"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -3989,6 +4853,13 @@
         ]
       },
       "max_output_tokens": 128000,
+      "reasoning_efforts": [
+        "none",
+        "low",
+        "medium",
+        "high",
+        "xhigh"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -4001,6 +4872,13 @@
         "output": 15.0
       },
       "max_output_tokens": 128000,
+      "reasoning_efforts": [
+        "none",
+        "low",
+        "medium",
+        "high",
+        "xhigh"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -4013,6 +4891,13 @@
         "output": 4.5
       },
       "max_output_tokens": 128000,
+      "reasoning_efforts": [
+        "none",
+        "low",
+        "medium",
+        "high",
+        "xhigh"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -4025,6 +4910,13 @@
         "output": 1.25
       },
       "max_output_tokens": 128000,
+      "reasoning_efforts": [
+        "none",
+        "low",
+        "medium",
+        "high",
+        "xhigh"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -4043,6 +4935,11 @@
         ]
       },
       "max_output_tokens": 128000,
+      "reasoning_efforts": [
+        "medium",
+        "high",
+        "xhigh"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -4063,6 +4960,13 @@
         ]
       },
       "max_output_tokens": 128000,
+      "reasoning_efforts": [
+        "none",
+        "low",
+        "medium",
+        "high",
+        "xhigh"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -4081,6 +4985,11 @@
         ]
       },
       "max_output_tokens": 128000,
+      "reasoning_efforts": [
+        "medium",
+        "high",
+        "xhigh"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -4103,6 +5012,14 @@
         ]
       },
       "max_output_tokens": 128000,
+      "reasoning_efforts": [
+        "none",
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -4125,6 +5042,14 @@
         ]
       },
       "max_output_tokens": 128000,
+      "reasoning_efforts": [
+        "none",
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -4147,6 +5072,14 @@
         ]
       },
       "max_output_tokens": 128000,
+      "reasoning_efforts": [
+        "none",
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -4169,6 +5102,14 @@
         ]
       },
       "max_output_tokens": 128000,
+      "reasoning_efforts": [
+        "none",
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -4191,6 +5132,14 @@
         ]
       },
       "max_output_tokens": 128000,
+      "reasoning_efforts": [
+        "none",
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -4213,6 +5162,14 @@
         ]
       },
       "max_output_tokens": 128000,
+      "reasoning_efforts": [
+        "none",
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -4224,6 +5181,7 @@
         "output": 10.0
       },
       "max_output_tokens": 16384,
+      "reasoning_efforts": null,
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -4235,6 +5193,7 @@
         "output": 2.4
       },
       "max_output_tokens": 16384,
+      "reasoning_efforts": null,
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -4247,6 +5206,7 @@
         "output": 30.0
       },
       "max_output_tokens": 128000,
+      "reasoning_efforts": null,
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": false
@@ -4258,6 +5218,11 @@
         "output": 0.17
       },
       "max_output_tokens": 131072,
+      "reasoning_efforts": [
+        "low",
+        "medium",
+        "high"
+      ],
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -4270,6 +5235,11 @@
         "output": 0.13
       },
       "max_output_tokens": 131072,
+      "reasoning_efforts": [
+        "low",
+        "medium",
+        "high"
+      ],
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -4281,6 +5251,11 @@
         "output": 0.0
       },
       "max_output_tokens": 32768,
+      "reasoning_efforts": [
+        "low",
+        "medium",
+        "high"
+      ],
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -4293,6 +5268,11 @@
         "output": 0.3
       },
       "max_output_tokens": 65536,
+      "reasoning_efforts": [
+        "low",
+        "medium",
+        "high"
+      ],
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -4305,6 +5285,11 @@
         "output": 60.0
       },
       "max_output_tokens": 100000,
+      "reasoning_efforts": [
+        "low",
+        "medium",
+        "high"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -4316,6 +5301,7 @@
         "output": 600.0
       },
       "max_output_tokens": 100000,
+      "reasoning_efforts": [],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -4328,6 +5314,11 @@
         "output": 8.0
       },
       "max_output_tokens": 100000,
+      "reasoning_efforts": [
+        "low",
+        "medium",
+        "high"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -4340,6 +5331,11 @@
         "output": 4.4
       },
       "max_output_tokens": 100000,
+      "reasoning_efforts": [
+        "low",
+        "medium",
+        "high"
+      ],
       "supports_image_input": false,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -4352,6 +5348,9 @@
         "output": 4.4
       },
       "max_output_tokens": 100000,
+      "reasoning_efforts": [
+        "high"
+      ],
       "supports_image_input": false,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -4363,6 +5362,11 @@
         "output": 80.0
       },
       "max_output_tokens": 100000,
+      "reasoning_efforts": [
+        "low",
+        "medium",
+        "high"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -4375,6 +5379,11 @@
         "output": 4.4
       },
       "max_output_tokens": 100000,
+      "reasoning_efforts": [
+        "low",
+        "medium",
+        "high"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -4387,6 +5396,9 @@
         "output": 4.4
       },
       "max_output_tokens": 100000,
+      "reasoning_efforts": [
+        "high"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -4394,6 +5406,7 @@
     "openrouter/auto": {
       "context_window": 2000000,
       "max_output_tokens": 2000000,
+      "reasoning_efforts": [],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -4401,6 +5414,7 @@
     "openrouter/bodybuilder": {
       "context_window": 128000,
       "max_output_tokens": 128000,
+      "reasoning_efforts": null,
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -4412,6 +5426,7 @@
         "output": 0.0
       },
       "max_output_tokens": 8000,
+      "reasoning_efforts": [],
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -4419,6 +5434,7 @@
     "openrouter/fusion": {
       "context_window": 1000000,
       "max_output_tokens": 128000,
+      "reasoning_efforts": null,
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -4426,6 +5442,7 @@
     "openrouter/pareto-code": {
       "context_window": 2000000,
       "max_output_tokens": 200000,
+      "reasoning_efforts": null,
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -4437,6 +5454,7 @@
         "output": 1.5
       },
       "max_output_tokens": 8192,
+      "reasoning_efforts": [],
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -4448,6 +5466,7 @@
         "output": 1.0
       },
       "max_output_tokens": 127072,
+      "reasoning_efforts": null,
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -4460,6 +5479,7 @@
         "reasoning": 3.0
       },
       "max_output_tokens": 128000,
+      "reasoning_efforts": [],
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -4471,6 +5491,7 @@
         "output": 15.0
       },
       "max_output_tokens": 8000,
+      "reasoning_efforts": null,
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -4482,6 +5503,7 @@
         "output": 15.0
       },
       "max_output_tokens": 8000,
+      "reasoning_efforts": [],
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -4493,6 +5515,7 @@
         "output": 8.0
       },
       "max_output_tokens": 128000,
+      "reasoning_efforts": [],
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -4505,6 +5528,7 @@
         "output": 0.18
       },
       "max_output_tokens": 131072,
+      "reasoning_efforts": [],
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -4516,6 +5540,7 @@
         "output": 0.0
       },
       "max_output_tokens": 32768,
+      "reasoning_efforts": [],
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -4528,6 +5553,7 @@
         "output": 0.12
       },
       "max_output_tokens": 32768,
+      "reasoning_efforts": [],
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -4539,6 +5565,7 @@
         "output": 0.0
       },
       "max_output_tokens": 32768,
+      "reasoning_efforts": [],
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -4550,6 +5577,7 @@
         "output": 0.4
       },
       "max_output_tokens": 16384,
+      "reasoning_efforts": null,
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -4561,6 +5589,7 @@
         "output": 0.2
       },
       "max_output_tokens": 32768,
+      "reasoning_efforts": null,
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -4572,6 +5601,7 @@
         "output": 1.0
       },
       "max_output_tokens": 32768,
+      "reasoning_efforts": null,
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -4594,6 +5624,7 @@
         ]
       },
       "max_output_tokens": 32768,
+      "reasoning_efforts": null,
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -4612,6 +5643,7 @@
         ]
       },
       "max_output_tokens": 32768,
+      "reasoning_efforts": null,
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -4632,6 +5664,7 @@
         ]
       },
       "max_output_tokens": 32768,
+      "reasoning_efforts": [],
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -4639,11 +5672,11 @@
     "qwen/qwen2.5-vl-72b-instruct": {
       "context_window": 128000,
       "cost": {
-        "cache_read": 0.4,
-        "input": 0.8,
-        "output": 1.0
+        "input": 0.25,
+        "output": 0.75
       },
       "max_output_tokens": 128000,
+      "reasoning_efforts": null,
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -4655,6 +5688,9 @@
         "output": 0.91
       },
       "max_output_tokens": 8192,
+      "reasoning_efforts": [
+        "none"
+      ],
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -4666,6 +5702,9 @@
         "output": 1.82
       },
       "max_output_tokens": 8192,
+      "reasoning_efforts": [
+        "none"
+      ],
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -4677,6 +5716,7 @@
         "output": 0.55
       },
       "max_output_tokens": 16384,
+      "reasoning_efforts": null,
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -4688,6 +5728,7 @@
         "output": 2.3
       },
       "max_output_tokens": 32768,
+      "reasoning_efforts": [],
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -4699,6 +5740,9 @@
         "output": 0.5
       },
       "max_output_tokens": 16384,
+      "reasoning_efforts": [
+        "none"
+      ],
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -4710,6 +5754,7 @@
         "output": 0.19305
       },
       "max_output_tokens": 32000,
+      "reasoning_efforts": null,
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -4721,6 +5766,7 @@
         "output": 2.4
       },
       "max_output_tokens": 32768,
+      "reasoning_efforts": [],
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -4732,6 +5778,9 @@
         "output": 0.28
       },
       "max_output_tokens": 16384,
+      "reasoning_efforts": [
+        "none"
+      ],
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -4743,6 +5792,9 @@
         "output": 0.455
       },
       "max_output_tokens": 8192,
+      "reasoning_efforts": [
+        "none"
+      ],
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -4755,6 +5807,7 @@
         "output": 1.0
       },
       "max_output_tokens": 65536,
+      "reasoning_efforts": null,
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -4763,9 +5816,10 @@
       "context_window": 262144,
       "cost": {
         "input": 0.07,
-        "output": 0.28
+        "output": 0.27
       },
-      "max_output_tokens": 262144,
+      "max_output_tokens": 32768,
+      "reasoning_efforts": null,
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -4795,6 +5849,7 @@
         ]
       },
       "max_output_tokens": 65536,
+      "reasoning_efforts": null,
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -4807,6 +5862,7 @@
         "output": 0.8
       },
       "max_output_tokens": 262144,
+      "reasoning_efforts": null,
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -4836,6 +5892,7 @@
         ]
       },
       "max_output_tokens": 65536,
+      "reasoning_efforts": null,
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -4865,6 +5922,7 @@
         ]
       },
       "max_output_tokens": 65536,
+      "reasoning_efforts": null,
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -4888,6 +5946,7 @@
         ]
       },
       "max_output_tokens": 65536,
+      "reasoning_efforts": [],
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -4895,11 +5954,11 @@
     "qwen/qwen3-next-80b-a3b-instruct": {
       "context_window": 262144,
       "cost": {
-        "cache_read": 0.07,
-        "input": 0.1,
+        "input": 0.09,
         "output": 1.1
       },
-      "max_output_tokens": 262144,
+      "max_output_tokens": 16384,
+      "reasoning_efforts": null,
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -4911,6 +5970,7 @@
         "output": 1.2
       },
       "max_output_tokens": 32768,
+      "reasoning_efforts": [],
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -4923,6 +5983,7 @@
         "output": 1.9
       },
       "max_output_tokens": 32768,
+      "reasoning_efforts": null,
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -4930,10 +5991,11 @@
     "qwen/qwen3-vl-235b-a22b-thinking": {
       "context_window": 131072,
       "cost": {
-        "input": 0.4,
-        "output": 4.0
+        "input": 0.98,
+        "output": 3.95
       },
       "max_output_tokens": 32768,
+      "reasoning_efforts": [],
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -4941,10 +6003,11 @@
     "qwen/qwen3-vl-30b-a3b-instruct": {
       "context_window": 262144,
       "cost": {
-        "input": 0.13,
-        "output": 0.52
+        "input": 0.15,
+        "output": 0.6
       },
-      "max_output_tokens": 32768,
+      "max_output_tokens": 16384,
+      "reasoning_efforts": null,
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -4956,6 +6019,7 @@
         "output": 2.4
       },
       "max_output_tokens": 32768,
+      "reasoning_efforts": [],
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -4967,6 +6031,7 @@
         "output": 0.416
       },
       "max_output_tokens": 32768,
+      "reasoning_efforts": null,
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -4978,6 +6043,7 @@
         "output": 0.455
       },
       "max_output_tokens": 32768,
+      "reasoning_efforts": null,
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -4989,6 +6055,7 @@
         "output": 2.1
       },
       "max_output_tokens": 32768,
+      "reasoning_efforts": [],
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -5000,6 +6067,9 @@
         "output": 2.08
       },
       "max_output_tokens": 65536,
+      "reasoning_efforts": [
+        "none"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -5011,6 +6081,9 @@
         "output": 1.56
       },
       "max_output_tokens": 65536,
+      "reasoning_efforts": [
+        "none"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -5022,6 +6095,9 @@
         "output": 1.0
       },
       "max_output_tokens": 262144,
+      "reasoning_efforts": [
+        "none"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -5033,6 +6109,9 @@
         "output": 2.34
       },
       "max_output_tokens": 65536,
+      "reasoning_efforts": [
+        "none"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -5044,6 +6123,9 @@
         "output": 0.15
       },
       "max_output_tokens": 262144,
+      "reasoning_efforts": [
+        "none"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -5055,6 +6137,9 @@
         "output": 0.26
       },
       "max_output_tokens": 65536,
+      "reasoning_efforts": [
+        "none"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -5073,6 +6158,9 @@
         ]
       },
       "max_output_tokens": 65536,
+      "reasoning_efforts": [
+        "none"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -5093,6 +6181,9 @@
         ]
       },
       "max_output_tokens": 65536,
+      "reasoning_efforts": [
+        "none"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -5100,11 +6191,14 @@
     "qwen/qwen3.6-27b": {
       "context_window": 262144,
       "cost": {
-        "cache_read": 0.15,
-        "input": 0.3,
-        "output": 2.0
+        "cache_read": 0.12,
+        "input": 0.6,
+        "output": 3.6
       },
-      "max_output_tokens": 65536,
+      "max_output_tokens": 262144,
+      "reasoning_efforts": [
+        "none"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -5116,6 +6210,9 @@
         "output": 1.0
       },
       "max_output_tokens": 262144,
+      "reasoning_efforts": [
+        "none"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -5136,6 +6233,9 @@
         ]
       },
       "max_output_tokens": 65536,
+      "reasoning_efforts": [
+        "none"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -5156,6 +6256,9 @@
         ]
       },
       "max_output_tokens": 65536,
+      "reasoning_efforts": [
+        "none"
+      ],
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -5176,6 +6279,9 @@
         ]
       },
       "max_output_tokens": 65536,
+      "reasoning_efforts": [
+        "none"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -5205,6 +6311,7 @@
         ]
       },
       "max_output_tokens": 65536,
+      "reasoning_efforts": [],
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -5218,6 +6325,9 @@
         "output": 4.425
       },
       "max_output_tokens": 131072,
+      "reasoning_efforts": [
+        "none"
+      ],
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -5240,6 +6350,29 @@
         ]
       },
       "max_output_tokens": 131072,
+      "reasoning_efforts": [
+        "none"
+      ],
+      "supports_image_input": true,
+      "supports_pdf_input": false,
+      "supports_reasoning": true
+    },
+    "qwen/qwen3.8-max": {
+      "context_window": 1000000,
+      "cost": {
+        "cache_read": 0.25,
+        "cache_write": 2.5,
+        "input": 2.0,
+        "output": 6.0
+      },
+      "max_output_tokens": 131072,
+      "reasoning_efforts": [
+        "minimal",
+        "low",
+        "medium",
+        "high",
+        "xhigh"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -5251,6 +6384,7 @@
         "output": 0.1
       },
       "max_output_tokens": 16384,
+      "reasoning_efforts": null,
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -5262,6 +6396,7 @@
         "output": 0.2
       },
       "max_output_tokens": 65536,
+      "reasoning_efforts": [],
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -5273,6 +6408,7 @@
         "output": 1.25
       },
       "max_output_tokens": 128000,
+      "reasoning_efforts": null,
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -5284,6 +6420,7 @@
         "output": 3.0
       },
       "max_output_tokens": 128000,
+      "reasoning_efforts": null,
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -5304,6 +6441,11 @@
         ]
       },
       "max_output_tokens": 128000,
+      "reasoning_efforts": [
+        "high",
+        "xhigh",
+        "max"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -5315,6 +6457,7 @@
         "output": 0.05
       },
       "max_output_tokens": 16384,
+      "reasoning_efforts": null,
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -5326,6 +6469,7 @@
         "output": 0.85
       },
       "max_output_tokens": 16384,
+      "reasoning_efforts": null,
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -5337,6 +6481,7 @@
         "output": 0.75
       },
       "max_output_tokens": 16384,
+      "reasoning_efforts": null,
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -5348,6 +6493,7 @@
         "output": 0.3
       },
       "max_output_tokens": 65536,
+      "reasoning_efforts": [],
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -5360,6 +6506,11 @@
         "output": 1.15
       },
       "max_output_tokens": 256000,
+      "reasoning_efforts": [
+        "low",
+        "medium",
+        "high"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -5371,6 +6522,7 @@
         "output": 0.57
       },
       "max_output_tokens": 131072,
+      "reasoning_efforts": [],
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -5383,6 +6535,11 @@
         "output": 0.528
       },
       "max_output_tokens": 128000,
+      "reasoning_efforts": [
+        "none",
+        "low",
+        "high"
+      ],
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -5395,6 +6552,11 @@
         "output": 0.21
       },
       "max_output_tokens": 262144,
+      "reasoning_efforts": [
+        "none",
+        "low",
+        "high"
+      ],
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -5407,6 +6569,7 @@
         "output": 0.5
       },
       "max_output_tokens": 131072,
+      "reasoning_efforts": null,
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -5418,6 +6581,7 @@
         "output": 0.5
       },
       "max_output_tokens": 65536,
+      "reasoning_efforts": null,
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -5430,6 +6594,7 @@
         "output": 0.8
       },
       "max_output_tokens": 32768,
+      "reasoning_efforts": null,
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -5440,7 +6605,8 @@
         "input": 0.4,
         "output": 0.4
       },
-      "max_output_tokens": 32768,
+      "max_output_tokens": 1024000,
+      "reasoning_efforts": null,
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -5453,6 +6619,14 @@
         "output": 4.05
       },
       "max_output_tokens": 1048576,
+      "reasoning_efforts": [
+        "none",
+        "minimal",
+        "low",
+        "medium",
+        "high",
+        "max"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -5465,6 +6639,14 @@
         "output": 1.2
       },
       "max_output_tokens": 262144,
+      "reasoning_efforts": [
+        "none",
+        "minimal",
+        "low",
+        "medium",
+        "high",
+        "max"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -5476,18 +6658,20 @@
         "output": 0.65
       },
       "max_output_tokens": 2048,
+      "reasoning_efforts": null,
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": false
     },
     "upstage/solar-pro-3": {
-      "context_window": 128000,
+      "context_window": 131072,
       "cost": {
         "cache_read": 0.015,
         "input": 0.15,
         "output": 0.6
       },
-      "max_output_tokens": 128000,
+      "max_output_tokens": 131072,
+      "reasoning_efforts": [],
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -5499,6 +6683,7 @@
         "output": 6.0
       },
       "max_output_tokens": 8192,
+      "reasoning_efforts": null,
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": false
@@ -5519,6 +6704,7 @@
         ]
       },
       "max_output_tokens": 2000000,
+      "reasoning_efforts": [],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -5539,6 +6725,12 @@
         ]
       },
       "max_output_tokens": 2000000,
+      "reasoning_efforts": [
+        "low",
+        "medium",
+        "high",
+        "xhigh"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -5559,6 +6751,12 @@
         ]
       },
       "max_output_tokens": 1000000,
+      "reasoning_efforts": [
+        "none",
+        "low",
+        "medium",
+        "high"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -5579,6 +6777,11 @@
         ]
       },
       "max_output_tokens": 500000,
+      "reasoning_efforts": [
+        "low",
+        "medium",
+        "high"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -5599,6 +6802,7 @@
         ]
       },
       "max_output_tokens": 256000,
+      "reasoning_efforts": [],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -5611,6 +6815,9 @@
         "output": 0.28
       },
       "max_output_tokens": 131072,
+      "reasoning_efforts": [
+        "none"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -5623,6 +6830,9 @@
         "output": 0.87
       },
       "max_output_tokens": 131072,
+      "reasoning_efforts": [
+        "none"
+      ],
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -5635,6 +6845,9 @@
         "output": 2.2
       },
       "max_output_tokens": 98304,
+      "reasoning_efforts": [
+        "none"
+      ],
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -5647,6 +6860,9 @@
         "output": 0.85
       },
       "max_output_tokens": 98304,
+      "reasoning_efforts": [
+        "none"
+      ],
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -5659,6 +6875,9 @@
         "output": 1.8
       },
       "max_output_tokens": 16384,
+      "reasoning_efforts": [
+        "none"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -5671,6 +6890,7 @@
         "output": 2.0
       },
       "max_output_tokens": 131072,
+      "reasoning_efforts": [],
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -5683,6 +6903,7 @@
         "output": 0.9
       },
       "max_output_tokens": 32768,
+      "reasoning_efforts": [],
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -5695,6 +6916,7 @@
         "output": 1.75
       },
       "max_output_tokens": 131072,
+      "reasoning_efforts": [],
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -5707,6 +6929,7 @@
         "output": 0.4
       },
       "max_output_tokens": 16384,
+      "reasoning_efforts": [],
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -5719,6 +6942,7 @@
         "output": 2.55
       },
       "max_output_tokens": 131072,
+      "reasoning_efforts": [],
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -5731,6 +6955,7 @@
         "output": 4.0
       },
       "max_output_tokens": 131072,
+      "reasoning_efforts": [],
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -5738,11 +6963,12 @@
     "z-ai/glm-5.1": {
       "context_window": 204800,
       "cost": {
-        "cache_read": 0.1794,
-        "input": 0.966,
-        "output": 3.036
+        "cache_read": 0.1768,
+        "input": 0.952,
+        "output": 2.992
       },
-      "max_output_tokens": 128000,
+      "max_output_tokens": 131072,
+      "reasoning_efforts": [],
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -5750,11 +6976,15 @@
     "z-ai/glm-5.2": {
       "context_window": 1048576,
       "cost": {
-        "cache_read": 0.05278,
-        "input": 0.2842,
-        "output": 0.8932
+        "cache_read": 0.14,
+        "input": 0.76,
+        "output": 2.42
       },
-      "max_output_tokens": 131072,
+      "max_output_tokens": 262144,
+      "reasoning_efforts": [
+        "high",
+        "xhigh"
+      ],
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -5767,6 +6997,7 @@
         "output": 4.0
       },
       "max_output_tokens": 131072,
+      "reasoning_efforts": [],
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -5780,6 +7011,13 @@
         "output": 50.0
       },
       "max_output_tokens": 128000,
+      "reasoning_efforts": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -5793,6 +7031,9 @@
         "output": 5.0
       },
       "max_output_tokens": 64000,
+      "reasoning_efforts": [
+        "none"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -5806,6 +7047,13 @@
         "output": 25.0
       },
       "max_output_tokens": 128000,
+      "reasoning_efforts": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -5819,6 +7067,13 @@
         "output": 10.0
       },
       "max_output_tokens": 128000,
+      "reasoning_efforts": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -5831,6 +7086,11 @@
         "output": 0.18
       },
       "max_output_tokens": 65536,
+      "reasoning_efforts": [
+        "low",
+        "high",
+        "max"
+      ],
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -5845,6 +7105,12 @@
         "reasoning": 7.5
       },
       "max_output_tokens": 65536,
+      "reasoning_efforts": [
+        "minimal",
+        "low",
+        "medium",
+        "high"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -5867,6 +7133,11 @@
         ]
       },
       "max_output_tokens": 65536,
+      "reasoning_efforts": [
+        "low",
+        "medium",
+        "high"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -5879,6 +7150,11 @@
         "output": 14.0
       },
       "max_output_tokens": 1048576,
+      "reasoning_efforts": [
+        "low",
+        "high",
+        "max"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -5901,6 +7177,14 @@
         ]
       },
       "max_output_tokens": 128000,
+      "reasoning_efforts": [
+        "none",
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -5913,6 +7197,13 @@
         "output": 4.5
       },
       "max_output_tokens": 128000,
+      "reasoning_efforts": [
+        "none",
+        "low",
+        "medium",
+        "high",
+        "xhigh"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -5933,6 +7224,11 @@
         ]
       },
       "max_output_tokens": 1000000,
+      "reasoning_efforts": [
+        "low",
+        "medium",
+        "high"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -5955,6 +7251,7 @@
         ]
       },
       "max_output_tokens": 30000,
+      "reasoning_efforts": null,
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": false
@@ -5975,6 +7272,7 @@
         ]
       },
       "max_output_tokens": 30000,
+      "reasoning_efforts": [],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -5995,6 +7293,12 @@
         ]
       },
       "max_output_tokens": 30000,
+      "reasoning_efforts": [
+        "low",
+        "medium",
+        "high",
+        "xhigh"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -6015,6 +7319,12 @@
         ]
       },
       "max_output_tokens": 30000,
+      "reasoning_efforts": [
+        "none",
+        "low",
+        "medium",
+        "high"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -6035,6 +7345,11 @@
         ]
       },
       "max_output_tokens": 500000,
+      "reasoning_efforts": [
+        "low",
+        "medium",
+        "high"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -6055,6 +7370,7 @@
         ]
       },
       "max_output_tokens": 256000,
+      "reasoning_efforts": [],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true
@@ -6062,6 +7378,7 @@
     "grok-imagine-image": {
       "context_window": 8000,
       "max_output_tokens": 0,
+      "reasoning_efforts": null,
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": false
@@ -6069,6 +7386,7 @@
     "grok-imagine-image-quality": {
       "context_window": 8000,
       "max_output_tokens": 0,
+      "reasoning_efforts": null,
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": false
@@ -6076,6 +7394,7 @@
     "grok-imagine-video": {
       "context_window": 1024,
       "max_output_tokens": 0,
+      "reasoning_efforts": null,
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": false
@@ -6083,6 +7402,7 @@
     "grok-imagine-video-1.5": {
       "context_window": 1024,
       "max_output_tokens": 0,
+      "reasoning_efforts": null,
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": false
@@ -6098,6 +7418,9 @@
         "output": 2.2
       },
       "max_output_tokens": 98304,
+      "reasoning_efforts": [
+        "none"
+      ],
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -6111,6 +7434,9 @@
         "output": 1.1
       },
       "max_output_tokens": 98304,
+      "reasoning_efforts": [
+        "none"
+      ],
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -6124,6 +7450,9 @@
         "output": 0.0
       },
       "max_output_tokens": 98304,
+      "reasoning_efforts": [
+        "none"
+      ],
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -6135,6 +7464,9 @@
         "output": 1.8
       },
       "max_output_tokens": 16384,
+      "reasoning_efforts": [
+        "none"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -6148,6 +7480,9 @@
         "output": 2.2
       },
       "max_output_tokens": 131072,
+      "reasoning_efforts": [
+        "none"
+      ],
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -6159,6 +7494,9 @@
         "output": 0.9
       },
       "max_output_tokens": 32768,
+      "reasoning_efforts": [
+        "none"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -6172,6 +7510,9 @@
         "output": 2.2
       },
       "max_output_tokens": 131072,
+      "reasoning_efforts": [
+        "none"
+      ],
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -6185,6 +7526,9 @@
         "output": 0.0
       },
       "max_output_tokens": 131072,
+      "reasoning_efforts": [
+        "none"
+      ],
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -6198,6 +7542,9 @@
         "output": 0.4
       },
       "max_output_tokens": 131072,
+      "reasoning_efforts": [
+        "none"
+      ],
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -6211,6 +7558,9 @@
         "output": 3.2
       },
       "max_output_tokens": 131072,
+      "reasoning_efforts": [
+        "none"
+      ],
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -6224,6 +7574,9 @@
         "output": 4.0
       },
       "max_output_tokens": 131072,
+      "reasoning_efforts": [
+        "none"
+      ],
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -6237,6 +7590,9 @@
         "output": 4.4
       },
       "max_output_tokens": 131072,
+      "reasoning_efforts": [
+        "none"
+      ],
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -6250,6 +7606,10 @@
         "output": 4.4
       },
       "max_output_tokens": 131072,
+      "reasoning_efforts": [
+        "high",
+        "max"
+      ],
       "supports_image_input": false,
       "supports_pdf_input": false,
       "supports_reasoning": true
@@ -6263,6 +7623,9 @@
         "output": 4.0
       },
       "max_output_tokens": 131072,
+      "reasoning_efforts": [
+        "none"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": true,
       "supports_reasoning": true

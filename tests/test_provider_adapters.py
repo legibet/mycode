@@ -1449,27 +1449,86 @@ async def test_openrouter_preserves_structured_reasoning_across_models(monkeypat
 
 
 @pytest.mark.parametrize(
-    "adapter",
-    [OpenAIChatAdapter(), XAIAdapter()],
-    ids=["openai_chat", "xai"],
-)
-@pytest.mark.parametrize(
-    ("effort", "expected"),
+    ("adapter", "expected"),
     [
-        ("low", "low"),
-        ("medium", "medium"),
-        ("high", "high"),
-        ("xhigh", "high"),
-        ("none", "low"),
-        (None, None),
+        pytest.param(OpenAIChatAdapter(), {"reasoning_effort": "vendor-specific"}, id="openai-chat"),
+        pytest.param(XAIAdapter(), {"reasoning_effort": "vendor-specific"}, id="xai"),
+        pytest.param(
+            DeepSeekAdapter(),
+            {
+                "reasoning_effort": "vendor-specific",
+                "extra_body": {"thinking": {"type": "enabled"}},
+            },
+            id="deepseek",
+        ),
+        pytest.param(
+            ZAIAdapter(),
+            {
+                "reasoning_effort": "vendor-specific",
+                "extra_body": {"thinking": {"type": "enabled", "clear_thinking": False}},
+            },
+            id="zai",
+        ),
+        pytest.param(
+            OpenRouterAdapter(),
+            {"extra_body": {"reasoning": {"effort": "vendor-specific"}}},
+            id="openrouter",
+        ),
     ],
 )
-def test_openai_chat_clamps_reasoning_effort_to_wire_payload(
-    adapter: OpenAIChatAdapter, effort: str | None, expected: str | None
+def test_chat_adapters_forward_reasoning_effort_in_their_wire_format(
+    adapter: OpenAIChatAdapter, expected: dict[str, Any]
 ) -> None:
-    payload = adapter._build_request_payload(request_obj(model="grok-4.5", reasoning_effort=effort))
+    payload = adapter._build_request_payload(request_obj(model="unlisted-model", reasoning_effort="vendor-specific"))
 
-    assert payload.get("reasoning_effort") == expected
+    assert {key: payload[key] for key in expected} == expected
+
+
+def test_deepseek_none_disables_thinking() -> None:
+    payload = DeepSeekAdapter()._build_request_payload(request_obj(reasoning_effort="none"))
+
+    assert payload["extra_body"] == {"thinking": {"type": "disabled"}}
+    assert "reasoning_effort" not in payload
+
+
+@pytest.mark.parametrize(
+    ("adapter", "expected_thinking"),
+    [
+        pytest.param(
+            AnthropicAdapter(),
+            {"type": "adaptive", "display": "summarized"},
+            id="anthropic",
+        ),
+        pytest.param(MoonshotAIAdapter(), {"type": "adaptive"}, id="moonshot"),
+    ],
+)
+def test_anthropic_like_adapters_forward_reasoning_effort(
+    adapter: AnthropicAdapter | MoonshotAIAdapter, expected_thinking: dict[str, Any]
+) -> None:
+    payload = adapter._build_request_payload(request_obj(model="unlisted-model", reasoning_effort="vendor-specific"))
+
+    assert payload["thinking"] == expected_thinking
+    assert payload["output_config"] == {"effort": "vendor-specific"}
+
+
+@pytest.mark.parametrize(
+    "adapter",
+    [AnthropicAdapter(), MoonshotAIAdapter()],
+    ids=["anthropic", "moonshot"],
+)
+def test_anthropic_like_none_disables_thinking(adapter: AnthropicAdapter | MoonshotAIAdapter) -> None:
+    payload = adapter._build_request_payload(request_obj(reasoning_effort="none"))
+
+    assert payload["thinking"] == {"type": "disabled"}
+    assert "output_config" not in payload
+
+
+def test_gemini_projects_reasoning_effort_as_thinking_level() -> None:
+    config = GoogleGeminiAdapter()._build_config(request_obj(model="unlisted-model", reasoning_effort="minimal"))
+
+    assert config.thinking_config is not None
+    assert config.thinking_config.thinking_level is not None
+    assert config.thinking_config.thinking_level.value == "MINIMAL"
 
 
 def test_thinking_duration_metadata_is_not_sent_to_providers() -> None:

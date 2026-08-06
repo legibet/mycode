@@ -80,6 +80,12 @@ async for _ in agent.achat("follow-up that references the earlier answer"):
 
 `agent.clear()` drops the in-memory history without touching the on-disk log. `cwd` defaults to the current working directory and is the working directory for the built-in file and shell tools.
 
+### Reasoning effort
+
+`Agent(reasoning_effort=...)` accepts any string without consulting model metadata and passes it to the selected provider adapter. Adapters project the value into their protocol and may reject values that protocol does not represent, such as an unknown Gemini `ThinkingLevel`. Pass `None` to omit an explicit effort and use the provider default.
+
+`ModelMetadata.reasoning_efforts` exposes the string efforts published in the bundled model catalog. It is informational and does not gate `Agent.reasoning_effort`: `None` means the catalog has no effort metadata, an empty tuple means it has no string effort, and a non-empty tuple contains the advertised values.
+
 ### Cancellation
 
 `agent.cancel()` can be called from another task or thread. It sets the cancel flag, terminates active bash subprocesses, and cancels the active provider stream or async tool. Async tools receive `asyncio.CancelledError`. A cancelled tool emits an error `tool_done`; a cancelled provider stream emits an `error` event with `message="cancelled"`. Already streamed `thinking` and text are persisted when session persistence is enabled.

@@ -266,28 +266,17 @@ class GoogleGeminiAdapter(ProviderAdapter):
                 )
             ]
 
-        thinking_config = types.ThinkingConfig(include_thoughts=True)
-        if request.reasoning_effort and request.model.lower().startswith("gemini-3"):
-            effort = request.reasoning_effort
-            if effort == "none":
-                thinking_config.thinking_level = (
-                    types.ThinkingLevel.LOW
-                    if request.model.lower().startswith("gemini-3.1-pro")
-                    else types.ThinkingLevel.MINIMAL
-                )
-            elif effort == "low":
-                thinking_config.thinking_level = types.ThinkingLevel.LOW
-            elif effort == "medium":
-                thinking_config.thinking_level = types.ThinkingLevel.MEDIUM
-            else:
-                thinking_config.thinking_level = types.ThinkingLevel.HIGH
+        thinking_level = types.ThinkingLevel(request.reasoning_effort.upper()) if request.reasoning_effort else None
 
         return types.GenerateContentConfig(
             system_instruction=request.system or None,
             max_output_tokens=request.max_tokens,
             temperature=request.temperature,
             tools=tools,
-            thinking_config=thinking_config,
+            thinking_config=types.ThinkingConfig(
+                include_thoughts=True,
+                thinking_level=thinking_level,
+            ),
         )
 
     def _consume_part(self, blocks: list[dict[str, Any]], part: Any) -> ProviderStreamEvent | None:

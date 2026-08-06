@@ -64,8 +64,8 @@ Provider quirks:
 - API key env: `ANTHROPIC_API_KEY`
 - Default models: `claude-sonnet-5`, `claude-opus-5`
 - `supports_reasoning_effort`: true
-- Default-on Claude 5 models and explicitly enabled thinking request summarized output
-- `claude-sonnet-4-6` / `claude-sonnet-5` / `claude-opus-4-6` and newer Opus models use `output_config.effort`
+- Default-on Claude 5 models and explicitly enabled thinking use adaptive summarized output; `none` disables thinking
+- Sends other explicit values unchanged through `output_config.effort`
 - Omits `temperature`; Anthropic-compatible providers use provider-default sampling
 - Replays same-model native `thinking` and `redacted_thinking` unchanged; legacy signature-only blocks remain supported
 - Adds ephemeral `cache_control` to system prompt block and last user content block
@@ -78,9 +78,8 @@ Provider quirks:
 - SDK: `anthropic` against Moonshot's Anthropic-compatible endpoint
 - Base URL: `https://api.moonshot.ai/anthropic`
 - API key env: `MOONSHOT_API_KEY`
-- Default models: `kimi-k2.7-code`, `kimi-k2.6`
-- `supports_reasoning_effort`: true (maps enabled efforts to adaptive thinking and forwards `output_config.effort`)
-- For `kimi-k2.7-code`, `none` is mapped to adaptive thinking because the model does not support disabled thinking
+- Default models: `kimi-k3`, `kimi-k2.6`
+- `supports_reasoning_effort`: true; `none` disables thinking, while other explicit values use adaptive thinking and pass unchanged through `output_config.effort`
 - Omits `temperature`; Anthropic-compatible providers use provider-default sampling
 - Replays native thinking blocks unchanged across tool loops
 - Shares Anthropic-like ephemeral cache markers and tool call ID projection
@@ -108,17 +107,12 @@ Provider quirks:
 - Base URL: `https://generativelanguage.googleapis.com`
 - API key env: `GEMINI_API_KEY`, `GOOGLE_API_KEY`
 - Default models: `gemini-3.6-flash`, `gemini-3.5-flash`, `gemini-3.1-pro-preview`
-- `supports_reasoning_effort`: true (Gemini 3 models only, via `thinking_level`)
-- Reasoning effort mapping for Gemini 3:
-  - `none` → `LOW` for `gemini-3.1-pro*`, `MINIMAL` for other `gemini-3*` models
-  - `low` → `LOW`
-  - `medium` → `MEDIUM`
-  - `high`/`xhigh` → `HIGH`
+- `supports_reasoning_effort`: true; explicit values are converted to Gemini's `ThinkingLevel` enum
 - Replays original parts with their function-call ids and thought signatures
 - Cross-provider tool-loop fallback: adds documented dummy thought signature to avoid 400 errors
 - Empty-text streaming parts that carry thought signatures must still be persisted
 - Gemini validates function_call id/name match between function_call and function_response pairs
-- `thinking_config.include_thoughts` always true; effort level controls `thinking_level`
+- `thinking_config.include_thoughts` always true; explicit effort controls `thinking_level`
 - Images serialize as `inline_data`
 - PDFs serialize as `inline_data`
 
@@ -129,7 +123,7 @@ Provider quirks:
 - Base URL: `https://api.openai.com/v1`
 - API key env: `OPENAI_API_KEY`
 - Default models: `gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna`
-- `supports_reasoning_effort`: true (`reasoning = {"effort": ...}`, values: `none/low/medium/high/xhigh`)
+- `supports_reasoning_effort`: true (sent through `reasoning.effort`)
 - OpenAI recommends Responses API for GPT-5.6 reasoning/tool-calling/multi-turn use cases; GPT-5.6 defaults to `medium` effort and `low` is the recommended first step for latency-sensitive workloads
 - Runs stateless: `store=false`, `include=["reasoning.encrypted_content"]`
 - When reasoning is enabled, requests `reasoning.summary=auto`; streams `response.reasoning_summary_text.delta` as canonical thinking and does not surface raw `response.reasoning_text.delta`
@@ -147,7 +141,7 @@ Provider quirks:
 - SDK: `openai` (official)
 - API: OpenAI Chat Completions
 - `supports_reasoning_effort`: false by default; set it `true` in config (see `docs/config.md`) for endpoints that accept the standard top-level `reasoning_effort`
-- When enabled, clamps effort to `low`/`medium`/`high` (`none` → `low`, `xhigh` → `high`, `auto` unset); honored only for `openai_chat`-type providers
+- Forwards any explicit effort through the standard top-level `reasoning_effort`; `None` leaves it unset
 - `auto_discoverable`: false (base class only, not used directly)
 - Intended for third-party OpenAI-compatible providers when Responses API is unavailable
 - Preserves same-model reasoning extensions from SDK extras:
@@ -165,7 +159,7 @@ Provider quirks:
 - Base URL: `https://api.deepseek.com`
 - API key env: `DEEPSEEK_API_KEY`
 - Default models: `deepseek-v4-pro`, `deepseek-v4-flash`
-- `supports_reasoning_effort`: true; `none` sends `thinking: {type: "disabled"}`, `low`/`medium`/`high` map to `reasoning_effort=high`, and `xhigh` maps to `reasoning_effort=max`
+- `supports_reasoning_effort`: true; `none` sends `thinking: {type: "disabled"}`, while other explicit values pass through unchanged with thinking enabled
 - `auto_discoverable`: true
 - Same-model `reasoning_content` is replayed on later requests, including empty markers after tool turns
 
@@ -175,7 +169,7 @@ Provider quirks:
 - Base URL: `https://api.z.ai/api/paas/v4/`
 - API key env: `ZAI_API_KEY`
 - Default models: `glm-5.2`
-- `supports_reasoning_effort`: true; thinking enabled by default via `thinking: {type: "enabled", clear_thinking: false}`; `glm-5.2` maps `low`/`medium`/`high` to `high` and `xhigh` to `max`
+- `supports_reasoning_effort`: true; thinking enabled by default via `thinking: {type: "enabled", clear_thinking: false}`; explicit values pass through unchanged
 - `auto_discoverable`: true
 - `clear_thinking: false` preserves same-model reasoning across tool loops; historical `reasoning_content` is replayed unmodified
 
@@ -198,27 +192,11 @@ Provider quirks:
 - Base URL: `https://api.x.ai/v1`
 - API key env: `XAI_API_KEY`
 - Default models: `grok-4.5`
-- `supports_reasoning_effort`: true; shares the `openai_chat` clamped mapping. Grok reasoning cannot be disabled, so `none` → `low` and `xhigh` → `high`
+- `supports_reasoning_effort`: true; explicit values pass through the standard top-level `reasoning_effort`
 - `auto_discoverable`: true
 - Grok reasoning streams as `reasoning_content`, replayed for the same model by the shared `openai_chat` handling
 - Same image format as `openai_chat`
 - Same PDF format as `openai_chat`
-
-## Reasoning Effort Mapping
-
-| effort   | anthropic / moonshotai                          | google (3.x)          | openai / openrouter | xai / openai_chat |
-| -------- | ----------------------------------------------- | --------------------- | ------------------- | ----------------- |
-| `none`   | thinking disabled                               | `LOW`/`MINIMAL` level | `none`              | `low`             |
-| `low`    | adaptive thinking                               | `LOW`/`MINIMAL` level | `low`               | `low`             |
-| `medium` | adaptive thinking                               | `MEDIUM` level        | `medium`            | `medium`          |
-| `high`   | adaptive thinking                               | `HIGH` level          | `high`              | `high`            |
-| `xhigh`  | adaptive thinking; provider max where supported | `HIGH` level          | `xhigh`             | `high`            |
-
-The `openai_chat` column applies to `xai` and to any `openai_chat` provider with `supports_reasoning_effort: true`.
-
-MiniMax is not listed in the effort mapping table because its Anthropic endpoint does not support effort depth; `MiniMax-M3` always sends adaptive thinking.
-
-Config-resolved `reasoning_effort` is only applied when both `adapter.supports_reasoning_effort` and `model_metadata.supports_reasoning` (from the bundled catalog) are true.
 
 ## Message Replay
 

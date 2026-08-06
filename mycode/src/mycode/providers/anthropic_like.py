@@ -347,34 +347,18 @@ class AnthropicAdapter(AnthropicLikeAdapter):
     @override
     def thinking_config(self, request: ProviderRequest) -> dict[str, Any] | None:
         effort = request.reasoning_effort
-        normalized = request.model.lower()
-        if not effort:
-            if normalized.startswith(("claude-opus-5", "claude-sonnet-5")):
-                return {"type": "adaptive", "display": "summarized"}
-            return None
         if effort == "none":
             return {"type": "disabled"}
-        return {"type": "adaptive", "display": "summarized"}
+        if effort or request.model.lower().startswith(("claude-opus-5", "claude-sonnet-5")):
+            return {"type": "adaptive", "display": "summarized"}
+        return None
 
     @override
     def output_config(self, request: ProviderRequest) -> dict[str, Any] | None:
         effort = request.reasoning_effort
         if not effort or effort == "none":
             return None
-
-        normalized = request.model.lower()
-        if normalized.startswith(("claude-opus-4-7", "claude-opus-4-8", "claude-opus-5")):
-            return {"effort": effort}
-
-        if normalized.startswith("claude-opus-4-6"):
-            mapped_effort = "max" if effort == "xhigh" else effort
-            return {"effort": mapped_effort}
-
-        if normalized.startswith(("claude-sonnet-4-6", "claude-sonnet-5")):
-            mapped_effort = "high" if effort == "xhigh" else effort
-            return {"effort": mapped_effort}
-
-        return None
+        return {"effort": effort}
 
 
 class MoonshotAIAdapter(AnthropicLikeAdapter):
@@ -393,23 +377,17 @@ class MoonshotAIAdapter(AnthropicLikeAdapter):
 
     @override
     def thinking_config(self, request: ProviderRequest) -> dict[str, Any] | None:
-        if not request.reasoning_effort:
-            return None
-        if request.model.lower() == "kimi-k3":
-            return {"type": "adaptive"}
-        if request.reasoning_effort == "none" and request.model.lower() != "kimi-k2.7-code":
+        effort = request.reasoning_effort
+        if effort == "none":
             return {"type": "disabled"}
-        return {"type": "adaptive"}
+        return {"type": "adaptive"} if effort else None
 
     @override
     def output_config(self, request: ProviderRequest) -> dict[str, Any] | None:
-        if not request.reasoning_effort:
+        effort = request.reasoning_effort
+        if not effort or effort == "none":
             return None
-        if request.model.lower() == "kimi-k3":
-            return {"effort": "max"}
-        if request.reasoning_effort == "none":
-            return None
-        return {"effort": request.reasoning_effort}
+        return {"effort": effort}
 
 
 class MiniMaxAdapter(AnthropicLikeAdapter):

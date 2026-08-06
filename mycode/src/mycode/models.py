@@ -26,6 +26,9 @@ class ModelMetadata:
     Capability fields may come from the OpenRouter suffix fallback, but
     ``cost`` never does: prices apply only when the catalog entry belongs to
     the requested provider or the inferred official provider.
+
+    ``reasoning_efforts`` is ``None`` when the catalog has no effort metadata,
+    an empty tuple when it has no string effort, or the advertised values.
     """
 
     provider: str
@@ -33,6 +36,7 @@ class ModelMetadata:
     context_window: int | None = None
     max_output_tokens: int | None = None
     supports_reasoning: bool | None = None
+    reasoning_efforts: tuple[str, ...] | None = None
     supports_image_input: bool | None = None
     supports_pdf_input: bool | None = None
     cost: dict[str, Any] | None = None
@@ -79,6 +83,7 @@ def resolve_model_metadata(
     context_window: int | None = None,
     max_output_tokens: int | None = None,
     supports_reasoning: bool | None = None,
+    reasoning_efforts: tuple[str, ...] | None = None,
     supports_image_input: bool | None = None,
     supports_pdf_input: bool | None = None,
 ) -> ModelMetadata:
@@ -93,6 +98,7 @@ def resolve_model_metadata(
         "context_window": context_window,
         "max_output_tokens": max_output_tokens,
         "supports_reasoning": supports_reasoning,
+        "reasoning_efforts": reasoning_efforts,
         "supports_image_input": supports_image_input,
         "supports_pdf_input": supports_pdf_input,
     }
@@ -135,6 +141,12 @@ def lookup_model_metadata(
     if catalog_entry is None:
         return None
 
+    raw_reasoning_efforts = catalog_entry.get("reasoning_efforts")
+    reasoning_efforts = (
+        tuple(value for value in raw_reasoning_efforts if isinstance(value, str))
+        if isinstance(raw_reasoning_efforts, list)
+        else None
+    )
     cost = catalog_entry.get("cost")
     return ModelMetadata(
         provider=provider_type,
@@ -142,6 +154,7 @@ def lookup_model_metadata(
         context_window=as_int(catalog_entry.get("context_window")),
         max_output_tokens=as_int(catalog_entry.get("max_output_tokens")),
         supports_reasoning=as_bool(catalog_entry.get("supports_reasoning")),
+        reasoning_efforts=reasoning_efforts,
         supports_image_input=as_bool(catalog_entry.get("supports_image_input")),
         supports_pdf_input=as_bool(catalog_entry.get("supports_pdf_input")),
         cost=cost if isinstance(cost, dict) and not from_suffix_fallback else None,

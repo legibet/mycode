@@ -192,13 +192,7 @@ class OpenAIChatAdapter(ProviderAdapter):
         return omit_none(payload)
 
     def _build_provider_payload_overrides(self, request: ProviderRequest) -> dict[str, Any]:
-        # Forward the standard top-level reasoning_effort, clamped to the
-        # low/medium/high range these models accept: "none" floors to "low"
-        # (no off switch), "auto" (None) stays unset.
-        effort = {"none": "low", "low": "low", "medium": "medium", "high": "high", "xhigh": "high"}.get(
-            request.reasoning_effort or ""
-        )
-        return {"reasoning_effort": effort} if effort else {}
+        return {"reasoning_effort": request.reasoning_effort} if request.reasoning_effort else {}
 
     def _serialize_tool(self, tool: dict[str, Any]) -> dict[str, Any]:
         return {
@@ -377,8 +371,7 @@ class DeepSeekAdapter(OpenAIChatAdapter):
     """DeepSeek's OpenAI-compatible chat endpoint.
 
     V4 supports both non-thinking and thinking modes. The shared "none" effort
-    disables thinking; other explicit efforts enable thinking and map to
-    DeepSeek's high/max effort levels.
+    disables thinking; other explicit efforts enable thinking.
     """
 
     provider_id = "deepseek"
@@ -391,10 +384,10 @@ class DeepSeekAdapter(OpenAIChatAdapter):
 
     @override
     def _build_provider_payload_overrides(self, request: ProviderRequest) -> dict[str, Any]:
-        if request.reasoning_effort == "none":
+        effort = request.reasoning_effort
+        if effort == "none":
             return {"extra_body": {"thinking": {"type": "disabled"}}}
-        if request.reasoning_effort in {"low", "medium", "high", "xhigh"}:
-            effort = "max" if request.reasoning_effort == "xhigh" else "high"
+        if effort:
             return {
                 "reasoning_effort": effort,
                 "extra_body": {"thinking": {"type": "enabled"}},
@@ -420,22 +413,13 @@ class ZAIAdapter(OpenAIChatAdapter):
     @override
     def _build_provider_payload_overrides(self, request: ProviderRequest) -> dict[str, Any]:
         payload: dict[str, Any] = {"extra_body": {"thinking": {"type": "enabled", "clear_thinking": False}}}
-        if request.model.lower().startswith("glm-5.2"):
-            if request.reasoning_effort in {"low", "medium", "high"}:
-                payload["reasoning_effort"] = "high"
-            elif request.reasoning_effort == "xhigh":
-                payload["reasoning_effort"] = "max"
+        if request.reasoning_effort:
+            payload["reasoning_effort"] = request.reasoning_effort
         return payload
 
 
 class XAIAdapter(OpenAIChatAdapter):
-    """xAI's OpenAI-compatible Chat Completions endpoint.
-
-    Grok reasoning models take the standard top-level ``reasoning_effort``
-    (``low``/``medium``/``high``), handled by the shared base mapping.
-    Reasoning cannot be disabled, so ``none`` maps to ``low`` and ``xhigh``
-    clamps to ``high``.
-    """
+    """xAI's OpenAI-compatible Chat Completions endpoint."""
 
     provider_id = "xai"
     label = "xAI"

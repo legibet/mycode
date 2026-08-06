@@ -43,7 +43,13 @@ def test_lookup_model_metadata_falls_back_across_provider_families(monkeypatch) 
             "openai": {
                 "gpt-5": {"max_output_tokens": 128_000, "supports_reasoning": True, "supports_image_input": True}
             },
-            "openrouter": {"moonshotai/kimi-k2.6": {"max_output_tokens": 262_144, "supports_reasoning": True}},
+            "openrouter": {
+                "moonshotai/kimi-k2.6": {
+                    "max_output_tokens": 262_144,
+                    "supports_reasoning": True,
+                    "reasoning_efforts": ["none", "low", "high"],
+                }
+            },
         },
     )
 
@@ -60,6 +66,7 @@ def test_lookup_model_metadata_falls_back_across_provider_families(monkeypatch) 
     assert moonshot.model == "kimi-k2.6"
     assert moonshot.max_output_tokens == 262_144
     assert moonshot.supports_reasoning is True
+    assert moonshot.reasoning_efforts == ("none", "low", "high")
 
 
 def test_lookup_model_metadata_rejects_ambiguous_openrouter_suffix_matches(monkeypatch) -> None:

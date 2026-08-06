@@ -168,6 +168,7 @@ def test_agent_forwards_runtime_configuration_to_provider(tmp_path: Path) -> Non
         tmp_path,
         session_id="configured-session",
         system="Use this exact system prompt.",
+        reasoning_effort="vendor-specific",
         tools=[read_tool, write_tool, edit_tool, bash_tool],
     )
     with patch("mycode.agent.get_provider_adapter", return_value=configured_adapter):
@@ -177,6 +178,7 @@ def test_agent_forwards_runtime_configuration_to_provider(tmp_path: Path) -> Non
     request = configured_adapter.requests[0]
     assert request.session_id == "configured-session"
     assert request.system == "Use this exact system prompt."
+    assert request.reasoning_effort == "vendor-specific"
     assert {tool_definition["name"] for tool_definition in request.tools} == {
         "bash",
         "edit",

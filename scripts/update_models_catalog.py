@@ -61,6 +61,26 @@ def extract_cost(raw_model: dict[str, Any]) -> dict[str, Any] | None:
     return cost or None
 
 
+def extract_reasoning_efforts(raw_model: dict[str, Any]) -> list[str] | None:
+    """Extract string efforts, treating a thinking toggle as `none`."""
+
+    raw_options = raw_model.get("reasoning_options")
+    if not isinstance(raw_options, list):
+        return None
+
+    efforts: list[str] = []
+    for option in raw_options:
+        if not isinstance(option, dict):
+            continue
+        if option.get("type") == "toggle":
+            efforts.append("none")
+        elif option.get("type") == "effort":
+            values = option.get("values")
+            if isinstance(values, list):
+                efforts.extend(value for value in values if isinstance(value, str))
+    return list(dict.fromkeys(efforts))
+
+
 def main() -> None:
     request = Request(MODELS_DEV_URL, headers={"User-Agent": "mycode/1.0"})
     with urlopen(request, timeout=30) as response:
@@ -98,6 +118,7 @@ def main() -> None:
                 "context_window": as_int(context_window),
                 "max_output_tokens": as_int(max_output_tokens),
                 "supports_reasoning": as_bool(supports_reasoning),
+                "reasoning_efforts": extract_reasoning_efforts(raw_model),
                 "supports_image_input": supports_image_input,
                 "supports_pdf_input": supports_pdf_input,
             }
