@@ -186,12 +186,12 @@ class _PromptCompleter(Completer):
         elif query.endswith("/"):
             base_prefix = query
             partial = ""
-            base_dir = Path(resolve_path(query or ".", cwd=cwd))
+            base_dir = resolve_path(query or ".", cwd=cwd)
         else:
             head, sep, tail = query.rpartition("/")
             base_prefix = f"{head}{sep}" if sep else ""
             partial = tail if sep else query
-            base_dir = Path(resolve_path(base_prefix or ".", cwd=cwd))
+            base_dir = resolve_path(base_prefix or ".", cwd=cwd)
 
         if not base_dir.is_dir():
             return
@@ -562,7 +562,7 @@ class TerminalChat:
         for token in tokens:
             if not token.startswith("@") or token == "@":
                 continue
-            path = Path(resolve_path(token[1:], cwd=self.agent.cwd))
+            path = resolve_path(token[1:], cwd=self.agent.cwd)
             if not path.is_file():
                 continue
             path_text = str(path)

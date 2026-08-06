@@ -521,7 +521,7 @@ def read_tool(
     Offset is 1-indexed. Limit caps the number of lines returned.
     """
 
-    file_path = Path(resolve_path(path, cwd=ctx.cwd))
+    file_path = resolve_path(path, cwd=ctx.cwd)
 
     image_mime_type = detect_image_mime_type(file_path)
     if image_mime_type:
@@ -628,7 +628,7 @@ def read_tool(
     },
 )
 def write_tool(ctx: ToolContext, path: str, content: str) -> ToolExecutionResult:
-    file_path = Path(resolve_path(path, cwd=ctx.cwd))
+    file_path = resolve_path(path, cwd=ctx.cwd)
     try:
         file_path.parent.mkdir(parents=True, exist_ok=True)
         _atomic_write_text(file_path, content)
@@ -672,7 +672,7 @@ def edit_tool(ctx: ToolContext, path: str, edits: list[EditEntry]) -> ToolExecut
     whitespace differences while only replacing the matched region.
     """
 
-    file_path = Path(resolve_path(path, cwd=ctx.cwd))
+    file_path = resolve_path(path, cwd=ctx.cwd)
     if not edits:
         return ToolExecutionResult(output="error: edits must not be empty", is_error=True)
 

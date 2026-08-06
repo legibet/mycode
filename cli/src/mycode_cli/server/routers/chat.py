@@ -61,8 +61,8 @@ router = APIRouter()
 
 
 def _resolve_workspace_attachment_path(rel_path: str, *, cwd: str) -> Path:
-    base = Path(resolve_path(".", cwd=cwd))
-    path = Path(resolve_path(rel_path, cwd=cwd))
+    base = resolve_path(".", cwd=cwd)
+    path = resolve_path(rel_path, cwd=cwd)
     if base != path and not path.is_relative_to(base):
         raise HTTPException(status_code=400, detail=f"path outside workspace: {rel_path}")
     return path
@@ -128,7 +128,7 @@ async def _build_user_message(chat: ChatRequest, cwd: str) -> ConversationMessag
         path = (
             _resolve_workspace_attachment_path(rel_path, cwd=cwd)
             if block.is_attachment
-            else Path(resolve_path(rel_path, cwd=cwd))
+            else resolve_path(rel_path, cwd=cwd)
         )
         if not path.is_file():
             raise HTTPException(status_code=400, detail=f"{block.type} file not found: {block.path}")

@@ -86,7 +86,7 @@ def build_attachment_blocks(
                     supported = sorted(SUPPORTED_IMAGE_MIME_TYPES | SUPPORTED_DOCUMENT_MIME_TYPES)
                     raise ValueError(f"unsupported media_type {media_type!r}; want one of {supported}")
             case Path() as raw:
-                path = Path(resolve_path(str(raw), cwd=cwd))
+                path = resolve_path(raw, cwd=cwd)
                 if not path.exists():
                     raise ValueError(f"attachment not found: {raw}")
                 if path.is_dir():

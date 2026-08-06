@@ -125,7 +125,7 @@ def classify_tool(
 
     if name in {"read", "write", "edit"}:
         raw = str(ctx.tool_input.get("path") or "")
-        path = Path(resolve_path(raw, cwd=cwd)).resolve(strict=False)
+        path = resolve_path(raw, cwd=cwd)
         project_path = Path(project).resolve(strict=False)
         preview = raw or str(path)
         if name == "read" and any(path.is_relative_to(root) for root in skill_roots):
