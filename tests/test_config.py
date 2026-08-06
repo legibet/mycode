@@ -295,6 +295,7 @@ class TestResolveProvider:
         [
             ("moonshotai", "MOONSHOT_API_KEY", "moonshot-env-key", "kimi-k2-thinking", "kimi-k2-thinking"),
             ("google", "GEMINI_API_KEY", "gemini-env-key", None, "gemini-3.6-flash"),
+            ("alibaba", "DASHSCOPE_API_KEY", "dashscope-env-key", None, "qwen3.8-max"),
         ],
     )
     def test_accepts_raw_supported_providers(

@@ -12,6 +12,7 @@ from anthropic import APIStatusError as AnthropicAPIStatusError
 
 from mycode.compact import build_compact_event
 from mycode.providers import (
+    AlibabaAdapter,
     AnthropicAdapter,
     DeepSeekAdapter,
     GoogleGeminiAdapter,
@@ -1489,6 +1490,15 @@ def test_deepseek_none_disables_thinking() -> None:
 
     assert payload["extra_body"] == {"thinking": {"type": "disabled"}}
     assert "reasoning_effort" not in payload
+
+
+def test_alibaba_builds_provider_specific_payload() -> None:
+    payload = AlibabaAdapter()._build_request_payload(request_obj(reasoning_effort="xhigh"))
+
+    assert payload["extra_body"] == {"preserve_thinking": True}
+    assert payload["reasoning_effort"] == "xhigh"
+    assert payload["max_completion_tokens"] == 4096
+    assert "max_tokens" not in payload
 
 
 @pytest.mark.parametrize(

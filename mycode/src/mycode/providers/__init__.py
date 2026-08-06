@@ -6,6 +6,7 @@ from mycode.providers.anthropic_like import AnthropicAdapter, MiniMaxAdapter, Mo
 from mycode.providers.base import ProviderAdapter
 from mycode.providers.gemini import GoogleGeminiAdapter
 from mycode.providers.openai_chat import (
+    AlibabaAdapter,
     DeepSeekAdapter,
     OpenAIChatAdapter,
     OpenRouterAdapter,
@@ -25,6 +26,7 @@ _PROVIDERS: dict[str, ProviderAdapter] = {
         MoonshotAIAdapter(),
         MiniMaxAdapter(),
         OpenRouterAdapter(),
+        AlibabaAdapter(),
         XAIAdapter(),
         OpenAIChatAdapter(),
     )
@@ -73,6 +75,7 @@ def provider_default_models(provider_name: str | None) -> tuple[str, ...]:
 
 
 __all__ = [
+    "AlibabaAdapter",
     "AnthropicAdapter",
     "ProviderAdapter",
     "GoogleGeminiAdapter",

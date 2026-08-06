@@ -40,7 +40,7 @@ API keys are discovered automatically from environment variables. Run `/model` i
 
 ## Providers
 
-Supports Anthropic, OpenAI, Google Gemini, DeepSeek, Moonshot, MiniMax, Z.AI, OpenRouter, xAI, and any OpenAI-compatible endpoint. Set the provider's env var and you're ready.
+Supports Alibaba Cloud, Anthropic, OpenAI, Google Gemini, DeepSeek, Moonshot, MiniMax, Z.AI, OpenRouter, xAI, and any OpenAI-compatible endpoint. Set the provider's env var and you're ready.
 
 See [cli/README.md](cli/README.md) for the full provider table and configuration.
 

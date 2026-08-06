@@ -418,6 +418,31 @@ class ZAIAdapter(OpenAIChatAdapter):
         return payload
 
 
+class AlibabaAdapter(OpenAIChatAdapter):
+    """Alibaba Cloud Model Studio's OpenAI-compatible chat endpoint."""
+
+    provider_id = "alibaba"
+    label = "Alibaba Cloud"
+    default_base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    env_api_key_names = ("DASHSCOPE_API_KEY",)
+    default_models = ("qwen3.8-max",)
+    auto_discoverable = True
+    supports_reasoning_effort = True
+
+    @override
+    def _build_request_payload(self, request: ProviderRequest) -> dict[str, Any]:
+        payload = super()._build_request_payload(request)
+        payload["max_completion_tokens"] = payload.pop("max_tokens")
+        return payload
+
+    @override
+    def _build_provider_payload_overrides(self, request: ProviderRequest) -> dict[str, Any]:
+        payload: dict[str, Any] = {"extra_body": {"preserve_thinking": True}}
+        if request.reasoning_effort:
+            payload["reasoning_effort"] = request.reasoning_effort
+        return payload
+
+
 class XAIAdapter(OpenAIChatAdapter):
     """xAI's OpenAI-compatible Chat Completions endpoint."""
 

@@ -41,6 +41,7 @@ mycode run "explain how the session store works"
 | DeepSeek | `deepseek` | `DEEPSEEK_API_KEY` |
 | Z.AI | `zai` | `ZAI_API_KEY` |
 | OpenRouter | `openrouter` | `OPENROUTER_API_KEY` |
+| Alibaba Cloud | `alibaba` | `DASHSCOPE_API_KEY` |
 | xAI | `xai` | `XAI_API_KEY` |
 | OpenAI-compatible | `openai_chat` | - |
 

@@ -12,6 +12,7 @@ from pydantic import AliasPath, BaseModel, ConfigDict, Field
 MODELS_DEV_URL = "https://models.dev/api.json"
 TARGET_PATH = Path(__file__).resolve().parents[1] / "mycode" / "src" / "mycode" / "models_catalog.json"
 PROVIDERS = (
+    "alibaba",
     "anthropic",
     "deepseek",
     "google",

@@ -109,6 +109,8 @@ def infer_provider_from_model(model: str | None) -> str | None:
         return "moonshotai"
     if bare.startswith("minimax-"):
         return "minimax"
+    if bare.startswith(("qwen", "qvq-", "qwq-")):
+        return "alibaba"
     return None
 
 
