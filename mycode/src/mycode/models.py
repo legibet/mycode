@@ -2,15 +2,51 @@
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass, replace
 from functools import cache
 from pathlib import Path
 from typing import Any
 
-from mycode.utils import as_bool, as_int
+from pydantic import BaseModel, ConfigDict, TypeAdapter, ValidationError
 
 _MODELS_CATALOG_PATH = Path(__file__).with_name("models_catalog.json")
+
+
+class _CatalogSchema(BaseModel):
+    model_config = ConfigDict(strict=True, frozen=True, extra="forbid")
+
+
+class _CostTier(_CatalogSchema):
+    size: int
+    input: float | None = None
+    output: float | None = None
+    cache_read: float | None = None
+    cache_write: float | None = None
+    reasoning: float | None = None
+
+
+class _ModelCost(_CatalogSchema):
+    input: float | None = None
+    output: float | None = None
+    cache_read: float | None = None
+    cache_write: float | None = None
+    reasoning: float | None = None
+    tiers: tuple[_CostTier, ...] = ()
+
+
+class _CatalogEntry(_CatalogSchema):
+    context_window: int | None = None
+    max_output_tokens: int | None = None
+    supports_reasoning: bool | None = None
+    reasoning_efforts: tuple[str, ...] | None = None
+    supports_image_input: bool | None = None
+    supports_pdf_input: bool | None = None
+    cost: _ModelCost | None = None
+
+
+type _ModelsCatalog = dict[str, dict[str, _CatalogEntry]]
+
+_MODELS_CATALOG_ADAPTER = TypeAdapter(_ModelsCatalog)
 
 
 @dataclass(frozen=True)
@@ -44,14 +80,13 @@ class ModelMetadata:
 
 
 @cache
-def load_models_catalog() -> dict[str, Any] | None:
+def load_models_catalog() -> _ModelsCatalog | None:
     """Load the bundled model catalog from disk once per process."""
 
     try:
-        data = json.loads(_MODELS_CATALOG_PATH.read_text(encoding="utf-8"))
-    except (OSError, UnicodeError, json.JSONDecodeError):
+        return _MODELS_CATALOG_ADAPTER.validate_json(_MODELS_CATALOG_PATH.read_bytes())
+    except (OSError, ValidationError):
         return None
-    return data if isinstance(data, dict) else None
 
 
 def infer_provider_from_model(model: str | None) -> str | None:
@@ -128,11 +163,11 @@ def lookup_model_metadata(
         return None
 
     model_name = requested_model.split("/", 1)[1].strip() if "/" in requested_model else requested_model
-    catalog_entry = _get_catalog_entry(catalog, provider_type, requested_model)
+    catalog_entry = catalog.get(provider_type, {}).get(requested_model)
 
     inferred_provider = infer_provider_from_model(model_name)
     if catalog_entry is None and inferred_provider and inferred_provider != provider_type:
-        catalog_entry = _get_catalog_entry(catalog, inferred_provider, model_name)
+        catalog_entry = catalog.get(inferred_provider, {}).get(model_name)
 
     from_suffix_fallback = False
     if catalog_entry is None:
@@ -142,23 +177,24 @@ def lookup_model_metadata(
     if catalog_entry is None:
         return None
 
-    raw_reasoning_efforts = catalog_entry.get("reasoning_efforts")
-    reasoning_efforts = (
-        tuple(value for value in raw_reasoning_efforts if isinstance(value, str))
-        if isinstance(raw_reasoning_efforts, list)
-        else None
-    )
-    cost = catalog_entry.get("cost")
     return ModelMetadata(
         provider=provider_type,
         model=requested_model,
-        context_window=as_int(catalog_entry.get("context_window")),
-        max_output_tokens=as_int(catalog_entry.get("max_output_tokens")),
-        supports_reasoning=as_bool(catalog_entry.get("supports_reasoning")),
-        reasoning_efforts=reasoning_efforts,
-        supports_image_input=as_bool(catalog_entry.get("supports_image_input")),
-        supports_pdf_input=as_bool(catalog_entry.get("supports_pdf_input")),
-        cost=cost if isinstance(cost, dict) and not from_suffix_fallback else None,
+        context_window=catalog_entry.context_window,
+        max_output_tokens=catalog_entry.max_output_tokens,
+        supports_reasoning=catalog_entry.supports_reasoning,
+        reasoning_efforts=catalog_entry.reasoning_efforts,
+        supports_image_input=catalog_entry.supports_image_input,
+        supports_pdf_input=catalog_entry.supports_pdf_input,
+        cost=(
+            catalog_entry.cost.model_dump(
+                mode="json",
+                exclude_none=True,
+                exclude_defaults=True,
+            )
+            if catalog_entry.cost is not None and not from_suffix_fallback
+            else None
+        ),
     )
 
 
@@ -240,30 +276,14 @@ def estimate_cost(usage: dict[str, Any], cost: dict[str, Any] | None) -> float |
     return total / 1_000_000
 
 
-def _get_catalog_entry(
-    catalog: dict[str, Any],
-    provider: str,
-    model_id: str,
-) -> dict[str, Any] | None:
-    """Return a catalog entry for provider/model_id."""
-
-    section = catalog.get(provider)
-    if not isinstance(section, dict):
-        return None
-    catalog_entry = section.get(model_id)
-    return catalog_entry if isinstance(catalog_entry, dict) else None
-
-
-def _get_openrouter_suffix_entry(catalog: dict[str, Any], model_name: str) -> dict[str, Any] | None:
+def _get_openrouter_suffix_entry(catalog: _ModelsCatalog, model_name: str) -> _CatalogEntry | None:
     """Return an OpenRouter entry with a unique matching model suffix."""
 
-    openrouter = catalog.get("openrouter")
-    if not isinstance(openrouter, dict):
-        return None
+    openrouter = catalog.get("openrouter", {})
 
-    match: dict[str, Any] | None = None
+    match: _CatalogEntry | None = None
     for model_id, catalog_entry in openrouter.items():
-        if not isinstance(model_id, str) or "/" not in model_id or not isinstance(catalog_entry, dict):
+        if "/" not in model_id:
             continue
         if model_id.split("/", 1)[1].strip() != model_name:
             continue

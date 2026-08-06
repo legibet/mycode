@@ -7,7 +7,7 @@ import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 from mycode.models import ModelMetadata, resolve_model_metadata
 from mycode.providers import (
@@ -20,7 +20,6 @@ from mycode.providers import (
     provider_default_models,
     provider_env_api_key_names,
 )
-from mycode.utils import as_bool, as_int
 
 _DEFAULT_MYCODE_HOME = "~/.mycode"
 _API_KEY_ENV_REF_RE = re.compile(r"^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$")
@@ -165,10 +164,9 @@ def parse_compact_threshold(value: Any) -> float | None:
     if value is False:
         return 0.0
 
-    try:
-        threshold = float(value)
-    except (TypeError, ValueError):
+    if not isinstance(value, (int, float)) or isinstance(value, bool):
         return None
+    threshold = float(value)
 
     if threshold < 0 or threshold > 1:
         return None
@@ -275,6 +273,17 @@ def parse_permission(value: Any, current: PermissionConfig | None = None) -> Per
 def validate_global_config(data: Any) -> dict[str, Any]:
     """Validate and clean a global config document before writing it to disk."""
 
+    out = _clean_config_layer(data)
+    providers = cast(dict[str, dict[str, Any]], out.get("providers", {}))
+    for name, provider in providers.items():
+        if "type" not in provider and not is_supported_provider(name):
+            raise ValueError(f"provider {name!r} must set 'type'")
+    return out
+
+
+def _clean_config_layer(data: Any) -> dict[str, Any]:
+    """Validate and clean one possibly partial config document."""
+
     if data is None:
         return {}
     if not isinstance(data, dict):
@@ -366,15 +375,12 @@ def _validate_provider_config(name: str, raw: Any) -> dict[str, Any]:
 
     out: dict[str, Any] = {}
     raw_type = raw.get("type")
-    if raw_type in (None, ""):
-        if not is_supported_provider(name):
-            raise ValueError(f"provider {name!r} must set 'type'")
-    elif not isinstance(raw_type, str):
+    if raw_type not in (None, "") and not isinstance(raw_type, str):
         raise ValueError(f"provider {name!r}: type must be a string")
-    elif not is_supported_provider(raw_type):
+    if isinstance(raw_type, str) and raw_type and not is_supported_provider(raw_type):
         supported = ", ".join(list_supported_providers())
         raise ValueError(f"provider {name!r}: unsupported type {raw_type!r}; supported: {supported}")
-    else:
+    if isinstance(raw_type, str) and raw_type:
         out["type"] = raw_type
 
     for key in ("api_key", "base_url"):
@@ -424,8 +430,14 @@ def _validate_model_config_entries(name: str, raw: Any) -> dict[str, dict[str, A
                 for k, v in overrides.items()
                 if isinstance(k, str) and k in MODEL_OVERRIDE_KEYS and k != "reasoning_efforts" and v is not None
             }
+            for field in ("context_window", "max_output_tokens"):
+                if field in model_config and type(model_config[field]) is not int:
+                    raise ValueError(f"provider {name!r}: model {key!r}: {field} must be an integer")
+            for field in ("supports_reasoning", "supports_image_input", "supports_pdf_input"):
+                if field in model_config and type(model_config[field]) is not bool:
+                    raise ValueError(f"provider {name!r}: model {key!r}: {field} must be a boolean")
             if overrides.get("reasoning_efforts") is not None:
-                model_config["reasoning_efforts"] = list(
+                model_config["reasoning_efforts"] = (
                     normalize_reasoning_efforts(overrides.get("reasoning_efforts")) or ()
                 )
             out[key] = model_config
@@ -449,7 +461,7 @@ def get_settings(cwd: str | None = None) -> Settings:
     config_paths: list[str] = []
 
     for path in _candidate_config_paths(resolved_cwd, resolved_project):
-        data = _load_json(path)
+        data = _load_config(path)
         if data is None:
             continue
 
@@ -513,41 +525,23 @@ def get_settings(cwd: str | None = None) -> Settings:
     )
 
 
-def _load_json(path: Path) -> dict[str, Any] | None:
-    """Load a JSON object from a config file; ignore missing or invalid files."""
+def _load_config(path: Path) -> dict[str, Any] | None:
+    """Load and validate one config layer."""
 
     if not path.is_file():
         return None
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeError, json.JSONDecodeError):
-        return None
-    return data if isinstance(data, dict) else None
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise ValueError(f"invalid config {path}: {exc}") from exc
+    if not isinstance(data, dict):
+        raise ValueError(f"invalid config {path}: config must be an object")
 
-
-def _normalize_models(value: Any) -> dict[str, ModelConfig]:
-    """Convert raw model overrides into runtime model config objects."""
-
-    if not isinstance(value, dict):
-        return {}
-
-    models: dict[str, ModelConfig] = {}
-    for model, raw in value.items():
-        if not isinstance(model, str):
-            continue
-        model_id = model.strip()
-        if not model_id:
-            continue
-        raw_config = raw if isinstance(raw, dict) else {}
-        models[model_id] = ModelConfig(
-            context_window=as_int(raw_config.get("context_window")),
-            max_output_tokens=as_int(raw_config.get("max_output_tokens")),
-            supports_reasoning=as_bool(raw_config.get("supports_reasoning")),
-            reasoning_efforts=normalize_reasoning_efforts(raw_config.get("reasoning_efforts")),
-            supports_image_input=as_bool(raw_config.get("supports_image_input")),
-            supports_pdf_input=as_bool(raw_config.get("supports_pdf_input")),
-        )
-    return models
+    try:
+        cleaned = _clean_config_layer(data)
+    except ValueError as exc:
+        raise ValueError(f"invalid config {path}: {exc}") from exc
+    return cleaned
 
 
 def _parse_config_api_key(value: Any) -> tuple[str | None, str | None]:
@@ -581,7 +575,8 @@ def _build_providers(raw_providers: dict[str, dict[str, Any]]) -> dict[str, Prov
         else:
             raise ValueError(f"provider {name!r} must set 'type'")
 
-        models = _normalize_models(raw.get("models"))
+        raw_models = cast(dict[str, dict[str, Any]] | None, raw.get("models"))
+        models = {model: ModelConfig(**config) for model, config in (raw_models or {}).items()}
         if not models:
             models = {model: ModelConfig() for model in provider_default_models(provider_type)}
         providers[name] = ProviderConfig(
@@ -592,7 +587,7 @@ def _build_providers(raw_providers: dict[str, dict[str, Any]]) -> dict[str, Prov
             api_key_env_var=raw.get("api_key_env_var") or None,
             base_url=raw.get("base_url") or None,
             reasoning_effort=normalize_provider_reasoning_effort(raw.get("reasoning_effort")),
-            supports_reasoning_effort=bool(as_bool(raw.get("supports_reasoning_effort"))),
+            supports_reasoning_effort=raw.get("supports_reasoning_effort") is True,
         )
 
     return providers

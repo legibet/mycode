@@ -257,6 +257,37 @@ class TestGetSettings:
         with pytest.raises(ValueError, match="unsupported permission level 'careless'"):
             get_settings(str(workspace.resolve()))
 
+    @pytest.mark.parametrize(
+        ("field", "value"),
+        [
+            ("context_window", True),
+            ("supports_reasoning", "yes"),
+        ],
+    )
+    def test_rejects_invalid_model_override_types(
+        self,
+        workspace: Path,
+        config_home: Path,
+        field: str,
+        value: object,
+    ) -> None:
+        config_path = config_home / "config.json"
+        write_json(
+            config_path,
+            {"providers": {"openai": {"models": {"gpt-5": {field: value}}}}},
+        )
+
+        with pytest.raises(ValueError, match=rf"{config_path}.*{field}"):
+            get_settings(str(workspace.resolve()))
+
+    def test_reports_malformed_config_with_its_path(self, workspace: Path, config_home: Path) -> None:
+        config_path = config_home / "config.json"
+        config_path.parent.mkdir(parents=True)
+        config_path.write_text("{", encoding="utf-8")
+
+        with pytest.raises(ValueError, match=rf"invalid config {config_path}"):
+            get_settings(str(workspace.resolve()))
+
 
 class TestResolveProvider:
     @pytest.mark.parametrize(

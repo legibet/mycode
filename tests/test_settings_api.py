@@ -131,6 +131,10 @@ class TestSettingsApi:
                 {"providers": {"custom": {"type": "openai_chat", "supports_reasoning_effort": "yes"}}},
                 "supports_reasoning_effort",
             ),
+            (
+                {"providers": {"openai": {"models": {"gpt-5": {"context_window": "128000"}}}}},
+                "context_window",
+            ),
         ],
     )
     def test_put_rejects_invalid_input(

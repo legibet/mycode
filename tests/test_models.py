@@ -2,13 +2,24 @@
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
+import mycode.models as models
 from mycode.models import estimate_cost, lookup_model_metadata
 
 
 def patch_catalog(monkeypatch, catalog: dict[str, object]) -> None:
-    monkeypatch.setattr("mycode.models.load_models_catalog", lambda: catalog)
+    parsed = models._MODELS_CATALOG_ADAPTER.validate_json(json.dumps(catalog))
+    monkeypatch.setattr("mycode.models.load_models_catalog", lambda: parsed)
+
+
+def test_bundled_catalog_is_valid() -> None:
+    catalog = models.load_models_catalog()
+
+    assert catalog is not None
+    assert catalog
 
 
 def test_lookup_model_metadata_prefers_provider_specific_match(monkeypatch) -> None:
@@ -123,6 +134,27 @@ def test_cost_comes_from_direct_and_inferred_entries_but_not_suffix_fallback(mon
     assert fallback is not None
     assert fallback.context_window == 64_000
     assert fallback.cost is None
+
+
+def test_catalog_cost_tiers_keep_the_public_json_shape(monkeypatch) -> None:
+    patch_catalog(
+        monkeypatch,
+        {
+            "openai": {
+                "gpt-5": {
+                    "cost": {
+                        "input": 1.0,
+                        "tiers": [{"size": 200_000, "input": 2.0}],
+                    }
+                }
+            }
+        },
+    )
+
+    metadata = lookup_model_metadata(provider_type="openai", model="gpt-5")
+
+    assert metadata is not None
+    assert metadata.cost == {"input": 1.0, "tiers": [{"size": 200_000, "input": 2.0}]}
 
 
 # estimate_cost

@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 from urllib.request import Request, urlopen
 
-from mycode.utils import as_bool, as_int
+from pydantic import AliasPath, BaseModel, ConfigDict, Field
 
 MODELS_DEV_URL = "https://models.dev/api.json"
 TARGET_PATH = Path(__file__).resolve().parents[1] / "mycode" / "src" / "mycode" / "models_catalog.json"
@@ -28,32 +28,53 @@ PROVIDERS = (
 PRICE_KEYS = ("input", "output", "cache_read", "cache_write", "reasoning")
 
 
-def as_price(value: Any) -> float | None:
-    return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else None
+class _SourceModelBase(BaseModel):
+    model_config = ConfigDict(strict=True, extra="ignore")
 
 
-def extract_cost(raw_model: dict[str, Any]) -> dict[str, Any] | None:
+class _SourceCostTier(_SourceModelBase):
+    tier_type: str | None = Field(default=None, validation_alias=AliasPath("tier", "type"))
+    size: int | None = Field(default=None, validation_alias=AliasPath("tier", "size"))
+    input: float | None = None
+    output: float | None = None
+    cache_read: float | None = None
+    cache_write: float | None = None
+    reasoning: float | None = None
+
+
+class _SourceCost(_SourceModelBase):
+    input: float | None = None
+    output: float | None = None
+    cache_read: float | None = None
+    cache_write: float | None = None
+    reasoning: float | None = None
+    tiers: list[_SourceCostTier] = Field(default_factory=list)
+
+
+class _SourceModel(_SourceModelBase):
+    context_window: int | None = Field(default=None, validation_alias=AliasPath("limit", "context"))
+    max_output_tokens: int | None = Field(default=None, validation_alias=AliasPath("limit", "output"))
+    supports_reasoning: bool | None = Field(default=None, validation_alias="reasoning")
+    input_modalities: list[str] = Field(default_factory=list, validation_alias=AliasPath("modalities", "input"))
+    reasoning_options: list[dict[str, Any]] = Field(default_factory=list)
+    cost: _SourceCost | None = None
+
+
+def extract_cost(source: _SourceModel) -> dict[str, Any] | None:
     """Normalize models.dev cost data: USD per 1M tokens, context tiers only."""
 
-    raw_cost = raw_model.get("cost")
-    if not isinstance(raw_cost, dict):
+    raw_cost = source.cost
+    if raw_cost is None:
         return None
 
-    cost: dict[str, Any] = {key: price for key in PRICE_KEYS if (price := as_price(raw_cost.get(key))) is not None}
+    cost: dict[str, Any] = {key: price for key in PRICE_KEYS if (price := getattr(raw_cost, key)) is not None}
 
     tiers: list[dict[str, Any]] = []
-    raw_tiers = raw_cost.get("tiers")
-    for raw_tier in raw_tiers if isinstance(raw_tiers, list) else []:
-        if not isinstance(raw_tier, dict):
+    for raw_tier in raw_cost.tiers:
+        if raw_tier.tier_type != "context" or raw_tier.size is None:
             continue
-        tier_info = raw_tier.get("tier")
-        if not isinstance(tier_info, dict) or tier_info.get("type") != "context":
-            continue
-        size = as_int(tier_info.get("size"))
-        if size is None:
-            continue
-        tier: dict[str, Any] = {key: price for key in PRICE_KEYS if (price := as_price(raw_tier.get(key))) is not None}
-        tier["size"] = size
+        tier: dict[str, Any] = {key: price for key in PRICE_KEYS if (price := getattr(raw_tier, key)) is not None}
+        tier["size"] = raw_tier.size
         tiers.append(tier)
     if tiers:
         cost["tiers"] = sorted(tiers, key=lambda tier: tier["size"])
@@ -61,16 +82,15 @@ def extract_cost(raw_model: dict[str, Any]) -> dict[str, Any] | None:
     return cost or None
 
 
-def extract_reasoning_efforts(raw_model: dict[str, Any]) -> list[str] | None:
+def extract_reasoning_efforts(source: _SourceModel) -> list[str] | None:
     """Extract the string values advertised by effort options."""
 
-    raw_options = raw_model.get("reasoning_options")
-    if not isinstance(raw_options, list):
+    if "reasoning_options" not in source.model_fields_set:
         return None
 
     efforts: list[str] = []
-    for option in raw_options:
-        if not isinstance(option, dict) or option.get("type") != "effort":
+    for option in source.reasoning_options:
+        if option.get("type") != "effort":
             continue
         values = option.get("values")
         if isinstance(values, list):
@@ -101,25 +121,17 @@ def main() -> None:
             if not isinstance(model_id, str) or not isinstance(raw_model, dict):
                 continue
 
-            limits = raw_model.get("limit")
-            limit_data = limits if isinstance(limits, dict) else {}
-            context_window = limit_data.get("context")
-            max_output_tokens = limit_data.get("output")
-            supports_reasoning = raw_model.get("reasoning")
-            modalities = raw_model.get("modalities")
-            input_modalities = modalities.get("input") if isinstance(modalities, dict) else None
-            supports_image_input = isinstance(input_modalities, list) and "image" in input_modalities
-            supports_pdf_input = isinstance(input_modalities, list) and "pdf" in input_modalities
+            source_model = _SourceModel.model_validate(raw_model)
 
             entry: dict[str, Any] = {
-                "context_window": as_int(context_window),
-                "max_output_tokens": as_int(max_output_tokens),
-                "supports_reasoning": as_bool(supports_reasoning),
-                "reasoning_efforts": extract_reasoning_efforts(raw_model),
-                "supports_image_input": supports_image_input,
-                "supports_pdf_input": supports_pdf_input,
+                "context_window": source_model.context_window,
+                "max_output_tokens": source_model.max_output_tokens,
+                "supports_reasoning": source_model.supports_reasoning,
+                "reasoning_efforts": extract_reasoning_efforts(source_model),
+                "supports_image_input": "image" in source_model.input_modalities,
+                "supports_pdf_input": "pdf" in source_model.input_modalities,
             }
-            if cost := extract_cost(raw_model):
+            if cost := extract_cost(source_model):
                 entry["cost"] = cost
             models[model_id] = entry
 
