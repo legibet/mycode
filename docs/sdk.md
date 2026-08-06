@@ -82,9 +82,9 @@ async for _ in agent.achat("follow-up that references the earlier answer"):
 
 ### Reasoning effort
 
-`Agent(reasoning_effort=...)` accepts any string without consulting model metadata and passes it to the selected provider adapter. Adapters project the value into their protocol and may reject values that protocol does not represent, such as an unknown Gemini `ThinkingLevel`. Pass `None` to omit an explicit effort and use the provider default.
+`Agent(reasoning_effort=...)` passes the value directly to the selected provider adapter. Pass `None` to leave the effort unspecified. The adapter converts string values to the provider's request format and may reject unsupported values.
 
-`ModelMetadata.reasoning_efforts` exposes the string values from effort options published in the bundled model catalog. Toggle and token-budget options are excluded. It is informational and does not gate `Agent.reasoning_effort`: `None` means the source has no reasoning options, an empty tuple means it advertises no effort option, and a non-empty tuple contains the advertised effort values.
+`ModelMetadata.reasoning_efforts` lists the effort values advertised for a model. It is informational and does not validate or restrict `Agent.reasoning_effort`.
 
 ### Cancellation
 
