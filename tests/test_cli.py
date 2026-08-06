@@ -296,12 +296,11 @@ class TestReplyRenderer:
             context_window=1_000,
             session_cost_base=session_cost_base,
         )
-        renderer._stats = {"context_tokens": 100, "turn_cost_usd": turn_cost}
+        renderer._stats = {"turn_cost_usd": turn_cost}
 
         renderer.finish()
 
         rendered = output.getvalue()
-        assert "100 tokens (10%)" in rendered
         if expected is None:
             assert "$" not in rendered
         else:

@@ -622,14 +622,16 @@ class ReplyRenderer:
         self._reset_stream_state()
 
         context_tokens = self._stats.get("context_tokens")
+        parts = []
         if context_tokens:
             usage_text = f"{context_tokens:,} tokens"
             if self._context_window:
                 usage_text += f" ({round(context_tokens * 100 / self._context_window)}%)"
-            parts = [usage_text]
-            session_cost = sum_known_costs(self._session_cost_base, self._stats.get("turn_cost_usd"))
-            if session_cost is not None:
-                parts.append(_format_cost(session_cost))
+            parts.append(usage_text)
+        session_cost = sum_known_costs(self._session_cost_base, self._stats.get("turn_cost_usd"))
+        if session_cost is not None:
+            parts.append(_format_cost(session_cost))
+        if parts:
             self._console.print(Text(f"  {self._model}  {' · '.join(parts)}", style=STATS))
 
     # -- Internal helpers ----------------------------------------------------
