@@ -102,7 +102,7 @@ Create `~/.mycode/config.json` (global) or `.mycode/config.json` under the curre
 ```
 
 - To override a built-in provider, reuse its id as the key — no `type` needed. Custom providers must declare a `type` — one of the built-in protocols.
-- `reasoning_effort` controls extended thinking for supported models: `auto` (default) · `none` · `low` · `medium` · `high` · `xhigh`.
+- `reasoning_effort` controls extended thinking. Available values come from the selected model; `auto` leaves the effort unspecified.
 - API keys in config accept `${ENV_VAR}` references.
 - Model metadata is bundled from [models.dev](https://models.dev) — `{}` is enough for most models. Provide explicit fields only for models not listed there.
 

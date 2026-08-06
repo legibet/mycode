@@ -32,7 +32,7 @@ Request body (`ChatRequest`, `cli/src/mycode_cli/server/schemas.py`):
 Exactly one of `message` or `input` is required.
 
 - `provider` — provider id or configured alias name
-- `reasoning_effort` — overrides config for this request only; `null`/`"auto"` means use config default
+- `reasoning_effort` — overrides config for this request only; omit the field to inherit config, or send `null`/`"auto"` to leave effort unspecified
 - `rewind_to` — visible message index to rewind to before sending the new message; target must be a real user message
 - A standalone `/<skill-name>` token adds the matching skill for `cwd`. The message prepends a hidden snapshot containing the frontmatter-free skill body, source path, and base directory, then keeps the original user text. Other slash tokens are sent as text.
 
@@ -74,6 +74,7 @@ Response:
 Error responses:
 
 - `422` — invalid request shape, such as missing `message`/`input`, both `message` and `input`, or invalid inline media fields; body is FastAPI validation detail (`{"detail": [...]}`)
+- `400` — unsupported `reasoning_effort`; body explains whether the provider, model, or value is unsupported
 - `400` — invalid `rewind_to`; body is `{"detail": "..."}`
 - `400` — missing or invalid `cwd`; body is `{"detail": "Working directory does not exist: ..."}`
 - `409` — session already has a running task; body is `{"detail": {"message": "...", "run": {...}}}`
@@ -159,7 +160,8 @@ Response:
       "has_api_key": true,
       "supports_reasoning_effort": true,
       "reasoning_models": ["claude-sonnet-4-6"],
-      "reasoning_effort": "auto",
+      "reasoning_efforts": {"claude-sonnet-4-6": ["low", "medium", "high"]},
+      "reasoning_effort": null,
       "supports_image_input": true,
       "image_input_models": ["claude-sonnet-4-6"],
       "supports_pdf_input": true,
@@ -167,8 +169,8 @@ Response:
     }
   },
   "default": { "provider": "<provider_name>", "model": "claude-sonnet-4-6" },
-  "default_reasoning_effort": "auto",
-  "reasoning_effort_options": ["auto", "none", "low", "medium", "high", "xhigh"],
+  "default_reasoning_effort": null,
+  "reasoning_effort_options": ["auto", "none", "minimal", "low", "medium", "high", "xhigh", "max"],
   "cwd": "...",
   "cwd_exists": true,
   "project": "...",
@@ -178,7 +180,7 @@ Response:
 }
 ```
 
-`skills` lists the name and description used by slash completion. Skill paths and contents stay on the server. Providers with `supports_reasoning_effort=true` include `reasoning_models`. `image_input_models` lists models with image input. `pdf_input_models` lists models with PDF input. A provider setup error returns status `200`, an empty `providers` object, empty `default` fields, and `setup_error: {"message": "..."}`. A ready setup returns `setup_error: null`.
+`reasoning_efforts` maps each model to its available effort values; an empty list means the model has no effort selector. `reasoning_models` contains the models with non-empty values for older clients. `skills` lists the name and description used by slash completion. Skill paths and contents stay on the server. `image_input_models` lists models with image input. `pdf_input_models` lists models with PDF input. A provider setup error returns status `200`, an empty `providers` object, empty `default` fields, and `setup_error: {"message": "..."}`. A ready setup returns `setup_error: null`.
 
 ## Settings
 
@@ -212,7 +214,7 @@ Returns the global config plus options for the editor UI.
     "provider_types": ["anthropic", "openai", "..."],
     "permission_levels": ["readonly", "safe", "standard", "yolo"],
     "permission_modes": ["ask", "deny"],
-    "reasoning_efforts": ["auto", "none", "low", "medium", "high", "xhigh"]
+    "reasoning_efforts": ["auto", "none", "minimal", "low", "medium", "high", "xhigh", "max"]
   },
   "env": {"ANTHROPIC_API_KEY": true, "OPENAI_API_KEY": false},
   "provider_type_env_vars": {"anthropic": ["ANTHROPIC_API_KEY"]},

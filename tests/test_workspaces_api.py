@@ -61,7 +61,7 @@ def test_workspace_symlink_cannot_attach_file_outside_cwd(
 
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
     monkeypatch.setattr(
-        "mycode_cli.server.routers.chat.resolve_model_metadata",
+        "mycode_cli.server.routers.chat.resolve_configured_model_metadata",
         lambda **_: ModelMetadata(
             provider="anthropic",
             model="claude-sonnet-4-6",

@@ -257,6 +257,7 @@ def chat(
                 settings=setup.settings,
                 store=setup.store,
                 session_id=setup.resolved_session.session_id,
+                reasoning_efforts=setup.resolved_provider.reasoning_efforts,
                 view=setup.view,
             ).run()
         )

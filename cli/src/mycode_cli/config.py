@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
 
-from mycode.models import resolve_model_metadata
+from mycode.models import ModelMetadata, resolve_model_metadata
 from mycode.providers import (
     OpenAIChatAdapter,
     get_provider_adapter,
@@ -27,13 +27,14 @@ _API_KEY_ENV_REF_RE = re.compile(r"^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$")
 
 # "auto" means "do not send an explicit effort to the provider"; after
 # normalization it is represented as None.
-REASONING_EFFORT_OPTIONS = ("auto", "none", "low", "medium", "high", "xhigh")
+REASONING_EFFORT_OPTIONS = ("auto", "none", "minimal", "low", "medium", "high", "xhigh", "max")
 PERMISSION_LEVEL_OPTIONS = ("readonly", "safe", "standard", "yolo")
 PERMISSION_MODE_OPTIONS = ("ask", "deny")
 MODEL_OVERRIDE_KEYS = (
     "context_window",
     "max_output_tokens",
     "supports_reasoning",
+    "reasoning_efforts",
     "supports_image_input",
     "supports_pdf_input",
 )
@@ -49,6 +50,7 @@ class ModelConfig:
     context_window: int | None = None
     max_output_tokens: int | None = None
     supports_reasoning: bool | None = None
+    reasoning_efforts: tuple[str, ...] | None = None
     supports_image_input: bool | None = None
     supports_pdf_input: bool | None = None
 
@@ -99,6 +101,7 @@ class ResolvedProvider:
     provider_name: str | None = None
     model_config: ModelConfig | None = None
     supports_reasoning_effort: bool = False
+    reasoning_efforts: tuple[str, ...] = ()
 
 
 def resolve_mycode_home() -> Path:
@@ -191,17 +194,49 @@ def normalize_reasoning_effort(value: Any) -> str | None:
     raise ValueError(f"unsupported reasoning_effort {value!r}; supported: {supported}")
 
 
-def gate_reasoning_effort(
-    effort: str | None,
-    *,
-    supports_reasoning: bool | None,
-    adapter_supports_effort: bool,
-) -> str | None:
-    """Return effort only when the model reasons and the adapter accepts the effort knob."""
+def normalize_reasoning_efforts(value: Any) -> tuple[str, ...] | None:
+    """Normalize a model's advertised effort values."""
 
-    if effort is not None and supports_reasoning is True and adapter_supports_effort:
-        return effort
-    return None
+    if value is None:
+        return None
+    if not isinstance(value, list):
+        raise ValueError("reasoning_efforts must be a list")
+
+    efforts: list[str] = []
+    for raw_effort in value:
+        effort = normalize_reasoning_effort(raw_effort)
+        if effort is None:
+            raise ValueError("reasoning_efforts cannot include auto or default")
+        efforts.append(effort)
+    return tuple(dict.fromkeys(efforts))
+
+
+def normalize_provider_reasoning_effort(value: Any) -> str | None:
+    """Normalize a provider override while preserving explicit auto."""
+
+    if value in (None, ""):
+        return None
+    return normalize_reasoning_effort(value) or "auto"
+
+
+def resolve_configured_model_metadata(
+    *,
+    provider: str,
+    model: str,
+    model_config: ModelConfig | None = None,
+) -> ModelMetadata:
+    """Resolve catalog metadata with the selected model's config overrides."""
+
+    return resolve_model_metadata(
+        provider=provider,
+        model=model,
+        context_window=model_config.context_window if model_config else None,
+        max_output_tokens=model_config.max_output_tokens if model_config else None,
+        supports_reasoning=model_config.supports_reasoning if model_config else None,
+        reasoning_efforts=model_config.reasoning_efforts if model_config else None,
+        supports_image_input=model_config.supports_image_input if model_config else None,
+        supports_pdf_input=model_config.supports_pdf_input if model_config else None,
+    )
 
 
 def normalize_permission_level(value: Any) -> PermissionLevel:
@@ -384,9 +419,16 @@ def _validate_model_config_entries(name: str, raw: Any) -> dict[str, dict[str, A
         if overrides is None:
             out[key] = {}
         elif isinstance(overrides, dict):
-            out[key] = {
-                k: v for k, v in overrides.items() if isinstance(k, str) and k in MODEL_OVERRIDE_KEYS and v is not None
+            model_config = {
+                k: v
+                for k, v in overrides.items()
+                if isinstance(k, str) and k in MODEL_OVERRIDE_KEYS and k != "reasoning_efforts" and v is not None
             }
+            if overrides.get("reasoning_efforts") is not None:
+                model_config["reasoning_efforts"] = list(
+                    normalize_reasoning_efforts(overrides.get("reasoning_efforts")) or ()
+                )
+            out[key] = model_config
         else:
             raise ValueError(f"provider {name!r}: model {key!r} config must be an object")
     return out
@@ -501,6 +543,7 @@ def _normalize_models(value: Any) -> dict[str, ModelConfig]:
             context_window=as_int(raw_config.get("context_window")),
             max_output_tokens=as_int(raw_config.get("max_output_tokens")),
             supports_reasoning=as_bool(raw_config.get("supports_reasoning")),
+            reasoning_efforts=normalize_reasoning_efforts(raw_config.get("reasoning_efforts")),
             supports_image_input=as_bool(raw_config.get("supports_image_input")),
             supports_pdf_input=as_bool(raw_config.get("supports_pdf_input")),
         )
@@ -548,7 +591,7 @@ def _build_providers(raw_providers: dict[str, dict[str, Any]]) -> dict[str, Prov
             api_key=raw.get("api_key") or None,
             api_key_env_var=raw.get("api_key_env_var") or None,
             base_url=raw.get("base_url") or None,
-            reasoning_effort=normalize_reasoning_effort(raw.get("reasoning_effort")),
+            reasoning_effort=normalize_provider_reasoning_effort(raw.get("reasoning_effort")),
             supports_reasoning_effort=bool(as_bool(raw.get("supports_reasoning_effort"))),
         )
 
@@ -698,30 +741,25 @@ def _resolve_provider_runtime(
     resolved_api_base = api_base or (provider_config.base_url if provider_config else None)
 
     configured_effort = (
-        provider_config.reasoning_effort
+        normalize_reasoning_effort(provider_config.reasoning_effort)
         if provider_config and provider_config.reasoning_effort is not None
         else settings.default_reasoning_effort
     )
 
-    # Drop reasoning_effort when the model does not support reasoning. Config
-    # overrides win over catalog metadata.
     model_config = provider_config.models.get(resolved_model) if provider_config else None
-    meta = resolve_model_metadata(
+    meta = resolve_configured_model_metadata(
         provider=provider_type,
         model=resolved_model,
-        supports_reasoning=model_config.supports_reasoning if model_config else None,
+        model_config=model_config,
     )
+    reasoning_efforts = meta.reasoning_efforts or ()
     adapter = get_provider_adapter(provider_type)
     # Whether this endpoint accepts the effort knob: the adapter declares it
     # natively, or a generic openai_chat provider opts in via config.
     supports_effort = adapter.supports_reasoning_effort or bool(
         provider_config and provider_config.supports_reasoning_effort and isinstance(adapter, OpenAIChatAdapter)
     )
-    reasoning_effort = gate_reasoning_effort(
-        configured_effort,
-        supports_reasoning=meta.supports_reasoning,
-        adapter_supports_effort=supports_effort,
-    )
+    reasoning_effort = configured_effort if supports_effort and configured_effort in reasoning_efforts else None
 
     resolved_api_key = api_key
     if not resolved_api_key and provider_config:
@@ -749,4 +787,5 @@ def _resolve_provider_runtime(
         reasoning_effort=reasoning_effort,
         model_config=model_config,
         supports_reasoning_effort=supports_effort,
+        reasoning_efforts=reasoning_efforts,
     )

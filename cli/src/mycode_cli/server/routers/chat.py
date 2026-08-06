@@ -7,6 +7,7 @@ import json
 import os
 from base64 import b64encode
 from collections.abc import AsyncIterator
+from dataclasses import replace
 from pathlib import Path
 from typing import Annotated, Any, cast
 
@@ -28,15 +29,14 @@ from mycode.messages import (
     image_block,
     text_block,
 )
-from mycode.models import resolve_model_metadata
 from mycode.providers import provider_default_models
 from mycode.utils import resolve_path
 from mycode_cli.config import (
     REASONING_EFFORT_OPTIONS,
     ResolvedProvider,
-    gate_reasoning_effort,
     get_settings,
     normalize_reasoning_effort,
+    resolve_configured_model_metadata,
     resolve_provider,
     resolve_provider_choices,
 )
@@ -187,22 +187,16 @@ async def chat(chat: ChatRequest, store: StoreDep, runs: RunManagerDep) -> ChatR
         api_key=chat.api_key,
         api_base=chat.api_base,
     )
-    try:
-        request_effort = normalize_reasoning_effort(chat.reasoning_effort)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
     session_id = chat.session_id or "default"
     user_message = await _build_user_message(chat, cwd)
 
     # Capability check before any disk mutation — a failed check must not
     # leave an empty session on disk or land a premature rewind marker.
     model_config = resolved.model_config
-    model_meta = resolve_model_metadata(
+    model_meta = resolve_configured_model_metadata(
         provider=resolved.provider,
         model=resolved.model,
-        supports_reasoning=model_config.supports_reasoning if model_config else None,
-        supports_image_input=model_config.supports_image_input if model_config else None,
-        supports_pdf_input=model_config.supports_pdf_input if model_config else None,
+        model_config=model_config,
     )
     content_types = {b.get("type") for b in (user_message.get("content") or []) if isinstance(b, dict)}
     if "image" in content_types and not model_meta.supports_image_input:
@@ -210,12 +204,34 @@ async def chat(chat: ChatRequest, store: StoreDep, runs: RunManagerDep) -> ChatR
     if "document" in content_types and not model_meta.supports_pdf_input:
         raise HTTPException(status_code=400, detail="current model does not support PDF input")
 
-    configured_effort = request_effort if request_effort is not None else resolved.reasoning_effort
-    reasoning_effort = gate_reasoning_effort(
-        configured_effort,
-        supports_reasoning=model_meta.supports_reasoning,
-        adapter_supports_effort=resolved.supports_reasoning_effort,
-    )
+    reasoning_effort = resolved.reasoning_effort
+    if "reasoning_effort" in chat.model_fields_set:
+        try:
+            reasoning_effort = normalize_reasoning_effort(chat.reasoning_effort)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        if reasoning_effort is not None:
+            if not resolved.supports_reasoning_effort:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"provider {resolved.provider!r} does not support reasoning effort",
+                )
+            if not resolved.reasoning_efforts:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"model {resolved.model!r} does not support reasoning effort",
+                )
+            if reasoning_effort not in resolved.reasoning_efforts:
+                supported = ", ".join(resolved.reasoning_efforts)
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        f"reasoning effort {reasoning_effort!r} is not supported by model {resolved.model!r}; "
+                        f"supported efforts: {supported}"
+                    ),
+                )
+
+    request_provider = replace(resolved, reasoning_effort=reasoning_effort)
 
     async with runs.session_operation(session_id):
         active = await runs.active_run_info(session_id)
@@ -253,9 +269,8 @@ async def chat(chat: ChatRequest, store: StoreDep, runs: RunManagerDep) -> ChatR
             store=store,
             cwd=cwd,
             settings=settings,
-            resolved_provider=resolved,
+            resolved_provider=request_provider,
             session_id=session_id,
-            reasoning_effort=reasoning_effort,
             review=review,
         )
 
@@ -408,16 +423,17 @@ async def get_config(cwd: Annotated[str | None, Query()] = None) -> dict[str, An
         image_models: list[str] = []
         pdf_models: list[str] = []
         reasoning_models: list[str] = []
+        reasoning_efforts: dict[str, list[str]] = {}
         for model in models:
             model_config = provider_config.models.get(model) if provider_config else None
-            model_meta = resolve_model_metadata(
+            model_meta = resolve_configured_model_metadata(
                 provider=provider.provider,
                 model=model,
-                supports_reasoning=model_config.supports_reasoning if model_config else None,
-                supports_image_input=model_config.supports_image_input if model_config else None,
-                supports_pdf_input=model_config.supports_pdf_input if model_config else None,
+                model_config=model_config,
             )
-            if model_meta.supports_reasoning is True:
+            efforts = list(model_meta.reasoning_efforts or ())
+            reasoning_efforts[model] = efforts
+            if efforts:
                 reasoning_models.append(model)
             if model_meta.supports_image_input:
                 image_models.append(model)
@@ -427,7 +443,12 @@ async def get_config(cwd: Annotated[str | None, Query()] = None) -> dict[str, An
         if provider.supports_reasoning_effort:
             info["supports_reasoning_effort"] = True
             info["reasoning_models"] = reasoning_models
-            info["reasoning_effort"] = provider.reasoning_effort
+            info["reasoning_efforts"] = reasoning_efforts
+            info["reasoning_effort"] = (
+                provider_config.reasoning_effort
+                if provider_config and provider_config.reasoning_effort is not None
+                else settings.default_reasoning_effort
+            )
 
         info["supports_image_input"] = bool(image_models)
         info["image_input_models"] = image_models

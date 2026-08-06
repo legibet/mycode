@@ -107,7 +107,9 @@ class TestSettingsApi:
                         "custom": {
                             "type": "openai_chat",
                             "base_url": "https://example.test/v1",
-                            "models": ["custom-model"],
+                            "models": {
+                                "custom-model": {"reasoning_efforts": []},
+                            },
                             "api_key": "sk",
                             "supports_reasoning_effort": True,
                         }
@@ -118,7 +120,7 @@ class TestSettingsApi:
         assert response.status_code == 200
 
         on_disk = json.loads((home / "config.json").read_text(encoding="utf-8"))
-        assert on_disk["providers"]["custom"]["models"] == {"custom-model": {}}
+        assert on_disk["providers"]["custom"]["models"] == {"custom-model": {"reasoning_efforts": []}}
         assert on_disk["providers"]["custom"]["supports_reasoning_effort"] is True
 
     @pytest.mark.parametrize(

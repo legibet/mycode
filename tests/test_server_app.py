@@ -126,7 +126,7 @@ def test_chat_capability_failure_does_not_create_session(
 ) -> None:
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
     monkeypatch.setattr(
-        "mycode_cli.server.routers.chat.resolve_model_metadata",
+        "mycode_cli.server.routers.chat.resolve_configured_model_metadata",
         lambda **_: ModelMetadata(
             provider="anthropic",
             model="claude-sonnet-4-6",
@@ -204,15 +204,17 @@ def test_chat_skill_reference_reaches_provider_and_keeps_visible_title(
     assert session["session"]["title"] == prompt
 
 
-@pytest.mark.parametrize(("opt_in", "expected_effort"), [(True, "low"), (False, None)])
-def test_chat_per_request_effort_follows_openai_chat_opt_in(
+@pytest.mark.parametrize(
+    ("opt_in", "effort", "expected_status"),
+    [(True, "low", 200), (False, "low", 400), (True, "high", 400)],
+)
+def test_chat_rejects_unsupported_reasoning_effort(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     opt_in: bool,
-    expected_effort: str | None,
+    effort: str,
+    expected_status: int,
 ) -> None:
-    # A per-request effort override reaches the provider only when the generic
-    # openai_chat endpoint opts in; without it the effort is dropped.
     home = tmp_path / "home" / ".mycode"
     home.mkdir(parents=True)
     monkeypatch.setenv("XAI_API_KEY", "test-key")
@@ -226,7 +228,7 @@ def test_chat_per_request_effort_follows_openai_chat_opt_in(
                         "api_key": "${XAI_API_KEY}",
                         "base_url": "https://api.x.ai/v1",
                         "supports_reasoning_effort": opt_in,
-                        "models": {"grok-4.5": {}},
+                        "models": {"grok-4.5": {"reasoning_efforts": ["low"]}},
                     }
                 }
             }
@@ -250,9 +252,73 @@ def test_chat_per_request_effort_follows_openai_chat_opt_in(
                 "provider": "custom",
                 "model": "grok-4.5",
                 "message": "hi",
-                "reasoning_effort": "low",
+                "reasoning_effort": effort,
             },
         )
+        assert response.status_code == expected_status
+        if expected_status == 200:
+            run_id = response.json()["run"]["id"]
+            with client.stream("GET", f"/api/runs/{run_id}/stream") as stream:
+                list(stream.iter_lines())
+        else:
+            assert "reasoning effort" in response.json()["detail"]
+
+    if expected_status == 200:
+        assert adapter.reasoning_effort == "low"
+
+
+@pytest.mark.parametrize(
+    ("include_effort", "effort", "expected_effort"),
+    [(False, None, "high"), (True, "auto", None), (True, None, None)],
+)
+def test_model_effort_config_and_request_override(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    include_effort: bool,
+    effort: str | None,
+    expected_effort: str | None,
+) -> None:
+    home = tmp_path / "home" / ".mycode"
+    home.mkdir(parents=True)
+    monkeypatch.setenv("XAI_API_KEY", "test-key")
+    monkeypatch.setenv("MYCODE_HOME", str(home))
+    home.joinpath("config.json").write_text(
+        json.dumps(
+            {
+                "providers": {
+                    "custom": {
+                        "type": "openai_chat",
+                        "api_key": "${XAI_API_KEY}",
+                        "supports_reasoning_effort": True,
+                        "reasoning_effort": "high",
+                        "models": {"custom-model": {"reasoning_efforts": ["low", "high"]}},
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    adapter = _CaptureAdapter()
+    monkeypatch.setattr("mycode.agent.get_provider_adapter", lambda _provider: adapter)
+    app = create_api_app()
+    app.dependency_overrides[get_store] = lambda: SessionStore(data_dir=tmp_path / "sessions")
+    runs = RunManager()
+    app.dependency_overrides[get_run_manager] = lambda: runs
+
+    with TestClient(app) as client:
+        provider_info = client.get("/api/config", params={"cwd": str(tmp_path)}).json()["providers"]["custom"]
+        assert provider_info["reasoning_efforts"] == {"custom-model": ["low", "high"]}
+
+        payload: dict[str, object] = {
+            "session_id": "effort-config-session",
+            "cwd": str(tmp_path),
+            "provider": "custom",
+            "model": "custom-model",
+            "message": "hi",
+        }
+        if include_effort:
+            payload["reasoning_effort"] = effort
+        response = client.post("/api/chat", json=payload)
         assert response.status_code == 200
         run_id = response.json()["run"]["id"]
         with client.stream("GET", f"/api/runs/{run_id}/stream") as stream:

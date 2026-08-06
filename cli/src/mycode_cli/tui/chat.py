@@ -45,7 +45,6 @@ from mycode.session import SessionStore
 from mycode.tools import bash_tool, edit_tool, read_tool, write_tool
 from mycode.utils import resolve_path
 from mycode_cli.config import (
-    REASONING_EFFORT_OPTIONS,
     ResolvedProvider,
     Settings,
     get_settings,
@@ -355,6 +354,7 @@ def clone_agent(agent: Agent, *, store: SessionStore, session_id: str) -> Agent:
         context_window=agent.context_window,
         compact_threshold=agent.compact_threshold,
         reasoning_effort=agent.reasoning_effort,
+        supports_reasoning_effort=agent.supports_reasoning_effort,
         supports_reasoning=agent.supports_reasoning,
         supports_image_input=agent.supports_image_input,
         supports_pdf_input=agent.supports_pdf_input,
@@ -414,12 +414,6 @@ def list_model_options(settings: Settings, *, provider: str, api_base: str | Non
     return list(dict.fromkeys([current_model, *models]))
 
 
-def supports_reasoning_effort(agent: Agent) -> bool:
-    """Return whether the current agent provider+model supports reasoning effort."""
-
-    return agent.supports_reasoning is True and agent.supports_reasoning_effort
-
-
 def apply_resolved_provider(agent: Agent, resolved: ResolvedProvider) -> bool:
     """Copy runtime settings from a resolved provider onto an active agent.
 
@@ -465,12 +459,14 @@ class TerminalChat:
         settings: Settings,
         store: SessionStore,
         session_id: str,
+        reasoning_efforts: tuple[str, ...] = (),
         view: TerminalView | None = None,
     ) -> None:
         self.agent = agent
         self.settings = settings
         self.store = store
         self.session_id = session_id
+        self.reasoning_efforts = reasoning_efforts
         self.view = view or TerminalView()
         self._current_renderer: ReplyRenderer | None = None
         self.prompt_session: PromptSession[str] = PromptSession(
@@ -671,7 +667,7 @@ class TerminalChat:
     def _supports_effort_or_warn(self) -> bool:
         """Return whether the current model supports reasoning effort."""
 
-        if supports_reasoning_effort(self.agent):
+        if self.agent.supports_reasoning_effort and self.reasoning_efforts:
             return True
         self.view.console.print("[dim]current model does not support reasoning effort[/dim]")
         return False
@@ -848,6 +844,7 @@ class TerminalChat:
             return
 
         changed = apply_resolved_provider(self.agent, resolved)
+        self.reasoning_efforts = resolved.reasoning_efforts
         label = f"{self.agent.provider} / {self.agent.model}"
         if self.agent.reasoning_effort:
             label += f" [effort: {self.agent.reasoning_effort}]"
@@ -866,6 +863,7 @@ class TerminalChat:
             return
 
         changed = apply_resolved_provider(self.agent, resolved)
+        self.reasoning_efforts = resolved.reasoning_efforts
         self._print_runtime_status("model", self.agent.model, changed=changed)
 
     async def _switch_effort(self) -> None:
@@ -875,7 +873,7 @@ class TerminalChat:
             return
 
         current = self.agent.reasoning_effort or "auto"
-        choices = [(o, o) for o in REASONING_EFFORT_OPTIONS]
+        choices = [(effort, effort) for effort in ("auto", *self.reasoning_efforts)]
         selected = await choose(choices, default=current)
         if selected is not None:
             self._apply_effort_change(selected)
@@ -892,6 +890,13 @@ class TerminalChat:
             self.view.console.print(f"[red]{exc}[/red]")
             return
 
+        if resolved is not None and resolved not in self.reasoning_efforts:
+            supported = ", ".join(self.reasoning_efforts)
+            message = f"reasoning effort {resolved!r} is not supported by model {self.agent.model!r}"
+            message += f"; supported efforts: {supported}"
+            self.view.console.print(f"[red]{message}[/red]")
+            return
+
         changed = resolved != self.agent.reasoning_effort
         self.agent.reasoning_effort = resolved
-        self._print_runtime_status("effort", resolved or "default", changed=changed)
+        self._print_runtime_status("effort", resolved or "auto", changed=changed)

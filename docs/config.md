@@ -42,6 +42,7 @@ file and adapts it for the UI.
           "context_window": 400000,
           "max_output_tokens": 128000,
           "supports_reasoning": true,
+          "reasoning_efforts": ["low", "medium", "high"],
           "supports_image_input": true,
           "supports_pdf_input": true
         },
@@ -68,7 +69,8 @@ file and adapts it for the UI.
 - `providers.<name>.models` — model map. Keys are model ids shown in UI. Values can override the bundled model metadata for that exact model.
 - `providers.<name>.models.<model>.context_window` — override the model context window
 - `providers.<name>.models.<model>.max_output_tokens` — override the provider output limit
-- `providers.<name>.models.<model>.supports_reasoning` — override whether reasoning effort is available
+- `providers.<name>.models.<model>.supports_reasoning` — override reasoning support
+- `providers.<name>.models.<model>.reasoning_efforts` — override the model's available effort values; an empty list disables effort selection for that model
 - `providers.<name>.models.<model>.supports_image_input` — override image input support
 - `providers.<name>.models.<model>.supports_pdf_input` — override PDF input support
 - `providers.<name>.api_key` — literal value or `${ENV_NAME}` reference
@@ -107,14 +109,12 @@ Controls how much thinking a model does.
 
 Config resolution: `providers.<name>.reasoning_effort` → `default.reasoning_effort`
 
-Request override: `POST /api/chat` normalizes `reasoning_effort` and passes it through directly when set.
+Available values come from the selected model's metadata or its `reasoning_efforts` override. TUI and Web prepend `auto`; models without values show no effort control.
 
-Options: `auto` (default) · `none` · `low` · `medium` · `high` · `xhigh`
-
-- `auto` — do not send any effort parameter; let the provider decide
-- `none` — explicitly disable thinking
-- Config-derived effort is applied only when `model_metadata.supports_reasoning` is true AND effort is supported — either `adapter.supports_reasoning_effort`, or an `openai_chat` provider with `supports_reasoning_effort: true`
-- CLI `/effort` command and web sidebar allow per-request overrides without changing config
+- Config defaults apply only when supported by the selected provider and model
+- An omitted `POST /api/chat` field inherits the configured default; `null` or `"auto"` sends no effort
+- An explicit unsupported request value returns `400`
+- CLI `/effort` and the Web input control override effort without changing config
 - See `docs/providers.md` for per-adapter mapping details
 
 ## Tool Permissions
@@ -142,12 +142,13 @@ The shell checks are intentionally simple and conservative. Project commands suc
 `mycode/src/mycode/models.py` reads the bundled `mycode/src/mycode/models_catalog.json` catalog to look up:
 
 - `supports_reasoning` — whether the model supports extended thinking
+- `reasoning_efforts` — effort values available for the model
 - `supports_image_input` — whether the model accepts image input
 - `supports_pdf_input` — whether the model accepts PDF input
 - `context_window` — used for compact threshold calculation; defaults to `128000` when not available
 - `max_output_tokens` — passed to the provider as the output limit; defaults to `16384` when not available
 
-When the catalog has no match and config does not override the capability, media and reasoning support stay disabled: image/PDF input is rejected, and `reasoning_effort` is only sent when `supports_reasoning` is explicitly `true` and the provider adapter supports it.
+When the catalog has no match and config does not override the capability, media and effort controls stay disabled. Image/PDF input is rejected, and no effort is sent.
 
 Model lookup strategy (`lookup_model_metadata`):
 
