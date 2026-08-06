@@ -166,9 +166,8 @@ class OpenAIChatAdapter(ProviderAdapter):
                 # Only OpenRouter's `cost` extension is known to mean the
                 # actually charged USD amount; other upstreams' same-named
                 # fields must not short-circuit the estimate.
-                cost_usd=raw_usage.get("cost") if self.provider_id == "openrouter" else None,
+                reported_cost_usd=raw_usage.get("cost") if self.provider_id == "openrouter" else None,
             ),
-            native_meta={"usage": raw_usage or None},
         )
         yield ProviderStreamEvent("message_done", {"message": final_message})
 

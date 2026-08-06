@@ -123,7 +123,6 @@ class GoogleGeminiAdapter(ProviderAdapter):
                     usage=normalized_usage,
                     native_meta={
                         "finish_message": str(finish_message) if finish_message else None,
-                        "usage": raw_usage or None,
                     },
                 )
             },

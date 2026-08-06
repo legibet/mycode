@@ -177,9 +177,9 @@ def test_estimate_cost_bills_a_cached_reasoning_request() -> None:
 
 
 def test_estimate_cost_prefers_the_upstream_reported_cost() -> None:
-    assert estimate_cost({"cost_usd": 0.0123, "input_tokens": 10, "output_tokens": 5}, _SONNET_COST) == 0.0123
+    assert estimate_cost({"reported_cost_usd": 0.0123, "input_tokens": 10, "output_tokens": 5}, _SONNET_COST) == 0.0123
     # Reported zero (e.g. OpenRouter free models) is a real figure, not "unknown".
-    assert estimate_cost({"cost_usd": 0.0}, None) == 0.0
+    assert estimate_cost({"reported_cost_usd": 0.0}, None) == 0.0
 
 
 def test_estimate_cost_applies_long_context_tiers_per_request() -> None:
@@ -210,20 +210,6 @@ def test_estimate_cost_bills_distinct_reasoning_price_separately() -> None:
         pytest.param({"input_tokens": 10, "output_tokens": 5}, None, id="no-prices"),
         # Token totals unknown.
         pytest.param({"output_tokens": 5}, _SONNET_COST, id="input-unknown"),
-        # Cache split unknown while cache is priced differently from input.
-        pytest.param({"input_tokens": 10, "output_tokens": 5}, _SONNET_COST, id="cache-split-unknown"),
-        # Reasoning split unknown while reasoning is priced differently.
-        pytest.param(
-            {"input_tokens": 10, "output_tokens": 5},
-            {"input": 1.0, "output": 10.0, "reasoning": 4.0},
-            id="reasoning-split-unknown",
-        ),
-        # Nonzero category without an applicable price.
-        pytest.param(
-            {"input_tokens": 10, "cache_read_tokens": 4, "output_tokens": 5},
-            {"input": 1.0, "output": 2.0},
-            id="unpriced-cache-read",
-        ),
         # Inconsistent subsets.
         pytest.param(
             {"input_tokens": 10, "cache_read_tokens": 8, "cache_write_tokens": 8, "output_tokens": 5},
@@ -235,17 +221,33 @@ def test_estimate_cost_bills_distinct_reasoning_price_separately() -> None:
             {"input": 1.0, "output": 2.0, "reasoning": 4.0},
             id="reasoning-exceeds-output",
         ),
+        pytest.param(
+            {"input_tokens": -1, "output_tokens": 5},
+            {"input": 1.0, "output": 2.0},
+            id="negative-tokens",
+        ),
     ],
 )
 def test_estimate_cost_returns_none_instead_of_a_wrong_figure(usage, cost) -> None:
     assert estimate_cost(usage, cost) is None
 
 
-def test_estimate_cost_treats_unreported_cache_as_zero_when_price_matches_input() -> None:
-    # No cache prices configured: the split cannot change the figure.
-    assert estimate_cost({"input_tokens": 100, "output_tokens": 10}, {"input": 1.0, "output": 2.0}) == pytest.approx(
-        (100 * 1.0 + 10 * 2.0) / 1_000_000
+def test_estimate_cost_uses_base_prices_for_missing_splits_and_special_prices() -> None:
+    cost = {"input": 1.0, "output": 10.0, "cache_read": 0.25, "reasoning": 4.0}
+
+    assert estimate_cost({"input_tokens": 100, "output_tokens": 10}, cost) == pytest.approx(
+        (100 * 1.0 + 10 * 10.0) / 1_000_000
     )
+    assert estimate_cost(
+        {
+            "input_tokens": 100,
+            "cache_read_tokens": 40,
+            "cache_write_tokens": 10,
+            "output_tokens": 10,
+            "reasoning_tokens": 4,
+        },
+        cost,
+    ) == pytest.approx((50 * 1.0 + 40 * 0.25 + 10 * 1.0 + 6 * 10.0 + 4 * 4.0) / 1_000_000)
 
 
 def test_estimate_cost_ignores_free_cache_categories_the_upstream_never_reports() -> None:

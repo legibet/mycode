@@ -108,7 +108,7 @@ Validation: `request_timeout > 0`, `stream_start_timeout > 0`, `max_retries >= 0
 
 The Agent owns retries; provider SDK retries are disabled. Before output reaches the caller, it retries connection errors, timeouts, stream-start expiry, HTTP 408/409/429/5xx, and transient stream failures identified by the provider adapter. Once reasoning or text has been emitted, or a complete assistant message has been formed, failures surface as an `error` event instead; already-streamed reasoning/text is persisted with `meta.stop_reason="error"` (excluded from replay). Partial, unexposed tool-call arguments do not block a retry. User cancellation is never retried, and `cancel()` interrupts a backoff wait immediately.
 
-Backoff is exponential with jitter (0.5s initial, ×2, capped at 8s); a positive `Retry-After` header up to 60s takes precedence. Each retry emits a `retry` event carrying `attempt` (the next 1-based attempt), `max_attempts` (`max_retries + 1`), `delay_seconds`, `reason` (`connection_error` / `request_timeout` / `stream_start_timeout` / `http_status` / `provider_error`), `message`, and `status_code` when applicable. After any failed attempt, the turn's cumulative `turn_usage` and `cost_usd` become `None` and stay unknown even when a later attempt succeeds; a retried compaction likewise drops `usage` from its compact marker.
+Backoff is exponential with jitter (0.5s initial, ×2, capped at 8s); a positive `Retry-After` header up to 60s takes precedence. Each retry emits a `retry` event carrying `attempt` (the next 1-based attempt), `max_attempts` (`max_retries + 1`), `delay_seconds`, `reason` (`connection_error` / `request_timeout` / `stream_start_timeout` / `http_status` / `provider_error`), `message`, and `status_code` when applicable. Failed attempts without usage do not change turn totals. A retried request contributes the final successful response's usage; retried compaction stores that usage on its marker.
 
 Adapters raise `ProviderError` (`reason`, `retryable`, `status_code`, `retry_after`); a stream-start expiry that exhausts its retries raises `StreamStartTimeoutError`, a subclass distinct from cancellation. Both are exported from `mycode`.
 
@@ -131,29 +131,25 @@ Adapters raise `ProviderError` (`reason`, `retryable`, `status_code`, `retry_aft
 
 ### Usage and cost
 
-A `usage` event follows each provider request, including automatic compaction. It reports the latest context occupancy and cumulative billing for the turn:
+A `usage` event follows each successful provider request, including automatic compaction. It reports the latest context occupancy and best-effort cumulative usage and cost for the turn:
 
 ```python
 {
     "context_tokens": 1456,        # latest normal request's usage.total_tokens
-    "context_window": 200000,
-    "model": "...",
-    "provider": "...",
     "turn_usage": {                # cumulative for the turn
         "total_tokens": 2912, "input_tokens": 2800,
-        "cache_read_tokens": None, "cache_write_tokens": None,
-        "output_tokens": 112, "reasoning_tokens": None,
+        "output_tokens": 112,
     },
-    "cost_usd": 0.0123,
+    "turn_cost_usd": 0.0123,
 }
 ```
 
 - `context_tokens` is the latest normal request's context usage. It is not cumulative.
-- `turn_usage` and `cost_usd` accumulate all provider requests in the turn.
-- If any request has unknown usage or cost, the affected cumulative values become `None`.
-- A failed or cancelled request emits this unknown state before the turn stops or continues.
+- `turn_usage` sums each reported token field. Missing fields do not clear known totals.
+- `turn_cost_usd` sums requests that can be estimated. It is `None` when no request can be estimated.
+- Failed and cancelled requests without final usage do not emit an extra `usage` event.
 
-Per-request facts are persisted in `meta.usage`; see docs/sessions.md. `estimate_cost(usage, cost)` uses `ModelMetadata.cost` prices from models.dev, applies long-context tiers per request, and prefers an upstream-reported cost. It returns `None` when the available usage or prices are insufficient. OpenRouter suffix fallback metadata never supplies prices.
+Per-request facts are persisted in `meta.usage`; see docs/sessions.md. `estimate_cost(usage, cost)` prefers `reported_cost_usd`, otherwise uses `ModelMetadata.cost` prices from models.dev and applies long-context tiers per request. Missing cache/reasoning splits use base input/output prices. Missing required totals or prices and inconsistent token counts return `None`. OpenRouter suffix fallback metadata never supplies prices.
 
 ## Sessions
 

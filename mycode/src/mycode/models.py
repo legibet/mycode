@@ -9,6 +9,8 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, TypeAdapter, ValidationError
 
+from mycode.messages import USAGE_TOKEN_KEYS
+
 _MODELS_CATALOG_PATH = Path(__file__).with_name("models_catalog.json")
 
 
@@ -209,13 +211,11 @@ def estimate_cost(usage: dict[str, Any], cost: dict[str, Any] | None) -> float |
     ``usage`` is a message's canonical ``meta.usage`` dict; ``cost`` is
     :attr:`ModelMetadata.cost`. Returns the upstream-reported cost when
     present, otherwise a models.dev-based estimate — or None when the
-    available token/price data cannot produce a trustworthy figure. There are
-    no partial results: a priced category with unknown tokens, an unpriced
-    category with nonzero tokens, or inconsistent subsets all yield None
-    rather than a silently wrong number.
+    available token/price data cannot produce an estimate. Missing cache and
+    reasoning splits use the corresponding base input/output rate.
     """
 
-    reported = usage.get("cost_usd")
+    reported = usage.get("reported_cost_usd")
     if reported is not None:
         return float(reported)
     if not cost:
@@ -225,6 +225,8 @@ def estimate_cost(usage: dict[str, Any], cost: dict[str, Any] | None) -> float |
     output_tokens = usage.get("output_tokens")
     if input_tokens is None or output_tokens is None:
         return None
+    if any(usage.get(key, 0) < 0 for key in USAGE_TOKEN_KEYS):
+        return None
 
     prices: dict[str, float | None] = {key: cost.get(key) for key in _PRICE_KEYS}
     # Long-context pricing: the highest tier the full input (incl. cache)
@@ -233,40 +235,25 @@ def estimate_cost(usage: dict[str, Any], cost: dict[str, Any] | None) -> float |
         if input_tokens > tier["size"]:
             prices.update({key: tier[key] for key in _PRICE_KEYS if tier.get(key) is not None})
 
-    # A cache category the upstream didn't report counts as 0 — unless it has
-    # a nonzero price different from plain input, making the split
-    # load-bearing. A free (0-priced) category substituted with 0 can only
-    # bill those tokens at the input rate, never understate.
-    cache_read = usage.get("cache_read_tokens")
-    if cache_read is None:
-        if prices["cache_read"] and prices["cache_read"] != prices["input"]:
-            return None
-        cache_read = 0
-    cache_write = usage.get("cache_write_tokens")
-    if cache_write is None:
-        if prices["cache_write"] and prices["cache_write"] != prices["input"]:
-            return None
-        cache_write = 0
+    cache_read = usage.get("cache_read_tokens", 0)
+    cache_write = usage.get("cache_write_tokens", 0)
 
     uncached_input = input_tokens - cache_read - cache_write
     if uncached_input < 0:
         return None
 
-    reasoning = usage.get("reasoning_tokens")
-    if reasoning is not None and reasoning > output_tokens:
+    reasoning = usage.get("reasoning_tokens", 0)
+    if reasoning > output_tokens:
         return None
+    cache_read_price = prices["cache_read"] if prices["cache_read"] is not None else prices["input"]
+    cache_write_price = prices["cache_write"] if prices["cache_write"] is not None else prices["input"]
     reasoning_price = prices["reasoning"] if prices["reasoning"] is not None else prices["output"]
-    if reasoning_price == prices["output"]:
-        # Same effective rate — bill the full output without needing the split.
-        reasoning = 0
-    elif reasoning is None:
-        return None
 
     total = 0.0
     for tokens, price in (
         (uncached_input, prices["input"]),
-        (cache_read, prices["cache_read"]),
-        (cache_write, prices["cache_write"]),
+        (cache_read, cache_read_price),
+        (cache_write, cache_write_price),
         (output_tokens - reasoning, prices["output"]),
         (reasoning, reasoning_price),
     ):

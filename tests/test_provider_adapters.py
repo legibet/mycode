@@ -2106,7 +2106,7 @@ def test_anthropic_normalizes_usage_details() -> None:
         "output_tokens": 900,
         "reasoning_tokens": 600,
     }
-    assert converted["meta"]["native"]["usage"]["cache_read_input_tokens"] == 10_000
+    assert "native" not in converted["meta"]
 
 
 def test_anthropic_missing_cache_fields_leave_input_unknown() -> None:
@@ -2150,10 +2150,7 @@ def test_openai_responses_normalizes_usage_details() -> None:
         "output_tokens": 50,
         "reasoning_tokens": 30,
     }
-    assert converted["meta"]["native"]["usage"]["input_tokens_details"] == {
-        "cached_tokens": 800,
-        "cache_write_tokens": 100,
-    }
+    assert "native" not in converted["meta"]
 
 
 async def test_openai_chat_normalizes_usage_details(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -2168,7 +2165,7 @@ async def test_openai_chat_normalizes_usage_details(monkeypatch: pytest.MonkeyPa
                 completion_tokens_details=_Obj(reasoning_tokens=60),
                 total_tokens=1_080,
                 # A non-OpenRouter `cost` extension has unknown semantics and
-                # must not surface as cost_usd (the exact match below proves it).
+                # must not surface as reported_cost_usd (the exact match below proves it).
                 cost=0.0123,
             ),
             choices=[_Obj(finish_reason="stop", delta=_Obj(content="done", tool_calls=[]))],
@@ -2231,7 +2228,7 @@ async def test_openrouter_stores_the_charged_cost(monkeypatch: pytest.MonkeyPatc
     request_call = client.chat.completions.create.await_args
     assert request_call is not None
     assert "extra_body" not in request_call.kwargs
-    assert events[-1].data["message"]["meta"]["usage"]["cost_usd"] == 0.0123
+    assert events[-1].data["message"]["meta"]["usage"]["reported_cost_usd"] == 0.0123
 
 
 async def test_gemini_normalizes_usage_details(monkeypatch: pytest.MonkeyPatch) -> None:

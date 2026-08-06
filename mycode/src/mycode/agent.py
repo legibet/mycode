@@ -84,20 +84,18 @@ def _accumulate_usage(
 ) -> float | None:
     """Fold one provider request's usage into the turn accumulator.
 
-    Mutates ``turn_usage`` and returns the updated turn cost. A token class
-    (or the cost) any request could not report stays None for the whole turn —
-    an unknown part must not make the sum look complete.
+    Mutates ``turn_usage`` and returns the updated best-effort turn cost.
     """
 
     for key in USAGE_TOKEN_KEYS:
-        if key in turn_usage and turn_usage[key] is None:
-            continue
         value = usage.get(key)
-        turn_usage[key] = None if value is None else turn_usage.get(key, 0) + value
-    if turn_cost is None:
-        return None
+        if value is None:
+            continue
+        turn_usage[key] = turn_usage.get(key, 0) + value
     request_cost = estimate_cost(usage, cost)
-    return None if request_cost is None else turn_cost + request_cost
+    if request_cost is None:
+        return turn_cost
+    return request_cost if turn_cost is None else turn_cost + request_cost
 
 
 class Agent:
@@ -662,11 +660,8 @@ class Agent:
             "usage",
             {
                 "context_tokens": context_tokens,
-                "context_window": self.context_window,
-                "model": self.model,
-                "provider": self.provider,
                 "turn_usage": dict(turn_usage),
-                "cost_usd": turn_cost,
+                "turn_cost_usd": turn_cost,
             },
         )
 
@@ -742,7 +737,7 @@ class Agent:
         adapter = get_provider_adapter(self.provider)
 
         turn_usage: dict[str, Any] = {}
-        turn_cost: float | None = 0.0
+        turn_cost: float | None = None
         context_tokens: int | None = None
         turn_number = 0
         while True:
@@ -768,11 +763,6 @@ class Agent:
                         break
 
                     if provider_event.type == "retry":
-                        # The failed attempt may have billed tokens it never
-                        # reported — the turn's spend is unknown from here on,
-                        # and _accumulate_usage keeps None sticky.
-                        turn_usage.update(dict.fromkeys(USAGE_TOKEN_KEYS))
-                        turn_cost = None
                         yield Event("retry", dict(provider_event.data))
                         continue
 
@@ -830,11 +820,6 @@ class Agent:
                     )
                     self.messages.append(failed_message)
                     await persist(failed_message)
-                # The failed request may have billed tokens but never reported
-                # final usage — the turn's cumulative spend is now unknown.
-                turn_usage.update(dict.fromkeys(USAGE_TOKEN_KEYS))
-                turn_cost = None
-                yield self._usage_event(context_tokens, turn_usage, turn_cost)
                 yield Event("error", {"message": str(exc)})
                 return
 
@@ -845,16 +830,10 @@ class Agent:
                     cancelled_message = self._partial_assistant_message(partial_content, thinking_duration_ms)
                     self.messages.append(cancelled_message)
                     await persist(cancelled_message)
-                turn_usage.update(dict.fromkeys(USAGE_TOKEN_KEYS))
-                turn_cost = None
-                yield self._usage_event(context_tokens, turn_usage, turn_cost)
                 yield Event("error", {"message": "cancelled"})
                 return
 
             if not assistant_message:
-                turn_usage.update(dict.fromkeys(USAGE_TOKEN_KEYS))
-                turn_cost = None
-                yield self._usage_event(context_tokens, turn_usage, turn_cost)
                 yield Event("error", {"message": "provider produced no assistant message"})
                 return
 
@@ -922,18 +901,11 @@ class Agent:
                     turn_cost = _accumulate_usage(turn_usage, turn_cost, compact_usage, self.model_cost)
                     yield self._usage_event(context_tokens, turn_usage, turn_cost)
                 except asyncio.CancelledError:
-                    turn_usage.update(dict.fromkeys(USAGE_TOKEN_KEYS))
-                    turn_cost = None
-                    yield self._usage_event(context_tokens, turn_usage, turn_cost)
                     yield Event("error", {"message": "cancelled"})
                     return
                 except Exception:
                     # Compaction must not block the current answer; the full
-                    # transcript is still available for the next turn. The
-                    # failed request's spend is unknown — poison the turn.
-                    turn_usage.update(dict.fromkeys(USAGE_TOKEN_KEYS))
-                    turn_cost = None
-                    yield self._usage_event(context_tokens, turn_usage, turn_cost)
+                    # transcript is still available for the next turn.
                     logger.warning(
                         "Context compaction failed, continuing without compaction",
                         exc_info=True,
@@ -1026,11 +998,8 @@ class Agent:
         )
 
         summary_message: ConversationMessage | None = None
-        retried = False
         async for provider_event in self._stream_provider_turn(adapter, request):
-            if provider_event.type == "retry":
-                retried = True
-            elif provider_event.type == "message_done":
+            if provider_event.type == "message_done":
                 msg = provider_event.data.get("message")
                 if isinstance(msg, dict):
                     summary_message = msg
@@ -1046,14 +1015,11 @@ class Agent:
             raise asyncio.CancelledError
 
         summary_meta = cast(dict[str, Any], summary_message.get("meta") or {})
-        # A retried compaction billed attempts it cannot report; recording only
-        # the successful attempt's usage would understate the cost.
         compact_event = build_compact_event(
             summary_text,
             provider=self.provider,
             model=self.model,
-            usage=None if retried else summary_meta.get("usage"),
-            native_usage=None if retried else (summary_meta.get("native") or {}).get("usage"),
+            usage=summary_meta.get("usage"),
         )
 
         await self._persist_message(compact_event, on_persist)

@@ -45,13 +45,13 @@ Adapters raise `ProviderError` for upstream failures. The shared normalizer hand
 
 ## Usage Normalization
 
-Every adapter maps wire usage to `meta.usage` and keeps the raw object in `meta.native.usage`. Field semantics and mappings are documented in docs/sessions.md. Missing fields remain unknown unless the protocol defines absence as zero.
+Every adapter maps wire usage to canonical `meta.usage`. Field semantics and mappings are documented in docs/sessions.md. Missing fields remain unknown unless the protocol defines absence as zero.
 
 Provider quirks:
 
 - Gemini proto3 omits zero-valued counts, so absent optional counts become 0 after a usage payload arrives.
 - DeepSeek: `prompt_tokens_details.cached_tokens` wins; top-level `prompt_cache_hit_tokens` is the fallback.
-- OpenRouter: `usage.cost` is stored as `usage.cost_usd` and takes priority over estimates. Other Chat Completions providers' `cost` extensions are ignored.
+- OpenRouter: `usage.cost` is stored as `usage.reported_cost_usd` and takes priority over estimates. Other Chat Completions providers' `cost` extensions are ignored.
 - Anthropic-compatible providers need all input and cache counters to compute effective input.
 
 ## Adapters

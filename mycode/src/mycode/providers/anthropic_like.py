@@ -212,8 +212,6 @@ class AnthropicLikeAdapter(ProviderAdapter):
             message_native_meta["service_tier"] = service_tier
 
         raw_usage = dump_model(getattr(message, "usage", None)) or {}
-        if raw_usage:
-            message_native_meta["usage"] = raw_usage
 
         # `input_tokens` excludes cache tokens on this protocol; the canonical
         # input is the sum of all three. A compatible upstream omitting cache

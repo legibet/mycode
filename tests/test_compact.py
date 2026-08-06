@@ -332,19 +332,18 @@ class _FailingSummaryAdapter:
 
 
 @pytest.mark.asyncio
-async def test_failed_auto_compact_poisons_and_emits_turn_usage() -> None:
+async def test_failed_auto_compact_keeps_successful_turn_usage() -> None:
     agent = Agent(model="m", provider="anthropic", cwd="/tmp", context_window=100_000)
 
     with patch("mycode.agent.get_provider_adapter", return_value=_FailingSummaryAdapter()):
         events = [event async for event in agent.achat("hello")]
 
-    # The turn still finishes, but the failed summary request's spend is
-    # unknown — the second usage event carries poisoned cumulative totals.
-    assert [event.type for event in events] == ["usage", "usage"]
-    final_usage = events[-1].data
-    assert final_usage["context_tokens"] == 80_000
-    assert set(final_usage["turn_usage"].values()) == {None}
-    assert final_usage["cost_usd"] is None
+    assert [event.type for event in events] == ["usage"]
+    assert events[0].data["turn_usage"] == {
+        "total_tokens": 80_000,
+        "input_tokens": 79_000,
+        "output_tokens": 1_000,
+    }
     assert all(message.get("role") != "compact" for message in agent.messages)
 
 

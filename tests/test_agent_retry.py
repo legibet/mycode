@@ -97,6 +97,7 @@ async def test_transient_failures_retry_until_success(tmp_path: Path) -> None:
         turn=_text_turn("recovered"),
     )
     agent = _new_agent(tmp_path)
+    agent.model_cost = {"input": 1.0, "output": 2.0}
 
     with patch("mycode.agent.get_provider_adapter", return_value=adapter):
         events = await _collect(agent)
@@ -112,11 +113,9 @@ async def test_transient_failures_retry_until_success(tmp_path: Path) -> None:
     assert any(event.type == "text" and event.data["delta"] == "recovered" for event in events)
     assert not any(event.type == "error" for event in events)
 
-    # Failed attempts may have billed unreported tokens: the turn's cumulative
-    # spend is unknown, while the final response still reports context size.
     usage = [event for event in events if event.type == "usage"][-1]
-    assert all(value is None for value in usage.data["turn_usage"].values())
-    assert usage.data["cost_usd"] is None
+    assert usage.data["turn_usage"] == {"total_tokens": 10, "input_tokens": 6, "output_tokens": 4}
+    assert usage.data["turn_cost_usd"] == 14 / 1_000_000
     assert usage.data["context_tokens"] == 10
 
 
@@ -244,7 +243,7 @@ async def test_failure_after_stream_start_but_before_output_still_retries(tmp_pa
     assert any(event.type == "text" and event.data["delta"] == "second try" for event in events)
 
 
-async def test_acompact_retries_and_drops_marker_usage(tmp_path: Path) -> None:
+async def test_acompact_retries_and_keeps_successful_marker_usage(tmp_path: Path) -> None:
     class _FlakySummaryAdapter:
         def __init__(self):
             self.attempts = 0
@@ -272,8 +271,7 @@ async def test_acompact_retries_and_drops_marker_usage(tmp_path: Path) -> None:
 
     assert adapter.attempts == 3
     assert marker["content"][0]["text"] == "THE_SUMMARY"
-    # A retried compaction must not record only the successful attempt's cost.
-    assert "usage" not in (marker.get("meta") or {})
+    assert marker["meta"]["usage"] == {"total_tokens": 42}
 
 
 def test_normalized_provider_errors_are_readable_and_classified() -> None:

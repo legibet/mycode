@@ -369,7 +369,6 @@ class OpenAIResponsesAdapter(ProviderAdapter):
             ),
             native_meta={
                 "output_items": dumped_output_items or None,
-                "usage": raw_usage or None,
             },
         )
 

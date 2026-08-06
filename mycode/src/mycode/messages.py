@@ -144,7 +144,7 @@ def build_usage(
     cache_write_tokens: int | None = None,
     output_tokens: int | None = None,
     reasoning_tokens: int | None = None,
-    cost_usd: float | None = None,
+    reported_cost_usd: float | None = None,
 ) -> dict[str, Any]:
     """Build a canonical usage dict from one provider request.
 
@@ -152,8 +152,8 @@ def build_usage(
     writes; ``output_tokens`` includes reasoning; ``cache_*_tokens`` and
     ``reasoning_tokens`` are subsets of their respective totals. A missing key
     means the upstream did not report it — readers must not substitute 0.
-    ``cost_usd`` is an upstream-reported charge (e.g. OpenRouter), never a
-    computed estimate.
+    ``reported_cost_usd`` is an upstream-reported charge (e.g. OpenRouter),
+    never a computed estimate.
     """
 
     if total_tokens is None and input_tokens is not None and output_tokens is not None:
@@ -166,7 +166,7 @@ def build_usage(
             "cache_write_tokens": cache_write_tokens,
             "output_tokens": output_tokens,
             "reasoning_tokens": reasoning_tokens,
-            "cost_usd": cost_usd,
+            "reported_cost_usd": reported_cost_usd,
         }
     )
 

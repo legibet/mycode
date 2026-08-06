@@ -113,19 +113,6 @@ def _chat_events(events: list[Event]) -> list[Event]:
     return [event for event in events if event.type != "usage"]
 
 
-# What turn_usage looks like after a request with unknown spend poisons it.
-_POISONED_TURN_USAGE = dict.fromkeys(
-    (
-        "total_tokens",
-        "input_tokens",
-        "cache_read_tokens",
-        "cache_write_tokens",
-        "output_tokens",
-        "reasoning_tokens",
-    )
-)
-
-
 def _new_agent(tmp_path: Path, **overrides) -> Agent:
     overrides.setdefault("model", "gpt-5.5")
     overrides.setdefault("cwd", str(tmp_path))
@@ -598,10 +585,7 @@ class TestAgentCancel:
                 events = [event async for event in agent.achat("hello")]
 
             assert adapter.requests == 2
-            assert [event.type for event in events] == ["usage", "usage", "error"]
-            # The cancelled summary request's spend is unknown.
-            assert events[-2].data["turn_usage"] == _POISONED_TURN_USAGE
-            assert events[-2].data["cost_usd"] is None
+            assert [event.type for event in events] == ["usage", "error"]
             assert events[-1].data == {"message": "cancelled"}
 
     @pytest.mark.asyncio
@@ -624,11 +608,7 @@ class TestAgentCancel:
                 agent.cancel()
                 remaining_events = [event async for event in stream]
 
-            usage_event, error_event = remaining_events
-            # The cancelled request's spend is unknown.
-            assert usage_event.type == "usage"
-            assert usage_event.data["turn_usage"] == _POISONED_TURN_USAGE
-            assert usage_event.data["cost_usd"] is None
+            [error_event] = remaining_events
             assert error_event.type == "error"
             assert error_event.data == {"message": "cancelled"}
             assert adapter.closed.is_set()
@@ -641,6 +621,22 @@ class TestAgentCancel:
 
 
 class TestTurnUsage:
+    def test_all_unpriced_turn_has_no_cost_estimate(self, tmp_path: Path) -> None:
+        adapter = _FakeProviderAdapter(
+            [_text_turn(meta={"usage": {"total_tokens": 100, "input_tokens": 90, "output_tokens": 10}})]
+        )
+        agent = _new_agent(tmp_path)
+        agent.model_cost = None
+
+        with patch("mycode.agent.get_provider_adapter", return_value=adapter):
+            result = agent.run("hello")
+
+        assert result.usage == {
+            "context_tokens": 100,
+            "turn_usage": {"total_tokens": 100, "input_tokens": 90, "output_tokens": 10},
+            "turn_cost_usd": None,
+        }
+
     def test_usage_events_accumulate_across_tool_turns(self, tmp_path: Path) -> None:
         adapter = _FakeProviderAdapter(
             [
@@ -660,27 +656,21 @@ class TestTurnUsage:
         first, second = [event.data for event in result.events if event.type == "usage"]
         assert first == {
             "context_tokens": 100,
-            "context_window": agent.context_window,
-            "model": agent.model,
-            "provider": "openai",
             "turn_usage": {
                 "total_tokens": 100,
                 "input_tokens": 90,
-                "cache_read_tokens": None,
-                "cache_write_tokens": None,
                 "output_tokens": 10,
-                "reasoning_tokens": None,
             },
-            "cost_usd": pytest.approx((90 * 1.0 + 10 * 2.0) / 1_000_000),
+            "turn_cost_usd": pytest.approx((90 * 1.0 + 10 * 2.0) / 1_000_000),
         }
         assert second["context_tokens"] == 150
         assert second["turn_usage"]["total_tokens"] == 250
         assert second["turn_usage"]["input_tokens"] == 220
         assert second["turn_usage"]["output_tokens"] == 30
-        assert second["cost_usd"] == pytest.approx((220 * 1.0 + 30 * 2.0) / 1_000_000)
+        assert second["turn_cost_usd"] == pytest.approx((220 * 1.0 + 30 * 2.0) / 1_000_000)
         assert result.usage == second
 
-    def test_request_without_usage_poisons_turn_totals(self, tmp_path: Path) -> None:
+    def test_request_without_usage_keeps_known_turn_totals(self, tmp_path: Path) -> None:
         adapter = _FakeProviderAdapter(
             [
                 _assistant_turn(
@@ -698,10 +688,10 @@ class TestTurnUsage:
 
         assert result.usage is not None
         assert result.usage["context_tokens"] is None
-        assert result.usage["turn_usage"] == _POISONED_TURN_USAGE
-        assert result.usage["cost_usd"] is None
+        assert result.usage["turn_usage"] == {"total_tokens": 100, "input_tokens": 90, "output_tokens": 10}
+        assert result.usage["turn_cost_usd"] == pytest.approx((90 * 1.0 + 10 * 2.0) / 1_000_000)
 
-    def test_failed_followup_request_poisons_and_emits_final_usage(self, tmp_path: Path) -> None:
+    def test_failed_followup_request_keeps_last_successful_usage(self, tmp_path: Path) -> None:
         class _FailingSecondRequestAdapter:
             def __init__(self) -> None:
                 self.requests = 0
@@ -723,10 +713,8 @@ class TestTurnUsage:
             result = agent.run("hello")
 
         assert result.error == "boom"
-        assert [event.type for event in result.events[-2:]] == ["usage", "error"]
-        # The failed request's spend is unknown: the cumulative totals poison,
-        # while the context metric keeps the last successful request's value.
+        assert len([event for event in result.events if event.type == "usage"]) == 1
+        assert result.events[-1].type == "error"
         assert result.usage is not None
         assert result.usage["context_tokens"] == 100
-        assert result.usage["turn_usage"] == _POISONED_TURN_USAGE
-        assert result.usage["cost_usd"] is None
+        assert result.usage["turn_usage"] == {"total_tokens": 100, "input_tokens": 90, "output_tokens": 10}

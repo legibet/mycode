@@ -90,13 +90,10 @@ def build_compact_event(
     provider: str,
     model: str,
     usage: dict[str, Any] | None = None,
-    native_usage: dict[str, Any] | None = None,
 ) -> ConversationMessage:
     meta: dict[str, Any] = {"provider": provider, "model": model}
     if usage:
         meta["usage"] = dict(usage)
-    if native_usage:
-        meta["native"] = {"usage": dict(native_usage)}
     return build_message("compact", [text_block(summary_text)], meta=meta)
 
 

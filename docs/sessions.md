@@ -59,7 +59,7 @@ Standard `user` or `assistant` message in the internal block format.
 
 ```json
 {"role": "user", "content": [{"type": "text", "text": "..."}], "meta": {...}}
-{"role": "assistant", "content": [{"type": "thinking", "text": "...", "meta": {"duration_ms": 1200}}, {"type": "text", "text": "..."}, {"type": "tool_use", "id": "...", "name": "...", "input": {...}}], "meta": {"provider": "...", "model": "...", "stop_reason": "...", "usage": {"total_tokens": 1456, "input_tokens": 1400, "cache_read_tokens": 1200, "cache_write_tokens": 100, "output_tokens": 56, "reasoning_tokens": 20}, "context_window": 200000, "native": {"usage": {...}}}}
+{"role": "assistant", "content": [{"type": "thinking", "text": "...", "meta": {"duration_ms": 1200}}, {"type": "text", "text": "..."}, {"type": "tool_use", "id": "...", "name": "...", "input": {...}}], "meta": {"provider": "...", "model": "...", "stop_reason": "...", "usage": {"total_tokens": 1456, "input_tokens": 1400, "cache_read_tokens": 1200, "cache_write_tokens": 100, "output_tokens": 56, "reasoning_tokens": 20, "reported_cost_usd": 0.0123}, "context_window": 200000}}
 ```
 
 `assistant.meta.model` records the selected request model, not a provider-returned alias or routed model name.
@@ -70,7 +70,7 @@ Each matching `/<skill-name>` token prepends a text block with `meta.skill_snaps
 
 Snapshots stay in the session timeline across compaction, but a snapshot before the last `compact` marker reaches providers only through the summary; its `location` lets the model re-read the skill file.
 
-`assistant.meta.usage` holds token facts for one provider request. A missing key means unknown. `meta.native.usage` keeps the raw upstream object.
+`assistant.meta.usage` holds canonical facts for one provider request. A missing key means the provider did not report it.
 
 | field                | semantics                                                              |
 | -------------------- | ---------------------------------------------------------------------- |
@@ -80,7 +80,7 @@ Snapshots stay in the session timeline across compaction, but a snapshot before 
 | `cache_write_tokens` | subset of `input_tokens`                                               |
 | `output_tokens`      | full output, **including** reasoning                                   |
 | `reasoning_tokens`   | subset of `output_tokens`                                              |
-| `cost_usd`           | upstream-reported charge only; currently OpenRouter                    |
+| `reported_cost_usd`  | upstream-reported charge only; currently OpenRouter                    |
 
 `usage.total_tokens` is the request's context metric. Compaction and context displays compare it with `context_window`.
 
@@ -100,7 +100,7 @@ Adapter normalization (canonical ← raw; missing fields stay unknown unless not
 ### Compact event
 
 ```json
-{"role": "compact", "content": [{"type": "text", "text": "<summary>"}], "meta": {"provider": "...", "model": "...", "usage": {...}, "native": {"usage": {...}}}}
+{"role": "compact", "content": [{"type": "text", "text": "<summary>"}], "meta": {"provider": "...", "model": "...", "usage": {...}}}
 ```
 
 The marker stores the summary and its request usage. Automatic compaction also includes that request in the turn's cumulative usage. See "Context Compaction" below.
@@ -129,7 +129,7 @@ a full `assistant`/`tool_result` boundary.
 
 1. `should_compact()` — true when the latest assistant message's `usage.total_tokens` ≥ `context_window × compact_threshold` (default `0.8`). Tool outputs appended this turn aren't reflected in that figure until the next API call's usage; the `(1 - threshold)` headroom absorbs them.
 2. Ask the same provider/model for a summary with the normal system prompt, the current provider-projected messages (`prepare_messages`), no tools, text only, and `max_tokens = min(agent.max_tokens, 8192)`
-3. Build a compact event with the summary text and the summary call's `meta.usage` / `meta.native.usage` when available
+3. Build a compact event with the summary text and the summary call's `meta.usage` when available
 4. Persist the compact event and append it to `agent.messages` (append-only — original messages stay in JSONL and in the visible list)
 5. Emit the `compact` stream event to the caller (empty payload — clients use it as the cue to insert their inline divider)
 
