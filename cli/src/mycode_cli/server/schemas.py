@@ -6,6 +6,8 @@ from typing import Any, Literal, Self
 
 from pydantic import BaseModel, Field, model_validator
 
+from mycode.models import Cost
+
 RunKind = Literal["chat", "compact"]
 
 
@@ -104,8 +106,8 @@ class StreamEvent(BaseModel):
     context_window: int | None = None  # usage
     model: str | None = None  # usage
     turn_usage: dict[str, int] | None = None  # usage
-    turn_cost_usd: float | None = None  # usage
-    session_cost_usd: float | None = None  # usage; composed by the run manager
+    turn_cost: Cost | None = None  # usage
+    session_cost: float | None = None  # usage; composed by the run manager
 
 
 class DecideRequest(BaseModel):

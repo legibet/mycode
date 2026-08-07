@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from mycode.agent import Agent
-from mycode.models import estimate_cost, resolve_model_metadata
 from mycode.session import SessionStore
 from mycode.tools import bash_tool, edit_tool, read_tool, write_tool
 from mycode_cli.config import ResolvedProvider, Settings
@@ -17,13 +16,10 @@ def sum_known_costs(*costs: float | None) -> float | None:
 
 
 async def load_session_cost(store: SessionStore, session_id: str) -> float | None:
-    """Estimate the session's cumulative USD cost from its raw JSONL timeline.
+    """Load the session's cumulative USD cost from its raw JSONL timeline.
 
-    Every persisted provider request counts: tool loops, compact summaries,
-    and turns discarded by rewind (billed is billed). Each assistant/compact
-    record is priced by its own ``meta.provider``/``meta.model`` through the
-    SDK catalog; an upstream-reported ``reported_cost_usd`` wins. Records
-    without a usable estimate are skipped.
+    Counts persisted costs from tool loops, compact summaries, and turns
+    discarded by rewind. Records without a cost are skipped.
     """
 
     total: float | None = None
@@ -31,12 +27,12 @@ async def load_session_cost(store: SessionStore, session_id: str) -> float | Non
         if message.get("role") not in {"assistant", "compact"}:
             continue
         meta = message.get("meta") or {}
-        usage = meta.get("usage")
-        if not isinstance(usage, dict):
+        cost = meta.get("cost")
+        if not isinstance(cost, dict):
             continue
-        metadata = resolve_model_metadata(provider=str(meta.get("provider") or ""), model=str(meta.get("model") or ""))
-        request_cost = estimate_cost(usage, metadata.cost)
-        total = sum_known_costs(total, request_cost)
+        request_total = cost.get("total")
+        if isinstance(request_total, int | float):
+            total = sum_known_costs(total, float(request_total))
     return total
 
 

@@ -443,7 +443,7 @@ def test_compact_endpoint_conflicts_and_cancel_write_no_marker(
 # Sessions API
 
 
-def test_session_load_stamps_request_costs(tmp_path: Path) -> None:
+def test_session_load_returns_persisted_costs(tmp_path: Path) -> None:
     store = SessionStore(data_dir=tmp_path / "sessions")
 
     async def seed() -> None:
@@ -454,10 +454,14 @@ def test_session_load_stamps_request_costs(tmp_path: Path) -> None:
             {
                 "role": "assistant",
                 "content": [{"type": "text", "text": "ok"}],
-                "meta": {"provider": "p", "model": "m", "usage": {"reported_cost_usd": 0.02}},
+                "meta": {
+                    "provider": "p",
+                    "model": "m",
+                    "usage": {"input_tokens": 10, "output_tokens": 5},
+                    "cost": {"input": 0.01, "output": 0.01, "total": 0.02},
+                },
             },
         )
-        # Usage recorded but the model has no catalog price: no request stamp.
         await store.append_message(
             "s1",
             {
@@ -476,7 +480,7 @@ def test_session_load_stamps_request_costs(tmp_path: Path) -> None:
         payload = client.get("/api/sessions/s1").json()
 
     user_message, priced, unpriced = payload["messages"]
-    assert "request_cost_usd" not in (user_message.get("meta") or {})
-    assert priced["meta"]["request_cost_usd"] == pytest.approx(0.02)
-    assert "request_cost_usd" not in unpriced["meta"]
-    assert payload["session_cost_usd"] == pytest.approx(0.02)
+    assert "cost" not in (user_message.get("meta") or {})
+    assert priced["meta"]["cost"] == pytest.approx({"input": 0.01, "output": 0.01, "total": 0.02})
+    assert "cost" not in unpriced["meta"]
+    assert payload["session_cost"] == pytest.approx(0.02)

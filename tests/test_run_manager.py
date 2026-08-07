@@ -75,7 +75,10 @@ class UsageAgent(ChatOnlyAgent):
 
     async def achat(self, user_input):
         del user_input
-        yield Event("usage", {"context_tokens": 100, "turn_cost_usd": self.turn_cost})
+        yield Event(
+            "usage",
+            {"context_tokens": 100, "turn_cost": {"total": self.turn_cost} if self.turn_cost is not None else None},
+        )
 
 
 @pytest.mark.parametrize(
@@ -105,7 +108,7 @@ async def test_usage_events_compose_known_session_costs(
 
     usage_events = [event for event in state.events if event["type"] == "usage"]
     expected_cost = pytest.approx(expected) if expected is not None else None
-    assert usage_events[0]["session_cost_usd"] == expected_cost
+    assert usage_events[0]["session_cost"] == expected_cost
     assert usage_events[0]["model"] == "test-model"
     assert usage_events[0]["context_window"] == 1_000
 

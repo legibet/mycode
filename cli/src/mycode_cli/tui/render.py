@@ -628,7 +628,9 @@ class ReplyRenderer:
             if self._context_window:
                 usage_text += f" ({round(context_tokens * 100 / self._context_window)}%)"
             parts.append(usage_text)
-        session_cost = sum_known_costs(self._session_cost_base, self._stats.get("turn_cost_usd"))
+        turn_cost = self._stats.get("turn_cost")
+        turn_total = turn_cost.get("total") if isinstance(turn_cost, dict) else None
+        session_cost = sum_known_costs(self._session_cost_base, turn_total)
         if session_cost is not None:
             parts.append(_format_cost(session_cost))
         if parts:

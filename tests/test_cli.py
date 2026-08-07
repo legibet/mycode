@@ -274,7 +274,7 @@ class TestReplyRenderer:
         )
         renderer._stats = {
             "context_tokens": 34_210,
-            "turn_cost_usd": 0.02,
+            "turn_cost": {"total": 0.02},
         }
 
         renderer.finish()
@@ -299,7 +299,7 @@ class TestReplyRenderer:
             context_window=1_000,
             session_cost_base=session_cost_base,
         )
-        renderer._stats = {"turn_cost_usd": turn_cost}
+        renderer._stats = {"turn_cost": {"total": turn_cost} if turn_cost is not None else None}
 
         renderer.finish()
 
@@ -320,12 +320,12 @@ class TestLoadSessionCost:
             {
                 "role": "assistant",
                 "content": [],
-                "meta": {"provider": "p", "model": "m", "usage": {"reported_cost_usd": 0.02}},
+                "meta": {"provider": "p", "model": "m", "cost": {"input": 0.01, "total": 0.02}},
             },
             {
                 "role": "compact",
                 "content": [],
-                "meta": {"provider": "p", "model": "m", "usage": {"reported_cost_usd": 0.005}},
+                "meta": {"provider": "p", "model": "m", "cost": {"total": 0.005}},
             },
         ]
         for record in records:
@@ -335,7 +335,7 @@ class TestLoadSessionCost:
         assert await load_session_cost(store, "s1") == pytest.approx(0.025)
 
     @pytest.mark.asyncio
-    async def test_skips_records_without_usage(self, tmp_path: Path) -> None:
+    async def test_skips_records_without_cost(self, tmp_path: Path) -> None:
         store = SessionStore(data_dir=tmp_path)
         await store.create_session("s1", cwd="/tmp")
         await store.append_message(
@@ -343,35 +343,11 @@ class TestLoadSessionCost:
             {
                 "role": "assistant",
                 "content": [],
-                "meta": {"provider": "p", "model": "m", "usage": {"reported_cost_usd": 0.02}},
+                "meta": {"provider": "p", "model": "m", "cost": {"total": 0.02}},
             },
         )
-        # A cancelled stream persists an assistant message without usage; the
-        # one-off gap must not hide the estimate for the rest of the session.
+        # A cancelled stream without cost must not hide known session costs.
         await store.append_message("s1", {"role": "assistant", "content": [], "meta": {"provider": "p", "model": "m"}})
-
-        assert await load_session_cost(store, "s1") == pytest.approx(0.02)
-
-    @pytest.mark.asyncio
-    async def test_skips_a_recorded_request_that_cannot_be_priced(self, tmp_path: Path) -> None:
-        store = SessionStore(data_dir=tmp_path)
-        await store.create_session("s1", cwd="/tmp")
-        await store.append_message(
-            "s1",
-            {
-                "role": "assistant",
-                "content": [],
-                "meta": {"provider": "p", "model": "m", "usage": {"reported_cost_usd": 0.02}},
-            },
-        )
-        await store.append_message(
-            "s1",
-            {
-                "role": "assistant",
-                "content": [],
-                "meta": {"provider": "unknown", "model": "unknown", "usage": {"input_tokens": 10, "output_tokens": 5}},
-            },
-        )
 
         assert await load_session_cost(store, "s1") == pytest.approx(0.02)
 

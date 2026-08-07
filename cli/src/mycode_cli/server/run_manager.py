@@ -323,9 +323,11 @@ class RunManager:
                     if event.type == "error":
                         last_error = str(event.data.get("message") or "unknown error")
                     elif event.type == "usage":
+                        turn_cost = event.data.get("turn_cost")
+                        turn_total = turn_cost.get("total") if isinstance(turn_cost, dict) else None
                         session_cost = sum_known_costs(
                             state.session_cost_base,
-                            event.data.get("turn_cost_usd"),
+                            turn_total,
                         )
                         event = Event(
                             "usage",
@@ -333,7 +335,7 @@ class RunManager:
                                 **event.data,
                                 "context_window": state.agent.context_window,
                                 "model": state.agent.model,
-                                "session_cost_usd": session_cost,
+                                "session_cost": session_cost,
                             },
                         )
                     await self._append_event(state, event)
