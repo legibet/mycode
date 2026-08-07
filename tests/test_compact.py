@@ -38,9 +38,9 @@ async def test_session_load_keeps_compact_markers_inline_and_append_only(store: 
     raw_messages = [
         {"role": "user", "content": [{"type": "text", "text": "hello"}]},
         {"role": "assistant", "content": [{"type": "text", "text": "hi"}]},
-        build_compact_event("old summary", provider="p", model="m"),
+        build_compact_event("old summary", provider="p", model="m", context_window=100),
         {"role": "user", "content": [{"type": "text", "text": "next"}]},
-        build_compact_event("new summary", provider="p", model="m"),
+        build_compact_event("new summary", provider="p", model="m", context_window=100),
         {"role": "assistant", "content": [{"type": "text", "text": "latest reply"}]},
     ]
     for message in raw_messages:
@@ -97,7 +97,7 @@ def test_compact_replay_preserves_role_order_after_summary(
     messages = [
         {"role": "user", "content": [{"type": "text", "text": "early"}]},
         {"role": "assistant", "content": [{"type": "text", "text": "ok"}]},
-        build_compact_event("summary", provider="p", model="m"),
+        build_compact_event("summary", provider="p", model="m", context_window=100),
         *tail,
     ]
 
@@ -112,9 +112,9 @@ def test_compact_replay_preserves_role_order_after_summary(
 def test_compact_replay_uses_latest_summary_and_transcript_hint() -> None:
     messages = [
         {"role": "user", "content": [{"type": "text", "text": "very old"}]},
-        build_compact_event("EARLIER_SUMMARY", provider="p", model="m"),
+        build_compact_event("EARLIER_SUMMARY", provider="p", model="m", context_window=100),
         {"role": "assistant", "content": [{"type": "text", "text": "mid"}]},
-        build_compact_event("LATEST_SUMMARY", provider="p", model="m"),
+        build_compact_event("LATEST_SUMMARY", provider="p", model="m", context_window=100),
         {"role": "assistant", "content": [{"type": "text", "text": "tail"}]},
     ]
 
@@ -239,7 +239,7 @@ async def test_acompact_persists_marker_and_uses_manual_request_contract(tmp_pat
 async def test_acompact_without_new_context_raises_before_provider_request(tmp_path: Path) -> None:
     agent = make_agent(tmp_path)
     agent.messages.append({"role": "user", "content": [{"type": "text", "text": "hi"}]})
-    agent.messages.append(build_compact_event("summary", provider="p", model="m"))
+    agent.messages.append(build_compact_event("summary", provider="p", model="m", context_window=100))
 
     adapter = _RecordingAdapter([])
     with patch("mycode.agent.get_provider_adapter", return_value=adapter), pytest.raises(NothingToCompactError):
@@ -281,10 +281,16 @@ class _UsageDetailAdapter:
     async def stream_turn(self, _request: Any) -> AsyncIterator[ProviderStreamEvent]:
         self.requests += 1
         if self.requests == 1:
-            meta = {"usage": {"total_tokens": 80_000, "input_tokens": 79_000, "output_tokens": 1_000}}
+            meta = {
+                "usage": {"total_tokens": 80_000, "input_tokens": 79_000, "output_tokens": 1_000},
+                "cost": {"total": 0.01},
+            }
             text = "reply"
         else:
-            meta = {"usage": {"total_tokens": 80_500, "input_tokens": 80_000, "output_tokens": 500}}
+            meta = {
+                "usage": {"total_tokens": 80_500, "input_tokens": 80_000, "output_tokens": 500},
+                "cost": {"total": 0.005},
+            }
             text = "summary"
         yield ProviderStreamEvent(
             "message_done",
@@ -308,10 +314,12 @@ async def test_auto_compact_usage_counts_into_the_turn() -> None:
     assert final_usage["turn_usage"]["total_tokens"] == 160_500
     assert final_usage["turn_usage"]["input_tokens"] == 159_000
     assert final_usage["turn_usage"]["output_tokens"] == 1_500
+    assert final_usage["turn_cost"] == pytest.approx({"total": 0.015})
 
     marker = agent.messages[-1]
     assert marker["role"] == "compact"
     assert marker["meta"]["usage"] == {"total_tokens": 80_500, "input_tokens": 80_000, "output_tokens": 500}
+    assert marker["meta"]["cost"] == {"total": 0.005}
 
 
 class _FailingSummaryAdapter:

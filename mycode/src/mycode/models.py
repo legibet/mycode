@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from functools import cache
 from pathlib import Path
-from typing import Any
+from typing import Any, NotRequired, TypedDict
 
 from pydantic import BaseModel, ConfigDict, TypeAdapter, ValidationError
 
@@ -58,11 +58,11 @@ class ModelMetadata:
     ``provider`` and ``model`` keep the original query identity. Other fields
     may come from a fallback catalog entry.
 
-    ``cost`` holds models.dev prices in USD per 1M tokens — keys ``input``,
+    ``pricing`` holds models.dev prices in USD per 1M tokens — keys ``input``,
     ``output``, ``cache_read``, ``cache_write``, ``reasoning`` plus optional
     ``tiers`` (long-context price overrides, ``[{"size": ..., <prices>}]``).
     Capability fields may come from the OpenRouter suffix fallback, but
-    ``cost`` never does: prices apply only when the catalog entry belongs to
+    ``pricing`` never does: prices apply only when the catalog entry belongs to
     the requested provider or the inferred official provider.
 
     ``reasoning_efforts`` is ``None`` when the source has no reasoning options,
@@ -78,7 +78,18 @@ class ModelMetadata:
     reasoning_efforts: tuple[str, ...] | None = None
     supports_image_input: bool | None = None
     supports_pdf_input: bool | None = None
-    cost: dict[str, Any] | None = None
+    pricing: dict[str, Any] | None = None
+
+
+class Cost(TypedDict):
+    """USD cost for one provider request or a request aggregate."""
+
+    total: float
+    input: NotRequired[float]
+    cache_read: NotRequired[float]
+    cache_write: NotRequired[float]
+    output: NotRequired[float]
+    reasoning: NotRequired[float]
 
 
 @cache
@@ -190,7 +201,7 @@ def lookup_model_metadata(
         reasoning_efforts=catalog_entry.reasoning_efforts,
         supports_image_input=catalog_entry.supports_image_input,
         supports_pdf_input=catalog_entry.supports_pdf_input,
-        cost=(
+        pricing=(
             catalog_entry.cost.model_dump(
                 mode="json",
                 exclude_none=True,
@@ -205,20 +216,16 @@ def lookup_model_metadata(
 _PRICE_KEYS = ("input", "output", "cache_read", "cache_write", "reasoning")
 
 
-def estimate_cost(usage: dict[str, Any], cost: dict[str, Any] | None) -> float | None:
+def estimate_cost(usage: dict[str, Any], pricing: dict[str, Any] | None) -> Cost | None:
     """Estimate the USD cost of one provider request.
 
-    ``usage`` is a message's canonical ``meta.usage`` dict; ``cost`` is
-    :attr:`ModelMetadata.cost`. Returns the upstream-reported cost when
-    present, otherwise a models.dev-based estimate — or None when the
-    available token/price data cannot produce an estimate. Missing cache and
-    reasoning splits use the corresponding base input/output rate.
+    ``usage`` is a message's canonical ``meta.usage`` dict and ``pricing`` is
+    :attr:`ModelMetadata.pricing`. Returns ``None`` when the available
+    token/price data cannot produce a complete estimate. Missing cache and
+    reasoning prices use the corresponding base input/output rate.
     """
 
-    reported = usage.get("reported_cost_usd")
-    if reported is not None:
-        return float(reported)
-    if not cost:
+    if not pricing:
         return None
 
     input_tokens = usage.get("input_tokens")
@@ -228,10 +235,10 @@ def estimate_cost(usage: dict[str, Any], cost: dict[str, Any] | None) -> float |
     if any(usage.get(key, 0) < 0 for key in USAGE_TOKEN_KEYS):
         return None
 
-    prices: dict[str, float | None] = {key: cost.get(key) for key in _PRICE_KEYS}
+    prices: dict[str, float | None] = {key: pricing.get(key) for key in _PRICE_KEYS}
     # Long-context pricing: the highest tier the full input (incl. cache)
     # exceeds overrides the base prices; fields missing on a tier inherit.
-    for tier in cost.get("tiers") or []:
+    for tier in pricing.get("tiers") or []:
         if input_tokens > tier["size"]:
             prices.update({key: tier[key] for key in _PRICE_KEYS if tier.get(key) is not None})
 
@@ -249,20 +256,33 @@ def estimate_cost(usage: dict[str, Any], cost: dict[str, Any] | None) -> float |
     cache_write_price = prices["cache_write"] if prices["cache_write"] is not None else prices["input"]
     reasoning_price = prices["reasoning"] if prices["reasoning"] is not None else prices["output"]
 
-    total = 0.0
-    for tokens, price in (
+    component_data = (
         (uncached_input, prices["input"]),
         (cache_read, cache_read_price),
         (cache_write, cache_write_price),
         (output_tokens - reasoning, prices["output"]),
         (reasoning, reasoning_price),
-    ):
-        if not tokens:
-            continue
-        if price is None:
-            return None
-        total += tokens * price
-    return total / 1_000_000
+    )
+    if any(tokens and price is None for tokens, price in component_data):
+        return None
+
+    input_cost = uncached_input * (prices["input"] or 0.0) / 1_000_000
+    output_cost = (output_tokens - reasoning) * (prices["output"] or 0.0) / 1_000_000
+    cost: Cost = {
+        "total": input_cost + output_cost,
+        "input": input_cost,
+        "output": output_cost,
+    }
+    if cache_read:
+        cost["cache_read"] = cache_read * (cache_read_price or 0.0) / 1_000_000
+        cost["total"] += cost["cache_read"]
+    if cache_write:
+        cost["cache_write"] = cache_write * (cache_write_price or 0.0) / 1_000_000
+        cost["total"] += cost["cache_write"]
+    if reasoning:
+        cost["reasoning"] = reasoning * (reasoning_price or 0.0) / 1_000_000
+        cost["total"] += cost["reasoning"]
+    return cost
 
 
 def _get_openrouter_suffix_entry(catalog: _ModelsCatalog, model_name: str) -> _CatalogEntry | None:

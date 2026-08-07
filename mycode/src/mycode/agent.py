@@ -40,7 +40,7 @@ from mycode.messages import (
     tool_result_block,
     user_text_message,
 )
-from mycode.models import estimate_cost, infer_provider_from_model, resolve_model_metadata
+from mycode.models import Cost, estimate_cost, infer_provider_from_model, resolve_model_metadata
 from mycode.providers import get_provider_adapter
 from mycode.providers.base import (
     DEFAULT_REQUEST_TIMEOUT,
@@ -78,10 +78,10 @@ class RunResult:
 
 def _accumulate_usage(
     turn_usage: dict[str, Any],
-    turn_cost: float | None,
+    turn_cost: Cost | None,
     usage: dict[str, Any],
-    cost: dict[str, Any] | None,
-) -> float | None:
+    request_cost: Cost | None,
+) -> Cost | None:
     """Fold one provider request's usage into the turn accumulator.
 
     Mutates ``turn_usage`` and returns the updated best-effort turn cost.
@@ -92,10 +92,31 @@ def _accumulate_usage(
         if value is None:
             continue
         turn_usage[key] = turn_usage.get(key, 0) + value
-    request_cost = estimate_cost(usage, cost)
     if request_cost is None:
         return turn_cost
-    return request_cost if turn_cost is None else turn_cost + request_cost
+    if turn_cost is None:
+        return request_cost
+
+    total = turn_cost["total"] + request_cost["total"]
+    has_details = all("input" in cost and "output" in cost for cost in (turn_cost, request_cost))
+    if not has_details:
+        return {"total": total}
+
+    result: Cost = {
+        "total": total,
+        "input": turn_cost.get("input", 0.0) + request_cost.get("input", 0.0),
+        "output": turn_cost.get("output", 0.0) + request_cost.get("output", 0.0),
+    }
+    cache_read = turn_cost.get("cache_read", 0.0) + request_cost.get("cache_read", 0.0)
+    cache_write = turn_cost.get("cache_write", 0.0) + request_cost.get("cache_write", 0.0)
+    reasoning = turn_cost.get("reasoning", 0.0) + request_cost.get("reasoning", 0.0)
+    if "cache_read" in turn_cost or "cache_read" in request_cost:
+        result["cache_read"] = cache_read
+    if "cache_write" in turn_cost or "cache_write" in request_cost:
+        result["cache_write"] = cache_write
+    if "reasoning" in turn_cost or "reasoning" in request_cost:
+        result["reasoning"] = reasoning
+    return result
 
 
 class Agent:
@@ -244,7 +265,7 @@ class Agent:
         )
         self.max_tokens: int = meta.max_output_tokens or 16_384
         self.context_window: int = meta.context_window or 128_000
-        self.model_cost: dict[str, Any] | None = meta.cost
+        self.model_pricing: dict[str, Any] | None = meta.pricing
         self.supports_reasoning: bool | None = meta.supports_reasoning
         self.supports_image_input: bool = bool(meta.supports_image_input)
         self.supports_pdf_input: bool = bool(meta.supports_pdf_input)
@@ -652,7 +673,7 @@ class Agent:
         self,
         context_tokens: int | None,
         turn_usage: dict[str, Any],
-        turn_cost: float | None,
+        turn_cost: Cost | None,
     ) -> Event:
         """Build a usage event: turn-cumulative billing facts + context metric."""
 
@@ -661,9 +682,25 @@ class Agent:
             {
                 "context_tokens": context_tokens,
                 "turn_usage": dict(turn_usage),
-                "turn_cost_usd": turn_cost,
+                "turn_cost": dict(turn_cost) if turn_cost is not None else None,
             },
         )
+
+    def _finalize_request_message(self, message: ConversationMessage) -> tuple[dict[str, Any], Cost | None]:
+        """Attach stable request metadata before the message is persisted."""
+
+        meta = cast(dict[str, Any], message.setdefault("meta", {}))
+        meta["context_window"] = self.context_window
+        usage = cast(dict[str, Any], meta.get("usage") or {})
+        provider_cost = meta.get("cost")
+        cost = (
+            cast(Cost, cast(object, provider_cost))
+            if isinstance(provider_cost, dict)
+            else estimate_cost(usage, self.model_pricing)
+        )
+        if cost is not None:
+            meta["cost"] = dict(cost)
+        return usage, cost
 
     async def _persist_message(
         self,
@@ -737,7 +774,7 @@ class Agent:
         adapter = get_provider_adapter(self.provider)
 
         turn_usage: dict[str, Any] = {}
-        turn_cost: float | None = None
+        turn_cost: Cost | None = None
         context_tokens: int | None = None
         turn_number = 0
         while True:
@@ -840,18 +877,13 @@ class Agent:
             if thinking_duration_ms is not None:
                 self._stamp_thinking_duration(assistant_message.get("content") or [], thinking_duration_ms)
 
-            # Stamp context_window onto the persisted assistant message so
-            # rewinds and refreshed clients can render token-usage % without
-            # re-resolving model metadata.
-            meta = cast(dict[str, Any], assistant_message.setdefault("meta", {}))
-            meta["context_window"] = self.context_window
+            request_usage, request_cost = self._finalize_request_message(assistant_message)
 
             self.messages.append(assistant_message)
             await persist(assistant_message)
 
-            request_usage = cast(dict[str, Any], meta.get("usage") or {})
             context_tokens = request_usage.get("total_tokens")
-            turn_cost = _accumulate_usage(turn_usage, turn_cost, request_usage, self.model_cost)
+            turn_cost = _accumulate_usage(turn_usage, turn_cost, request_usage, request_cost)
             yield self._usage_event(context_tokens, turn_usage, turn_cost)
 
             tool_calls = [
@@ -898,7 +930,8 @@ class Agent:
                     # is not the post-compact context size, so context_tokens
                     # keeps the last normal request's value.
                     compact_usage = cast(dict[str, Any], (compact_marker.get("meta") or {}).get("usage") or {})
-                    turn_cost = _accumulate_usage(turn_usage, turn_cost, compact_usage, self.model_cost)
+                    compact_cost = cast(Cost | None, (compact_marker.get("meta") or {}).get("cost"))
+                    turn_cost = _accumulate_usage(turn_usage, turn_cost, compact_usage, compact_cost)
                     yield self._usage_event(context_tokens, turn_usage, turn_cost)
                 except asyncio.CancelledError:
                     yield Event("error", {"message": "cancelled"})
@@ -1014,12 +1047,14 @@ class Agent:
         if self._cancel_event.is_set():
             raise asyncio.CancelledError
 
-        summary_meta = cast(dict[str, Any], summary_message.get("meta") or {})
+        summary_usage, summary_cost = self._finalize_request_message(summary_message)
         compact_event = build_compact_event(
             summary_text,
             provider=self.provider,
             model=self.model,
-            usage=summary_meta.get("usage"),
+            context_window=self.context_window,
+            usage=summary_usage,
+            cost=summary_cost,
         )
 
         await self._persist_message(compact_event, on_persist)

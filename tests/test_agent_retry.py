@@ -97,7 +97,7 @@ async def test_transient_failures_retry_until_success(tmp_path: Path) -> None:
         turn=_text_turn("recovered"),
     )
     agent = _new_agent(tmp_path)
-    agent.model_cost = {"input": 1.0, "output": 2.0}
+    agent.model_pricing = {"input": 1.0, "output": 2.0}
 
     with patch("mycode.agent.get_provider_adapter", return_value=adapter):
         events = await _collect(agent)
@@ -115,7 +115,11 @@ async def test_transient_failures_retry_until_success(tmp_path: Path) -> None:
 
     usage = [event for event in events if event.type == "usage"][-1]
     assert usage.data["turn_usage"] == {"total_tokens": 10, "input_tokens": 6, "output_tokens": 4}
-    assert usage.data["turn_cost_usd"] == 14 / 1_000_000
+    assert usage.data["turn_cost"] == {
+        "input": 6 / 1_000_000,
+        "output": 8 / 1_000_000,
+        "total": 14 / 1_000_000,
+    }
     assert usage.data["context_tokens"] == 10
 
 

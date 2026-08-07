@@ -105,7 +105,7 @@ async def test_rewind_keeps_only_compact_markers_before_the_target(
         [
             text_message("user", "hello"),
             text_message("assistant", "hi"),
-            build_compact_event("summary", provider="p", model="m"),
+            build_compact_event("summary", provider="p", model="m", context_window=100),
             text_message("user", "explain X"),
             text_message("assistant", "X is..."),
         ],
@@ -131,7 +131,7 @@ def test_chat_rejects_rewind_to_compact_marker(tmp_path: Path, monkeypatch) -> N
     for message in [
         {"role": "user", "content": [{"type": "text", "text": "hello"}]},
         {"role": "assistant", "content": [{"type": "text", "text": "hi"}]},
-        build_compact_event("summary", provider="p", model="m"),
+        build_compact_event("summary", provider="p", model="m", context_window=100),
         {"role": "user", "content": [{"type": "text", "text": "explain X"}]},
     ]:
         asyncio.run(store.append_message(sid, message))

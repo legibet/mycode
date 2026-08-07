@@ -1167,7 +1167,7 @@ def test_provider_prepare_messages_applies_compact_before_appending_messages() -
         messages=[
             {"role": "user", "content": [{"type": "text", "text": "old prompt"}]},
             {"role": "assistant", "content": [{"type": "text", "text": "old answer"}]},
-            build_compact_event("latest summary", provider="openai", model="gpt-5.4"),
+            build_compact_event("latest summary", provider="openai", model="gpt-5.4", context_window=128_000),
             {"role": "assistant", "content": [{"type": "text", "text": "tail answer"}]},
         ],
     )
@@ -2165,7 +2165,7 @@ async def test_openai_chat_normalizes_usage_details(monkeypatch: pytest.MonkeyPa
                 completion_tokens_details=_Obj(reasoning_tokens=60),
                 total_tokens=1_080,
                 # A non-OpenRouter `cost` extension has unknown semantics and
-                # must not surface as reported_cost_usd (the exact match below proves it).
+                # must not surface as a request cost (the exact match below proves it).
                 cost=0.0123,
             ),
             choices=[_Obj(finish_reason="stop", delta=_Obj(content="done", tool_calls=[]))],
@@ -2228,7 +2228,7 @@ async def test_openrouter_stores_the_charged_cost(monkeypatch: pytest.MonkeyPatc
     request_call = client.chat.completions.create.await_args
     assert request_call is not None
     assert "extra_body" not in request_call.kwargs
-    assert events[-1].data["message"]["meta"]["usage"]["reported_cost_usd"] == 0.0123
+    assert events[-1].data["message"]["meta"]["cost"] == {"total": 0.0123}
 
 
 async def test_gemini_normalizes_usage_details(monkeypatch: pytest.MonkeyPatch) -> None:

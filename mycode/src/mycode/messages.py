@@ -7,7 +7,7 @@ Metadata layout:
 
 - assistant message ``meta`` keeps only normalized top-level fields:
   ``provider``, ``model``, ``provider_message_id``, ``stop_reason``,
-  ``usage``, ``context_window`` (see docs/sessions.md for ``usage``
+  ``usage``, ``cost``, ``context_window`` (see docs/sessions.md for ``usage``
   semantics); ``model`` records the selected request model
 - provider-specific extras live under ``meta.native`` on messages and
   ``block.meta.native`` on blocks
@@ -144,7 +144,6 @@ def build_usage(
     cache_write_tokens: int | None = None,
     output_tokens: int | None = None,
     reasoning_tokens: int | None = None,
-    reported_cost_usd: float | None = None,
 ) -> dict[str, Any]:
     """Build a canonical usage dict from one provider request.
 
@@ -152,8 +151,6 @@ def build_usage(
     writes; ``output_tokens`` includes reasoning; ``cache_*_tokens`` and
     ``reasoning_tokens`` are subsets of their respective totals. A missing key
     means the upstream did not report it — readers must not substitute 0.
-    ``reported_cost_usd`` is an upstream-reported charge (e.g. OpenRouter),
-    never a computed estimate.
     """
 
     if total_tokens is None and input_tokens is not None and output_tokens is not None:
@@ -166,7 +163,6 @@ def build_usage(
             "cache_write_tokens": cache_write_tokens,
             "output_tokens": output_tokens,
             "reasoning_tokens": reasoning_tokens,
-            "reported_cost_usd": reported_cost_usd,
         }
     )
 
@@ -179,6 +175,7 @@ def assistant_message(
     provider_message_id: str | None = None,
     stop_reason: str | None = None,
     usage: dict[str, Any] | None = None,
+    cost: dict[str, float] | None = None,
     native_meta: dict[str, Any] | None = None,
 ) -> ConversationMessage:
     """Build a normalized assistant message with shared metadata fields."""
@@ -194,6 +191,8 @@ def assistant_message(
         meta["stop_reason"] = stop_reason
     if usage:
         meta["usage"] = dict(usage)
+    if cost is not None:
+        meta["cost"] = dict(cost)
     if native_meta:
         native = omit_none(native_meta)
         if native:

@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from mycode.messages import ConversationMessage, build_message, text_block
+from mycode.models import Cost
 
 DEFAULT_COMPACT_THRESHOLD = 0.8
 
@@ -89,11 +90,19 @@ def build_compact_event(
     *,
     provider: str,
     model: str,
+    context_window: int,
     usage: dict[str, Any] | None = None,
+    cost: Cost | None = None,
 ) -> ConversationMessage:
-    meta: dict[str, Any] = {"provider": provider, "model": model}
+    meta: dict[str, Any] = {
+        "provider": provider,
+        "model": model,
+        "context_window": context_window,
+    }
     if usage:
         meta["usage"] = dict(usage)
+    if cost is not None:
+        meta["cost"] = dict(cost)
     return build_message("compact", [text_block(summary_text)], meta=meta)
 
 

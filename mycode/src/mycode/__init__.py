@@ -21,7 +21,7 @@ from mycode.messages import (
     tool_use_block,
     user_text_message,
 )
-from mycode.models import ModelMetadata, estimate_cost, resolve_model_metadata
+from mycode.models import Cost, ModelMetadata, estimate_cost, resolve_model_metadata
 from mycode.providers.base import ProviderError, StreamStartTimeoutError
 from mycode.session import SessionStore
 from mycode.tools import (
@@ -44,6 +44,7 @@ __all__ = [
     "Attachment",
     "ContentBlock",
     "ConversationMessage",
+    "Cost",
     "Event",
     "AfterToolHook",
     "BeforeToolHook",

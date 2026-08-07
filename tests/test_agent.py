@@ -626,7 +626,7 @@ class TestTurnUsage:
             [_text_turn(meta={"usage": {"total_tokens": 100, "input_tokens": 90, "output_tokens": 10}})]
         )
         agent = _new_agent(tmp_path)
-        agent.model_cost = None
+        agent.model_pricing = None
 
         with patch("mycode.agent.get_provider_adapter", return_value=adapter):
             result = agent.run("hello")
@@ -634,7 +634,7 @@ class TestTurnUsage:
         assert result.usage == {
             "context_tokens": 100,
             "turn_usage": {"total_tokens": 100, "input_tokens": 90, "output_tokens": 10},
-            "turn_cost_usd": None,
+            "turn_cost": None,
         }
 
     def test_usage_events_accumulate_across_tool_turns(self, tmp_path: Path) -> None:
@@ -648,7 +648,7 @@ class TestTurnUsage:
             ]
         )
         agent = _new_agent(tmp_path, tools=[_PING_TOOL])
-        agent.model_cost = {"input": 1.0, "output": 2.0}
+        agent.model_pricing = {"input": 1.0, "output": 2.0}
 
         with patch("mycode.agent.get_provider_adapter", return_value=adapter):
             result = agent.run("hello")
@@ -661,13 +661,16 @@ class TestTurnUsage:
                 "input_tokens": 90,
                 "output_tokens": 10,
             },
-            "turn_cost_usd": pytest.approx((90 * 1.0 + 10 * 2.0) / 1_000_000),
+            "turn_cost": pytest.approx({"input": 0.00009, "output": 0.00002, "total": 0.00011}),
         }
         assert second["context_tokens"] == 150
         assert second["turn_usage"]["total_tokens"] == 250
         assert second["turn_usage"]["input_tokens"] == 220
         assert second["turn_usage"]["output_tokens"] == 30
-        assert second["turn_cost_usd"] == pytest.approx((220 * 1.0 + 30 * 2.0) / 1_000_000)
+        assert second["turn_cost"] == pytest.approx({"input": 0.00022, "output": 0.00006, "total": 0.00028})
+        assert agent.messages[1]["meta"]["cost"] == pytest.approx(
+            {"input": 0.00009, "output": 0.00002, "total": 0.00011}
+        )
         assert result.usage == second
 
     def test_request_without_usage_keeps_known_turn_totals(self, tmp_path: Path) -> None:
@@ -681,7 +684,7 @@ class TestTurnUsage:
             ]
         )
         agent = _new_agent(tmp_path, tools=[_PING_TOOL])
-        agent.model_cost = {"input": 1.0, "output": 2.0}
+        agent.model_pricing = {"input": 1.0, "output": 2.0}
 
         with patch("mycode.agent.get_provider_adapter", return_value=adapter):
             result = agent.run("hello")
@@ -689,7 +692,31 @@ class TestTurnUsage:
         assert result.usage is not None
         assert result.usage["context_tokens"] is None
         assert result.usage["turn_usage"] == {"total_tokens": 100, "input_tokens": 90, "output_tokens": 10}
-        assert result.usage["turn_cost_usd"] == pytest.approx((90 * 1.0 + 10 * 2.0) / 1_000_000)
+        assert result.usage["turn_cost"] == pytest.approx({"input": 0.00009, "output": 0.00002, "total": 0.00011})
+
+    def test_total_only_request_downgrades_the_turn_cost(self, tmp_path: Path) -> None:
+        adapter = _FakeProviderAdapter(
+            [
+                _assistant_turn(
+                    {"type": "tool_use", "id": "call-1", "name": "ping", "input": {"text": "hi"}},
+                    meta={"usage": {"total_tokens": 100, "input_tokens": 90, "output_tokens": 10}},
+                ),
+                _text_turn(
+                    meta={
+                        "usage": {"total_tokens": 150, "input_tokens": 130, "output_tokens": 20},
+                        "cost": {"total": 0.02},
+                    }
+                ),
+            ]
+        )
+        agent = _new_agent(tmp_path, tools=[_PING_TOOL])
+        agent.model_pricing = {"input": 1.0, "output": 2.0}
+
+        with patch("mycode.agent.get_provider_adapter", return_value=adapter):
+            result = agent.run("hello")
+
+        assert result.usage is not None
+        assert result.usage["turn_cost"] == pytest.approx({"total": 0.02011})
 
     def test_failed_followup_request_keeps_last_successful_usage(self, tmp_path: Path) -> None:
         class _FailingSecondRequestAdapter:
@@ -707,7 +734,7 @@ class TestTurnUsage:
                 raise ValueError("boom")
 
         agent = _new_agent(tmp_path, tools=[_PING_TOOL])
-        agent.model_cost = {"input": 1.0, "output": 2.0}
+        agent.model_pricing = {"input": 1.0, "output": 2.0}
 
         with patch("mycode.agent.get_provider_adapter", return_value=_FailingSecondRequestAdapter()):
             result = agent.run("hello")

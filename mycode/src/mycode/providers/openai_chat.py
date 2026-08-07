@@ -163,10 +163,12 @@ class OpenAIChatAdapter(ProviderAdapter):
                 cache_write_tokens=prompt_details.get("cache_write_tokens"),
                 output_tokens=raw_usage.get("completion_tokens"),
                 reasoning_tokens=completion_details.get("reasoning_tokens"),
-                # Only OpenRouter's `cost` extension is known to mean the
-                # actually charged USD amount; other upstreams' same-named
-                # fields must not short-circuit the estimate.
-                reported_cost_usd=raw_usage.get("cost") if self.provider_id == "openrouter" else None,
+            ),
+            # Only OpenRouter's extension is known to be the charged USD total.
+            cost=(
+                {"total": float(raw_usage["cost"])}
+                if self.provider_id == "openrouter" and raw_usage.get("cost") is not None
+                else None
             ),
         )
         yield ProviderStreamEvent("message_done", {"message": final_message})
