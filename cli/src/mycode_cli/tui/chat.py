@@ -58,6 +58,7 @@ from mycode_cli.runtime import load_session_cost
 from mycode_cli.system_prompt import build_skill_snapshot_blocks, discover_slash_skills
 
 from .render import ReplyRenderer, TerminalView, format_local_timestamp
+from .state import load_efforts, save_efforts
 from .theme import ERROR, ERROR_MARKER, MUTED, PROMPT_CHAR, TERMINAL_THEME, TOOL_MARKER, WARNING
 
 _PROMPT = ANSI(f"\033[1m\033[34m{PROMPT_CHAR}\033[0m ")
@@ -397,19 +398,17 @@ def list_provider_options(settings: Settings) -> list[ProviderOption]:
     return options
 
 
-def get_provider_option(settings: Settings, *, provider: str, api_base: str | None) -> ProviderOption | None:
+def get_provider_option(settings: Settings, *, provider_name: str) -> ProviderOption | None:
     """Return the current selectable provider option."""
 
-    for option in list_provider_options(settings):
-        if option.provider == provider and option.api_base == api_base:
-            return option
-    return None
+    return next((option for option in list_provider_options(settings) if option.name == provider_name), None)
 
 
-def list_model_options(settings: Settings, *, provider: str, api_base: str | None, current_model: str) -> list[str]:
+def list_model_options(settings: Settings, *, provider_name: str, current_model: str) -> list[str]:
     """Return the selectable model list for the current provider runtime."""
 
-    option = get_provider_option(settings, provider=provider, api_base=api_base)
+    option = get_provider_option(settings, provider_name=provider_name)
+    provider = option.provider if option else provider_name
     models = option.models if option else provider_default_models(provider)
     return list(dict.fromkeys([current_model, *models]))
 
@@ -442,7 +441,6 @@ def apply_resolved_provider(agent: Agent, resolved: ResolvedProvider) -> bool:
         agent.refresh_capabilities(
             max_tokens=model_config.max_output_tokens if model_config else None,
             context_window=model_config.context_window if model_config else None,
-            supports_reasoning=model_config.supports_reasoning if model_config else None,
             supports_image_input=model_config.supports_image_input if model_config else None,
             supports_pdf_input=model_config.supports_pdf_input if model_config else None,
         )
@@ -459,6 +457,7 @@ class TerminalChat:
         settings: Settings,
         store: SessionStore,
         session_id: str,
+        provider_name: str | None = None,
         reasoning_efforts: tuple[str, ...] = (),
         view: TerminalView | None = None,
     ) -> None:
@@ -466,7 +465,10 @@ class TerminalChat:
         self.settings = settings
         self.store = store
         self.session_id = session_id
+        self.provider_name = provider_name or agent.provider
         self.reasoning_efforts = reasoning_efforts
+        self.effort_preferences = load_efforts()
+        self._restore_effort()
         self.view = view or TerminalView()
         self._current_renderer: ReplyRenderer | None = None
         self.prompt_session: PromptSession[str] = PromptSession(
@@ -811,7 +813,7 @@ class TerminalChat:
         """Prompt for a configured provider and apply it to the active agent."""
 
         options = list_provider_options(self.settings)
-        current = get_provider_option(self.settings, provider=self.agent.provider, api_base=self.agent.api_base)
+        current = get_provider_option(self.settings, provider_name=self.provider_name)
 
         choices: list[tuple[str, str]] = []
         for option in options:
@@ -829,8 +831,7 @@ class TerminalChat:
 
         models = list_model_options(
             self.settings,
-            provider=self.agent.provider,
-            api_base=self.agent.api_base,
+            provider_name=self.provider_name,
             current_model=self.agent.model,
         )
         choices = [(m, m) for m in models]
@@ -849,7 +850,9 @@ class TerminalChat:
             return
 
         changed = apply_resolved_provider(self.agent, resolved)
+        self.provider_name = resolved.provider_name or provider_name
         self.reasoning_efforts = resolved.reasoning_efforts
+        self._restore_effort()
         label = f"{self.agent.provider} / {self.agent.model}"
         if self.agent.reasoning_effort:
             label += f" [effort: {self.agent.reasoning_effort}]"
@@ -859,8 +862,7 @@ class TerminalChat:
         """Switch the active model for the current provider runtime."""
 
         self.settings = get_settings(self.agent.cwd)
-        current = get_provider_option(self.settings, provider=self.agent.provider, api_base=self.agent.api_base)
-        provider_name = current.name if current else self.agent.provider
+        provider_name = self.provider_name
         try:
             resolved = resolve_provider(self.settings, provider_name=provider_name, model=model_name)
         except ValueError as exc:
@@ -868,7 +870,9 @@ class TerminalChat:
             return
 
         changed = apply_resolved_provider(self.agent, resolved)
+        self.provider_name = resolved.provider_name or provider_name
         self.reasoning_efforts = resolved.reasoning_efforts
+        self._restore_effort()
         self._print_runtime_status("model", self.agent.model, changed=changed)
 
     async def _switch_effort(self) -> None:
@@ -904,4 +908,24 @@ class TerminalChat:
 
         changed = resolved != self.agent.reasoning_effort
         self.agent.reasoning_effort = resolved
+        self.effort_preferences[self._effort_key()] = resolved or "auto"
+        save_efforts(self.effort_preferences)
         self._print_runtime_status("effort", resolved or "auto", changed=changed)
+
+    def _effort_key(self) -> str:
+        return f"{self.provider_name}/{self.agent.model}"
+
+    def _restore_effort(self) -> None:
+        saved = self.effort_preferences.get(self._effort_key())
+        if saved is None:
+            self.agent.reasoning_effort = None
+            return
+        if saved == "auto":
+            self.agent.reasoning_effort = None
+            return
+        if self.agent.supports_reasoning_effort and saved in self.reasoning_efforts:
+            self.agent.reasoning_effort = saved
+            return
+        del self.effort_preferences[self._effort_key()]
+        save_efforts(self.effort_preferences)
+        self.agent.reasoning_effort = None

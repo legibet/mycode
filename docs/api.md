@@ -32,7 +32,7 @@ Request body (`ChatRequest`, `cli/src/mycode_cli/server/schemas.py`):
 Exactly one of `message` or `input` is required.
 
 - `provider` — provider id or configured alias name
-- `reasoning_effort` — overrides config for this request only; omit the field to inherit config, or send `null`/`"auto"` to leave effort unspecified
+- `reasoning_effort` — request-level effort; omit the field, or send `null`/`"auto"`, to leave effort unspecified
 - `rewind_to` — visible message index to rewind to before sending the new message; target must be a real user message
 - A standalone `/<skill-name>` token adds the matching skill for `cwd`. The message prepends a hidden snapshot containing the frontmatter-free skill body, source path, and base directory, then keeps the original user text. Other slash tokens are sent as text.
 
@@ -159,9 +159,7 @@ Response:
       "base_url": "",
       "has_api_key": true,
       "supports_reasoning_effort": true,
-      "reasoning_models": ["claude-sonnet-4-6"],
       "reasoning_efforts": {"claude-sonnet-4-6": ["low", "medium", "high"]},
-      "reasoning_effort": null,
       "supports_image_input": true,
       "image_input_models": ["claude-sonnet-4-6"],
       "supports_pdf_input": true,
@@ -169,8 +167,6 @@ Response:
     }
   },
   "default": { "provider": "<provider_name>", "model": "claude-sonnet-4-6" },
-  "default_reasoning_effort": null,
-  "reasoning_effort_options": ["auto", "none", "minimal", "low", "medium", "high", "xhigh", "max"],
   "cwd": "...",
   "cwd_exists": true,
   "project": "...",
@@ -180,7 +176,7 @@ Response:
 }
 ```
 
-`reasoning_efforts` maps each model to its available effort values; an empty list means the model has no effort selector. `reasoning_models` contains the models with non-empty values for older clients. `skills` lists the name and description used by slash completion. Skill paths and contents stay on the server. `image_input_models` lists models with image input. `pdf_input_models` lists models with PDF input. A provider setup error returns status `200`, an empty `providers` object, empty `default` fields, and `setup_error: {"message": "..."}`. A ready setup returns `setup_error: null`.
+`reasoning_efforts` maps each model to its available effort values; an empty list means the model has no effort selector. `skills` lists the name and description used by slash completion. Skill paths and contents stay on the server. `image_input_models` lists models with image input. `pdf_input_models` lists models with PDF input. A provider setup error returns status `200`, an empty `providers` object, empty `default` fields, and `setup_error: {"message": "..."}`. A ready setup returns `setup_error: null`.
 
 ## Settings
 
@@ -205,16 +201,14 @@ Returns the global config plus options for the editor UI.
         "models": ["claude-sonnet-4-6"],
         "api_key": null,
         "api_key_saved": true,
-        "base_url": "",
-        "reasoning_effort": null
+        "base_url": ""
       }
     }
   },
   "options": {
     "provider_types": ["anthropic", "openai", "..."],
     "permission_levels": ["readonly", "safe", "standard", "yolo"],
-    "permission_modes": ["ask", "deny"],
-    "reasoning_efforts": ["auto", "none", "minimal", "low", "medium", "high", "xhigh", "max"]
+    "permission_modes": ["ask", "deny"]
   },
   "env": {"ANTHROPIC_API_KEY": true, "OPENAI_API_KEY": false},
   "provider_type_env_vars": {"anthropic": ["ANTHROPIC_API_KEY"]},
@@ -243,8 +237,7 @@ Replace the global config file. Validates input and writes atomically.
         "type": "anthropic",
         "models": ["claude-sonnet-4-6"],
         "api_key": "sk-...",
-        "base_url": "",
-        "reasoning_effort": "auto"
+        "base_url": ""
       }
     }
   }
@@ -257,7 +250,7 @@ Per-provider `api_key` is three-state:
 - `""` — clear the field; runtime falls back to the provider type's env discovery
 - non-empty string — write verbatim. `${VAR}` syntax is preserved; anything else is stored as a literal secret
 
-Returns the same shape as `GET /api/settings` reflecting the freshly-saved file. Returns `400` with `{"detail": "..."}` for unsupported provider types, invalid reasoning effort, out-of-range compact threshold, etc.
+Returns the same shape as `GET /api/settings` reflecting the freshly-saved file. Returns `400` with `{"detail": "..."}` for unsupported provider types, out-of-range compact threshold, etc.
 
 ## Sessions
 

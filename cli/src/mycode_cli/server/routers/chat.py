@@ -32,7 +32,6 @@ from mycode.messages import (
 from mycode.providers import provider_default_models
 from mycode.utils import resolve_path
 from mycode_cli.config import (
-    REASONING_EFFORT_OPTIONS,
     ResolvedProvider,
     get_settings,
     normalize_reasoning_effort,
@@ -422,7 +421,6 @@ async def get_config(cwd: Annotated[str | None, Query()] = None) -> dict[str, An
 
         image_models: list[str] = []
         pdf_models: list[str] = []
-        reasoning_models: list[str] = []
         reasoning_efforts: dict[str, list[str]] = {}
         for model in models:
             model_config = provider_config.models.get(model) if provider_config else None
@@ -433,8 +431,6 @@ async def get_config(cwd: Annotated[str | None, Query()] = None) -> dict[str, An
             )
             efforts = list(model_meta.reasoning_efforts or ())
             reasoning_efforts[model] = efforts
-            if efforts:
-                reasoning_models.append(model)
             if model_meta.supports_image_input:
                 image_models.append(model)
             if model_meta.supports_pdf_input:
@@ -442,13 +438,7 @@ async def get_config(cwd: Annotated[str | None, Query()] = None) -> dict[str, An
 
         if provider.supports_reasoning_effort:
             info["supports_reasoning_effort"] = True
-            info["reasoning_models"] = reasoning_models
             info["reasoning_efforts"] = reasoning_efforts
-            info["reasoning_effort"] = (
-                provider_config.reasoning_effort
-                if provider_config and provider_config.reasoning_effort is not None
-                else settings.default_reasoning_effort
-            )
 
         info["supports_image_input"] = bool(image_models)
         info["image_input_models"] = image_models
@@ -466,8 +456,6 @@ async def get_config(cwd: Annotated[str | None, Query()] = None) -> dict[str, An
     return {
         "providers": providers_info,
         "default": default_payload,
-        "default_reasoning_effort": settings.default_reasoning_effort,
-        "reasoning_effort_options": REASONING_EFFORT_OPTIONS,
         "cwd": resolved_cwd,
         "cwd_exists": os.path.isdir(resolved_cwd),
         "project": settings.project,

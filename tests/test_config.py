@@ -221,21 +221,6 @@ class TestGetSettings:
         with pytest.raises(ValueError, match="provider 'custom-provider' must set 'type'"):
             get_settings(str(workspace.resolve()))
 
-    def test_accepts_max_reasoning_effort(self, workspace: Path, config_home: Path) -> None:
-        write_json(
-            config_home / "config.json",
-            {
-                "default": {
-                    "provider": "openai",
-                    "reasoning_effort": "max",
-                }
-            },
-        )
-
-        settings = get_settings(str(workspace.resolve()))
-
-        assert settings.default_reasoning_effort == "max"
-
     def test_loads_permission_config(self, workspace: Path, config_home: Path) -> None:
         write_json(
             config_home / "config.json",
@@ -261,7 +246,6 @@ class TestGetSettings:
         ("field", "value"),
         [
             ("context_window", True),
-            ("supports_reasoning", "yes"),
         ],
     )
     def test_rejects_invalid_model_override_types(
@@ -528,7 +512,6 @@ class TestAgentCapabilities:
                 "providers": {
                     "shared": {
                         "type": "openai",
-                        "reasoning_effort": "high",
                         "models": {"gpt-4.1-mini": {}},
                     }
                 },
@@ -540,100 +523,10 @@ class TestAgentCapabilities:
         resolved = resolve_provider(settings)
         agent = build_test_agent(tmp_path, workspace, settings, resolved)
 
-        assert resolved.reasoning_effort is None
         assert agent.max_tokens == 32_768
         assert agent.context_window == 1_000_000
         assert agent.supports_image_input is True
         assert agent.supports_pdf_input is True
-
-    def test_applies_global_reasoning_effort_only_when_supported(
-        self, workspace: Path, config_home: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        monkeypatch.setenv("OPENAI_API_KEY", "env-key")
-        patch_metadata(
-            monkeypatch,
-            ModelMetadata(
-                provider="openai",
-                model="gpt-5.5",
-                context_window=400_000,
-                max_output_tokens=128_000,
-                supports_reasoning=True,
-                reasoning_efforts=("low", "high"),
-                supports_image_input=None,
-                supports_pdf_input=None,
-            ),
-        )
-        write_json(
-            config_home / "config.json",
-            {
-                "default": {
-                    "provider": "openai",
-                    "reasoning_effort": "high",
-                }
-            },
-        )
-
-        resolved = resolve_provider(get_settings(str(workspace.resolve())))
-
-        assert resolved.provider == "openai"
-        assert resolved.reasoning_effort == "high"
-        assert resolved.reasoning_efforts == ("low", "high")
-
-    def test_provider_auto_overrides_global_reasoning_effort(
-        self, workspace: Path, config_home: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        monkeypatch.setenv("OPENAI_API_KEY", "env-key")
-        patch_metadata(
-            monkeypatch,
-            ModelMetadata(
-                provider="openai",
-                model="gpt-5.5",
-                reasoning_efforts=("low", "high"),
-            ),
-        )
-        write_json(
-            config_home / "config.json",
-            {
-                "providers": {
-                    "openai": {
-                        "reasoning_effort": "auto",
-                        "models": {"gpt-5.5": {}},
-                    }
-                },
-                "default": {"provider": "openai", "reasoning_effort": "high"},
-            },
-        )
-
-        resolved = resolve_provider(get_settings(str(workspace.resolve())))
-
-        assert resolved.reasoning_effort is None
-
-    def test_drops_reasoning_effort_for_providers_without_support(
-        self, workspace: Path, config_home: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        monkeypatch.setenv("OPENROUTER_API_KEY", "router-env-key")
-        write_json(
-            config_home / "config.json",
-            {
-                "providers": {
-                    "router": {
-                        "type": "openai_chat",
-                        "api_key": "${OPENROUTER_API_KEY}",
-                        "base_url": "https://openrouter.ai/api/v1",
-                        "models": {"openai/gpt-5": {}},
-                    }
-                },
-                "default": {
-                    "provider": "router",
-                    "reasoning_effort": "high",
-                },
-            },
-        )
-
-        resolved = resolve_provider(get_settings(str(workspace.resolve())))
-
-        assert resolved.provider == "openai_chat"
-        assert resolved.reasoning_effort is None
 
     def test_config_model_metadata_overrides_catalog_values(
         self, tmp_path: Path, workspace: Path, config_home: Path, monkeypatch: pytest.MonkeyPatch
@@ -661,7 +554,6 @@ class TestAgentCapabilities:
                             "gpt-5.5": {
                                 "context_window": 500_000,
                                 "max_output_tokens": 64_000,
-                                "supports_reasoning": False,
                                 "reasoning_efforts": [],
                                 "supports_image_input": True,
                             }
@@ -678,6 +570,6 @@ class TestAgentCapabilities:
 
         assert agent.context_window == 500_000
         assert agent.max_tokens == 64_000
-        assert agent.supports_reasoning is False
+        assert agent.supports_reasoning is True
         assert agent.supports_image_input is True
         assert resolved.reasoning_efforts == ()

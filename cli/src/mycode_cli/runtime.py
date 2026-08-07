@@ -70,7 +70,6 @@ def build_agent(
         supports_reasoning_effort=resolved_provider.supports_reasoning_effort,
         max_tokens=model_config.max_output_tokens if model_config else None,
         context_window=model_config.context_window if model_config else None,
-        supports_reasoning=model_config.supports_reasoning if model_config else None,
         supports_image_input=model_config.supports_image_input if model_config else None,
         supports_pdf_input=model_config.supports_pdf_input if model_config else None,
         compact_threshold=settings.compact_threshold,

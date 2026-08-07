@@ -32,7 +32,6 @@ PERMISSION_MODE_OPTIONS = ("ask", "deny")
 MODEL_OVERRIDE_KEYS = (
     "context_window",
     "max_output_tokens",
-    "supports_reasoning",
     "reasoning_efforts",
     "supports_image_input",
     "supports_pdf_input",
@@ -48,7 +47,6 @@ PermissionMode = Literal["ask", "deny"]
 class ModelConfig:
     context_window: int | None = None
     max_output_tokens: int | None = None
-    supports_reasoning: bool | None = None
     reasoning_efforts: tuple[str, ...] | None = None
     supports_image_input: bool | None = None
     supports_pdf_input: bool | None = None
@@ -62,7 +60,6 @@ class ProviderConfig:
     api_key: str | None = None
     api_key_env_var: str | None = None
     base_url: str | None = None
-    reasoning_effort: str | None = None
     # Opt-in for generic openai_chat endpoints that accept the standard
     # top-level reasoning_effort param. Ignored for other provider types.
     supports_reasoning_effort: bool = False
@@ -82,7 +79,6 @@ class Settings:
     port: int
     cwd: str
     project: str
-    default_reasoning_effort: str | None = None
     compact_threshold: float | None = None
     permission: PermissionConfig = field(default_factory=PermissionConfig)
     config_paths: list[str] = field(default_factory=list)
@@ -209,14 +205,6 @@ def normalize_reasoning_efforts(value: Any) -> tuple[str, ...] | None:
     return tuple(dict.fromkeys(efforts))
 
 
-def normalize_provider_reasoning_effort(value: Any) -> str | None:
-    """Normalize a provider override while preserving explicit auto."""
-
-    if value in (None, ""):
-        return None
-    return normalize_reasoning_effort(value) or "auto"
-
-
 def resolve_configured_model_metadata(
     *,
     provider: str,
@@ -230,7 +218,6 @@ def resolve_configured_model_metadata(
         model=model,
         context_window=model_config.context_window if model_config else None,
         max_output_tokens=model_config.max_output_tokens if model_config else None,
-        supports_reasoning=model_config.supports_reasoning if model_config else None,
         reasoning_efforts=model_config.reasoning_efforts if model_config else None,
         supports_image_input=model_config.supports_image_input if model_config else None,
         supports_pdf_input=model_config.supports_pdf_input if model_config else None,
@@ -336,11 +323,6 @@ def _validate_default_config(raw: Any) -> dict[str, Any]:
         if value:
             out[key] = value
 
-    effort = raw.get("reasoning_effort")
-    if effort not in (None, ""):
-        normalize_reasoning_effort(effort)
-        out["reasoning_effort"] = effort
-
     compact_threshold = raw.get("compact_threshold")
     if compact_threshold is False:
         out["compact_threshold"] = False
@@ -388,11 +370,6 @@ def _validate_provider_config(name: str, raw: Any) -> dict[str, Any]:
         if value:
             out[key] = value
 
-    effort = raw.get("reasoning_effort")
-    if effort not in (None, ""):
-        normalize_reasoning_effort(effort)
-        out["reasoning_effort"] = effort
-
     supports_effort = raw.get("supports_reasoning_effort")
     if supports_effort is not None:
         if not isinstance(supports_effort, bool):
@@ -433,7 +410,7 @@ def _validate_model_config_entries(name: str, raw: Any) -> dict[str, dict[str, A
             for field in ("context_window", "max_output_tokens"):
                 if field in model_config and type(model_config[field]) is not int:
                     raise ValueError(f"provider {name!r}: model {key!r}: {field} must be an integer")
-            for field in ("supports_reasoning", "supports_image_input", "supports_pdf_input"):
+            for field in ("supports_image_input", "supports_pdf_input"):
                 if field in model_config and type(model_config[field]) is not bool:
                     raise ValueError(f"provider {name!r}: model {key!r}: {field} must be a boolean")
             if overrides.get("reasoning_efforts") is not None:
@@ -455,7 +432,6 @@ def get_settings(cwd: str | None = None) -> Settings:
     raw_providers: dict[str, dict[str, Any]] = {}
     default_provider: str | None = None
     default_model: str | None = None
-    default_reasoning_effort: str | None = None
     compact_threshold: float | None = None
     permission = PermissionConfig()
     config_paths: list[str] = []
@@ -485,8 +461,6 @@ def get_settings(cwd: str | None = None) -> Settings:
                 merged["api_key_env_var"] = api_key_env_var
             if "base_url" in raw:
                 merged["base_url"] = raw.get("base_url") or None
-            if "reasoning_effort" in raw:
-                merged["reasoning_effort"] = raw.get("reasoning_effort") or None
             if "supports_reasoning_effort" in raw:
                 merged["supports_reasoning_effort"] = raw.get("supports_reasoning_effort")
 
@@ -500,9 +474,6 @@ def get_settings(cwd: str | None = None) -> Settings:
             if "model" in default:
                 v = default.get("model")
                 default_model = v if isinstance(v, str) else None
-            if "reasoning_effort" in default:
-                v = default.get("reasoning_effort")
-                default_reasoning_effort = v if isinstance(v, str) else None
             if "compact_threshold" in default:
                 parsed_threshold = parse_compact_threshold(default.get("compact_threshold"))
                 if parsed_threshold is not None:
@@ -515,7 +486,6 @@ def get_settings(cwd: str | None = None) -> Settings:
         providers=_build_providers(raw_providers),
         default_provider=default_provider,
         default_model=default_model,
-        default_reasoning_effort=normalize_reasoning_effort(default_reasoning_effort),
         compact_threshold=compact_threshold,
         permission=permission,
         port=int(os.environ.get("PORT", "8000")),
@@ -586,7 +556,6 @@ def _build_providers(raw_providers: dict[str, dict[str, Any]]) -> dict[str, Prov
             api_key=raw.get("api_key") or None,
             api_key_env_var=raw.get("api_key_env_var") or None,
             base_url=raw.get("base_url") or None,
-            reasoning_effort=normalize_provider_reasoning_effort(raw.get("reasoning_effort")),
             supports_reasoning_effort=raw.get("supports_reasoning_effort") is True,
         )
 
@@ -735,12 +704,6 @@ def _resolve_provider_runtime(
 
     resolved_api_base = api_base or (provider_config.base_url if provider_config else None)
 
-    configured_effort = (
-        normalize_reasoning_effort(provider_config.reasoning_effort)
-        if provider_config and provider_config.reasoning_effort is not None
-        else settings.default_reasoning_effort
-    )
-
     model_config = provider_config.models.get(resolved_model) if provider_config else None
     meta = resolve_configured_model_metadata(
         provider=provider_type,
@@ -754,8 +717,6 @@ def _resolve_provider_runtime(
     supports_effort = adapter.supports_reasoning_effort or bool(
         provider_config and provider_config.supports_reasoning_effort and isinstance(adapter, OpenAIChatAdapter)
     )
-    reasoning_effort = configured_effort if supports_effort and configured_effort in reasoning_efforts else None
-
     resolved_api_key = api_key
     if not resolved_api_key and provider_config:
         if env_name := provider_config.api_key_env_var:
@@ -779,7 +740,7 @@ def _resolve_provider_runtime(
         model=resolved_model,
         api_key=resolved_api_key,
         api_base=resolved_api_base,
-        reasoning_effort=reasoning_effort,
+        reasoning_effort=None,
         model_config=model_config,
         supports_reasoning_effort=supports_effort,
         reasoning_efforts=reasoning_efforts,

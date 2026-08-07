@@ -26,7 +26,6 @@ from mycode.providers import (
 from mycode_cli.config import (
     PERMISSION_LEVEL_OPTIONS,
     PERMISSION_MODE_OPTIONS,
-    REASONING_EFFORT_OPTIONS,
     is_api_key_env_ref,
     resolve_mycode_home,
     validate_global_config,
@@ -114,7 +113,6 @@ def _build_response(path: Path) -> dict[str, Any]:
             "provider_types": provider_types,
             "permission_levels": list(PERMISSION_LEVEL_OPTIONS),
             "permission_modes": list(PERMISSION_MODE_OPTIONS),
-            "reasoning_efforts": list(REASONING_EFFORT_OPTIONS),
         },
         "env": _env_presence(raw),
         "provider_type_env_vars": {

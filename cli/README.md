@@ -53,7 +53,7 @@ A config file is optional. API keys from the environment are usually sufficient.
 
 Create `~/.mycode/config.json` (global) or `.mycode/config.json` under the current project to:
 
-- set a default provider, model, and reasoning effort
+- set a default provider and model
 - expose additional models on an existing provider (e.g. OpenRouter's catalog)
 - register a custom endpoint, such as a private or regional deployment
 
@@ -61,8 +61,7 @@ Create `~/.mycode/config.json` (global) or `.mycode/config.json` under the curre
 {
   "default": {
     "provider": "anthropic",
-    "model": "claude-sonnet-4-6",
-    "reasoning_effort": "medium"
+    "model": "claude-sonnet-4-6"
   },
   "providers": {
     "openrouter": {
@@ -84,7 +83,6 @@ Create `~/.mycode/config.json` (global) or `.mycode/config.json` under the curre
         "custom-model": {
           "context_window": 128000,
           "max_output_tokens": 16384,
-          "supports_reasoning": true,
           "supports_image_input": false
         }
       }
@@ -94,7 +92,6 @@ Create `~/.mycode/config.json` (global) or `.mycode/config.json` under the curre
 ```
 
 - To override a built-in provider, reuse its id as the key. No `type` needed. Custom providers must declare a `type`, one of the built-in protocols.
-- `reasoning_effort` controls extended thinking. Available values come from the selected model; `auto` leaves the effort unspecified.
 - API keys in config accept `${ENV_VAR}` references.
 - Model metadata is bundled from [models.dev](https://models.dev). `{}` is enough for most models. Provide explicit fields only for models not listed there.
 
@@ -109,6 +106,7 @@ mycode                            start interactive session (new)
 mycode --continue                 resume the most recent session
 mycode --session <id>             resume a specific session
 mycode run "..."                  send one message, non-interactive
+mycode run --effort high "..."     set effort for one run
 mycode web                        start web server (default port 8000)
 mycode web --dev                  API only, no static files
 mycode session list               list saved sessions

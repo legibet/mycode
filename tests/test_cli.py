@@ -47,6 +47,9 @@ def settings_for(cwd: str) -> Settings:
 
 
 class _AttachmentAgent:
+    provider = "anthropic"
+    model = "claude-sonnet-4-6"
+
     def __init__(
         self,
         *,

@@ -20,6 +20,7 @@ from mycode_cli.config import (
     ResolvedProvider,
     Settings,
     get_settings,
+    normalize_reasoning_effort,
     parse_permission,
     resolve_provider,
     resolve_sessions_dir,
@@ -152,6 +153,7 @@ def _bootstrap(
     continue_last: bool,
     max_turns: int | None,
     permission: str | None,
+    reasoning_effort: str | None = None,
 ) -> _BootstrapContext:
     """Shared setup for the chat and run commands."""
 
@@ -166,6 +168,16 @@ def _bootstrap(
         if permission is not None:
             settings = replace(settings, permission=parse_permission(permission, settings.permission))
         resolved_provider = resolve_provider(settings, provider_name=provider, model=model)
+        resolved_effort = normalize_reasoning_effort(reasoning_effort)
+        if resolved_effort is not None:
+            if not resolved_provider.supports_reasoning_effort:
+                raise ValueError(f"provider {resolved_provider.provider!r} does not support reasoning effort")
+            if resolved_effort not in resolved_provider.reasoning_efforts:
+                supported = ", ".join(resolved_provider.reasoning_efforts)
+                raise ValueError(
+                    f"reasoning effort {resolved_effort!r} is not supported by model {resolved_provider.model!r}; "
+                    + f"supported efforts: {supported}"
+                )
         resolved_session = asyncio.run(
             resolve_session(
                 store=store,
@@ -186,6 +198,8 @@ def _bootstrap(
         session_id=resolved_session.session_id,
         max_turns=max_turns,
     )
+    if reasoning_effort is not None:
+        agent.reasoning_effort = resolved_effort
 
     return _BootstrapContext(
         store=store,
@@ -239,28 +253,29 @@ def chat(
         permission=permission,
     )
 
+    terminal_chat = TerminalChat(
+        agent=setup.agent,
+        settings=setup.settings,
+        store=setup.store,
+        session_id=setup.resolved_session.session_id,
+        provider_name=setup.resolved_provider.provider_name,
+        reasoning_efforts=setup.resolved_provider.reasoning_efforts,
+        view=setup.view,
+    )
+
     setup.view.print_header(
         provider=setup.resolved_provider.provider,
         model=setup.resolved_provider.model,
         session=setup.resolved_session.session,
         mode=setup.resolved_session.mode,
         message_count=len(setup.resolved_session.messages),
-        reasoning_effort=setup.resolved_provider.reasoning_effort,
+        reasoning_effort=setup.agent.reasoning_effort,
     )
     if setup.resolved_session.mode == "resumed":
         setup.view.print_history_preview(setup.resolved_session.messages)
 
     with suppress(KeyboardInterrupt):
-        asyncio.run(
-            TerminalChat(
-                agent=setup.agent,
-                settings=setup.settings,
-                store=setup.store,
-                session_id=setup.resolved_session.session_id,
-                reasoning_efforts=setup.resolved_provider.reasoning_efforts,
-                view=setup.view,
-            ).run()
-        )
+        asyncio.run(terminal_chat.run())
 
 
 @app.command()
@@ -268,6 +283,7 @@ def run(
     message: Annotated[list[str], typer.Argument(help="Prompt to send")],
     provider: Annotated[str | None, typer.Option(help="Provider id or configured alias")] = None,
     model: Annotated[str | None, typer.Option(help="Model name (overrides default)")] = None,
+    reasoning_effort: Annotated[str | None, typer.Option("--effort", help="Reasoning effort for this run")] = None,
     max_turns: Annotated[int | None, typer.Option(min=1, help="Limit agent loop turns")] = None,
     permission: Annotated[
         str | None,
@@ -285,6 +301,7 @@ def run(
         continue_last=continue_last,
         max_turns=max_turns,
         permission=permission,
+        reasoning_effort=reasoning_effort,
     )
 
     code = asyncio.run(run_noninteractive(setup.agent, " ".join(message).strip()))

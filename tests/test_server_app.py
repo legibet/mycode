@@ -269,9 +269,9 @@ def test_chat_rejects_unsupported_reasoning_effort(
 
 @pytest.mark.parametrize(
     ("include_effort", "effort", "expected_effort"),
-    [(False, None, "high"), (True, "auto", None), (True, None, None)],
+    [(False, None, None), (True, "auto", None), (True, None, None)],
 )
-def test_model_effort_config_and_request_override(
+def test_model_effort_request_override(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     include_effort: bool,
@@ -290,7 +290,6 @@ def test_model_effort_config_and_request_override(
                         "type": "openai_chat",
                         "api_key": "${XAI_API_KEY}",
                         "supports_reasoning_effort": True,
-                        "reasoning_effort": "high",
                         "models": {"custom-model": {"reasoning_efforts": ["low", "high"]}},
                     }
                 }

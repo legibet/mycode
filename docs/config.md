@@ -27,7 +27,6 @@ file and adapts it for the UI.
   "default": {
     "provider": "anthropic",
     "model": "claude-sonnet-4-6",
-    "reasoning_effort": "auto",
     "compact_threshold": 0.8
   },
   "permission": {
@@ -41,7 +40,6 @@ file and adapts it for the UI.
         "model-a": {
           "context_window": 400000,
           "max_output_tokens": 128000,
-          "supports_reasoning": true,
           "reasoning_efforts": ["low", "medium", "high"],
           "supports_image_input": true,
           "supports_pdf_input": true
@@ -49,8 +47,7 @@ file and adapts it for the UI.
         "model-b": {}
       },
       "base_url": "https://...",
-      "api_key": "sk-..." or "${ENV_VAR_NAME}",
-      "reasoning_effort": "none"
+      "api_key": "sk-..." or "${ENV_VAR_NAME}"
     }
   }
 }
@@ -60,7 +57,6 @@ file and adapts it for the UI.
 
 - `default.provider` — references a key in `providers`, or a raw adapter id
 - `default.model` — model name used when no per-provider model is set
-- `default.reasoning_effort` — global default; `null`/`"auto"`/`"default"` all resolve to "no override"
 - `default.compact_threshold` — fraction of context window that triggers compaction; `false` or `0` disables; range `[0, 1]`; default `0.8`
 - `permission` — CLI tool execution permissions. String shorthand (`"safe"`) sets the level and keeps the current/default mode; object form accepts `level` and `mode`
 - `permission.level` — how much the agent may run automatically: `readonly` · `safe` · `standard` · `yolo`; default `safe`
@@ -69,13 +65,11 @@ file and adapts it for the UI.
 - `providers.<name>.models` — model map. Keys are model ids shown in UI. Values can override the bundled model metadata for that exact model.
 - `providers.<name>.models.<model>.context_window` — override the model context window
 - `providers.<name>.models.<model>.max_output_tokens` — override the provider output limit
-- `providers.<name>.models.<model>.supports_reasoning` — override reasoning support
 - `providers.<name>.models.<model>.reasoning_efforts` — override the model's available effort values; an empty list disables effort selection for that model
 - `providers.<name>.models.<model>.supports_image_input` — override image input support
 - `providers.<name>.models.<model>.supports_pdf_input` — override PDF input support
 - `providers.<name>.api_key` — literal value or `${ENV_NAME}` reference
 - `providers.<name>.base_url` — override the adapter's default base URL
-- `providers.<name>.reasoning_effort` — per-provider override of the global default
 - `providers.<name>.supports_reasoning_effort` — opt-in (default `false`) for a generic `openai_chat` endpoint that accepts the standard top-level `reasoning_effort`. Ignored for other provider types, which declare effort support in their adapter
 
 ## API Key Resolution Order
@@ -107,14 +101,13 @@ Auto-discovery is limited to providers where `auto_discoverable=True` and the co
 
 Controls how much thinking a model does.
 
-Config resolution: `providers.<name>.reasoning_effort` → `default.reasoning_effort`
+Available values come from the selected model's metadata or its `reasoning_efforts` override. TUI and Web prepend `auto`; models without values show no effort control. Without an explicit request or a frontend model-specific preference, effort is `auto`.
 
-Available values come from the selected model's metadata or its `reasoning_efforts` override. TUI and Web prepend `auto`; models without values show no effort control.
-
-- Config defaults apply only when supported by the selected provider and model
-- An omitted `POST /api/chat` field inherits the configured default; `null` or `"auto"` sends no effort
+- An omitted `POST /api/chat` field sends no effort
 - An explicit unsupported request value returns `400`
-- CLI `/effort` and the Web input control override effort without changing config
+- CLI `/effort` and the Web input control remember effort per provider/model without changing config
+- TUI preferences are stored in `~/.mycode/tui.json`; WebUI preferences stay in browser local storage
+- `mycode run --effort <level>` sets effort for one non-interactive run; omitted means `auto`
 - See `docs/providers.md` for per-adapter mapping details
 
 ## Tool Permissions
@@ -141,7 +134,6 @@ The shell checks are intentionally simple and conservative. Project commands suc
 
 `mycode/src/mycode/models.py` reads the bundled `mycode/src/mycode/models_catalog.json` catalog to look up:
 
-- `supports_reasoning` — whether the model supports extended thinking
 - `reasoning_efforts` — effort values available for the model
 - `supports_image_input` — whether the model accepts image input
 - `supports_pdf_input` — whether the model accepts PDF input
