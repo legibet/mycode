@@ -140,16 +140,21 @@ A `usage` event follows each successful provider request, including automatic co
         "total_tokens": 2912, "input_tokens": 2800,
         "output_tokens": 112,
     },
-    "turn_cost_usd": 0.0123,
+    "turn_cost": {
+        "input": 0.0042,
+        "output": 0.0081,
+        "total": 0.0123,
+    },
 }
 ```
 
 - `context_tokens` is the latest normal request's context usage. It is not cumulative.
 - `turn_usage` sums each reported token field. Missing fields do not clear known totals.
-- `turn_cost_usd` sums requests that can be estimated. It is `None` when no request can be estimated.
+- `turn_cost.total` sums requests with known costs. Requests without cost are skipped; `turn_cost` is `None` only when no cost is known.
+- Detailed components are summed while every known request has them. If any known request reports only `total`, the cumulative cost contains only `total`.
 - Failed and cancelled requests without final usage do not emit an extra `usage` event.
 
-Per-request facts are persisted in `meta.usage`; see docs/sessions.md. `estimate_cost(usage, cost)` prefers `reported_cost_usd`, otherwise uses `ModelMetadata.cost` prices from models.dev and applies long-context tiers per request. Missing cache/reasoning splits use base input/output prices. Missing required totals or prices and inconsistent token counts return `None`. OpenRouter suffix fallback metadata never supplies prices.
+Each completed request persists token facts in `meta.usage` and its fixed USD cost in `meta.cost`; see docs/sessions.md. `estimate_cost(usage, pricing)` uses `ModelMetadata.pricing` from models.dev and applies long-context tiers per request. Missing cache/reasoning prices use base input/output prices. Missing required totals or prices and inconsistent token counts return `None`. OpenRouter's reported charge is persisted directly as `{"total": ...}`. Historical costs are never recomputed.
 
 ## Sessions
 

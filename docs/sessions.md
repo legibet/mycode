@@ -59,7 +59,7 @@ Standard `user` or `assistant` message in the internal block format.
 
 ```json
 {"role": "user", "content": [{"type": "text", "text": "..."}], "meta": {...}}
-{"role": "assistant", "content": [{"type": "thinking", "text": "...", "meta": {"duration_ms": 1200}}, {"type": "text", "text": "..."}, {"type": "tool_use", "id": "...", "name": "...", "input": {...}}], "meta": {"provider": "...", "model": "...", "stop_reason": "...", "usage": {"total_tokens": 1456, "input_tokens": 1400, "cache_read_tokens": 1200, "cache_write_tokens": 100, "output_tokens": 56, "reasoning_tokens": 20, "reported_cost_usd": 0.0123}, "context_window": 200000}}
+{"role": "assistant", "content": [{"type": "thinking", "text": "...", "meta": {"duration_ms": 1200}}, {"type": "text", "text": "..."}, {"type": "tool_use", "id": "...", "name": "...", "input": {...}}], "meta": {"provider": "...", "model": "...", "stop_reason": "...", "usage": {"total_tokens": 1456, "input_tokens": 1400, "cache_read_tokens": 1200, "cache_write_tokens": 100, "output_tokens": 56, "reasoning_tokens": 20}, "cost": {"input": 0.0001, "cache_read": 0.0002, "cache_write": 0.0001, "output": 0.0008, "reasoning": 0.0003, "total": 0.0015}, "context_window": 200000}}
 ```
 
 `assistant.meta.model` records the selected request model, not a provider-returned alias or routed model name.
@@ -80,11 +80,12 @@ Snapshots stay in the session timeline across compaction, but a snapshot before 
 | `cache_write_tokens` | subset of `input_tokens`                                               |
 | `output_tokens`      | full output, **including** reasoning                                   |
 | `reasoning_tokens`   | subset of `output_tokens`                                              |
-| `reported_cost_usd`  | upstream-reported charge only; currently OpenRouter                    |
 
 `usage.total_tokens` is the request's context metric. Compaction and context displays compare it with `context_window`.
 
-`assistant.meta.context_window` is the model's context window for the request, resolved from the catalog. It is absent when unavailable.
+`assistant.meta.cost` is the fixed USD cost recorded when the request completes. SDK estimates contain `input`, `output`, optional cache/reasoning components, and `total`. Provider-reported totals contain only `total`. Missing cost means the request could not be priced.
+
+`assistant.meta.context_window` is the effective model context window for the request.
 
 Cancelled streams may persist partial assistant content without `usage` because final usage never arrived.
 
@@ -129,7 +130,7 @@ a full `assistant`/`tool_result` boundary.
 
 1. `should_compact()` — true when the latest assistant message's `usage.total_tokens` ≥ `context_window × compact_threshold` (default `0.8`). Tool outputs appended this turn aren't reflected in that figure until the next API call's usage; the `(1 - threshold)` headroom absorbs them.
 2. Ask the same provider/model for a summary with the normal system prompt, the current provider-projected messages (`prepare_messages`), no tools, text only, and `max_tokens = min(agent.max_tokens, 8192)`
-3. Build a compact event with the summary text and the summary call's `meta.usage` when available
+3. Build a compact event with the summary text, `meta.usage`, `meta.cost`, and `meta.context_window`
 4. Persist the compact event and append it to `agent.messages` (append-only — original messages stay in JSONL and in the visible list)
 5. Emit the `compact` stream event to the caller (empty payload — clients use it as the cue to insert their inline divider)
 

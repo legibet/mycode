@@ -288,7 +288,7 @@ Load session with full message history. If the session has an active run, overla
 {
   "session": {...},
   "messages": [...],
-  "session_cost_usd": 0.42,
+  "session_cost": 0.42,
   "active_run": {...} | null,
   "pending_events": [...]
 }
@@ -296,9 +296,9 @@ Load session with full message history. If the session has an active run, overla
 
 `pending_events` contains the active run's buffered SSE events. The web UI reapplies them, then reconnects with `after=<last seq>`.
 
-`session_cost_usd` estimates every priceable request in the raw JSONL timeline, including tool loops, compaction, and rewound turns. Unpriceable records are skipped; the total is `null` only when no request can be estimated. During an active run, the value from `usage` SSE events takes precedence.
+`session_cost` sums persisted `meta.cost.total` values from the raw JSONL timeline, including tool loops, compaction, and rewound turns. Records without cost are skipped; the total is `null` only when no cost is known. During an active run, the value from `usage` SSE events takes precedence.
 
-Returned assistant and compact messages may carry response-only `meta.request_cost_usd`. It is omitted when the request cannot be priced and is never persisted. The web UI sums it per turn.
+Assistant and compact messages return their persisted per-request `meta.usage` and `meta.cost` unchanged.
 
 `active_run.kind` distinguishes chat and compact runs. While a compact run is active, `messages` is the pre-run history with no optimistic turn appended; the web UI uses `kind` to restore its `Compacting…` state after a refresh.
 
@@ -379,11 +379,11 @@ Response:
 | `error`               | `message: str`                                                                                               |
 | `permission_request`  | `request_id: str`, `tool_use_id: str`, `tool_name: str`, `preview: str`                                      |
 | `permission_resolved` | `request_id: str`, `decision: "allow" \| "deny"`                                                             |
-| `usage`               | `context_tokens?`, `context_window?`, `model?`, `turn_usage?`, `turn_cost_usd?`, `session_cost_usd?`         |
+| `usage`               | `context_tokens?`, `context_window?`, `model?`, `turn_usage?`, `turn_cost?`, `session_cost?`                 |
 
 `permission_request` and `permission_resolved` bracket a wait inside the agent's `before_tool` hook. Clients respond via `POST /api/runs/{run_id}/decide`; `permission_resolved` lets reconnecting or second-tab clients dismiss the prompt.
 
-The server adds `model`, `context_window`, and `session_cost_usd` to the SDK usage event described in docs/sdk.md. `context_tokens` is the latest normal request's context usage; `turn_usage` and `turn_cost_usd` are best-effort cumulative values for the turn. `session_cost_usd` sums the known pre-run session and current turn values. SSE omits `None` fields, so absence means unavailable.
+The server adds `model`, `context_window`, and `session_cost` to the SDK usage event described in docs/sdk.md. `context_tokens` is the latest normal request's context usage; `turn_usage` and `turn_cost` are cumulative snapshots for the turn. `session_cost` sums the known pre-run session and current turn totals. All costs are USD. SSE omits `None` fields; absence means the current snapshot is unavailable and clients must clear any previous value.
 
 Every event also carries `seq: int` for reconnect support. The web UI uses `after` parameter to resume from a specific seq number.
 
