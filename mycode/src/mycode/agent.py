@@ -286,6 +286,8 @@ class Agent:
 
     def _cancel_in_loop(self) -> None:
         self._cancel_event.set()
+        # Sync tools may be running ctx.bash() in a worker thread, which task
+        # cancellation alone cannot stop.
         self.tools.cancel_active()
         if self._provider_event_task and not self._provider_event_task.done():
             self._provider_event_task.cancel()
@@ -307,16 +309,28 @@ class Agent:
         args: dict[str, Any],
         ctx: ToolContext,
     ) -> ToolExecutionResult:
-        if not spec.is_async:
-            return await self.tools.aexecute(spec.name, args, ctx)
+        return await self.tools.aexecute(spec.name, args, ctx)
 
-        task = asyncio.create_task(self.tools.aexecute(spec.name, args, ctx))
-        self._active_tool_task = task
-        try:
-            return await task
-        finally:
-            if self._active_tool_task is task:
-                self._active_tool_task = None
+    async def _reject_tool_call(
+        self,
+        tool_use: dict[str, Any],
+        message: str,
+    ) -> AsyncIterator[Event]:
+        """Report a tool call that must not reach a runner."""
+
+        tool_id = str(tool_use.get("id") or "")
+        args = tool_use.get("input") if isinstance(tool_use.get("input"), dict) else {}
+        yield Event(
+            "tool_start",
+            {
+                "tool_call": {
+                    "id": tool_id,
+                    "name": str(tool_use.get("name") or ""),
+                    "input": args,
+                }
+            },
+        )
+        yield self._error_done(tool_id, message)
 
     async def _run_tool_call(self, tool_use: dict[str, Any]) -> AsyncIterator[Event]:
         """Run one tool call and emit the standard tool events."""
@@ -375,7 +389,13 @@ class Agent:
 
         try:
             ctx = self._ctx_for_call(tool_id)
-            result = await self._execute_tool(spec, args, ctx)
+            task = asyncio.create_task(self._execute_tool(spec, args, ctx))
+            self._active_tool_task = task
+            try:
+                result = await task
+            finally:
+                if self._active_tool_task is task:
+                    self._active_tool_task = None
         except asyncio.CancelledError:
             if self._cancel_event.is_set():
                 yield self._error_done(tool_id, "error: cancelled")
@@ -396,11 +416,22 @@ class Agent:
     ) -> AsyncIterator[Event]:
         """Run one streaming tool, forwarding ``tool_output`` events live."""
 
-        loop = asyncio.get_running_loop()
         output_queue: asyncio.Queue[str | None] = asyncio.Queue()
+        loop = asyncio.get_running_loop()
+
+        def enqueue(value: str | None) -> None:
+            if spec.is_async:
+                output_queue.put_nowait(value)
+                return
+            # A cancelled sync tool may outlive the asyncio wrapper; its
+            # worker must not write to a loop that has already closed.
+            with suppress(RuntimeError):
+                loop.call_soon_threadsafe(output_queue.put_nowait, value)
 
         def on_output(line: str) -> None:
-            loop.call_soon_threadsafe(output_queue.put_nowait, line)
+            # Async tools emit on this loop. Sync streaming tools emit from
+            # their worker thread and must schedule the queue write safely.
+            enqueue(line)
 
         ctx = self._ctx_for_call(tool_id, emit=on_output)
 
@@ -408,43 +439,44 @@ class Agent:
             try:
                 return await self._execute_tool(spec, args, ctx)
             finally:
-                loop.call_soon_threadsafe(output_queue.put_nowait, None)
+                enqueue(None)
 
         task = asyncio.create_task(run_tool())
-        was_cancelled = False
+        self._active_tool_task = task
         output_parts: list[str] = []
-
-        while True:
-            if self._cancel_event.is_set() and not was_cancelled:
-                was_cancelled = True
-                self.tools.cancel_active()
-
-            try:
-                output = await asyncio.wait_for(output_queue.get(), timeout=0.1)
-            except TimeoutError:
-                if task.done():
-                    break
-                continue
-
-            if output is None:
-                break
-            if not was_cancelled:
-                output_parts.append(output)
-                yield Event("tool_output", {"tool_use_id": tool_id, "output": output})
-
-        if was_cancelled or (self._cancel_event.is_set() and task.cancelled()):
-            with suppress(asyncio.CancelledError, Exception):
-                await task
-            output = "\n".join([*output_parts, "error: cancelled"]) if output_parts else "error: cancelled"
-            yield self._error_done(tool_id, output)
-            return
+        normal_completion = False
 
         try:
-            result = await task
-        except Exception as exc:  # pragma: no cover - defensive
-            result = ToolExecutionResult(output=f"error: {exc}", is_error=True)
+            while True:
+                output = await output_queue.get()
+                if output is None:
+                    normal_completion = True
+                    break
+                output_parts.append(output)
+                if not self._cancel_event.is_set():
+                    yield Event("tool_output", {"tool_use_id": tool_id, "output": output})
 
-        yield await self._finish_tool_call(tool_id, hook_ctx, result)
+            was_cancelled = self._cancel_event.is_set() or task.cancelled()
+            if was_cancelled:
+                with suppress(asyncio.CancelledError, Exception):
+                    await task
+                output = "\n".join([*output_parts, "error: cancelled"]) if output_parts else "error: cancelled"
+                yield self._error_done(tool_id, output)
+                return
+
+            try:
+                result = await task
+            except Exception as exc:  # pragma: no cover - defensive
+                result = ToolExecutionResult(output=f"error: {exc}", is_error=True)
+
+            yield await self._finish_tool_call(tool_id, hook_ctx, result)
+        finally:
+            if not normal_completion and not task.done():
+                task.cancel()
+            with suppress(asyncio.CancelledError, Exception):
+                await task
+            if self._active_tool_task is task:
+                self._active_tool_task = None
 
     async def _finish_tool_call(
         self,
@@ -504,27 +536,27 @@ class Agent:
         adapter: ProviderAdapter,
         request: ProviderRequest,
     ) -> AsyncIterator[ProviderStreamEvent]:
-        """Stream one provider turn, retrying failed attempts before any output.
+        """Stream one provider turn, retrying failed attempts before visible output.
 
         Yields an internal ``retry`` event before each new attempt. Once a
-        canonical event (thinking/text delta or message_done) has been yielded,
-        a partially consumed stream cannot be replayed safely, so failures
-        propagate instead of retrying. Adapter ``stream_started`` markers are
-        consumed here and never reach the caller.
+        thinking or text delta has been yielded, failures propagate instead
+        of retrying. Adapter ``stream_started`` markers are consumed here
+        and never reach the caller.
         """
 
         max_attempts = self.max_retries + 1
         for attempt in range(1, max_attempts + 1):
-            output_emitted = False
+            visible_output_emitted = False
             try:
                 async for event in self._stream_provider_attempt(adapter, request):
                     if event.type == "stream_started":
                         continue
-                    output_emitted = True
+                    if event.type in {"thinking_delta", "text_delta"}:
+                        visible_output_emitted = True
                     yield event
                 return
             except ProviderError as exc:
-                if output_emitted or not exc.retryable or attempt >= max_attempts:
+                if visible_output_emitted or not exc.retryable or attempt >= max_attempts:
                     raise
                 delay = self._retry_delay(attempt, exc)
                 retry_data: dict[str, Any] = {
@@ -828,9 +860,6 @@ class Agent:
                             yield Event("text", {"delta": delta_text})
                         continue
 
-                    if provider_event.type == "provider_error":
-                        raise ValueError(str(provider_event.data.get("message") or "provider error"))
-
                     if provider_event.type != "message_done":
                         continue
 
@@ -864,7 +893,11 @@ class Agent:
                 if partial_content:
                     if thinking_started_at is not None and thinking_duration_ms is None:
                         thinking_duration_ms = self._elapsed_ms(thinking_started_at)
-                    cancelled_message = self._partial_assistant_message(partial_content, thinking_duration_ms)
+                    cancelled_message = self._partial_assistant_message(
+                        partial_content,
+                        thinking_duration_ms,
+                        stop_reason="cancelled",
+                    )
                     self.messages.append(cancelled_message)
                     await persist(cancelled_message)
                 yield Event("error", {"message": "cancelled"})
@@ -892,9 +925,31 @@ class Agent:
                 if isinstance(block, dict) and block.get("type") == "tool_use"
             ]
             if tool_calls:
+                assistant_meta = assistant_message.get("meta")
+                stop_reason = str(assistant_meta.get("stop_reason") or "") if isinstance(assistant_meta, dict) else ""
                 tool_results: list[dict[str, Any]] = []
                 for tool_call in tool_calls:
-                    async for event in self._run_tool_call(tool_call):
+                    block_meta = tool_call.get("meta")
+                    invalid_input = isinstance(block_meta, dict) and block_meta.get("invalid_input") is True
+                    if stop_reason == "length":
+                        events = self._reject_tool_call(
+                            tool_call,
+                            "error: tool call was truncated by the output token limit and was not executed",
+                        )
+                    elif invalid_input:
+                        events = self._reject_tool_call(
+                            tool_call,
+                            "error: tool call arguments were invalid and were not executed",
+                        )
+                    elif stop_reason not in {"stop", "tool_use"}:
+                        events = self._reject_tool_call(
+                            tool_call,
+                            "error: provider response did not complete the tool call and it was not executed",
+                        )
+                    else:
+                        events = self._run_tool_call(tool_call)
+
+                    async for event in events:
                         yield event
 
                         if event.type != "tool_done":

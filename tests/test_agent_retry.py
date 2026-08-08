@@ -6,6 +6,7 @@ from typing import Any
 from unittest.mock import patch
 
 import httpx
+import pytest
 
 from mycode import Agent, Event, ProviderError, SessionStore
 from mycode.providers.base import ProviderStreamEvent, normalize_provider_error
@@ -73,6 +74,17 @@ class _FailsAfterTextAdapter:
         yield ProviderStreamEvent("stream_started")
         yield ProviderStreamEvent("text_delta", {"text": "partial"})
         raise _transient_error("stream died mid-turn")
+
+
+class _FailsAfterReasoningAdapter:
+    def __init__(self):
+        self.attempts = 0
+
+    async def stream_turn(self, _request: Any):
+        self.attempts += 1
+        yield ProviderStreamEvent("stream_started")
+        yield ProviderStreamEvent("thinking_delta", {"text": "thinking"})
+        raise _transient_error("reasoning stream died")
 
 
 def _new_agent(tmp_path: Path, **overrides: Any) -> Agent:
@@ -192,6 +204,24 @@ async def test_no_retry_after_output_and_partial_persisted_once(tmp_path: Path) 
     assistants = [message for message in data["messages"] if message["role"] == "assistant"]
     assert len(assistants) == 1
     assert assistants[0]["content"] == [{"type": "text", "text": "partial"}]
+    assert assistants[0]["meta"]["stop_reason"] == "error"
+
+
+async def test_no_retry_after_reasoning_and_partial_persisted_once(tmp_path: Path) -> None:
+    adapter = _FailsAfterReasoningAdapter()
+    agent = _new_agent(tmp_path)
+
+    with patch("mycode.agent.get_provider_adapter", return_value=adapter):
+        events = await _collect(agent)
+
+    assert adapter.attempts == 1
+    assert not any(event.type == "retry" for event in events)
+    assert events[-1] == Event("error", {"message": "reasoning stream died"})
+    assistants = [message for message in agent.messages if message["role"] == "assistant"]
+    assert len(assistants) == 1
+    assert assistants[0]["content"] == [
+        {"type": "thinking", "text": "thinking", "meta": {"duration_ms": pytest.approx(0, abs=1000)}}
+    ]
     assert assistants[0]["meta"]["stop_reason"] == "error"
 
 

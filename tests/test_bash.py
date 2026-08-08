@@ -1,9 +1,12 @@
 """Tests for bash tool execution and cancellation."""
 
+import asyncio
 import tempfile
 import threading
 import time
 from pathlib import Path
+
+import pytest
 
 from mycode.tools import (
     ToolContext,
@@ -101,7 +104,7 @@ class TestBashTruncation:
 
     def test_bash_long_single_line_truncated_by_bytes(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            result = _ctx(tmpdir, tool_call_id="long-line").bash("python3 -c \"print('x' * 60000, end='')\"")
+            result = _ctx(tmpdir, tool_call_id="long-line").bash("python3 -c \"print('x' * 100000, end='')\"")
 
             assert "Truncated:" in result.output
             assert "KB limit" in result.output
@@ -136,6 +139,30 @@ class TestBashCallback:
 
             assert len(received_lines) >= 2
             assert any("line1" in line for line in received_lines)
+
+
+class TestAsyncBash:
+    @pytest.mark.asyncio
+    async def test_abash_streams_output_and_returns_result(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            received_lines: list[str] = []
+            ctx = _ctx(tmpdir, tool_call_id="async-output", on_output=received_lines.append)
+
+            result = await ctx.abash("printf 'first\\nsecond\\n'")
+
+            assert result.output == "first\nsecond"
+            assert received_lines == ["first", "second"]
+
+    @pytest.mark.asyncio
+    async def test_abash_cancellation_finishes_promptly(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            ctx = _ctx(tmpdir, tool_call_id="async-cancel")
+            task = asyncio.create_task(ctx.abash("sleep 10", timeout=15))
+            await asyncio.sleep(0.1)
+
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await asyncio.wait_for(task, timeout=2)
 
 
 class TestCancelAllTools:

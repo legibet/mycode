@@ -35,6 +35,7 @@ class _ToolUseAdapter:
                 {
                     "message": {
                         "role": "assistant",
+                        "meta": {"stop_reason": "tool_use"},
                         "content": [
                             {
                                 "type": "tool_use",

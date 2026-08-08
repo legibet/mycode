@@ -18,6 +18,7 @@ from mycode.messages import (
     tool_use_block,
 )
 from mycode.providers.base import (
+    CanonicalStopReason,
     ProviderAdapter,
     ProviderRequest,
     ProviderStreamEvent,
@@ -31,6 +32,17 @@ from mycode.providers.base import (
 )
 
 _RETRYABLE_ANTHROPIC_ERROR_TYPES = {"api_error", "overloaded_error", "rate_limit_error", "timeout_error"}
+
+
+def _normalize_stop_reason(raw_reason: Any) -> CanonicalStopReason:
+    reason = str(raw_reason or "").lower()
+    if reason == "tool_use":
+        return "tool_use"
+    if reason == "max_tokens":
+        return "length"
+    if reason in {"end_turn", "stop_sequence"}:
+        return "stop"
+    return "unknown"
 
 
 class AnthropicLikeAdapter(ProviderAdapter):
@@ -229,7 +241,7 @@ class AnthropicLikeAdapter(ProviderAdapter):
             provider=self.provider_id,
             model=request_model or getattr(message, "model", None),
             provider_message_id=getattr(message, "id", None),
-            stop_reason=getattr(message, "stop_reason", None),
+            stop_reason=_normalize_stop_reason(getattr(message, "stop_reason", None)),
             usage=build_usage(
                 input_tokens=input_tokens,
                 cache_read_tokens=cache_read,

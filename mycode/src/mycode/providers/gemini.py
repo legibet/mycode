@@ -14,6 +14,7 @@ from google.genai.errors import APIError
 
 from mycode.messages import assistant_message, build_usage, text_block, thinking_block, tool_use_block
 from mycode.providers.base import (
+    CanonicalStopReason,
     ProviderAdapter,
     ProviderRequest,
     ProviderStreamEvent,
@@ -24,6 +25,31 @@ from mycode.providers.base import (
 )
 
 _DUMMY_THOUGHT_SIGNATURE = "skip_thought_signature_validator"
+
+
+def _normalize_finish_reason(raw_reason: Any) -> CanonicalStopReason:
+    reason = str(raw_reason or "").lower()
+    if reason == "stop":
+        return "stop"
+    if reason == "max_tokens":
+        return "length"
+    if reason in {
+        "safety",
+        "recitation",
+        "language",
+        "blocklist",
+        "prohibited_content",
+        "spii",
+        "malformed_function_call",
+        "unexpected_tool_call",
+        "other",
+        "image_safety",
+        "image_recitation",
+        "image_prohibited_content",
+        "no_image",
+    }:
+        return "error"
+    return "unknown"
 
 
 def _to_json(value: Any) -> Any:
@@ -119,7 +145,7 @@ class GoogleGeminiAdapter(ProviderAdapter):
                     provider=self.provider_id,
                     model=request.model,
                     provider_message_id=response_id,
-                    stop_reason=str(finish_reason) if finish_reason else None,
+                    stop_reason=_normalize_finish_reason(finish_reason),
                     usage=normalized_usage,
                     native_meta={
                         "finish_message": str(finish_message) if finish_message else None,

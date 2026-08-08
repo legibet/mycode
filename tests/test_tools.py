@@ -512,6 +512,24 @@ class TestToolDecorator:
         assert result.output == "a:10"
         assert result.is_error is False
 
+    def test_invalid_input_does_not_call_user_function(self, tmp_path: Path) -> None:
+        calls: list[str] = []
+
+        @tool
+        def lookup(key: str) -> str:
+            """Find one entry."""
+
+            calls.append(key)
+            return key
+
+        executor = ToolExecutor([lookup])
+        ctx = ToolContext(executor=executor, cwd=".", tool_output_dir=tmp_path / "_p")
+        result = executor.execute("lookup", {}, ctx)
+
+        assert result.is_error is True
+        assert result.output.startswith("error: invalid tool input:")
+        assert calls == []
+
     def test_decorator_metadata_overrides_docstring(self) -> None:
         @tool(
             name="find",

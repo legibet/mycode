@@ -88,9 +88,9 @@ async for _ in agent.achat("follow-up that references the earlier answer"):
 
 ### Cancellation
 
-`agent.cancel()` can be called from another task or thread. It sets the cancel flag, terminates active bash subprocesses, and cancels the active provider stream or async tool. Async tools receive `asyncio.CancelledError`. A cancelled tool emits an error `tool_done`; a cancelled provider stream emits an `error` event with `message="cancelled"`. Already streamed `thinking` and text are persisted when session persistence is enabled.
+`agent.cancel()` can be called from another task or thread. It sets the cancel flag, terminates active bash subprocesses, and cancels the active provider stream or async tool. Async tools receive `asyncio.CancelledError`. A cancelled tool emits an error `tool_done`; a cancelled provider stream emits an `error` event with `message="cancelled"`. Already streamed `thinking` and text are persisted with `meta.stop_reason="cancelled"` when session persistence is enabled.
 
-A synchronous function already running in a worker thread continues until it returns. Subprocesses started by `bash_tool` are terminated.
+A synchronous function already running in a worker thread continues until it returns. Any Bash subprocess it started through `ctx.bash()` is terminated.
 
 ### Timeouts and retries
 
@@ -106,7 +106,7 @@ Validation: `request_timeout > 0`, `stream_start_timeout > 0`, `max_retries >= 0
 
 `stream_start_timeout` bounds everything up to the first event or chunk exposed by the upstream SDK: DNS, connect, request upload, response headers, and the wait for the initial lifecycle event or content chunk. After the stream has started, only the transport `request_timeout` applies; a stream that keeps sending heartbeats without model output has no automatic deadline and ends only via `cancel()`.
 
-The Agent owns retries; provider SDK retries are disabled. Before output reaches the caller, it retries connection errors, timeouts, stream-start expiry, HTTP 408/409/429/5xx, and transient stream failures identified by the provider adapter. Once reasoning or text has been emitted, or a complete assistant message has been formed, failures surface as an `error` event instead; already-streamed reasoning/text is persisted with `meta.stop_reason="error"` (excluded from replay). Partial, unexposed tool-call arguments do not block a retry. User cancellation is never retried, and `cancel()` interrupts a backoff wait immediately.
+The Agent owns retries; provider SDK retries are disabled. Before reasoning or text reaches the caller, it retries connection errors, timeouts, stream-start expiry, HTTP 408/409/429/5xx, and transient stream failures identified by the provider adapter. Once reasoning or text has been emitted, failures surface as an `error` event; already-streamed reasoning/text is persisted with `meta.stop_reason="error"` and excluded from replay. Partial, unexposed tool-call arguments do not block a retry. User cancellation is never retried, and `cancel()` interrupts a backoff wait immediately.
 
 Backoff is exponential with jitter (0.5s initial, ×2, capped at 8s); a positive `Retry-After` header up to 60s takes precedence. Each retry emits a `retry` event carrying `attempt` (the next 1-based attempt), `max_attempts` (`max_retries + 1`), `delay_seconds`, `reason` (`connection_error` / `request_timeout` / `stream_start_timeout` / `http_status` / `provider_error`), `message`, and `status_code` when applicable. Failed attempts without usage do not change turn totals. A retried request contributes the final successful response's usage; retried compaction stores that usage on its marker.
 
@@ -220,7 +220,9 @@ See `docs/sessions.md` for the on-disk record format, the projection rule that b
 from mycode import read_tool, write_tool, edit_tool, bash_tool
 ```
 
-Four built-in tools, opted in via `tools=[...]`. Only `bash_tool` streams incremental output as `tool_output` events; the other three return a single `tool_done` result. Cancelled streaming tools return emitted output followed by `error: cancelled`.
+Four built-in tools, opted in via `tools=[...]`. Only `bash_tool` streams incremental output as `tool_output`; the other three return a single `tool_done` result. Cancelled streaming tools return emitted output followed by `error: cancelled`.
+
+A tool call is rejected before hooks and execution when the assistant turn has `stop_reason="length"`, the tool block has `meta.invalid_input=true`, or the provider did not complete the call with canonical `stop` / `tool_use`. The runtime still emits `tool_start` and an error `tool_done`, persists that as a `tool_result`, and sends it in the next provider request. `@tool` schema validation then prevents invalid arguments from reaching the user function.
 
 ### `@tool`
 
@@ -294,7 +296,7 @@ async def fetch_url(url: str) -> str:
         return response.text
 ```
 
-The Agent awaits async tools on its event loop and runs sync tools in a worker thread. Use `ToolExecutor.aexecute()` from async code and `ToolExecutor.execute()` from sync code.
+The Agent awaits async tools on its event loop and runs sync tools in a worker thread. The built-in `bash_tool` is async-native and reads subprocess output without a reader thread. Use `ToolExecutor.aexecute()` from async code and `ToolExecutor.execute()` from sync code.
 
 A bare `str` return becomes the tool output replayed to the provider. Other JSON-serializable returns are dumped to JSON. Return `ToolExecutionResult` when you need `content`, `metadata`, or `is_error`.
 

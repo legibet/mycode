@@ -20,7 +20,7 @@ class ProviderAdapter(ABC):
 
 `prepare_messages()` converts canonical session history to provider-safe wire format. The base implementation in `base.py` handles:
 
-- Stripping error/aborted/cancelled assistant turns
+- Stripping error/cancelled assistant turns
 - Projecting tool call IDs (some providers restrict charset/length)
 - Replacing replay images with a short text notice when `request.supports_image_input` is false
 - Replacing replay PDFs with a short text notice when `request.supports_pdf_input` is false
@@ -208,11 +208,24 @@ Provider quirks:
 - Same image format as `openai_chat`
 - Same PDF format as `openai_chat`
 
+## Stop Reason Normalization
+
+Adapters persist only these canonical values: `stop`, `tool_use`, `length`, `error`, and `unknown` (the Agent adds `cancelled` for user cancellation).
+
+| adapter | provider values |
+| --- | --- |
+| Anthropic-like | `end_turn`, `stop_sequence` -> `stop`; `tool_use` -> `tool_use`; `max_tokens` -> `length` |
+| OpenAI Chat | `stop` -> `stop`; `tool_calls`, `function_call` -> `tool_use`; `length` -> `length`; `content_filter` -> `error` |
+| Gemini | `STOP` -> `stop`; `MAX_TOKENS` -> `length`; documented safety, policy, recitation, and malformed tool-call reasons -> `error` |
+| OpenAI Responses | `completed` -> `stop` or `tool_use` from output items; `incomplete.max_output_tokens` -> `length`; `incomplete.content_filter` and `failed` -> `error` |
+
+An adapter returns `unknown` for a provider value outside its documented mapping. Raw provider values are not stored in assistant metadata.
+
 ## Message Replay
 
 Before serialization, replay history is normalized:
 
-1. Skip assistant messages with `stop_reason` in `{error, aborted, cancelled}`
+1. Skip assistant messages with `stop_reason` in `{error, cancelled}`
 2. Project tool call IDs to provider-safe format (only Anthropic-like adapters override this)
 3. Preserve native reasoning data only when the source provider and selected model match the target
 4. Replay readable foreign or different-model thinking as assistant text and drop opaque native state

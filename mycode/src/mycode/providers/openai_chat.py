@@ -19,6 +19,7 @@ from mycode.messages import (
     tool_use_block,
 )
 from mycode.providers.base import (
+    CanonicalStopReason,
     ProviderAdapter,
     ProviderRequest,
     ProviderStreamEvent,
@@ -40,6 +41,19 @@ class _ChatToolCallState:
     tool_id: str | None = None
     name: str = ""
     arguments_text: str = ""
+
+
+def _normalize_finish_reason(raw_reason: str | None) -> CanonicalStopReason:
+    reason = str(raw_reason or "").lower()
+    if reason == "length":
+        return "length"
+    if reason == "content_filter":
+        return "error"
+    if reason == "stop":
+        return "stop"
+    if reason in {"tool_calls", "function_call"}:
+        return "tool_use"
+    return "unknown"
 
 
 class OpenAIChatAdapter(ProviderAdapter):
@@ -133,12 +147,16 @@ class OpenAIChatAdapter(ProviderAdapter):
         for index in sorted(tool_calls):
             state = tool_calls[index]
             tool_input, extra_native = parse_tool_call_input(state.arguments_text)
+            invalid_input = bool(extra_native.pop("invalid_input", False))
+            block_meta = native_block_meta(extra_native) or {}
+            if invalid_input:
+                block_meta["invalid_input"] = True
             blocks.append(
                 tool_use_block(
                     tool_id=state.tool_id or f"tool_call_{index}",
                     name=state.name,
                     input=tool_input,
-                    meta=native_block_meta(extra_native),
+                    meta=block_meta or None,
                 )
             )
 
@@ -155,7 +173,7 @@ class OpenAIChatAdapter(ProviderAdapter):
             provider=self.provider_id,
             model=request.model,
             provider_message_id=response_id,
-            stop_reason=finish_reason,
+            stop_reason=_normalize_finish_reason(finish_reason),
             usage=build_usage(
                 total_tokens=raw_usage.get("total_tokens"),
                 input_tokens=raw_usage.get("prompt_tokens"),

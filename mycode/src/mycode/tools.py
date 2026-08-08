@@ -16,13 +16,11 @@ import asyncio
 import functools
 import inspect
 import json
+import locale
 import os
-import queue
 import shlex
 import signal
-import subprocess
 import threading
-import time
 import typing
 from base64 import b64encode
 from collections import deque
@@ -50,6 +48,7 @@ DEFAULT_MAX_BYTES = 50 * 1024
 READ_MAX_LINE_CHARS = 2000
 BASH_TIMEOUT_SECONDS = 120
 _BASH_MAX_IN_MEMORY_BYTES = 5_000_000
+_BASH_READ_CHUNK_SIZE = 64 * 1024
 
 
 # ---------------------------------------------------------------------------
@@ -188,7 +187,7 @@ class ToolExecutor:
         if len(set(names)) != len(names):
             raise ValueError(f"duplicate tool name in specs: {names}")
         self._tools: dict[str, ToolSpec] = {spec.name: spec for spec in tools}
-        self._active_procs: set[subprocess.Popen[str]] = set()
+        self._active_procs: set[asyncio.subprocess.Process] = set()
         self._lock = threading.Lock()
 
     @property
@@ -221,16 +220,17 @@ class ToolExecutor:
         runner = cast(SyncToolRunner, spec.runner)
         return await asyncio.to_thread(runner, ctx, args)
 
-    # Subprocess tracking: register with both this executor (per-session
-    # cancel) and the process-global set (shutdown cleanup).
+    # A sync tool may call ctx.bash() from a worker thread. Cancelling the
+    # asyncio wrapper cannot stop that subprocess, so the executor keeps a
+    # per-agent process set in addition to the global shutdown set.
 
-    def track_proc(self, proc: subprocess.Popen[str]) -> None:
+    def track_proc(self, proc: asyncio.subprocess.Process) -> None:
         with self._lock:
             self._active_procs.add(proc)
         with _ACTIVE_PROCS_LOCK:
             _ACTIVE_PROCS.add(proc)
 
-    def untrack_proc(self, proc: subprocess.Popen[str]) -> None:
+    def untrack_proc(self, proc: asyncio.subprocess.Process) -> None:
         with self._lock:
             self._active_procs.discard(proc)
         with _ACTIVE_PROCS_LOCK:
@@ -255,7 +255,7 @@ class ToolExecutor:
 # agents may run concurrently in the same process); this module-level set is
 # a shutdown-time safety net exposed as ``cancel_all_tools``.
 
-_ACTIVE_PROCS: set[subprocess.Popen[str]] = set()
+_ACTIVE_PROCS: set[asyncio.subprocess.Process] = set()
 _ACTIVE_PROCS_LOCK = threading.Lock()
 
 
@@ -269,7 +269,7 @@ def cancel_all_tools() -> None:
         _kill_proc_tree(proc)
 
 
-def _kill_proc_tree(proc: subprocess.Popen[str]) -> None:
+def _kill_proc_tree(proc: asyncio.subprocess.Process) -> None:
     try:
         if os.name == "posix":
             os.killpg(proc.pid, signal.SIGKILL)
@@ -823,20 +823,23 @@ def edit_tool(ctx: ToolContext, path: str, edits: list[EditEntry]) -> ToolExecut
     },
     streams_output=True,
 )
-def bash_tool(ctx: ToolContext, command: str, timeout: int | None = None) -> ToolExecutionResult:
+async def bash_tool(
+    ctx: ToolContext,
+    command: str,
+    timeout: int | None = None,  # noqa: ASYNC109
+) -> ToolExecutionResult:
     """Run a shell command and return combined stdout/stderr text.
 
     Output is streamed line-by-line through ``ctx.emit`` when set.
 
-    Truncation has two layers: when total output exceeds the in-memory
-    ceiling, further output spills to ``tool_output_dir/bash-<id>.log`` and
-    only a bounded tail stays in memory; the returned text is then truncated
-    again by :func:`truncate_text` to the display limits.
+    Truncation has two layers: output over the in-memory ceiling spills to
+    ``tool_output_dir/bash-<id>.log`` while a bounded tail stays in memory;
+    ``truncate_text`` then applies the display limits to the returned text.
     """
 
     timeout_seconds = timeout if timeout is not None and timeout > 0 else BASH_TIMEOUT_SECONDS
 
-    proc: subprocess.Popen[str] | None = None
+    proc: asyncio.subprocess.Process | None = None
     log_path = ctx.tool_output_dir / f"bash-{ctx.tool_call_id or 'call'}.log"
     kept_lines: list[str] = []
     kept_bytes = 0
@@ -846,59 +849,32 @@ def bash_tool(ctx: ToolContext, command: str, timeout: int | None = None) -> Too
     saved_output_path: Path | None = None
 
     try:
-        proc = subprocess.Popen(
+        proc = await asyncio.create_subprocess_shell(
             command,
-            shell=True,
             cwd=ctx.cwd,
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            bufsize=1,
+            stdin=asyncio.subprocess.DEVNULL,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+            limit=_BASH_READ_CHUNK_SIZE,
             start_new_session=os.name == "posix",
         )
         ctx.executor.track_proc(proc)
+        stdout = cast(asyncio.StreamReader, proc.stdout)
+        encoding = locale.getpreferredencoding(False)
+        line_buffer = bytearray()
 
-        stdout = cast(TextIO, proc.stdout)
-        output_queue: queue.Queue[str | None] = queue.Queue()
-        reader_errors: list[Exception] = []
+        def process_line(raw_line: bytes) -> None:
+            nonlocal kept_bytes, kept_lines, log_file, saved_output_path, total_line_count
 
-        def read_stdout() -> None:
-            try:
-                for line in stdout:
-                    output_queue.put(line)
-            except Exception as exc:  # pragma: no cover - defensive
-                reader_errors.append(exc)
-            finally:
-                output_queue.put(None)
-
-        reader = threading.Thread(target=read_stdout, daemon=True)
-        reader.start()
-        deadline = time.monotonic() + timeout_seconds
-
-        while True:
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                _kill_proc_tree(proc)
-                return ToolExecutionResult(output=f"error: timeout after {timeout_seconds}s", is_error=True)
-
-            try:
-                line = output_queue.get(timeout=min(0.1, remaining))
-            except queue.Empty:
-                continue
-
-            if line is None:
-                break
-
-            line = line.rstrip("\n")
+            line = raw_line.decode(encoding).rstrip("\r\n")
             total_line_count += 1
 
             if log_file is None:
                 kept_lines.append(line)
                 kept_bytes += len(line.encode("utf-8")) + 1
                 if kept_bytes > _BASH_MAX_IN_MEMORY_BYTES:
-                    # Spill to disk. Create the output dir lazily on first
-                    # spill so runs that stay in memory never touch the FS.
+                    # Create the spill directory only when output exceeds the
+                    # in-memory limit; short commands never touch the FS.
                     ctx.tool_output_dir.mkdir(parents=True, exist_ok=True)
                     log_file = log_path.open("w", encoding="utf-8")
                     saved_output_path = log_path
@@ -915,24 +891,26 @@ def bash_tool(ctx: ToolContext, command: str, timeout: int | None = None) -> Too
             if ctx.emit is not None:
                 ctx.emit(line)
 
-        if reader_errors:
-            return ToolExecutionResult(output=f"error: {reader_errors[0]}", is_error=True)
-
         try:
-            remaining = max(0.1, deadline - time.monotonic())
-            proc.wait(timeout=remaining)
-        except subprocess.TimeoutExpired:
-            _kill_proc_tree(proc)
+            async with asyncio.timeout(timeout_seconds):
+                while chunk := await stdout.read(_BASH_READ_CHUNK_SIZE):
+                    line_buffer.extend(chunk)
+                    while (newline_index := line_buffer.find(b"\n")) >= 0:
+                        process_line(bytes(line_buffer[: newline_index + 1]))
+                        del line_buffer[: newline_index + 1]
+                if line_buffer:
+                    process_line(bytes(line_buffer))
+                await proc.wait()
+        except TimeoutError:
             return ToolExecutionResult(output=f"error: timeout after {timeout_seconds}s", is_error=True)
 
         exit_code = proc.returncode
-
         raw_output = "\n".join(list(tail_lines) if log_file is not None else kept_lines)
         output = raw_output.strip() or "(empty)"
         content, trunc = truncate_text(output, tail=True)
 
-        # If truncation happened but we never spilled, save the full output
-        # now so the user can inspect it via the "Full output" hint.
+        # Keep a full-output hint even when the bounded in-memory result was
+        # enough to avoid spilling while truncate_text still shortened it.
         if log_file is None and trunc.truncated_by:
             try:
                 ctx.tool_output_dir.mkdir(parents=True, exist_ok=True)
@@ -973,9 +951,11 @@ def bash_tool(ctx: ToolContext, command: str, timeout: int | None = None) -> Too
             with suppress(Exception):
                 log_file.close()
         if proc is not None:
-            ctx.executor.untrack_proc(proc)
-            if proc.poll() is None:
+            if proc.returncode is None:
                 _kill_proc_tree(proc)
+            with suppress(asyncio.CancelledError, Exception):
+                await proc.wait()
+            ctx.executor.untrack_proc(proc)
 
 
 # ---------------------------------------------------------------------------

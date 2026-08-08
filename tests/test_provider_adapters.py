@@ -568,6 +568,7 @@ def test_openai_responses_converts_final_response_blocks() -> None:
     }
     assert message["content"][1] == {"type": "text", "text": "answer"}
     assert message["content"][2]["type"] == "tool_use"
+    assert message["meta"]["stop_reason"] == "tool_use"
     assert message["content"][2]["id"] == "call_1"
     assert message["content"][2]["input"] == {"path": "x.py"}
     assert message["content"][2]["meta"] == {"native": {"item_id": "fc_1", "status": "completed"}}
@@ -576,6 +577,33 @@ def test_openai_responses_converts_final_response_blocks() -> None:
     assert native_items[0]["id"] == "rs_1"
     assert native_items[1]["content"][0]["text"] == "answer"
     assert native_items[2]["call_id"] == "call_1"
+
+
+@pytest.mark.parametrize(
+    ("status", "reason", "expected"),
+    [
+        ("incomplete", "max_output_tokens", "length"),
+        ("incomplete", "content_filter", "error"),
+        ("failed", None, "error"),
+    ],
+)
+def test_openai_responses_normalizes_incomplete_status(
+    status: str,
+    reason: str | None,
+    expected: str,
+) -> None:
+    response = _Obj(
+        id="resp_123",
+        model="gpt-5.4",
+        status=status,
+        incomplete_details=_Obj(reason=reason) if reason else None,
+        usage=_Obj(input_tokens=10, output_tokens=5),
+        output=[],
+    )
+
+    message = OpenAIResponsesAdapter()._convert_final_response(response)
+
+    assert message["meta"]["stop_reason"] == expected
 
 
 def test_openai_responses_uses_stream_output_items_when_final_output_is_empty() -> None:
@@ -638,7 +666,10 @@ def test_openai_responses_preserves_invalid_tool_arguments() -> None:
             "id": "call_1",
             "name": "read",
             "input": {},
-            "meta": {"native": {"item_id": "fc_1", "status": "completed", "raw_arguments": "{not json"}},
+            "meta": {
+                "native": {"item_id": "fc_1", "status": "completed", "raw_arguments": "{not json"},
+                "invalid_input": True,
+            },
         }
     ]
 
@@ -1011,12 +1042,12 @@ def test_google_gemini_build_request_config_uses_supported_tool_settings() -> No
                 {
                     "role": "assistant",
                     "content": [{"type": "thinking", "text": "partial"}],
-                    "meta": {"provider": "openai_chat", "model": "test-model", "stop_reason": "aborted"},
+                    "meta": {"provider": "openai_chat", "model": "test-model", "stop_reason": "cancelled"},
                 },
                 {"role": "user", "content": [{"type": "text", "text": "hello"}]},
             ],
             [{"role": "user", "content": [{"type": "text", "text": "hello"}]}],
-            id="drops-aborted-assistant-turn",
+            id="drops-cancelled-assistant-turn",
         ),
         pytest.param(
             [
@@ -1792,9 +1823,10 @@ async def test_anthropic_preserves_native_thinking_blocks_across_tool_turns(
         event async for event in adapter.stream_turn(request_obj(api_key="test-key", model="claude-sonnet-5"))
     ]
     stored_message = first_events[-1].data["message"]
+    assert stored_message["meta"]["stop_reason"] == "tool_use"
     assert stored_message["content"][0]["text"] == "Think"
 
-    _ = [
+    second_events = [
         event
         async for event in adapter.stream_turn(
             request_obj(
@@ -1810,6 +1842,7 @@ async def test_anthropic_preserves_native_thinking_blocks_across_tool_turns(
             )
         )
     ]
+    assert second_events[-1].data["message"]["meta"]["stop_reason"] == "stop"
     replayed_request = client.messages.stream.call_args_list[1].kwargs
     assert replayed_request["messages"][0]["content"][:2] == [
         {"type": "thinking", "thinking": "Think", "signature": "signature"},
@@ -2176,6 +2209,7 @@ async def test_openai_chat_normalizes_usage_details(monkeypatch: pytest.MonkeyPa
 
     events = [event async for event in OpenAIChatAdapter().stream_turn(request_obj(api_key="k", model="m"))]
 
+    assert events[-1].data["message"]["meta"]["stop_reason"] == "stop"
     assert events[-1].data["message"]["meta"]["usage"] == {
         "total_tokens": 1_080,
         "input_tokens": 1_000,

@@ -12,7 +12,7 @@ import os
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Literal
 
 import httpx
 
@@ -21,6 +21,8 @@ from mycode.compact import apply_compact_replay
 from mycode.messages import ConversationMessage, build_message, text_block, tool_result_block
 
 DEFAULT_REQUEST_TIMEOUT = 300.0
+
+CanonicalStopReason = Literal["stop", "tool_use", "length", "error", "cancelled", "unknown"]
 
 
 class ProviderError(Exception):
@@ -181,8 +183,8 @@ def parse_tool_call_input(raw_arguments: str) -> tuple[dict[str, Any], dict[str,
     """Parse a streamed/native tool-call JSON arguments string.
 
     Returns ``(input, extra_native_fields)``. On parse failure, ``input`` is
-    empty and ``extra_native_fields`` preserves the raw text under
-    ``raw_arguments`` so it stays inspectable in ``block.meta.native``.
+    empty, ``invalid_input`` marks the canonical tool block, and the raw text
+    stays under ``raw_arguments`` for the eventual tool error.
     """
 
     if not raw_arguments.strip():
@@ -190,10 +192,10 @@ def parse_tool_call_input(raw_arguments: str) -> tuple[dict[str, Any], dict[str,
     try:
         parsed = json.loads(raw_arguments)
     except json.JSONDecodeError:
-        return {}, {"raw_arguments": raw_arguments}
+        return {}, {"raw_arguments": raw_arguments, "invalid_input": True}
     if isinstance(parsed, dict):
         return parsed, {}
-    return {}, {"raw_arguments": raw_arguments}
+    return {}, {"raw_arguments": raw_arguments, "invalid_input": True}
 
 
 class ProviderAdapter(ABC):
@@ -354,7 +356,7 @@ def repair_messages_for_replay(
 
             raw_meta = message.get("meta")
             stop_reason = str(raw_meta.get("stop_reason") or "") if isinstance(raw_meta, dict) else ""
-            if stop_reason in {"error", "aborted", "cancelled"}:
+            if stop_reason in {"error", "cancelled"}:
                 continue
 
             content: list[dict[str, Any]] = []

@@ -19,6 +19,7 @@ from mycode.messages import (
     tool_use_block,
 )
 from mycode.providers.base import (
+    CanonicalStopReason,
     ProviderAdapter,
     ProviderError,
     ProviderRequest,
@@ -34,6 +35,21 @@ from mycode.providers.base import (
 from mycode.utils import omit_none
 
 _RETRYABLE_RESPONSE_ERROR_CODES = {"rate_limit_exceeded", "server_error"}
+
+
+def _normalize_response_status(response: Any, *, has_tool_calls: bool) -> CanonicalStopReason:
+    status = str(getattr(response, "status", None) or "").lower()
+    if status == "completed":
+        return "tool_use" if has_tool_calls else "stop"
+    if status == "incomplete":
+        reason = str(getattr(getattr(response, "incomplete_details", None), "reason", None) or "").lower()
+        if reason == "max_output_tokens":
+            return "length"
+        if reason == "content_filter":
+            return "error"
+    if status == "failed":
+        return "error"
+    return "unknown"
 
 
 class OpenAIResponsesAdapter(ProviderAdapter):
@@ -333,6 +349,7 @@ class OpenAIResponsesAdapter(ProviderAdapter):
 
             if item_type == "function_call":
                 tool_input, extra_native = parse_tool_call_input(getattr(item, "arguments", "") or "")
+                invalid_input = bool(extra_native.pop("invalid_input", False))
                 item_meta = omit_none(
                     {
                         "item_id": getattr(item, "id", None),
@@ -340,12 +357,15 @@ class OpenAIResponsesAdapter(ProviderAdapter):
                         **extra_native,
                     }
                 )
+                block_meta = native_block_meta(item_meta) or {}
+                if invalid_input:
+                    block_meta["invalid_input"] = True
                 blocks.append(
                     tool_use_block(
                         tool_id=getattr(item, "call_id", ""),
                         name=getattr(item, "name", ""),
                         input=tool_input,
-                        meta=native_block_meta(item_meta),
+                        meta=block_meta or None,
                     )
                 )
 
@@ -358,7 +378,10 @@ class OpenAIResponsesAdapter(ProviderAdapter):
             provider=self.provider_id,
             model=request_model or getattr(response, "model", None),
             provider_message_id=getattr(response, "id", None),
-            stop_reason=getattr(response, "status", None),
+            stop_reason=_normalize_response_status(
+                response,
+                has_tool_calls=any(block.get("type") == "tool_use" for block in blocks),
+            ),
             usage=build_usage(
                 total_tokens=raw_usage.get("total_tokens"),
                 input_tokens=raw_usage.get("input_tokens"),

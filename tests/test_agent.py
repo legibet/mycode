@@ -3,6 +3,7 @@
 import asyncio
 import tempfile
 import threading
+import time
 from copy import deepcopy
 from pathlib import Path
 from unittest.mock import patch
@@ -65,8 +66,11 @@ def _assistant_turn(
     meta: dict[str, object] | None = None,
 ) -> list[ProviderStreamEvent]:
     message: dict[str, object] = {"role": "assistant", "content": list(blocks)}
-    if meta is not None:
-        message["meta"] = meta
+    message_meta = dict(meta or {})
+    if any(block.get("type") == "tool_use" for block in blocks):
+        message_meta.setdefault("stop_reason", "tool_use")
+    if message_meta:
+        message["meta"] = message_meta
     return [ProviderStreamEvent("message_done", {"message": message})]
 
 
@@ -119,6 +123,90 @@ def _new_agent(tmp_path: Path, **overrides) -> Agent:
     overrides.setdefault("session_dir", tmp_path)
     overrides.setdefault("session_id", "session")
     return Agent(**overrides)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("assistant_meta", "tool_meta", "expected_message"),
+    [
+        (
+            {"stop_reason": "length"},
+            None,
+            "truncated by the output token limit",
+        ),
+        (
+            {"stop_reason": "tool_use"},
+            {"invalid_input": True},
+            "arguments were invalid",
+        ),
+    ],
+)
+async def test_invalid_tool_calls_are_reported_without_execution(
+    tmp_path: Path,
+    assistant_meta: dict[str, object],
+    tool_meta: dict[str, object] | None,
+    expected_message: str,
+) -> None:
+    calls: list[str] = []
+
+    @tool
+    def optional_tool(value: str = "default") -> str:
+        """Record one optional tool call."""
+
+        calls.append(value)
+        return value
+
+    assistant = _assistant_turn(
+        {
+            "type": "tool_use",
+            "id": "call-1",
+            "name": "optional_tool",
+            "input": {},
+            **({"meta": tool_meta} if tool_meta else {}),
+        },
+        meta=assistant_meta,
+    )[0]
+    adapter = _FakeProviderAdapter([[assistant], _text_turn("recovered")])
+
+    with patch("mycode.agent.get_provider_adapter", return_value=adapter):
+        events = _chat_events(
+            [event async for event in _new_agent(tmp_path, tools=[optional_tool]).achat("run the tool")]
+        )
+
+    assert calls == []
+    tool_done = next(event for event in events if event.type == "tool_done")
+    assert tool_done.data["is_error"] is True
+    assert expected_message in tool_done.data["output"]
+    result_message = adapter.message_snapshots[1][-1]
+    assert result_message["content"][0]["is_error"] is True
+
+
+@pytest.mark.asyncio
+async def test_multiple_truncated_tool_calls_are_all_rejected(tmp_path: Path) -> None:
+    calls: list[str] = []
+
+    @tool
+    def record(value: str) -> str:
+        """Record a value."""
+
+        calls.append(value)
+        return value
+
+    assistant = _assistant_turn(
+        {"type": "tool_use", "id": "call-1", "name": "record", "input": {"value": "one"}},
+        {"type": "tool_use", "id": "call-2", "name": "record", "input": {"value": "two"}},
+        meta={"stop_reason": "length"},
+    )[0]
+    adapter = _FakeProviderAdapter([[assistant], _text_turn("recovered")])
+
+    with patch("mycode.agent.get_provider_adapter", return_value=adapter):
+        events = _chat_events([event async for event in _new_agent(tmp_path, tools=[record]).achat("run")])
+
+    tool_done = [event for event in events if event.type == "tool_done"]
+    assert calls == []
+    assert len(tool_done) == 2
+    assert all(event.data["is_error"] is True for event in tool_done)
+    assert len(adapter.message_snapshots[1][-1]["content"]) == 2
 
 
 class _SlowProviderAdapter:
@@ -464,6 +552,88 @@ class TestCustomTools:
                 "is_error": False,
             }
 
+    @pytest.mark.asyncio
+    async def test_agent_forwards_bash_live_output(self, tmp_path: Path) -> None:
+        agent = _new_agent(tmp_path, tools=[bash_tool])
+        adapter = _FakeProviderAdapter(
+            [
+                _tool_turn(
+                    "call-1",
+                    name="bash",
+                    tool_input={"command": "printf 'one\\nsecond\\n'"},
+                ),
+                _text_turn(),
+            ]
+        )
+
+        with patch("mycode.agent.get_provider_adapter", return_value=adapter):
+            events = _chat_events([event async for event in agent.achat("run bash")])
+
+        assert [event.type for event in events] == ["tool_start", "tool_output", "tool_output", "tool_done"]
+        assert [event.data["output"] for event in events if event.type == "tool_output"] == ["one", "second"]
+        assert events[-1].data["output"] == "one\nsecond"
+        assert events[-1].data["is_error"] is False
+
+    @pytest.mark.asyncio
+    async def test_agent_forwards_sync_streaming_tool_output(self, tmp_path: Path) -> None:
+        @tool(streams_output=True)
+        def emit_from_sync_tool(ctx: ToolContext) -> str:
+            """Emit one line from a synchronous tool."""
+
+            assert ctx.emit is not None
+            ctx.emit("from worker")
+            return "complete"
+
+        agent = _new_agent(tmp_path, tools=[emit_from_sync_tool])
+        adapter = _FakeProviderAdapter(
+            [
+                _tool_turn("call-1", name="emit_from_sync_tool", tool_input={}),
+                _text_turn(),
+            ]
+        )
+
+        with patch("mycode.agent.get_provider_adapter", return_value=adapter):
+            events = _chat_events([event async for event in agent.achat("run tool")])
+
+        assert [event.type for event in events] == ["tool_start", "tool_output", "tool_done"]
+        assert events[1].data["output"] == "from worker"
+        assert events[2].data["output"] == "complete"
+
+    def test_cancel_stops_bash_from_another_thread(self, tmp_path: Path) -> None:
+        marker = tmp_path / "bash-started"
+        agent = _new_agent(tmp_path, tools=[bash_tool])
+        adapter = _FakeProviderAdapter(
+            [
+                _tool_turn(
+                    "call-1",
+                    name="bash",
+                    tool_input={"command": f"touch {marker.name} && sleep 10"},
+                )
+            ]
+        )
+        results: list[RunResult] = []
+        run_thread = threading.Thread(target=lambda: results.append(agent.run("run bash")), daemon=True)
+
+        with patch("mycode.agent.get_provider_adapter", return_value=adapter):
+            run_thread.start()
+            for _ in range(200):
+                if marker.exists():
+                    break
+                time.sleep(0.01)
+            assert marker.exists()
+            agent.cancel()
+            run_thread.join(timeout=3)
+
+        assert not run_thread.is_alive()
+        events = _chat_events(results[0].events)
+        tool_done = [event for event in events if event.type == "tool_done"]
+        assert len(tool_done) == 1
+        assert tool_done[0].data == {
+            "tool_use_id": "call-1",
+            "output": "error: cancelled",
+            "is_error": True,
+        }
+
     @pytest.mark.parametrize(
         ("streams_output", "event_types", "cancelled_output"),
         [
@@ -618,6 +788,7 @@ class TestAgentCancel:
             ]
             assert agent.messages[-1]["meta"]["provider"] == "openai"
             assert agent.messages[-1]["meta"]["model"] == "gpt-5.5"
+            assert agent.messages[-1]["meta"]["stop_reason"] == "cancelled"
 
 
 class TestTurnUsage:
