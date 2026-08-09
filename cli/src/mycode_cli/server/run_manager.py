@@ -20,6 +20,14 @@ RunStatus = Literal["running", "completed", "failed", "cancelled"]
 RunKind = Literal["chat", "compact"]
 FINISHED_RUN_TTL_SECONDS = 300
 RUN_EVENT_BUFFER_SIZE = 2000
+RUN_TOOL_OUTPUT_BUFFER_BYTES = 1_000_000
+
+
+def _tool_output_bytes(payload: dict[str, Any]) -> int:
+    if payload.get("type") != "tool_output":
+        return 0
+    output = payload.get("output")
+    return len(output.encode("utf-8")) if isinstance(output, str) else 0
 
 
 class ActiveRunError(RuntimeError):
@@ -57,6 +65,7 @@ class RunState:
     status: RunStatus = "running"
     error: str | None = None
     events: list[dict[str, Any]] = field(default_factory=list)
+    tool_output_bytes: int = 0
     next_seq: int = 1
     task: asyncio.Task[None] | None = None
     finished_at: float | None = None
@@ -362,11 +371,23 @@ class RunManager:
 
     async def _append_event(self, state: RunState, event: Event) -> None:
         async with state.condition:
+            if event.type == "tool_done":
+                tool_use_id = event.data.get("tool_use_id")
+                retained = [
+                    payload
+                    for payload in state.events
+                    if payload.get("type") != "tool_output" or payload.get("tool_use_id") != tool_use_id
+                ]
+                state.events = retained
+                state.tool_output_bytes = sum(_tool_output_bytes(payload) for payload in retained)
+
             payload = {"seq": state.next_seq, "type": event.type, **event.data}
             state.next_seq += 1
             state.events.append(payload)
-            if len(state.events) > RUN_EVENT_BUFFER_SIZE:
-                del state.events[: len(state.events) - RUN_EVENT_BUFFER_SIZE]
+            state.tool_output_bytes += _tool_output_bytes(payload)
+            while len(state.events) > RUN_EVENT_BUFFER_SIZE or state.tool_output_bytes > RUN_TOOL_OUTPUT_BUFFER_BYTES:
+                removed = state.events.pop(0)
+                state.tool_output_bytes -= _tool_output_bytes(removed)
             state.condition.notify_all()
 
     async def _finish_run(self, state: RunState, *, status: RunStatus, error: str | None = None) -> None:

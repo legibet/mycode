@@ -264,6 +264,41 @@ class TestReplyRenderer:
 
         assert "final answer" in output.getvalue()
 
+    def test_tool_output_appends_text_deltas(self) -> None:
+        output = StringIO()
+        renderer = ReplyRenderer(
+            Console(file=output, force_terminal=False, color_system=None, width=120),
+            model="m",
+            context_window=None,
+        )
+        renderer.tool_start("bash", {"command": "printf"})
+
+        renderer.tool_output("one\nsec")
+        renderer.tool_output("ond\n")
+        renderer.tool_done("one\nsecond", is_error=False)
+
+        assert "one\n    second" in output.getvalue()
+
+    def test_tool_done_shows_final_status_after_live_output(self) -> None:
+        output = StringIO()
+        renderer = ReplyRenderer(
+            Console(file=output, force_terminal=False, color_system=None, width=120),
+            model="m",
+            context_window=None,
+        )
+        renderer.tool_start("bash", {"command": "build"})
+        renderer.tool_output("started\n")
+
+        renderer.tool_done(
+            "started\n\n[Output truncated: Showing the last 50KB of output. Full output: /tmp/bash.log.]"
+            + "\n\n[Command timed out after 1s]",
+            is_error=True,
+        )
+
+        rendered = output.getvalue()
+        assert "Full output: /tmp/bash.log" in rendered
+        assert "Command timed out after 1s" in rendered
+
     def test_finish_prints_context_and_session_cost(self) -> None:
         output = StringIO()
         renderer = ReplyRenderer(

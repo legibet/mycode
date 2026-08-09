@@ -364,6 +364,7 @@ class ReplyRenderer:
         self._thinking_collapsed = False
         self._had_prior_output = False
         self._tool_output_count = 0
+        self._tool_output_line_open = False
         self._tool_name: str = ""
         self._tool_args: dict[str, Any] = {}
         self._tool_header_printed = False
@@ -448,6 +449,7 @@ class ReplyRenderer:
         self._reset_stream_state()
 
         self._tool_output_count = 0
+        self._tool_output_line_open = False
         self._tool_name = name
         self._tool_args = args
         self._tool_header_printed = False
@@ -467,19 +469,25 @@ class ReplyRenderer:
         )
         self._tool_live.start()
 
-    def tool_output(self, line: str) -> None:
-        """Render one streamed output line from a running tool."""
+    def tool_output(self, delta: str) -> None:
+        """Append one streamed output delta from a running tool."""
 
-        if not line:
+        if not delta:
             return
         if not self._tool_header_printed:
             self._print_tool_header(self._tool_name, self._tool_args)
             self._tool_header_printed = True
-        self._tool_output_count += 1
-        if self._tool_output_count <= _TOOL_OUTPUT_MAX_LINES:
-            text = Text("    ", style=MUTED)
-            text.append(line, style=MUTED)
-            self._console.print(text)
+
+        for part in delta.splitlines(keepends=True):
+            if not self._tool_output_line_open:
+                self._tool_output_count += 1
+                self._tool_output_line_open = True
+                if self._tool_output_count <= _TOOL_OUTPUT_MAX_LINES:
+                    self._console.print(Text("    ", style=MUTED), end="")
+            if self._tool_output_count <= _TOOL_OUTPUT_MAX_LINES:
+                self._console.print(Text(part, style=MUTED), end="")
+            if part.endswith("\n"):
+                self._tool_output_line_open = False
 
     def tool_done(
         self,
@@ -502,13 +510,22 @@ class ReplyRenderer:
             self._print_tool_header(self._tool_name, self._tool_args, suffix=suffix)
             self._tool_header_printed = True
 
-        if is_error and self._tool_output_count == 0:
-            first_line = output.split("\n", 1)[0][:100]
-            self._console.print(Text(f"    {first_line}", style=ERROR))
-        else:
-            truncated = self._tool_output_count - _TOOL_OUTPUT_MAX_LINES
-            if truncated > 0:
-                self._console.print(Text(f"    +{truncated} lines", style=MUTED))
+        if self._tool_output_line_open and self._tool_output_count <= _TOOL_OUTPUT_MAX_LINES:
+            self._console.print()
+        self._tool_output_line_open = False
+
+        hidden_lines = self._tool_output_count - _TOOL_OUTPUT_MAX_LINES
+        if hidden_lines > 0:
+            self._console.print(Text(f"    +{hidden_lines} lines", style=MUTED))
+
+        result_lines = output.splitlines()
+        status_prefixes = ("error:", "[Output truncated:", "[Command timed out", "[exit code:")
+        status_lines = [line for line in result_lines if line.startswith(status_prefixes)]
+        if is_error and not status_lines and result_lines:
+            status_lines = [result_lines[-1]]
+        style = ERROR if is_error else MUTED
+        for line in status_lines[-2:]:
+            self._console.print(Text(f"    {line[:500]}", style=style))
 
         self._had_prior_output = True
 

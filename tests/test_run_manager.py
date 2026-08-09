@@ -58,6 +58,26 @@ class RetryingAgent(SimpleAgent):
             yield event
 
 
+class ToolOutputAgent(ChatOnlyAgent):
+    def __init__(self, *, block_before_done: bool = False) -> None:
+        self.block_before_done = block_before_done
+        self.output_sent = asyncio.Event()
+        self.release = asyncio.Event()
+
+    def cancel(self) -> None:
+        self.release.set()
+
+    async def achat(self, user_input):
+        del user_input
+        yield Event("tool_start", {"tool_call": {"id": "call-1", "name": "bash", "input": {}}})
+        yield Event("tool_output", {"tool_use_id": "call-1", "output": "a" * 8})
+        yield Event("tool_output", {"tool_use_id": "call-1", "output": "b" * 8})
+        self.output_sent.set()
+        if self.block_before_done:
+            await self.release.wait()
+        yield Event("tool_done", {"tool_use_id": "call-1", "output": "final", "is_error": False})
+
+
 async def _wait_for_run_task(manager: RunManager, run_id: str) -> RunState:
     state = await manager.get_run(run_id)
     assert state is not None
@@ -163,6 +183,44 @@ async def test_stream_events_respects_after_and_finishes() -> None:
 
     events_after_first = [event async for event in manager.stream_events(run["id"], after=1)]
     assert events_after_first == []
+
+
+async def test_completed_tool_keeps_final_result_without_live_history() -> None:
+    manager = RunManager()
+    run = await manager.start_run(
+        session_id="session-1",
+        user_message={"role": "user", "content": [{"type": "text", "text": "run"}]},
+        base_messages=[],
+        agent=ToolOutputAgent(),
+    )
+
+    state = await _wait_for_run_task(manager, run["id"])
+
+    assert [(event["seq"], event["type"]) for event in state.events] == [
+        (1, "tool_start"),
+        (4, "tool_done"),
+    ]
+
+
+async def test_reconnect_buffer_reports_eviction_as_a_seq_gap(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("mycode_cli.server.run_manager.RUN_TOOL_OUTPUT_BUFFER_BYTES", 10)
+    manager = RunManager()
+    agent = ToolOutputAgent(block_before_done=True)
+    run = await manager.start_run(
+        session_id="session-1",
+        user_message={"role": "user", "content": [{"type": "text", "text": "run"}]},
+        base_messages=[],
+        agent=agent,
+    )
+
+    await asyncio.wait_for(agent.output_sent.wait(), timeout=1)
+    snapshot = await manager.snapshot_session("session-1")
+
+    assert snapshot is not None
+    assert snapshot["pending_events"] == [{"seq": 3, "type": "tool_output", "tool_use_id": "call-1", "output": "b" * 8}]
+
+    agent.release.set()
+    await _wait_for_run_task(manager, run["id"])
 
 
 async def test_same_session_cannot_start_second_run() -> None:

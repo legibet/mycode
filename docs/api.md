@@ -381,11 +381,13 @@ Response:
 | `permission_resolved` | `request_id: str`, `decision: "allow" \| "deny"`                                                             |
 | `usage`               | `context_tokens?`, `context_window?`, `model?`, `turn_usage?`, `turn_cost?`, `session_cost?`                 |
 
+`tool_output` is ordered, append-only display text. Clients do not insert separators between events. Under buffer pressure, `[live output omitted]` replaces one continuous middle segment. `tool_done.output` is the authoritative final result. Once a tool's `tool_done` is buffered, the server may drop that tool's earlier `tool_output` events — a consumer that has not read them yet skips straight to the `tool_done`.
+
 `permission_request` and `permission_resolved` bracket a wait inside the agent's `before_tool` hook. Clients respond via `POST /api/runs/{run_id}/decide`; `permission_resolved` lets reconnecting or second-tab clients dismiss the prompt.
 
 The server adds `model`, `context_window`, and `session_cost` to the SDK usage event described in docs/sdk.md. `context_tokens` is the latest normal request's context usage; `turn_usage` and `turn_cost` are cumulative snapshots for the turn. `session_cost` sums the known pre-run session and current turn totals. All costs are USD. SSE omits `None` fields; absence means the current snapshot is unavailable and clients must clear any previous value.
 
-Every event also carries `seq: int` for reconnect support. The web UI uses `after` parameter to resume from a specific seq number.
+Every event also carries `seq: int` for reconnect support. The web UI uses `after` to resume after a sequence number. The reconnect cache is bounded by event count and tool-output bytes; if older events were evicted, the first returned `seq` is greater than `after + 1`. The server does not synthesize or rewrite events to represent that gap.
 
 ## Run Manager
 
@@ -394,7 +396,7 @@ Every event also carries `seq: int` for reconnect support. The web UI uses `afte
 - One active run per session (enforced by `ActiveRunError` on conflict, regardless of kind)
 - Two run kinds share the lifecycle: `start_run()` iterates `agent.achat(user_message)`; `start_compact()` awaits `agent.acompact()` and emits one `compact` event after the marker is persisted
 - Compact runs carry no `user_message`; snapshots return `base_messages` unchanged
-- `RunState` tracks events, condition variable for streaming, and cleanup
+- `RunState` tracks a bounded reconnect event buffer and condition variable for streaming
 - Explicit permission `deny` marks the run as cancelled and calls `agent.cancel()`
 - `cancel_run()` waits for the agent task to finish before returning the final run info
 - Finished runs pruned after 300 seconds (`FINISHED_RUN_TTL_SECONDS`)
