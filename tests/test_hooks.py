@@ -357,4 +357,4 @@ async def test_streaming_cancellation_cannot_be_replaced(tmp_path: Path) -> None
     assert second.data == {"tool_use_id": "call-1", "output": "live"}
     assert after_calls == []
     assert [event.type for event in rest] == ["tool_done"]
-    assert rest[0].data == {"tool_use_id": "call-1", "output": "live\nerror: cancelled", "is_error": True}
+    assert rest[0].data == {"tool_use_id": "call-1", "output": "error: cancelled", "is_error": True}

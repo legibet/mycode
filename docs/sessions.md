@@ -169,13 +169,13 @@ Triggered by `POST /api/chat` with `rewind_to`:
 
 Rewind indices refer to the visible history, which now includes pre-compact turns and inline `compact` markers. Rewinding to a real user message before a `compact` marker slices the marker away along with the rest of the tail — the next provider request will then see the full pre-compact history again. The marker itself is never a valid rewind target.
 
-## tool-output/ Spill
+## tool-output/ Logs
 
-Bash output exceeding 5MB in memory (`_BASH_MAX_IN_MEMORY_BYTES`) is written to `<tool_output_dir>/bash-<tool_call_id>.log`. The tool result keeps the last 2000 lines in memory and cites the saved log path.
+Bash output exceeding the 2000-line or 50KB display limit is written as raw combined stdout/stderr to `<tool_output_dir>/bash-<tool_call_id>.log`. The tool result returns a bounded tail and cites the saved log path.
 
-`tool_output_dir` is always set — Agent defaults it to a session-adjacent directory when persistence is configured, or a tempdir-scoped equivalent otherwise. The directory itself is created lazily on first spill.
+`tool_output_dir` is always set — Agent defaults it to a session-adjacent directory when persistence is configured, or a tempdir-scoped equivalent otherwise. The directory itself is created lazily when Bash output first exceeds a display limit.
 
-Cancelled streaming tools persist emitted output plus `error: cancelled`.
+Cancelled Bash calls persist the captured final tail plus `error: cancelled`; truncated results also cite the raw log. Live `tool_output` events are not session data.
 
 ## Session Store API
 

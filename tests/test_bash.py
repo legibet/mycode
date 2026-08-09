@@ -71,11 +71,15 @@ class TestBash:
 
 
 class TestBashTimeout:
-    def test_bash_timeout(self):
+    def test_bash_timeout_preserves_output(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            result = _ctx(tmpdir, tool_call_id="test-timeout").bash("sleep 5", timeout=1)
+            result = _ctx(tmpdir, tool_call_id="test-timeout").bash(
+                "printf 'started\\n'; sleep 5",
+                timeout=1,
+            )
 
-            assert "timeout" in result.output.lower()
+            assert "started" in result.output
+            assert "timed out after 1s" in result.output
             assert result.is_error is True
 
     def test_bash_zero_timeout_falls_back_to_default(self):
@@ -87,6 +91,14 @@ class TestBashTimeout:
 
 
 class TestBashTruncation:
+    def test_bash_output_at_byte_limit_is_not_truncated(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            result = _ctx(tmpdir, tool_call_id="byte-limit").bash("python3 -c \"print('x' * 51200, end='')\"")
+
+            assert len(result.output) == 51200
+            assert "Output truncated:" not in result.output
+            assert not (Path(tmpdir) / "bash-byte-limit.log").exists()
+
     def test_bash_large_output_truncated_by_lines(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tool_output = Path(tmpdir) / "tool-output"
@@ -94,23 +106,53 @@ class TestBashTruncation:
                 'for i in $(seq 1 3000); do echo "line $i"; done'
             )
 
-            assert "Truncated:" in result.output
-            assert "of 3000 lines" in result.output
+            assert "Output truncated:" in result.output
+            assert "last 2000 of 3000 lines" in result.output
+            assert "Use read with offset to inspect earlier lines" in result.output
             assert "line 3000" in result.output
             assert "Full output:" in result.output
             log_file = tool_output / "bash-test-large.log"
-            assert log_file.exists()
-            assert "3000" in log_file.read_text()
+            assert log_file.read_text().splitlines() == [f"line {i}" for i in range(1, 3001)]
 
-    def test_bash_long_single_line_truncated_by_bytes(self):
+    def test_bash_blank_lines_keep_accurate_line_count(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            result = _ctx(tmpdir, tool_call_id="long-line").bash("python3 -c \"print('x' * 100000, end='')\"")
+            result = _ctx(tmpdir, tool_call_id="blank-lines").bash("python3 -c \"print('\\n' * 3000, end='')\"")
 
-            assert "Truncated:" in result.output
-            assert "KB limit" in result.output
+            assert "last 2000 of 3000 lines" in result.output
+            assert (Path(tmpdir) / "bash-blank-lines.log").read_bytes() == b"\n" * 3000
+
+    def test_bash_multiline_output_truncated_by_bytes(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            result = _ctx(tmpdir, tool_call_id="large-lines").bash(
+                "python3 -c \"for i in range(100): print(f'{i:03}:' + 'x' * 1000)\""
+            )
+
+            assert "Showing the last 50KB of output" in result.output
+            assert "final output line" not in result.output
+            assert "Use read to inspect omitted output" in result.output
+            assert "099:" in result.output
+            assert (Path(tmpdir) / "bash-large-lines.log").stat().st_size > 50 * 1024
+
+    def test_bash_long_final_line_truncated_by_bytes(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            result = _ctx(tmpdir, tool_call_id="long-line").bash("python3 -c \"print('界' * 40000, end='')\"")
+
+            assert "Showing the last 50KB of the final output line" in result.output
+            assert "Use Bash byte-range commands to inspect the complete line" in result.output
             assert "Full output:" in result.output
-            assert "0 lines" not in result.output
-            assert "x" in result.output
+            assert "�" not in result.output
+            assert (Path(tmpdir) / "bash-long-line.log").read_text() == "界" * 40000
+
+    def test_bash_huge_line_before_short_tail_keeps_byte_tail(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            result = _ctx(tmpdir, tool_call_id="huge-line").bash("python3 -c \"print('x' * 300000); print('END')\"")
+
+            body, _, notice = result.output.partition("\n\n[Output truncated:")
+            assert body.startswith("x")
+            assert body.endswith("\nEND")
+            assert len(body.encode("utf-8")) == 50 * 1024
+            assert "Showing the last 50KB of output" in notice
+            assert "final output line" not in notice
 
 
 class TestBashExitCode:
@@ -126,43 +168,45 @@ class TestBashExitCode:
 
             assert "some output" in result.output
             assert "[exit code: 42]" in result.output
-            assert result.is_error is False
+            assert result.is_error is True
 
 
 class TestBashCallback:
-    def test_bash_callback_receives_lines(self):
+    def test_bash_callback_receives_appendable_deltas(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            received_lines: list[str] = []
+            received_chunks: list[str] = []
 
-            ctx = _ctx(tmpdir, tool_call_id="test-callback", on_output=received_lines.append)
+            ctx = _ctx(tmpdir, tool_call_id="test-callback", on_output=received_chunks.append)
             ctx.bash("echo line1 && echo line2")
 
-            assert len(received_lines) >= 2
-            assert any("line1" in line for line in received_lines)
+            assert "".join(received_chunks) == "line1\nline2\n"
 
 
 class TestAsyncBash:
     @pytest.mark.asyncio
     async def test_abash_streams_output_and_returns_result(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            received_lines: list[str] = []
-            ctx = _ctx(tmpdir, tool_call_id="async-output", on_output=received_lines.append)
+            received_chunks: list[str] = []
+            ctx = _ctx(tmpdir, tool_call_id="async-output", on_output=received_chunks.append)
 
             result = await ctx.abash("printf 'first\\nsecond\\n'")
 
             assert result.output == "first\nsecond"
-            assert received_lines == ["first", "second"]
+            assert "".join(received_chunks) == "first\nsecond\n"
 
     @pytest.mark.asyncio
     async def test_abash_cancellation_finishes_promptly(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             ctx = _ctx(tmpdir, tool_call_id="async-cancel")
-            task = asyncio.create_task(ctx.abash("sleep 10", timeout=15))
+            task = asyncio.create_task(ctx.abash("echo started; sleep 10", timeout=15))
             await asyncio.sleep(0.1)
 
             task.cancel()
-            with pytest.raises(asyncio.CancelledError):
-                await asyncio.wait_for(task, timeout=2)
+            result = await asyncio.wait_for(task, timeout=2)
+
+            assert result.is_error is True
+            assert "started" in result.output
+            assert result.output.endswith("error: cancelled")
 
 
 class TestCancelAllTools:
@@ -207,6 +251,8 @@ class TestCancelAllTools:
 
             first_thread.join(timeout=5)
             assert first_thread.is_alive() is False
+            assert first_result["result"].output == "(empty)\n\nerror: cancelled"
+            assert first_result["result"].is_error is True
 
             time.sleep(0.5)
             assert second_thread.is_alive() is True
@@ -214,3 +260,5 @@ class TestCancelAllTools:
             second.executor.cancel_active()
             second_thread.join(timeout=5)
             assert second_thread.is_alive() is False
+            assert second_result["result"].output == "(empty)\n\nerror: cancelled"
+            assert second_result["result"].is_error is True

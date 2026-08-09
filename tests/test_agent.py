@@ -597,8 +597,12 @@ class TestCustomTools:
         with patch("mycode.agent.get_provider_adapter", return_value=adapter):
             events = _chat_events([event async for event in agent.achat("run bash")])
 
-        assert [event.type for event in events] == ["tool_start", "tool_output", "tool_output", "tool_done"]
-        assert [event.data["output"] for event in events if event.type == "tool_output"] == ["one", "second"]
+        tool_output_events = [event for event in events if event.type == "tool_output"]
+        assert events[0].type == "tool_start"
+        assert events[-1].type == "tool_done"
+        assert all(event.type == "tool_output" for event in events[1:-1])
+        assert tool_output_events
+        assert "".join(event.data["output"] for event in tool_output_events) == "one\nsecond\n"
         assert events[-1].data["output"] == "one\nsecond"
         assert events[-1].data["is_error"] is False
 
@@ -627,6 +631,44 @@ class TestCustomTools:
         assert events[1].data["output"] == "from worker"
         assert events[2].data["output"] == "complete"
 
+    @pytest.mark.asyncio
+    async def test_live_output_marks_an_omitted_middle_segment(self, tmp_path: Path) -> None:
+        release = asyncio.Event()
+
+        @tool(streams_output=True)
+        async def burst(ctx: ToolContext) -> str:
+            """Emit more text than the live buffer can retain."""
+
+            assert ctx.emit is not None
+            ctx.emit("partial")
+            await release.wait()
+            ctx.emit("x" * (60 * 1024))
+            ctx.emit("\ntail\n")
+            return "complete"
+
+        agent = _new_agent(tmp_path, tools=[burst])
+        adapter = _FakeProviderAdapter(
+            [
+                _tool_turn("call-1", name="burst", tool_input={}),
+                _text_turn(),
+            ]
+        )
+
+        events: list[Event] = []
+        with patch("mycode.agent.get_provider_adapter", return_value=adapter):
+            async for event in agent.achat("run tool"):
+                events.append(event)
+                if event.type == "tool_output" and event.data["output"] == "partial":
+                    release.set()
+                    await asyncio.sleep(0.01)
+
+        events = _chat_events(events)
+        displayed = "".join(event.data["output"] for event in events if event.type == "tool_output")
+        assert displayed.startswith("partial\n[live output omitted]\n")
+        assert displayed.endswith("\ntail\n")
+        assert displayed.count("[live output omitted]") == 1
+        assert events[-1].data["output"] == "complete"
+
     def test_cancel_stops_bash_from_another_thread(self, tmp_path: Path) -> None:
         marker = tmp_path / "bash-started"
         agent = _new_agent(tmp_path, tools=[bash_tool])
@@ -635,7 +677,13 @@ class TestCustomTools:
                 _tool_turn(
                     "call-1",
                     name="bash",
-                    tool_input={"command": f"touch {marker.name} && sleep 10"},
+                    tool_input={
+                        "command": (
+                            'python3 -c "import pathlib,sys,time; '
+                            "sys.stdout.write('x' * 60000); sys.stdout.flush(); "
+                            f"pathlib.Path('{marker.name}').touch(); time.sleep(10)\""
+                        )
+                    },
                 )
             ]
         )
@@ -656,26 +704,21 @@ class TestCustomTools:
         events = _chat_events(results[0].events)
         tool_done = [event for event in events if event.type == "tool_done"]
         assert len(tool_done) == 1
-        assert tool_done[0].data == {
-            "tool_use_id": "call-1",
-            "output": "error: cancelled",
-            "is_error": True,
-        }
+        result = tool_done[0].data
+        assert result["tool_use_id"] == "call-1"
+        assert result["is_error"] is True
+        assert "Output truncated:" in result["output"]
+        assert "error: cancelled" in result["output"]
+        log_path = tmp_path / agent.session_id / "tool-output" / "bash-call-1.log"
+        assert str(log_path) in result["output"]
+        assert log_path.read_bytes() == b"x" * 60000
 
-    @pytest.mark.parametrize(
-        ("streams_output", "event_types", "cancelled_output"),
-        [
-            (False, ["tool_start", "tool_done"], "error: cancelled"),
-            (True, ["tool_start", "tool_output", "tool_done"], "working\nerror: cancelled"),
-        ],
-    )
+    @pytest.mark.parametrize("streams_output", [False, True])
     def test_cancel_stops_async_tool_from_another_thread(
         self,
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
         streams_output: bool,
-        event_types: list[str],
-        cancelled_output: str,
     ) -> None:
         monkeypatch.setenv("PYTHONASYNCIODEBUG", "1")
         started = threading.Event()
@@ -718,10 +761,43 @@ class TestCustomTools:
         assert cleaned_up.is_set()
         assert len(results) == 1
         events = _chat_events(results[0].events)
-        assert [event.type for event in events] == event_types
+        assert [event.type for event in events] == ["tool_start", "tool_done"]
         assert events[-1].data == {
             "tool_use_id": "call-1",
-            "output": cancelled_output,
+            "output": "error: cancelled",
+            "is_error": True,
+        }
+
+    def test_cancel_uses_result_returned_by_async_tool(self, tmp_path: Path) -> None:
+        started = threading.Event()
+
+        @tool(streams_output=True)
+        async def finish_on_cancel() -> ToolExecutionResult:
+            """Return a final result while handling cancellation."""
+
+            started.set()
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                return ToolExecutionResult(output="cancelled cleanly", is_error=True)
+            raise AssertionError("unreachable")
+
+        agent = _new_agent(tmp_path, tools=[finish_on_cancel])
+        adapter = _FakeProviderAdapter([_tool_turn("call-1", name="finish_on_cancel", tool_input={})])
+        results: list[RunResult] = []
+        run_thread = threading.Thread(target=lambda: results.append(agent.run("start")), daemon=True)
+
+        with patch("mycode.agent.get_provider_adapter", return_value=adapter):
+            run_thread.start()
+            assert started.wait(timeout=1)
+            agent.cancel()
+            run_thread.join(timeout=1)
+
+        assert not run_thread.is_alive()
+        events = _chat_events(results[0].events)
+        assert events[-1].data == {
+            "tool_use_id": "call-1",
+            "output": "cancelled cleanly",
             "is_error": True,
         }
 

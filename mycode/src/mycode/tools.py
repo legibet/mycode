@@ -13,6 +13,7 @@ facades on :class:`ToolContext`::
 from __future__ import annotations
 
 import asyncio
+import codecs
 import functools
 import inspect
 import json
@@ -23,14 +24,13 @@ import signal
 import threading
 import typing
 from base64 import b64encode
-from collections import deque
 from collections.abc import Callable, Coroutine, Mapping, Sequence
 from contextlib import suppress
 from dataclasses import dataclass
 from difflib import SequenceMatcher, unified_diff
 from pathlib import Path
 from types import FunctionType
-from typing import Any, TextIO, cast, overload
+from typing import Any, BinaryIO, cast, overload
 
 from griffe import Docstring, DocstringSectionKind, Parser
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, create_model
@@ -47,7 +47,6 @@ DEFAULT_MAX_LINES = 2000
 DEFAULT_MAX_BYTES = 50 * 1024
 READ_MAX_LINE_CHARS = 2000
 BASH_TIMEOUT_SECONDS = 120
-_BASH_MAX_IN_MEMORY_BYTES = 5_000_000
 _BASH_READ_CHUNK_SIZE = 64 * 1024
 
 
@@ -188,6 +187,7 @@ class ToolExecutor:
             raise ValueError(f"duplicate tool name in specs: {names}")
         self._tools: dict[str, ToolSpec] = {spec.name: spec for spec in tools}
         self._active_procs: set[asyncio.subprocess.Process] = set()
+        self._cancelled_procs: set[asyncio.subprocess.Process] = set()
         self._lock = threading.Lock()
 
     @property
@@ -227,14 +227,20 @@ class ToolExecutor:
     def track_proc(self, proc: asyncio.subprocess.Process) -> None:
         with self._lock:
             self._active_procs.add(proc)
+            self._cancelled_procs.discard(proc)
         with _ACTIVE_PROCS_LOCK:
             _ACTIVE_PROCS.add(proc)
 
     def untrack_proc(self, proc: asyncio.subprocess.Process) -> None:
         with self._lock:
             self._active_procs.discard(proc)
+            self._cancelled_procs.discard(proc)
         with _ACTIVE_PROCS_LOCK:
             _ACTIVE_PROCS.discard(proc)
+
+    def proc_was_cancelled(self, proc: asyncio.subprocess.Process) -> bool:
+        with self._lock:
+            return proc in self._cancelled_procs
 
     def cancel_active(self) -> None:
         """Terminate bash subprocesses started by this executor."""
@@ -242,6 +248,7 @@ class ToolExecutor:
         with self._lock:
             procs = list(self._active_procs)
             self._active_procs.clear()
+            self._cancelled_procs.update(procs)
         for proc in procs:
             with _ACTIVE_PROCS_LOCK:
                 _ACTIVE_PROCS.discard(proc)
@@ -811,6 +818,165 @@ def edit_tool(ctx: ToolContext, path: str, edits: list[EditEntry]) -> ToolExecut
 # ---------------------------------------------------------------------------
 
 
+@dataclass(frozen=True)
+class _BashOutputSnapshot:
+    content: str
+    truncation: Truncation
+    total_lines: int
+    last_line_partial: bool
+    full_output_path: Path | None
+
+
+class _BashOutputAccumulator:
+    """Capture raw command output while keeping a bounded display tail."""
+
+    def __init__(self, tool_output_dir: Path, log_path: Path):
+        self.tool_output_dir = tool_output_dir
+        self.log_path = log_path
+        encoding = locale.getpreferredencoding(False)
+        self.decoder = codecs.getincrementaldecoder(encoding)(errors="replace")
+        self.raw_chunks: list[bytes] = []
+        self.tail_text = ""
+        self.tail_bytes = 0
+        self.total_raw_bytes = 0
+        self.total_bytes = 0
+        self.completed_lines = 0
+        self.current_line_bytes = 0
+        self.last_completed_line_bytes = 0
+        self.has_open_line = False
+        self.log_file: BinaryIO | None = None
+        self.finished = False
+
+    def append(self, chunk: bytes) -> str:
+        if self.finished:
+            raise RuntimeError("cannot append after bash output is finished")
+
+        self.total_raw_bytes += len(chunk)
+        text = self.decoder.decode(chunk)
+        self._append_text(text)
+
+        if self.log_file is None:
+            self.raw_chunks.append(chunk)
+            if self._needs_full_log():
+                self._open_log()
+        else:
+            self.log_file.write(chunk)
+        return text
+
+    def finish(self) -> str:
+        if self.finished:
+            return ""
+
+        self.finished = True
+        text = self.decoder.decode(b"", final=True)
+        self._append_text(text)
+        if self.log_file is None and self._needs_full_log():
+            self._open_log()
+        return text
+
+    def snapshot(self) -> _BashOutputSnapshot:
+        content, truncation = truncate_tail(self.tail_text)
+        truncated = self._needs_full_log() or truncation.truncated_by is not None
+        truncated_by = truncation.truncated_by
+        if truncated and truncated_by is None:
+            truncated_by = (
+                "bytes" if self.total_raw_bytes > DEFAULT_MAX_BYTES or self.total_bytes > DEFAULT_MAX_BYTES else "lines"
+            )
+            truncation = Truncation(truncated_by=truncated_by, output_lines=truncation.output_lines)
+
+        last_line_bytes = self.current_line_bytes if self.has_open_line else self.last_completed_line_bytes
+        return _BashOutputSnapshot(
+            content=content,
+            truncation=truncation,
+            total_lines=self.completed_lines + int(self.has_open_line),
+            last_line_partial=last_line_bytes > DEFAULT_MAX_BYTES and truncated_by == "bytes",
+            full_output_path=self.log_path if self.log_file is not None else None,
+        )
+
+    def close(self) -> None:
+        if self.log_file is not None:
+            with suppress(Exception):
+                self.log_file.close()
+            self.log_file = None
+
+    def _append_text(self, text: str) -> None:
+        if not text:
+            return
+
+        encoded_bytes = len(text.encode("utf-8"))
+        self.total_bytes += encoded_bytes
+        self.tail_text += text
+        self.tail_bytes += encoded_bytes
+        if self.tail_bytes > DEFAULT_MAX_BYTES * 4:
+            self._trim_tail()
+
+        segments = text.split("\n")
+        for segment in segments[:-1]:
+            self.current_line_bytes += len(segment.encode("utf-8"))
+            self.completed_lines += 1
+            self.last_completed_line_bytes = self.current_line_bytes
+            self.current_line_bytes = 0
+        trailing = segments[-1]
+        if len(segments) > 1:
+            self.current_line_bytes = len(trailing.encode("utf-8"))
+        else:
+            self.current_line_bytes += len(trailing.encode("utf-8"))
+        self.has_open_line = bool(trailing)
+
+    def _trim_tail(self) -> None:
+        encoded = self.tail_text.encode("utf-8")
+        if len(encoded) <= DEFAULT_MAX_BYTES * 2:
+            self.tail_bytes = len(encoded)
+            return
+
+        start = len(encoded) - DEFAULT_MAX_BYTES * 2
+        while start < len(encoded) and encoded[start] & 0xC0 == 0x80:
+            start += 1
+        self.tail_text = encoded[start:].decode("utf-8", errors="replace")
+        self.tail_bytes = len(self.tail_text.encode("utf-8"))
+
+    def _needs_full_log(self) -> bool:
+        return (
+            self.total_raw_bytes > DEFAULT_MAX_BYTES
+            or self.total_bytes > DEFAULT_MAX_BYTES
+            or self.completed_lines + int(self.has_open_line) > DEFAULT_MAX_LINES
+        )
+
+    def _open_log(self) -> None:
+        self.tool_output_dir.mkdir(parents=True, exist_ok=True)
+        self.log_file = self.log_path.open("wb")
+        for chunk in self.raw_chunks:
+            self.log_file.write(chunk)
+        self.raw_chunks = []
+
+
+def _format_bash_output(snapshot: _BashOutputSnapshot) -> str:
+    result = snapshot.content.strip() or "(empty)"
+    truncated_by = snapshot.truncation.truncated_by
+    if truncated_by is None:
+        return result
+
+    if snapshot.last_line_partial:
+        summary = "Showing the last 50KB of the final output line."
+        action = "Use Bash byte-range commands to inspect the complete line."
+    elif truncated_by == "lines":
+        summary = f"Showing the last {snapshot.truncation.output_lines} of {snapshot.total_lines} lines."
+        action = "Use read with offset to inspect earlier lines."
+    else:
+        summary = "Showing the last 50KB of output."
+        action = "Use read to inspect omitted output."
+
+    path = f" Full output: {snapshot.full_output_path}." if snapshot.full_output_path is not None else ""
+    return f"{result}\n\n[Output truncated: {summary}{path} {action}]"
+
+
+def _cancelled_bash_result(snapshot: _BashOutputSnapshot) -> ToolExecutionResult:
+    return ToolExecutionResult(
+        output=f"{_format_bash_output(snapshot)}\n\nerror: cancelled",
+        is_error=True,
+    )
+
+
 @tool(
     name="bash",
     description=(
@@ -828,25 +994,31 @@ async def bash_tool(
     command: str,
     timeout: int | None = None,  # noqa: ASYNC109
 ) -> ToolExecutionResult:
-    """Run a shell command and return combined stdout/stderr text.
-
-    Output is streamed line-by-line through ``ctx.emit`` when set.
-
-    Truncation has two layers: output over the in-memory ceiling spills to
-    ``tool_output_dir/bash-<id>.log`` while a bounded tail stays in memory;
-    ``truncate_text`` then applies the display limits to the returned text.
-    """
+    """Run a shell command and return combined stdout/stderr text."""
 
     timeout_seconds = timeout if timeout is not None and timeout > 0 else BASH_TIMEOUT_SECONDS
-
     proc: asyncio.subprocess.Process | None = None
     log_path = ctx.tool_output_dir / f"bash-{ctx.tool_call_id or 'call'}.log"
-    kept_lines: list[str] = []
-    kept_bytes = 0
-    total_line_count = 0
-    tail_lines: deque[str] = deque(maxlen=DEFAULT_MAX_LINES)
-    log_file: TextIO | None = None
-    saved_output_path: Path | None = None
+    output = _BashOutputAccumulator(ctx.tool_output_dir, log_path)
+
+    def emit_output(text: str) -> None:
+        if text and ctx.emit is not None:
+            ctx.emit(text)
+
+    async def drain_stdout() -> None:
+        assert proc is not None
+        assert proc.stdout is not None
+        while chunk := await proc.stdout.read(_BASH_READ_CHUNK_SIZE):
+            emit_output(output.append(chunk))
+
+    async def terminate_and_drain() -> None:
+        if proc is None:
+            return
+        _kill_proc_tree(proc)
+        with suppress(TimeoutError):
+            async with asyncio.timeout(1):
+                await drain_stdout()
+                await proc.wait()
 
     try:
         proc = await asyncio.create_subprocess_shell(
@@ -859,97 +1031,43 @@ async def bash_tool(
             start_new_session=os.name == "posix",
         )
         ctx.executor.track_proc(proc)
-        stdout = cast(asyncio.StreamReader, proc.stdout)
-        encoding = locale.getpreferredencoding(False)
-        line_buffer = bytearray()
-
-        def process_line(raw_line: bytes) -> None:
-            nonlocal kept_bytes, kept_lines, log_file, saved_output_path, total_line_count
-
-            line = raw_line.decode(encoding).rstrip("\r\n")
-            total_line_count += 1
-
-            if log_file is None:
-                kept_lines.append(line)
-                kept_bytes += len(line.encode("utf-8")) + 1
-                if kept_bytes > _BASH_MAX_IN_MEMORY_BYTES:
-                    # Create the spill directory only when output exceeds the
-                    # in-memory limit; short commands never touch the FS.
-                    ctx.tool_output_dir.mkdir(parents=True, exist_ok=True)
-                    log_file = log_path.open("w", encoding="utf-8")
-                    saved_output_path = log_path
-                    if kept_lines:
-                        log_file.write("\n".join(kept_lines))
-                        log_file.write("\n")
-                        tail_lines.extend(kept_lines)
-                    kept_lines = []
-            else:
-                tail_lines.append(line)
-                log_file.write(line)
-                log_file.write("\n")
-
-            if ctx.emit is not None:
-                ctx.emit(line)
 
         try:
             async with asyncio.timeout(timeout_seconds):
-                while chunk := await stdout.read(_BASH_READ_CHUNK_SIZE):
-                    line_buffer.extend(chunk)
-                    while (newline_index := line_buffer.find(b"\n")) >= 0:
-                        process_line(bytes(line_buffer[: newline_index + 1]))
-                        del line_buffer[: newline_index + 1]
-                if line_buffer:
-                    process_line(bytes(line_buffer))
+                await drain_stdout()
+                emit_output(output.finish())
                 await proc.wait()
         except TimeoutError:
-            return ToolExecutionResult(output=f"error: timeout after {timeout_seconds}s", is_error=True)
+            await terminate_and_drain()
+            emit_output(output.finish())
+            return ToolExecutionResult(
+                output=f"{_format_bash_output(output.snapshot())}\n\n[Command timed out after {timeout_seconds}s]",
+                is_error=True,
+            )
 
+        if ctx.executor.proc_was_cancelled(proc):
+            return _cancelled_bash_result(output.snapshot())
+
+        result = _format_bash_output(output.snapshot())
         exit_code = proc.returncode
-        raw_output = "\n".join(list(tail_lines) if log_file is not None else kept_lines)
-        output = raw_output.strip() or "(empty)"
-        content, trunc = truncate_text(output, tail=True)
-
-        # Keep a full-output hint even when the bounded in-memory result was
-        # enough to avoid spilling while truncate_text still shortened it.
-        if log_file is None and trunc.truncated_by:
-            try:
-                ctx.tool_output_dir.mkdir(parents=True, exist_ok=True)
-                log_path.write_text(raw_output, encoding="utf-8")
-                saved_output_path = log_path
-            except Exception:
-                saved_output_path = None
-
-        result = content
-        shown_lines = trunc.output_lines
-        was_truncated = log_file is not None or trunc.truncated_by is not None
-        if was_truncated:
-            if trunc.truncated_by == "bytes":
-                if total_line_count <= 1:
-                    notice = (
-                        f"[Truncated: showing last {DEFAULT_MAX_BYTES // 1024}KB of output "
-                        f"({DEFAULT_MAX_BYTES // 1024}KB limit)."
-                    )
-                else:
-                    notice = f"[Truncated: showing tail output ({DEFAULT_MAX_BYTES // 1024}KB limit)."
-            else:
-                notice = f"[Truncated: last {shown_lines} of {total_line_count} lines."
-            if saved_output_path is not None:
-                notice += f" Full output: {saved_output_path}]"
-            else:
-                notice += "]"
-            result += "\n\n" + notice
-
         if exit_code:
             result += f"\n\n[exit code: {exit_code}]"
+        return ToolExecutionResult(output=result, is_error=bool(exit_code))
 
-        return ToolExecutionResult(output=result)
-
+    except asyncio.CancelledError:
+        # The cancellation ends here: uncancel so terminate_and_drain's
+        # asyncio.timeout is not re-interrupted by the stale cancel request,
+        # then return the partial output like any other tool result.
+        task = asyncio.current_task()
+        assert task is not None
+        task.uncancel()
+        await terminate_and_drain()
+        emit_output(output.finish())
+        return _cancelled_bash_result(output.snapshot())
     except Exception as exc:
         return ToolExecutionResult(output=f"error: {exc}", is_error=True)
     finally:
-        if log_file is not None:
-            with suppress(Exception):
-                log_file.close()
+        output.close()
         if proc is not None:
             if proc.returncode is None:
                 _kill_proc_tree(proc)
@@ -1034,48 +1152,42 @@ class Truncation:
     output_lines: int
 
 
-def truncate_text(
-    text: str,
-    *,
-    max_lines: int = DEFAULT_MAX_LINES,
-    max_bytes: int = DEFAULT_MAX_BYTES,
-    tail: bool = False,
-) -> tuple[str, Truncation]:
-    """Truncate text by both line and byte limits; keep head or tail."""
+def truncate_tail(text: str) -> tuple[str, Truncation]:
+    """Keep the trailing lines that fit the display line and byte limits."""
 
-    lines = text.splitlines()
-    total_bytes = len(text.encode("utf-8"))
+    raw_lines = text.splitlines(keepends=True)
+    lines = [raw_line.rstrip("\r\n") for raw_line in raw_lines]
     out_lines: list[str] = []
     out_bytes = 0
+    sliced = False
 
-    source = reversed(lines) if tail else lines
-
-    for line in source:
-        if len(out_lines) >= max_lines:
+    for line, raw_line in zip(reversed(lines), reversed(raw_lines), strict=True):
+        if len(out_lines) >= DEFAULT_MAX_LINES:
             break
-        b = len(line.encode("utf-8")) + 1  # +1 for newline
-        if out_bytes + b > max_bytes:
+        line_bytes = len(raw_line.encode("utf-8"))
+        if out_bytes + line_bytes > DEFAULT_MAX_BYTES:
+            # An oversized line is sliced rather than dropped whole, so the
+            # result carries the full byte budget even when one line dominates.
+            budget = DEFAULT_MAX_BYTES - out_bytes
+            if budget > 0:
+                encoded = line.encode("utf-8")
+                out_lines.append(encoded[-budget:].decode("utf-8", errors="ignore"))
+                sliced = True
             break
         out_lines.append(line)
-        out_bytes += b
+        out_bytes += line_bytes
 
-    if tail:
-        out_lines.reverse()
-
-    # Edge case: a single line exceeds max_bytes — slice the tail/head.
-    if not out_lines and lines:
-        target = lines[-1] if tail else lines[0]
-        encoded = target.encode("utf-8")
-        sliced = encoded[-max_bytes:] if tail else encoded[:max_bytes]
-        content = sliced.decode("utf-8", errors="ignore")
-        return content, Truncation(truncated_by="bytes", output_lines=1)
-
+    out_lines.reverse()
     content = "\n".join(out_lines)
 
-    truncated_by: str | None = None
-    if len(out_lines) < len(lines):
-        truncated_by = "lines" if len(out_lines) == max_lines else "bytes"
-    elif out_bytes < total_bytes:
+    truncated_by: str | None
+    if sliced:
+        truncated_by = "bytes"
+    elif len(out_lines) == len(lines):
+        truncated_by = None
+    elif len(out_lines) == DEFAULT_MAX_LINES:
+        truncated_by = "lines"
+    else:
         truncated_by = "bytes"
 
     return content, Truncation(truncated_by=truncated_by, output_lines=len(out_lines))

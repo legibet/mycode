@@ -56,7 +56,7 @@ An unknown path, directory, unsupported binary, or missing or unsupported `media
 
 ### `run()` synchronous wrapper
 
-`run()` is a thin wrapper around `achat()`. It consumes the stream via `asyncio.run`, concatenates the `text` deltas into `RunResult.text`, stashes every event in `RunResult.events`, captures the first error message in `RunResult.error`, and keeps the last `usage` event's payload as `RunResult.usage` (the whole turn's final cumulative usage and cost):
+`run()` consumes `achat()` via `asyncio.run`, concatenates `text` deltas into `RunResult.text`, captures the first error message in `RunResult.error`, and keeps the last `usage` payload in `RunResult.usage`. `RunResult.events` keeps the non-transient events, including final `tool_done` results; live `tool_output` deltas are omitted so synchronous runs do not retain complete command streams in memory.
 
 ```python
 result = agent.run("Hello")
@@ -88,9 +88,9 @@ async for _ in agent.achat("follow-up that references the earlier answer"):
 
 ### Cancellation
 
-`agent.cancel()` can be called from another task or thread. It sets the cancel flag, terminates active bash subprocesses, and cancels the active provider stream or async tool. Async tools receive `asyncio.CancelledError`. A cancelled tool emits an error `tool_done`; a cancelled provider stream emits an `error` event with `message="cancelled"`. Already streamed `thinking` and text are persisted with `meta.stop_reason="cancelled"` when session persistence is enabled.
+`agent.cancel()` can be called from another task or thread. It sets the cancel flag, terminates active Bash subprocesses — including those a sync tool started through `ctx.bash()` — and cancels the active provider stream or tool task. Async tools receive `asyncio.CancelledError`; synchronous tools already running in a worker thread may continue until they return. Late output from a cancelled tool is ignored.
 
-A synchronous function already running in a worker thread continues until it returns. Any Bash subprocess it started through `ctx.bash()` is terminated.
+Bash drains captured output and returns an error `tool_done` ending in `error: cancelled`; truncated output also includes its full log path. Other tools may return their own final result while handling cancellation. If they do not, the Agent returns `error: cancelled`. A cancelled provider stream emits an `error` event with `message="cancelled"`. Already streamed `thinking` and text are persisted with `meta.stop_reason="cancelled"` when session persistence is enabled.
 
 ### Timeouts and retries
 
@@ -122,7 +122,7 @@ Adapters raise `ProviderError` (`reason`, `retryable`, `status_code`, `retry_aft
 | `reasoning_done` | `{"duration_ms": int}`                                                   |
 | `text`           | `{"delta": str}`                                                         |
 | `tool_start`     | `{"tool_call": {"id", "name", "input"}}`                                 |
-| `tool_output`    | `{"tool_use_id", "output"}`; only for tools with `streams_output=True`   |
+| `tool_output`    | `{"tool_use_id", "output"}`; delta from `streams_output=True` tools      |
 | `tool_done`      | `{"tool_use_id", "output", "is_error", "metadata"?, "content"?}`         |
 | `compact`        | `{}`; emitted right after a compact marker is appended                   |
 | `retry`          | fields under Timeouts and retries; emitted before each new attempt       |
@@ -220,7 +220,9 @@ See `docs/sessions.md` for the on-disk record format, the projection rule that b
 from mycode import read_tool, write_tool, edit_tool, bash_tool
 ```
 
-Four built-in tools, opted in via `tools=[...]`. Only `bash_tool` streams incremental output as `tool_output`; the other three return a single `tool_done` result. Cancelled streaming tools return emitted output followed by `error: cancelled`.
+Four built-in tools, opted in via `tools=[...]`. `bash_tool` streams display text through `tool_output`; event boundaries do not imply line boundaries. The other three return a single `tool_done` result. Bash timeout, cancellation, and non-zero exit results preserve captured output and set `is_error=true`.
+
+`tool_output` is ordered, append-only display text. Consumers do not insert separators. When a slow consumer exceeds the per-call pending limit, the stream drops one continuous middle segment and inserts `[live output omitted]` on its own line. `tool_done.output` remains the authoritative result; truncated Bash output cites its raw log.
 
 A tool call is rejected before hooks and execution when the assistant turn has `stop_reason="length"`, the tool block has `meta.invalid_input=true`, or the provider finish reason is `unknown`. The runtime still emits `tool_start` and an error `tool_done`, persists that as a `tool_result`, and sends it in the next provider request. A canonical `error` response ends the turn with an `error` event. `@tool` schema validation prevents invalid arguments from reaching the user function.
 
@@ -307,9 +309,9 @@ Annotate the first parameter of a custom tool as `ToolContext` to have the runti
 - Sync tools use `ctx.read()`, `ctx.write()`, `ctx.edit()`, and `ctx.bash()`.
 - Async tools use `await ctx.aread()`, `await ctx.awrite()`, `await ctx.aedit()`, and `await ctx.abash()`.
 - `ctx.call(name, args)` and `await ctx.acall(name, args)` dispatch any registered tool by name.
-- `ctx.emit(line)` emits one `tool_output` event. It only applies to specs declared with `streams_output=True`.
+- `ctx.emit(delta)` appends display text for a `streams_output=True` tool. Event boundaries do not imply line boundaries; the runtime may replace a continuous middle segment with `[live output omitted]` under buffer pressure.
 
-`ctx.tool_output_dir` is always a valid `Path`: `<session_dir>/<session_id>/tool-output/` when the agent has a session, or a tempdir-scoped fallback otherwise. The built-in `bash` tool spills large outputs there lazily; custom tools can treat it as their own scratch area.
+`ctx.tool_output_dir` is always a valid `Path`: `<session_dir>/<session_id>/tool-output/` when the agent has a session, or a tempdir-scoped fallback otherwise. The built-in `bash` saves large outputs there lazily; custom tools can treat it as their own scratch area.
 
 ### Tool hooks
 

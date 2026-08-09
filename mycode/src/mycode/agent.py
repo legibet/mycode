@@ -12,6 +12,7 @@ import logging
 import os
 import random
 import tempfile
+import threading
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
 from contextlib import suppress
@@ -51,11 +52,86 @@ from mycode.providers.base import (
     StreamStartTimeoutError,
 )
 from mycode.session import SessionStore
-from mycode.tools import ToolContext, ToolExecutionResult, ToolExecutor, ToolSpec
+from mycode.tools import (
+    DEFAULT_MAX_BYTES,
+    ToolContext,
+    ToolExecutionResult,
+    ToolExecutor,
+    ToolSpec,
+)
 
 logger = logging.getLogger(__name__)
 
 PersistCallback = Callable[[ConversationMessage], Awaitable[None]]
+_LIVE_OUTPUT_OMISSION = "[live output omitted]"
+
+
+class _ToolOutputBuffer:
+    """Thread-safe bounded buffer for live tool output."""
+
+    def __init__(self, loop: asyncio.AbstractEventLoop):
+        self._loop = loop
+        self._event = asyncio.Event()
+        self._lock = threading.Lock()
+        self._pending = ""
+        self._omitted = False
+        self._finished = False
+        self._notified = False
+        self._at_line_boundary = True
+
+    def append(self, delta: str) -> None:
+        if not delta:
+            return
+        with self._lock:
+            if self._finished:
+                return
+            self._pending, truncated = self._bounded_tail(self._pending + delta)
+            self._omitted = self._omitted or truncated
+            if self._notified:
+                return
+            self._notified = True
+        self._loop.call_soon_threadsafe(self._event.set)
+
+    def finish(self) -> None:
+        with self._lock:
+            self._finished = True
+            if self._notified:
+                return
+            self._notified = True
+        self._loop.call_soon_threadsafe(self._event.set)
+
+    async def get(self) -> str | None:
+        await self._event.wait()
+        with self._lock:
+            pending = self._pending
+            omitted = self._omitted
+            finished = self._finished
+            self._pending = ""
+            self._omitted = False
+            self._notified = False
+            self._event.clear()
+            resignal = bool(pending and finished)
+            if resignal:
+                self._notified = True
+
+            if pending and omitted:
+                separator = "" if self._at_line_boundary else "\n"
+                pending = f"{separator}{_LIVE_OUTPUT_OMISSION}\n{pending}"
+            if pending:
+                self._at_line_boundary = pending.endswith("\n")
+
+        if resignal:
+            self._event.set()
+        if pending:
+            return pending
+        return None if finished else ""
+
+    @staticmethod
+    def _bounded_tail(text: str) -> tuple[str, bool]:
+        encoded = text.encode("utf-8")
+        if len(encoded) <= DEFAULT_MAX_BYTES:
+            return text, False
+        return encoded[-DEFAULT_MAX_BYTES:].decode("utf-8", errors="ignore"), True
 
 
 @dataclass
@@ -416,22 +492,10 @@ class Agent:
     ) -> AsyncIterator[Event]:
         """Run one streaming tool, forwarding ``tool_output`` events live."""
 
-        output_queue: asyncio.Queue[str | None] = asyncio.Queue()
-        loop = asyncio.get_running_loop()
+        output_buffer = _ToolOutputBuffer(asyncio.get_running_loop())
 
-        def enqueue(value: str | None) -> None:
-            if spec.is_async:
-                output_queue.put_nowait(value)
-                return
-            # A cancelled sync tool may outlive the asyncio wrapper; its
-            # worker must not write to a loop that has already closed.
-            with suppress(RuntimeError):
-                loop.call_soon_threadsafe(output_queue.put_nowait, value)
-
-        def on_output(line: str) -> None:
-            # Async tools emit on this loop. Sync streaming tools emit from
-            # their worker thread and must schedule the queue write safely.
-            enqueue(line)
+        def on_output(delta: str) -> None:
+            output_buffer.append(delta)
 
         ctx = self._ctx_for_call(tool_id, emit=on_output)
 
@@ -439,35 +503,35 @@ class Agent:
             return await self._execute_tool(spec, args, ctx)
 
         task = asyncio.create_task(run_tool())
-        # A done callback also wakes the consumer when the task is cancelled
-        # before its coroutine body starts.
-        task.add_done_callback(lambda _task: enqueue(None))
+        # The callback wakes the consumer even when cancellation happens
+        # before the tool coroutine starts.
+        task.add_done_callback(lambda _task: output_buffer.finish())
         self._active_tool_task = task
-        output_parts: list[str] = []
         normal_completion = False
 
         try:
             while True:
-                output = await output_queue.get()
+                output = await output_buffer.get()
                 if output is None:
                     normal_completion = True
                     break
-                output_parts.append(output)
-                if not self._cancel_event.is_set():
+                if output and not self._cancel_event.is_set():
                     yield Event("tool_output", {"tool_use_id": tool_id, "output": output})
-
-            was_cancelled = self._cancel_event.is_set() or task.cancelled()
-            if was_cancelled:
-                with suppress(asyncio.CancelledError, Exception):
-                    await task
-                output = "\n".join([*output_parts, "error: cancelled"]) if output_parts else "error: cancelled"
-                yield self._error_done(tool_id, output)
-                return
 
             try:
                 result = await task
+            except asyncio.CancelledError:
+                if not self._cancel_event.is_set():
+                    raise
+                result = ToolExecutionResult(output="error: cancelled", is_error=True)
             except Exception as exc:  # pragma: no cover - defensive
                 result = ToolExecutionResult(output=f"error: {exc}", is_error=True)
+
+            if self._cancel_event.is_set():
+                # A cancelled call keeps the tool's own final result (or this
+                # synthesized error) and skips after_tool hooks.
+                yield self._tool_done_event(tool_id, result)
+                return
 
             yield await self._finish_tool_call(tool_id, hook_ctx, result)
         finally:
@@ -1025,7 +1089,8 @@ class Agent:
         async def collect() -> RunResult:
             result = RunResult()
             async for event in self.achat(user_input, attachments=attachments, on_persist=on_persist):
-                result.events.append(event)
+                if event.type != "tool_output":
+                    result.events.append(event)
                 if event.type == "text":
                     result.text += str(event.data.get("delta") or "")
                 elif event.type == "usage":
