@@ -222,7 +222,7 @@ from mycode import read_tool, write_tool, edit_tool, bash_tool
 
 Four built-in tools, opted in via `tools=[...]`. Only `bash_tool` streams incremental output as `tool_output`; the other three return a single `tool_done` result. Cancelled streaming tools return emitted output followed by `error: cancelled`.
 
-A tool call is rejected before hooks and execution when the assistant turn has `stop_reason="length"`, the tool block has `meta.invalid_input=true`, or the provider did not complete the call with canonical `stop` / `tool_use`. The runtime still emits `tool_start` and an error `tool_done`, persists that as a `tool_result`, and sends it in the next provider request. `@tool` schema validation then prevents invalid arguments from reaching the user function.
+A tool call is rejected before hooks and execution when the assistant turn has `stop_reason="length"`, the tool block has `meta.invalid_input=true`, or the provider finish reason is `unknown`. The runtime still emits `tool_start` and an error `tool_done`, persists that as a `tool_result`, and sends it in the next provider request. A canonical `error` response ends the turn with an `error` event. `@tool` schema validation prevents invalid arguments from reaching the user function.
 
 ### `@tool`
 

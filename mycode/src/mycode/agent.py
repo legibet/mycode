@@ -436,12 +436,12 @@ class Agent:
         ctx = self._ctx_for_call(tool_id, emit=on_output)
 
         async def run_tool() -> ToolExecutionResult:
-            try:
-                return await self._execute_tool(spec, args, ctx)
-            finally:
-                enqueue(None)
+            return await self._execute_tool(spec, args, ctx)
 
         task = asyncio.create_task(run_tool())
+        # A done callback also wakes the consumer when the task is cancelled
+        # before its coroutine body starts.
+        task.add_done_callback(lambda _task: enqueue(None))
         self._active_tool_task = task
         output_parts: list[str] = []
         normal_completion = False
@@ -919,14 +919,18 @@ class Agent:
             turn_cost = _accumulate_usage(turn_usage, turn_cost, request_usage, request_cost)
             yield self._usage_event(context_tokens, turn_usage, turn_cost)
 
+            assistant_meta = assistant_message.get("meta")
+            stop_reason = str(assistant_meta.get("stop_reason") or "") if isinstance(assistant_meta, dict) else ""
+            if stop_reason == "error":
+                yield Event("error", {"message": "provider returned an error response"})
+                return
+
             tool_calls = [
                 block
                 for block in assistant_message.get("content") or []
                 if isinstance(block, dict) and block.get("type") == "tool_use"
             ]
             if tool_calls:
-                assistant_meta = assistant_message.get("meta")
-                stop_reason = str(assistant_meta.get("stop_reason") or "") if isinstance(assistant_meta, dict) else ""
                 tool_results: list[dict[str, Any]] = []
                 for tool_call in tool_calls:
                     block_meta = tool_call.get("meta")

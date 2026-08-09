@@ -56,7 +56,7 @@ A single block-based JSON format is used at runtime and persisted to JSONL. Bloc
 
 Skill snapshots use text blocks with `meta.skill_snapshot=true`. Providers receive the snapshot; titles and UIs use the original user text.
 
-Cancelled provider streams may persist partial assistant `thinking`/`text` with `meta.stop_reason="cancelled"`. Cancelled streaming tools append `error: cancelled` to emitted output. Tool calls with canonical `length`, `error`, or `unknown` stop reasons are rejected before execution; malformed JSON arguments carry `meta.invalid_input=true`.
+Cancelled provider streams may persist partial assistant `thinking`/`text` with `meta.stop_reason="cancelled"`. Cancelled streaming tools append `error: cancelled` to emitted output. Tool calls with canonical `length` or `unknown` stop reasons are rejected before execution; a canonical `error` response ends the turn. Malformed JSON arguments carry `meta.invalid_input=true`.
 
 Full schema, JSONL record types, replay rules, and the rewind/compact projection live in `docs/sessions.md`. The SDK-level event surface and `Agent` API live in `docs/sdk.md`.
 

@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, MagicMock
 import httpx
 import pytest
 from anthropic import APIStatusError as AnthropicAPIStatusError
+from google.genai import types
 
 from mycode.compact import build_compact_event
 from mycode.providers import (
@@ -604,6 +605,41 @@ def test_openai_responses_normalizes_incomplete_status(
     message = OpenAIResponsesAdapter()._convert_final_response(response)
 
     assert message["meta"]["stop_reason"] == expected
+
+
+async def test_openai_responses_handles_incomplete_stream(monkeypatch: pytest.MonkeyPatch) -> None:
+    function_call = _Obj(
+        type="function_call",
+        id="fc_1",
+        call_id="call_1",
+        name="read",
+        arguments='{"path":"pyproject.toml"}',
+        status="completed",
+    )
+    response = _Obj(
+        id="resp_123",
+        model="gpt-5.4",
+        status="incomplete",
+        incomplete_details=_Obj(reason="max_output_tokens"),
+        usage=_Obj(input_tokens=10, output_tokens=5),
+        output=[function_call],
+    )
+    stream = _stream_mock(
+        [
+            _Obj(type="response.output_item.done", output_index=0, item=function_call),
+            _Obj(type="response.incomplete", response=response),
+        ]
+    )
+    client = _async_context_mock()
+    client.responses.create = AsyncMock(return_value=stream)
+    monkeypatch.setattr("mycode.providers.openai_responses.AsyncOpenAI", lambda **_kwargs: client)
+
+    events = [event async for event in OpenAIResponsesAdapter().stream_turn(request_obj(api_key="k", model="gpt-5.4"))]
+
+    assert events[-1].type == "message_done"
+    message = events[-1].data["message"]
+    assert message["meta"]["stop_reason"] == "length"
+    assert message["content"][0]["input"] == {"path": "pyproject.toml"}
 
 
 def test_openai_responses_uses_stream_output_items_when_final_output_is_empty() -> None:
@@ -2277,7 +2313,7 @@ async def test_gemini_normalizes_usage_details(monkeypatch: pytest.MonkeyPatch) 
                 thoughts_token_count=15,
                 total_token_count=135,
             ),
-            candidates=[],
+            candidates=[_Obj(finish_reason=types.FinishReason.STOP, content=_Obj(parts=[]))],
         )
     ]
     client.aio.models.generate_content_stream = AsyncMock(return_value=_stream_mock(chunks))
@@ -2288,6 +2324,7 @@ async def test_gemini_normalizes_usage_details(monkeypatch: pytest.MonkeyPatch) 
         event async for event in GoogleGeminiAdapter().stream_turn(request_obj(api_key="k", model="gemini-3.6-flash"))
     ]
 
+    assert events[-1].data["message"]["meta"]["stop_reason"] == "stop"
     # Output includes thoughts; the absent tool-use prompt count means zero.
     assert events[-1].data["message"]["meta"]["usage"] == {
         "total_tokens": 135,

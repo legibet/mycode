@@ -120,8 +120,9 @@ class OpenAIResponsesAdapter(ProviderAdapter):
                                 retryable=getattr(error, "code", None) in _RETRYABLE_RESPONSE_ERROR_CODES,
                             )
 
-                        if event_type == "response.completed":
+                        if event_type in {"response.completed", "response.incomplete"}:
                             final_response = getattr(event, "response", None)
+                            break
 
                     if final_response is None:
                         raise ProviderError("OpenAI Responses stream ended before response.completed")

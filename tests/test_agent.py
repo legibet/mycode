@@ -182,6 +182,34 @@ async def test_invalid_tool_calls_are_reported_without_execution(
 
 
 @pytest.mark.asyncio
+async def test_provider_error_message_ends_turn_without_executing_tools(tmp_path: Path) -> None:
+    calls: list[str] = []
+
+    @tool
+    def optional_tool(value: str = "default") -> str:
+        """Record a value."""
+
+        calls.append(value)
+        return value
+
+    assistant = _assistant_turn(
+        {"type": "tool_use", "id": "call-1", "name": "optional_tool", "input": {}},
+        meta={"stop_reason": "error"},
+    )[0]
+    adapter = _FakeProviderAdapter([[assistant]])
+
+    with patch("mycode.agent.get_provider_adapter", return_value=adapter):
+        events = _chat_events(
+            [event async for event in _new_agent(tmp_path, tools=[optional_tool]).achat("run the tool")]
+        )
+
+    assert [event.type for event in events] == ["error"]
+    assert events[0].data == {"message": "provider returned an error response"}
+    assert calls == []
+    assert len(adapter.message_snapshots) == 1
+
+
+@pytest.mark.asyncio
 async def test_multiple_truncated_tool_calls_are_all_rejected(tmp_path: Path) -> None:
     calls: list[str] = []
 

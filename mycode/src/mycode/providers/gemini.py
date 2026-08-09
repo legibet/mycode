@@ -28,7 +28,7 @@ _DUMMY_THOUGHT_SIGNATURE = "skip_thought_signature_validator"
 
 
 def _normalize_finish_reason(raw_reason: Any) -> CanonicalStopReason:
-    reason = str(raw_reason or "").lower()
+    reason = str(getattr(raw_reason, "value", raw_reason) or "").lower()
     if reason == "stop":
         return "stop"
     if reason == "max_tokens":
