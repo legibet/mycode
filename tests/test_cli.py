@@ -19,19 +19,18 @@ from rich.console import Console
 
 from mycode.agent import Event
 from mycode.session import SessionStore
-from mycode.tools import ToolExecutor, bash_tool, edit_tool, read_tool, write_tool
+from mycode.tools import ToolExecutor
 from mycode_cli.config import Settings
 from mycode_cli.main import app, resolve_session, run_noninteractive
 from mycode_cli.permissions import PERMISSION_DENIED_BY_USER_OUTPUT, PERMISSION_DENIED_OUTPUT
 from mycode_cli.runtime import load_session_cost
+from mycode_cli.tools import DEFAULT_TOOLS
 from mycode_cli.tui.chat import (
     TerminalChat,
     _build_chat_key_bindings,
     _PromptCompleter,
 )
 from mycode_cli.tui.render import ReplyRenderer, TerminalView
-
-_TOOLS = (read_tool, write_tool, edit_tool, bash_tool)
 
 
 def settings_for(cwd: str) -> Settings:
@@ -60,7 +59,7 @@ class _AttachmentAgent:
         self.cwd = cwd
         self.supports_image_input = supports_image_input
         self.supports_pdf_input = supports_pdf_input
-        self.tools = ToolExecutor(_TOOLS)
+        self.tools = ToolExecutor(DEFAULT_TOOLS)
 
     def cancel(self) -> None:
         return None

@@ -31,6 +31,7 @@ dependencies = [
     "uvicorn[standard]>=0.51.0",
     "rich>=15.0.0",
     "prompt-toolkit>=3.0.52",
+    "pydantic>=2.13.4",
     "typer>=0.26.8",
     "pyyaml>=6.0.3",
 ]

@@ -6,8 +6,8 @@ Always-loaded context for agent runs on this project. Detailed specs live in `do
 
 `mycode` is a minimal coding agent shipped as two PyPI packages:
 
-- `mycode-sdk` (import `mycode`) — the runtime: agent loop, message format, session store, provider adapters, and built-in tools. Lightweight, suitable for embedding the agent in other Python apps.
-- `mycode-cli` (import `mycode_cli`) — the interactive CLI and FastAPI web server built on top of the SDK.
+- `mycode-sdk` (import `mycode`) — the runtime: agent loop, message format, session store, provider adapters, and the tool runtime. Lightweight, suitable for embedding the agent in other Python apps.
+- `mycode-cli` (import `mycode_cli`) — the interactive CLI and FastAPI web server built on top of the SDK, including the 4 built-in tools.
 
 The web UI lives in a separate repo, [`legibet/mycode-web`](https://github.com/legibet/mycode-web), included as the `web/` git submodule.
 
@@ -17,7 +17,7 @@ The web UI lives in a separate repo, [`legibet/mycode-web`](https://github.com/l
 mycode/src/mycode/        # SDK package
   agent.py                # agent loop (Agent, achat, run)
   messages.py             # internal block-based message format
-  tools.py                # ToolSpec, ToolExecutor, @tool, the 4 built-in tools
+  tools.py                # ToolSpec, ToolExecutor, ToolContext, @tool
   hooks.py                # before_tool / after_tool hook protocol
   session.py              # append-only JSONL store, compact, rewind
   models.py               # bundled model metadata lookup
@@ -33,6 +33,7 @@ mycode/src/mycode/        # SDK package
 cli/src/mycode_cli/       # CLI + FastAPI web server
   main.py                 # Typer entrypoint, slash commands, session resolution
   runtime.py              # build_agent() shared by TUI and server
+  tools.py                # the 4 built-in tools (read, write, edit, bash)
   config.py               # layered JSON config, config validation, provider resolution, paths
   permissions.py          # tool permission policy + before_tool hook
   system_prompt.py        # base prompt + AGENTS.md + skills discovery

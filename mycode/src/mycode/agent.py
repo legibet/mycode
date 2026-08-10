@@ -53,7 +53,6 @@ from mycode.providers.base import (
 )
 from mycode.session import SessionStore
 from mycode.tools import (
-    DEFAULT_MAX_BYTES,
     ToolContext,
     ToolExecutionResult,
     ToolExecutor,
@@ -64,6 +63,9 @@ logger = logging.getLogger(__name__)
 
 PersistCallback = Callable[[ConversationMessage], Awaitable[None]]
 _LIVE_OUTPUT_OMISSION = "[live output omitted]"
+# Bound on pending live output per tool call; the overflow is replaced by
+# _LIVE_OUTPUT_OMISSION rather than blocking the tool.
+_LIVE_OUTPUT_MAX_BYTES = 50 * 1024
 
 
 class _ToolOutputBuffer:
@@ -129,9 +131,9 @@ class _ToolOutputBuffer:
     @staticmethod
     def _bounded_tail(text: str) -> tuple[str, bool]:
         encoded = text.encode("utf-8")
-        if len(encoded) <= DEFAULT_MAX_BYTES:
+        if len(encoded) <= _LIVE_OUTPUT_MAX_BYTES:
             return text, False
-        return encoded[-DEFAULT_MAX_BYTES:].decode("utf-8", errors="ignore"), True
+        return encoded[-_LIVE_OUTPUT_MAX_BYTES:].decode("utf-8", errors="ignore"), True
 
 
 @dataclass
@@ -362,9 +364,6 @@ class Agent:
 
     def _cancel_in_loop(self) -> None:
         self._cancel_event.set()
-        # Sync tools may be running ctx.bash() in a worker thread, which task
-        # cancellation alone cannot stop.
-        self.tools.cancel_active()
         if self._provider_event_task and not self._provider_event_task.done():
             self._provider_event_task.cancel()
         if self._active_tool_task and not self._active_tool_task.done():

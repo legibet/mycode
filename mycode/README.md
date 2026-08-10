@@ -14,15 +14,27 @@ pip install mycode-sdk
 
 ```python
 import asyncio
+from pathlib import Path
 
-from mycode import Agent, bash_tool, read_tool
+from mycode import Agent, tool
+
+
+@tool
+def read_file(path: str) -> str:
+    """Read a UTF-8 text file.
+
+    Args:
+        path: File path, relative to the working directory.
+    """
+
+    return Path(path).read_text(encoding="utf-8")
 
 
 async def main() -> None:
     agent = Agent(
         model="claude-sonnet-4-6",
         api_key="YOUR_API_KEY",
-        tools=[read_tool, bash_tool],
+        tools=[read_file],
     )
 
     async for event in agent.achat("Read pyproject.toml and tell me the project name."):
@@ -114,15 +126,7 @@ agent = Agent(
 
 Construct another `Agent` with the same `(session_dir, session_id)` to load the conversation history.
 
-## Built-in tools
-
-```python
-from mycode import read_tool, write_tool, edit_tool, bash_tool
-```
-
-Four tools for reading, writing, editing files, and running shell commands. Opt in by passing them to `tools=[...]`.
-
-## Custom tools
+## Tools
 
 Decorate a typed function with `@tool`:
 
@@ -148,36 +152,48 @@ agent = Agent(
 )
 ```
 
-To call a built-in tool from inside your own tool, type the first parameter as `ToolContext`:
+To call another registered tool from inside a tool, type the first parameter as `ToolContext` and dispatch by name:
 
 ```python
 from mycode import ToolContext, tool
 
 
 @tool
-def summarize_file(ctx: ToolContext, path: str) -> str:
-    """Return the first line of a text file."""
+def greet_team(ctx: ToolContext, names: list[str]) -> str:
+    """Greet several people at once."""
 
-    result = ctx.read(path)
-    return result.output.splitlines()[0] if result.output else ""
+    return "\n".join(ctx.call("greet", {"name": name}).output for name in names)
 ```
 
-Async tools use `await ctx.aread()`, `await ctx.awrite()`, `await ctx.aedit()`, and `await ctx.abash()`. Use `await ctx.acall(name, args)` to call another registered tool by name.
+Async tools use `await ctx.acall(name, args)` instead.
 
 ## Tool hooks
 
 Inspect or replace tool calls before they run. Return `None` from `before_tool` to let the tool execute, or a `ToolExecutionResult` to skip it:
 
 ```python
-from mycode import Agent, Hooks, ToolExecutionResult, bash_tool
+import os
+
+from mycode import Agent, Hooks, ToolExecutionResult, tool
 
 hooks = Hooks()
 
 
+@tool
+def delete_file(path: str) -> str:
+    """Delete a file.
+
+    Args:
+        path: Path of the file to delete.
+    """
+
+    os.remove(path)
+    return f"deleted {path}"
+
+
 @hooks.before_tool
-async def block_rm(ctx):
-    cmd = str(ctx.tool_input.get("command") or "")
-    if ctx.tool_name == "bash" and "rm -rf" in cmd:
+async def protect_dotfiles(ctx):
+    if ctx.tool_name == "delete_file" and str(ctx.tool_input.get("path") or "").startswith("."):
         return ToolExecutionResult(output="error: blocked", is_error=True)
     return None
 
@@ -185,7 +201,7 @@ async def block_rm(ctx):
 agent = Agent(
     model="claude-sonnet-4-6",
     api_key="...",
-    tools=[bash_tool],
+    tools=[delete_file],
     hooks=hooks,
 )
 ```

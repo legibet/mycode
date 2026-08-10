@@ -9,13 +9,25 @@ Source: `mycode/src/mycode/`
 ## Agent
 
 ```python
-from mycode import Agent, bash_tool, read_tool
+from mycode import Agent, tool
+
+
+@tool
+def word_count(text: str) -> int:
+    """Count whitespace-separated words.
+
+    Args:
+        text: Text to count.
+    """
+
+    return len(text.split())
+
 
 agent = Agent(
     model="claude-sonnet-4-6",
     api_key="YOUR_API_KEY",
     system="You are helpful.",
-    tools=[read_tool, bash_tool],   # default: no tools registered
+    tools=[word_count],   # default: no tools registered
 )
 
 async for event in agent.achat("Hello"):
@@ -78,7 +90,7 @@ async for _ in agent.achat("follow-up that references the earlier answer"):
     ...
 ```
 
-`agent.clear()` drops the in-memory history without touching the on-disk log. `cwd` defaults to the current working directory and is the working directory for the built-in file and shell tools.
+`agent.clear()` drops the in-memory history without touching the on-disk log. `cwd` defaults to the current working directory and is handed to every tool as `ctx.cwd`.
 
 ### Reasoning effort
 
@@ -88,9 +100,11 @@ async for _ in agent.achat("follow-up that references the earlier answer"):
 
 ### Cancellation
 
-`agent.cancel()` can be called from another task or thread. It sets the cancel flag, terminates active Bash subprocesses — including those a sync tool started through `ctx.bash()` — and cancels the active provider stream or tool task. Async tools receive `asyncio.CancelledError`; synchronous tools already running in a worker thread may continue until they return. Late output from a cancelled tool is ignored.
+`agent.cancel()` can be called from another task or thread. It sets the cancel flag and cancels the active provider stream or tool task.
 
-Bash drains captured output and returns an error `tool_done` ending in `error: cancelled`; truncated output also includes its full log path. Other tools may return their own final result while handling cancellation. If they do not, the Agent returns `error: cancelled`. A cancelled provider stream emits an `error` event with `message="cancelled"`. Already streamed `thinking` and text are persisted with `meta.stop_reason="cancelled"` when session persistence is enabled.
+Tool cancellation is task cancellation. An async tool receives `asyncio.CancelledError` and either propagates it — the runtime then reports `error: cancelled` — or cleans up its own external resources (subprocesses, connections) and returns a final result, which becomes the error `tool_done`. Synchronous tools run in a worker thread that cancellation cannot interrupt: the turn ends immediately with `error: cancelled`, while the thread keeps running in the background until the tool returns; its late result is discarded, but external side effects still happen. Keep sync tools quick; implement long-running or cancellable work as `async def`.
+
+A cancelled provider stream emits an `error` event with `message="cancelled"`. Already streamed `thinking` and text are persisted with `meta.stop_reason="cancelled"` when session persistence is enabled.
 
 ### Timeouts and retries
 
@@ -214,15 +228,9 @@ See `docs/sessions.md` for the on-disk record format, the projection rule that b
 
 ## Tools
 
-### Built-ins
+Tools are opted in via `tools=[...]`; nothing is registered by default. A `streams_output=True` tool streams display text through `tool_output` events; other tools return a single `tool_done` result. The CLI ships its `read` / `write` / `edit` / `bash` tools in `mycode_cli.tools`; the SDK itself bundles none.
 
-```python
-from mycode import read_tool, write_tool, edit_tool, bash_tool
-```
-
-Four built-in tools, opted in via `tools=[...]`. `bash_tool` streams display text through `tool_output`; event boundaries do not imply line boundaries. The other three return a single `tool_done` result. Bash timeout, cancellation, and non-zero exit results preserve captured output and set `is_error=true`.
-
-`tool_output` is ordered, append-only display text. Consumers do not insert separators. When a slow consumer exceeds the per-call pending limit, the stream drops one continuous middle segment and inserts `[live output omitted]` on its own line. `tool_done.output` remains the authoritative result; truncated Bash output cites its raw log.
+`tool_output` is ordered, append-only display text. Consumers do not insert separators. When a slow consumer exceeds the per-call pending limit, the stream drops one continuous middle segment and inserts `[live output omitted]` on its own line. `tool_done.output` remains the authoritative result.
 
 A tool call is rejected before hooks and execution when the assistant turn has `stop_reason="length"`, the tool block has `meta.invalid_input=true`, or the provider finish reason is `unknown`. The runtime still emits `tool_start` and an error `tool_done`, persists that as a `tool_result`, and sends it in the next provider request. A canonical `error` response ends the turn with an `error` event. `@tool` schema validation prevents invalid arguments from reaching the user function.
 
@@ -298,34 +306,47 @@ async def fetch_url(url: str) -> str:
         return response.text
 ```
 
-The Agent awaits async tools on its event loop and runs sync tools in a worker thread. The built-in `bash_tool` is async-native and reads subprocess output without a reader thread. Use `ToolExecutor.aexecute()` from async code and `ToolExecutor.execute()` from sync code.
+The Agent awaits async tools on its event loop and runs sync tools in a worker thread, so a sync tool never blocks the stream. Sync tools cannot be interrupted once running — use them for quick operations and implement long-running or cancellable work as `async def` (see Cancellation). Use `ToolExecutor.aexecute()` from async code and `ToolExecutor.execute()` from sync code.
 
 A bare `str` return becomes the tool output replayed to the provider. Other JSON-serializable returns are dumped to JSON. Return `ToolExecutionResult` when you need `content`, `metadata`, or `is_error`.
 
 ### `ToolContext`
 
-Annotate the first parameter of a custom tool as `ToolContext` to have the runtime context injected:
+Annotate the first parameter of a tool as `ToolContext` to have the runtime context injected:
 
-- Sync tools use `ctx.read()`, `ctx.write()`, `ctx.edit()`, and `ctx.bash()`.
-- Async tools use `await ctx.aread()`, `await ctx.awrite()`, `await ctx.aedit()`, and `await ctx.abash()`.
-- `ctx.call(name, args)` and `await ctx.acall(name, args)` dispatch any registered tool by name.
-- `ctx.emit(delta)` appends display text for a `streams_output=True` tool. Event boundaries do not imply line boundaries; the runtime may replace a continuous middle segment with `[live output omitted]` under buffer pressure.
+- `ctx.cwd` is the agent's working directory; `ctx.tool_call_id` carries the provider tool-call id on agent-loop calls.
+- `ctx.call(name, args)` and `await ctx.acall(name, args)` dispatch any registered tool by name. A nested call shares the outer call's context, including `emit` and `tool_call_id`.
+- `ctx.emit(delta)` appends display text for a `streams_output=True` tool. It is thread-safe and works from sync and async tools. Event boundaries do not imply line boundaries; the runtime may replace a continuous middle segment with `[live output omitted]` under buffer pressure.
 
-`ctx.tool_output_dir` is always a valid `Path`: `<session_dir>/<session_id>/tool-output/` when the agent has a session, or a tempdir-scoped fallback otherwise. The built-in `bash` saves large outputs there lazily; custom tools can treat it as their own scratch area.
+`ctx.tool_output_dir` is always a valid `Path`: `<session_dir>/<session_id>/tool-output/` when the agent has a session, or a tempdir-scoped fallback otherwise. Tools can treat it as their own scratch area for large outputs (the CLI's `bash` tool saves its spill logs there).
 
 ### Tool hooks
 
 `Hooks` lets SDK callers observe or replace model-requested tool executions without changing the provider protocol or message format:
 
 ```python
-from mycode import Agent, Hooks, ToolExecutionResult, bash_tool
+import os
+
+from mycode import Agent, Hooks, ToolExecutionResult, tool
 
 hooks = Hooks()
 
 
+@tool
+def delete_file(path: str) -> str:
+    """Delete a file.
+
+    Args:
+        path: Path of the file to delete.
+    """
+
+    os.remove(path)
+    return f"deleted {path}"
+
+
 @hooks.before_tool
-async def block_dangerous_bash(ctx):
-    if ctx.tool_name == "bash" and "rm -rf" in str(ctx.tool_input.get("command") or ""):
+async def protect_dotfiles(ctx):
+    if ctx.tool_name == "delete_file" and str(ctx.tool_input.get("path") or "").startswith("."):
         return ToolExecutionResult(output="error: blocked by hook", is_error=True)
     return None
 
@@ -335,7 +356,7 @@ async def audit(_ctx, _result):
     return None
 
 
-agent = Agent(model="...", api_key="...", tools=[bash_tool], hooks=hooks)
+agent = Agent(model="...", api_key="...", tools=[delete_file], hooks=hooks)
 ```
 
 `ToolHookContext` carries `session_id`, `cwd`, `provider`, `model`, `tool_call_id`, `tool_name`, `tool_input`, and `tool` (the `ToolSpec`). `tool_input` is recursively frozen: nested dicts become `MappingProxyType` and lists become tuples. Hooks cannot mutate what the UI shows or the tool receives.
@@ -347,7 +368,3 @@ agent = Agent(model="...", api_key="...", tools=[bash_tool], hooks=hooks)
 - `after_tool` exceptions are logged and the existing tool result is forwarded unchanged. Later `after_tool` hooks are skipped. Hooks that need to fail closed (e.g. redaction) must catch internally and return an explicit error result.
 - Cancellation is controlled by the runtime. Cancelled tool results do not run `after_tool` hooks and cannot be replaced.
 - Streaming tools still stream `tool_output` during real execution. If a `before_tool` hook skips the tool, no live `tool_output` events are emitted.
-
-### `cancel_all_tools()`
-
-Terminates every bash subprocess started by any `ToolExecutor` in the process. `agent.cancel()` already covers its own executor; use this for signal handlers or shutdown hooks that don't hold an agent reference.

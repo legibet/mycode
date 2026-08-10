@@ -95,15 +95,11 @@ uv build --package mycode-cli
 Agent core of mycode as a lightweight Python SDK for building custom agents. Install via `uv add mycode-sdk`.
 
 ```python
-from mycode import Agent, read_tool
+from mycode import Agent
 
-agent = Agent(
-    model="claude-sonnet-4-6",
-    api_key="...",
-    tools=[read_tool],
-)
+agent = Agent(model="claude-sonnet-4-6", api_key="...")
 
-result = agent.run("Read pyproject.toml and tell me the project name.")
+result = agent.run("What is 2 + 2?")
 print(result.text)
 ```
 

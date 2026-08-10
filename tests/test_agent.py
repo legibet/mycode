@@ -3,7 +3,6 @@
 import asyncio
 import tempfile
 import threading
-import time
 from copy import deepcopy
 from pathlib import Path
 from unittest.mock import patch
@@ -19,12 +18,8 @@ from mycode import (
     ToolContext,
     ToolExecutionResult,
     ToolSpec,
-    bash_tool,
-    edit_tool,
-    read_tool,
     text_block,
     tool,
-    write_tool,
 )
 from mycode.providers.base import ProviderStreamEvent
 
@@ -95,17 +90,24 @@ def _tool_turn(
 
 
 @tool
-def read_back(context: ToolContext, path: str) -> str:
-    """Read a file through the built-in read tool."""
+def note() -> str:
+    """Return a fixed note."""
 
-    return context.read(path).output
+    return "hello from sdk"
+
+
+@tool
+def read_back(context: ToolContext) -> str:
+    """Fetch the note through another registered tool."""
+
+    return context.call("note", {}).output
 
 
 @tool(streams_output=True)
-async def read_back_async(context: ToolContext, path: str) -> str:
-    """Read a file through the async built-in read tool."""
+async def read_back_async(context: ToolContext) -> str:
+    """Fetch the note through another registered tool, streaming the output."""
 
-    output = (await context.aread(path)).output
+    output = (await context.acall("note", {})).output
     if context.emit:
         context.emit(output)
     return output
@@ -272,7 +274,7 @@ def test_agent_forwards_runtime_configuration_to_provider(tmp_path: Path) -> Non
         session_id="configured-session",
         system="Use this exact system prompt.",
         reasoning_effort="vendor-specific",
-        tools=[read_tool, write_tool, edit_tool, bash_tool],
+        tools=[_PING_TOOL, note],
     )
     with patch("mycode.agent.get_provider_adapter", return_value=configured_adapter):
         configured_agent.run("hello")
@@ -283,10 +285,8 @@ def test_agent_forwards_runtime_configuration_to_provider(tmp_path: Path) -> Non
     assert request.system == "Use this exact system prompt."
     assert request.reasoning_effort == "vendor-specific"
     assert {tool_definition["name"] for tool_definition in request.tools} == {
-        "bash",
-        "edit",
-        "read",
-        "write",
+        "note",
+        "ping",
     }
 
 
@@ -379,18 +379,17 @@ class TestAgentSessions:
 
 
 @pytest.mark.asyncio
-async def test_custom_tools_can_reuse_builtin_tools(tmp_path: Path) -> None:
-    (tmp_path / "note.txt").write_text("hello from sdk\n", encoding="utf-8")
+async def test_custom_tools_can_call_other_registered_tools(tmp_path: Path) -> None:
     adapter = _FakeProviderAdapter(
         [
-            _tool_turn("call_1", name="read_back", tool_input={"path": "note.txt"}),
+            _tool_turn("call_1", name="read_back", tool_input={}),
             _text_turn(),
         ]
     )
 
     with patch("mycode.agent.get_provider_adapter", return_value=adapter):
         events = _chat_events(
-            [event async for event in _new_agent(tmp_path, tools=[read_tool, read_back]).achat("Read note.txt")]
+            [event async for event in _new_agent(tmp_path, tools=[note, read_back]).achat("Fetch the note")]
         )
 
     assert [event.type for event in events] == ["tool_start", "tool_done"]
@@ -398,23 +397,22 @@ async def test_custom_tools_can_reuse_builtin_tools(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_async_custom_tools_can_reuse_and_stream_builtin_output(tmp_path: Path) -> None:
-    (tmp_path / "note.txt").write_text("hello from async sdk\n", encoding="utf-8")
+async def test_async_custom_tools_can_call_and_stream_other_tools(tmp_path: Path) -> None:
     adapter = _FakeProviderAdapter(
         [
-            _tool_turn("call_1", name="read_back_async", tool_input={"path": "note.txt"}),
+            _tool_turn("call_1", name="read_back_async", tool_input={}),
             _text_turn(),
         ]
     )
 
     with patch("mycode.agent.get_provider_adapter", return_value=adapter):
         events = _chat_events(
-            [event async for event in _new_agent(tmp_path, tools=[read_tool, read_back_async]).achat("Read note.txt")]
+            [event async for event in _new_agent(tmp_path, tools=[note, read_back_async]).achat("Fetch the note")]
         )
 
     assert [event.type for event in events] == ["tool_start", "tool_output", "tool_done"]
-    assert events[1].data["output"] == "hello from async sdk"
-    assert events[2].data["output"] == "hello from async sdk"
+    assert events[1].data["output"] == "hello from sdk"
+    assert events[2].data["output"] == "hello from sdk"
 
 
 class TestAgentReasoningPersistence:
@@ -581,32 +579,6 @@ class TestCustomTools:
             }
 
     @pytest.mark.asyncio
-    async def test_agent_forwards_bash_live_output(self, tmp_path: Path) -> None:
-        agent = _new_agent(tmp_path, tools=[bash_tool])
-        adapter = _FakeProviderAdapter(
-            [
-                _tool_turn(
-                    "call-1",
-                    name="bash",
-                    tool_input={"command": "printf 'one\\nsecond\\n'"},
-                ),
-                _text_turn(),
-            ]
-        )
-
-        with patch("mycode.agent.get_provider_adapter", return_value=adapter):
-            events = _chat_events([event async for event in agent.achat("run bash")])
-
-        tool_output_events = [event for event in events if event.type == "tool_output"]
-        assert events[0].type == "tool_start"
-        assert events[-1].type == "tool_done"
-        assert all(event.type == "tool_output" for event in events[1:-1])
-        assert tool_output_events
-        assert "".join(event.data["output"] for event in tool_output_events) == "one\nsecond\n"
-        assert events[-1].data["output"] == "one\nsecond"
-        assert events[-1].data["is_error"] is False
-
-    @pytest.mark.asyncio
     async def test_agent_forwards_sync_streaming_tool_output(self, tmp_path: Path) -> None:
         @tool(streams_output=True)
         def emit_from_sync_tool(ctx: ToolContext) -> str:
@@ -668,50 +640,6 @@ class TestCustomTools:
         assert displayed.endswith("\ntail\n")
         assert displayed.count("[live output omitted]") == 1
         assert events[-1].data["output"] == "complete"
-
-    def test_cancel_stops_bash_from_another_thread(self, tmp_path: Path) -> None:
-        marker = tmp_path / "bash-started"
-        agent = _new_agent(tmp_path, tools=[bash_tool])
-        adapter = _FakeProviderAdapter(
-            [
-                _tool_turn(
-                    "call-1",
-                    name="bash",
-                    tool_input={
-                        "command": (
-                            'python3 -c "import pathlib,sys,time; '
-                            "sys.stdout.write('x' * 60000); sys.stdout.flush(); "
-                            f"pathlib.Path('{marker.name}').touch(); time.sleep(10)\""
-                        )
-                    },
-                )
-            ]
-        )
-        results: list[RunResult] = []
-        run_thread = threading.Thread(target=lambda: results.append(agent.run("run bash")), daemon=True)
-
-        with patch("mycode.agent.get_provider_adapter", return_value=adapter):
-            run_thread.start()
-            for _ in range(200):
-                if marker.exists():
-                    break
-                time.sleep(0.01)
-            assert marker.exists()
-            agent.cancel()
-            run_thread.join(timeout=3)
-
-        assert not run_thread.is_alive()
-        events = _chat_events(results[0].events)
-        tool_done = [event for event in events if event.type == "tool_done"]
-        assert len(tool_done) == 1
-        result = tool_done[0].data
-        assert result["tool_use_id"] == "call-1"
-        assert result["is_error"] is True
-        assert "Output truncated:" in result["output"]
-        assert "error: cancelled" in result["output"]
-        log_path = tmp_path / agent.session_id / "tool-output" / "bash-call-1.log"
-        assert str(log_path) in result["output"]
-        assert log_path.read_bytes() == b"x" * 60000
 
     @pytest.mark.parametrize("streams_output", [False, True])
     def test_cancel_stops_async_tool_from_another_thread(

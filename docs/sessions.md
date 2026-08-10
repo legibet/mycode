@@ -171,11 +171,11 @@ Rewind indices refer to the visible history, which now includes pre-compact turn
 
 ## tool-output/ Logs
 
-Bash output exceeding the 2000-line or 50KB display limit is written as raw combined stdout/stderr to `<tool_output_dir>/bash-<tool_call_id>.log`. The tool result returns a bounded tail and cites the saved log path.
+The CLI's bash tool writes output exceeding its 2000-line or 50KB display limit as raw combined stdout/stderr to `<tool_output_dir>/bash-<tool_call_id>.log`. The tool result returns a bounded tail and cites the saved log path.
 
-`tool_output_dir` is always set — Agent defaults it to a session-adjacent directory when persistence is configured, or a tempdir-scoped equivalent otherwise. The directory itself is created lazily when Bash output first exceeds a display limit.
+`tool_output_dir` is always set — Agent defaults it to a session-adjacent directory when persistence is configured, or a tempdir-scoped equivalent otherwise. The SDK only hands the path to tools; the CLI's bash tool creates the directory lazily when output first exceeds a display limit.
 
-Cancelled Bash calls persist the captured final tail plus `error: cancelled`; truncated results also cite the raw log. Live `tool_output` events are not session data.
+Cancelled bash calls persist the captured final tail plus `error: cancelled`; truncated results also cite the raw log. Live `tool_output` events are not session data.
 
 ## Session Store API
 

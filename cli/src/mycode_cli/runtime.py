@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from mycode.agent import Agent
 from mycode.session import SessionStore
-from mycode.tools import bash_tool, edit_tool, read_tool, write_tool
 from mycode_cli.config import ResolvedProvider, Settings
 from mycode_cli.permissions import ToolReviewCallback, build_permission_hooks
 from mycode_cli.system_prompt import build_system_prompt
+from mycode_cli.tools import DEFAULT_TOOLS
 
 
 def sum_known_costs(*costs: float | None) -> float | None:
@@ -71,6 +71,6 @@ def build_agent(
         compact_threshold=settings.compact_threshold,
         max_turns=max_turns,
         system=build_system_prompt(cwd, settings),
-        tools=[read_tool, write_tool, edit_tool, bash_tool],
+        tools=DEFAULT_TOOLS,
         hooks=hooks,
     )
