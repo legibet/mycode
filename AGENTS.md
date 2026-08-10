@@ -102,6 +102,7 @@ Read the relevant doc before related changes.
 | `mycode/src/mycode/agent.py`, `messages.py`, `tools.py`, `hooks.py`, public SDK | `docs/sdk.md`                                   |
 | `mycode/src/mycode/session.py` or anything touching JSONL / compact / rewind    | `docs/sessions.md`                              |
 | `mycode/src/mycode/providers/*`                                                 | `docs/providers.md`                             |
+| `cli/src/mycode_cli/tools.py` or built-in tool output formats                   | `docs/tools.md`                                 |
 | `cli/src/mycode_cli/server/**` or any SSE event / route                         | `docs/api.md`                                   |
 | `cli/src/mycode_cli/config.py`, `system_prompt.py`, `permissions.py`            | `docs/config.md`                                |
 | `web/src/**`                                                                    | `web/AGENTS.md`                                 |

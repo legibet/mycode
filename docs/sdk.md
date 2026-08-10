@@ -228,7 +228,7 @@ See `docs/sessions.md` for the on-disk record format, the projection rule that b
 
 ## Tools
 
-Tools are opted in via `tools=[...]`; nothing is registered by default. A `streams_output=True` tool streams display text through `tool_output` events; other tools return a single `tool_done` result. The CLI ships its `read` / `write` / `edit` / `bash` tools in `mycode_cli.tools`; the SDK itself bundles none.
+Tools are opted in via `tools=[...]`; nothing is registered by default. A `streams_output=True` tool streams display text through `tool_output` events; other tools return a single `tool_done` result. The CLI ships its `read` / `write` / `edit` / `bash` tools in `mycode_cli.tools` (see `docs/tools.md`); the SDK itself bundles none.
 
 `tool_output` is ordered, append-only display text. Consumers do not insert separators. When a slow consumer exceeds the per-call pending limit, the stream drops one continuous middle segment and inserts `[live output omitted]` on its own line. `tool_done.output` remains the authoritative result.
 
