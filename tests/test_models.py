@@ -11,7 +11,7 @@ from mycode.models import estimate_cost, lookup_model_metadata
 
 
 def patch_catalog(monkeypatch, catalog: dict[str, object]) -> None:
-    parsed = models._MODELS_CATALOG_ADAPTER.validate_json(json.dumps(catalog))
+    parsed = models._ModelsCatalog.model_validate_json(json.dumps(catalog))
     monkeypatch.setattr("mycode.models.load_models_catalog", lambda: parsed)
 
 
@@ -19,20 +19,32 @@ def test_bundled_catalog_is_valid() -> None:
     catalog = models.load_models_catalog()
 
     assert catalog is not None
-    assert catalog
+    assert catalog.providers
+    assert catalog.fallback
+
+
+def test_bundled_catalog_uses_meta_metadata_for_muse_fallback() -> None:
+    metadata = lookup_model_metadata(provider_type="openai_chat", model="muse-spark-1.2")
+
+    assert metadata is not None
+    assert metadata.max_output_tokens == 131_072
+    assert metadata.reasoning_efforts == ("minimal", "low", "medium", "high", "xhigh")
+    assert metadata.pricing == {"input": 1.25, "output": 4.25, "cache_read": 0.15}
 
 
 def test_lookup_model_metadata_prefers_provider_specific_match(monkeypatch) -> None:
     patch_catalog(
         monkeypatch,
         {
-            "openai": {"gpt-5": {"max_output_tokens": 128_000, "supports_reasoning": True}},
-            "openrouter": {
-                "openai/gpt-5": {
-                    "max_output_tokens": 64_000,
-                    "supports_reasoning": True,
-                    "supports_image_input": True,
-                    "supports_pdf_input": True,
+            "fallback": {"gpt-5": {"max_output_tokens": 128_000, "supports_reasoning": True}},
+            "providers": {
+                "openrouter": {
+                    "openai/gpt-5": {
+                        "max_output_tokens": 64_000,
+                        "supports_reasoning": True,
+                        "supports_image_input": True,
+                        "supports_pdf_input": True,
+                    }
                 }
             },
         },
@@ -47,51 +59,46 @@ def test_lookup_model_metadata_prefers_provider_specific_match(monkeypatch) -> N
     assert metadata.supports_pdf_input is True
 
 
-def test_lookup_model_metadata_falls_back_across_provider_families(monkeypatch) -> None:
+def test_lookup_model_metadata_uses_official_bare_model_fallback(monkeypatch) -> None:
     patch_catalog(
         monkeypatch,
         {
-            "openai": {
-                "gpt-5": {"max_output_tokens": 128_000, "supports_reasoning": True, "supports_image_input": True}
-            },
-            "openrouter": {
-                "moonshotai/kimi-k2.6": {
-                    "max_output_tokens": 262_144,
+            "fallback": {
+                "muse-spark-1.2": {
+                    "max_output_tokens": 131_072,
                     "supports_reasoning": True,
-                    "reasoning_efforts": ["none", "low", "high"],
+                    "reasoning_efforts": ["minimal", "low", "medium", "high", "xhigh"],
+                    "cost": {"input": 1.25, "output": 4.25},
+                }
+            },
+            "providers": {},
+        },
+    )
+
+    metadata = lookup_model_metadata(provider_type="openai_chat", model="meta/muse-spark-1.2")
+
+    assert metadata is not None
+    assert metadata.provider == "openai_chat"
+    assert metadata.model == "meta/muse-spark-1.2"
+    assert metadata.max_output_tokens == 131_072
+    assert metadata.reasoning_efforts == ("minimal", "low", "medium", "high", "xhigh")
+    assert metadata.pricing == {"input": 1.25, "output": 4.25}
+
+
+def test_lookup_model_metadata_does_not_scan_openrouter_suffixes(monkeypatch) -> None:
+    patch_catalog(
+        monkeypatch,
+        {
+            "fallback": {},
+            "providers": {
+                "openrouter": {
+                    "meta/muse-spark-1.2": {"max_output_tokens": 1_048_576},
                 }
             },
         },
     )
 
-    openai_chat = lookup_model_metadata(provider_type="openai_chat", model="openai/gpt-5")
-    moonshot = lookup_model_metadata(provider_type="moonshotai", model="kimi-k2.6")
-
-    assert openai_chat is not None
-    assert openai_chat.provider == "openai_chat"
-    assert openai_chat.model == "openai/gpt-5"
-    assert openai_chat.supports_image_input is True
-
-    assert moonshot is not None
-    assert moonshot.provider == "moonshotai"
-    assert moonshot.model == "kimi-k2.6"
-    assert moonshot.max_output_tokens == 262_144
-    assert moonshot.supports_reasoning is True
-    assert moonshot.reasoning_efforts == ("none", "low", "high")
-
-
-def test_lookup_model_metadata_rejects_ambiguous_openrouter_suffix_matches(monkeypatch) -> None:
-    patch_catalog(
-        monkeypatch,
-        {
-            "openrouter": {
-                "first/shared-model": {"max_output_tokens": 64_000},
-                "second/shared-model": {"max_output_tokens": 128_000},
-            }
-        },
-    )
-
-    metadata = lookup_model_metadata(provider_type="moonshotai", model="shared-model")
+    metadata = lookup_model_metadata(provider_type="openai_chat", model="muse-spark-1.2")
 
     assert metadata is None
 
@@ -100,8 +107,8 @@ def test_lookup_model_metadata_requires_query_provider(monkeypatch) -> None:
     patch_catalog(
         monkeypatch,
         {
-            "openai": {"gpt-5": {"max_output_tokens": 128_000}},
-            "openrouter": {"some-provider/some-niche-model": {"max_output_tokens": 64_000}},
+            "fallback": {"gpt-5": {"max_output_tokens": 128_000}},
+            "providers": {},
         },
     )
 
@@ -109,45 +116,53 @@ def test_lookup_model_metadata_requires_query_provider(monkeypatch) -> None:
     assert lookup_model_metadata(provider_type=None, model="gpt-5") is None
 
 
-def test_pricing_comes_from_direct_and_inferred_entries_but_not_suffix_fallback(monkeypatch) -> None:
+def test_pricing_comes_from_exact_and_official_fallback_entries(monkeypatch) -> None:
     patch_catalog(
         monkeypatch,
         {
-            "deepseek": {"deepseek-chat": {"context_window": 128_000, "cost": {"input": 0.14, "output": 0.28}}},
-            "openrouter": {
-                "vendor/niche-model": {"context_window": 64_000, "cost": {"input": 1.0, "output": 2.0}},
+            "fallback": {
+                "deepseek-chat": {
+                    "context_window": 128_000,
+                    "cost": {"input": 0.14, "output": 0.28},
+                }
+            },
+            "providers": {
+                "deepseek": {
+                    "deepseek-chat": {
+                        "context_window": 64_000,
+                        "cost": {"input": 0.2, "output": 0.4},
+                    }
+                }
             },
         },
     )
 
     direct = lookup_model_metadata(provider_type="deepseek", model="deepseek-chat")
     assert direct is not None
-    assert direct.pricing == {"input": 0.14, "output": 0.28}
+    assert direct.context_window == 64_000
+    assert direct.pricing == {"input": 0.2, "output": 0.4}
 
-    # Third-party host of a known model: estimated at official prices.
-    inferred = lookup_model_metadata(provider_type="openai_chat", model="deepseek-chat")
-    assert inferred is not None
-    assert inferred.pricing == {"input": 0.14, "output": 0.28}
-
-    # OpenRouter suffix fallback supplies capabilities only, never prices.
-    fallback = lookup_model_metadata(provider_type="openai_chat", model="niche-model")
+    fallback = lookup_model_metadata(provider_type="openai_chat", model="deepseek-chat")
     assert fallback is not None
-    assert fallback.context_window == 64_000
-    assert fallback.pricing is None
+    assert fallback.context_window == 128_000
+    assert fallback.pricing == {"input": 0.14, "output": 0.28}
 
 
 def test_catalog_pricing_tiers_keep_the_public_json_shape(monkeypatch) -> None:
     patch_catalog(
         monkeypatch,
         {
-            "openai": {
-                "gpt-5": {
-                    "cost": {
-                        "input": 1.0,
-                        "tiers": [{"size": 200_000, "input": 2.0}],
+            "fallback": {},
+            "providers": {
+                "openai": {
+                    "gpt-5": {
+                        "cost": {
+                            "input": 1.0,
+                            "tiers": [{"size": 200_000, "input": 2.0}],
+                        }
                     }
                 }
-            }
+            },
         },
     )
 

@@ -145,8 +145,7 @@ When the catalog has no match and config does not override the capability, media
 Model lookup strategy (`lookup_model_metadata`):
 
 1. Exact match on the given `provider_type` + raw model id
-2. Fallback provider mapping (e.g., `claude-*` → `anthropic`, `deepseek-*` → `deepseek`)
-3. OpenRouter catalog suffix fallback (`provider/model` matched by `model`) as last resort
+2. Official bare-model fallback generated from the model owner's selected provider
 
 The bundled catalog is updated by running:
 

@@ -7,7 +7,7 @@ from functools import cache
 from pathlib import Path
 from typing import Any, NotRequired, TypedDict
 
-from pydantic import BaseModel, ConfigDict, TypeAdapter, ValidationError
+from pydantic import BaseModel, ConfigDict, ValidationError
 
 from mycode.messages import USAGE_TOKEN_KEYS
 
@@ -46,9 +46,9 @@ class _CatalogEntry(_CatalogSchema):
     cost: _ModelCost | None = None
 
 
-type _ModelsCatalog = dict[str, dict[str, _CatalogEntry]]
-
-_MODELS_CATALOG_ADAPTER = TypeAdapter(_ModelsCatalog)
+class _ModelsCatalog(_CatalogSchema):
+    providers: dict[str, dict[str, _CatalogEntry]]
+    fallback: dict[str, _CatalogEntry]
 
 
 @dataclass(frozen=True)
@@ -61,9 +61,8 @@ class ModelMetadata:
     ``pricing`` holds models.dev prices in USD per 1M tokens — keys ``input``,
     ``output``, ``cache_read``, ``cache_write``, ``reasoning`` plus optional
     ``tiers`` (long-context price overrides, ``[{"size": ..., <prices>}]``).
-    Capability fields may come from the OpenRouter suffix fallback, but
-    ``pricing`` never does: prices apply only when the catalog entry belongs to
-    the requested provider or the inferred official provider.
+    Fallback metadata comes from the model owner's selected official endpoint,
+    including its pricing and reasoning efforts.
 
     ``reasoning_efforts`` is ``None`` when the source has no reasoning options,
     an empty tuple when it advertises no effort option, or the advertised
@@ -97,7 +96,7 @@ def load_models_catalog() -> _ModelsCatalog | None:
     """Load the bundled model catalog from disk once per process."""
 
     try:
-        return _MODELS_CATALOG_ADAPTER.validate_json(_MODELS_CATALOG_PATH.read_bytes())
+        return _ModelsCatalog.model_validate_json(_MODELS_CATALOG_PATH.read_bytes())
     except (OSError, ValidationError):
         return None
 
@@ -166,28 +165,20 @@ def lookup_model_metadata(
     Catalog lookup order:
 
     1. Requested provider and requested model.
-    2. Inferred provider and unprefixed model name.
-    3. Unique OpenRouter model whose suffix matches the model name.
+    2. Official metadata for the unprefixed model name.
     """
 
     requested_model = (model or "").strip()
     if not provider_type or not requested_model:
         return None
     catalog = load_models_catalog()
-    if not catalog:
+    if catalog is None:
         return None
 
     model_name = requested_model.split("/", 1)[1].strip() if "/" in requested_model else requested_model
-    catalog_entry = catalog.get(provider_type, {}).get(requested_model)
-
-    inferred_provider = infer_provider_from_model(model_name)
-    if catalog_entry is None and inferred_provider and inferred_provider != provider_type:
-        catalog_entry = catalog.get(inferred_provider, {}).get(model_name)
-
-    from_suffix_fallback = False
+    catalog_entry = catalog.providers.get(provider_type, {}).get(requested_model)
     if catalog_entry is None:
-        catalog_entry = _get_openrouter_suffix_entry(catalog, model_name)
-        from_suffix_fallback = catalog_entry is not None
+        catalog_entry = catalog.fallback.get(model_name)
 
     if catalog_entry is None:
         return None
@@ -207,7 +198,7 @@ def lookup_model_metadata(
                 exclude_none=True,
                 exclude_defaults=True,
             )
-            if catalog_entry.cost is not None and not from_suffix_fallback
+            if catalog_entry.cost is not None
             else None
         ),
     )
@@ -283,20 +274,3 @@ def estimate_cost(usage: dict[str, Any], pricing: dict[str, Any] | None) -> Cost
         cost["reasoning"] = reasoning * (reasoning_price or 0.0) / 1_000_000
         cost["total"] += cost["reasoning"]
     return cost
-
-
-def _get_openrouter_suffix_entry(catalog: _ModelsCatalog, model_name: str) -> _CatalogEntry | None:
-    """Return an OpenRouter entry with a unique matching model suffix."""
-
-    openrouter = catalog.get("openrouter", {})
-
-    match: _CatalogEntry | None = None
-    for model_id, catalog_entry in openrouter.items():
-        if "/" not in model_id:
-            continue
-        if model_id.split("/", 1)[1].strip() != model_name:
-            continue
-        if match is not None:
-            return None
-        match = catalog_entry
-    return match
