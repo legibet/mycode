@@ -228,7 +228,7 @@ See `docs/sessions.md` for the on-disk record format, the projection rule that b
 
 ## Tools
 
-Tools are opted in via `tools=[...]`; nothing is registered by default. A `streams_output=True` tool streams display text through `tool_output` events; other tools return a single `tool_done` result. The CLI ships its `read` / `write` / `edit` / `bash` tools in `mycode_cli.tools` (see `docs/tools.md`); the SDK itself bundles none.
+Tools are opted in via `tools=[...]`; nothing is registered by default. A `streams_output=True` tool streams display text through `tool_output` events; other tools return a single `tool_done` result.
 
 `tool_output` is ordered, append-only display text. Consumers do not insert separators. When a slow consumer exceeds the per-call pending limit, the stream drops one continuous middle segment and inserts `[live output omitted]` on its own line. `tool_done.output` remains the authoritative result.
 
@@ -318,7 +318,7 @@ Annotate the first parameter of a tool as `ToolContext` to have the runtime cont
 - `ctx.call(name, args)` and `await ctx.acall(name, args)` dispatch any registered tool by name. A nested call shares the outer call's context, including `emit` and `tool_call_id`.
 - `ctx.emit(delta)` appends display text for a `streams_output=True` tool. It is thread-safe and works from sync and async tools. Event boundaries do not imply line boundaries; the runtime may replace a continuous middle segment with `[live output omitted]` under buffer pressure.
 
-`ctx.tool_output_dir` is always a valid `Path`: `<session_dir>/<session_id>/tool-output/` when the agent has a session, or a tempdir-scoped fallback otherwise. Tools can treat it as their own scratch area for large outputs (the CLI's `bash` tool saves its spill logs there).
+`ctx.tool_output_dir` is always a valid `Path`: `<session_dir>/<session_id>/tool-output/` when the agent has a session, or a tempdir-scoped fallback otherwise. Tools can treat it as their own scratch area for large outputs.
 
 ### Tool hooks
 
