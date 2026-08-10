@@ -138,10 +138,10 @@
     "claude-fable-5": {
       "context_window": 1000000,
       "cost": {
-        "cache_read": 1.0,
+        "cache_read": 1,
         "cache_write": 12.5,
-        "input": 10.0,
-        "output": 50.0
+        "input": 10,
+        "output": 50
       },
       "max_output_tokens": 128000,
       "reasoning_efforts": [
@@ -160,8 +160,8 @@
       "cost": {
         "cache_read": 0.1,
         "cache_write": 1.25,
-        "input": 1.0,
-        "output": 5.0
+        "input": 1,
+        "output": 5
       },
       "max_output_tokens": 64000,
       "reasoning_efforts": [],
@@ -174,8 +174,8 @@
       "cost": {
         "cache_read": 0.1,
         "cache_write": 1.25,
-        "input": 1.0,
-        "output": 5.0
+        "input": 1,
+        "output": 5
       },
       "max_output_tokens": 64000,
       "reasoning_efforts": [],
@@ -188,8 +188,8 @@
       "cost": {
         "cache_read": 0.5,
         "cache_write": 6.25,
-        "input": 5.0,
-        "output": 25.0
+        "input": 5,
+        "output": 25
       },
       "max_output_tokens": 64000,
       "reasoning_efforts": [
@@ -206,8 +206,8 @@
       "cost": {
         "cache_read": 0.5,
         "cache_write": 6.25,
-        "input": 5.0,
-        "output": 25.0
+        "input": 5,
+        "output": 25
       },
       "max_output_tokens": 64000,
       "reasoning_efforts": [
@@ -224,8 +224,8 @@
       "cost": {
         "cache_read": 0.5,
         "cache_write": 6.25,
-        "input": 5.0,
-        "output": 25.0
+        "input": 5,
+        "output": 25
       },
       "max_output_tokens": 128000,
       "reasoning_efforts": [
@@ -243,8 +243,8 @@
       "cost": {
         "cache_read": 0.5,
         "cache_write": 6.25,
-        "input": 5.0,
-        "output": 25.0
+        "input": 5,
+        "output": 25
       },
       "max_output_tokens": 128000,
       "reasoning_efforts": [
@@ -263,8 +263,8 @@
       "cost": {
         "cache_read": 0.5,
         "cache_write": 6.25,
-        "input": 5.0,
-        "output": 25.0
+        "input": 5,
+        "output": 25
       },
       "max_output_tokens": 128000,
       "reasoning_efforts": [
@@ -283,8 +283,8 @@
       "cost": {
         "cache_read": 0.5,
         "cache_write": 6.25,
-        "input": 5.0,
-        "output": 25.0
+        "input": 5,
+        "output": 25
       },
       "max_output_tokens": 128000,
       "reasoning_efforts": [
@@ -303,8 +303,8 @@
       "cost": {
         "cache_read": 0.3,
         "cache_write": 3.75,
-        "input": 3.0,
-        "output": 15.0
+        "input": 3,
+        "output": 15
       },
       "max_output_tokens": 64000,
       "reasoning_efforts": [],
@@ -317,8 +317,8 @@
       "cost": {
         "cache_read": 0.3,
         "cache_write": 3.75,
-        "input": 3.0,
-        "output": 15.0
+        "input": 3,
+        "output": 15
       },
       "max_output_tokens": 64000,
       "reasoning_efforts": [],
@@ -331,8 +331,8 @@
       "cost": {
         "cache_read": 0.3,
         "cache_write": 3.75,
-        "input": 3.0,
-        "output": 15.0
+        "input": 3,
+        "output": 15
       },
       "max_output_tokens": 128000,
       "reasoning_efforts": [
@@ -350,8 +350,8 @@
       "cost": {
         "cache_read": 0.2,
         "cache_write": 2.5,
-        "input": 2.0,
-        "output": 10.0
+        "input": 2,
+        "output": 10
       },
       "max_output_tokens": 128000,
       "reasoning_efforts": [
@@ -381,7 +381,7 @@
       "context_window": 256000,
       "cost": {
         "input": 2.5,
-        "output": 10.0
+        "output": 10
       },
       "max_output_tokens": 8000,
       "reasoning_efforts": null,
@@ -393,7 +393,7 @@
       "context_window": 128000,
       "cost": {
         "input": 2.5,
-        "output": 10.0
+        "output": 10
       },
       "max_output_tokens": 64000,
       "reasoning_efforts": [],
@@ -405,7 +405,7 @@
       "context_window": 256000,
       "cost": {
         "input": 2.5,
-        "output": 10.0
+        "output": 10
       },
       "max_output_tokens": 32000,
       "reasoning_efforts": [],
@@ -417,7 +417,7 @@
       "context_window": 8000,
       "cost": {
         "input": 2.5,
-        "output": 10.0
+        "output": 10
       },
       "max_output_tokens": 8000,
       "reasoning_efforts": null,
@@ -429,7 +429,7 @@
       "context_window": 128000,
       "cost": {
         "input": 2.5,
-        "output": 10.0
+        "output": 10
       },
       "max_output_tokens": 8000,
       "reasoning_efforts": null,
@@ -453,7 +453,7 @@
       "context_window": 128000,
       "cost": {
         "input": 2.5,
-        "output": 10.0
+        "output": 10
       },
       "max_output_tokens": 4000,
       "reasoning_efforts": null,
@@ -489,13 +489,13 @@
       "context_window": 131072,
       "cost": {
         "cache_read": 0.2,
-        "input": 2.0,
-        "output": 12.0,
+        "input": 2,
+        "output": 12,
         "tiers": [
           {
             "cache_read": 0.4,
-            "input": 4.0,
-            "output": 18.0,
+            "input": 4,
+            "output": 18,
             "size": 200000
           }
         ]
@@ -510,13 +510,13 @@
       "context_window": 131072,
       "cost": {
         "cache_read": 0.2,
-        "input": 2.0,
-        "output": 12.0,
+        "input": 2,
+        "output": 12,
         "tiers": [
           {
             "cache_read": 0.4,
-            "input": 4.0,
-            "output": 18.0,
+            "input": 4,
+            "output": 18,
             "size": 200000
           }
         ]
@@ -593,7 +593,7 @@
       "context_window": 262144,
       "cost": {
         "input": 0.4,
-        "output": 2.0
+        "output": 2
       },
       "max_output_tokens": 262144,
       "reasoning_efforts": null,
@@ -605,7 +605,7 @@
       "context_window": 128000,
       "cost": {
         "input": 0.4,
-        "output": 2.0
+        "output": 2
       },
       "max_output_tokens": 128000,
       "reasoning_efforts": null,
@@ -617,7 +617,7 @@
       "context_window": 262144,
       "cost": {
         "input": 0.4,
-        "output": 2.0
+        "output": 2
       },
       "max_output_tokens": 262144,
       "reasoning_efforts": null,
@@ -666,11 +666,11 @@
       "context_window": 131072,
       "cost": {
         "input": 1.25,
-        "output": 10.0,
+        "output": 10,
         "tiers": [
           {
             "input": 2.5,
-            "output": 15.0,
+            "output": 15,
             "size": 200000
           }
         ]
@@ -699,7 +699,7 @@
       "cost": {
         "cache_read": 0.075,
         "input": 0.3,
-        "output": 30.0
+        "output": 30
       },
       "max_output_tokens": 32768,
       "reasoning_efforts": [],
@@ -725,12 +725,12 @@
       "cost": {
         "cache_read": 0.125,
         "input": 1.25,
-        "output": 10.0,
+        "output": 10,
         "tiers": [
           {
             "cache_read": 0.25,
             "input": 2.5,
-            "output": 15.0,
+            "output": 15,
             "size": 200000
           }
         ]
@@ -746,7 +746,7 @@
       "cost": {
         "cache_read": 0.05,
         "input": 0.5,
-        "output": 3.0
+        "output": 3
       },
       "max_output_tokens": 65536,
       "reasoning_efforts": [
@@ -762,8 +762,8 @@
     "gemini-3-pro-image": {
       "context_window": 131072,
       "cost": {
-        "input": 2.0,
-        "output": 120.0
+        "input": 2,
+        "output": 120
       },
       "max_output_tokens": 32768,
       "reasoning_efforts": [
@@ -777,8 +777,8 @@
     "gemini-3-pro-image-preview": {
       "context_window": 131072,
       "cost": {
-        "input": 2.0,
-        "output": 120.0
+        "input": 2,
+        "output": 120
       },
       "max_output_tokens": 32768,
       "reasoning_efforts": [],
@@ -790,13 +790,13 @@
       "context_window": 1048576,
       "cost": {
         "cache_read": 0.2,
-        "input": 2.0,
-        "output": 12.0,
+        "input": 2,
+        "output": 12,
         "tiers": [
           {
             "cache_read": 0.4,
-            "input": 4.0,
-            "output": 18.0,
+            "input": 4,
+            "output": 18,
             "size": 200000
           }
         ]
@@ -814,7 +814,7 @@
       "context_window": 65536,
       "cost": {
         "input": 0.5,
-        "output": 60.0
+        "output": 60
       },
       "max_output_tokens": 65536,
       "reasoning_efforts": [
@@ -829,7 +829,7 @@
       "context_window": 65536,
       "cost": {
         "input": 0.5,
-        "output": 60.0
+        "output": 60
       },
       "max_output_tokens": 65536,
       "reasoning_efforts": [
@@ -862,7 +862,7 @@
       "context_window": 65536,
       "cost": {
         "input": 0.25,
-        "output": 30.0
+        "output": 30
       },
       "max_output_tokens": 65536,
       "reasoning_efforts": [
@@ -911,8 +911,8 @@
     "gemini-3.1-flash-tts-preview": {
       "context_window": 8192,
       "cost": {
-        "input": 1.0,
-        "output": 20.0
+        "input": 1,
+        "output": 20
       },
       "max_output_tokens": 16384,
       "reasoning_efforts": [],
@@ -924,13 +924,13 @@
       "context_window": 1048576,
       "cost": {
         "cache_read": 0.2,
-        "input": 2.0,
-        "output": 12.0,
+        "input": 2,
+        "output": 12,
         "tiers": [
           {
             "cache_read": 0.4,
-            "input": 4.0,
-            "output": 18.0,
+            "input": 4,
+            "output": 18,
             "size": 200000
           }
         ]
@@ -949,13 +949,13 @@
       "context_window": 1048576,
       "cost": {
         "cache_read": 0.2,
-        "input": 2.0,
-        "output": 12.0,
+        "input": 2,
+        "output": 12,
         "tiers": [
           {
             "cache_read": 0.4,
-            "input": 4.0,
-            "output": 18.0,
+            "input": 4,
+            "output": 18,
             "size": 200000
           }
         ]
@@ -975,7 +975,7 @@
       "cost": {
         "cache_read": 0.15,
         "input": 1.5,
-        "output": 9.0
+        "output": 9
       },
       "max_output_tokens": 65536,
       "reasoning_efforts": [
@@ -1010,7 +1010,7 @@
       "context_window": 16384,
       "cost": {
         "input": 3.5,
-        "output": 21.0
+        "output": 21
       },
       "max_output_tokens": 32768,
       "reasoning_efforts": null,
@@ -1040,7 +1040,7 @@
       "context_window": 2048,
       "cost": {
         "input": 0.15,
-        "output": 0.0
+        "output": 0
       },
       "max_output_tokens": 1,
       "reasoning_efforts": null,
@@ -1052,7 +1052,7 @@
       "context_window": 8192,
       "cost": {
         "input": 0.2,
-        "output": 0.0
+        "output": 0
       },
       "max_output_tokens": 1,
       "reasoning_efforts": null,
@@ -1065,7 +1065,7 @@
       "cost": {
         "cache_read": 0.15,
         "input": 1.5,
-        "output": 9.0
+        "output": 9
       },
       "max_output_tokens": 65536,
       "reasoning_efforts": [
@@ -1111,8 +1111,8 @@
     "gemini-robotics-er-1.6-preview": {
       "context_window": 131072,
       "cost": {
-        "input": 1.0,
-        "output": 5.0
+        "input": 1,
+        "output": 5
       },
       "max_output_tokens": 65536,
       "reasoning_efforts": [],
@@ -1140,7 +1140,7 @@
       "context_window": 131072,
       "cost": {
         "cache_read": 0.11,
-        "cache_write": 0.0,
+        "cache_write": 0,
         "input": 0.6,
         "output": 2.2
       },
@@ -1154,7 +1154,7 @@
       "context_window": 131072,
       "cost": {
         "cache_read": 0.03,
-        "cache_write": 0.0,
+        "cache_write": 0,
         "input": 0.2,
         "output": 1.1
       },
@@ -1167,10 +1167,10 @@
     "glm-4.5-flash": {
       "context_window": 131072,
       "cost": {
-        "cache_read": 0.0,
-        "cache_write": 0.0,
-        "input": 0.0,
-        "output": 0.0
+        "cache_read": 0,
+        "cache_write": 0,
+        "input": 0,
+        "output": 0
       },
       "max_output_tokens": 98304,
       "reasoning_efforts": [],
@@ -1194,7 +1194,7 @@
       "context_window": 204800,
       "cost": {
         "cache_read": 0.11,
-        "cache_write": 0.0,
+        "cache_write": 0,
         "input": 0.6,
         "output": 2.2
       },
@@ -1220,7 +1220,7 @@
       "context_window": 204800,
       "cost": {
         "cache_read": 0.11,
-        "cache_write": 0.0,
+        "cache_write": 0,
         "input": 0.6,
         "output": 2.2
       },
@@ -1233,10 +1233,10 @@
     "glm-4.7-flash": {
       "context_window": 200000,
       "cost": {
-        "cache_read": 0.0,
-        "cache_write": 0.0,
-        "input": 0.0,
-        "output": 0.0
+        "cache_read": 0,
+        "cache_write": 0,
+        "input": 0,
+        "output": 0
       },
       "max_output_tokens": 131072,
       "reasoning_efforts": [],
@@ -1248,7 +1248,7 @@
       "context_window": 200000,
       "cost": {
         "cache_read": 0.01,
-        "cache_write": 0.0,
+        "cache_write": 0,
         "input": 0.07,
         "output": 0.4
       },
@@ -1262,8 +1262,8 @@
       "context_window": 204800,
       "cost": {
         "cache_read": 0.2,
-        "cache_write": 0.0,
-        "input": 1.0,
+        "cache_write": 0,
+        "input": 1,
         "output": 3.2
       },
       "max_output_tokens": 131072,
@@ -1276,9 +1276,9 @@
       "context_window": 200000,
       "cost": {
         "cache_read": 0.24,
-        "cache_write": 0.0,
+        "cache_write": 0,
         "input": 1.2,
-        "output": 4.0
+        "output": 4
       },
       "max_output_tokens": 131072,
       "reasoning_efforts": [],
@@ -1290,7 +1290,7 @@
       "context_window": 200000,
       "cost": {
         "cache_read": 0.26,
-        "cache_write": 0.0,
+        "cache_write": 0,
         "input": 1.4,
         "output": 4.4
       },
@@ -1304,7 +1304,7 @@
       "context_window": 1000000,
       "cost": {
         "cache_read": 0.26,
-        "cache_write": 0.0,
+        "cache_write": 0,
         "input": 1.4,
         "output": 4.4
       },
@@ -1321,9 +1321,9 @@
       "context_window": 200000,
       "cost": {
         "cache_read": 0.24,
-        "cache_write": 0.0,
+        "cache_write": 0,
         "input": 1.2,
-        "output": 4.0
+        "output": 4
       },
       "max_output_tokens": 131072,
       "reasoning_efforts": [],
@@ -1334,7 +1334,7 @@
     "gpt-3.5-turbo": {
       "context_window": 16385,
       "cost": {
-        "cache_read": 0.0,
+        "cache_read": 0,
         "input": 0.5,
         "output": 1.5
       },
@@ -1347,8 +1347,8 @@
     "gpt-4": {
       "context_window": 8192,
       "cost": {
-        "input": 30.0,
-        "output": 60.0
+        "input": 30,
+        "output": 60
       },
       "max_output_tokens": 8192,
       "reasoning_efforts": null,
@@ -1359,8 +1359,8 @@
     "gpt-4-turbo": {
       "context_window": 128000,
       "cost": {
-        "input": 10.0,
-        "output": 30.0
+        "input": 10,
+        "output": 30
       },
       "max_output_tokens": 4096,
       "reasoning_efforts": null,
@@ -1372,8 +1372,8 @@
       "context_window": 1047576,
       "cost": {
         "cache_read": 0.5,
-        "input": 2.0,
-        "output": 8.0
+        "input": 2,
+        "output": 8
       },
       "max_output_tokens": 32768,
       "reasoning_efforts": null,
@@ -1412,7 +1412,7 @@
       "cost": {
         "cache_read": 1.25,
         "input": 2.5,
-        "output": 10.0
+        "output": 10
       },
       "max_output_tokens": 16384,
       "reasoning_efforts": null,
@@ -1423,8 +1423,8 @@
     "gpt-4o-2024-05-13": {
       "context_window": 128000,
       "cost": {
-        "input": 5.0,
-        "output": 15.0
+        "input": 5,
+        "output": 15
       },
       "max_output_tokens": 4096,
       "reasoning_efforts": null,
@@ -1437,7 +1437,7 @@
       "cost": {
         "cache_read": 1.25,
         "input": 2.5,
-        "output": 10.0
+        "output": 10
       },
       "max_output_tokens": 16384,
       "reasoning_efforts": null,
@@ -1450,7 +1450,7 @@
       "cost": {
         "cache_read": 1.25,
         "input": 2.5,
-        "output": 10.0
+        "output": 10
       },
       "max_output_tokens": 16384,
       "reasoning_efforts": null,
@@ -1476,7 +1476,7 @@
       "cost": {
         "cache_read": 0.125,
         "input": 1.25,
-        "output": 10.0
+        "output": 10
       },
       "max_output_tokens": 128000,
       "reasoning_efforts": [
@@ -1494,7 +1494,7 @@
       "cost": {
         "cache_read": 0.025,
         "input": 0.25,
-        "output": 2.0
+        "output": 2
       },
       "max_output_tokens": 128000,
       "reasoning_efforts": [
@@ -1528,8 +1528,8 @@
     "gpt-5-pro": {
       "context_window": 400000,
       "cost": {
-        "input": 15.0,
-        "output": 120.0
+        "input": 15,
+        "output": 120
       },
       "max_output_tokens": 272000,
       "reasoning_efforts": [
@@ -1544,7 +1544,7 @@
       "cost": {
         "cache_read": 0.125,
         "input": 1.25,
-        "output": 10.0
+        "output": 10
       },
       "max_output_tokens": 128000,
       "reasoning_efforts": [
@@ -1562,7 +1562,7 @@
       "cost": {
         "cache_read": 0.175,
         "input": 1.75,
-        "output": 14.0
+        "output": 14
       },
       "max_output_tokens": 128000,
       "reasoning_efforts": [
@@ -1581,7 +1581,7 @@
       "cost": {
         "cache_read": 0.175,
         "input": 1.75,
-        "output": 14.0
+        "output": 14
       },
       "max_output_tokens": 16384,
       "reasoning_efforts": [
@@ -1594,8 +1594,8 @@
     "gpt-5.2-pro": {
       "context_window": 400000,
       "cost": {
-        "input": 21.0,
-        "output": 168.0
+        "input": 21,
+        "output": 168
       },
       "max_output_tokens": 128000,
       "reasoning_efforts": [
@@ -1612,7 +1612,7 @@
       "cost": {
         "cache_read": 0.175,
         "input": 1.75,
-        "output": 14.0
+        "output": 14
       },
       "max_output_tokens": 16384,
       "reasoning_efforts": null,
@@ -1625,7 +1625,7 @@
       "cost": {
         "cache_read": 0.175,
         "input": 1.75,
-        "output": 14.0
+        "output": 14
       },
       "max_output_tokens": 128000,
       "reasoning_efforts": [
@@ -1644,11 +1644,11 @@
       "cost": {
         "cache_read": 0.25,
         "input": 2.5,
-        "output": 15.0,
+        "output": 15,
         "tiers": [
           {
             "cache_read": 0.5,
-            "input": 5.0,
+            "input": 5,
             "output": 22.5,
             "size": 272000
           }
@@ -1707,12 +1707,12 @@
     "gpt-5.4-pro": {
       "context_window": 1050000,
       "cost": {
-        "input": 30.0,
-        "output": 180.0,
+        "input": 30,
+        "output": 180,
         "tiers": [
           {
-            "input": 60.0,
-            "output": 270.0,
+            "input": 60,
+            "output": 270,
             "size": 272000
           }
         ]
@@ -1731,13 +1731,13 @@
       "context_window": 1050000,
       "cost": {
         "cache_read": 0.5,
-        "input": 5.0,
-        "output": 30.0,
+        "input": 5,
+        "output": 30,
         "tiers": [
           {
-            "cache_read": 1.0,
-            "input": 10.0,
-            "output": 45.0,
+            "cache_read": 1,
+            "input": 10,
+            "output": 45,
             "size": 272000
           }
         ]
@@ -1757,12 +1757,12 @@
     "gpt-5.5-pro": {
       "context_window": 1050000,
       "cost": {
-        "input": 30.0,
-        "output": 180.0,
+        "input": 30,
+        "output": 180,
         "tiers": [
           {
-            "input": 60.0,
-            "output": 270.0,
+            "input": 60,
+            "output": 270,
             "size": 272000
           }
         ]
@@ -1812,14 +1812,14 @@
       "cost": {
         "cache_read": 0.5,
         "cache_write": 6.25,
-        "input": 5.0,
-        "output": 30.0,
+        "input": 5,
+        "output": 30,
         "tiers": [
           {
-            "cache_read": 1.0,
+            "cache_read": 1,
             "cache_write": 12.5,
-            "input": 10.0,
-            "output": 45.0,
+            "input": 10,
+            "output": 45,
             "size": 272000
           }
         ]
@@ -1842,14 +1842,14 @@
       "cost": {
         "cache_read": 0.2,
         "cache_write": 2.5,
-        "input": 2.0,
-        "output": 12.0,
+        "input": 2,
+        "output": 12,
         "tiers": [
           {
             "cache_read": 0.4,
-            "cache_write": 5.0,
-            "input": 4.0,
-            "output": 18.0,
+            "cache_write": 5,
+            "input": 4,
+            "output": 18,
             "size": 272000
           }
         ]
@@ -1887,8 +1887,8 @@
       "context_window": 0,
       "cost": {
         "cache_read": 1.25,
-        "input": 5.0,
-        "output": 30.0
+        "input": 5,
+        "output": 30
       },
       "max_output_tokens": 0,
       "reasoning_efforts": null,
@@ -1900,8 +1900,8 @@
       "context_window": 128000,
       "cost": {
         "cache_read": 0.4,
-        "input": 4.0,
-        "output": 24.0
+        "input": 4,
+        "output": 24
       },
       "max_output_tokens": 32000,
       "reasoning_efforts": [
@@ -1925,7 +1925,7 @@
           {
             "cache_read": 0.4,
             "input": 2.5,
-            "output": 5.0,
+            "output": 5,
             "size": 200000
           }
         ]
@@ -1946,7 +1946,7 @@
           {
             "cache_read": 0.4,
             "input": 2.5,
-            "output": 5.0,
+            "output": 5,
             "size": 200000
           }
         ]
@@ -1967,7 +1967,7 @@
           {
             "cache_read": 0.4,
             "input": 2.5,
-            "output": 5.0,
+            "output": 5,
             "size": 200000
           }
         ]
@@ -1987,13 +1987,13 @@
       "context_window": 500000,
       "cost": {
         "cache_read": 0.3,
-        "input": 2.0,
-        "output": 6.0,
+        "input": 2,
+        "output": 6,
         "tiers": [
           {
             "cache_read": 0.6,
-            "input": 4.0,
-            "output": 12.0,
+            "input": 4,
+            "output": 12,
             "size": 200000
           }
         ]
@@ -2012,13 +2012,13 @@
       "context_window": 256000,
       "cost": {
         "cache_read": 0.2,
-        "input": 1.0,
-        "output": 2.0,
+        "input": 1,
+        "output": 2,
         "tiers": [
           {
             "cache_read": 0.4,
-            "input": 2.0,
-            "output": 4.0,
+            "input": 2,
+            "output": 4,
             "size": 200000
           }
         ]
@@ -2040,10 +2040,10 @@
     "hy3": {
       "context_window": 256000,
       "cost": {
-        "cache_read": 0.0,
-        "cache_write": 0.0,
-        "input": 0.0,
-        "output": 0.0
+        "cache_read": 0,
+        "cache_write": 0,
+        "input": 0,
+        "output": 0
       },
       "max_output_tokens": 64000,
       "reasoning_efforts": [
@@ -2058,10 +2058,10 @@
     "hy3-preview": {
       "context_window": 256000,
       "cost": {
-        "cache_read": 0.0,
-        "cache_write": 0.0,
-        "input": 0.0,
-        "output": 0.0
+        "cache_read": 0,
+        "cache_write": 0,
+        "input": 0,
+        "output": 0
       },
       "max_output_tokens": 64000,
       "reasoning_efforts": [
@@ -2091,7 +2091,7 @@
       "cost": {
         "cache_read": 0.15,
         "input": 1.15,
-        "output": 8.0
+        "output": 8
       },
       "max_output_tokens": 262144,
       "reasoning_efforts": [],
@@ -2104,7 +2104,7 @@
       "cost": {
         "cache_read": 0.1,
         "input": 0.6,
-        "output": 3.0
+        "output": 3
       },
       "max_output_tokens": 262144,
       "reasoning_efforts": [],
@@ -2117,7 +2117,7 @@
       "cost": {
         "cache_read": 0.16,
         "input": 0.95,
-        "output": 4.0
+        "output": 4
       },
       "max_output_tokens": 262144,
       "reasoning_efforts": [],
@@ -2130,7 +2130,7 @@
       "cost": {
         "cache_read": 0.19,
         "input": 0.95,
-        "output": 4.0
+        "output": 4
       },
       "max_output_tokens": 262144,
       "reasoning_efforts": [],
@@ -2143,7 +2143,7 @@
       "cost": {
         "cache_read": 0.38,
         "input": 1.9,
-        "output": 8.0
+        "output": 8
       },
       "max_output_tokens": 262144,
       "reasoning_efforts": [],
@@ -2155,8 +2155,8 @@
       "context_window": 1048576,
       "cost": {
         "cache_read": 0.3,
-        "input": 3.0,
-        "output": 15.0
+        "input": 3,
+        "output": 15
       },
       "max_output_tokens": 131072,
       "reasoning_efforts": [
@@ -2171,8 +2171,8 @@
     "lyria-3-clip-preview": {
       "context_window": 1048576,
       "cost": {
-        "input": 0.0,
-        "output": 0.0
+        "input": 0,
+        "output": 0
       },
       "max_output_tokens": 65536,
       "reasoning_efforts": null,
@@ -2183,8 +2183,8 @@
     "lyria-3-pro-preview": {
       "context_window": 1048576,
       "cost": {
-        "input": 0.0,
-        "output": 0.0
+        "input": 0,
+        "output": 0
       },
       "max_output_tokens": 65536,
       "reasoning_efforts": null,
@@ -2195,8 +2195,8 @@
     "magistral-medium-latest": {
       "context_window": 128000,
       "cost": {
-        "input": 2.0,
-        "output": 5.0
+        "input": 2,
+        "output": 5
       },
       "max_output_tokens": 16384,
       "reasoning_efforts": [],
@@ -2285,8 +2285,8 @@
     "mistral-large-2411": {
       "context_window": 131072,
       "cost": {
-        "input": 2.0,
-        "output": 6.0
+        "input": 2,
+        "output": 6
       },
       "max_output_tokens": 16384,
       "reasoning_efforts": null,
@@ -2322,7 +2322,7 @@
       "context_window": 131072,
       "cost": {
         "input": 0.4,
-        "output": 2.0
+        "output": 2
       },
       "max_output_tokens": 131072,
       "reasoning_efforts": null,
@@ -2455,8 +2455,8 @@
     "north-mini-code-1-0": {
       "context_window": 256000,
       "cost": {
-        "input": 0.0,
-        "output": 0.0
+        "input": 0,
+        "output": 0
       },
       "max_output_tokens": 64000,
       "reasoning_efforts": [
@@ -2471,8 +2471,8 @@
       "context_window": 200000,
       "cost": {
         "cache_read": 7.5,
-        "input": 15.0,
-        "output": 60.0
+        "input": 15,
+        "output": 60
       },
       "max_output_tokens": 100000,
       "reasoning_efforts": [
@@ -2487,8 +2487,8 @@
     "o1-pro": {
       "context_window": 200000,
       "cost": {
-        "input": 150.0,
-        "output": 600.0
+        "input": 150,
+        "output": 600
       },
       "max_output_tokens": 100000,
       "reasoning_efforts": [
@@ -2504,8 +2504,8 @@
       "context_window": 200000,
       "cost": {
         "cache_read": 0.5,
-        "input": 2.0,
-        "output": 8.0
+        "input": 2,
+        "output": 8
       },
       "max_output_tokens": 100000,
       "reasoning_efforts": [
@@ -2537,8 +2537,8 @@
     "o3-pro": {
       "context_window": 200000,
       "cost": {
-        "input": 20.0,
-        "output": 80.0
+        "input": 20,
+        "output": 80
       },
       "max_output_tokens": 100000,
       "reasoning_efforts": [
@@ -2582,8 +2582,8 @@
     "pixtral-large-latest": {
       "context_window": 128000,
       "cost": {
-        "input": 2.0,
-        "output": 6.0
+        "input": 2,
+        "output": 6
       },
       "max_output_tokens": 128000,
       "reasoning_efforts": null,
@@ -2632,7 +2632,7 @@
       "cost": {
         "input": 0.4,
         "output": 1.2,
-        "reasoning": 4.0
+        "reasoning": 4
       },
       "max_output_tokens": 32768,
       "reasoning_efforts": [],
@@ -2754,8 +2754,8 @@
     "qwen3-coder-plus": {
       "context_window": 1048576,
       "cost": {
-        "input": 1.0,
-        "output": 5.0
+        "input": 1,
+        "output": 5
       },
       "max_output_tokens": 65536,
       "reasoning_efforts": null,
@@ -2767,7 +2767,7 @@
       "context_window": 262144,
       "cost": {
         "input": 1.2,
-        "output": 6.0
+        "output": 6
       },
       "max_output_tokens": 65536,
       "reasoning_efforts": null,
@@ -2779,7 +2779,7 @@
       "context_window": 131072,
       "cost": {
         "input": 0.5,
-        "output": 2.0
+        "output": 2
       },
       "max_output_tokens": 32768,
       "reasoning_efforts": null,
@@ -2791,7 +2791,7 @@
       "context_window": 131072,
       "cost": {
         "input": 0.5,
-        "output": 6.0
+        "output": 6
       },
       "max_output_tokens": 32768,
       "reasoning_efforts": [],
@@ -2840,7 +2840,7 @@
       "context_window": 262144,
       "cost": {
         "input": 0.25,
-        "output": 2.0
+        "output": 2
       },
       "max_output_tokens": 65536,
       "reasoning_efforts": [],
@@ -2930,13 +2930,13 @@
         "cache_read": 0.05,
         "cache_write": 0.625,
         "input": 0.5,
-        "output": 3.0,
+        "output": 3,
         "tiers": [
           {
             "cache_read": 0.2,
             "cache_write": 2.5,
-            "input": 2.0,
-            "output": 6.0,
+            "input": 2,
+            "output": 6,
             "size": 256000
           }
         ]
@@ -2967,13 +2967,13 @@
         "cache_read": 0.05,
         "cache_write": 0.625,
         "input": 0.5,
-        "output": 3.0,
+        "output": 3,
         "tiers": [
           {
             "cache_read": 0.2,
             "cache_write": 2.5,
-            "input": 2.0,
-            "output": 6.0,
+            "input": 2,
+            "output": 6,
             "size": 256000
           }
         ]
@@ -2989,8 +2989,8 @@
       "cost": {
         "cache_read": 0.25,
         "cache_write": 2.5,
-        "input": 2.0,
-        "output": 6.0
+        "input": 2,
+        "output": 6
       },
       "max_output_tokens": 131072,
       "reasoning_efforts": [
@@ -3110,7 +3110,7 @@
         "context_window": 1000000,
         "cost": {
           "cache_read": 0.28,
-          "cache_write": 0.0,
+          "cache_write": 0,
           "input": 1.4,
           "output": 4.4
         },
@@ -3217,7 +3217,7 @@
         "cost": {
           "input": 0.4,
           "output": 1.2,
-          "reasoning": 4.0
+          "reasoning": 4
         },
         "max_output_tokens": 32768,
         "reasoning_efforts": [],
@@ -3473,8 +3473,8 @@
       "qwen3-coder-plus": {
         "context_window": 1048576,
         "cost": {
-          "input": 1.0,
-          "output": 5.0
+          "input": 1,
+          "output": 5
         },
         "max_output_tokens": 65536,
         "reasoning_efforts": null,
@@ -3485,8 +3485,8 @@
       "qwen3-livetranslate-flash-realtime": {
         "context_window": 53248,
         "cost": {
-          "input": 10.0,
-          "output": 10.0
+          "input": 10,
+          "output": 10
         },
         "max_output_tokens": 4096,
         "reasoning_efforts": null,
@@ -3498,7 +3498,7 @@
         "context_window": 262144,
         "cost": {
           "input": 1.2,
-          "output": 6.0
+          "output": 6
         },
         "max_output_tokens": 65536,
         "reasoning_efforts": null,
@@ -3510,7 +3510,7 @@
         "context_window": 131072,
         "cost": {
           "input": 0.5,
-          "output": 2.0
+          "output": 2
         },
         "max_output_tokens": 32768,
         "reasoning_efforts": null,
@@ -3522,7 +3522,7 @@
         "context_window": 131072,
         "cost": {
           "input": 0.5,
-          "output": 6.0
+          "output": 6
         },
         "max_output_tokens": 32768,
         "reasoning_efforts": [],
@@ -3621,7 +3621,7 @@
         "context_window": 262144,
         "cost": {
           "input": 0.25,
-          "output": 2.0
+          "output": 2
         },
         "max_output_tokens": 65536,
         "reasoning_efforts": [],
@@ -3711,13 +3711,13 @@
           "cache_read": 0.05,
           "cache_write": 0.625,
           "input": 0.5,
-          "output": 3.0,
+          "output": 3,
           "tiers": [
             {
               "cache_read": 0.2,
               "cache_write": 2.5,
-              "input": 2.0,
-              "output": 6.0,
+              "input": 2,
+              "output": 6,
               "size": 256000
             }
           ]
@@ -3748,13 +3748,13 @@
           "cache_read": 0.05,
           "cache_write": 0.625,
           "input": 0.5,
-          "output": 3.0,
+          "output": 3,
           "tiers": [
             {
               "cache_read": 0.2,
               "cache_write": 2.5,
-              "input": 2.0,
-              "output": 6.0,
+              "input": 2,
+              "output": 6,
               "size": 256000
             }
           ]
@@ -3770,8 +3770,8 @@
         "cost": {
           "cache_read": 0.25,
           "cache_write": 2.5,
-          "input": 2.0,
-          "output": 6.0
+          "input": 2,
+          "output": 6
         },
         "max_output_tokens": 131072,
         "reasoning_efforts": [
@@ -3800,10 +3800,10 @@
       "claude-fable-5": {
         "context_window": 1000000,
         "cost": {
-          "cache_read": 1.0,
+          "cache_read": 1,
           "cache_write": 12.5,
-          "input": 10.0,
-          "output": 50.0
+          "input": 10,
+          "output": 50
         },
         "max_output_tokens": 128000,
         "reasoning_efforts": [
@@ -3822,8 +3822,8 @@
         "cost": {
           "cache_read": 0.1,
           "cache_write": 1.25,
-          "input": 1.0,
-          "output": 5.0
+          "input": 1,
+          "output": 5
         },
         "max_output_tokens": 64000,
         "reasoning_efforts": [],
@@ -3836,8 +3836,8 @@
         "cost": {
           "cache_read": 0.1,
           "cache_write": 1.25,
-          "input": 1.0,
-          "output": 5.0
+          "input": 1,
+          "output": 5
         },
         "max_output_tokens": 64000,
         "reasoning_efforts": [],
@@ -3850,8 +3850,8 @@
         "cost": {
           "cache_read": 0.5,
           "cache_write": 6.25,
-          "input": 5.0,
-          "output": 25.0
+          "input": 5,
+          "output": 25
         },
         "max_output_tokens": 64000,
         "reasoning_efforts": [
@@ -3868,8 +3868,8 @@
         "cost": {
           "cache_read": 0.5,
           "cache_write": 6.25,
-          "input": 5.0,
-          "output": 25.0
+          "input": 5,
+          "output": 25
         },
         "max_output_tokens": 64000,
         "reasoning_efforts": [
@@ -3886,8 +3886,8 @@
         "cost": {
           "cache_read": 0.5,
           "cache_write": 6.25,
-          "input": 5.0,
-          "output": 25.0
+          "input": 5,
+          "output": 25
         },
         "max_output_tokens": 128000,
         "reasoning_efforts": [
@@ -3905,8 +3905,8 @@
         "cost": {
           "cache_read": 0.5,
           "cache_write": 6.25,
-          "input": 5.0,
-          "output": 25.0
+          "input": 5,
+          "output": 25
         },
         "max_output_tokens": 128000,
         "reasoning_efforts": [
@@ -3925,8 +3925,8 @@
         "cost": {
           "cache_read": 0.5,
           "cache_write": 6.25,
-          "input": 5.0,
-          "output": 25.0
+          "input": 5,
+          "output": 25
         },
         "max_output_tokens": 128000,
         "reasoning_efforts": [
@@ -3945,8 +3945,8 @@
         "cost": {
           "cache_read": 0.5,
           "cache_write": 6.25,
-          "input": 5.0,
-          "output": 25.0
+          "input": 5,
+          "output": 25
         },
         "max_output_tokens": 128000,
         "reasoning_efforts": [
@@ -3965,8 +3965,8 @@
         "cost": {
           "cache_read": 0.3,
           "cache_write": 3.75,
-          "input": 3.0,
-          "output": 15.0
+          "input": 3,
+          "output": 15
         },
         "max_output_tokens": 64000,
         "reasoning_efforts": [],
@@ -3979,8 +3979,8 @@
         "cost": {
           "cache_read": 0.3,
           "cache_write": 3.75,
-          "input": 3.0,
-          "output": 15.0
+          "input": 3,
+          "output": 15
         },
         "max_output_tokens": 64000,
         "reasoning_efforts": [],
@@ -3993,8 +3993,8 @@
         "cost": {
           "cache_read": 0.3,
           "cache_write": 3.75,
-          "input": 3.0,
-          "output": 15.0
+          "input": 3,
+          "output": 15
         },
         "max_output_tokens": 128000,
         "reasoning_efforts": [
@@ -4012,8 +4012,8 @@
         "cost": {
           "cache_read": 0.2,
           "cache_write": 2.5,
-          "input": 2.0,
-          "output": 10.0
+          "input": 2,
+          "output": 10
         },
         "max_output_tokens": 128000,
         "reasoning_efforts": [
@@ -4097,13 +4097,13 @@
         "context_window": 131072,
         "cost": {
           "cache_read": 0.2,
-          "input": 2.0,
-          "output": 12.0,
+          "input": 2,
+          "output": 12,
           "tiers": [
             {
               "cache_read": 0.4,
-              "input": 4.0,
-              "output": 18.0,
+              "input": 4,
+              "output": 18,
               "size": 200000
             }
           ]
@@ -4118,13 +4118,13 @@
         "context_window": 131072,
         "cost": {
           "cache_read": 0.2,
-          "input": 2.0,
-          "output": 12.0,
+          "input": 2,
+          "output": 12,
           "tiers": [
             {
               "cache_read": 0.4,
-              "input": 4.0,
-              "output": 18.0,
+              "input": 4,
+              "output": 18,
               "size": 200000
             }
           ]
@@ -4164,11 +4164,11 @@
         "context_window": 131072,
         "cost": {
           "input": 1.25,
-          "output": 10.0,
+          "output": 10,
           "tiers": [
             {
               "input": 2.5,
-              "output": 15.0,
+              "output": 15,
               "size": 200000
             }
           ]
@@ -4197,7 +4197,7 @@
         "cost": {
           "cache_read": 0.075,
           "input": 0.3,
-          "output": 30.0
+          "output": 30
         },
         "max_output_tokens": 32768,
         "reasoning_efforts": [],
@@ -4222,7 +4222,7 @@
         "context_window": 8192,
         "cost": {
           "input": 0.5,
-          "output": 10.0
+          "output": 10
         },
         "max_output_tokens": 16384,
         "reasoning_efforts": null,
@@ -4235,12 +4235,12 @@
         "cost": {
           "cache_read": 0.125,
           "input": 1.25,
-          "output": 10.0,
+          "output": 10,
           "tiers": [
             {
               "cache_read": 0.25,
               "input": 2.5,
-              "output": 15.0,
+              "output": 15,
               "size": 200000
             }
           ]
@@ -4254,8 +4254,8 @@
       "gemini-2.5-pro-preview-tts": {
         "context_window": 8192,
         "cost": {
-          "input": 1.0,
-          "output": 20.0
+          "input": 1,
+          "output": 20
         },
         "max_output_tokens": 16384,
         "reasoning_efforts": null,
@@ -4268,7 +4268,7 @@
         "cost": {
           "cache_read": 0.05,
           "input": 0.5,
-          "output": 3.0
+          "output": 3
         },
         "max_output_tokens": 65536,
         "reasoning_efforts": [
@@ -4284,8 +4284,8 @@
       "gemini-3-pro-image": {
         "context_window": 131072,
         "cost": {
-          "input": 2.0,
-          "output": 120.0
+          "input": 2,
+          "output": 120
         },
         "max_output_tokens": 32768,
         "reasoning_efforts": [
@@ -4299,8 +4299,8 @@
       "gemini-3-pro-image-preview": {
         "context_window": 131072,
         "cost": {
-          "input": 2.0,
-          "output": 120.0
+          "input": 2,
+          "output": 120
         },
         "max_output_tokens": 32768,
         "reasoning_efforts": [],
@@ -4312,13 +4312,13 @@
         "context_window": 1048576,
         "cost": {
           "cache_read": 0.2,
-          "input": 2.0,
-          "output": 12.0,
+          "input": 2,
+          "output": 12,
           "tiers": [
             {
               "cache_read": 0.4,
-              "input": 4.0,
-              "output": 18.0,
+              "input": 4,
+              "output": 18,
               "size": 200000
             }
           ]
@@ -4336,7 +4336,7 @@
         "context_window": 65536,
         "cost": {
           "input": 0.5,
-          "output": 60.0
+          "output": 60
         },
         "max_output_tokens": 65536,
         "reasoning_efforts": [
@@ -4351,7 +4351,7 @@
         "context_window": 65536,
         "cost": {
           "input": 0.5,
-          "output": 60.0
+          "output": 60
         },
         "max_output_tokens": 65536,
         "reasoning_efforts": [
@@ -4384,7 +4384,7 @@
         "context_window": 65536,
         "cost": {
           "input": 0.25,
-          "output": 30.0
+          "output": 30
         },
         "max_output_tokens": 65536,
         "reasoning_efforts": [
@@ -4433,8 +4433,8 @@
       "gemini-3.1-flash-tts-preview": {
         "context_window": 8192,
         "cost": {
-          "input": 1.0,
-          "output": 20.0
+          "input": 1,
+          "output": 20
         },
         "max_output_tokens": 16384,
         "reasoning_efforts": [],
@@ -4446,13 +4446,13 @@
         "context_window": 1048576,
         "cost": {
           "cache_read": 0.2,
-          "input": 2.0,
-          "output": 12.0,
+          "input": 2,
+          "output": 12,
           "tiers": [
             {
               "cache_read": 0.4,
-              "input": 4.0,
-              "output": 18.0,
+              "input": 4,
+              "output": 18,
               "size": 200000
             }
           ]
@@ -4471,13 +4471,13 @@
         "context_window": 1048576,
         "cost": {
           "cache_read": 0.2,
-          "input": 2.0,
-          "output": 12.0,
+          "input": 2,
+          "output": 12,
           "tiers": [
             {
               "cache_read": 0.4,
-              "input": 4.0,
-              "output": 18.0,
+              "input": 4,
+              "output": 18,
               "size": 200000
             }
           ]
@@ -4497,7 +4497,7 @@
         "cost": {
           "cache_read": 0.15,
           "input": 1.5,
-          "output": 9.0
+          "output": 9
         },
         "max_output_tokens": 65536,
         "reasoning_efforts": [
@@ -4532,7 +4532,7 @@
         "context_window": 16384,
         "cost": {
           "input": 3.5,
-          "output": 21.0
+          "output": 21
         },
         "max_output_tokens": 32768,
         "reasoning_efforts": null,
@@ -4562,7 +4562,7 @@
         "context_window": 2048,
         "cost": {
           "input": 0.15,
-          "output": 0.0
+          "output": 0
         },
         "max_output_tokens": 1,
         "reasoning_efforts": null,
@@ -4574,7 +4574,7 @@
         "context_window": 8192,
         "cost": {
           "input": 0.2,
-          "output": 0.0
+          "output": 0
         },
         "max_output_tokens": 1,
         "reasoning_efforts": null,
@@ -4587,7 +4587,7 @@
         "cost": {
           "cache_read": 0.15,
           "input": 1.5,
-          "output": 9.0
+          "output": 9
         },
         "max_output_tokens": 65536,
         "reasoning_efforts": [
@@ -4633,8 +4633,8 @@
       "gemini-robotics-er-1.6-preview": {
         "context_window": 131072,
         "cost": {
-          "input": 1.0,
-          "output": 5.0
+          "input": 1,
+          "output": 5
         },
         "max_output_tokens": 65536,
         "reasoning_efforts": [],
@@ -4661,8 +4661,8 @@
       "lyria-3-clip-preview": {
         "context_window": 1048576,
         "cost": {
-          "input": 0.0,
-          "output": 0.0
+          "input": 0,
+          "output": 0
         },
         "max_output_tokens": 65536,
         "reasoning_efforts": null,
@@ -4673,8 +4673,8 @@
       "lyria-3-pro-preview": {
         "context_window": 1048576,
         "cost": {
-          "input": 0.0,
-          "output": 0.0
+          "input": 0,
+          "output": 0
         },
         "max_output_tokens": 65536,
         "reasoning_efforts": null,
@@ -4857,7 +4857,7 @@
         "cost": {
           "cache_read": 0.15,
           "input": 1.15,
-          "output": 8.0
+          "output": 8
         },
         "max_output_tokens": 262144,
         "reasoning_efforts": [],
@@ -4870,7 +4870,7 @@
         "cost": {
           "cache_read": 0.6,
           "input": 2.4,
-          "output": 10.0
+          "output": 10
         },
         "max_output_tokens": 262144,
         "reasoning_efforts": null,
@@ -4883,7 +4883,7 @@
         "cost": {
           "cache_read": 0.1,
           "input": 0.6,
-          "output": 3.0
+          "output": 3
         },
         "max_output_tokens": 262144,
         "reasoning_efforts": [],
@@ -4896,7 +4896,7 @@
         "cost": {
           "cache_read": 0.16,
           "input": 0.95,
-          "output": 4.0
+          "output": 4
         },
         "max_output_tokens": 262144,
         "reasoning_efforts": [],
@@ -4909,7 +4909,7 @@
         "cost": {
           "cache_read": 0.19,
           "input": 0.95,
-          "output": 4.0
+          "output": 4
         },
         "max_output_tokens": 262144,
         "reasoning_efforts": [],
@@ -4922,7 +4922,7 @@
         "cost": {
           "cache_read": 0.38,
           "input": 1.9,
-          "output": 8.0
+          "output": 8
         },
         "max_output_tokens": 262144,
         "reasoning_efforts": [],
@@ -4934,8 +4934,8 @@
         "context_window": 1048576,
         "cost": {
           "cache_read": 0.3,
-          "input": 3.0,
-          "output": 15.0
+          "input": 3,
+          "output": 15
         },
         "max_output_tokens": 131072,
         "reasoning_efforts": [
@@ -4960,7 +4960,7 @@
       "gpt-3.5-turbo": {
         "context_window": 16385,
         "cost": {
-          "cache_read": 0.0,
+          "cache_read": 0,
           "input": 0.5,
           "output": 1.5
         },
@@ -4973,8 +4973,8 @@
       "gpt-4": {
         "context_window": 8192,
         "cost": {
-          "input": 30.0,
-          "output": 60.0
+          "input": 30,
+          "output": 60
         },
         "max_output_tokens": 8192,
         "reasoning_efforts": null,
@@ -4985,8 +4985,8 @@
       "gpt-4-turbo": {
         "context_window": 128000,
         "cost": {
-          "input": 10.0,
-          "output": 30.0
+          "input": 10,
+          "output": 30
         },
         "max_output_tokens": 4096,
         "reasoning_efforts": null,
@@ -4998,8 +4998,8 @@
         "context_window": 1047576,
         "cost": {
           "cache_read": 0.5,
-          "input": 2.0,
-          "output": 8.0
+          "input": 2,
+          "output": 8
         },
         "max_output_tokens": 32768,
         "reasoning_efforts": null,
@@ -5038,7 +5038,7 @@
         "cost": {
           "cache_read": 1.25,
           "input": 2.5,
-          "output": 10.0
+          "output": 10
         },
         "max_output_tokens": 16384,
         "reasoning_efforts": null,
@@ -5049,8 +5049,8 @@
       "gpt-4o-2024-05-13": {
         "context_window": 128000,
         "cost": {
-          "input": 5.0,
-          "output": 15.0
+          "input": 5,
+          "output": 15
         },
         "max_output_tokens": 4096,
         "reasoning_efforts": null,
@@ -5063,7 +5063,7 @@
         "cost": {
           "cache_read": 1.25,
           "input": 2.5,
-          "output": 10.0
+          "output": 10
         },
         "max_output_tokens": 16384,
         "reasoning_efforts": null,
@@ -5076,7 +5076,7 @@
         "cost": {
           "cache_read": 1.25,
           "input": 2.5,
-          "output": 10.0
+          "output": 10
         },
         "max_output_tokens": 16384,
         "reasoning_efforts": null,
@@ -5102,7 +5102,7 @@
         "cost": {
           "cache_read": 0.125,
           "input": 1.25,
-          "output": 10.0
+          "output": 10
         },
         "max_output_tokens": 128000,
         "reasoning_efforts": [
@@ -5120,7 +5120,7 @@
         "cost": {
           "cache_read": 0.025,
           "input": 0.25,
-          "output": 2.0
+          "output": 2
         },
         "max_output_tokens": 128000,
         "reasoning_efforts": [
@@ -5154,8 +5154,8 @@
       "gpt-5-pro": {
         "context_window": 400000,
         "cost": {
-          "input": 15.0,
-          "output": 120.0
+          "input": 15,
+          "output": 120
         },
         "max_output_tokens": 272000,
         "reasoning_efforts": [
@@ -5170,7 +5170,7 @@
         "cost": {
           "cache_read": 0.125,
           "input": 1.25,
-          "output": 10.0
+          "output": 10
         },
         "max_output_tokens": 128000,
         "reasoning_efforts": [
@@ -5188,7 +5188,7 @@
         "cost": {
           "cache_read": 0.175,
           "input": 1.75,
-          "output": 14.0
+          "output": 14
         },
         "max_output_tokens": 128000,
         "reasoning_efforts": [
@@ -5207,7 +5207,7 @@
         "cost": {
           "cache_read": 0.175,
           "input": 1.75,
-          "output": 14.0
+          "output": 14
         },
         "max_output_tokens": 16384,
         "reasoning_efforts": [
@@ -5220,8 +5220,8 @@
       "gpt-5.2-pro": {
         "context_window": 400000,
         "cost": {
-          "input": 21.0,
-          "output": 168.0
+          "input": 21,
+          "output": 168
         },
         "max_output_tokens": 128000,
         "reasoning_efforts": [
@@ -5238,7 +5238,7 @@
         "cost": {
           "cache_read": 0.175,
           "input": 1.75,
-          "output": 14.0
+          "output": 14
         },
         "max_output_tokens": 16384,
         "reasoning_efforts": null,
@@ -5251,7 +5251,7 @@
         "cost": {
           "cache_read": 0.175,
           "input": 1.75,
-          "output": 14.0
+          "output": 14
         },
         "max_output_tokens": 128000,
         "reasoning_efforts": [
@@ -5270,7 +5270,7 @@
         "cost": {
           "cache_read": 0.175,
           "input": 1.75,
-          "output": 14.0
+          "output": 14
         },
         "max_output_tokens": 32000,
         "reasoning_efforts": [
@@ -5289,11 +5289,11 @@
         "cost": {
           "cache_read": 0.25,
           "input": 2.5,
-          "output": 15.0,
+          "output": 15,
           "tiers": [
             {
               "cache_read": 0.5,
-              "input": 5.0,
+              "input": 5,
               "output": 22.5,
               "size": 272000
             }
@@ -5352,12 +5352,12 @@
       "gpt-5.4-pro": {
         "context_window": 1050000,
         "cost": {
-          "input": 30.0,
-          "output": 180.0,
+          "input": 30,
+          "output": 180,
           "tiers": [
             {
-              "input": 60.0,
-              "output": 270.0,
+              "input": 60,
+              "output": 270,
               "size": 272000
             }
           ]
@@ -5376,13 +5376,13 @@
         "context_window": 1050000,
         "cost": {
           "cache_read": 0.5,
-          "input": 5.0,
-          "output": 30.0,
+          "input": 5,
+          "output": 30,
           "tiers": [
             {
-              "cache_read": 1.0,
-              "input": 10.0,
-              "output": 45.0,
+              "cache_read": 1,
+              "input": 10,
+              "output": 45,
               "size": 272000
             }
           ]
@@ -5402,12 +5402,12 @@
       "gpt-5.5-pro": {
         "context_window": 1050000,
         "cost": {
-          "input": 30.0,
-          "output": 180.0,
+          "input": 30,
+          "output": 180,
           "tiers": [
             {
-              "input": 60.0,
-              "output": 270.0,
+              "input": 60,
+              "output": 270,
               "size": 272000
             }
           ]
@@ -5427,14 +5427,14 @@
         "cost": {
           "cache_read": 0.5,
           "cache_write": 6.25,
-          "input": 5.0,
-          "output": 30.0,
+          "input": 5,
+          "output": 30,
           "tiers": [
             {
-              "cache_read": 1.0,
+              "cache_read": 1,
               "cache_write": 12.5,
-              "input": 10.0,
-              "output": 45.0,
+              "input": 10,
+              "output": 45,
               "size": 272000
             }
           ]
@@ -5487,14 +5487,14 @@
         "cost": {
           "cache_read": 0.5,
           "cache_write": 6.25,
-          "input": 5.0,
-          "output": 30.0,
+          "input": 5,
+          "output": 30,
           "tiers": [
             {
-              "cache_read": 1.0,
+              "cache_read": 1,
               "cache_write": 12.5,
-              "input": 10.0,
-              "output": 45.0,
+              "input": 10,
+              "output": 45,
               "size": 272000
             }
           ]
@@ -5517,14 +5517,14 @@
         "cost": {
           "cache_read": 0.2,
           "cache_write": 2.5,
-          "input": 2.0,
-          "output": 12.0,
+          "input": 2,
+          "output": 12,
           "tiers": [
             {
               "cache_read": 0.4,
-              "cache_write": 5.0,
-              "input": 4.0,
-              "output": 18.0,
+              "cache_write": 5,
+              "input": 4,
+              "output": 18,
               "size": 272000
             }
           ]
@@ -5570,8 +5570,8 @@
         "context_window": 0,
         "cost": {
           "cache_read": 1.25,
-          "input": 5.0,
-          "output": 30.0
+          "input": 5,
+          "output": 30
         },
         "max_output_tokens": 0,
         "reasoning_efforts": null,
@@ -5583,8 +5583,8 @@
         "context_window": 128000,
         "cost": {
           "cache_read": 0.4,
-          "input": 4.0,
-          "output": 24.0
+          "input": 4,
+          "output": 24
         },
         "max_output_tokens": 32000,
         "reasoning_efforts": [
@@ -5602,8 +5602,8 @@
         "context_window": 200000,
         "cost": {
           "cache_read": 7.5,
-          "input": 15.0,
-          "output": 60.0
+          "input": 15,
+          "output": 60
         },
         "max_output_tokens": 100000,
         "reasoning_efforts": [
@@ -5618,8 +5618,8 @@
       "o1-pro": {
         "context_window": 200000,
         "cost": {
-          "input": 150.0,
-          "output": 600.0
+          "input": 150,
+          "output": 600
         },
         "max_output_tokens": 100000,
         "reasoning_efforts": [
@@ -5635,8 +5635,8 @@
         "context_window": 200000,
         "cost": {
           "cache_read": 0.5,
-          "input": 2.0,
-          "output": 8.0
+          "input": 2,
+          "output": 8
         },
         "max_output_tokens": 100000,
         "reasoning_efforts": [
@@ -5668,8 +5668,8 @@
       "o3-pro": {
         "context_window": 200000,
         "cost": {
-          "input": 20.0,
-          "output": 80.0
+          "input": 20,
+          "output": 80
         },
         "max_output_tokens": 100000,
         "reasoning_efforts": [
@@ -5702,7 +5702,7 @@
         "context_window": 8191,
         "cost": {
           "input": 0.13,
-          "output": 0.0
+          "output": 0
         },
         "max_output_tokens": 3072,
         "reasoning_efforts": null,
@@ -5714,7 +5714,7 @@
         "context_window": 8191,
         "cost": {
           "input": 0.02,
-          "output": 0.0
+          "output": 0
         },
         "max_output_tokens": 1536,
         "reasoning_efforts": null,
@@ -5726,7 +5726,7 @@
         "context_window": 8192,
         "cost": {
           "input": 0.1,
-          "output": 0.0
+          "output": 0
         },
         "max_output_tokens": 1536,
         "reasoning_efforts": null,
@@ -5739,8 +5739,8 @@
       "ai21/jamba-large-1.7": {
         "context_window": 256000,
         "cost": {
-          "input": 2.0,
-          "output": 8.0
+          "input": 2,
+          "output": 8
         },
         "max_output_tokens": 4096,
         "reasoning_efforts": null,
@@ -5765,8 +5765,8 @@
         "context_window": 131072,
         "cost": {
           "cache_read": 0.75,
-          "input": 3.0,
-          "output": 6.0
+          "input": 3,
+          "output": 6
         },
         "max_output_tokens": 32768,
         "reasoning_efforts": [],
@@ -5875,8 +5875,8 @@
       "anthracite-org/magnum-v4-72b": {
         "context_window": 16384,
         "cost": {
-          "input": 3.0,
-          "output": 5.0
+          "input": 3,
+          "output": 5
         },
         "max_output_tokens": 2048,
         "reasoning_efforts": null,
@@ -5901,10 +5901,10 @@
       "anthropic/claude-fable-5": {
         "context_window": 1000000,
         "cost": {
-          "cache_read": 1.0,
+          "cache_read": 1,
           "cache_write": 12.5,
-          "input": 10.0,
-          "output": 50.0
+          "input": 10,
+          "output": 50
         },
         "max_output_tokens": 128000,
         "reasoning_efforts": [
@@ -5923,8 +5923,8 @@
         "cost": {
           "cache_read": 0.1,
           "cache_write": 1.25,
-          "input": 1.0,
-          "output": 5.0
+          "input": 1,
+          "output": 5
         },
         "max_output_tokens": 64000,
         "reasoning_efforts": [],
@@ -5937,8 +5937,8 @@
         "cost": {
           "cache_read": 1.5,
           "cache_write": 18.75,
-          "input": 15.0,
-          "output": 75.0
+          "input": 15,
+          "output": 75
         },
         "max_output_tokens": 32000,
         "reasoning_efforts": [],
@@ -5951,8 +5951,8 @@
         "cost": {
           "cache_read": 1.5,
           "cache_write": 18.75,
-          "input": 15.0,
-          "output": 75.0
+          "input": 15,
+          "output": 75
         },
         "max_output_tokens": 32000,
         "reasoning_efforts": [],
@@ -5965,8 +5965,8 @@
         "cost": {
           "cache_read": 0.5,
           "cache_write": 6.25,
-          "input": 5.0,
-          "output": 25.0
+          "input": 5,
+          "output": 25
         },
         "max_output_tokens": 64000,
         "reasoning_efforts": [
@@ -5983,13 +5983,13 @@
         "cost": {
           "cache_read": 0.5,
           "cache_write": 6.25,
-          "input": 5.0,
-          "output": 25.0,
+          "input": 5,
+          "output": 25,
           "tiers": [
             {
-              "cache_read": 1.0,
+              "cache_read": 1,
               "cache_write": 12.5,
-              "input": 10.0,
+              "input": 10,
               "output": 37.5,
               "size": 200000
             }
@@ -6011,13 +6011,13 @@
         "cost": {
           "cache_read": 0.5,
           "cache_write": 6.25,
-          "input": 5.0,
-          "output": 25.0,
+          "input": 5,
+          "output": 25,
           "tiers": [
             {
-              "cache_read": 1.0,
+              "cache_read": 1,
               "cache_write": 12.5,
-              "input": 10.0,
+              "input": 10,
               "output": 37.5,
               "size": 200000
             }
@@ -6038,10 +6038,10 @@
       "anthropic/claude-opus-4.7-fast": {
         "context_window": 1000000,
         "cost": {
-          "cache_read": 3.0,
+          "cache_read": 3,
           "cache_write": 37.5,
-          "input": 30.0,
-          "output": 150.0
+          "input": 30,
+          "output": 150
         },
         "max_output_tokens": 128000,
         "reasoning_efforts": [
@@ -6060,8 +6060,8 @@
         "cost": {
           "cache_read": 0.5,
           "cache_write": 6.25,
-          "input": 5.0,
-          "output": 25.0
+          "input": 5,
+          "output": 25
         },
         "max_output_tokens": 128000,
         "reasoning_efforts": [
@@ -6078,10 +6078,10 @@
       "anthropic/claude-opus-4.8-fast": {
         "context_window": 1000000,
         "cost": {
-          "cache_read": 1.0,
+          "cache_read": 1,
           "cache_write": 12.5,
-          "input": 10.0,
-          "output": 50.0
+          "input": 10,
+          "output": 50
         },
         "max_output_tokens": 128000,
         "reasoning_efforts": [
@@ -6100,8 +6100,8 @@
         "cost": {
           "cache_read": 0.5,
           "cache_write": 6.25,
-          "input": 5.0,
-          "output": 25.0
+          "input": 5,
+          "output": 25
         },
         "max_output_tokens": 128000,
         "reasoning_efforts": [
@@ -6118,10 +6118,10 @@
       "anthropic/claude-opus-5-fast": {
         "context_window": 1000000,
         "cost": {
-          "cache_read": 1.0,
+          "cache_read": 1,
           "cache_write": 12.5,
-          "input": 10.0,
-          "output": 50.0
+          "input": 10,
+          "output": 50
         },
         "max_output_tokens": 128000,
         "reasoning_efforts": [
@@ -6140,13 +6140,13 @@
         "cost": {
           "cache_read": 0.3,
           "cache_write": 3.75,
-          "input": 3.0,
-          "output": 15.0,
+          "input": 3,
+          "output": 15,
           "tiers": [
             {
               "cache_read": 0.6,
               "cache_write": 7.5,
-              "input": 6.0,
+              "input": 6,
               "output": 22.5,
               "size": 200000
             }
@@ -6163,13 +6163,13 @@
         "cost": {
           "cache_read": 0.3,
           "cache_write": 3.75,
-          "input": 3.0,
-          "output": 15.0,
+          "input": 3,
+          "output": 15,
           "tiers": [
             {
               "cache_read": 0.6,
               "cache_write": 7.5,
-              "input": 6.0,
+              "input": 6,
               "output": 22.5,
               "size": 200000
             }
@@ -6186,13 +6186,13 @@
         "cost": {
           "cache_read": 0.3,
           "cache_write": 3.75,
-          "input": 3.0,
-          "output": 15.0,
+          "input": 3,
+          "output": 15,
           "tiers": [
             {
               "cache_read": 0.6,
               "cache_write": 7.5,
-              "input": 6.0,
+              "input": 6,
               "output": 22.5,
               "size": 200000
             }
@@ -6214,8 +6214,8 @@
         "cost": {
           "cache_read": 0.2,
           "cache_write": 2.5,
-          "input": 2.0,
-          "output": 10.0
+          "input": 2,
+          "output": 10
         },
         "max_output_tokens": 128000,
         "reasoning_efforts": [
@@ -6270,11 +6270,11 @@
         "context_window": 262144,
         "cost": {
           "input": 0.25,
-          "output": 2.0,
+          "output": 2,
           "tiers": [
             {
               "input": 0.5,
-              "output": 4.0,
+              "output": 4,
               "size": 128000
             }
           ]
@@ -6308,11 +6308,11 @@
         "context_window": 262144,
         "cost": {
           "input": 0.25,
-          "output": 2.0,
+          "output": 2,
           "tiers": [
             {
               "input": 0.5,
-              "output": 4.0,
+              "output": 4,
               "size": 128000
             }
           ]
@@ -6381,7 +6381,7 @@
         "context_window": 256000,
         "cost": {
           "input": 2.5,
-          "output": 10.0
+          "output": 10
         },
         "max_output_tokens": 8192,
         "reasoning_efforts": null,
@@ -6405,7 +6405,7 @@
         "context_window": 128000,
         "cost": {
           "input": 2.5,
-          "output": 10.0
+          "output": 10
         },
         "max_output_tokens": 4000,
         "reasoning_efforts": null,
@@ -6428,8 +6428,8 @@
       "cohere/north-mini-code:free": {
         "context_window": 256000,
         "cost": {
-          "input": 0.0,
-          "output": 0.0
+          "input": 0,
+          "output": 0
         },
         "max_output_tokens": 64000,
         "reasoning_efforts": [],
@@ -6529,7 +6529,7 @@
         "cost": {
           "cache_read": 0.135,
           "input": 0.27,
-          "output": 1.0
+          "output": 1
         },
         "max_output_tokens": 32768,
         "reasoning_efforts": [],
@@ -6661,13 +6661,13 @@
           "cache_read": 0.125,
           "cache_write": 0.375,
           "input": 1.25,
-          "output": 10.0,
-          "reasoning": 10.0,
+          "output": 10,
+          "reasoning": 10,
           "tiers": [
             {
               "cache_read": 0.25,
               "input": 2.5,
-              "output": 15.0,
+              "output": 15,
               "size": 200000
             }
           ]
@@ -6684,13 +6684,13 @@
           "cache_read": 0.125,
           "cache_write": 0.375,
           "input": 1.25,
-          "output": 10.0,
-          "reasoning": 10.0,
+          "output": 10,
+          "reasoning": 10,
           "tiers": [
             {
               "cache_read": 0.25,
               "input": 2.5,
-              "output": 15.0,
+              "output": 15,
               "size": 200000
             }
           ]
@@ -6707,13 +6707,13 @@
           "cache_read": 0.125,
           "cache_write": 0.375,
           "input": 1.25,
-          "output": 10.0,
-          "reasoning": 10.0,
+          "output": 10,
+          "reasoning": 10,
           "tiers": [
             {
               "cache_read": 0.25,
               "input": 2.5,
-              "output": 15.0,
+              "output": 15,
               "size": 200000
             }
           ]
@@ -6730,8 +6730,8 @@
           "cache_read": 0.05,
           "cache_write": 0.083333,
           "input": 0.5,
-          "output": 3.0,
-          "reasoning": 3.0
+          "output": 3,
+          "reasoning": 3
         },
         "max_output_tokens": 65536,
         "reasoning_efforts": [
@@ -6749,9 +6749,9 @@
         "cost": {
           "cache_read": 0.2,
           "cache_write": 0.375,
-          "input": 2.0,
-          "output": 12.0,
-          "reasoning": 12.0
+          "input": 2,
+          "output": 12,
+          "reasoning": 12
         },
         "max_output_tokens": 32768,
         "reasoning_efforts": [],
@@ -6764,9 +6764,9 @@
         "cost": {
           "cache_read": 0.2,
           "cache_write": 0.375,
-          "input": 2.0,
-          "output": 12.0,
-          "reasoning": 12.0
+          "input": 2,
+          "output": 12,
+          "reasoning": 12
         },
         "max_output_tokens": 32768,
         "reasoning_efforts": [],
@@ -6778,7 +6778,7 @@
         "context_window": 131072,
         "cost": {
           "input": 0.5,
-          "output": 3.0
+          "output": 3
         },
         "max_output_tokens": 32768,
         "reasoning_efforts": [
@@ -6793,7 +6793,7 @@
         "context_window": 65536,
         "cost": {
           "input": 0.5,
-          "output": 3.0
+          "output": 3
         },
         "max_output_tokens": 65536,
         "reasoning_efforts": [
@@ -6864,14 +6864,14 @@
         "cost": {
           "cache_read": 0.2,
           "cache_write": 0.375,
-          "input": 2.0,
-          "output": 12.0,
-          "reasoning": 12.0,
+          "input": 2,
+          "output": 12,
+          "reasoning": 12,
           "tiers": [
             {
               "cache_read": 0.4,
-              "input": 4.0,
-              "output": 18.0,
+              "input": 4,
+              "output": 18,
               "size": 200000
             }
           ]
@@ -6891,14 +6891,14 @@
         "cost": {
           "cache_read": 0.2,
           "cache_write": 0.375,
-          "input": 2.0,
-          "output": 12.0,
-          "reasoning": 12.0,
+          "input": 2,
+          "output": 12,
+          "reasoning": 12,
           "tiers": [
             {
               "cache_read": 0.4,
-              "input": 4.0,
-              "output": 18.0,
+              "input": 4,
+              "output": 18,
               "size": 200000
             }
           ]
@@ -6919,8 +6919,8 @@
           "cache_read": 0.15,
           "cache_write": 0.083333,
           "input": 1.5,
-          "output": 9.0,
-          "reasoning": 9.0
+          "output": 9,
+          "reasoning": 9
         },
         "max_output_tokens": 65536,
         "reasoning_efforts": [
@@ -7050,8 +7050,8 @@
       "google/gemma-4-26b-a4b-it:free": {
         "context_window": 262144,
         "cost": {
-          "input": 0.0,
-          "output": 0.0
+          "input": 0,
+          "output": 0
         },
         "max_output_tokens": 32768,
         "reasoning_efforts": [],
@@ -7075,8 +7075,8 @@
       "google/gemma-4-31b-it:free": {
         "context_window": 262144,
         "cost": {
-          "input": 0.0,
-          "output": 0.0
+          "input": 0,
+          "output": 0
         },
         "max_output_tokens": 32768,
         "reasoning_efforts": [],
@@ -7087,8 +7087,8 @@
       "google/lyria-3-clip-preview": {
         "context_window": 1048576,
         "cost": {
-          "input": 0.0,
-          "output": 0.0
+          "input": 0,
+          "output": 0
         },
         "max_output_tokens": 65536,
         "reasoning_efforts": null,
@@ -7099,8 +7099,8 @@
       "google/lyria-3-pro-preview": {
         "context_window": 1048576,
         "cost": {
-          "input": 0.0,
-          "output": 0.0
+          "input": 0,
+          "output": 0
         },
         "max_output_tokens": 65536,
         "reasoning_efforts": null,
@@ -7205,8 +7205,8 @@
       "inclusionai/ling-3.0-tiny:free": {
         "context_window": 262144,
         "cost": {
-          "input": 0.0,
-          "output": 0.0
+          "input": 0,
+          "output": 0
         },
         "max_output_tokens": 32768,
         "reasoning_efforts": [],
@@ -7610,8 +7610,8 @@
         "context_window": 128000,
         "cost": {
           "cache_read": 0.2,
-          "input": 2.0,
-          "output": 6.0
+          "input": 2,
+          "output": 6
         },
         "max_output_tokens": 128000,
         "reasoning_efforts": null,
@@ -7623,8 +7623,8 @@
         "context_window": 131072,
         "cost": {
           "cache_read": 0.2,
-          "input": 2.0,
-          "output": 6.0
+          "input": 2,
+          "output": 6
         },
         "max_output_tokens": 131072,
         "reasoning_efforts": null,
@@ -7650,7 +7650,7 @@
         "cost": {
           "cache_read": 0.04,
           "input": 0.4,
-          "output": 2.0
+          "output": 2
         },
         "max_output_tokens": 131072,
         "reasoning_efforts": null,
@@ -7678,7 +7678,7 @@
         "cost": {
           "cache_read": 0.04,
           "input": 0.4,
-          "output": 2.0
+          "output": 2
         },
         "max_output_tokens": 262144,
         "reasoning_efforts": null,
@@ -7767,8 +7767,8 @@
         "context_window": 65536,
         "cost": {
           "cache_read": 0.2,
-          "input": 2.0,
-          "output": 6.0
+          "input": 2,
+          "output": 6
         },
         "max_output_tokens": 65536,
         "reasoning_efforts": null,
@@ -7844,7 +7844,7 @@
         "cost": {
           "cache_read": 0.16,
           "input": 0.95,
-          "output": 4.0
+          "output": 4
         },
         "max_output_tokens": 262144,
         "reasoning_efforts": [],
@@ -7869,8 +7869,8 @@
         "context_window": 1048576,
         "cost": {
           "cache_read": 0.3,
-          "input": 3.0,
-          "output": 15.0
+          "input": 3,
+          "output": 15
         },
         "max_output_tokens": 1048576,
         "reasoning_efforts": [
@@ -7924,7 +7924,7 @@
         "cost": {
           "cache_read": 0.025,
           "input": 0.25,
-          "output": 1.0
+          "output": 1
         },
         "max_output_tokens": 262144,
         "reasoning_efforts": [],
@@ -7935,8 +7935,8 @@
       "nousresearch/hermes-3-llama-3.1-405b": {
         "context_window": 131072,
         "cost": {
-          "input": 1.0,
-          "output": 1.0
+          "input": 1,
+          "output": 1
         },
         "max_output_tokens": 16384,
         "reasoning_efforts": null,
@@ -7959,8 +7959,8 @@
       "nousresearch/hermes-4-405b": {
         "context_window": 131072,
         "cost": {
-          "input": 1.0,
-          "output": 3.0
+          "input": 1,
+          "output": 3
         },
         "max_output_tokens": 131072,
         "reasoning_efforts": [],
@@ -7996,8 +7996,8 @@
       "nvidia/nemotron-3-nano-30b-a3b:free": {
         "context_window": 256000,
         "cost": {
-          "input": 0.0,
-          "output": 0.0
+          "input": 0,
+          "output": 0
         },
         "max_output_tokens": 256000,
         "reasoning_efforts": [],
@@ -8008,8 +8008,8 @@
       "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free": {
         "context_window": 256000,
         "cost": {
-          "input": 0.0,
-          "output": 0.0
+          "input": 0,
+          "output": 0
         },
         "max_output_tokens": 65536,
         "reasoning_efforts": [],
@@ -8035,8 +8035,8 @@
       "nvidia/nemotron-3-super-120b-a12b:free": {
         "context_window": 262144,
         "cost": {
-          "input": 0.0,
-          "output": 0.0
+          "input": 0,
+          "output": 0
         },
         "max_output_tokens": 262144,
         "reasoning_efforts": [
@@ -8066,8 +8066,8 @@
       "nvidia/nemotron-3-ultra-550b-a55b:free": {
         "context_window": 1000000,
         "cost": {
-          "input": 0.0,
-          "output": 0.0
+          "input": 0,
+          "output": 0
         },
         "max_output_tokens": 65536,
         "reasoning_efforts": [
@@ -8081,8 +8081,8 @@
       "nvidia/nemotron-3.5-content-safety:free": {
         "context_window": 128000,
         "cost": {
-          "input": 0.0,
-          "output": 0.0
+          "input": 0,
+          "output": 0
         },
         "max_output_tokens": 8192,
         "reasoning_efforts": [],
@@ -8093,8 +8093,8 @@
       "nvidia/nemotron-nano-12b-v2-vl:free": {
         "context_window": 128000,
         "cost": {
-          "input": 0.0,
-          "output": 0.0
+          "input": 0,
+          "output": 0
         },
         "max_output_tokens": 128000,
         "reasoning_efforts": [],
@@ -8105,8 +8105,8 @@
       "nvidia/nemotron-nano-9b-v2:free": {
         "context_window": 128000,
         "cost": {
-          "input": 0.0,
-          "output": 0.0
+          "input": 0,
+          "output": 0
         },
         "max_output_tokens": 128000,
         "reasoning_efforts": [],
@@ -8129,8 +8129,8 @@
       "openai/gpt-3.5-turbo-0613": {
         "context_window": 4095,
         "cost": {
-          "input": 1.0,
-          "output": 2.0
+          "input": 1,
+          "output": 2
         },
         "max_output_tokens": 4096,
         "reasoning_efforts": null,
@@ -8141,8 +8141,8 @@
       "openai/gpt-3.5-turbo-16k": {
         "context_window": 16385,
         "cost": {
-          "input": 3.0,
-          "output": 4.0
+          "input": 3,
+          "output": 4
         },
         "max_output_tokens": 4096,
         "reasoning_efforts": null,
@@ -8154,7 +8154,7 @@
         "context_window": 4095,
         "cost": {
           "input": 1.5,
-          "output": 2.0
+          "output": 2
         },
         "max_output_tokens": 4096,
         "reasoning_efforts": null,
@@ -8165,8 +8165,8 @@
       "openai/gpt-4": {
         "context_window": 8191,
         "cost": {
-          "input": 30.0,
-          "output": 60.0
+          "input": 30,
+          "output": 60
         },
         "max_output_tokens": 4096,
         "reasoning_efforts": null,
@@ -8177,8 +8177,8 @@
       "openai/gpt-4-turbo": {
         "context_window": 128000,
         "cost": {
-          "input": 10.0,
-          "output": 30.0
+          "input": 10,
+          "output": 30
         },
         "max_output_tokens": 4096,
         "reasoning_efforts": null,
@@ -8189,8 +8189,8 @@
       "openai/gpt-4-turbo-preview": {
         "context_window": 128000,
         "cost": {
-          "input": 10.0,
-          "output": 30.0
+          "input": 10,
+          "output": 30
         },
         "max_output_tokens": 4096,
         "reasoning_efforts": null,
@@ -8202,8 +8202,8 @@
         "context_window": 1047576,
         "cost": {
           "cache_read": 0.5,
-          "input": 2.0,
-          "output": 8.0
+          "input": 2,
+          "output": 8
         },
         "max_output_tokens": 32768,
         "reasoning_efforts": null,
@@ -8242,7 +8242,7 @@
         "cost": {
           "cache_read": 1.25,
           "input": 2.5,
-          "output": 10.0
+          "output": 10
         },
         "max_output_tokens": 16384,
         "reasoning_efforts": null,
@@ -8253,8 +8253,8 @@
       "openai/gpt-4o-2024-05-13": {
         "context_window": 128000,
         "cost": {
-          "input": 5.0,
-          "output": 15.0
+          "input": 5,
+          "output": 15
         },
         "max_output_tokens": 4096,
         "reasoning_efforts": null,
@@ -8267,7 +8267,7 @@
         "cost": {
           "cache_read": 1.25,
           "input": 2.5,
-          "output": 10.0
+          "output": 10
         },
         "max_output_tokens": 16384,
         "reasoning_efforts": null,
@@ -8280,7 +8280,7 @@
         "cost": {
           "cache_read": 1.25,
           "input": 2.5,
-          "output": 10.0
+          "output": 10
         },
         "max_output_tokens": 16384,
         "reasoning_efforts": null,
@@ -8319,7 +8319,7 @@
         "cost": {
           "cache_read": 0.125,
           "input": 1.25,
-          "output": 10.0
+          "output": 10
         },
         "max_output_tokens": 128000,
         "reasoning_efforts": [
@@ -8336,8 +8336,8 @@
         "context_window": 400000,
         "cost": {
           "cache_read": 1.25,
-          "input": 10.0,
-          "output": 10.0
+          "input": 10,
+          "output": 10
         },
         "max_output_tokens": 128000,
         "reasoning_efforts": [],
@@ -8350,7 +8350,7 @@
         "cost": {
           "cache_read": 0.25,
           "input": 2.5,
-          "output": 2.0
+          "output": 2
         },
         "max_output_tokens": 128000,
         "reasoning_efforts": [],
@@ -8363,7 +8363,7 @@
         "cost": {
           "cache_read": 0.025,
           "input": 0.25,
-          "output": 2.0
+          "output": 2
         },
         "max_output_tokens": 128000,
         "reasoning_efforts": [
@@ -8397,8 +8397,8 @@
       "openai/gpt-5-pro": {
         "context_window": 400000,
         "cost": {
-          "input": 15.0,
-          "output": 120.0
+          "input": 15,
+          "output": 120
         },
         "max_output_tokens": 128000,
         "reasoning_efforts": [
@@ -8413,7 +8413,7 @@
         "cost": {
           "cache_read": 0.125,
           "input": 1.25,
-          "output": 10.0
+          "output": 10
         },
         "max_output_tokens": 128000,
         "reasoning_efforts": [
@@ -8431,7 +8431,7 @@
         "cost": {
           "cache_read": 0.13,
           "input": 1.25,
-          "output": 10.0
+          "output": 10
         },
         "max_output_tokens": 128000,
         "reasoning_efforts": [
@@ -8448,7 +8448,7 @@
         "cost": {
           "cache_read": 0.125,
           "input": 1.25,
-          "output": 10.0
+          "output": 10
         },
         "max_output_tokens": 128000,
         "reasoning_efforts": [
@@ -8466,7 +8466,7 @@
         "cost": {
           "cache_read": 0.03,
           "input": 0.25,
-          "output": 2.0
+          "output": 2
         },
         "max_output_tokens": 128000,
         "reasoning_efforts": [
@@ -8483,7 +8483,7 @@
         "cost": {
           "cache_read": 0.175,
           "input": 1.75,
-          "output": 14.0
+          "output": 14
         },
         "max_output_tokens": 128000,
         "reasoning_efforts": [
@@ -8502,7 +8502,7 @@
         "cost": {
           "cache_read": 0.175,
           "input": 1.75,
-          "output": 14.0
+          "output": 14
         },
         "max_output_tokens": 16384,
         "reasoning_efforts": null,
@@ -8515,7 +8515,7 @@
         "cost": {
           "cache_read": 0.175,
           "input": 1.75,
-          "output": 14.0
+          "output": 14
         },
         "max_output_tokens": 128000,
         "reasoning_efforts": [
@@ -8531,8 +8531,8 @@
       "openai/gpt-5.2-pro": {
         "context_window": 400000,
         "cost": {
-          "input": 21.0,
-          "output": 168.0
+          "input": 21,
+          "output": 168
         },
         "max_output_tokens": 128000,
         "reasoning_efforts": [
@@ -8549,7 +8549,7 @@
         "cost": {
           "cache_read": 0.175,
           "input": 1.75,
-          "output": 14.0
+          "output": 14
         },
         "max_output_tokens": 16384,
         "reasoning_efforts": null,
@@ -8562,7 +8562,7 @@
         "cost": {
           "cache_read": 0.175,
           "input": 1.75,
-          "output": 14.0
+          "output": 14
         },
         "max_output_tokens": 128000,
         "reasoning_efforts": [
@@ -8581,11 +8581,11 @@
         "cost": {
           "cache_read": 0.25,
           "input": 2.5,
-          "output": 15.0,
+          "output": 15,
           "tiers": [
             {
               "cache_read": 0.5,
-              "input": 5.0,
+              "input": 5,
               "output": 22.5,
               "size": 272000
             }
@@ -8606,9 +8606,9 @@
       "openai/gpt-5.4-image-2": {
         "context_window": 272000,
         "cost": {
-          "cache_read": 2.0,
-          "input": 8.0,
-          "output": 15.0
+          "cache_read": 2,
+          "input": 8,
+          "output": 15
         },
         "max_output_tokens": 128000,
         "reasoning_efforts": [
@@ -8663,12 +8663,12 @@
       "openai/gpt-5.4-pro": {
         "context_window": 1050000,
         "cost": {
-          "input": 30.0,
-          "output": 180.0,
+          "input": 30,
+          "output": 180,
           "tiers": [
             {
-              "input": 60.0,
-              "output": 270.0,
+              "input": 60,
+              "output": 270,
               "size": 272000
             }
           ]
@@ -8687,13 +8687,13 @@
         "context_window": 1050000,
         "cost": {
           "cache_read": 0.5,
-          "input": 5.0,
-          "output": 30.0,
+          "input": 5,
+          "output": 30,
           "tiers": [
             {
-              "cache_read": 1.0,
-              "input": 10.0,
-              "output": 45.0,
+              "cache_read": 1,
+              "input": 10,
+              "output": 45,
               "size": 272000
             }
           ]
@@ -8713,12 +8713,12 @@
       "openai/gpt-5.5-pro": {
         "context_window": 1050000,
         "cost": {
-          "input": 30.0,
-          "output": 180.0,
+          "input": 30,
+          "output": 180,
           "tiers": [
             {
-              "input": 60.0,
-              "output": 270.0,
+              "input": 60,
+              "output": 270,
               "size": 272000
             }
           ]
@@ -8798,14 +8798,14 @@
         "cost": {
           "cache_read": 0.5,
           "cache_write": 6.25,
-          "input": 5.0,
-          "output": 30.0,
+          "input": 5,
+          "output": 30,
           "tiers": [
             {
-              "cache_read": 1.0,
+              "cache_read": 1,
               "cache_write": 12.5,
-              "input": 10.0,
-              "output": 45.0,
+              "input": 10,
+              "output": 45,
               "size": 272000
             }
           ]
@@ -8828,14 +8828,14 @@
         "cost": {
           "cache_read": 0.5,
           "cache_write": 6.25,
-          "input": 5.0,
-          "output": 30.0,
+          "input": 5,
+          "output": 30,
           "tiers": [
             {
-              "cache_read": 1.0,
+              "cache_read": 1,
               "cache_write": 12.5,
-              "input": 10.0,
-              "output": 45.0,
+              "input": 10,
+              "output": 45,
               "size": 272000
             }
           ]
@@ -8858,14 +8858,14 @@
         "cost": {
           "cache_read": 0.1,
           "cache_write": 1.25,
-          "input": 1.0,
-          "output": 6.0,
+          "input": 1,
+          "output": 6,
           "tiers": [
             {
               "cache_read": 0.2,
               "cache_write": 2.5,
-              "input": 2.0,
-              "output": 9.0,
+              "input": 2,
+              "output": 9,
               "size": 272000
             }
           ]
@@ -8888,14 +8888,14 @@
         "cost": {
           "cache_read": 0.1,
           "cache_write": 1.25,
-          "input": 1.0,
-          "output": 6.0,
+          "input": 1,
+          "output": 6,
           "tiers": [
             {
               "cache_read": 0.2,
               "cache_write": 2.5,
-              "input": 2.0,
-              "output": 9.0,
+              "input": 2,
+              "output": 9,
               "size": 272000
             }
           ]
@@ -8917,7 +8917,7 @@
         "context_window": 128000,
         "cost": {
           "input": 2.5,
-          "output": 10.0
+          "output": 10
         },
         "max_output_tokens": 16384,
         "reasoning_efforts": null,
@@ -8941,8 +8941,8 @@
         "context_window": 400000,
         "cost": {
           "cache_read": 0.5,
-          "input": 5.0,
-          "output": 30.0
+          "input": 5,
+          "output": 30
         },
         "max_output_tokens": 128000,
         "reasoning_efforts": null,
@@ -8986,8 +8986,8 @@
       "openai/gpt-oss-20b:free": {
         "context_window": 131072,
         "cost": {
-          "input": 0.0,
-          "output": 0.0
+          "input": 0,
+          "output": 0
         },
         "max_output_tokens": 32768,
         "reasoning_efforts": [
@@ -9020,8 +9020,8 @@
         "context_window": 200000,
         "cost": {
           "cache_read": 7.5,
-          "input": 15.0,
-          "output": 60.0
+          "input": 15,
+          "output": 60
         },
         "max_output_tokens": 100000,
         "reasoning_efforts": [
@@ -9036,8 +9036,8 @@
       "openai/o1-pro": {
         "context_window": 200000,
         "cost": {
-          "input": 150.0,
-          "output": 600.0
+          "input": 150,
+          "output": 600
         },
         "max_output_tokens": 100000,
         "reasoning_efforts": [],
@@ -9049,8 +9049,8 @@
         "context_window": 200000,
         "cost": {
           "cache_read": 0.5,
-          "input": 2.0,
-          "output": 8.0
+          "input": 2,
+          "output": 8
         },
         "max_output_tokens": 100000,
         "reasoning_efforts": [
@@ -9097,8 +9097,8 @@
       "openai/o3-pro": {
         "context_window": 200000,
         "cost": {
-          "input": 20.0,
-          "output": 80.0
+          "input": 20,
+          "output": 80
         },
         "max_output_tokens": 100000,
         "reasoning_efforts": [
@@ -9161,8 +9161,8 @@
       "openrouter/free": {
         "context_window": 200000,
         "cost": {
-          "input": 0.0,
-          "output": 0.0
+          "input": 0,
+          "output": 0
         },
         "max_output_tokens": 8000,
         "reasoning_efforts": [],
@@ -9201,8 +9201,8 @@
       "perplexity/sonar": {
         "context_window": 127072,
         "cost": {
-          "input": 1.0,
-          "output": 1.0
+          "input": 1,
+          "output": 1
         },
         "max_output_tokens": 127072,
         "reasoning_efforts": null,
@@ -9213,9 +9213,9 @@
       "perplexity/sonar-deep-research": {
         "context_window": 128000,
         "cost": {
-          "input": 2.0,
-          "output": 8.0,
-          "reasoning": 3.0
+          "input": 2,
+          "output": 8,
+          "reasoning": 3
         },
         "max_output_tokens": 128000,
         "reasoning_efforts": [],
@@ -9226,8 +9226,8 @@
       "perplexity/sonar-pro": {
         "context_window": 200000,
         "cost": {
-          "input": 3.0,
-          "output": 15.0
+          "input": 3,
+          "output": 15
         },
         "max_output_tokens": 8000,
         "reasoning_efforts": null,
@@ -9238,8 +9238,8 @@
       "perplexity/sonar-pro-search": {
         "context_window": 200000,
         "cost": {
-          "input": 3.0,
-          "output": 15.0
+          "input": 3,
+          "output": 15
         },
         "max_output_tokens": 8000,
         "reasoning_efforts": [],
@@ -9250,8 +9250,8 @@
       "perplexity/sonar-reasoning-pro": {
         "context_window": 128000,
         "cost": {
-          "input": 2.0,
-          "output": 8.0
+          "input": 2,
+          "output": 8
         },
         "max_output_tokens": 128000,
         "reasoning_efforts": [],
@@ -9275,8 +9275,8 @@
       "poolside/laguna-s-2.1:free": {
         "context_window": 262144,
         "cost": {
-          "input": 0.0,
-          "output": 0.0
+          "input": 0,
+          "output": 0
         },
         "max_output_tokens": 32768,
         "reasoning_efforts": [],
@@ -9300,8 +9300,8 @@
       "poolside/laguna-xs-2.1:free": {
         "context_window": 262144,
         "cost": {
-          "input": 0.0,
-          "output": 0.0
+          "input": 0,
+          "output": 0
         },
         "max_output_tokens": 32768,
         "reasoning_efforts": [],
@@ -9337,7 +9337,7 @@
         "context_window": 32768,
         "cost": {
           "input": 0.66,
-          "output": 1.0
+          "output": 1
         },
         "max_output_tokens": 32768,
         "reasoning_efforts": null,
@@ -9533,7 +9533,7 @@
         "cost": {
           "cache_read": 0.1,
           "input": 0.3,
-          "output": 1.0
+          "output": 1
         },
         "max_output_tokens": 65536,
         "reasoning_efforts": null,
@@ -9721,7 +9721,7 @@
         "context_window": 131072,
         "cost": {
           "input": 0.4,
-          "output": 4.0
+          "output": 4
         },
         "max_output_tokens": 32768,
         "reasoning_efforts": [],
@@ -9817,7 +9817,7 @@
         "context_window": 262144,
         "cost": {
           "input": 0.14,
-          "output": 1.0
+          "output": 1
         },
         "max_output_tokens": 262144,
         "reasoning_efforts": [],
@@ -9919,7 +9919,7 @@
         "cost": {
           "cache_read": 0.05,
           "input": 0.15,
-          "output": 1.0
+          "output": 1
         },
         "max_output_tokens": 262144,
         "reasoning_efforts": [],
@@ -9937,7 +9937,7 @@
             {
               "cache_write": 0.9375,
               "input": 0.75,
-              "output": 3.0,
+              "output": 3,
               "size": 256000
             }
           ]
@@ -10062,8 +10062,8 @@
         "cost": {
           "cache_read": 0.25,
           "cache_write": 2.5,
-          "input": 2.0,
-          "output": 6.0
+          "input": 2,
+          "output": 6
         },
         "max_output_tokens": 131072,
         "reasoning_efforts": [
@@ -10116,8 +10116,8 @@
       "relace/relace-search": {
         "context_window": 256000,
         "cost": {
-          "input": 1.0,
-          "output": 3.0
+          "input": 1,
+          "output": 3
         },
         "max_output_tokens": 128000,
         "reasoning_efforts": null,
@@ -10129,13 +10129,13 @@
         "context_window": 1000000,
         "cost": {
           "cache_read": 0.5,
-          "input": 5.0,
-          "output": 30.0,
+          "input": 5,
+          "output": 30,
           "tiers": [
             {
-              "cache_read": 1.0,
-              "input": 10.0,
-              "output": 45.0,
+              "cache_read": 1,
+              "input": 10,
+              "output": 45,
               "size": 272000
             }
           ]
@@ -10380,7 +10380,7 @@
         "context_window": 1040000,
         "cost": {
           "input": 0.6,
-          "output": 6.0
+          "output": 6
         },
         "max_output_tokens": 8192,
         "reasoning_efforts": null,
@@ -10398,7 +10398,7 @@
             {
               "cache_read": 0.4,
               "input": 2.5,
-              "output": 5.0,
+              "output": 5,
               "size": 200000
             }
           ]
@@ -10419,7 +10419,7 @@
             {
               "cache_read": 0.4,
               "input": 2.5,
-              "output": 5.0,
+              "output": 5,
               "size": 200000
             }
           ]
@@ -10445,7 +10445,7 @@
             {
               "cache_read": 0.4,
               "input": 2.5,
-              "output": 5.0,
+              "output": 5,
               "size": 200000
             }
           ]
@@ -10465,13 +10465,13 @@
         "context_window": 500000,
         "cost": {
           "cache_read": 0.3,
-          "input": 2.0,
-          "output": 6.0,
+          "input": 2,
+          "output": 6,
           "tiers": [
             {
               "cache_read": 0.6,
-              "input": 4.0,
-              "output": 12.0,
+              "input": 4,
+              "output": 12,
               "size": 200000
             }
           ]
@@ -10490,13 +10490,13 @@
         "context_window": 256000,
         "cost": {
           "cache_read": 0.2,
-          "input": 1.0,
-          "output": 2.0,
+          "input": 1,
+          "output": 2,
           "tiers": [
             {
               "cache_read": 0.4,
-              "input": 2.0,
-              "output": 4.0,
+              "input": 2,
+              "output": 4,
               "size": 200000
             }
           ]
@@ -10577,7 +10577,7 @@
         "cost": {
           "cache_read": 0.1,
           "input": 0.5,
-          "output": 2.0
+          "output": 2
         },
         "max_output_tokens": 131072,
         "reasoning_efforts": [],
@@ -10642,7 +10642,7 @@
         "cost": {
           "cache_read": 0.24,
           "input": 1.2,
-          "output": 4.0
+          "output": 4
         },
         "max_output_tokens": 131072,
         "reasoning_efforts": [],
@@ -10684,7 +10684,7 @@
         "cost": {
           "cache_read": 0.24,
           "input": 1.2,
-          "output": 4.0
+          "output": 4
         },
         "max_output_tokens": 131072,
         "reasoning_efforts": [],
@@ -10695,10 +10695,10 @@
       "~anthropic/claude-fable-latest": {
         "context_window": 1000000,
         "cost": {
-          "cache_read": 1.0,
+          "cache_read": 1,
           "cache_write": 12.5,
-          "input": 10.0,
-          "output": 50.0
+          "input": 10,
+          "output": 50
         },
         "max_output_tokens": 128000,
         "reasoning_efforts": [
@@ -10717,8 +10717,8 @@
         "cost": {
           "cache_read": 0.1,
           "cache_write": 1.25,
-          "input": 1.0,
-          "output": 5.0
+          "input": 1,
+          "output": 5
         },
         "max_output_tokens": 64000,
         "reasoning_efforts": [],
@@ -10731,8 +10731,8 @@
         "cost": {
           "cache_read": 0.5,
           "cache_write": 6.25,
-          "input": 5.0,
-          "output": 25.0
+          "input": 5,
+          "output": 25
         },
         "max_output_tokens": 128000,
         "reasoning_efforts": [
@@ -10751,8 +10751,8 @@
         "cost": {
           "cache_read": 0.2,
           "cache_write": 2.5,
-          "input": 2.0,
-          "output": 10.0
+          "input": 2,
+          "output": 10
         },
         "max_output_tokens": 128000,
         "reasoning_efforts": [
@@ -10808,14 +10808,14 @@
         "cost": {
           "cache_read": 0.2,
           "cache_write": 0.375,
-          "input": 2.0,
-          "output": 12.0,
-          "reasoning": 12.0,
+          "input": 2,
+          "output": 12,
+          "reasoning": 12,
           "tiers": [
             {
               "cache_read": 0.4,
-              "input": 4.0,
-              "output": 18.0,
+              "input": 4,
+              "output": 18,
               "size": 200000
             }
           ]
@@ -10835,7 +10835,7 @@
         "cost": {
           "cache_read": 0.29,
           "input": 2.8,
-          "output": 14.0
+          "output": 14
         },
         "max_output_tokens": 1048576,
         "reasoning_efforts": [
@@ -10852,14 +10852,14 @@
         "cost": {
           "cache_read": 0.5,
           "cache_write": 6.25,
-          "input": 5.0,
-          "output": 30.0,
+          "input": 5,
+          "output": 30,
           "tiers": [
             {
-              "cache_read": 1.0,
+              "cache_read": 1,
               "cache_write": 12.5,
-              "input": 10.0,
-              "output": 45.0,
+              "input": 10,
+              "output": 45,
               "size": 272000
             }
           ]
@@ -10900,13 +10900,13 @@
         "context_window": 500000,
         "cost": {
           "cache_read": 0.3,
-          "input": 2.0,
-          "output": 6.0,
+          "input": 2,
+          "output": 6,
           "tiers": [
             {
               "cache_read": 0.6,
-              "input": 4.0,
-              "output": 12.0,
+              "input": 4,
+              "output": 12,
               "size": 200000
             }
           ]
@@ -10933,7 +10933,7 @@
             {
               "cache_read": 0.4,
               "input": 2.5,
-              "output": 5.0,
+              "output": 5,
               "size": 200000
             }
           ]
@@ -10954,7 +10954,7 @@
             {
               "cache_read": 0.4,
               "input": 2.5,
-              "output": 5.0,
+              "output": 5,
               "size": 200000
             }
           ]
@@ -10975,7 +10975,7 @@
             {
               "cache_read": 0.4,
               "input": 2.5,
-              "output": 5.0,
+              "output": 5,
               "size": 200000
             }
           ]
@@ -11001,7 +11001,7 @@
             {
               "cache_read": 0.4,
               "input": 2.5,
-              "output": 5.0,
+              "output": 5,
               "size": 200000
             }
           ]
@@ -11021,13 +11021,13 @@
         "context_window": 500000,
         "cost": {
           "cache_read": 0.3,
-          "input": 2.0,
-          "output": 6.0,
+          "input": 2,
+          "output": 6,
           "tiers": [
             {
               "cache_read": 0.6,
-              "input": 4.0,
-              "output": 12.0,
+              "input": 4,
+              "output": 12,
               "size": 200000
             }
           ]
@@ -11046,13 +11046,13 @@
         "context_window": 256000,
         "cost": {
           "cache_read": 0.2,
-          "input": 1.0,
-          "output": 2.0,
+          "input": 1,
+          "output": 2,
           "tiers": [
             {
               "cache_read": 0.4,
-              "input": 2.0,
-              "output": 4.0,
+              "input": 2,
+              "output": 4,
               "size": 200000
             }
           ]
@@ -11101,7 +11101,7 @@
         "context_window": 131072,
         "cost": {
           "cache_read": 0.11,
-          "cache_write": 0.0,
+          "cache_write": 0,
           "input": 0.6,
           "output": 2.2
         },
@@ -11115,7 +11115,7 @@
         "context_window": 131072,
         "cost": {
           "cache_read": 0.03,
-          "cache_write": 0.0,
+          "cache_write": 0,
           "input": 0.2,
           "output": 1.1
         },
@@ -11128,10 +11128,10 @@
       "glm-4.5-flash": {
         "context_window": 131072,
         "cost": {
-          "cache_read": 0.0,
-          "cache_write": 0.0,
-          "input": 0.0,
-          "output": 0.0
+          "cache_read": 0,
+          "cache_write": 0,
+          "input": 0,
+          "output": 0
         },
         "max_output_tokens": 98304,
         "reasoning_efforts": [],
@@ -11155,7 +11155,7 @@
         "context_window": 204800,
         "cost": {
           "cache_read": 0.11,
-          "cache_write": 0.0,
+          "cache_write": 0,
           "input": 0.6,
           "output": 2.2
         },
@@ -11181,7 +11181,7 @@
         "context_window": 204800,
         "cost": {
           "cache_read": 0.11,
-          "cache_write": 0.0,
+          "cache_write": 0,
           "input": 0.6,
           "output": 2.2
         },
@@ -11194,10 +11194,10 @@
       "glm-4.7-flash": {
         "context_window": 200000,
         "cost": {
-          "cache_read": 0.0,
-          "cache_write": 0.0,
-          "input": 0.0,
-          "output": 0.0
+          "cache_read": 0,
+          "cache_write": 0,
+          "input": 0,
+          "output": 0
         },
         "max_output_tokens": 131072,
         "reasoning_efforts": [],
@@ -11209,7 +11209,7 @@
         "context_window": 200000,
         "cost": {
           "cache_read": 0.01,
-          "cache_write": 0.0,
+          "cache_write": 0,
           "input": 0.07,
           "output": 0.4
         },
@@ -11223,8 +11223,8 @@
         "context_window": 204800,
         "cost": {
           "cache_read": 0.2,
-          "cache_write": 0.0,
-          "input": 1.0,
+          "cache_write": 0,
+          "input": 1,
           "output": 3.2
         },
         "max_output_tokens": 131072,
@@ -11237,9 +11237,9 @@
         "context_window": 200000,
         "cost": {
           "cache_read": 0.24,
-          "cache_write": 0.0,
+          "cache_write": 0,
           "input": 1.2,
-          "output": 4.0
+          "output": 4
         },
         "max_output_tokens": 131072,
         "reasoning_efforts": [],
@@ -11251,7 +11251,7 @@
         "context_window": 200000,
         "cost": {
           "cache_read": 0.26,
-          "cache_write": 0.0,
+          "cache_write": 0,
           "input": 1.4,
           "output": 4.4
         },
@@ -11265,7 +11265,7 @@
         "context_window": 1000000,
         "cost": {
           "cache_read": 0.26,
-          "cache_write": 0.0,
+          "cache_write": 0,
           "input": 1.4,
           "output": 4.4
         },
@@ -11282,9 +11282,9 @@
         "context_window": 200000,
         "cost": {
           "cache_read": 0.24,
-          "cache_write": 0.0,
+          "cache_write": 0,
           "input": 1.2,
-          "output": 4.0
+          "output": 4
         },
         "max_output_tokens": 131072,
         "reasoning_efforts": [],
