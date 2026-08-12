@@ -21,6 +21,23 @@ from mycode import (
 
 
 class TestToolExecutor:
+    def test_specs_preserve_definition_order(self) -> None:
+        @tool
+        def first() -> str:
+            """Return first."""
+
+            return "first"
+
+        @tool
+        def second() -> str:
+            """Return second."""
+
+            return "second"
+
+        executor = ToolExecutor([first, second])
+
+        assert [spec.name for spec in executor.specs] == ["first", "second"]
+
     @pytest.mark.asyncio
     async def test_async_tool_can_use_loop_bound_resource(self, tmp_path: Path) -> None:
         loop = asyncio.get_running_loop()

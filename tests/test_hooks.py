@@ -90,6 +90,7 @@ async def test_before_tool_blocks_execution_and_after_hooks_see_result(tmp_path:
     def block(ctx: ToolHookContext) -> ToolExecutionResult:
         assert ctx.tool_name == "ping"
         assert ctx.tool_call_id == "call-1"
+        assert ctx.tool_output_dir == agent.tool_output_dir
         return ToolExecutionResult(output="blocked", is_error=True)
 
     @hooks.after_tool

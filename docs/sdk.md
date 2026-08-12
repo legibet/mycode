@@ -230,6 +230,8 @@ See `docs/sessions.md` for the on-disk record format, the projection rule that b
 
 Tools are opted in via `tools=[...]`; nothing is registered by default. A `streams_output=True` tool streams display text through `tool_output` events; other tools return a single `tool_done` result.
 
+`agent.tools` is the session's `ToolExecutor`. Its read-only `specs` tuple exposes the registered `ToolSpec` values in definition order, which is useful when constructing another agent with the same tool set. `definitions` remains the provider-facing JSON representation.
+
 `tool_output` is ordered, append-only display text. Consumers do not insert separators. When a slow consumer exceeds the per-call pending limit, the stream drops one continuous middle segment and inserts `[live output omitted]` on its own line. `tool_done.output` remains the authoritative result.
 
 A tool call is rejected before hooks and execution when the assistant turn has `stop_reason="length"`, the tool block has `meta.invalid_input=true`, or the provider finish reason is `unknown`. The runtime still emits `tool_start` and an error `tool_done`, persists that as a `tool_result`, and sends it in the next provider request. A canonical `error` response ends the turn with an `error` event. `@tool` schema validation prevents invalid arguments from reaching the user function.
@@ -359,7 +361,7 @@ async def audit(_ctx, _result):
 agent = Agent(model="...", api_key="...", tools=[delete_file], hooks=hooks)
 ```
 
-`ToolHookContext` carries `session_id`, `cwd`, `provider`, `model`, `tool_call_id`, `tool_name`, `tool_input`, and `tool` (the `ToolSpec`). `tool_input` is recursively frozen: nested dicts become `MappingProxyType` and lists become tuples. Hooks cannot mutate what the UI shows or the tool receives.
+`ToolHookContext` carries `session_id`, `cwd`, `tool_output_dir`, `provider`, `model`, `tool_call_id`, `tool_name`, `tool_input`, and `tool` (the `ToolSpec`). `tool_output_dir` is the same per-session path passed to the executing tool's `ToolContext`. `tool_input` is recursively frozen: nested dicts become `MappingProxyType` and lists become tuples. Hooks cannot mutate what the UI shows or the tool receives.
 
 - `before_tool(ctx)` hooks run in registration order. Returning `None` continues; returning a `ToolExecutionResult` skips the real tool and uses that result.
 - `after_tool(ctx, result)` hooks run in registration order for both real and skipped results. Returning `None` keeps the current result; returning a `ToolExecutionResult` replaces it for later hooks and the final `tool_done` event.

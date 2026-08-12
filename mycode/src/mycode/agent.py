@@ -431,6 +431,7 @@ class Agent:
         hook_ctx = ToolHookContext(
             session_id=self.session_id,
             cwd=self.cwd,
+            tool_output_dir=self.tool_output_dir,
             provider=self.provider,
             model=self.model,
             tool_call_id=tool_id,

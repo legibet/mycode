@@ -120,6 +120,12 @@ class ToolExecutor:
         self._tools: dict[str, ToolSpec] = {spec.name: spec for spec in tools}
 
     @property
+    def specs(self) -> tuple[ToolSpec, ...]:
+        """Return the registered tool specs in definition order."""
+
+        return tuple(self._tools.values())
+
+    @property
     def definitions(self) -> list[dict[str, Any]]:
         return [
             {"name": spec.name, "description": spec.description, "input_schema": spec.input_schema}

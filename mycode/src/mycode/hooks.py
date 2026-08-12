@@ -5,6 +5,7 @@ from __future__ import annotations
 import inspect
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
+from pathlib import Path
 from types import MappingProxyType
 from typing import Any
 
@@ -21,6 +22,7 @@ class ToolHookContext:
 
     session_id: str
     cwd: str
+    tool_output_dir: Path
     provider: str
     model: str
     tool_call_id: str
