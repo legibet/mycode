@@ -7,7 +7,7 @@ Always-loaded context for agent runs on this project. Detailed specs live in `do
 `mycode` is a minimal coding agent shipped as two PyPI packages:
 
 - `mycode-sdk` (import `mycode`) — the runtime: agent loop, message format, session store, provider adapters, and the tool runtime. Lightweight, suitable for embedding the agent in other Python apps.
-- `mycode-cli` (import `mycode_cli`) — the interactive CLI and FastAPI web server built on top of the SDK, including the 4 built-in tools.
+- `mycode-cli` (import `mycode_cli`) — the interactive CLI and FastAPI web server built on top of the SDK, including local file/shell tools and configurable web access.
 
 The web UI lives in a separate repo, [`legibet/mycode-web`](https://github.com/legibet/mycode-web), included as the `web/` git submodule.
 
@@ -33,7 +33,8 @@ mycode/src/mycode/        # SDK package
 cli/src/mycode_cli/       # CLI + FastAPI web server
   main.py                 # Typer entrypoint, slash commands, session resolution
   runtime.py              # build_agent() shared by TUI and server
-  tools.py                # the 4 built-in tools (read, write, edit, bash)
+  tools.py                # local tools (read, write, edit, bash)
+  web_tools.py            # configurable webfetch / websearch tools
   config.py               # layered JSON config, config validation, provider resolution, paths
   permissions.py          # tool permission policy + before_tool hook
   system_prompt.py        # base prompt + AGENTS.md + skills discovery
@@ -102,7 +103,7 @@ Read the relevant doc before related changes.
 | `mycode/src/mycode/agent.py`, `messages.py`, `tools.py`, `hooks.py`, public SDK | `docs/sdk.md`                                   |
 | `mycode/src/mycode/session.py` or anything touching JSONL / compact / rewind    | `docs/sessions.md`                              |
 | `mycode/src/mycode/providers/*`                                                 | `docs/providers.md`                             |
-| `cli/src/mycode_cli/tools.py` or built-in tool output formats                   | `docs/tools.md`                                 |
+| `cli/src/mycode_cli/tools.py`, `web_tools.py`, or built-in tool output formats  | `docs/tools.md`                                 |
 | `cli/src/mycode_cli/server/**` or any SSE event / route                         | `docs/api.md`                                   |
 | `cli/src/mycode_cli/config.py`, `system_prompt.py`, `permissions.py`            | `docs/config.md`                                |
 | `web/src/**`                                                                    | `web/AGENTS.md`                                 |

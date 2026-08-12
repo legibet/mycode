@@ -17,10 +17,10 @@ from prompt_toolkit.input.defaults import create_pipe_input
 from prompt_toolkit.output import DummyOutput
 from rich.console import Console
 
-from mycode.agent import Event
+from mycode.agent import Agent, Event
 from mycode.session import SessionStore
 from mycode.tools import ToolExecutor
-from mycode_cli.config import Settings
+from mycode_cli.config import Settings, WebConfig
 from mycode_cli.main import app, resolve_session, run_noninteractive
 from mycode_cli.permissions import PERMISSION_DENIED_BY_USER_OUTPUT, PERMISSION_DENIED_OUTPUT
 from mycode_cli.runtime import load_session_cost
@@ -29,8 +29,10 @@ from mycode_cli.tui.chat import (
     TerminalChat,
     _build_chat_key_bindings,
     _PromptCompleter,
+    clone_agent,
 )
 from mycode_cli.tui.render import ReplyRenderer, TerminalView
+from mycode_cli.web_tools import build_web_tools
 
 
 def settings_for(cwd: str) -> Settings:
@@ -107,6 +109,22 @@ class _PermissionDeniedThenReplyAgent:
                     "content": [{"type": "text", "text": "Permission was denied. Use --permission standard."}],
                 }
             )
+
+
+def test_clone_agent_keeps_configured_tools_and_uses_the_new_session_directory(tmp_path: Path) -> None:
+    store = SessionStore(data_dir=tmp_path / "sessions")
+    agent = Agent(
+        model="gpt-5.5",
+        provider="openai",
+        session_dir=store.data_dir,
+        session_id="old",
+        tools=build_web_tools(WebConfig(search="tavily")),
+    )
+
+    cloned = clone_agent(agent, store=store, session_id="new")
+
+    assert cloned.tools.specs == agent.tools.specs
+    assert cloned.tool_output_dir == store.data_dir / "new" / "tool-output"
 
 
 @pytest.fixture

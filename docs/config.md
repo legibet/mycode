@@ -33,6 +33,12 @@ file and adapts it for the UI.
     "level": "safe",
     "mode": "ask"
   },
+  "web": {
+    "fetch": "local",
+    "search": "off",
+    "tavily": {"api_key": "${TAVILY_API_KEY}"},
+    "exa": {"api_key": "..."}
+  },
   "providers": {
     "<name>": {
       "type": "<adapter-id>",
@@ -61,6 +67,9 @@ file and adapts it for the UI.
 - `permission` — CLI tool execution permissions. String shorthand (`"safe"`) sets the level and keeps the current/default mode; object form accepts `level` and `mode`
 - `permission.level` — how much the agent may run automatically: `readonly` · `safe` · `standard` · `yolo`; default `safe`
 - `permission.mode` — what to do outside the selected level: `ask` or `deny`; default `ask`. Non-interactive `mycode run` treats `ask` as `deny`
+- `web.fetch` — `local`, `tavily`, or `exa`; default `local`. `webfetch` is always registered.
+- `web.search` — `off`, `tavily`, or `exa`; default `off`. `websearch` is registered only when a provider is selected. Use explicit `off` in a project config to override a provider inherited from the global config.
+- `web.tavily.api_key` / `web.exa.api_key` — literal value or `${ENV_NAME}` reference, shared by fetch and search for that provider
 - `providers.<name>.type` — internal adapter id (see AGENTS.md provider table). Required for custom aliases. Built-in providers can omit `type` when the key matches their adapter id.
 - `providers.<name>.models` — model map. Keys are model ids shown in UI. Values can override the bundled model metadata for that exact model.
 - `providers.<name>.models.<model>.context_window` — override the model context window
@@ -83,6 +92,15 @@ For a resolved provider (`_resolve_provider_runtime` in `config.py`):
 3. Provider adapter's built-in default env vars (e.g., `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`)
 
 If no API key is found at any step, provider resolution raises an error listing which env vars were checked.
+
+Web provider keys follow the same explicit-reference behavior:
+
+1. Literal `web.<provider>.api_key`
+2. Explicit `${ENV_NAME}`; an unset reference is a call-time configuration error
+3. When `api_key` is omitted, `TAVILY_API_KEY` or `EXA_API_KEY`
+4. Tavily uses its keyless mode when still unset; Exa returns a call-time configuration error
+
+Loading config and building an agent do not require web keys. Selecting a web provider is the opt-in; provider errors never switch to local or another provider.
 
 ## Provider Resolution
 
@@ -127,6 +145,10 @@ Mode:
 - `deny` — reject without prompting
 
 Automatic denials do not stop the run; the model receives the denied tool result and can reply with next steps. An explicit user `Deny` cancels the current run in both TUI and web.
+
+`webfetch` and `websearch` are `standard`. Their permission previews show the initial URL and query respectively. Reads inside the current session's `tool_output_dir` are `readonly`, including follow-up reads of truncated webfetch output.
+
+Local webfetch intentionally does not block localhost, private address ranges, or cloud metadata endpoints. The machine is the trust boundary. The permission prompt displays the initial URL only; redirects are followed up to five times without another prompt, so a public URL can redirect to a private or metadata address.
 
 The shell checks are intentionally simple and conservative. Project commands such as tests, builds, formatters, package scripts, and task runners are `standard` because they execute project-defined code. Compound commands (`&&`, `||`, `;`, pipes, redirection, command substitution) and obvious destructive commands (`rm`, `sudo`, `chmod`, `git reset`, `git clean`, `git push --force`, etc.) fall outside `readonly`/`safe`/`standard` and require `yolo` or `mode: "ask"` approval.
 

@@ -6,7 +6,7 @@ A minimal coding agent.
 
 - Minimal (~10k lines) but complete.
 - Multiple provider support and robust message replay.
-- 4 built-in tools (`read`, `write`, `edit`, `bash`), expanded via skills.
+- Built-in file and shell tools, plus configurable web access, expanded via skills.
 - Mobile-friendly web UI.
 - Native image and pdf input support.
 

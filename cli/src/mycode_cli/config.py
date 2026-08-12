@@ -41,6 +41,13 @@ _EFFORT_OFF_ALIASES = frozenset({"off", "disabled"})
 
 PermissionLevel = Literal["readonly", "safe", "standard", "yolo"]
 PermissionMode = Literal["ask", "deny"]
+WebFetchProvider = Literal["local", "tavily", "exa"]
+WebSearchProvider = Literal["off", "tavily", "exa"]
+
+WEB_PROVIDER_ENV_VARS = {
+    "tavily": "TAVILY_API_KEY",
+    "exa": "EXA_API_KEY",
+}
 
 
 @dataclass(frozen=True)
@@ -72,6 +79,20 @@ class PermissionConfig:
 
 
 @dataclass(frozen=True)
+class WebProviderConfig:
+    api_key: str | None = None
+    api_key_env_var: str | None = None
+
+
+@dataclass(frozen=True)
+class WebConfig:
+    fetch: WebFetchProvider = "local"
+    search: WebSearchProvider = "off"
+    tavily: WebProviderConfig = field(default_factory=WebProviderConfig)
+    exa: WebProviderConfig = field(default_factory=WebProviderConfig)
+
+
+@dataclass(frozen=True)
 class Settings:
     providers: dict[str, ProviderConfig]
     default_provider: str | None
@@ -81,6 +102,7 @@ class Settings:
     project: str
     compact_threshold: float | None = None
     permission: PermissionConfig = field(default_factory=PermissionConfig)
+    web: WebConfig = field(default_factory=WebConfig)
     config_paths: list[str] = field(default_factory=list)
 
 
@@ -286,6 +308,11 @@ def _clean_config_layer(data: Any) -> dict[str, Any]:
     if data.get("permission") is not None:
         out["permission"] = _validate_permission_config(data["permission"])
 
+    if data.get("web") is not None:
+        web = _validate_web_config(data["web"])
+        if web:
+            out["web"] = web
+
     raw_providers = data.get("providers")
     if raw_providers is not None:
         if not isinstance(raw_providers, dict):
@@ -348,6 +375,36 @@ def _validate_permission_config(raw: Any) -> PermissionLevel | dict[str, Any]:
         out["level"] = normalize_permission_level(raw.get("level"))
     if "mode" in raw:
         out["mode"] = normalize_permission_mode(raw.get("mode"))
+    return out
+
+
+def _validate_web_config(raw: Any) -> dict[str, Any]:
+    if not isinstance(raw, dict):
+        raise ValueError("web must be an object")
+
+    out: dict[str, Any] = {}
+    options = {
+        "fetch": ("local", "tavily", "exa"),
+        "search": ("off", "tavily", "exa"),
+    }
+    for key, supported in options.items():
+        if key not in raw:
+            continue
+        value = raw[key]
+        if value not in supported:
+            raise ValueError(f"web.{key} must be one of: {', '.join(supported)}")
+        out[key] = value
+
+    for provider in ("tavily", "exa"):
+        if provider not in raw:
+            continue
+        entry = raw[provider]
+        if not isinstance(entry, dict):
+            raise ValueError(f"web.{provider} must be an object")
+        api_key = _optional_config_string(entry, "api_key", f"web.{provider}.api_key")
+        if api_key:
+            out[provider] = {"api_key": api_key}
+
     return out
 
 
@@ -434,6 +491,7 @@ def get_settings(cwd: str | None = None) -> Settings:
     default_model: str | None = None
     compact_threshold: float | None = None
     permission = PermissionConfig()
+    raw_web: dict[str, Any] = {}
     config_paths: list[str] = []
 
     for path in _candidate_config_paths(resolved_cwd, resolved_project):
@@ -482,12 +540,27 @@ def get_settings(cwd: str | None = None) -> Settings:
         if "permission" in data:
             permission = parse_permission(data.get("permission"), permission)
 
+        if data.get("web") is not None:
+            web = _validate_web_config(data["web"])
+            for key in ("fetch", "search"):
+                if key in web:
+                    raw_web[key] = web[key]
+            for provider in ("tavily", "exa"):
+                entry = web.get(provider)
+                if entry:
+                    api_key, api_key_env_var = _parse_config_api_key(entry["api_key"])
+                    raw_web[provider] = {
+                        "api_key": api_key,
+                        "api_key_env_var": api_key_env_var,
+                    }
+
     return Settings(
         providers=_build_providers(raw_providers),
         default_provider=default_provider,
         default_model=default_model,
         compact_threshold=compact_threshold,
         permission=permission,
+        web=_build_web_config(raw_web),
         port=int(os.environ.get("PORT", "8000")),
         cwd=resolved_cwd,
         project=resolved_project,
@@ -560,6 +633,38 @@ def _build_providers(raw_providers: dict[str, dict[str, Any]]) -> dict[str, Prov
         )
 
     return providers
+
+
+def _build_web_config(raw: dict[str, Any]) -> WebConfig:
+    def provider(name: str) -> WebProviderConfig:
+        entry = raw.get(name)
+        if not isinstance(entry, dict):
+            return WebProviderConfig()
+        return WebProviderConfig(
+            api_key=entry.get("api_key") or None,
+            api_key_env_var=entry.get("api_key_env_var") or None,
+        )
+
+    return WebConfig(
+        fetch=cast(WebFetchProvider, raw.get("fetch") or "local"),
+        search=cast(WebSearchProvider, raw.get("search") or "off"),
+        tavily=provider("tavily"),
+        exa=provider("exa"),
+    )
+
+
+def resolve_web_api_key(web: WebConfig, provider: Literal["tavily", "exa"]) -> str | None:
+    """Resolve a web provider key without requiring one to exist."""
+
+    config = getattr(web, provider)
+    if config.api_key:
+        return config.api_key
+    if config.api_key_env_var:
+        value = (os.environ.get(config.api_key_env_var) or "").strip()
+        if value:
+            return value
+        raise ValueError(f"missing API key env var {config.api_key_env_var!r} referenced by web.{provider}")
+    return (os.environ.get(WEB_PROVIDER_ENV_VARS[provider]) or "").strip() or None
 
 
 def provider_has_api_key(provider: ProviderConfig) -> bool:

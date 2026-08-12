@@ -123,12 +123,23 @@ def classify_tool(
         command = str(ctx.tool_input.get("command") or "").strip()
         return PermissionCheck(_classify_bash(command), command)
 
+    if name == "webfetch":
+        url = str(ctx.tool_input.get("url") or "").strip()
+        return PermissionCheck("standard", url)
+
+    if name == "websearch":
+        query = str(ctx.tool_input.get("query") or "").strip()
+        return PermissionCheck("standard", query)
+
     if name in {"read", "write", "edit"}:
         raw = str(ctx.tool_input.get("path") or "")
         path = resolve_path(raw, cwd=cwd)
         project_path = Path(project).resolve(strict=False)
         preview = raw or str(path)
-        if name == "read" and any(path.is_relative_to(root) for root in skill_roots):
+        if name == "read" and (
+            path.is_relative_to(ctx.tool_output_dir.resolve(strict=False))
+            or any(path.is_relative_to(root) for root in skill_roots)
+        ):
             return PermissionCheck("readonly", preview)
         if not path.is_relative_to(project_path):
             return PermissionCheck("yolo", preview)

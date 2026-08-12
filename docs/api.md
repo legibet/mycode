@@ -195,6 +195,11 @@ Returns the global config plus options for the editor UI.
   "config": {
     "default": {"provider": "anthropic", "model": "claude-sonnet-4-6"},
     "permission": {"level": "safe", "mode": "ask"},
+    "web": {
+      "fetch": "local",
+      "search": "tavily",
+      "tavily": {"api_key": null, "api_key_saved": true}
+    },
     "providers": {
       "anthropic": {
         "type": "anthropic",
@@ -210,7 +215,7 @@ Returns the global config plus options for the editor UI.
     "permission_levels": ["readonly", "safe", "standard", "yolo"],
     "permission_modes": ["ask", "deny"]
   },
-  "env": {"ANTHROPIC_API_KEY": true, "OPENAI_API_KEY": false},
+  "env": {"ANTHROPIC_API_KEY": true, "OPENAI_API_KEY": false, "TAVILY_API_KEY": true, "EXA_API_KEY": false},
   "provider_type_env_vars": {"anthropic": ["ANTHROPIC_API_KEY"]},
   "provider_type_default_models": {"anthropic": ["claude-sonnet-4-6"]}
 }
@@ -218,6 +223,7 @@ Returns the global config plus options for the editor UI.
 
 - `config.providers.<name>.api_key` is `"${VAR}"` for env references and `null` for both literal secrets and unset values
 - `config.providers.<name>.api_key_saved` is `true` only when a literal secret is stored on disk; the secret value itself is never echoed
+- `config.web.tavily.api_key` and `config.web.exa.api_key` use the same masking rules; each provider key is shared by its fetch and search implementation
 - `env` reports whether each referenced env var is currently set (built-in env names per provider type plus any `${VAR}` referenced in the config)
 - `provider_type_env_vars` — provider type → API key env var names
 - `provider_type_default_models` — provider type → default model ids
@@ -232,6 +238,11 @@ Replace the global config file. Validates input and writes atomically.
   "config": {
     "default": {"provider": "anthropic", "model": "claude-sonnet-4-6"},
     "permission": {"level": "safe", "mode": "ask"},
+    "web": {
+      "fetch": "local",
+      "search": "off",
+      "tavily": {"api_key": null}
+    },
     "providers": {
       "anthropic": {
         "type": "anthropic",
@@ -244,7 +255,7 @@ Replace the global config file. Validates input and writes atomically.
 }
 ```
 
-Per-provider `api_key` is three-state:
+Provider API keys and `web.tavily` / `web.exa` keys have three states:
 
 - `null` (or omitted) — keep the existing value on disk; required when the UI never sees the literal secret
 - `""` — clear the field; runtime falls back to the provider type's env discovery

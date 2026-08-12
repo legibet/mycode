@@ -8,6 +8,7 @@ from mycode_cli.config import ResolvedProvider, Settings
 from mycode_cli.permissions import ToolReviewCallback, build_permission_hooks
 from mycode_cli.system_prompt import build_system_prompt
 from mycode_cli.tools import DEFAULT_TOOLS
+from mycode_cli.web_tools import build_web_tools
 
 
 def sum_known_costs(*costs: float | None) -> float | None:
@@ -71,6 +72,6 @@ def build_agent(
         compact_threshold=settings.compact_threshold,
         max_turns=max_turns,
         system=build_system_prompt(cwd, settings),
-        tools=DEFAULT_TOOLS,
+        tools=[*DEFAULT_TOOLS, *build_web_tools(settings.web)],
         hooks=hooks,
     )

@@ -26,6 +26,7 @@ from mycode.providers import (
 from mycode_cli.config import (
     PERMISSION_LEVEL_OPTIONS,
     PERMISSION_MODE_OPTIONS,
+    WEB_PROVIDER_ENV_VARS,
     is_api_key_env_ref,
     resolve_mycode_home,
     validate_global_config,
@@ -54,33 +55,39 @@ def _present_config(raw: dict[str, Any]) -> dict[str, Any]:
 
     out = copy.deepcopy(raw)
     providers = out.get("providers")
-    if not isinstance(providers, dict):
-        return out
+    if isinstance(providers, dict):
+        for entry in providers.values():
+            if not isinstance(entry, dict):
+                continue
+            _mask_api_key(entry)
+            models = entry.get("models")
+            if isinstance(models, dict):
+                entry["models"] = list(models.keys())
+                overrides = {k: v for k, v in models.items() if isinstance(v, dict) and v}
+                if overrides:
+                    entry["model_overrides"] = overrides
 
-    for entry in providers.values():
-        if not isinstance(entry, dict):
-            continue
-
-        api_key = entry.get("api_key")
-        if isinstance(api_key, str) and api_key.strip():
-            if is_api_key_env_ref(api_key):
-                # ${VAR} stays visible — it's not the secret itself.
-                entry["api_key_saved"] = False
-            else:
-                entry["api_key"] = None
-                entry["api_key_saved"] = True
-        else:
-            entry["api_key"] = None
-            entry["api_key_saved"] = False
-
-        models = entry.get("models")
-        if isinstance(models, dict):
-            entry["models"] = list(models.keys())
-            overrides = {k: v for k, v in models.items() if isinstance(v, dict) and v}
-            if overrides:
-                entry["model_overrides"] = overrides
+    web = out.get("web")
+    if isinstance(web, dict):
+        for provider in ("tavily", "exa"):
+            entry = web.get(provider)
+            if isinstance(entry, dict):
+                _mask_api_key(entry)
 
     return out
+
+
+def _mask_api_key(entry: dict[str, Any]) -> None:
+    api_key = entry.get("api_key")
+    if isinstance(api_key, str) and api_key.strip():
+        if is_api_key_env_ref(api_key):
+            entry["api_key_saved"] = False
+        else:
+            entry["api_key"] = None
+            entry["api_key_saved"] = True
+    else:
+        entry["api_key"] = None
+        entry["api_key_saved"] = False
 
 
 def _env_presence(raw: dict[str, Any]) -> dict[str, bool]:
@@ -90,6 +97,7 @@ def _env_presence(raw: dict[str, Any]) -> dict[str, bool]:
     names: set[str] = set()
     for provider_id in list_env_discoverable_providers():
         names.update(provider_env_api_key_names(provider_id))
+    names.update(WEB_PROVIDER_ENV_VARS.values())
 
     for entry in (raw.get("providers") or {}).values():
         if isinstance(entry, dict):
@@ -98,6 +106,12 @@ def _env_presence(raw: dict[str, Any]) -> dict[str, bool]:
                 ref = is_api_key_env_ref(api_key)
                 if ref:
                     names.add(ref)
+
+    for entry in (raw.get("web") or {}).values():
+        if isinstance(entry, dict):
+            api_key = entry.get("api_key")
+            if isinstance(api_key, str) and (ref := is_api_key_env_ref(api_key)):
+                names.add(ref)
 
     return {name: bool((os.environ.get(name) or "").strip()) for name in sorted(names)}
 
@@ -158,6 +172,18 @@ def put_settings_endpoint(payload: SettingsRequest) -> dict[str, Any]:
         if not isinstance(entry, dict) or entry.get("api_key") is not None:
             continue
         prior = existing_providers.get(name) if isinstance(existing_providers, dict) else None
+        if isinstance(prior, dict) and "api_key" in prior:
+            entry["api_key"] = prior["api_key"]
+        else:
+            entry.pop("api_key", None)
+
+    existing_web = existing.get("web") or {}
+    incoming_web = incoming.get("web") or {}
+    for provider in ("tavily", "exa"):
+        entry = incoming_web.get(provider) if isinstance(incoming_web, dict) else None
+        if not isinstance(entry, dict) or entry.get("api_key") is not None:
+            continue
+        prior = existing_web.get(provider) if isinstance(existing_web, dict) else None
         if isinstance(prior, dict) and "api_key" in prior:
             entry["api_key"] = prior["api_key"]
         else:

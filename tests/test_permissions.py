@@ -31,6 +31,7 @@ def _ctx(name: str, tool_input: dict[str, object]) -> ToolHookContext:
     return ToolHookContext(
         session_id="s",
         cwd="/tmp",
+        tool_output_dir=Path("/tmp/tool-output"),
         provider="openai",
         model="gpt-5.5",
         tool_call_id="call-1",
@@ -67,6 +68,15 @@ def test_classifies_structured_tools_by_cwd_and_skill_paths(tmp_path: Path) -> N
 
     assert (
         classify_tool(
+            _ctx("read", {"path": "/tmp/tool-output/webfetch-call.md"}),
+            cwd=str(tmp_path),
+            project=str(tmp_path),
+            skill_roots=[skill_dir],
+        ).tier
+        == "readonly"
+    )
+    assert (
+        classify_tool(
             _ctx("read", {"path": "src/app.py"}),
             cwd=str(tmp_path),
             project=str(tmp_path),
@@ -101,6 +111,26 @@ def test_classifies_structured_tools_by_cwd_and_skill_paths(tmp_path: Path) -> N
         ).tier
         == "yolo"
     )
+
+
+@pytest.mark.parametrize(
+    ("name", "field", "value"),
+    [("webfetch", "url", "https://example.test"), ("websearch", "query", "python docs")],
+)
+def test_classifies_web_tools_as_standard_with_useful_preview(
+    name: str,
+    field: str,
+    value: str,
+    tmp_path: Path,
+) -> None:
+    check = classify_tool(
+        _ctx(name, {field: value}),
+        cwd=str(tmp_path),
+        project=str(tmp_path),
+        skill_roots=[],
+    )
+
+    assert check == ("standard", value)
 
 
 def test_classifies_structured_tools_inside_project_as_local(tmp_path: Path) -> None:

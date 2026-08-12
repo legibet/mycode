@@ -104,6 +104,8 @@ _TOOL_PREVIEW_KEY: dict[str, str] = {
     "write": "path",
     "edit": "path",
     "bash": "command",
+    "webfetch": "url",
+    "websearch": "query",
 }
 
 

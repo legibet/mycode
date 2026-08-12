@@ -23,6 +23,8 @@ def clear_provider_env(monkeypatch: pytest.MonkeyPatch) -> None:
     for provider in list_env_discoverable_providers():
         for env_name in provider_env_api_key_names(provider):
             monkeypatch.delenv(env_name, raising=False)
+    monkeypatch.delenv("TAVILY_API_KEY", raising=False)
+    monkeypatch.delenv("EXA_API_KEY", raising=False)
 
 
 @pytest.fixture
@@ -44,6 +46,56 @@ def _write_config(home: Path, payload: dict[str, object]) -> None:
 
 
 class TestSettingsApi:
+    def test_web_keys_are_masked_and_round_trip_without_revealing_secrets(
+        self,
+        client: TestClient,
+        home: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setenv("EXA_API_KEY", "set")
+        _write_config(
+            home,
+            {
+                "web": {
+                    "fetch": "exa",
+                    "search": "tavily",
+                    "exa": {"api_key": "exa-secret"},
+                    "tavily": {"api_key": "${TAVILY_CUSTOM_KEY}"},
+                }
+            },
+        )
+
+        body = client.get("/api/settings").json()
+        assert body["config"]["web"]["exa"] == {"api_key": None, "api_key_saved": True}
+        assert body["config"]["web"]["tavily"] == {
+            "api_key": "${TAVILY_CUSTOM_KEY}",
+            "api_key_saved": False,
+        }
+        assert body["env"]["EXA_API_KEY"] is True
+        assert body["env"]["TAVILY_CUSTOM_KEY"] is False
+
+        response = client.put(
+            "/api/settings",
+            json={
+                "config": {
+                    "web": {
+                        "fetch": "exa",
+                        "search": "off",
+                        "exa": {"api_key": None},
+                        "tavily": {"api_key": None},
+                    }
+                }
+            },
+        )
+        assert response.status_code == 200
+        on_disk = json.loads((home / "config.json").read_text(encoding="utf-8"))
+        assert on_disk["web"] == {
+            "fetch": "exa",
+            "search": "off",
+            "exa": {"api_key": "exa-secret"},
+            "tavily": {"api_key": "${TAVILY_CUSTOM_KEY}"},
+        }
+
     def test_get_returns_empty_when_no_file(self, client: TestClient, home: Path) -> None:
         body = client.get("/api/settings").json()
         assert body["exists"] is False
@@ -135,6 +187,7 @@ class TestSettingsApi:
                 {"providers": {"openai": {"models": {"gpt-5": {"context_window": "128000"}}}}},
                 "context_window",
             ),
+            ({"web": {"search": "google"}}, "web.search"),
         ],
     )
     def test_put_rejects_invalid_input(

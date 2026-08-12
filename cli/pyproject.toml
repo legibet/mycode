@@ -34,6 +34,9 @@ dependencies = [
     "pydantic>=2.13.4",
     "typer>=0.26.8",
     "pyyaml>=6.0.3",
+    "httpx2>=2.10.0",
+    "beautifulsoup4>=4.15.0",
+    "markdownify>=1.2.3",
 ]
 
 [project.scripts]

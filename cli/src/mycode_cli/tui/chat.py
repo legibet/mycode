@@ -55,7 +55,6 @@ from mycode_cli.config import (
 from mycode_cli.permissions import ToolReviewDecision, ToolReviewRequest, build_permission_hooks
 from mycode_cli.runtime import load_session_cost
 from mycode_cli.system_prompt import build_skill_snapshot_blocks, discover_slash_skills
-from mycode_cli.tools import DEFAULT_TOOLS
 
 from .render import ReplyRenderer, TerminalView, format_local_timestamp
 from .state import load_efforts, save_efforts
@@ -360,7 +359,7 @@ def clone_agent(agent: Agent, *, store: SessionStore, session_id: str) -> Agent:
         supports_image_input=agent.supports_image_input,
         supports_pdf_input=agent.supports_pdf_input,
         system=agent.system,
-        tools=DEFAULT_TOOLS,
+        tools=agent.tools.specs,
         hooks=agent.hooks,
     )
 

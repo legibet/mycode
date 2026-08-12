@@ -10,7 +10,13 @@ import pytest
 from mycode.models import ModelMetadata
 from mycode.providers import list_env_discoverable_providers, provider_env_api_key_names
 from mycode.session import SessionStore
-from mycode_cli.config import get_settings, resolve_provider
+from mycode_cli.config import (
+    WebConfig,
+    WebProviderConfig,
+    get_settings,
+    resolve_provider,
+    resolve_web_api_key,
+)
 from mycode_cli.runtime import build_agent
 
 
@@ -39,6 +45,8 @@ def clear_provider_env(monkeypatch: pytest.MonkeyPatch) -> None:
         for env_name in provider_env_api_key_names(provider):
             monkeypatch.delenv(env_name, raising=False)
     monkeypatch.delenv("ANTHROPIC_AUTH_TOKEN", raising=False)
+    monkeypatch.delenv("TAVILY_API_KEY", raising=False)
+    monkeypatch.delenv("EXA_API_KEY", raising=False)
 
 
 @pytest.fixture(autouse=True)
@@ -61,6 +69,76 @@ def workspace(tmp_path: Path, config_home: Path) -> Path:
 
 
 class TestGetSettings:
+    def test_web_key_resolution_honors_conventional_and_explicit_env_vars(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("EXA_API_KEY", "conventional-key")
+
+        assert resolve_web_api_key(WebConfig(), "exa") == "conventional-key"
+
+        web = WebConfig(exa=WebProviderConfig(api_key_env_var="EXPLICIT_EXA_KEY"))
+        with pytest.raises(ValueError, match="EXPLICIT_EXA_KEY"):
+            resolve_web_api_key(web, "exa")
+
+    def test_rejects_invalid_web_provider_values(self, workspace: Path, config_home: Path) -> None:
+        write_json(config_home / "config.json", {"web": {"fetch": "goggle"}})
+
+        with pytest.raises(ValueError, match="web.fetch must be one of"):
+            get_settings(str(workspace))
+
+    def test_merges_web_selection_and_provider_keys(
+        self,
+        workspace: Path,
+        config_home: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        write_json(
+            config_home / "config.json",
+            {
+                "web": {
+                    "fetch": "tavily",
+                    "search": "exa",
+                    "exa": {"api_key": "${EXA_API_KEY}"},
+                }
+            },
+        )
+        write_json(
+            workspace / ".mycode" / "config.json",
+            {"web": {"fetch": "local", "search": "off"}},
+        )
+        monkeypatch.setenv("EXA_API_KEY", "exa-env-key")
+
+        settings = get_settings(str(workspace))
+
+        assert settings.web.fetch == "local"
+        assert settings.web.search == "off"
+        assert resolve_web_api_key(settings.web, "exa") == "exa-env-key"
+
+    def test_default_tool_registration_tracks_web_search_config(
+        self,
+        tmp_path: Path,
+        workspace: Path,
+        config_home: Path,
+    ) -> None:
+        config = {
+            "providers": {"openai": {"api_key": "sk-test"}},
+            "default": {"provider": "openai"},
+        }
+        write_json(config_home / "config.json", config)
+        settings = get_settings(str(workspace))
+        agent = build_test_agent(tmp_path, workspace, settings, resolve_provider(settings))
+
+        assert agent.tools.get("webfetch") is not None
+        assert agent.tools.get("websearch") is None
+
+        config["web"] = {"search": "tavily"}
+        write_json(config_home / "config.json", config)
+        settings = get_settings(str(workspace))
+        agent = build_test_agent(tmp_path, workspace, settings, resolve_provider(settings))
+
+        assert agent.tools.get("webfetch") is not None
+        assert agent.tools.get("websearch") is not None
+
     def test_merges_global_and_project_configs_from_project_to_cwd(self, tmp_path: Path, config_home: Path) -> None:
         project = tmp_path / "project"
         cwd = tmp_path / "project" / "apps" / "api"
