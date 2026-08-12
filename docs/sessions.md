@@ -62,7 +62,7 @@ Standard `user` or `assistant` message in the internal block format.
 {"role": "assistant", "content": [{"type": "thinking", "text": "...", "meta": {"duration_ms": 1200}}, {"type": "text", "text": "..."}, {"type": "tool_use", "id": "...", "name": "...", "input": {...}}], "meta": {"provider": "...", "model": "...", "stop_reason": "...", "usage": {"total_tokens": 1456, "input_tokens": 1400, "cache_read_tokens": 1200, "cache_write_tokens": 100, "output_tokens": 56, "reasoning_tokens": 20}, "cost": {"input": 0.0001, "cache_read": 0.0002, "cache_write": 0.0001, "output": 0.0008, "reasoning": 0.0003, "total": 0.0015}, "context_window": 200000}}
 ```
 
-`assistant.meta.stop_reason` uses the canonical values `stop`, `tool_use`, `length`, `error`, `cancelled`, and `unknown`. Provider adapters convert their native finish reasons before persistence. `assistant.meta.model` records the selected request model, not a provider-returned alias or routed model name. A streamed tool block with unparseable JSON carries `meta.invalid_input=true` and keeps the original text in `meta.native.raw_arguments`.
+`assistant.meta.stop_reason` uses the canonical values `stop`, `tool_use`, `length`, `error`, `cancelled`, and `unknown`. Provider adapters convert their native finish reasons before persistence. `assistant.meta.model` records the selected request model, not a provider-returned alias or routed model name. A streamed tool block with unparseable JSON carries `meta.invalid_input=true` plus the original text in `meta.raw_arguments` and the parser message in `meta.parse_error`.
 
 `tool_result.content` may store `text` and `image` blocks.
 

@@ -997,17 +997,22 @@ class Agent:
             if tool_calls:
                 tool_results: list[dict[str, Any]] = []
                 for tool_call in tool_calls:
-                    block_meta = tool_call.get("meta")
-                    invalid_input = isinstance(block_meta, dict) and block_meta.get("invalid_input") is True
+                    block_meta = tool_call.get("meta") or {}
                     if stop_reason == "length":
                         events = self._reject_tool_call(
                             tool_call,
                             "error: tool call was truncated by the output token limit and was not executed",
                         )
-                    elif invalid_input:
+                    elif block_meta.get("invalid_input") is True:
                         events = self._reject_tool_call(
                             tool_call,
-                            "error: tool call arguments were invalid and were not executed",
+                            "\n".join(
+                                [
+                                    f"error: invalid arguments for {tool_call.get('name')} and the call was not executed.",
+                                    f"parse error: {block_meta.get('parse_error')}",
+                                    f"raw arguments: {block_meta.get('raw_arguments')}",
+                                ]
+                            ),
                         )
                     elif stop_reason not in {"stop", "tool_use"}:
                         events = self._reject_tool_call(

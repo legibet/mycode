@@ -138,8 +138,18 @@ def _new_agent(tmp_path: Path, **overrides) -> Agent:
         ),
         (
             {"stop_reason": "tool_use"},
-            {"invalid_input": True},
-            "arguments were invalid",
+            {
+                "invalid_input": True,
+                "raw_arguments": '{"value":oops}',
+                "parse_error": "Expecting value: line 1 column 10 (char 9)",
+            },
+            "\n".join(
+                [
+                    "error: invalid arguments for optional_tool and the call was not executed.",
+                    "parse error: Expecting value: line 1 column 10 (char 9)",
+                    'raw arguments: {"value":oops}',
+                ]
+            ),
         ),
     ],
 )

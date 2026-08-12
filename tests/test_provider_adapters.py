@@ -696,18 +696,72 @@ def test_openai_responses_preserves_invalid_tool_arguments() -> None:
 
     message = adapter._convert_final_response(response)
 
-    assert message["content"] == [
-        {
-            "type": "tool_use",
-            "id": "call_1",
-            "name": "read",
-            "input": {},
-            "meta": {
-                "native": {"item_id": "fc_1", "status": "completed", "raw_arguments": "{not json"},
-                "invalid_input": True,
+    (block,) = message["content"]
+    assert block["type"] == "tool_use"
+    assert block["id"] == "call_1"
+    assert block["input"] == {}
+    assert block["meta"]["native"] == {"item_id": "fc_1", "status": "completed"}
+    assert block["meta"]["invalid_input"] is True
+    assert block["meta"]["raw_arguments"] == "{not json"
+    assert "Expecting property name" in block["meta"]["parse_error"]
+
+
+def test_openai_responses_replays_invalid_call_arguments_as_empty() -> None:
+    adapter = OpenAIResponsesAdapter()
+    request = request_obj(
+        model="gpt-5.4",
+        messages=[
+            {
+                "role": "assistant",
+                "content": [
+                    {
+                        "type": "tool_use",
+                        "id": "call_1",
+                        "name": "websearch",
+                        "input": {},
+                        "meta": {
+                            "native": {"item_id": "fc_1", "status": "completed"},
+                            "invalid_input": True,
+                            "raw_arguments": '{"recency":month}',
+                            "parse_error": "Expecting value: line 1 column 12 (char 11)",
+                        },
+                    }
+                ],
+                "meta": {
+                    "provider": "openai",
+                    "model": "gpt-5.4",
+                    "native": {
+                        "output_items": [
+                            {
+                                "type": "function_call",
+                                "id": "fc_1",
+                                "call_id": "call_1",
+                                "name": "websearch",
+                                "arguments": '{"recency":month}',
+                                "status": "completed",
+                            }
+                        ]
+                    },
+                },
             },
-        }
-    ]
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": "call_1",
+                        "output": "error: invalid arguments",
+                        "is_error": True,
+                    }
+                ],
+            },
+        ],
+    )
+
+    input_items = adapter._build_request_payload(request)["input"]
+
+    call_item = next(item for item in input_items if item["type"] == "function_call")
+    assert call_item["arguments"] == "{}"
 
 
 # Strict tool schemas

@@ -182,20 +182,24 @@ def _without_native_meta(value: dict[str, Any]) -> dict[str, Any]:
 def parse_tool_call_input(raw_arguments: str) -> tuple[dict[str, Any], dict[str, Any]]:
     """Parse a streamed/native tool-call JSON arguments string.
 
-    Returns ``(input, extra_native_fields)``. On parse failure, ``input`` is
-    empty, ``invalid_input`` marks the canonical tool block, and the raw text
-    stays under ``raw_arguments`` for the eventual tool error.
+    Returns ``(input, invalid_meta)``. On parse failure, ``input`` is empty and
+    the canonical block meta fields ``invalid_input``, ``raw_arguments``, and
+    ``parse_error`` carry what the model needs to correct the call.
     """
 
     if not raw_arguments.strip():
         return {}, {}
     try:
         parsed = json.loads(raw_arguments)
-    except json.JSONDecodeError:
-        return {}, {"raw_arguments": raw_arguments, "invalid_input": True}
+    except json.JSONDecodeError as exc:
+        return {}, {"invalid_input": True, "raw_arguments": raw_arguments, "parse_error": str(exc)}
     if isinstance(parsed, dict):
         return parsed, {}
-    return {}, {"raw_arguments": raw_arguments, "invalid_input": True}
+    return {}, {
+        "invalid_input": True,
+        "raw_arguments": raw_arguments,
+        "parse_error": f"arguments are not a JSON object: {type(parsed).__name__}",
+    }
 
 
 class ProviderAdapter(ABC):

@@ -246,12 +246,22 @@ class OpenAIResponsesAdapter(ProviderAdapter):
         if not isinstance(output_items, list) or not output_items:
             return None
 
+        invalid_call_ids = {
+            block.get("id")
+            for block in message.get("content") or []
+            if isinstance(block, dict)
+            and block.get("type") == "tool_use"
+            and (block.get("meta") or {}).get("invalid_input") is True
+        }
+
         replay_items: list[dict[str, Any]] = []
         for item in cast(list[dict[str, Any]], deepcopy(output_items)):
             item_type = str(item.get("type") or "")
             item.pop("status", None)  # some gateways don't expect this field in input items
             if item_type != "reasoning":
                 item.pop("id", None)
+            if item_type == "function_call" and item.get("call_id") in invalid_call_ids:
+                item["arguments"] = "{}"  # never resend arguments that failed to parse
             replay_items.append(item)
 
         return replay_items
@@ -349,18 +359,14 @@ class OpenAIResponsesAdapter(ProviderAdapter):
                 continue
 
             if item_type == "function_call":
-                tool_input, extra_native = parse_tool_call_input(getattr(item, "arguments", "") or "")
-                invalid_input = bool(extra_native.pop("invalid_input", False))
+                tool_input, invalid_meta = parse_tool_call_input(getattr(item, "arguments", "") or "")
                 item_meta = omit_none(
                     {
                         "item_id": getattr(item, "id", None),
                         "status": getattr(item, "status", None),
-                        **extra_native,
                     }
                 )
-                block_meta = native_block_meta(item_meta) or {}
-                if invalid_input:
-                    block_meta["invalid_input"] = True
+                block_meta = {**(native_block_meta(item_meta) or {}), **invalid_meta}
                 blocks.append(
                     tool_use_block(
                         tool_id=getattr(item, "call_id", ""),

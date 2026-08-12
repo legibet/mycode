@@ -146,17 +146,13 @@ class OpenAIChatAdapter(ProviderAdapter):
 
         for index in sorted(tool_calls):
             state = tool_calls[index]
-            tool_input, extra_native = parse_tool_call_input(state.arguments_text)
-            invalid_input = bool(extra_native.pop("invalid_input", False))
-            block_meta = native_block_meta(extra_native) or {}
-            if invalid_input:
-                block_meta["invalid_input"] = True
+            tool_input, invalid_meta = parse_tool_call_input(state.arguments_text)
             blocks.append(
                 tool_use_block(
                     tool_id=state.tool_id or f"tool_call_{index}",
                     name=state.name,
                     input=tool_input,
-                    meta=block_meta or None,
+                    meta=invalid_meta or None,
                 )
             )
 
