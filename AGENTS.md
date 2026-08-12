@@ -9,8 +9,6 @@ Always-loaded context for agent runs on this project. Detailed specs live in `do
 - `mycode-sdk` (import `mycode`) — the runtime: agent loop, message format, session store, provider adapters, and the tool runtime. Lightweight, suitable for embedding the agent in other Python apps.
 - `mycode-cli` (import `mycode_cli`) — the interactive CLI and FastAPI web server built on top of the SDK, including local file/shell tools and configurable web access.
 
-The web UI lives in a separate repo, [`legibet/mycode-web`](https://github.com/legibet/mycode-web), included as the `web/` git submodule.
-
 ## Project Layout
 
 ```text
@@ -41,7 +39,7 @@ cli/src/mycode_cli/       # CLI + FastAPI web server
   tui/                    # interactive terminal chat (chat.py, render.py, theme.py)
   server/                 # FastAPI app, routers, run_manager, schemas; settings router validates config writes
 
-web/                      # React + Vite UI (git submodule: legibet/mycode-web)
+web/src/                  # React + Vite UI
   hooks/useChat.ts        # chat state + SSE streaming
   utils/messages.ts       # buildRenderMessages(): canonical blocks → UI messages
 
@@ -86,14 +84,6 @@ Per-adapter SDK, base URL, env vars, reasoning effort mapping, image/PDF seriali
 
 Event names and payload shapes are a cross-component contract — changes need to land in server, CLI, and web UI together. Full payload fields, reconnect semantics (`after=<seq>`), and the permission request/resolve flow live in `docs/api.md`. SDK-level event variants (used by SDK embedders) live in `docs/sdk.md`.
 
-## Web UI
-
-`web/` is the `legibet/mycode-web` submodule; UI internals (components, state model, streaming, config) live in `web/AGENTS.md`.
-
-- `mycode web` — serves packaged assets from `cli/src/mycode_cli/server/static/`; missing at startup → API-only with a warning.
-- `mycode web --dev` — API-only (pair with `pnpm --dir web dev`); CORS allows only the Vite dev origin.
-- `uv build --package mycode-cli` — builds web and packages `static/` via `cli/hatch_build.py` (editable installs skip it).
-
 ## Detailed Specs
 
 Read the relevant doc before related changes.
@@ -106,8 +96,8 @@ Read the relevant doc before related changes.
 | `cli/src/mycode_cli/tools.py`, `web_tools.py`, or built-in tool output formats  | `docs/tools.md`                                 |
 | `cli/src/mycode_cli/server/**` or any SSE event / route                         | `docs/api.md`                                   |
 | `cli/src/mycode_cli/config.py`, `system_prompt.py`, `permissions.py`            | `docs/config.md`                                |
-| `web/src/**`                                                                    | `web/AGENTS.md`                                 |
-| Cross-cutting changes (e.g. a new SSE event)                                    | `docs/api.md` + `docs/sdk.md` + `web/AGENTS.md` |
+| `web/**`                                                                        | `docs/web.md`                                   |
+| Cross-cutting changes (e.g. a new SSE event)                                    | `docs/api.md` + `docs/sdk.md` + `docs/web.md`   |
 
 ## Interfaces
 
@@ -123,14 +113,14 @@ Format: `type(scope): description`.
 
 Scopes:
 
-- `web` — `web/` submodule pointer bumps
+- `web` — changes under `web/` only
 - `sdk` — SDK package (`mycode/`) only
 - `cli` — CLI/server package (`cli/`) only
 
 Examples:
 
 ```text
-chore(web): bump mycode-web
+feat(web): add tool duration display
 fix(sdk): handle empty tool result in compact
 feat(sdk): add tool decorator
 refactor(cli): unify provider switcher
@@ -140,7 +130,6 @@ docs: update SSE contract in AGENTS.md
 ## Dev Workflow
 
 ```bash
-git submodule update --init                            # fetch web/ (legibet/mycode-web)
 uv sync --dev                                          # install/update Python deps
 pnpm --dir web install                                 # install web deps
 
@@ -151,7 +140,7 @@ pnpm --dir web dev                                     # frontend Vite dev serve
 uv run basedpyright                                    # Python type checking
 pnpm --dir web typecheck                               # web type checking
 uv run pytest                                          # Python tests
-pnpm --dir web test:run                                # web tests
+pnpm --dir web test                                    # web tests
 
 uv build --package mycode-sdk                          # build SDK package
 uv build --package mycode-cli                          # build CLI package
@@ -160,11 +149,11 @@ uv build --package mycode-cli                          # build CLI package
 Useful shortcuts:
 
 ```bash
-just setup                                             # init submodule + install all deps
+just setup                                             # install all dependencies
 just dev                                               # backend API + Vite dev together
-just check                                             # ruff check, basedpyright
-just test                                              # Python tests
-just fmt                                               # ruff fix/format
+just check                                             # ruff check, basedpyright, web typecheck, biome check
+just test                                              # Python + web tests
+just fmt                                               # ruff fix/format + biome check --write
 ```
 
 Releases are cut by `scripts/release.sh`, which bumps the `mycode-sdk` and `mycode-cli` versions in their `pyproject.toml`, refreshes the CLI's pin on `mycode-sdk`, builds both wheels, and tags the repo.

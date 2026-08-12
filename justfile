@@ -14,7 +14,6 @@ default:
   @just --list
 
 setup:
-  git submodule update --init --recursive
   uv sync --dev
   pnpm --dir web install
 
@@ -74,16 +73,24 @@ py-check:
   uv run ruff check .
   uv run basedpyright
 
-check: py-check
+web-check:
+  pnpm --dir web check
+  pnpm --dir web typecheck
+
+check: py-check web-check
 
 py-test:
   uv run pytest
 
-test: py-test
+web-test:
+  pnpm --dir web test
+
+test: py-test web-test
 
 fmt:
   uv run ruff check --fix .
   uv run ruff format .
+  pnpm --dir web check:fix
 
 build:
   uv build --package mycode-sdk

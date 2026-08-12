@@ -169,7 +169,7 @@ def test_classifies_common_readonly_bash(command: str, tmp_path: Path) -> None:
     [
         "uv run pytest tests",
         "uv run ruff check",
-        "pnpm --dir web test:run",
+        "pnpm --dir web test",
         "npm run build",
         "python -m pytest",
         "go test ./...",

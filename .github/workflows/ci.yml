@@ -35,24 +35,52 @@ jobs:
       - name: Run Python tests
         run: uv run pytest
 
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          package_json_file: web/package.json
+
+      - name: Install Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm --dir web install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm --dir web check
+
+      - name: Typecheck
+        run: pnpm --dir web typecheck
+
+      - name: Test
+        run: pnpm --dir web test
+
   package:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v6
-        with:
-          submodules: recursive
 
       - name: Install uv
         uses: astral-sh/setup-uv@v7
 
       - name: Install pnpm
-        uses: pnpm/action-setup@v5
+        uses: pnpm/action-setup@v6
         with:
-          version: 10
+          package_json_file: web/package.json
 
       - name: Install Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: pnpm

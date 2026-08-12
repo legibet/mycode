@@ -27,12 +27,9 @@ def _build_web_assets(project_root: Path) -> None:
     static_dir = project_root / "src" / "mycode_cli" / "server" / "static"
 
     if not (web_dir / "package.json").is_file():
-        if static_dir.is_dir():
+        if (static_dir / "index.html").is_file():
             return
-        raise RuntimeError(
-            f"web sources not found at {web_dir}; the web/ submodule is not "
-            "initialized. Run: git submodule update --init --recursive"
-        )
+        raise RuntimeError(f"web sources not found at {web_dir} and built assets not found at {static_dir}")
 
     _run_pnpm(["install", "--frozen-lockfile"], cwd=web_dir)
     _run_pnpm(["build"], cwd=web_dir)
@@ -48,8 +45,7 @@ def _build_web_assets(project_root: Path) -> None:
 class CustomBuildHook(BuildHookInterface[Any]):
     def initialize(self, version: str, build_data: dict[str, Any]) -> None:
         del build_data
-        # Editable installs (uv sync) don't bundle web assets, so skip the build
-        # and its web/ submodule + pnpm requirements. Wheel/sdist builds use "standard".
+        # Editable installs don't bundle web assets.
         if version == "editable":
             return
         _build_web_assets(Path(self.root))
