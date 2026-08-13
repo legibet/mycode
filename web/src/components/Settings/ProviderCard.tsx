@@ -344,7 +344,13 @@ function computeApiKeyHint(
 
   if (!draft.api_key_input.trim() && !draft.api_key_saved) {
     const builtins = providerTypeEnvVars[draft.type] || [];
-    if (builtins.length === 0) return undefined;
+    if (builtins.length === 0) {
+      return (
+        <span className="text-destructive/80">
+          API key required. Paste a key or use an environment variable
+        </span>
+      );
+    }
     const primary = builtins[0] as string;
     const set = envByName[primary] ?? false;
     return set ? (

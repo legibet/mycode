@@ -62,7 +62,6 @@ class OpenAIChatAdapter(ProviderAdapter):
     provider_id = "openai_chat"
     label = "OpenAI Chat Completions"
     default_base_url = "https://api.openai.com/v1"
-    env_api_key_names = ("OPENAI_API_KEY",)
     auto_discoverable = False
 
     @override
