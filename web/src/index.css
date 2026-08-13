@@ -64,6 +64,8 @@
 
   /* Elevation: a hairline ring is layer one, blur stacks on top of it. */
   --shadow-hairline: var(--elevation-hairline);
+  --shadow-card: var(--elevation-card);
+  --shadow-card-accent: var(--elevation-card-accent);
   --shadow-overlay: var(--elevation-overlay);
 
   /* Fast start, long settle. For geometry and visibility, not color. */
@@ -104,6 +106,12 @@
     --sidebar-bg: oklch(0.14 0.007 250);
 
     --elevation-hairline: 0 0 0 1px var(--border);
+    --elevation-card:
+      0 0 0 1px var(--border), 0 1px 2px oklch(0 0 0 / 0.3),
+      0 2px 6px oklch(0 0 0 / 0.28);
+    --elevation-card-accent:
+      0 0 0 1px color-mix(in oklch, var(--accent) 45%, transparent),
+      0 1px 2px oklch(0 0 0 / 0.3), 0 2px 6px oklch(0 0 0 / 0.28);
     --elevation-overlay:
       0 0 0 1px var(--border), 0 8px 28px oklch(0 0 0 / 0.45);
 
@@ -148,6 +156,12 @@
     --sidebar-bg: oklch(0.948 0.006 250);
 
     --elevation-hairline: 0 0 0 1px var(--border);
+    --elevation-card:
+      0 0 0 1px var(--border), 0 1px 2px oklch(0 0 0 / 0.04),
+      0 2px 6px oklch(0 0 0 / 0.03);
+    --elevation-card-accent:
+      0 0 0 1px color-mix(in oklch, var(--accent) 45%, transparent),
+      0 1px 2px oklch(0 0 0 / 0.04), 0 2px 6px oklch(0 0 0 / 0.03);
     --elevation-overlay:
       0 0 0 1px var(--border), 0 8px 28px oklch(0 0 0 / 0.07);
 

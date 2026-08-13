@@ -480,9 +480,9 @@ export const InputArea = memo(function InputArea({
       <div
         role="presentation"
         className={cn(
-          "relative rounded-lg bg-card border shadow-sm transition-[border-color,background-color,box-shadow] duration-200",
-          "focus-within:shadow-md focus-within:border-accent/40",
-          dragging ? "border-accent/50 bg-accent/5" : "border-border",
+          "relative rounded-lg bg-card transition-[background-color,box-shadow] duration-200",
+          "focus-within:shadow-card-accent",
+          dragging ? "shadow-card-accent bg-accent/5" : "shadow-card",
         )}
         onDragEnter={handleDragEnter}
         onDragLeave={handleDragLeave}

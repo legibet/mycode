@@ -52,7 +52,7 @@ export const PermissionPrompt = memo(function PermissionPrompt({
         aria-label="Tool permission request"
         tabIndex={-1}
         onKeyDown={handleKeyDown}
-        className="rounded-lg border border-border bg-card shadow-sm animate-fade-in-up focus:outline-none"
+        className="rounded-lg bg-card shadow-card animate-fade-in-up focus:outline-none"
       >
         <div className="flex items-center gap-2 px-3.5 pt-3 pb-2">
           <Icon

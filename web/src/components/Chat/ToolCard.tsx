@@ -443,6 +443,8 @@ export const ToolCard = memo(function ToolCard({
         )}
       >
         <div className="overflow-hidden">
+          {/* Plain indent: the body is already a bounded surface, so a rail
+              beside it would just be a second parallel line. */}
           <div className="mt-2 ml-5">{body}</div>
         </div>
       </div>

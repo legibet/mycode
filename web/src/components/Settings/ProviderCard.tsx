@@ -104,7 +104,7 @@ export const ProviderCard = memo(function ProviderCard({
   return (
     <div
       className={cn(
-        "relative rounded-lg border border-border/40 bg-card shadow-sm px-4 py-3.5",
+        "relative rounded-lg bg-card shadow-card px-4 py-3.5",
         "transition-colors hover:border-border/60",
       )}
     >

@@ -69,7 +69,7 @@ export const ReasoningBlock = memo(function ReasoningBlock({
         )}
       >
         <div className="overflow-hidden">
-          <div className="mt-2 border-l-2 border-border pl-3 text-[13px] text-muted-foreground whitespace-pre-wrap leading-relaxed">
+          <div className="mt-2 border-l border-border pl-3 text-[13px] text-muted-foreground whitespace-pre-wrap leading-relaxed">
             {content}
           </div>
         </div>
