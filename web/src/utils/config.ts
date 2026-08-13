@@ -26,7 +26,7 @@ export function getReasoningEffortOptions(
   if (!providerInfo?.supports_reasoning_effort) return [];
 
   const efforts = providerInfo.reasoning_efforts?.[model] || [];
-  return efforts.length ? ["auto", ...efforts] : [];
+  return efforts.length ? [...efforts.toReversed(), "auto"] : [];
 }
 
 export function reasoningEffortKey(provider: string, model: string): string {
