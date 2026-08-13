@@ -52,8 +52,11 @@ const diffCss = `
 export default function EditDiff({ patch }: EditDiffProps) {
   const { resolvedTheme } = useTheme();
 
+  // <diffs-container> is a virtualized scroll root that measures itself and
+  // throws on an uneven mount/unmount. It owns this container outright; do not
+  // re-parent it into a shell whose structure changes with tool state.
   return (
-    <div className="rounded-md bg-code overflow-hidden">
+    <div className="rounded-md bg-code shadow-hairline overflow-hidden">
       <PatchDiff
         patch={patch}
         style={{ ...baseDiffStyle, colorScheme: resolvedTheme }}

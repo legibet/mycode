@@ -28,7 +28,7 @@ export function StatsHover({
       <span
         role="tooltip"
         className={cn(
-          "pointer-events-none absolute bottom-full z-10 mb-2 flex w-max flex-col gap-1 rounded-lg border border-border/50 bg-popover px-3.5 py-3 text-xs text-popover-foreground opacity-0 shadow-md transition-opacity delay-200 duration-150 group-hover/stats:opacity-100",
+          "pointer-events-none absolute bottom-full z-10 mb-2 flex w-max flex-col gap-1 rounded-lg bg-popover px-3.5 py-3 text-xs text-popover-foreground opacity-0 shadow-overlay transition-opacity delay-200 duration-150 group-hover/stats:opacity-100",
           align === "left" ? "left-0" : "right-0",
         )}
       >

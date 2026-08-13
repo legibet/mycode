@@ -62,9 +62,16 @@
   --text-2xs: 0.6875rem;
   --text-2xs--line-height: 1rem;
 
+  /* Elevation: a hairline ring is layer one, blur stacks on top of it. */
+  --shadow-hairline: var(--elevation-hairline);
+  --shadow-overlay: var(--elevation-overlay);
+
+  /* Fast start, long settle. For geometry and visibility, not color. */
+  --ease-out-strong: cubic-bezier(0.23, 1, 0.32, 1);
+
   --animate-cursor-blink: cursor-blink 1s step-end infinite;
-  --animate-fade-in-up: fade-in-up 0.2s ease-out both;
-  --animate-breathing: breathing 2s ease-in-out infinite;
+  --animate-fade-in-up: fade-in-up 0.2s var(--ease-out-strong) both;
+  --animate-breathing: breathing 2s var(--ease-out-strong) infinite;
   --animate-thinking: thinking 2.5s ease-in-out infinite;
 }
 
@@ -95,6 +102,10 @@
 
     --code-background: oklch(0.135 0.007 250);
     --sidebar-bg: oklch(0.14 0.007 250);
+
+    --elevation-hairline: 0 0 0 1px var(--border);
+    --elevation-overlay:
+      0 0 0 1px var(--border), 0 8px 28px oklch(0 0 0 / 0.45);
 
     --scrollbar-thumb: color-mix(in oklch, var(--border) 90%, transparent);
     --scrollbar-thumb-hover: color-mix(
@@ -135,6 +146,10 @@
 
     --code-background: oklch(0.962 0.006 250);
     --sidebar-bg: oklch(0.948 0.006 250);
+
+    --elevation-hairline: 0 0 0 1px var(--border);
+    --elevation-overlay:
+      0 0 0 1px var(--border), 0 8px 28px oklch(0 0 0 / 0.07);
 
     --diff-removed-bg: oklch(0.55 0.17 25 / 0.07);
     --diff-added-bg: oklch(0.6 0.16 145 / 0.07);
@@ -243,11 +258,6 @@
   contain-intrinsic-size: auto var(--chat-message-intrinsic-size, 320px);
 }
 
-.chat-message-shell[data-layout-optimized="true"]
-  .chat-collapsible-body[data-expanded="false"] {
-  content-visibility: hidden;
-}
-
 /* ── Prose / Markdown ── */
 .prose {
   @apply text-foreground max-w-none;
@@ -287,8 +297,9 @@
   @apply leading-relaxed;
   overflow-wrap: anywhere;
 }
+/* CodeBlock owns the code surface; the inner <pre> stays bare. */
 .prose pre {
-  @apply my-4 overflow-x-auto rounded-lg bg-code;
+  @apply m-0 bg-transparent;
 }
 .prose pre code {
   @apply rounded-none bg-transparent p-0 font-mono text-[13px] font-normal leading-relaxed text-foreground;
@@ -399,13 +410,18 @@
     transform: translateY(0);
   }
 }
+/* Lights up fast, holds at full, falls off slowly. A symmetric pulse reads
+   as a blinking machine; the hold is what makes it feel alive. */
 @keyframes breathing {
-  0%,
-  100% {
+  0% {
+    opacity: 0.35;
+  }
+  18%,
+  42% {
     opacity: 1;
   }
-  50% {
-    opacity: 0.4;
+  100% {
+    opacity: 0.35;
   }
 }
 @keyframes thinking {

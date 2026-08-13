@@ -66,7 +66,7 @@ export const PermissionPrompt = memo(function PermissionPrompt({
 
         {request.preview && (
           <div className="px-3.5 pb-2.5">
-            <div className="rounded-md bg-code px-3 py-2 font-mono text-[12.5px] leading-normal text-foreground/80 whitespace-pre-wrap break-all max-h-28 overflow-y-auto scrollbar-subtle">
+            <div className="rounded-md bg-code shadow-hairline px-3 py-2 font-mono text-[12.5px] leading-normal text-foreground/80 whitespace-pre-wrap break-all max-h-28 overflow-y-auto scrollbar-subtle">
               {isBash && (
                 <span className="text-muted-foreground/40 select-none">$ </span>
               )}
@@ -79,7 +79,7 @@ export const PermissionPrompt = memo(function PermissionPrompt({
           <button
             type="button"
             onClick={() => onDecide("allow")}
-            className="h-7 px-3 rounded-md text-[12.5px] font-medium bg-accent text-accent-foreground hover:opacity-90 active:scale-95 transition-[opacity,scale] duration-150"
+            className="h-7 px-3 rounded-md text-[12.5px] font-medium bg-accent text-accent-foreground hover:brightness-105 hover:saturate-[.9] active:scale-95 transition-[filter,scale] duration-150"
           >
             Allow
           </button>

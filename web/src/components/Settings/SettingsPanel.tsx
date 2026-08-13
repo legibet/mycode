@@ -108,7 +108,7 @@ const CANCEL_BTN_CLASS = cn(
 
 const SAVE_BTN_CLASS = cn(
   "inline-flex items-center justify-center gap-1.5 rounded-md text-[13px] font-medium",
-  "bg-accent text-accent-foreground hover:bg-accent/90 active:scale-95 transition-[color,background-color,scale] duration-150",
+  "bg-accent text-accent-foreground hover:brightness-105 hover:saturate-[.9] active:scale-95 transition-[color,filter,scale] duration-150",
   "disabled:opacity-40 disabled:pointer-events-none",
   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50",
 );

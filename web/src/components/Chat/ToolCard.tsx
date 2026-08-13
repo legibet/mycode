@@ -15,7 +15,7 @@ import {
   SquarePen,
   Terminal,
 } from "lucide-react";
-import { lazy, memo, Suspense, useState } from "react";
+import { lazy, memo, type ReactNode, Suspense, useState } from "react";
 import { cn } from "../../utils/cn";
 
 const EditDiff = lazy(() => import("./EditDiff"));
@@ -91,7 +91,7 @@ function getEditStats(
 
 function EditDiffFallback({ edits }: { edits: EditEntry[] }) {
   return (
-    <div className="rounded-md bg-code px-3 py-2 font-mono text-[13px] leading-normal overflow-x-auto scrollbar-subtle whitespace-pre-wrap">
+    <div className="rounded-md bg-code shadow-hairline px-3 py-2 font-mono text-[13px] leading-normal overflow-x-auto scrollbar-subtle whitespace-pre-wrap">
       {edits.map((entry, i) => (
         <div key={i}>
           {i > 0 && (
@@ -131,14 +131,30 @@ interface ToolCardProps {
 }
 
 // ---------------------------------------------------------------------------
-// Shared result block — code viewer for tool output (not a card shell)
+// Shared code surface for text-based tools — one execution reads as one block:
+// input on top, output below, split by a hairline rule instead of a gap.
+// Diffs are not text: EditDiff owns its own container (see EditDiff.tsx).
 // ---------------------------------------------------------------------------
 
-function ResultBlock({ text }: { text: string }) {
-  if (!text) return null;
+function ToolSurface({ head, body }: { head?: ReactNode; body?: ReactNode }) {
+  if (!head && !body) return null;
   return (
-    <div className="rounded-md bg-code px-3 py-2 font-mono text-[13px] leading-relaxed text-muted-foreground overflow-x-auto overflow-y-auto scrollbar-subtle whitespace-pre-wrap max-h-[240px]">
-      {text}
+    <div className="rounded-md bg-code shadow-hairline overflow-hidden font-mono text-[13px]">
+      {head && (
+        <div className="px-3 py-2 leading-normal max-h-60 overflow-auto scrollbar-subtle">
+          {head}
+        </div>
+      )}
+      {body && (
+        <div
+          className={cn(
+            "px-3 py-2 leading-relaxed text-muted-foreground whitespace-pre-wrap overflow-auto scrollbar-subtle max-h-[240px]",
+            head && "border-t border-border/60",
+          )}
+        >
+          {body}
+        </div>
+      )}
     </div>
   );
 }
@@ -241,17 +257,19 @@ function BashBody({ args, display }: { args: Args; display: string }) {
   const command = asString((args as BashArgs | undefined)?.command);
 
   return (
-    <div className="space-y-2">
-      {command && (
-        <div className="rounded-md bg-code px-3 py-2 font-mono text-[13px] leading-normal overflow-x-auto scrollbar-subtle">
-          <span className="text-muted-foreground/40 select-none">$ </span>
-          <span className="text-foreground/75 whitespace-pre-wrap break-all">
-            {command}
-          </span>
-        </div>
-      )}
-      <ResultBlock text={display} />
-    </div>
+    <ToolSurface
+      head={
+        command && (
+          <>
+            <span className="text-muted-foreground/40 select-none">$ </span>
+            <span className="text-foreground/75 whitespace-pre-wrap break-all">
+              {command}
+            </span>
+          </>
+        )
+      }
+      body={display}
+    />
   );
 }
 
@@ -267,14 +285,16 @@ function WriteBody({
   const content = asString((args as WriteArgs | undefined)?.content);
 
   return (
-    <div className="space-y-2">
-      {content && !isError && (
-        <div className="rounded-md bg-code px-3 py-2 font-mono text-[13px] leading-normal overflow-x-auto overflow-y-auto scrollbar-subtle whitespace-pre-wrap max-h-60 text-foreground/75">
-          {content}
-        </div>
-      )}
-      {isError && <ResultBlock text={display} />}
-    </div>
+    <ToolSurface
+      head={
+        content && (
+          <span className="text-foreground/75 whitespace-pre-wrap">
+            {content}
+          </span>
+        )
+      }
+      body={isError ? display : null}
+    />
   );
 }
 
@@ -301,34 +321,30 @@ function EditBody({
         ) : (
           <EditDiffFallback edits={edits} />
         )}
-        {isError && <ResultBlock text={display} />}
+        {isError && <ToolSurface body={display} />}
       </div>
     );
   }
 
   return (
-    <div className="space-y-2">
-      {args && Object.keys(args).length > 0 && <GenericArgs args={args} />}
-      <ResultBlock text={display} />
-    </div>
+    <ToolSurface
+      head={args && Object.keys(args).length > 0 && <GenericArgs args={args} />}
+      body={display}
+    />
   );
 }
 
 function GenericArgs({ args }: { args: Record<string, unknown> }) {
-  return (
-    <div className="rounded-md bg-code px-3 py-2 font-mono text-[13px] leading-relaxed overflow-x-auto scrollbar-subtle">
-      {Object.entries(args).map(([key, value]) => (
-        <div key={key}>
-          <span className="text-accent/80">{key}: </span>
-          <span className="text-foreground/75 break-all whitespace-pre-wrap">
-            {typeof value === "object"
-              ? JSON.stringify(value, null, 2)
-              : String(value)}
-          </span>
-        </div>
-      ))}
+  return Object.entries(args).map(([key, value]) => (
+    <div key={key}>
+      <span className="text-accent/80">{key}: </span>
+      <span className="text-foreground/75 break-all whitespace-pre-wrap">
+        {typeof value === "object"
+          ? JSON.stringify(value, null, 2)
+          : String(value)}
+      </span>
     </div>
-  );
+  ));
 }
 
 // ---------------------------------------------------------------------------
@@ -364,7 +380,7 @@ export const ToolCard = memo(function ToolCard({
     name === "bash" ? (
       <BashBody args={args} display={display} />
     ) : name === "read" || name === "webfetch" || name === "websearch" ? (
-      <ResultBlock text={display} />
+      <ToolSurface body={display} />
     ) : name === "write" ? (
       <WriteBody args={args} display={display} isError={resolvedIsError} />
     ) : name === "edit" ? (
@@ -375,10 +391,12 @@ export const ToolCard = memo(function ToolCard({
         isError={resolvedIsError}
       />
     ) : (
-      <>
-        {args && Object.keys(args).length > 0 && <GenericArgs args={args} />}
-        <ResultBlock text={display} />
-      </>
+      <ToolSurface
+        head={
+          args && Object.keys(args).length > 0 && <GenericArgs args={args} />
+        }
+        body={display}
+      />
     );
 
   return (
@@ -418,7 +436,7 @@ export const ToolCard = memo(function ToolCard({
       <div
         data-expanded={expanded}
         className={cn(
-          "chat-collapsible-body grid transition-[grid-template-rows,opacity] duration-250 ease-out",
+          "chat-collapsible-body grid transition-[grid-template-rows,opacity] duration-250 ease-out-strong",
           expanded
             ? "grid-rows-[1fr] opacity-100"
             : "grid-rows-[0fr] opacity-0",

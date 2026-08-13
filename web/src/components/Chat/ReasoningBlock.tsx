@@ -62,7 +62,7 @@ export const ReasoningBlock = memo(function ReasoningBlock({
       <div
         data-expanded={expanded}
         className={cn(
-          "chat-collapsible-body grid transition-[grid-template-rows,opacity] duration-250 ease-out",
+          "chat-collapsible-body grid transition-[grid-template-rows,opacity] duration-250 ease-out-strong",
           expanded
             ? "grid-rows-[1fr] opacity-100"
             : "grid-rows-[0fr] opacity-0",

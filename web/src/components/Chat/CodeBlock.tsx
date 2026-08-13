@@ -68,7 +68,7 @@ export function CodeBlock({ className, children, ...props }: CodeBlockProps) {
   return (
     <div
       data-code-block
-      className="group/code relative my-3 rounded-md bg-code"
+      className="group/code relative my-3 rounded-md bg-code shadow-hairline"
     >
       {language && (
         <span className="absolute top-1.5 left-3 text-[11px] font-mono text-muted-foreground/50 uppercase tracking-wider select-none pointer-events-none z-10">

@@ -483,9 +483,9 @@ export const MessageBubble = memo(function MessageBubble({
                 onClick={submitEdit}
                 disabled={!editText.trim()}
                 className={cn(
-                  "px-3 py-1 text-xs rounded-lg transition-[color,background-color,opacity,scale] duration-150",
+                  "px-3 py-1 text-xs rounded-lg transition-[color,background-color,filter,scale] duration-150",
                   editText.trim()
-                    ? "bg-accent text-accent-foreground hover:opacity-90 active:scale-95"
+                    ? "bg-accent text-accent-foreground hover:brightness-105 hover:saturate-[.9] active:scale-95"
                     : "text-muted-foreground/40",
                 )}
               >
@@ -628,7 +628,7 @@ export const MessageBubble = memo(function MessageBubble({
         })}
 
         {isStreaming && (
-          <span className="inline-block w-[1.5px] h-4 bg-foreground/40 animate-cursor-blink ml-0.5 align-middle" />
+          <span className="inline-block w-[1.5px] h-4 bg-foreground/40 ml-0.5 align-middle" />
         )}
       </div>
 

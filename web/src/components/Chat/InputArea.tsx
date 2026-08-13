@@ -639,9 +639,9 @@ export const InputArea = memo(function InputArea({
               onClick={() => composerRef.current?.submit()}
               disabled={!hasInput || disabled}
               className={cn(
-                "size-7 flex items-center justify-center rounded-md transition-[color,background-color,opacity,scale] duration-150 shrink-0",
+                "size-7 flex items-center justify-center rounded-md transition-[color,background-color,filter,scale] duration-150 shrink-0",
                 hasInput && !disabled
-                  ? "bg-accent text-accent-foreground hover:opacity-90 active:scale-95"
+                  ? "bg-accent text-accent-foreground hover:brightness-105 hover:saturate-[.9] active:scale-95"
                   : "text-muted-foreground/30 bg-muted/40",
               )}
               title="Send"
