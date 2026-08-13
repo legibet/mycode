@@ -637,31 +637,6 @@
       "supports_pdf_input": false,
       "supports_reasoning": false
     },
-    "gemini-2.0-flash": {
-      "context_window": 1048576,
-      "cost": {
-        "cache_read": 0.025,
-        "input": 0.1,
-        "output": 0.4
-      },
-      "max_output_tokens": 8192,
-      "reasoning_efforts": null,
-      "supports_image_input": true,
-      "supports_pdf_input": true,
-      "supports_reasoning": false
-    },
-    "gemini-2.0-flash-lite": {
-      "context_window": 1048576,
-      "cost": {
-        "input": 0.075,
-        "output": 0.3
-      },
-      "max_output_tokens": 8192,
-      "reasoning_efforts": null,
-      "supports_image_input": true,
-      "supports_pdf_input": true,
-      "supports_reasoning": false
-    },
     "gemini-2.5-computer-use-preview-10-2025": {
       "context_window": 131072,
       "cost": {
@@ -784,30 +759,6 @@
       "reasoning_efforts": [],
       "supports_image_input": true,
       "supports_pdf_input": false,
-      "supports_reasoning": true
-    },
-    "gemini-3-pro-preview": {
-      "context_window": 1048576,
-      "cost": {
-        "cache_read": 0.2,
-        "input": 2,
-        "output": 12,
-        "tiers": [
-          {
-            "cache_read": 0.4,
-            "input": 4,
-            "output": 18,
-            "size": 200000
-          }
-        ]
-      },
-      "max_output_tokens": 65536,
-      "reasoning_efforts": [
-        "low",
-        "high"
-      ],
-      "supports_image_input": true,
-      "supports_pdf_input": true,
       "supports_reasoning": true
     },
     "gemini-3.1-flash-image": {
@@ -2003,6 +1954,32 @@
         "low",
         "medium",
         "high"
+      ],
+      "supports_image_input": true,
+      "supports_pdf_input": true,
+      "supports_reasoning": true
+    },
+    "grok-4.6": {
+      "context_window": 500000,
+      "cost": {
+        "cache_read": 0.5,
+        "input": 2,
+        "output": 6,
+        "tiers": [
+          {
+            "cache_read": 1,
+            "input": 4,
+            "output": 12,
+            "size": 200000
+          }
+        ]
+      },
+      "max_output_tokens": 500000,
+      "reasoning_efforts": [
+        "low",
+        "medium",
+        "high",
+        "xhigh"
       ],
       "supports_image_input": true,
       "supports_pdf_input": true,
@@ -4135,31 +4112,6 @@
         "supports_pdf_input": true,
         "supports_reasoning": true
       },
-      "gemini-2.0-flash": {
-        "context_window": 1048576,
-        "cost": {
-          "cache_read": 0.025,
-          "input": 0.1,
-          "output": 0.4
-        },
-        "max_output_tokens": 8192,
-        "reasoning_efforts": null,
-        "supports_image_input": true,
-        "supports_pdf_input": true,
-        "supports_reasoning": false
-      },
-      "gemini-2.0-flash-lite": {
-        "context_window": 1048576,
-        "cost": {
-          "input": 0.075,
-          "output": 0.3
-        },
-        "max_output_tokens": 8192,
-        "reasoning_efforts": null,
-        "supports_image_input": true,
-        "supports_pdf_input": true,
-        "supports_reasoning": false
-      },
       "gemini-2.5-computer-use-preview-10-2025": {
         "context_window": 131072,
         "cost": {
@@ -4306,30 +4258,6 @@
         "reasoning_efforts": [],
         "supports_image_input": true,
         "supports_pdf_input": false,
-        "supports_reasoning": true
-      },
-      "gemini-3-pro-preview": {
-        "context_window": 1048576,
-        "cost": {
-          "cache_read": 0.2,
-          "input": 2,
-          "output": 12,
-          "tiers": [
-            {
-              "cache_read": 0.4,
-              "input": 4,
-              "output": 18,
-              "size": 200000
-            }
-          ]
-        },
-        "max_output_tokens": 65536,
-        "reasoning_efforts": [
-          "low",
-          "high"
-        ],
-        "supports_image_input": true,
-        "supports_pdf_input": true,
         "supports_reasoning": true
       },
       "gemini-3.1-flash-image": {
@@ -5873,12 +5801,12 @@
         "supports_reasoning": false
       },
       "anthracite-org/magnum-v4-72b": {
-        "context_window": 16384,
+        "context_window": 32768,
         "cost": {
           "input": 3,
           "output": 5
         },
-        "max_output_tokens": 2048,
+        "max_output_tokens": 4096,
         "reasoning_efforts": null,
         "supports_image_input": false,
         "supports_pdf_input": false,
@@ -6304,6 +6232,41 @@
         "supports_pdf_input": false,
         "supports_reasoning": true
       },
+      "bytedance-seed/seed-2-1-turbo": {
+        "context_window": 262144,
+        "cost": {
+          "input": 0.5,
+          "output": 2.5
+        },
+        "max_output_tokens": 262144,
+        "reasoning_efforts": [],
+        "supports_image_input": true,
+        "supports_pdf_input": false,
+        "supports_reasoning": true
+      },
+      "bytedance-seed/seed-2.0-code": {
+        "context_window": 262144,
+        "cost": {
+          "input": 0.5,
+          "output": 3,
+          "tiers": [
+            {
+              "input": 1,
+              "output": 6,
+              "size": 128000
+            }
+          ]
+        },
+        "max_output_tokens": 131072,
+        "reasoning_efforts": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "supports_image_input": true,
+        "supports_pdf_input": false,
+        "supports_reasoning": true
+      },
       "bytedance-seed/seed-2.0-lite": {
         "context_window": 262144,
         "cost": {
@@ -6527,9 +6490,9 @@
       "deepseek/deepseek-v3.1-terminus": {
         "context_window": 163840,
         "cost": {
-          "cache_read": 0.135,
+          "cache_read": 0.13,
           "input": 0.27,
-          "output": 1
+          "output": 0.95
         },
         "max_output_tokens": 32768,
         "reasoning_efforts": [],
@@ -6598,14 +6561,31 @@
       "deepseek/deepseek-v4-pro": {
         "context_window": 1048576,
         "cost": {
+          "cache_read": 0.09855,
+          "input": 1.168,
+          "output": 2.336
+        },
+        "max_output_tokens": 393216,
+        "reasoning_efforts": [
+          "high",
+          "xhigh"
+        ],
+        "supports_image_input": false,
+        "supports_pdf_input": false,
+        "supports_reasoning": true
+      },
+      "deepseek/deepseek-v4-pro-0813": {
+        "context_window": 1048576,
+        "cost": {
           "cache_read": 0.003625,
           "input": 0.435,
           "output": 0.87
         },
         "max_output_tokens": 384000,
         "reasoning_efforts": [
+          "low",
           "high",
-          "xhigh"
+          "max"
         ],
         "supports_image_input": false,
         "supports_pdf_input": false,
@@ -7269,6 +7249,18 @@
         "supports_pdf_input": false,
         "supports_reasoning": false
       },
+      "liquid/lfm-2.5-2.6b:free": {
+        "context_window": 128000,
+        "cost": {
+          "input": 0,
+          "output": 0
+        },
+        "max_output_tokens": 32768,
+        "reasoning_efforts": [],
+        "supports_image_input": false,
+        "supports_pdf_input": false,
+        "supports_reasoning": true
+      },
       "mancer/weaver": {
         "context_window": 8000,
         "cost": {
@@ -7390,6 +7382,24 @@
         "supports_image_input": true,
         "supports_pdf_input": false,
         "supports_reasoning": false
+      },
+      "meta/muse-glimmer-30b": {
+        "context_window": 131072,
+        "cost": {
+          "cache_read": 0.04,
+          "input": 0.35,
+          "output": 1.5
+        },
+        "max_output_tokens": 131072,
+        "reasoning_efforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh"
+        ],
+        "supports_image_input": true,
+        "supports_pdf_input": false,
+        "supports_reasoning": true
       },
       "meta/muse-spark-1.1": {
         "context_window": 1048576,
@@ -7856,8 +7866,8 @@
         "context_window": 262144,
         "cost": {
           "cache_read": 0.15,
-          "input": 0.7,
-          "output": 3.5
+          "input": 0.67,
+          "output": 3.4
         },
         "max_output_tokens": 262144,
         "reasoning_efforts": [],
@@ -8087,6 +8097,31 @@
         "max_output_tokens": 8192,
         "reasoning_efforts": [],
         "supports_image_input": true,
+        "supports_pdf_input": false,
+        "supports_reasoning": true
+      },
+      "nvidia/nemotron-3.5-lightning": {
+        "context_window": 1048576,
+        "cost": {
+          "cache_read": 0.05,
+          "input": 0.1,
+          "output": 0.25
+        },
+        "max_output_tokens": 262144,
+        "reasoning_efforts": [],
+        "supports_image_input": false,
+        "supports_pdf_input": false,
+        "supports_reasoning": true
+      },
+      "nvidia/nemotron-3.5-lightning:free": {
+        "context_window": 1000000,
+        "cost": {
+          "input": 0,
+          "output": 0
+        },
+        "max_output_tokens": 65536,
+        "reasoning_efforts": [],
+        "supports_image_input": false,
         "supports_pdf_input": false,
         "supports_reasoning": true
       },
@@ -8504,7 +8539,7 @@
           "input": 1.75,
           "output": 14
         },
-        "max_output_tokens": 16384,
+        "max_output_tokens": 32000,
         "reasoning_efforts": null,
         "supports_image_input": true,
         "supports_pdf_input": true,
@@ -8543,19 +8578,6 @@
         "supports_image_input": true,
         "supports_pdf_input": true,
         "supports_reasoning": true
-      },
-      "openai/gpt-5.3-chat": {
-        "context_window": 128000,
-        "cost": {
-          "cache_read": 0.175,
-          "input": 1.75,
-          "output": 14
-        },
-        "max_output_tokens": 16384,
-        "reasoning_efforts": null,
-        "supports_image_input": true,
-        "supports_pdf_input": true,
-        "supports_reasoning": false
       },
       "openai/gpt-5.3-codex": {
         "context_window": 400000,
@@ -8953,7 +8975,8 @@
       "openai/gpt-oss-120b": {
         "context_window": 131072,
         "cost": {
-          "input": 0.037,
+          "cache_read": 0.03,
+          "input": 0.03,
           "output": 0.17
         },
         "max_output_tokens": 131072,
@@ -9545,9 +9568,9 @@
         "context_window": 262144,
         "cost": {
           "input": 0.07,
-          "output": 0.27
+          "output": 0.28
         },
-        "max_output_tokens": 32768,
+        "max_output_tokens": 262144,
         "reasoning_efforts": null,
         "supports_image_input": false,
         "supports_pdf_input": false,
@@ -9698,7 +9721,7 @@
           "input": 0.15,
           "output": 1.2
         },
-        "max_output_tokens": 32768,
+        "max_output_tokens": 262144,
         "reasoning_efforts": [],
         "supports_image_input": false,
         "supports_pdf_input": false,
@@ -9707,9 +9730,8 @@
       "qwen/qwen3-vl-235b-a22b-instruct": {
         "context_window": 262144,
         "cost": {
-          "cache_read": 0.1,
-          "input": 0.21,
-          "output": 1.9
+          "input": 0.26,
+          "output": 1.04
         },
         "max_output_tokens": 32768,
         "reasoning_efforts": null,
@@ -9816,8 +9838,9 @@
       "qwen/qwen3.5-35b-a3b": {
         "context_window": 262144,
         "cost": {
-          "input": 0.14,
-          "output": 1
+          "cache_read": 0.25,
+          "input": 0.25,
+          "output": 1.25
         },
         "max_output_tokens": 262144,
         "reasoning_efforts": [],
@@ -9828,10 +9851,11 @@
       "qwen/qwen3.5-397b-a17b": {
         "context_window": 262144,
         "cost": {
-          "input": 0.39,
-          "output": 2.34
+          "cache_read": 0.3,
+          "input": 0.5,
+          "output": 3.6
         },
-        "max_output_tokens": 65536,
+        "max_output_tokens": 262144,
         "reasoning_efforts": [],
         "supports_image_input": true,
         "supports_pdf_input": false,
@@ -10057,6 +10081,23 @@
         "supports_pdf_input": false,
         "supports_reasoning": true
       },
+      "qwen/qwen3.8-2.4t-a95b": {
+        "context_window": 1000000,
+        "cost": {
+          "cache_read": 0.2,
+          "input": 2,
+          "output": 6
+        },
+        "max_output_tokens": 52429,
+        "reasoning_efforts": [
+          "low",
+          "medium",
+          "xhigh"
+        ],
+        "supports_image_input": false,
+        "supports_pdf_input": false,
+        "supports_reasoning": true
+      },
       "qwen/qwen3.8-max": {
         "context_window": 1000000,
         "cost": {
@@ -10148,6 +10189,22 @@
         ],
         "supports_image_input": true,
         "supports_pdf_input": false,
+        "supports_reasoning": true
+      },
+      "sakana/sakana-namazu": {
+        "context_window": 262144,
+        "cost": {
+          "cache_read": 0.15,
+          "input": 0.95,
+          "output": 4
+        },
+        "max_output_tokens": 65536,
+        "reasoning_efforts": [
+          "none",
+          "high"
+        ],
+        "supports_image_input": true,
+        "supports_pdf_input": true,
         "supports_reasoning": true
       },
       "sao10k/l3-lunaris-8b": {
@@ -10376,6 +10433,19 @@
         "supports_pdf_input": false,
         "supports_reasoning": true
       },
+      "upstage/solar-pro4": {
+        "context_window": 524288,
+        "cost": {
+          "cache_read": 0.006,
+          "input": 0.03,
+          "output": 0.12
+        },
+        "max_output_tokens": 131072,
+        "reasoning_efforts": [],
+        "supports_image_input": false,
+        "supports_pdf_input": false,
+        "supports_reasoning": true
+      },
       "writer/palmyra-x5": {
         "context_window": 1040000,
         "cost": {
@@ -10481,6 +10551,32 @@
           "low",
           "medium",
           "high"
+        ],
+        "supports_image_input": true,
+        "supports_pdf_input": true,
+        "supports_reasoning": true
+      },
+      "x-ai/grok-4.6": {
+        "context_window": 500000,
+        "cost": {
+          "cache_read": 0.5,
+          "input": 2,
+          "output": 6,
+          "tiers": [
+            {
+              "cache_read": 1,
+              "input": 4,
+              "output": 12,
+              "size": 200000
+            }
+          ]
+        },
+        "max_output_tokens": 500000,
+        "reasoning_efforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh"
         ],
         "supports_image_input": true,
         "supports_pdf_input": true,
@@ -10666,11 +10762,11 @@
       "z-ai/glm-5.2": {
         "context_window": 1048576,
         "cost": {
-          "cache_read": 0.14,
-          "input": 0.76,
-          "output": 2.42
+          "cache_read": 0.1,
+          "input": 0.5,
+          "output": 3.15
         },
-        "max_output_tokens": 262144,
+        "max_output_tokens": 131072,
         "reasoning_efforts": [
           "high",
           "xhigh"
@@ -10773,7 +10869,7 @@
           "input": 0.079996,
           "output": 0.252
         },
-        "max_output_tokens": 131072,
+        "max_output_tokens": 262144,
         "reasoning_efforts": [
           "low",
           "high",
@@ -10899,12 +10995,12 @@
       "~x-ai/grok-latest": {
         "context_window": 500000,
         "cost": {
-          "cache_read": 0.3,
+          "cache_read": 0.5,
           "input": 2,
           "output": 6,
           "tiers": [
             {
-              "cache_read": 0.6,
+              "cache_read": 1,
               "input": 4,
               "output": 12,
               "size": 200000
@@ -10915,7 +11011,8 @@
         "reasoning_efforts": [
           "low",
           "medium",
-          "high"
+          "high",
+          "xhigh"
         ],
         "supports_image_input": true,
         "supports_pdf_input": true,
@@ -11037,6 +11134,32 @@
           "low",
           "medium",
           "high"
+        ],
+        "supports_image_input": true,
+        "supports_pdf_input": true,
+        "supports_reasoning": true
+      },
+      "grok-4.6": {
+        "context_window": 500000,
+        "cost": {
+          "cache_read": 0.5,
+          "input": 2,
+          "output": 6,
+          "tiers": [
+            {
+              "cache_read": 1,
+              "input": 4,
+              "output": 12,
+              "size": 200000
+            }
+          ]
+        },
+        "max_output_tokens": 500000,
+        "reasoning_efforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh"
         ],
         "supports_image_input": true,
         "supports_pdf_input": true,
