@@ -76,7 +76,7 @@ class GoogleGeminiAdapter(ProviderAdapter):
     label = "Google Gemini"
     default_base_url = "https://generativelanguage.googleapis.com"
     env_api_key_names = ("GEMINI_API_KEY", "GOOGLE_API_KEY")
-    default_models = ("gemini-3.6-flash", "gemini-3.5-flash", "gemini-3.1-pro-preview")
+    default_models = ("gemini-3.7-flash", "gemini-3.1-pro-preview")
     supports_reasoning_effort = True
 
     @override

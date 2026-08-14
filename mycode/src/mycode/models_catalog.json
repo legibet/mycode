@@ -987,6 +987,23 @@
       "supports_pdf_input": true,
       "supports_reasoning": true
     },
+    "gemini-3.7-flash": {
+      "context_window": 1048576,
+      "cost": {
+        "cache_read": 0.075,
+        "input": 0.75,
+        "output": 3.75
+      },
+      "max_output_tokens": 65536,
+      "reasoning_efforts": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "supports_image_input": true,
+      "supports_pdf_input": true,
+      "supports_reasoning": true
+    },
     "gemini-embedding-001": {
       "context_window": 2048,
       "cost": {
@@ -4486,6 +4503,23 @@
         "supports_pdf_input": true,
         "supports_reasoning": true
       },
+      "gemini-3.7-flash": {
+        "context_window": 1048576,
+        "cost": {
+          "cache_read": 0.075,
+          "input": 0.75,
+          "output": 3.75
+        },
+        "max_output_tokens": 65536,
+        "reasoning_efforts": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "supports_image_input": true,
+        "supports_pdf_input": true,
+        "supports_reasoning": true
+      },
       "gemini-embedding-001": {
         "context_window": 2048,
         "cost": {
@@ -6451,7 +6485,7 @@
         "supports_reasoning": true
       },
       "deepseek/deepseek-r1": {
-        "context_window": 163840,
+        "context_window": 64000,
         "cost": {
           "input": 0.7,
           "output": 2.5
@@ -6544,11 +6578,11 @@
       "deepseek/deepseek-v4-flash-0731": {
         "context_window": 1048576,
         "cost": {
-          "cache_read": 0.016,
-          "input": 0.08,
-          "output": 0.18
+          "cache_read": 0.028,
+          "input": 0.14,
+          "output": 0.28
         },
-        "max_output_tokens": 384000,
+        "max_output_tokens": 393216,
         "reasoning_efforts": [
           "low",
           "high",
@@ -6810,7 +6844,7 @@
           "input": 0.25,
           "output": 1.5
         },
-        "max_output_tokens": 65536,
+        "max_output_tokens": 66000,
         "reasoning_efforts": [
           "minimal",
           "high"
@@ -6936,15 +6970,34 @@
       "google/gemini-3.6-flash": {
         "context_window": 1048576,
         "cost": {
-          "cache_read": 0.15,
-          "cache_write": 0.083333,
-          "input": 1.5,
-          "output": 7.5,
-          "reasoning": 7.5
+          "cache_read": 0.075,
+          "cache_write": 0.041667,
+          "input": 0.75,
+          "output": 3.75,
+          "reasoning": 3.75
         },
         "max_output_tokens": 65536,
         "reasoning_efforts": [
           "minimal",
+          "low",
+          "medium",
+          "high"
+        ],
+        "supports_image_input": true,
+        "supports_pdf_input": true,
+        "supports_reasoning": true
+      },
+      "google/gemini-3.7-flash": {
+        "context_window": 1048576,
+        "cost": {
+          "cache_read": 0.0375,
+          "cache_write": 0.020833,
+          "input": 0.375,
+          "output": 1.875,
+          "reasoning": 1.875
+        },
+        "max_output_tokens": 65536,
+        "reasoning_efforts": [
           "low",
           "medium",
           "high"
@@ -7175,18 +7228,6 @@
           "cache_read": 0.0042,
           "input": 0.021,
           "output": 0.063
-        },
-        "max_output_tokens": 32768,
-        "reasoning_efforts": [],
-        "supports_image_input": false,
-        "supports_pdf_input": false,
-        "supports_reasoning": true
-      },
-      "inclusionai/ling-3.0-tiny:free": {
-        "context_window": 262144,
-        "cost": {
-          "input": 0,
-          "output": 0
         },
         "max_output_tokens": 32768,
         "reasoning_efforts": [],
@@ -8101,7 +8142,7 @@
         "supports_reasoning": true
       },
       "nvidia/nemotron-3.5-lightning": {
-        "context_window": 1048576,
+        "context_window": 1000000,
         "cost": {
           "cache_read": 0.05,
           "input": 0.1,
@@ -9706,10 +9747,11 @@
       "qwen/qwen3-next-80b-a3b-instruct": {
         "context_window": 262144,
         "cost": {
-          "input": 0.09,
+          "cache_read": 0.07,
+          "input": 0.1,
           "output": 1.1
         },
-        "max_output_tokens": 16384,
+        "max_output_tokens": 262144,
         "reasoning_efforts": null,
         "supports_image_input": false,
         "supports_pdf_input": false,
@@ -9721,7 +9763,7 @@
           "input": 0.15,
           "output": 1.2
         },
-        "max_output_tokens": 262144,
+        "max_output_tokens": 32768,
         "reasoning_efforts": [],
         "supports_image_input": false,
         "supports_pdf_input": false,
@@ -9754,10 +9796,10 @@
       "qwen/qwen3-vl-30b-a3b-instruct": {
         "context_window": 262144,
         "cost": {
-          "input": 0.15,
-          "output": 0.6
+          "input": 0.13,
+          "output": 0.52
         },
-        "max_output_tokens": 16384,
+        "max_output_tokens": 32768,
         "reasoning_efforts": null,
         "supports_image_input": true,
         "supports_pdf_input": false,
@@ -10082,13 +10124,13 @@
         "supports_reasoning": true
       },
       "qwen/qwen3.8-2.4t-a95b": {
-        "context_window": 1000000,
+        "context_window": 1010000,
         "cost": {
-          "cache_read": 0.2,
+          "cache_read": 0.25,
           "input": 2,
           "output": 6
         },
-        "max_output_tokens": 52429,
+        "max_output_tokens": 262144,
         "reasoning_efforts": [
           "low",
           "medium",
@@ -10671,9 +10713,9 @@
       "z-ai/glm-4.6": {
         "context_window": 204800,
         "cost": {
-          "cache_read": 0.1,
-          "input": 0.5,
-          "output": 2
+          "cache_read": 0.11,
+          "input": 0.55,
+          "output": 2.2
         },
         "max_output_tokens": 131072,
         "reasoning_efforts": [],
@@ -10762,9 +10804,9 @@
       "z-ai/glm-5.2": {
         "context_window": 1048576,
         "cost": {
-          "cache_read": 0.1,
-          "input": 0.5,
-          "output": 3.15
+          "cache_read": 0.0945,
+          "input": 0.63,
+          "output": 1.98
         },
         "max_output_tokens": 131072,
         "reasoning_efforts": [
@@ -10882,15 +10924,14 @@
       "~google/gemini-flash-latest": {
         "context_window": 1048576,
         "cost": {
-          "cache_read": 0.15,
-          "cache_write": 0.083333,
-          "input": 1.5,
-          "output": 7.5,
-          "reasoning": 7.5
+          "cache_read": 0.0375,
+          "cache_write": 0.020833,
+          "input": 0.375,
+          "output": 1.875,
+          "reasoning": 1.875
         },
         "max_output_tokens": 65536,
         "reasoning_efforts": [
-          "minimal",
           "low",
           "medium",
           "high"

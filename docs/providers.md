@@ -106,7 +106,7 @@ Provider quirks:
 - API: Gemini Developer API
 - Base URL: `https://generativelanguage.googleapis.com`
 - API key env: `GEMINI_API_KEY`, `GOOGLE_API_KEY`
-- Default models: `gemini-3.6-flash`, `gemini-3.5-flash`, `gemini-3.1-pro-preview`
+- Default models: `gemini-3.7-flash`, `gemini-3.1-pro-preview`
 - `supports_reasoning_effort`: true; explicit values are converted to Gemini's `ThinkingLevel` enum
 - Replays original parts with their function-call ids and thought signatures
 - Cross-provider tool-loop fallback: adds documented dummy thought signature to avoid 400 errors
@@ -201,7 +201,7 @@ Provider quirks:
 - SDK: `openai` against xAI's OpenAI-compatible Chat Completions endpoint
 - Base URL: `https://api.x.ai/v1`
 - API key env: `XAI_API_KEY`
-- Default models: `grok-4.5`
+- Default models: `grok-4.6`
 - `supports_reasoning_effort`: true; explicit values pass through the standard top-level `reasoning_effort`
 - `auto_discoverable`: true
 - Grok reasoning streams as `reasoning_content`, replayed for the same model by the shared `openai_chat` handling
