@@ -5,24 +5,27 @@ from __future__ import annotations
 import inspect
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
-from pathlib import Path
 from types import MappingProxyType
 from typing import Any
 
 from mycode.tools import ToolExecutionResult, ToolSpec
 
 type HookResult = ToolExecutionResult | None
-type BeforeToolHook = Callable[["ToolHookContext"], HookResult | Awaitable[HookResult]]
-type AfterToolHook = Callable[["ToolHookContext", ToolExecutionResult], HookResult | Awaitable[HookResult]]
+type BeforeToolHook = Callable[["ToolHookContext[Any]"], HookResult | Awaitable[HookResult]]
+type AfterToolHook = Callable[["ToolHookContext[Any]", ToolExecutionResult], HookResult | Awaitable[HookResult]]
 
 
 @dataclass(frozen=True)
-class ToolHookContext:
-    """Read-only context passed to tool execution hooks."""
+class ToolHookContext[DepsT]:
+    """Read-only context passed to tool execution hooks.
+
+    ``deps`` is the same application context object handed to tools via
+    ``ToolContext.deps``; annotate hooks as ``ToolHookContext[MyDeps]`` for
+    typed access.
+    """
 
     session_id: str
-    cwd: str
-    tool_output_dir: Path
+    deps: DepsT
     provider: str
     model: str
     tool_call_id: str
@@ -58,14 +61,14 @@ class Hooks:
         self._after_tool.append(hook)
         return hook
 
-    async def run_before_tool(self, ctx: ToolHookContext) -> ToolExecutionResult | None:
+    async def run_before_tool(self, ctx: ToolHookContext[Any]) -> ToolExecutionResult | None:
         for hook in self._before_tool:
             result = await _resolve(hook(ctx))
             if result is not None:
                 return result
         return None
 
-    async def run_after_tool(self, ctx: ToolHookContext, result: ToolExecutionResult) -> ToolExecutionResult:
+    async def run_after_tool(self, ctx: ToolHookContext[Any], result: ToolExecutionResult) -> ToolExecutionResult:
         for hook in self._after_tool:
             replacement = await _resolve(hook(ctx, result))
             if replacement is not None:

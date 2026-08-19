@@ -8,20 +8,28 @@ from pathlib import Path
 
 from mycode.tools import ToolContext, ToolExecutor
 from mycode_cli.tools import DEFAULT_TOOLS, READ_MAX_LINE_CHARS
+from mycode_cli.workspace import CliDeps
 
 _PNG_1X1 = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j1X8AAAAASUVORK5CYII="
 )
 
 
-def _ctx(cwd: str, *, tool_output_dir: Path | None = None, supports_image_input: bool = False) -> ToolContext:
+def _ctx(
+    cwd: str,
+    *,
+    tool_output_dir: Path | None = None,
+    supports_image_input: bool = False,
+) -> ToolContext[CliDeps]:
     """Build a ToolContext with the CLI's default tools registered."""
 
     executor = ToolExecutor(DEFAULT_TOOLS)
     return ToolContext(
         executor=executor,
-        cwd=cwd,
-        tool_output_dir=tool_output_dir if tool_output_dir is not None else Path(cwd),
+        deps=CliDeps(
+            cwd=Path(cwd),
+            tool_output_dir=tool_output_dir if tool_output_dir is not None else Path(cwd),
+        ),
         supports_image_input=supports_image_input,
     )
 

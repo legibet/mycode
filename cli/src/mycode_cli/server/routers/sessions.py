@@ -34,8 +34,8 @@ def _redact_document_data(messages: list[ConversationMessage]) -> list[dict[str,
 async def create_session(req: SessionCreateRequest, store: StoreDep) -> dict[str, Any]:
     cwd = resolve_workspace_cwd(req.cwd)
     session_id = uuid4().hex
-    data = await store.create_session(session_id, cwd=cwd)
-    return {"session": data["session"], "messages": data["messages"]}
+    session = await store.create_session(session_id, cwd=cwd)
+    return {"session": session, "messages": []}
 
 
 @router.get("")

@@ -31,9 +31,8 @@ class _Capture:
         )
 
 
-def _agent(tmp_path: Path, **overrides: Any) -> Agent:
+def _agent(**overrides: Any) -> Agent:
     overrides.setdefault("model", "gpt-5.5")
-    overrides.setdefault("cwd", str(tmp_path))
     overrides.setdefault("supports_image_input", True)
     overrides.setdefault("supports_pdf_input", True)
     return Agent(**overrides)
@@ -59,7 +58,7 @@ async def test_path_attachment_picks_block_by_content(
     tmp_path: Path, filename: str, payload: bytes, expected_type: str, expected_mime: str
 ) -> None:
     (tmp_path / filename).write_bytes(payload)
-    cap = await _send_attachments(_agent(tmp_path), [filename])
+    cap = await _send_attachments(_agent(), [tmp_path / filename])
     assert [block["type"] for block in cap.user_content] == ["text", expected_type]
     block = cap.user_content[1]
     assert block["type"] == expected_type
@@ -67,9 +66,14 @@ async def test_path_attachment_picks_block_by_content(
 
 
 @pytest.mark.asyncio
-async def test_text_path_attachment_is_visible_to_model(tmp_path: Path) -> None:
+async def test_relative_text_attachment_uses_process_cwd(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     (tmp_path / "n.txt").write_text("hello world", encoding="utf-8")
-    cap = await _send_attachments(_agent(tmp_path), ["n.txt"])
+    monkeypatch.chdir(tmp_path)
+
+    cap = await _send_attachments(_agent(), ["n.txt"])
     assert len(cap.user_content) == 2
     assert cap.user_content[0] == {"type": "text", "text": "go"}
     assert cap.user_content[1]["type"] == "text"
@@ -84,10 +88,8 @@ async def test_text_path_attachment_is_visible_to_model(tmp_path: Path) -> None:
         (PDF, "application/pdf", "document"),
     ],
 )
-async def test_bytes_attachment_uses_declared_media_type(
-    tmp_path: Path, data: bytes, media_type: str, expected_type: str
-) -> None:
-    cap = await _send_attachments(_agent(tmp_path), [Attachment.bytes(data, media_type=media_type)])
+async def test_bytes_attachment_uses_declared_media_type(data: bytes, media_type: str, expected_type: str) -> None:
+    cap = await _send_attachments(_agent(), [Attachment.bytes(data, media_type=media_type)])
     assert cap.user_content[-1]["type"] == expected_type
 
 
@@ -95,11 +97,11 @@ async def test_bytes_attachment_uses_declared_media_type(
 async def test_bad_attachment_raises_value_error(tmp_path: Path) -> None:
     (tmp_path / "sub").mkdir()
     (tmp_path / "b.bin").write_bytes(b"\x00\x01\xff\xfe")
-    agent = _agent(tmp_path)
+    agent = _agent()
     bad_cases: list[tuple[Any, str]] = [
-        ("missing.txt", "not found"),
-        ("sub", "directory"),
-        ("b.bin", "unsupported attachment"),
+        (tmp_path / "missing.txt", "not found"),
+        (tmp_path / "sub", "directory"),
+        (tmp_path / "b.bin", "unsupported attachment"),
         (Attachment.bytes(b"x", media_type="application/zip"), "unsupported media_type"),
     ]
     for attachment, match in bad_cases:
@@ -125,7 +127,7 @@ async def test_unsupported_media_emits_error_event_without_calling_provider(
     tmp_path: Path, capability: str, payload: bytes, error_word: str
 ) -> None:
     (tmp_path / "f").write_bytes(payload)
-    agent = _agent(tmp_path, **{capability: False})
+    agent = _agent(**{capability: False})
     called = False
 
     class _Block:
@@ -136,7 +138,7 @@ async def test_unsupported_media_emits_error_event_without_calling_provider(
                 yield  # pragma: no cover
 
     with patch("mycode.agent.get_provider_adapter", return_value=_Block()):
-        events = [e async for e in agent.achat("x", attachments=["f"])]
+        events = [e async for e in agent.achat("x", attachments=[tmp_path / "f"])]
 
     assert called is False
     assert [e.type for e in events] == ["error"]

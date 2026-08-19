@@ -16,7 +16,6 @@ from pathlib import Path
 from typing import Self
 
 from mycode.messages import ContentBlock, document_block, image_block, text_block
-from mycode.utils import resolve_path
 
 SUPPORTED_IMAGE_MIME_TYPES = frozenset({"image/png", "image/jpeg", "image/gif", "image/webp"})
 SUPPORTED_DOCUMENT_MIME_TYPES = frozenset({"application/pdf"})
@@ -60,16 +59,14 @@ class Attachment:
 AttachmentLike = str | Path | Attachment
 
 
-def build_attachment_blocks(
-    attachments: Sequence[AttachmentLike],
-    *,
-    cwd: str,
-) -> list[ContentBlock]:
+def build_attachment_blocks(attachments: Sequence[AttachmentLike]) -> list[ContentBlock]:
     """Return one content block per attachment, in input order.
 
-    ``str`` / ``Path`` items are treated as ``Attachment.path``. Raises
-    ``ValueError`` on a missing path, a directory, a binary file that is
-    neither image nor PDF, undecodable text, or an unsupported ``media_type``.
+    ``str`` / ``Path`` items are treated as ``Attachment.path``; ``~`` is
+    expanded and relative paths resolve against the process working
+    directory, like any other file API. Raises ``ValueError`` on a missing
+    path, a directory, a binary file that is neither image nor PDF,
+    undecodable text, or an unsupported ``media_type``.
     """
 
     blocks: list[ContentBlock] = []
@@ -86,7 +83,7 @@ def build_attachment_blocks(
                     supported = sorted(SUPPORTED_IMAGE_MIME_TYPES | SUPPORTED_DOCUMENT_MIME_TYPES)
                     raise ValueError(f"unsupported media_type {media_type!r}; want one of {supported}")
             case Path() as raw:
-                path = resolve_path(raw, cwd=cwd)
+                path = raw.expanduser()
                 if not path.exists():
                     raise ValueError(f"attachment not found: {raw}")
                 if path.is_dir():

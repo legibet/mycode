@@ -18,12 +18,12 @@ from prompt_toolkit.output import DummyOutput
 from rich.console import Console
 
 from mycode.agent import Agent, Event
-from mycode.session import SessionStore
 from mycode.tools import ToolExecutor
 from mycode_cli.config import Settings, WebConfig
 from mycode_cli.main import app, resolve_session, run_noninteractive
 from mycode_cli.permissions import PERMISSION_DENIED_BY_USER_OUTPUT, PERMISSION_DENIED_OUTPUT
 from mycode_cli.runtime import load_session_cost
+from mycode_cli.sessions import SessionStore
 from mycode_cli.tools import DEFAULT_TOOLS
 from mycode_cli.tui.chat import (
     TerminalChat,
@@ -33,6 +33,7 @@ from mycode_cli.tui.chat import (
 )
 from mycode_cli.tui.render import ReplyRenderer, TerminalView
 from mycode_cli.web_tools import build_web_tools
+from mycode_cli.workspace import CliDeps
 
 
 def settings_for(cwd: str) -> Settings:
@@ -54,11 +55,9 @@ class _AttachmentAgent:
     def __init__(
         self,
         *,
-        cwd: str,
         supports_image_input: bool = True,
         supports_pdf_input: bool = True,
     ) -> None:
-        self.cwd = cwd
         self.supports_image_input = supports_image_input
         self.supports_pdf_input = supports_pdf_input
         self.tools = ToolExecutor(DEFAULT_TOOLS)
@@ -70,8 +69,8 @@ class _AttachmentAgent:
 class _FakeAgent:
     provider = "anthropic"
     model = "claude-sonnet-4-6"
-    cwd = "/tmp"
     api_base = None
+    session_id = "session"
 
     async def achat(self, message: str, *, on_persist=None):
         if on_persist:
@@ -87,11 +86,15 @@ class _FakeAgent:
 
 
 class _ErrorAgent:
+    session_id = "session"
+
     async def achat(self, message: str, *, on_persist=None):
         yield Event("error", {"message": "provider error"})
 
 
 class _PermissionDeniedAgent:
+    session_id = "session"
+
     def __init__(self, output: str) -> None:
         self.output = output
 
@@ -100,6 +103,8 @@ class _PermissionDeniedAgent:
 
 
 class _PermissionDeniedThenReplyAgent:
+    session_id = "session"
+
     async def achat(self, message: str, *, on_persist=None):
         yield Event("tool_done", {"tool_use_id": "call-1", "output": PERMISSION_DENIED_OUTPUT, "is_error": True})
         if on_persist:
@@ -121,10 +126,10 @@ def test_clone_agent_keeps_configured_tools_and_uses_the_new_session_directory(t
         tools=build_web_tools(WebConfig(search="tavily")),
     )
 
-    cloned = clone_agent(agent, store=store, session_id="new")
+    cloned = clone_agent(agent, store=store, session_id="new", cwd=str(tmp_path))
 
     assert cloned.tools.specs == agent.tools.specs
-    assert cloned.tool_output_dir == store.data_dir / "new" / "tool-output"
+    assert cloned.deps == CliDeps.for_session(cwd=tmp_path, data_dir=store.data_dir, session_id="new")
 
 
 @pytest.fixture
@@ -136,8 +141,10 @@ def cli_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
 class TestRunNoninteractive:
     @pytest.mark.asyncio
-    async def test_prints_only_final_reply(self, capsys: pytest.CaptureFixture[str]) -> None:
-        code = await run_noninteractive(cast(Any, _FakeAgent()), "hello")
+    async def test_prints_only_final_reply(self, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+        code = await run_noninteractive(
+            cast(Any, _FakeAgent()), "hello", store=SessionStore(tmp_path), cwd=str(tmp_path)
+        )
 
         captured = capsys.readouterr()
         assert code == 0
@@ -145,8 +152,10 @@ class TestRunNoninteractive:
         assert captured.err == ""
 
     @pytest.mark.asyncio
-    async def test_prints_errors_to_stderr(self, capsys: pytest.CaptureFixture[str]) -> None:
-        code = await run_noninteractive(cast(Any, _ErrorAgent()), "hello")
+    async def test_prints_errors_to_stderr(self, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+        code = await run_noninteractive(
+            cast(Any, _ErrorAgent()), "hello", store=SessionStore(tmp_path), cwd=str(tmp_path)
+        )
 
         captured = capsys.readouterr()
         assert code == 1
@@ -154,8 +163,12 @@ class TestRunNoninteractive:
         assert captured.err == "provider error\n"
 
     @pytest.mark.parametrize("output", [PERMISSION_DENIED_OUTPUT, PERMISSION_DENIED_BY_USER_OUTPUT])
-    async def test_prints_permission_denials_to_stderr(self, output: str, capsys: pytest.CaptureFixture[str]) -> None:
-        code = await run_noninteractive(cast(Any, _PermissionDeniedAgent(output)), "hello")
+    async def test_prints_permission_denials_to_stderr(
+        self, output: str, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        code = await run_noninteractive(
+            cast(Any, _PermissionDeniedAgent(output)), "hello", store=SessionStore(tmp_path), cwd=str(tmp_path)
+        )
 
         captured = capsys.readouterr()
         assert code == 1
@@ -163,8 +176,15 @@ class TestRunNoninteractive:
         assert captured.err == f"{output}\n"
 
     @pytest.mark.asyncio
-    async def test_prints_final_reply_after_permission_denial(self, capsys: pytest.CaptureFixture[str]) -> None:
-        code = await run_noninteractive(cast(Any, _PermissionDeniedThenReplyAgent()), "hello")
+    async def test_prints_final_reply_after_permission_denial(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        code = await run_noninteractive(
+            cast(Any, _PermissionDeniedThenReplyAgent()),
+            "hello",
+            store=SessionStore(tmp_path),
+            cwd=str(tmp_path),
+        )
 
         captured = capsys.readouterr()
         assert code == 1
@@ -611,7 +631,7 @@ class TestAttachments:
         image_file.write_bytes(b"\x89PNG\r\n\x1a\nrest")
 
         chat = TerminalChat(
-            agent=cast(Any, _AttachmentAgent(cwd=str(tmp_path))),
+            agent=cast(Any, _AttachmentAgent()),
             settings=settings_for(str(tmp_path)),
             store=cast(Any, object()),
             session_id="test-session",
@@ -635,7 +655,7 @@ class TestAttachments:
         pdf_file.write_bytes(b"%PDF-1.7\nrest")
 
         chat = TerminalChat(
-            agent=cast(Any, _AttachmentAgent(cwd=str(tmp_path))),
+            agent=cast(Any, _AttachmentAgent()),
             settings=settings_for(str(tmp_path)),
             store=cast(Any, object()),
             session_id="test-session",
@@ -683,7 +703,7 @@ class TestAttachments:
         chat = TerminalChat(
             agent=cast(
                 Any,
-                _AttachmentAgent(cwd=str(tmp_path), **agent_kwargs),
+                _AttachmentAgent(**agent_kwargs),
             ),
             settings=settings_for(str(tmp_path)),
             store=cast(Any, object()),
@@ -710,7 +730,7 @@ class TestAttachments:
         chat = TerminalChat(
             agent=cast(
                 Any,
-                _AttachmentAgent(cwd=str(tmp_path), supports_pdf_input=False),
+                _AttachmentAgent(supports_pdf_input=False),
             ),
             settings=settings_for(str(tmp_path)),
             store=cast(Any, object()),
@@ -728,7 +748,7 @@ class TestAttachments:
         binary_file.write_bytes(b"\x00\x01\x02\xff\xfe")
 
         chat = TerminalChat(
-            agent=cast(Any, _AttachmentAgent(cwd=str(tmp_path))),
+            agent=cast(Any, _AttachmentAgent()),
             settings=settings_for(str(tmp_path)),
             store=cast(Any, object()),
             session_id="test-session",

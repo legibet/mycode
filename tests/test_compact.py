@@ -28,13 +28,11 @@ def store(tmp_path: Path) -> SessionStore:
 
 
 def make_agent(tmp_path: Path) -> Agent:
-    return Agent(model="m", provider="anthropic", cwd="/tmp", session_dir=tmp_path)
+    return Agent(model="m", provider="anthropic", session_dir=tmp_path)
 
 
 @pytest.mark.asyncio
 async def test_session_load_keeps_compact_markers_inline_and_append_only(store: SessionStore) -> None:
-    await store.create_session("s1", cwd="/tmp")
-
     raw_messages = [
         {"role": "user", "content": [{"type": "text", "text": "hello"}]},
         {"role": "assistant", "content": [{"type": "text", "text": "hi"}]},
@@ -46,11 +44,10 @@ async def test_session_load_keeps_compact_markers_inline_and_append_only(store: 
     for message in raw_messages:
         await store.append_message("s1", message)
 
-    loaded = await store.load_session("s1")
+    loaded = await store.load_messages("s1")
     raw_lines = store.messages_path("s1").read_text(encoding="utf-8").strip().splitlines()
 
-    assert loaded is not None
-    assert [message.get("role") for message in loaded["messages"]] == [
+    assert [message.get("role") for message in loaded] == [
         "user",
         "assistant",
         "compact",
@@ -177,7 +174,6 @@ async def test_achat_automatically_compacts_at_the_configured_threshold(
     agent = Agent(
         model="m",
         provider="anthropic",
-        cwd="/tmp",
         context_window=100_000,
         compact_threshold=compact_threshold,
     )
@@ -196,7 +192,6 @@ async def test_acompact_persists_marker_and_uses_manual_request_contract(tmp_pat
     agent = Agent(
         model="m",
         provider="anthropic",
-        cwd="/tmp",
         session_dir=tmp_path,
         compact_threshold=0,
     )
@@ -300,7 +295,7 @@ class _UsageDetailAdapter:
 
 @pytest.mark.asyncio
 async def test_auto_compact_usage_counts_into_the_turn() -> None:
-    agent = Agent(model="m", provider="anthropic", cwd="/tmp", context_window=100_000)
+    agent = Agent(model="m", provider="anthropic", context_window=100_000)
     adapter = _UsageDetailAdapter()
 
     with patch("mycode.agent.get_provider_adapter", return_value=adapter):
@@ -341,7 +336,7 @@ class _FailingSummaryAdapter:
 
 @pytest.mark.asyncio
 async def test_failed_auto_compact_keeps_successful_turn_usage() -> None:
-    agent = Agent(model="m", provider="anthropic", cwd="/tmp", context_window=100_000)
+    agent = Agent(model="m", provider="anthropic", context_window=100_000)
 
     with patch("mycode.agent.get_provider_adapter", return_value=_FailingSummaryAdapter()):
         events = [event async for event in agent.achat("hello")]
@@ -375,7 +370,7 @@ class _LegacyMetaAdapter:
 async def test_legacy_total_tokens_meta_is_ignored() -> None:
     # meta.total_tokens intentionally no longer feeds compaction or the
     # context metric; only meta.usage does.
-    agent = Agent(model="m", provider="anthropic", cwd="/tmp", context_window=100_000)
+    agent = Agent(model="m", provider="anthropic", context_window=100_000)
 
     with patch("mycode.agent.get_provider_adapter", return_value=_LegacyMetaAdapter()):
         events = [event async for event in agent.achat("hello")]

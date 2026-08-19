@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 from mycode.agent import Agent
-from mycode.session import SessionStore
 from mycode_cli.config import ResolvedProvider, Settings
 from mycode_cli.permissions import ToolReviewCallback, build_permission_hooks
+from mycode_cli.sessions import SessionStore
 from mycode_cli.system_prompt import build_system_prompt
 from mycode_cli.tools import DEFAULT_TOOLS
 from mycode_cli.web_tools import build_web_tools
+from mycode_cli.workspace import CliDeps
 
 
 def sum_known_costs(*costs: float | None) -> float | None:
@@ -58,7 +59,6 @@ def build_agent(
     return Agent(
         model=resolved_provider.model,
         provider=resolved_provider.provider,
-        cwd=cwd,
         session_dir=store.data_dir,
         session_id=session_id,
         api_key=resolved_provider.api_key,
@@ -74,4 +74,5 @@ def build_agent(
         system=build_system_prompt(cwd, settings),
         tools=[*DEFAULT_TOOLS, *build_web_tools(settings.web)],
         hooks=hooks,
+        deps=CliDeps.for_session(cwd=cwd, data_dir=store.data_dir, session_id=session_id),
     )

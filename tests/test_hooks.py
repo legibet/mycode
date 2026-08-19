@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 import pytest
 
-from mycode import Agent, Event, Hooks, ToolExecutionResult, ToolHookContext
+from mycode import Agent, Event, Hooks, ToolExecutionResult, ToolHookContext, tool
 from mycode.providers.base import ProviderStreamEvent
 from mycode.tools import ToolContext, ToolSpec
 
@@ -59,7 +59,6 @@ def _agent(tmp_path: Path, *, tool: ToolSpec, hooks: Hooks) -> Agent:
     return Agent(
         model="gpt-5.5",
         provider="openai",
-        cwd=str(tmp_path),
         session_dir=tmp_path,
         session_id="session",
         tools=[tool],
@@ -77,24 +76,58 @@ def _tool(runner) -> ToolSpec:
 
 
 @pytest.mark.asyncio
+async def test_agent_passes_the_same_deps_to_parameterized_tools_and_hooks() -> None:
+    deps = object()
+    seen: list[object] = []
+    hooks = Hooks()
+
+    @tool
+    def inspect(ctx: ToolContext[object]) -> str:
+        """Inspect the application dependencies."""
+
+        seen.append(ctx.deps)
+        return "ok"
+
+    @hooks.before_tool
+    def observe(ctx: ToolHookContext[object]) -> None:
+        seen.append(ctx.deps)
+
+    agent = Agent(
+        model="gpt-5.5",
+        provider="openai",
+        tools=[inspect],
+        hooks=hooks,
+        deps=deps,
+    )
+    adapter = _ToolUseAdapter("inspect", {})
+
+    with patch("mycode.agent.get_provider_adapter", return_value=adapter):
+        events = _chat_events([event async for event in agent.achat("inspect")])
+
+    assert events[-1].data["output"] == "ok"
+    assert len(seen) == 2
+    assert all(value is deps for value in seen)
+
+
+@pytest.mark.asyncio
 async def test_before_tool_blocks_execution_and_after_hooks_see_result(tmp_path: Path) -> None:
     calls: list[str] = []
     seen: list[str] = []
     hooks = Hooks()
 
-    def runner(_ctx: ToolContext, _args: dict[str, object]) -> ToolExecutionResult:
+    def runner(_ctx: ToolContext[None], _args: dict[str, object]) -> ToolExecutionResult:
         calls.append("tool")
         return ToolExecutionResult(output="tool ran")
 
     @hooks.before_tool
-    def block(ctx: ToolHookContext) -> ToolExecutionResult:
+    def block(ctx: ToolHookContext[None]) -> ToolExecutionResult:
         assert ctx.tool_name == "ping"
         assert ctx.tool_call_id == "call-1"
-        assert ctx.tool_output_dir == agent.tool_output_dir
+        assert ctx.deps is None
         return ToolExecutionResult(output="blocked", is_error=True)
 
     @hooks.after_tool
-    async def audit(_ctx: ToolHookContext, result: ToolExecutionResult) -> None:
+    async def audit(_ctx: ToolHookContext[None], result: ToolExecutionResult) -> None:
         seen.append(result.output)
 
     agent = _agent(tmp_path, tool=_tool(runner), hooks=hooks)
@@ -114,16 +147,16 @@ async def test_after_tool_hooks_replace_results_in_order(tmp_path: Path) -> None
     seen: list[str] = []
     hooks = Hooks()
 
-    def runner(_ctx: ToolContext, _args: dict[str, object]) -> ToolExecutionResult:
+    def runner(_ctx: ToolContext[None], _args: dict[str, object]) -> ToolExecutionResult:
         return ToolExecutionResult(output="tool")
 
     @hooks.after_tool
-    def first(_ctx: ToolHookContext, result: ToolExecutionResult) -> ToolExecutionResult:
+    def first(_ctx: ToolHookContext[None], result: ToolExecutionResult) -> ToolExecutionResult:
         seen.append(result.output)
         return ToolExecutionResult(output=f"{result.output}+first")
 
     @hooks.after_tool
-    async def second(_ctx: ToolHookContext, result: ToolExecutionResult) -> ToolExecutionResult:
+    async def second(_ctx: ToolHookContext[None], result: ToolExecutionResult) -> ToolExecutionResult:
         seen.append(result.output)
         return ToolExecutionResult(output=f"{result.output}+second")
 
@@ -141,12 +174,12 @@ async def test_after_tool_hooks_replace_results_in_order(tmp_path: Path) -> None
 async def test_tool_hook_context_input_is_readonly(tmp_path: Path) -> None:
     hooks = Hooks()
 
-    def runner(_ctx: ToolContext, args: dict[str, object]) -> ToolExecutionResult:
+    def runner(_ctx: ToolContext[None], args: dict[str, object]) -> ToolExecutionResult:
         assert args == {"text": "hello", "items": [{"value": "original"}]}
         return ToolExecutionResult(output="ok")
 
     @hooks.before_tool
-    def inspect_input(ctx: ToolHookContext) -> None:
+    def inspect_input(ctx: ToolHookContext[None]) -> None:
         tool_input = cast(dict[str, object], ctx.tool_input)
         with pytest.raises(TypeError):
             tool_input["text"] = "changed"
@@ -171,16 +204,16 @@ async def test_hook_errors_become_tool_errors(tmp_path: Path) -> None:
     after_calls: list[str] = []
     hooks = Hooks()
 
-    def runner(_ctx: ToolContext, _args: dict[str, object]) -> ToolExecutionResult:
+    def runner(_ctx: ToolContext[None], _args: dict[str, object]) -> ToolExecutionResult:
         calls.append("tool")
         return ToolExecutionResult(output="tool ran")
 
     @hooks.before_tool
-    def broken(_ctx: ToolHookContext) -> None:
+    def broken(_ctx: ToolHookContext[None]) -> None:
         raise RuntimeError("boom")
 
     @hooks.after_tool
-    def audit(_ctx: ToolHookContext, result: ToolExecutionResult) -> None:
+    def audit(_ctx: ToolHookContext[None], result: ToolExecutionResult) -> None:
         after_calls.append(result.output)
 
     agent = _agent(tmp_path, tool=_tool(runner), hooks=hooks)
@@ -202,11 +235,11 @@ async def test_hook_errors_become_tool_errors(tmp_path: Path) -> None:
 async def test_after_tool_hook_errors_keep_tool_result(tmp_path: Path) -> None:
     hooks = Hooks()
 
-    def runner(_ctx: ToolContext, _args: dict[str, object]) -> ToolExecutionResult:
+    def runner(_ctx: ToolContext[None], _args: dict[str, object]) -> ToolExecutionResult:
         return ToolExecutionResult(output="tool ran")
 
     @hooks.after_tool
-    def broken(_ctx: ToolHookContext, _result: ToolExecutionResult) -> None:
+    def broken(_ctx: ToolHookContext[None], _result: ToolExecutionResult) -> None:
         raise RuntimeError("boom")
 
     agent = _agent(tmp_path, tool=_tool(runner), hooks=hooks)
@@ -224,16 +257,16 @@ async def test_cancellation_after_before_hooks_cannot_be_replaced(tmp_path: Path
     after_calls: list[str] = []
     hooks = Hooks()
 
-    def runner(_ctx: ToolContext, _args: dict[str, object]) -> ToolExecutionResult:
+    def runner(_ctx: ToolContext[None], _args: dict[str, object]) -> ToolExecutionResult:
         calls.append("tool")
         return ToolExecutionResult(output="tool ran")
 
     @hooks.before_tool
-    def cancel(_ctx: ToolHookContext) -> None:
+    def cancel(_ctx: ToolHookContext[None]) -> None:
         agent.cancel()
 
     @hooks.after_tool
-    def replace(_ctx: ToolHookContext, result: ToolExecutionResult) -> ToolExecutionResult:
+    def replace(_ctx: ToolHookContext[None], result: ToolExecutionResult) -> ToolExecutionResult:
         after_calls.append(result.output)
         return ToolExecutionResult(output="replaced")
 
@@ -257,7 +290,7 @@ async def test_before_tool_blocks_streaming_tool_without_live_output(tmp_path: P
     calls: list[str] = []
     hooks = Hooks()
 
-    def runner(ctx: ToolContext, _args: dict[str, object]) -> ToolExecutionResult:
+    def runner(ctx: ToolContext[None], _args: dict[str, object]) -> ToolExecutionResult:
         calls.append("tool")
         if ctx.emit:
             ctx.emit("live")
@@ -272,7 +305,7 @@ async def test_before_tool_blocks_streaming_tool_without_live_output(tmp_path: P
     )
 
     @hooks.before_tool
-    def block(_ctx: ToolHookContext) -> ToolExecutionResult:
+    def block(_ctx: ToolHookContext[None]) -> ToolExecutionResult:
         return ToolExecutionResult(output="blocked", is_error=True)
 
     agent = _agent(tmp_path, tool=tool, hooks=hooks)
@@ -290,7 +323,7 @@ async def test_before_tool_blocks_streaming_tool_without_live_output(tmp_path: P
 async def test_after_tool_can_replace_streaming_tool_result(tmp_path: Path) -> None:
     hooks = Hooks()
 
-    def runner(ctx: ToolContext, _args: dict[str, object]) -> ToolExecutionResult:
+    def runner(ctx: ToolContext[None], _args: dict[str, object]) -> ToolExecutionResult:
         if ctx.emit:
             ctx.emit("live")
         return ToolExecutionResult(output="streamed")
@@ -304,7 +337,7 @@ async def test_after_tool_can_replace_streaming_tool_result(tmp_path: Path) -> N
     )
 
     @hooks.after_tool
-    def replace(_ctx: ToolHookContext, result: ToolExecutionResult) -> ToolExecutionResult:
+    def replace(_ctx: ToolHookContext[None], result: ToolExecutionResult) -> ToolExecutionResult:
         assert result.output == "streamed"
         return ToolExecutionResult(output="replaced")
 
@@ -324,7 +357,7 @@ async def test_streaming_cancellation_cannot_be_replaced(tmp_path: Path) -> None
     after_calls: list[str] = []
     hooks = Hooks()
 
-    def runner(ctx: ToolContext, _args: dict[str, object]) -> ToolExecutionResult:
+    def runner(ctx: ToolContext[None], _args: dict[str, object]) -> ToolExecutionResult:
         if ctx.emit:
             ctx.emit("live")
         sleep(0.05)
@@ -339,7 +372,7 @@ async def test_streaming_cancellation_cannot_be_replaced(tmp_path: Path) -> None
     )
 
     @hooks.after_tool
-    def replace(_ctx: ToolHookContext, result: ToolExecutionResult) -> ToolExecutionResult:
+    def replace(_ctx: ToolHookContext[None], result: ToolExecutionResult) -> ToolExecutionResult:
         after_calls.append(result.output)
         return ToolExecutionResult(output="replaced")
 

@@ -39,7 +39,7 @@ class TestToolExecutor:
         assert [spec.name for spec in executor.specs] == ["first", "second"]
 
     @pytest.mark.asyncio
-    async def test_async_tool_can_use_loop_bound_resource(self, tmp_path: Path) -> None:
+    async def test_async_tool_can_use_loop_bound_resource(self) -> None:
         loop = asyncio.get_running_loop()
         response = loop.create_future()
         loop.call_later(0.01, response.set_result, "ready")
@@ -51,13 +51,13 @@ class TestToolExecutor:
             return await response
 
         executor = ToolExecutor([wait_for_response])
-        ctx = ToolContext(executor=executor, cwd=".", tool_output_dir=tmp_path / "_p")
+        ctx = ToolContext(executor=executor, deps=None)
 
         result = await executor.aexecute("wait_for_response", {}, ctx)
 
         assert result.output == "ready"
 
-    def test_sync_executor_runs_async_tool(self, tmp_path: Path) -> None:
+    def test_sync_executor_runs_async_tool(self) -> None:
         @tool
         async def greet() -> str:
             """Return a greeting."""
@@ -66,16 +66,16 @@ class TestToolExecutor:
             return "hello"
 
         executor = ToolExecutor([greet])
-        ctx = ToolContext(executor=executor, cwd=".", tool_output_dir=tmp_path / "_p")
+        ctx = ToolContext(executor=executor, deps=None)
 
         result = executor.execute("greet", {}, ctx)
 
         assert result.output == "hello"
 
     @pytest.mark.asyncio
-    async def test_executor_awaits_wrapped_async_callable_runner(self, tmp_path: Path) -> None:
+    async def test_executor_awaits_wrapped_async_callable_runner(self) -> None:
         class AsyncRunner:
-            async def __call__(self, _ctx: ToolContext, args: dict[str, Any]) -> ToolExecutionResult:
+            async def __call__(self, _ctx: ToolContext[Any], args: dict[str, Any]) -> ToolExecutionResult:
                 await asyncio.sleep(0)
                 return ToolExecutionResult(output=str(args["value"]))
 
@@ -86,14 +86,14 @@ class TestToolExecutor:
             runner=functools.partial(AsyncRunner()),
         )
         executor = ToolExecutor([spec])
-        ctx = ToolContext(executor=executor, cwd=".", tool_output_dir=tmp_path / "_p")
+        ctx = ToolContext(executor=executor, deps=None)
 
         result = await executor.aexecute("echo", {"value": "async callable"}, ctx)
 
         assert result.output == "async callable"
 
     @pytest.mark.asyncio
-    async def test_sync_tool_does_not_block_event_loop(self, tmp_path: Path) -> None:
+    async def test_sync_tool_does_not_block_event_loop(self) -> None:
         started = threading.Event()
         release = threading.Event()
 
@@ -106,7 +106,7 @@ class TestToolExecutor:
             return "released"
 
         executor = ToolExecutor([wait_for_release])
-        ctx = ToolContext(executor=executor, cwd=".", tool_output_dir=tmp_path / "_p")
+        ctx = ToolContext(executor=executor, deps=None)
         task = asyncio.create_task(executor.aexecute("wait_for_release", {}, ctx))
 
         assert await asyncio.to_thread(started.wait, 1)
@@ -143,7 +143,7 @@ class TestToolDecorator:
         assert render.input_schema["properties"]["additionalProperties"] == {"type": "string"}
         assert render.input_schema["required"] == ["format", "title", "additionalProperties"]
 
-    def test_converts_path_arguments_before_calling_runner(self, tmp_path: Path) -> None:
+    def test_converts_path_arguments_before_calling_runner(self) -> None:
         captured: dict[str, object] = {}
 
         @tool
@@ -154,7 +154,7 @@ class TestToolDecorator:
             return str(target)
 
         executor = ToolExecutor([show])
-        ctx = ToolContext(executor=executor, cwd=".", tool_output_dir=tmp_path / "_p")
+        ctx = ToolContext(executor=executor, deps=None)
         result = executor.execute("show", {"target": "/etc/hosts"}, ctx)
 
         assert show.input_schema["properties"]["target"] == {"type": "string"}
@@ -162,7 +162,7 @@ class TestToolDecorator:
         assert captured["value"] == Path("/etc/hosts")
         assert result.output == "/etc/hosts"
 
-    def test_uses_default_when_non_nullable_default_parameter_receives_null(self, tmp_path: Path) -> None:
+    def test_uses_default_when_non_nullable_default_parameter_receives_null(self) -> None:
         @tool
         def lookup(key: str, limit: int = 10) -> str:
             """Find entries."""
@@ -170,13 +170,13 @@ class TestToolDecorator:
             return f"{key}:{limit}"
 
         executor = ToolExecutor([lookup])
-        ctx = ToolContext(executor=executor, cwd=".", tool_output_dir=tmp_path / "_p")
+        ctx = ToolContext(executor=executor, deps=None)
         result = executor.execute("lookup", {"key": "a", "limit": None}, ctx)
 
         assert result.output == "a:10"
         assert result.is_error is False
 
-    def test_invalid_input_does_not_call_user_function(self, tmp_path: Path) -> None:
+    def test_invalid_input_does_not_call_user_function(self) -> None:
         calls: list[str] = []
 
         @tool
@@ -187,7 +187,7 @@ class TestToolDecorator:
             return key
 
         executor = ToolExecutor([lookup])
-        ctx = ToolContext(executor=executor, cwd=".", tool_output_dir=tmp_path / "_p")
+        ctx = ToolContext(executor=executor, deps=None)
         result = executor.execute("lookup", {}, ctx)
 
         assert result.is_error is True
@@ -233,7 +233,7 @@ class TestToolDecorator:
 
                 return str(filters)
 
-    def test_supports_nested_pydantic_models(self, tmp_path: Path) -> None:
+    def test_supports_nested_pydantic_models(self) -> None:
         class EditEntry(BaseModel):
             old_text: str = Field(alias="oldText", description="Exact text to find.")
             new_text: str = Field(alias="newText", description="Replacement text.")
@@ -248,7 +248,7 @@ class TestToolDecorator:
             return path
 
         executor = ToolExecutor([replace])
-        ctx = ToolContext(executor=executor, cwd=".", tool_output_dir=tmp_path / "_p")
+        ctx = ToolContext(executor=executor, deps=None)
         result = executor.execute("replace", {"path": "x.txt", "edits": [{"oldText": "a", "newText": "b"}]}, ctx)
 
         assert result.output == "x.txt"

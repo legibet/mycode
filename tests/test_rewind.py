@@ -8,10 +8,10 @@ from fastapi.testclient import TestClient
 
 from mycode.compact import build_compact_event
 from mycode.messages import ConversationMessage
-from mycode.session import SessionStore
 from mycode_cli.server.app import create_app
 from mycode_cli.server.deps import get_run_manager, get_store
 from mycode_cli.server.run_manager import RunManager
+from mycode_cli.sessions import SessionStore
 
 
 @pytest.fixture

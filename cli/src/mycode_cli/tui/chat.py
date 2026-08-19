@@ -41,8 +41,6 @@ from mycode.providers import (
     provider_api_key_from_env,
     provider_default_models,
 )
-from mycode.session import SessionStore
-from mycode.utils import resolve_path
 from mycode_cli.config import (
     ResolvedProvider,
     Settings,
@@ -54,7 +52,9 @@ from mycode_cli.config import (
 )
 from mycode_cli.permissions import ToolReviewDecision, ToolReviewRequest, build_permission_hooks
 from mycode_cli.runtime import load_session_cost
+from mycode_cli.sessions import SessionStore
 from mycode_cli.system_prompt import build_skill_snapshot_blocks, discover_slash_skills
+from mycode_cli.workspace import CliDeps, resolve_path
 
 from .render import ReplyRenderer, TerminalView, format_local_timestamp
 from .state import load_efforts, save_efforts
@@ -335,7 +335,7 @@ class ProviderOption:
     api_base: str | None
 
 
-def clone_agent(agent: Agent, *, store: SessionStore, session_id: str) -> Agent:
+def clone_agent(agent: Agent, *, store: SessionStore, session_id: str, cwd: str) -> Agent:
     """Keep the current runtime config while swapping session state.
 
     History auto-loads from disk when ``session_id`` exists under the store.
@@ -344,7 +344,6 @@ def clone_agent(agent: Agent, *, store: SessionStore, session_id: str) -> Agent:
     return Agent(
         model=agent.model,
         provider=agent.provider,
-        cwd=agent.cwd,
         session_dir=store.data_dir,
         session_id=session_id,
         api_key=agent.api_key,
@@ -361,6 +360,7 @@ def clone_agent(agent: Agent, *, store: SessionStore, session_id: str) -> Agent:
         system=agent.system,
         tools=agent.tools.specs,
         hooks=agent.hooks,
+        deps=CliDeps.for_session(cwd=cwd, data_dir=store.data_dir, session_id=session_id),
     )
 
 
@@ -472,7 +472,7 @@ class TerminalChat:
         self._current_renderer: ReplyRenderer | None = None
         self.prompt_session: PromptSession[str] = PromptSession(
             history=FileHistory(history_file_path()),
-            completer=_PromptCompleter(cwd=self.agent.cwd),
+            completer=_PromptCompleter(cwd=self.settings.cwd),
             key_bindings=_build_chat_key_bindings(),
             multiline=True,
             prompt_continuation="  ",
@@ -542,6 +542,7 @@ class TerminalChat:
             )
             self._current_renderer = renderer
             user_message = self._build_user_message(user_input)
+            await self.store.record_user_turn(self.session_id, cwd=self.settings.cwd, text=user_input)
             try:
                 await renderer.render(self.agent, user_message)
             except (KeyboardInterrupt, asyncio.CancelledError):
@@ -558,7 +559,7 @@ class TerminalChat:
     def _build_user_message(self, text: str) -> ConversationMessage:
         """Build one user message with skill snapshots and `@path` attachments."""
 
-        blocks: list[dict[str, Any]] = [*build_skill_snapshot_blocks(text, self.agent.cwd), text_block(text)]
+        blocks: list[dict[str, Any]] = [*build_skill_snapshot_blocks(text, self.settings.cwd), text_block(text)]
         try:
             tokens = shlex.split(text.replace("\r\n", "\n").replace("\r", "\n"), posix=True)
         except ValueError:
@@ -568,7 +569,7 @@ class TerminalChat:
         for token in tokens:
             if not token.startswith("@") or token == "@":
                 continue
-            path = resolve_path(token[1:], cwd=self.agent.cwd)
+            path = resolve_path(token[1:], cwd=self.settings.cwd)
             if not path.is_file():
                 continue
             path_text = str(path)
@@ -592,7 +593,7 @@ class TerminalChat:
             # A non-UTF-8 binary raises ValueError inside build_attachment_blocks and is skipped.
             name = None if img or pdf else path_text
             try:
-                blocks.extend(build_attachment_blocks([Attachment.path(path_text, name=name)], cwd=self.agent.cwd))
+                blocks.extend(build_attachment_blocks([Attachment.path(path_text, name=name)]))
             except ValueError:
                 continue
 
@@ -701,13 +702,14 @@ class TerminalChat:
             text.append(str(exc), style=ERROR)
             self.view.console.print(text)
             return
+        await self.store.touch(self.session_id)
         self.view.print_compact_marker()
 
     def _start_new_session(self) -> None:
         """Start a fresh session while keeping the current runtime settings."""
 
         self.session_id = uuid4().hex
-        self.agent = clone_agent(self.agent, store=self.store, session_id=self.session_id)
+        self.agent = clone_agent(self.agent, store=self.store, session_id=self.session_id, cwd=self.settings.cwd)
         self.view.print_header(
             provider=self.agent.provider,
             model=self.agent.model,
@@ -760,6 +762,7 @@ class TerminalChat:
 
         # Persist the rewind event and truncate in-memory messages.
         await self.store.append_rewind(self.session_id, selected)
+        await self.store.touch(self.session_id)
         self.agent.messages = messages[:selected]
 
         self.view.console.print(f"[green]{TOOL_MARKER}[/green] [dim]rewound[/dim]")
@@ -773,7 +776,7 @@ class TerminalChat:
     async def _resume_session(self) -> None:
         """Switch to another saved session in the current workspace."""
 
-        sessions = await self.store.list_sessions(cwd=self.agent.cwd)
+        sessions = await self.store.list_sessions(cwd=self.settings.cwd)
         sessions = [s for s in sessions if s.get("id") != self.session_id]
         if not sessions:
             self.view.console.print("[dim]no other sessions in this workspace[/dim]")
@@ -797,7 +800,7 @@ class TerminalChat:
             return
         messages = data["messages"]
         loaded_session = data["session"]
-        self.agent = clone_agent(self.agent, store=self.store, session_id=self.session_id)
+        self.agent = clone_agent(self.agent, store=self.store, session_id=self.session_id, cwd=self.settings.cwd)
         self.view.print_header(
             provider=self.agent.provider,
             model=self.agent.model,
@@ -841,7 +844,7 @@ class TerminalChat:
     def _apply_provider_change(self, provider_name: str) -> None:
         """Switch the active provider, keeping session history unchanged."""
 
-        self.settings = get_settings(self.agent.cwd)
+        self.settings = get_settings(self.settings.cwd)
         try:
             resolved = resolve_provider(self.settings, provider_name=provider_name)
         except ValueError as exc:
@@ -860,7 +863,7 @@ class TerminalChat:
     def _apply_model_change(self, model_name: str) -> None:
         """Switch the active model for the current provider runtime."""
 
-        self.settings = get_settings(self.agent.cwd)
+        self.settings = get_settings(self.settings.cwd)
         provider_name = self.provider_name
         try:
             resolved = resolve_provider(self.settings, provider_name=provider_name, model=model_name)

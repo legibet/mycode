@@ -9,7 +9,6 @@ import pytest
 
 from mycode.models import ModelMetadata
 from mycode.providers import list_env_discoverable_providers, provider_env_api_key_names
-from mycode.session import SessionStore
 from mycode_cli.config import (
     WebConfig,
     WebProviderConfig,
@@ -18,6 +17,7 @@ from mycode_cli.config import (
     resolve_web_api_key,
 )
 from mycode_cli.runtime import build_agent
+from mycode_cli.sessions import SessionStore
 
 
 def write_json(path: Path, payload: object) -> None:

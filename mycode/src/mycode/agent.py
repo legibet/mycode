@@ -9,9 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 import random
-import tempfile
 import threading
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
@@ -204,7 +202,6 @@ class Agent:
         self,
         *,
         model: str,
-        cwd: str | None = None,
         provider: str | None = None,
         session_dir: Path | None = None,
         session_id: str | None = None,
@@ -227,6 +224,7 @@ class Agent:
         system: str = "",
         tools: Sequence[ToolSpec] = (),
         hooks: Hooks | None = None,
+        deps: object | None = None,
     ):
         self.model = model
         if provider is None:
@@ -236,8 +234,9 @@ class Agent:
             provider = inferred
         self.provider = provider
 
-        resolved_cwd = cwd if cwd is not None else os.getcwd()
-        self.cwd = str(Path(resolved_cwd).resolve(strict=False))
+        # Opaque application context handed to every tool and hook; the SDK
+        # never reads it.
+        self.deps = deps
 
         # Persistence is opt-in: a store is only created when ``session_dir``
         # is supplied. ``session_id`` is always populated (uuid when absent)
@@ -286,11 +285,7 @@ class Agent:
         # - messages is None → auto-resume from disk if the session exists
         # - messages is [] or [...] → use as-is; refuse if it would overwrite disk
         if messages is None:
-            if self._store is not None:
-                data = self._store.load_session_sync(self.session_id)
-                messages = list(data["messages"]) if data is not None else []
-            else:
-                messages = []
+            messages = self._store.load_messages_sync(self.session_id) if self._store is not None else []
         elif self._store is not None and self._store.session_exists(self.session_id):
             msg = (
                 f"session {self.session_id!r} already exists on disk; "
@@ -299,13 +294,6 @@ class Agent:
             raise ValueError(msg)
         self.messages: list[ConversationMessage] = list(messages)
 
-        # ``tool_output_dir`` defaults to a session-adjacent directory so logs
-        # (e.g. bash spill files) live next to the session JSONL; without a
-        # session, fall back to a tempdir scoped to ``session_id``.
-        if session_dir is not None:
-            self.tool_output_dir = session_dir / self.session_id / "tool-output"
-        else:
-            self.tool_output_dir = Path(tempfile.gettempdir()) / "mycode" / self.session_id / "tool-output"
         self.tools = ToolExecutor(tools)
 
         self.refresh_capabilities(
@@ -382,7 +370,7 @@ class Agent:
         self,
         spec: ToolSpec,
         args: dict[str, Any],
-        ctx: ToolContext,
+        ctx: ToolContext[Any],
     ) -> ToolExecutionResult:
         return await self.tools.aexecute(spec.name, args, ctx)
 
@@ -430,8 +418,7 @@ class Agent:
 
         hook_ctx = ToolHookContext(
             session_id=self.session_id,
-            cwd=self.cwd,
-            tool_output_dir=self.tool_output_dir,
+            deps=self.deps,
             provider=self.provider,
             model=self.model,
             tool_call_id=tool_id,
@@ -488,7 +475,7 @@ class Agent:
         tool_id: str,
         spec: ToolSpec,
         args: dict[str, Any],
-        hook_ctx: ToolHookContext,
+        hook_ctx: ToolHookContext[Any],
     ) -> AsyncIterator[Event]:
         """Run one streaming tool, forwarding ``tool_output`` events live."""
 
@@ -545,7 +532,7 @@ class Agent:
     async def _finish_tool_call(
         self,
         tool_id: str,
-        hook_ctx: ToolHookContext,
+        hook_ctx: ToolHookContext[Any],
         result: ToolExecutionResult,
     ) -> Event:
         try:
@@ -563,11 +550,10 @@ class Agent:
         tool_id: str,
         *,
         emit: Callable[[str], None] | None = None,
-    ) -> ToolContext:
+    ) -> ToolContext[Any]:
         return ToolContext(
             executor=self.tools,
-            cwd=self.cwd,
-            tool_output_dir=self.tool_output_dir,
+            deps=self.deps,
             supports_image_input=self.supports_image_input,
             tool_call_id=tool_id,
             emit=emit,
@@ -811,8 +797,6 @@ class Agent:
             await on_persist(message)
         if self._store is None:
             return
-        if not self._store.session_exists(self.session_id):
-            await self._store.create_session(self.session_id, cwd=self.cwd)
         await self._store.append_message(self.session_id, message)
 
     # ------------------------------------------------------------------
@@ -850,7 +834,7 @@ class Agent:
                 user_message["meta"] = {str(k): v for k, v in raw_meta.items()}
 
         if attachments:
-            blocks = await asyncio.to_thread(build_attachment_blocks, attachments, cwd=self.cwd)
+            blocks = await asyncio.to_thread(build_attachment_blocks, attachments)
             user_message["content"] = list(user_message.get("content") or []) + blocks
 
         content_blocks = user_message.get("content") or []

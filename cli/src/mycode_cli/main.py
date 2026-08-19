@@ -14,7 +14,6 @@ import typer
 
 from mycode.agent import Agent
 from mycode.messages import ConversationMessage
-from mycode.session import SessionStore
 from mycode_cli import __version__
 from mycode_cli.config import (
     ResolvedProvider,
@@ -26,6 +25,7 @@ from mycode_cli.config import (
     resolve_sessions_dir,
 )
 from mycode_cli.permissions import PERMISSION_DENIED_BY_USER_OUTPUT, PERMISSION_DENIED_OUTPUT
+from mycode_cli.sessions import SessionStore
 
 from .runtime import build_agent
 from .tui.chat import TerminalChat
@@ -83,8 +83,7 @@ async def resolve_session(
                 "resumed",
             )
 
-    # New sessions: the id is allocated here; the on-disk session is created
-    # lazily by Agent.achat on the first persist.
+    # The catalog and timeline are both created lazily on the first user turn.
     return ResolvedSession(uuid4().hex, {}, [], "new")
 
 
@@ -95,9 +94,10 @@ def _show_version(value: bool) -> None:
     raise typer.Exit()
 
 
-async def run_noninteractive(agent: Agent, message: str) -> int:
+async def run_noninteractive(agent: Agent, message: str, *, store: SessionStore, cwd: str) -> int:
     """Run one message non-interactively and print only the final assistant reply."""
 
+    await store.record_user_turn(agent.session_id, cwd=cwd, text=message)
     latest_assistant: ConversationMessage | None = None
 
     async def track(payload: ConversationMessage) -> None:
@@ -304,7 +304,9 @@ def run(
         reasoning_effort=reasoning_effort,
     )
 
-    code = asyncio.run(run_noninteractive(setup.agent, " ".join(message).strip()))
+    code = asyncio.run(
+        run_noninteractive(setup.agent, " ".join(message).strip(), store=setup.store, cwd=setup.settings.cwd)
+    )
     raise SystemExit(code)
 
 

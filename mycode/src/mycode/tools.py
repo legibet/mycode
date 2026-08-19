@@ -19,7 +19,6 @@ import json
 import typing
 from collections.abc import Callable, Coroutine, Mapping, Sequence
 from dataclasses import dataclass
-from pathlib import Path
 from types import FunctionType
 from typing import Any, cast, overload
 
@@ -46,8 +45,8 @@ class ToolExecutionResult:
     is_error: bool = False
 
 
-SyncToolRunner = Callable[["ToolContext", dict[str, Any]], ToolExecutionResult]
-AsyncToolRunner = Callable[["ToolContext", dict[str, Any]], Coroutine[Any, Any, ToolExecutionResult]]
+SyncToolRunner = Callable[["ToolContext[Any]", dict[str, Any]], ToolExecutionResult]
+AsyncToolRunner = Callable[["ToolContext[Any]", dict[str, Any]], Coroutine[Any, Any, ToolExecutionResult]]
 ToolRunner = SyncToolRunner | AsyncToolRunner
 
 
@@ -83,12 +82,16 @@ class ToolSpec:
 
 
 @dataclass
-class ToolContext:
-    """Per-call runtime context handed to every tool runner."""
+class ToolContext[DepsT]:
+    """Per-call runtime context handed to every tool runner.
+
+    ``deps`` carries the embedding application's own context object (working
+    directory, config, clients, …). The SDK passes it through untouched;
+    annotate tools as ``ToolContext[MyDeps]`` to get typed access.
+    """
 
     executor: ToolExecutor
-    cwd: str
-    tool_output_dir: Path
+    deps: DepsT
     supports_image_input: bool = False
     # Only agent-loop calls have a provider tool-call id and live output sink.
     tool_call_id: str | None = None
@@ -135,7 +138,7 @@ class ToolExecutor:
     def get(self, name: str) -> ToolSpec | None:
         return self._tools.get(name)
 
-    def execute(self, name: str, args: dict[str, Any], ctx: ToolContext) -> ToolExecutionResult:
+    def execute(self, name: str, args: dict[str, Any], ctx: ToolContext[Any]) -> ToolExecutionResult:
         spec = self._tools.get(name)
         if spec is None:
             return ToolExecutionResult(output=f"error: unknown tool: {name}", is_error=True)
@@ -145,7 +148,7 @@ class ToolExecutor:
         runner = cast(SyncToolRunner, spec.runner)
         return runner(ctx, args)
 
-    async def aexecute(self, name: str, args: dict[str, Any], ctx: ToolContext) -> ToolExecutionResult:
+    async def aexecute(self, name: str, args: dict[str, Any], ctx: ToolContext[Any]) -> ToolExecutionResult:
         spec = self._tools.get(name)
         if spec is None:
             return ToolExecutionResult(output=f"error: unknown tool: {name}", is_error=True)
@@ -215,7 +218,9 @@ def tool(
         except Exception:
             resolved_hints = {}
 
-        wants_context = bool(signature_parameters) and resolved_hints.get(signature_parameters[0].name) is ToolContext
+        first_hint = resolved_hints.get(signature_parameters[0].name) if signature_parameters else None
+        # Accepts both a bare ``ToolContext`` and a parameterized ``ToolContext[MyDeps]``.
+        wants_context = first_hint is ToolContext or typing.get_origin(first_hint) is ToolContext
         tool_params = signature_parameters[1:] if wants_context else signature_parameters
         tool_param_names = [parameter.name for parameter in tool_params]
         description_from_docstring, param_descriptions = _parse_tool_docstring(fn)
@@ -271,7 +276,7 @@ def tool(
 
         if is_async:
 
-            async def async_runner(context: ToolContext, args: dict[str, Any]) -> ToolExecutionResult:
+            async def async_runner(context: ToolContext[Any], args: dict[str, Any]) -> ToolExecutionResult:
                 call_args = prepare_args(args)
                 if isinstance(call_args, ToolExecutionResult):
                     return call_args
@@ -282,7 +287,7 @@ def tool(
 
         else:
 
-            def sync_runner(context: ToolContext, args: dict[str, Any]) -> ToolExecutionResult:
+            def sync_runner(context: ToolContext[Any], args: dict[str, Any]) -> ToolExecutionResult:
                 call_args = prepare_args(args)
                 if isinstance(call_args, ToolExecutionResult):
                     return call_args

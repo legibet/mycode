@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import copy
 import time
-from collections.abc import AsyncGenerator, AsyncIterator, Awaitable
+from collections.abc import AsyncGenerator, AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass, field
 from typing import Any, Literal, Protocol
@@ -18,6 +18,7 @@ from mycode_cli.runtime import sum_known_costs
 
 RunStatus = Literal["running", "completed", "failed", "cancelled"]
 RunKind = Literal["chat", "compact"]
+RunCompletionCallback = Callable[[str], Awaitable[None]]
 FINISHED_RUN_TTL_SECONDS = 300
 RUN_EVENT_BUFFER_SIZE = 2000
 RUN_TOOL_OUTPUT_BUFFER_BYTES = 1_000_000
@@ -62,6 +63,7 @@ class RunState:
     # Session cost before this run (folded from the session JSONL by the chat
     # router); None means unknown. Composed with each usage event's turn cost.
     session_cost_base: float | None = None
+    on_complete: RunCompletionCallback | None = None
     status: RunStatus = "running"
     error: str | None = None
     events: list[dict[str, Any]] = field(default_factory=list)
@@ -121,6 +123,7 @@ class RunManager:
         session_id: str,
         base_messages: list[ConversationMessage],
         agent: RunAgent,
+        on_complete: RunCompletionCallback | None = None,
     ) -> dict[str, Any]:
         return await self._start(
             session_id=session_id,
@@ -128,6 +131,7 @@ class RunManager:
             user_message=None,
             base_messages=base_messages,
             agent=agent,
+            on_complete=on_complete,
         )
 
     async def _start(
@@ -139,6 +143,7 @@ class RunManager:
         base_messages: list[ConversationMessage],
         agent: RunAgent,
         session_cost_base: float | None = None,
+        on_complete: RunCompletionCallback | None = None,
     ) -> dict[str, Any]:
         await self._prune_finished_runs()
 
@@ -155,6 +160,7 @@ class RunManager:
                 session_cost_base=session_cost_base,
                 base_messages=copy.deepcopy(base_messages),
                 agent=agent,
+                on_complete=on_complete,
             )
             state.task = asyncio.create_task(self._run(state), name=f"mycode-run-{state.id}")
             self._active_by_session[session_id] = state
@@ -323,6 +329,8 @@ class RunManager:
             if state.kind == "compact":
                 # The agent persists the compact marker before this returns.
                 await state.agent.acompact()
+                if state.on_complete is not None:
+                    await state.on_complete(state.session_id)
                 await self._append_event(state, Event("compact", {}))
             else:
                 assert state.user_message is not None

@@ -18,6 +18,7 @@ from mycode_cli.permissions import (
     classify_tool,
     permission_decision,
 )
+from mycode_cli.workspace import CliDeps
 
 _SPEC = ToolSpec(
     name="test",
@@ -27,11 +28,11 @@ _SPEC = ToolSpec(
 )
 
 
-def _ctx(name: str, tool_input: dict[str, object]) -> ToolHookContext:
+def _ctx(name: str, tool_input: dict[str, object], *, cwd: Path | None = None) -> ToolHookContext[CliDeps]:
+    cwd = cwd or Path("/tmp")
     return ToolHookContext(
         session_id="s",
-        cwd="/tmp",
-        tool_output_dir=Path("/tmp/tool-output"),
+        deps=CliDeps(cwd=cwd, tool_output_dir=cwd / "tool-output"),
         provider="openai",
         model="gpt-5.5",
         tool_call_id="call-1",
@@ -68,8 +69,7 @@ def test_classifies_structured_tools_by_cwd_and_skill_paths(tmp_path: Path) -> N
 
     assert (
         classify_tool(
-            _ctx("read", {"path": "/tmp/tool-output/webfetch-call.md"}),
-            cwd=str(tmp_path),
+            _ctx("read", {"path": str(tmp_path / "tool-output" / "webfetch-call.md")}, cwd=tmp_path),
             project=str(tmp_path),
             skill_roots=[skill_dir],
         ).tier
@@ -77,8 +77,7 @@ def test_classifies_structured_tools_by_cwd_and_skill_paths(tmp_path: Path) -> N
     )
     assert (
         classify_tool(
-            _ctx("read", {"path": "src/app.py"}),
-            cwd=str(tmp_path),
+            _ctx("read", {"path": "src/app.py"}, cwd=tmp_path),
             project=str(tmp_path),
             skill_roots=[skill_dir],
         ).tier
@@ -86,8 +85,7 @@ def test_classifies_structured_tools_by_cwd_and_skill_paths(tmp_path: Path) -> N
     )
     assert (
         classify_tool(
-            _ctx("write", {"path": "src/app.py"}),
-            cwd=str(tmp_path),
+            _ctx("write", {"path": "src/app.py"}, cwd=tmp_path),
             project=str(tmp_path),
             skill_roots=[skill_dir],
         ).tier
@@ -95,8 +93,7 @@ def test_classifies_structured_tools_by_cwd_and_skill_paths(tmp_path: Path) -> N
     )
     assert (
         classify_tool(
-            _ctx("read", {"path": str(skill_dir / "SKILL.md")}),
-            cwd=str(tmp_path),
+            _ctx("read", {"path": str(skill_dir / "SKILL.md")}, cwd=tmp_path),
             project=str(tmp_path),
             skill_roots=[skill_dir],
         ).tier
@@ -104,8 +101,7 @@ def test_classifies_structured_tools_by_cwd_and_skill_paths(tmp_path: Path) -> N
     )
     assert (
         classify_tool(
-            _ctx("edit", {"path": str(tmp_path.parent / "outside.py")}),
-            cwd=str(tmp_path),
+            _ctx("edit", {"path": str(tmp_path.parent / "outside.py")}, cwd=tmp_path),
             project=str(tmp_path),
             skill_roots=[skill_dir],
         ).tier
@@ -124,8 +120,7 @@ def test_classifies_web_tools_as_standard_with_useful_preview(
     tmp_path: Path,
 ) -> None:
     check = classify_tool(
-        _ctx(name, {field: value}),
-        cwd=str(tmp_path),
+        _ctx(name, {field: value}, cwd=tmp_path),
         project=str(tmp_path),
         skill_roots=[],
     )
@@ -139,8 +134,7 @@ def test_classifies_structured_tools_inside_project_as_local(tmp_path: Path) -> 
     cwd.mkdir(parents=True)
 
     check = classify_tool(
-        _ctx("edit", {"path": str(project / "README.md")}),
-        cwd=str(cwd),
+        _ctx("edit", {"path": str(project / "README.md")}, cwd=cwd),
         project=str(project),
         skill_roots=[],
     )
@@ -160,7 +154,7 @@ def test_classifies_structured_tools_inside_project_as_local(tmp_path: Path) -> 
     ],
 )
 def test_classifies_common_readonly_bash(command: str, tmp_path: Path) -> None:
-    check = classify_tool(_ctx("bash", {"command": command}), cwd=str(tmp_path), project=str(tmp_path), skill_roots=[])
+    check = classify_tool(_ctx("bash", {"command": command}, cwd=tmp_path), project=str(tmp_path), skill_roots=[])
     assert check.tier == "readonly"
 
 
@@ -183,7 +177,7 @@ def test_classifies_common_readonly_bash(command: str, tmp_path: Path) -> None:
     ],
 )
 def test_classifies_single_non_dangerous_bash_as_standard(command: str, tmp_path: Path) -> None:
-    check = classify_tool(_ctx("bash", {"command": command}), cwd=str(tmp_path), project=str(tmp_path), skill_roots=[])
+    check = classify_tool(_ctx("bash", {"command": command}, cwd=tmp_path), project=str(tmp_path), skill_roots=[])
     assert check.tier == "standard"
 
 
@@ -212,7 +206,7 @@ def test_classifies_single_non_dangerous_bash_as_standard(command: str, tmp_path
     ],
 )
 def test_classifies_dangerous_or_compound_bash_as_yolo(command: str, tmp_path: Path) -> None:
-    check = classify_tool(_ctx("bash", {"command": command}), cwd=str(tmp_path), project=str(tmp_path), skill_roots=[])
+    check = classify_tool(_ctx("bash", {"command": command}, cwd=tmp_path), project=str(tmp_path), skill_roots=[])
     assert check.tier == "yolo"
 
 

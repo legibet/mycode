@@ -17,6 +17,7 @@ from mycode.tools import ToolContext, ToolExecutionResult, ToolSpec, tool
 from mycode_cli import __version__
 from mycode_cli.config import WebConfig, resolve_web_api_key
 from mycode_cli.tools import DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES
+from mycode_cli.workspace import CliDeps
 
 DEFAULT_TIMEOUT_SECONDS = 30
 MAX_TIMEOUT_SECONDS = 120
@@ -64,7 +65,7 @@ def build_web_tools(web: WebConfig) -> list[ToolSpec]:
         },
     )
     async def webfetch(
-        ctx: ToolContext,
+        ctx: ToolContext[CliDeps],
         url: str,
         timeout: int | None = None,  # noqa: ASYNC109
     ) -> ToolExecutionResult:
@@ -111,7 +112,7 @@ def build_web_tools(web: WebConfig) -> list[ToolSpec]:
 
 
 async def _run_webfetch(
-    ctx: ToolContext,
+    ctx: ToolContext[CliDeps],
     web: WebConfig,
     url: str,
     requested_timeout: int | None,
@@ -418,13 +419,15 @@ def _convert_response(response: httpx2.Response, body: bytes) -> str:
     return re.sub(r"\n{4,}", "\n\n\n", converted).strip()
 
 
-def _format_fetch_result(ctx: ToolContext, requested_url: str, final_url: str, content: str) -> ToolExecutionResult:
+def _format_fetch_result(
+    ctx: ToolContext[CliDeps], requested_url: str, final_url: str, content: str
+) -> ToolExecutionResult:
     visible, truncated_by = _truncate_head(content)
     notes: list[str] = []
     if final_url != requested_url:
         notes.append(f"[Redirected to {final_url}]")
     if truncated_by:
-        path = ctx.tool_output_dir / f"webfetch-{ctx.tool_call_id or 'call'}.md"
+        path = ctx.deps.tool_output_dir / f"webfetch-{ctx.tool_call_id or 'call'}.md"
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content, encoding="utf-8")
         limit = f"{DEFAULT_MAX_LINES} lines" if truncated_by == "lines" else f"{DEFAULT_MAX_BYTES // 1024}KB"

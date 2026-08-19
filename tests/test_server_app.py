@@ -13,10 +13,10 @@ from starlette.testclient import TestClient
 from mycode.messages import ConversationMessage
 from mycode.models import ModelMetadata
 from mycode.providers.base import ProviderRequest, ProviderStreamEvent
-from mycode.session import SessionStore
 from mycode_cli.server.app import create_api_app, create_app
 from mycode_cli.server.deps import get_run_manager, get_store
 from mycode_cli.server.run_manager import RunManager
+from mycode_cli.sessions import SessionStore
 
 
 class _CaptureAdapter:
@@ -155,7 +155,7 @@ def test_chat_capability_failure_does_not_create_session(
 
     assert response.status_code == 400
     assert response.json()["detail"] == "current model does not support image input"
-    assert store.load_session_sync("new-session") is None
+    assert asyncio.run(store.load_session("new-session")) is None
 
 
 def test_chat_skill_reference_reaches_provider_and_keeps_visible_title(

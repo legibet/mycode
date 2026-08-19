@@ -2,17 +2,7 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
-
-
-def resolve_path(path: str | Path, *, cwd: str | Path) -> Path:
-    """Resolve ``path`` against ``cwd``; absolute and ``~`` paths pass through."""
-
-    p = Path(path).expanduser()
-    if not p.is_absolute():
-        p = Path(cwd) / p
-    return p.resolve(strict=False)
 
 
 def omit_none(d: dict[str, Any]) -> dict[str, Any]:

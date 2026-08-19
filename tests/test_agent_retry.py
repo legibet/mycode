@@ -89,7 +89,6 @@ class _FailsAfterReasoningAdapter:
 
 def _new_agent(tmp_path: Path, **overrides: Any) -> Agent:
     overrides.setdefault("model", "gpt-5.5")
-    overrides.setdefault("cwd", str(tmp_path))
     overrides.setdefault("session_dir", tmp_path)
     overrides.setdefault("session_id", "session")
     return Agent(**overrides)
@@ -199,9 +198,8 @@ async def test_no_retry_after_output_and_partial_persisted_once(tmp_path: Path) 
     assert not any(event.type == "retry" for event in events)
     assert events[-1] == Event("error", {"message": "stream died mid-turn"})
 
-    data = SessionStore(data_dir=tmp_path).load_session_sync("session")
-    assert data is not None
-    assistants = [message for message in data["messages"] if message["role"] == "assistant"]
+    messages = SessionStore(data_dir=tmp_path).load_messages_sync("session")
+    assistants = [message for message in messages if message["role"] == "assistant"]
     assert len(assistants) == 1
     assert assistants[0]["content"] == [{"type": "text", "text": "partial"}]
     assert assistants[0]["meta"]["stop_reason"] == "error"

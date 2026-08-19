@@ -2,7 +2,7 @@
 
 Regular :class:`ToolSpec` values built on the SDK tool runtime. ``bash``
 streams live output through ``ctx.emit``, spills large output to
-``ctx.tool_output_dir``, and on cancellation kills its process group and
+``ctx.deps.tool_output_dir``, and on cancellation kills its process group and
 returns the captured partial output.
 """
 
@@ -26,7 +26,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from mycode.attachments import detect_image_mime_type
 from mycode.messages import image_block, text_block
 from mycode.tools import ToolContext, ToolExecutionResult, ToolSpec, tool
-from mycode.utils import resolve_path
+from mycode_cli.workspace import CliDeps, resolve_path
 
 # ---------------------------------------------------------------------------
 # Limits
@@ -56,7 +56,7 @@ _BASH_READ_CHUNK_SIZE = 64 * 1024
     },
 )
 def read_tool(
-    ctx: ToolContext,
+    ctx: ToolContext[CliDeps],
     path: str,
     offset: int | None = None,
     limit: int | None = None,
@@ -66,7 +66,7 @@ def read_tool(
     Offset is 1-indexed. Limit caps the number of lines returned.
     """
 
-    file_path = resolve_path(path, cwd=ctx.cwd)
+    file_path = resolve_path(path, cwd=ctx.deps.cwd)
 
     image_mime_type = detect_image_mime_type(file_path)
     if image_mime_type:
@@ -185,8 +185,8 @@ def _atomic_write_text(path: Path, content: str, *, newline: str | None = None) 
         "content": "File content.",
     },
 )
-def write_tool(ctx: ToolContext, path: str, content: str) -> ToolExecutionResult:
-    file_path = resolve_path(path, cwd=ctx.cwd)
+def write_tool(ctx: ToolContext[CliDeps], path: str, content: str) -> ToolExecutionResult:
+    file_path = resolve_path(path, cwd=ctx.deps.cwd)
     try:
         file_path.parent.mkdir(parents=True, exist_ok=True)
         _atomic_write_text(file_path, content)
@@ -268,7 +268,7 @@ def _normalize_text(text: str) -> tuple[str, list[int]]:
         "edits": "Replacements to apply.",
     },
 )
-def edit_tool(ctx: ToolContext, path: str, edits: list[EditEntry]) -> ToolExecutionResult:
+def edit_tool(ctx: ToolContext[CliDeps], path: str, edits: list[EditEntry]) -> ToolExecutionResult:
     """Replace one or more unique snippets in a file.
 
     Edits all match against the original file content. Exact match is tried
@@ -276,7 +276,7 @@ def edit_tool(ctx: ToolContext, path: str, edits: list[EditEntry]) -> ToolExecut
     whitespace differences while only replacing the matched region.
     """
 
-    file_path = resolve_path(path, cwd=ctx.cwd)
+    file_path = resolve_path(path, cwd=ctx.deps.cwd)
     if not edits:
         return ToolExecutionResult(output="error: edits must not be empty", is_error=True)
 
@@ -646,7 +646,7 @@ def _kill_proc_tree(proc: asyncio.subprocess.Process) -> None:
     streams_output=True,
 )
 async def bash_tool(
-    ctx: ToolContext,
+    ctx: ToolContext[CliDeps],
     command: str,
     timeout: int | None = None,  # noqa: ASYNC109
 ) -> ToolExecutionResult:
@@ -654,8 +654,8 @@ async def bash_tool(
 
     timeout_seconds = timeout if timeout is not None and timeout > 0 else BASH_TIMEOUT_SECONDS
     proc: asyncio.subprocess.Process | None = None
-    log_path = ctx.tool_output_dir / f"bash-{ctx.tool_call_id or 'call'}.log"
-    output = _BashOutputAccumulator(ctx.tool_output_dir, log_path)
+    log_path = ctx.deps.tool_output_dir / f"bash-{ctx.tool_call_id or 'call'}.log"
+    output = _BashOutputAccumulator(ctx.deps.tool_output_dir, log_path)
 
     def emit_output(text: str) -> None:
         if text and ctx.emit is not None:
@@ -679,7 +679,7 @@ async def bash_tool(
     try:
         proc = await asyncio.create_subprocess_shell(
             command,
-            cwd=ctx.cwd,
+            cwd=ctx.deps.cwd,
             stdin=asyncio.subprocess.DEVNULL,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,

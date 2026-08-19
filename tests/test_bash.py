@@ -13,6 +13,7 @@ from mycode import Agent, Event, RunResult
 from mycode.providers.base import ProviderStreamEvent
 from mycode.tools import ToolContext, ToolExecutor
 from mycode_cli.tools import DEFAULT_TOOLS, bash_tool
+from mycode_cli.workspace import CliDeps
 
 
 def _ctx(
@@ -21,18 +22,20 @@ def _ctx(
     tool_output_dir: Path | None = None,
     tool_call_id: str | None = None,
     on_output=None,
-) -> ToolContext:
+) -> ToolContext[CliDeps]:
     executor = ToolExecutor(DEFAULT_TOOLS)
     return ToolContext(
         executor=executor,
-        cwd=cwd,
-        tool_output_dir=tool_output_dir if tool_output_dir is not None else Path(cwd),
+        deps=CliDeps(
+            cwd=Path(cwd),
+            tool_output_dir=tool_output_dir if tool_output_dir is not None else Path(cwd),
+        ),
         tool_call_id=tool_call_id,
         emit=on_output,
     )
 
 
-def _bash(ctx: ToolContext, command: str, *, timeout: int | None = None):
+def _bash(ctx: ToolContext[CliDeps], command: str, *, timeout: int | None = None):
     return ctx.call("bash", {"command": command, "timeout": timeout})
 
 
@@ -250,10 +253,10 @@ def _chat_events(events: list[Event]) -> list[Event]:
 def _bash_agent(tmp_path: Path) -> Agent:
     return Agent(
         model="gpt-5.5",
-        cwd=str(tmp_path),
         session_dir=tmp_path,
         session_id="session",
         tools=[bash_tool],
+        deps=CliDeps.for_session(cwd=tmp_path, data_dir=tmp_path, session_id="session"),
     )
 
 

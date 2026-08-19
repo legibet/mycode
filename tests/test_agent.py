@@ -38,7 +38,7 @@ class _FakeProviderAdapter:
             yield event
 
 
-def _ping_runner(_ctx: ToolContext, args: dict[str, object]) -> ToolExecutionResult:
+def _ping_runner(_ctx: ToolContext[None], args: dict[str, object]) -> ToolExecutionResult:
     text = str(args.get("text") or "")
     return ToolExecutionResult(output=f"pong: {text}")
 
@@ -97,14 +97,14 @@ def note() -> str:
 
 
 @tool
-def read_back(context: ToolContext) -> str:
+def read_back(context: ToolContext[None]) -> str:
     """Fetch the note through another registered tool."""
 
     return context.call("note", {}).output
 
 
 @tool(streams_output=True)
-async def read_back_async(context: ToolContext) -> str:
+async def read_back_async(context: ToolContext[None]) -> str:
     """Fetch the note through another registered tool, streaming the output."""
 
     output = (await context.acall("note", {})).output
@@ -121,7 +121,6 @@ def _chat_events(events: list[Event]) -> list[Event]:
 
 def _new_agent(tmp_path: Path, **overrides) -> Agent:
     overrides.setdefault("model", "gpt-5.5")
-    overrides.setdefault("cwd", str(tmp_path))
     overrides.setdefault("session_dir", tmp_path)
     overrides.setdefault("session_id", "session")
     return Agent(**overrides)
@@ -350,10 +349,9 @@ class TestAgentSessions:
         with patch("mycode.agent.get_provider_adapter", return_value=_FakeProviderAdapter([_text_turn("first reply")])):
             _ = [event async for event in agent.achat("first question")]
 
-        loaded = await SessionStore(data_dir=tmp_path).load_session("s1")
+        loaded = await SessionStore(data_dir=tmp_path).load_messages("s1")
 
-        assert loaded is not None
-        assert [message["role"] for message in loaded["messages"]] == ["user", "assistant"]
+        assert [message["role"] for message in loaded] == ["user", "assistant"]
 
     async def test_achat_resumes_existing_session_history(self, tmp_path: Path) -> None:
         first = _new_agent(tmp_path, session_id="s2")
@@ -434,7 +432,6 @@ class TestAgentReasoningPersistence:
             agent = Agent(
                 model="gpt-5.5",
                 provider="openai",
-                cwd=tmpdir,
                 session_dir=Path(tmpdir),
             )
 
@@ -476,7 +473,6 @@ class TestAgentReasoningPersistence:
             agent = Agent(
                 model="gpt-5.5",
                 provider="openai",
-                cwd=tmpdir,
                 session_dir=Path(tmpdir),
             )
 
@@ -521,7 +517,6 @@ class TestAgentTurnLimits:
             agent = Agent(
                 model="gpt-5.5",
                 provider="openai",
-                cwd=tmpdir,
                 session_dir=Path(tmpdir),
             )
 
@@ -539,7 +534,6 @@ class TestAgentTurnLimits:
             agent = Agent(
                 model="gpt-5.5",
                 provider="openai",
-                cwd=tmpdir,
                 session_dir=Path(tmpdir),
                 max_turns=2,
             )
@@ -566,7 +560,6 @@ class TestCustomTools:
             agent = Agent(
                 model="gpt-5.5",
                 provider="openai",
-                cwd=tmpdir,
                 session_dir=session_dir,
                 tools=[_PING_TOOL],
             )
@@ -591,7 +584,7 @@ class TestCustomTools:
     @pytest.mark.asyncio
     async def test_agent_forwards_sync_streaming_tool_output(self, tmp_path: Path) -> None:
         @tool(streams_output=True)
-        def emit_from_sync_tool(ctx: ToolContext) -> str:
+        def emit_from_sync_tool(ctx: ToolContext[None]) -> str:
             """Emit one line from a synchronous tool."""
 
             assert ctx.emit is not None
@@ -618,7 +611,7 @@ class TestCustomTools:
         release = asyncio.Event()
 
         @tool(streams_output=True)
-        async def burst(ctx: ToolContext) -> str:
+        async def burst(ctx: ToolContext[None]) -> str:
             """Emit more text than the live buffer can retain."""
 
             assert ctx.emit is not None
@@ -663,7 +656,7 @@ class TestCustomTools:
         cleaned_up = threading.Event()
 
         @tool(streams_output=streams_output)
-        async def wait_forever(ctx: ToolContext) -> None:
+        async def wait_forever(ctx: ToolContext[None]) -> None:
             """Wait until the tool is cancelled."""
 
             if ctx.emit:
@@ -678,7 +671,6 @@ class TestCustomTools:
         agent = Agent(
             model="gpt-5.5",
             provider="openai",
-            cwd=str(tmp_path),
             tools=[wait_forever],
         )
         adapter = _FakeProviderAdapter(
@@ -745,7 +737,6 @@ class TestCustomTools:
             agent = Agent(
                 model="gpt-5.5",
                 provider="openai",
-                cwd=tmpdir,
                 session_dir=Path(tmpdir),
                 tools=[_PING_TOOL],
             )
@@ -785,7 +776,6 @@ class TestAgentCancel:
             agent = Agent(
                 model="gpt-5.5",
                 provider="openai",
-                cwd=tmpdir,
                 session_dir=Path(tmpdir),
                 context_window=100,
                 compact_threshold=0.8,
@@ -806,7 +796,6 @@ class TestAgentCancel:
             agent = Agent(
                 model="gpt-5.5",
                 provider="openai",
-                cwd=tmpdir,
                 session_dir=Path(tmpdir),
             )
             adapter = _SlowProviderAdapter()

@@ -8,9 +8,9 @@ from typing import Annotated
 
 from fastapi import Depends, HTTPException
 
-from mycode.session import SessionStore
 from mycode_cli.config import resolve_sessions_dir
 from mycode_cli.server.run_manager import RunManager
+from mycode_cli.sessions import SessionStore
 
 
 def resolve_workspace_cwd(raw: str | None) -> str:

@@ -14,6 +14,7 @@ import pytest
 from mycode.tools import ToolContext, ToolExecutionResult, ToolExecutor
 from mycode_cli.config import WebConfig, WebProviderConfig
 from mycode_cli.web_tools import build_web_tools
+from mycode_cli.workspace import CliDeps
 
 
 @pytest.fixture(autouse=True)
@@ -43,8 +44,7 @@ async def _call(
     executor = ToolExecutor(build_web_tools(web))
     ctx = ToolContext(
         executor=executor,
-        cwd=str(tmp_path),
-        tool_output_dir=tmp_path / "tool-output",
+        deps=CliDeps(cwd=tmp_path, tool_output_dir=tmp_path / "tool-output"),
         tool_call_id="call-1",
     )
     return await executor.aexecute(name, args, ctx)

@@ -512,8 +512,17 @@ async def test_compact_run_snapshot_has_kind_and_no_user_message() -> None:
     manager = RunManager()
     agent = CompactAgent()
     base = [{"role": "user", "content": [{"type": "text", "text": "earlier"}]}]
+    completed: list[str] = []
 
-    run = await manager.start_compact(session_id="session-1", base_messages=base, agent=agent)
+    async def on_complete(session_id: str) -> None:
+        completed.append(session_id)
+
+    run = await manager.start_compact(
+        session_id="session-1",
+        base_messages=base,
+        agent=agent,
+        on_complete=on_complete,
+    )
     assert run["kind"] == "compact"
     assert run["status"] == "running"
 
@@ -529,23 +538,34 @@ async def test_compact_run_snapshot_has_kind_and_no_user_message() -> None:
     assert agent.compacted is True
     assert state.status == "completed"
     assert state.events == [{"seq": 1, "type": "compact"}]
+    assert completed == ["session-1"]
     assert not await manager.has_active_run("session-1")
 
 
 async def test_compact_run_failure_emits_error_and_fails() -> None:
     manager = RunManager()
+    completed: list[str] = []
+
+    async def on_complete(session_id: str) -> None:
+        completed.append(session_id)
 
     class FailingCompactAgent(CompactAgent):
         @override
         async def acompact(self) -> ConversationMessage:
             raise ValueError("nothing to compact")
 
-    run = await manager.start_compact(session_id="session-1", base_messages=[], agent=FailingCompactAgent())
+    run = await manager.start_compact(
+        session_id="session-1",
+        base_messages=[],
+        agent=FailingCompactAgent(),
+        on_complete=on_complete,
+    )
     state = await _wait_for_run_task(manager, run["id"])
 
     assert state.status == "failed"
     assert state.error == "nothing to compact"
     assert state.events == [{"seq": 1, "type": "error", "message": "nothing to compact"}]
+    assert completed == []
     assert not await manager.has_active_run("session-1")
 
 

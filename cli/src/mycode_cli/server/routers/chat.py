@@ -26,11 +26,11 @@ from mycode.messages import (
     ConversationMessage,
     build_message,
     document_block,
+    flatten_message_text,
     image_block,
     text_block,
 )
 from mycode.providers import provider_default_models
-from mycode.utils import resolve_path
 from mycode_cli.config import (
     ResolvedProvider,
     get_settings,
@@ -55,6 +55,7 @@ from mycode_cli.server.schemas import (
     StreamEvent,
 )
 from mycode_cli.system_prompt import build_skill_snapshot_blocks, discover_slash_skills
+from mycode_cli.workspace import resolve_path
 
 router = APIRouter()
 
@@ -80,7 +81,7 @@ def _read_workspace_text_attachment(rel_path: str, *, name: str | None, cwd: str
     if detect_image_mime_type(path) or detect_document_mime_type(path):
         raise HTTPException(status_code=400, detail=f"not a text file: {rel_path}")
     try:
-        return build_attachment_blocks([Attachment.path(path, name=name or rel_path)], cwd=cwd)
+        return build_attachment_blocks([Attachment.path(path, name=name or rel_path)])
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -100,12 +101,7 @@ async def _build_user_message(chat: ChatRequest, cwd: str) -> ConversationMessag
                 continue
             text = block.text or ""
             if block.is_attachment:
-                blocks.extend(
-                    build_attachment_blocks(
-                        [Attachment.text(text, name=str(block.name or "attached-file"))],
-                        cwd=cwd,
-                    )
-                )
+                blocks.extend(build_attachment_blocks([Attachment.text(text, name=str(block.name or "attached-file"))]))
             elif text:
                 visible_text.append(text)
                 blocks.append(text_block(text))
@@ -245,14 +241,16 @@ async def chat(chat: ChatRequest, store: StoreDep, runs: RunManagerDep) -> ChatR
         existing_messages = data["messages"] if data else []
         _validate_rewind_request(session=session, messages=existing_messages, rewind_to=chat.rewind_to)
 
-        # All validation passed. Land the rewind marker (if any) and create the
-        # session so the response payload has a meta dict and the agent's
-        # auto-resume sees the correct on-disk state.
+        # All validation passed. Land the rewind marker (if any) and register
+        # the user turn in the catalog: first turn creates the entry and sets
+        # the title, later turns bump updated_at.
         if chat.rewind_to is not None:
             await store.append_rewind(session_id, chat.rewind_to)
-        if not session:
-            created = await store.create_session(session_id, cwd=cwd)
-            session = created["session"]
+        session = await store.record_user_turn(
+            session_id,
+            cwd=cwd,
+            text=flatten_message_text(user_message, include_thinking=False),
+        )
 
         async def review(request: ToolReviewRequest) -> ToolReviewDecision:
             # Bridge before_tool review waits to SSE events on the active run.
@@ -376,6 +374,7 @@ async def compact_session(
                 session_id=session_id,
                 base_messages=agent.messages,
                 agent=agent,
+                on_complete=store.touch,
             )
         except ActiveRunError as exc:
             existing = await runs.get_run(exc.run_id)

@@ -9,9 +9,9 @@ from pathlib import Path
 from typing import Literal, NamedTuple
 
 from mycode import Hooks, ToolExecutionResult, ToolHookContext
-from mycode.utils import resolve_path
 from mycode_cli.config import PermissionConfig, PermissionLevel, Settings
 from mycode_cli.system_prompt import discover_skills
+from mycode_cli.workspace import CliDeps, resolve_path
 
 PermissionTier = Literal["readonly", "safe", "standard", "yolo"]
 PermissionDecision = Literal["allow", "ask", "deny"]
@@ -78,8 +78,8 @@ def build_permission_hooks(
     skill_roots = [Path(s.path).parent.resolve(strict=False) for s in discover_skills(settings.cwd)]
 
     @hooks.before_tool
-    async def check_permission(ctx: ToolHookContext) -> ToolExecutionResult | None:
-        check = classify_tool(ctx, cwd=settings.cwd, project=settings.project, skill_roots=skill_roots)
+    async def check_permission(ctx: ToolHookContext[CliDeps]) -> ToolExecutionResult | None:
+        check = classify_tool(ctx, project=settings.project, skill_roots=skill_roots)
         decision = permission_decision(settings.permission, check.tier)
         if decision == "allow":
             return None
@@ -111,9 +111,8 @@ def permission_decision(permission: PermissionConfig, tier: PermissionTier) -> P
 
 
 def classify_tool(
-    ctx: ToolHookContext,
+    ctx: ToolHookContext[CliDeps],
     *,
-    cwd: str,
     project: str,
     skill_roots: list[Path],
 ) -> PermissionCheck:
@@ -133,11 +132,11 @@ def classify_tool(
 
     if name in {"read", "write", "edit"}:
         raw = str(ctx.tool_input.get("path") or "")
-        path = resolve_path(raw, cwd=cwd)
+        path = resolve_path(raw, cwd=ctx.deps.cwd)
         project_path = Path(project).resolve(strict=False)
         preview = raw or str(path)
         if name == "read" and (
-            path.is_relative_to(ctx.tool_output_dir.resolve(strict=False))
+            path.is_relative_to(ctx.deps.tool_output_dir.resolve(strict=False))
             or any(path.is_relative_to(root) for root in skill_roots)
         ):
             return PermissionCheck("readonly", preview)
