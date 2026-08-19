@@ -10,7 +10,7 @@ Reads a UTF-8 text file or a supported image.
 
 - `offset` is a 1-indexed starting line; `limit` caps returned lines (default 2000). An offset beyond the end of the file is an error.
 - When more lines remain, the output ends with `[Showing lines A-B. Use offset=N to continue.]`.
-- Lines longer than 2000 chars are shortened with ` ... [line truncated]`; a trailing notice cites the first shortened line and gives byte-range bash commands for inspecting it.
+- Lines longer than 2000 chars are shortened with `... [line truncated]`; a trailing notice cites the first shortened line and gives byte-range bash commands for inspecting it.
 - Image files return a text summary plus an image block. If the model does not accept image input, the call is an error.
 
 ## write
@@ -27,7 +27,7 @@ Applies a list of `{oldText, newText}` replacements. All entries match against t
 
 ## bash
 
-Runs a shell command in the agent's `cwd`. stdout and stderr are combined; stdin is `/dev/null`. On POSIX the command runs in its own process group, and every kill below targets the group.
+Runs a shell command in the CLI workspace (`CliDeps.cwd`). stdout and stderr are combined; stdin is `/dev/null`. On POSIX the command runs in its own process group, and every kill below targets the group.
 
 - **Streaming**: output is emitted as display deltas while the command runs. Delta boundaries do not imply line boundaries.
 - **Truncation**: the result is a bounded tail — at most 2000 lines and 50KB, whichever cuts first. When output exceeds either limit, the full raw bytes are written to `<tool_output_dir>/bash-<tool_call_id>.log` (see `docs/sessions.md`) and the result appends an `[Output truncated: ...]` notice citing that path.
@@ -42,7 +42,7 @@ Reads one HTTP or HTTPS URL using the implementation selected by `web.fetch`: lo
 - `timeout` is a whole-call budget, including redirects, the local 403 User-Agent retry, provider requests, and response reading. It defaults to 30 seconds and is clamped to 1–120. Timeout errors tell the model it may retry with a larger value.
 - Every HTTP response is streamed with a 5MB decoded-body cap. Responses over the limit return `error: response too large (over 5MB)`.
 - Output keeps the first 2000 lines or 50KB. When truncated, the complete converted content is written to `<tool_output_dir>/webfetch-<tool_call_id>.md`; the result ends with `[Output truncated: ...]` naming the path and telling the model to use `read`.
-- A redirect appends `[Redirected to <final_url>]`. Provider failures and HTTP failures use lowercase `error: ` results with `is_error=true`. Implementations never fall back to another provider.
+- A redirect appends `[Redirected to <final_url>]`. Provider failures and HTTP failures use lowercase `error:` results with `is_error=true`. Implementations never fall back to another provider.
 
 The local converter removes non-rendering HTML tags and data-URI images, then converts the full body to Markdown. It does not select an article or remove navigation, headers, or footers.
 

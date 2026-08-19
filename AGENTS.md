@@ -17,7 +17,7 @@ mycode/src/mycode/        # SDK package
   messages.py             # internal block-based message format
   tools.py                # ToolSpec, ToolExecutor, ToolContext, @tool
   hooks.py                # before_tool / after_tool hook protocol
-  session.py              # append-only JSONL store, compact, rewind
+  session.py              # append-only JSONL timeline and rewind replay
   models.py               # bundled model metadata lookup
   models_catalog.json     # generated; source: scripts/update_models_catalog.py
   utils.py                # small typed helpers
@@ -31,6 +31,8 @@ mycode/src/mycode/        # SDK package
 cli/src/mycode_cli/       # CLI + FastAPI web server
   main.py                 # Typer entrypoint, slash commands, session resolution
   runtime.py              # build_agent() shared by TUI and server
+  sessions.py             # CLI session catalog and lifecycle
+  workspace.py            # CLI workspace/tool dependency context
   tools.py                # local tools (read, write, edit, bash)
   web_tools.py            # configurable webfetch / websearch tools
   config.py               # layered JSON config, config validation, provider resolution, paths
@@ -91,7 +93,7 @@ Read the relevant doc before related changes.
 | Area                                                                            | Doc                                             |
 | ------------------------------------------------------------------------------- | ----------------------------------------------- |
 | `mycode/src/mycode/agent.py`, `messages.py`, `tools.py`, `hooks.py`, public SDK | `docs/sdk.md`                                   |
-| `mycode/src/mycode/session.py` or anything touching JSONL / compact / rewind    | `docs/sessions.md`                              |
+| SDK/CLI session storage or anything touching JSONL / compact / rewind           | `docs/sessions.md`                              |
 | `mycode/src/mycode/providers/*`                                                 | `docs/providers.md`                             |
 | `cli/src/mycode_cli/tools.py`, `web_tools.py`, or built-in tool output formats  | `docs/tools.md`                                 |
 | `cli/src/mycode_cli/server/**` or any SSE event / route                         | `docs/api.md`                                   |

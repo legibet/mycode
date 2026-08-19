@@ -66,6 +66,8 @@ Document attachments support `application/pdf` only.
 
 An unknown path, directory, unsupported binary, or missing or unsupported `media_type` raises `ValueError` before the provider is called. An image or PDF on a model that does not advertise that capability yields an `error` event.
 
+Path attachments expand `~`; relative paths use the Python process's current working directory. An embedding application that owns a workspace should resolve its paths before passing them to the SDK.
+
 ### `run()` synchronous wrapper
 
 `run()` consumes `achat()` via `asyncio.run`, concatenates `text` deltas into `RunResult.text`, captures the first error message in `RunResult.error`, and keeps the last `usage` payload in `RunResult.usage`. `RunResult.events` keeps the non-transient events, including final `tool_done` results; live `tool_output` deltas are omitted so synchronous runs do not retain complete command streams in memory.
@@ -90,7 +92,7 @@ async for _ in agent.achat("follow-up that references the earlier answer"):
     ...
 ```
 
-`agent.clear()` drops the in-memory history without touching the on-disk log. `cwd` defaults to the current working directory and is handed to every tool as `ctx.cwd`.
+`agent.clear()` drops the in-memory history without touching the on-disk log.
 
 ### Reasoning effort
 
@@ -187,20 +189,20 @@ agent = Agent(
 
 Every message emitted during a turn is appended as one JSONL line to `<session_dir>/<session_id>/messages.jsonl`. This includes user input, assistant responses, `thinking` blocks, each `tool_result`, and inline `compact` and `rewind` markers. The SDK never rewrites or deletes past lines.
 
-Runtime-only fields are **not** persisted: the `system` prompt, `api_key`, `api_base`, the registered `tools`, and per-turn `provider` / `model` (those travel as `meta` on the individual assistant message).
+Runtime-only fields are **not** persisted: the `system` prompt, `api_key`, `api_base`, registered `tools`, and `deps`. Per-turn `provider` and `model` travel as `meta` on the individual assistant message.
 
 The session subdirectory is created lazily. Constructing an `Agent` with an unused `session_id` does not write anything. `<session_dir>/<session_id>/` and `messages.jsonl` appear when the first message is persisted. The `session_dir` root is created on `Agent` construction.
 
 ### Resolving `session_dir` and `session_id`
 
-| `session_dir` | `session_id`                     | behaviour                                                        |
-| ------------- | -------------------------------- | ---------------------------------------------------------------- |
-| `None`        | any                              | no persistence; a runtime-only uuid is assigned when omitted     |
-| `Path(...)`   | `None`                           | persistence on; a fresh uuid is allocated                        |
-| `Path(...)`   | `"X"`, `<dir>/X/` does not exist | new session; subdirectory created on the first persisted message |
-| `Path(...)`   | `"X"`, `<dir>/X/` exists         | history auto-loaded into `agent.messages` during `__init__`      |
+| `session_dir` | `session_id`                                   | behaviour                                                        |
+| ------------- | ---------------------------------------------- | ---------------------------------------------------------------- |
+| `None`        | any                                            | no persistence; a runtime-only uuid is assigned when omitted     |
+| `Path(...)`   | `None`                                         | persistence on; a fresh uuid is allocated                        |
+| `Path(...)`   | `"X"`, `<dir>/X/messages.jsonl` does not exist | new timeline; files are created on the first persisted message   |
+| `Path(...)`   | `"X"`, `<dir>/X/messages.jsonl` exists         | history auto-loaded into `agent.messages` during `__init__`      |
 
-Construct an `Agent` with the same `(session_dir, session_id)` to resume across processes. Passing `messages=[]` or `messages=[...]` for an existing session raises `ValueError` because it would conflict with the JSONL log. Delete the session with `SessionStore.delete_session` or use a different `session_id`.
+Construct an `Agent` with the same `(session_dir, session_id)` to resume across processes. Passing `messages=[]` or `messages=[...]` for an existing session raises `ValueError` because it would conflict with the JSONL log.
 
 ### `on_persist`
 
@@ -224,7 +226,7 @@ marker = agent.compact()
 agent.run("Continue with the next task")   # sends summary replay, not full history
 ```
 
-See `docs/sessions.md` for the on-disk record format, the projection rule that builds the provider-facing view, and the replay rules applied by `SessionStore.load_session`.
+See `docs/sessions.md` for the on-disk record format, the projection rule that builds the provider-facing view, and the replay rules applied by `SessionStore.load_messages`.
 
 ## Tools
 
@@ -312,15 +314,37 @@ The Agent awaits async tools on its event loop and runs sync tools in a worker t
 
 A bare `str` return becomes the tool output replayed to the provider. Other JSON-serializable returns are dumped to JSON. Return `ToolExecutionResult` when you need `content`, `metadata`, or `is_error`.
 
-### `ToolContext`
+### Application dependencies and `ToolContext`
 
-Annotate the first parameter of a tool as `ToolContext` to have the runtime context injected:
+`Agent(deps=...)` accepts any application-owned context object. The SDK keeps it opaque, does not persist it, and passes the same object to every tool and tool hook. Put stable per-agent dependencies here, such as a workspace path, database client, or output directory.
 
-- `ctx.cwd` is the agent's working directory; `ctx.tool_call_id` carries the provider tool-call id on agent-loop calls.
+Annotate the first parameter of a tool as `ToolContext[Deps]` to have the runtime context injected with typed access to `ctx.deps`:
+
+```python
+from dataclasses import dataclass
+from pathlib import Path
+
+from mycode import Agent, ToolContext, tool
+
+
+@dataclass(frozen=True)
+class AppDeps:
+    workspace: Path
+
+
+@tool
+def read_note(ctx: ToolContext[AppDeps], path: str) -> str:
+    """Read a note from the workspace."""
+
+    return (ctx.deps.workspace / path).read_text()
+
+
+agent = Agent(model="...", api_key="...", deps=AppDeps(Path("/workspace")), tools=[read_note])
+```
+
+- `ctx.tool_call_id` carries the provider tool-call id on agent-loop calls.
 - `ctx.call(name, args)` and `await ctx.acall(name, args)` dispatch any registered tool by name. A nested call shares the outer call's context, including `emit` and `tool_call_id`.
 - `ctx.emit(delta)` appends display text for a `streams_output=True` tool. It is thread-safe and works from sync and async tools. Event boundaries do not imply line boundaries; the runtime may replace a continuous middle segment with `[live output omitted]` under buffer pressure.
-
-`ctx.tool_output_dir` is always a valid `Path`: `<session_dir>/<session_id>/tool-output/` when the agent has a session, or a tempdir-scoped fallback otherwise. Tools can treat it as their own scratch area for large outputs.
 
 ### Tool hooks
 
@@ -361,7 +385,7 @@ async def audit(_ctx, _result):
 agent = Agent(model="...", api_key="...", tools=[delete_file], hooks=hooks)
 ```
 
-`ToolHookContext` carries `session_id`, `cwd`, `tool_output_dir`, `provider`, `model`, `tool_call_id`, `tool_name`, `tool_input`, and `tool` (the `ToolSpec`). `tool_output_dir` is the same per-session path passed to the executing tool's `ToolContext`. `tool_input` is recursively frozen: nested dicts become `MappingProxyType` and lists become tuples. Hooks cannot mutate what the UI shows or the tool receives.
+`ToolHookContext[Deps]` carries the same `deps` object as `ToolContext[Deps]`, plus `session_id`, `provider`, `model`, `tool_call_id`, `tool_name`, `tool_input`, and `tool` (the `ToolSpec`). `tool_input` is recursively frozen: nested dicts become `MappingProxyType` and lists become tuples. Hooks cannot mutate what the UI shows or the tool receives.
 
 - `before_tool(ctx)` hooks run in registration order. Returning `None` continues; returning a `ToolExecutionResult` skips the real tool and uses that result.
 - `after_tool(ctx, result)` hooks run in registration order for both real and skipped results. Returning `None` keeps the current result; returning a `ToolExecutionResult` replaces it for later hooks and the final `tool_done` event.

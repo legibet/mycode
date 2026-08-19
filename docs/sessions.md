@@ -1,21 +1,20 @@
 # Sessions
 
-Source: `mycode/src/mycode/session.py`
+Sources: `mycode/src/mycode/session.py`, `cli/src/mycode_cli/sessions.py`
 
 ## Storage Layout
 
 ```text
 <data_dir>/
-  index.json       # session list cache
   <session_id>/
-    meta.json      # session metadata
-    messages.jsonl # one JSON record per line (append-only)
-    tool-output/   # bash spill files (lazy; created on first spill)
+    meta.json      # CLI-owned catalog entry
+    messages.jsonl # SDK-owned append-only timeline
+    tool-output/   # CLI tool spill files, created lazily
 ```
 
-`data_dir` is supplied by the caller. The SDK never picks a default path. The CLI resolves it to `$MYCODE_HOME/sessions/` (default `~/.mycode/sessions/`) via `mycode_cli.config.resolve_sessions_dir()`.
+The SDK owns only `messages.jsonl` and does not know about workspaces, titles, timestamps, or tool output. Applications may keep their own files beside the timeline. The CLI adds `meta.json` and `tool-output/` and resolves `data_dir` to `$MYCODE_HOME/sessions/` (default `~/.mycode/sessions/`).
 
-`tool-output/` is the per-session directory Agent passes into the `ToolContext`. It's created lazily on the first bash spill; custom tools can treat it as scratch space.
+The SDK timeline appears on the first persisted message. The CLI normally creates its catalog entry on the first user turn; the explicit `POST /api/sessions` endpoint creates an empty `"New chat"` entry immediately.
 
 ## meta.json
 
@@ -28,26 +27,13 @@ Source: `mycode/src/mycode/session.py`
 }
 ```
 
-- `cwd` — workspace path recorded at session creation; used by `list_sessions(cwd=...)` for filtering
-- `title` — defaults to `"New chat"`; promoted to the first user message text (truncated to 48 chars) on the first `append_message` carrying readable user text
-- `updated_at` — bumped on every `append_message`
+- `cwd` — CLI workspace, used for session filtering and restoration
+- `title` — first readable user text, flattened and truncated to 48 characters; `"New chat"` until then
+- `created_at` / `updated_at` — CLI catalog timestamps
 
-Per-turn state (`provider` / `model` / `api_base`) intentionally lives only on each `ConversationMessage.meta`; caching a "current" value at the session level would drift after `/model` switches.
+`updated_at` tracks user-visible session changes: a user turn, rewind, clear, or successful manual compact. Provider/tool messages within a turn do not update the catalog separately. Clearing a session also resets its title to `"New chat"`.
 
-## index.json
-
-```json
-{
-  "session-id": {
-    "cwd": "/path/to/workspace",
-    "title": "...",
-    "created_at": "...",
-    "updated_at": "..."
-  }
-}
-```
-
-`index.json` is a map from session id to session metadata. `list_sessions()` reads it directly; missing or invalid index data is rebuilt from existing `meta.json` files.
+The CLI lists sessions by scanning valid `meta.json` files, optionally filters by `cwd`, and sorts by `updated_at` descending. Per-turn provider/model state remains on each `ConversationMessage.meta`.
 
 ## messages.jsonl Record Types
 
@@ -116,12 +102,12 @@ Marks an undo point. See "Rewind" below.
 
 ## Load Order
 
-When `SessionStore.load_session` runs:
+When the SDK's `SessionStore.load_messages` runs:
 
 1. Read all JSONL lines into a raw list
 2. `apply_rewind()` — scan sequentially; when a rewind record is found, truncate the accumulated list to `meta.rewind_to` and continue
 
-`load_session` returns the raw timeline (minus rewound tails) as the visible history. `compact` records stay in place as inline markers — UIs render them as dividers, and the provider adapter substitutes the summary into provider context lazily on each request in `prepare_messages` (via `compact.apply_compact_replay`). Orphan `tool_use` blocks left by an interrupted run are closed by the provider adapter when the messages are replayed, not by the loader.
+`load_messages` returns the timeline minus rewound tails as visible history. `compact` records stay in place as inline markers — UIs render them as dividers, and the provider adapter substitutes the summary into provider context lazily on each request in `prepare_messages` (via `compact.apply_compact_replay`). Orphan `tool_use` blocks left by an interrupted run are closed by the provider adapter when messages are replayed, not by the loader.
 
 ## Context Compaction
 
@@ -171,25 +157,32 @@ Rewind indices refer to the visible history, which now includes pre-compact turn
 
 ## tool-output/ Logs
 
-The CLI's bash tool writes output exceeding its 2000-line or 50KB display limit as raw combined stdout/stderr to `<tool_output_dir>/bash-<tool_call_id>.log`. The tool result returns a bounded tail and cites the saved log path.
+The CLI creates `CliDeps(cwd, tool_output_dir)` for each agent and passes it through `Agent(deps=...)`. Bash writes output exceeding its 2000-line or 50KB display limit as raw combined stdout/stderr to `<tool_output_dir>/bash-<tool_call_id>.log`; webfetch uses the same directory for truncated converted content. Tool results cite the saved path.
 
-`tool_output_dir` is always set — Agent defaults it to a session-adjacent directory when persistence is configured, or a tempdir-scoped equivalent otherwise. The SDK only hands the path to tools; the CLI's bash tool creates the directory lazily when output first exceeds a display limit.
+The CLI sets `tool_output_dir` to `<data_dir>/<session_id>/tool-output/`. The tools create it only when output spills. The SDK has no output-directory policy.
 
 Cancelled bash calls persist the captured final tail plus `error: cancelled`; truncated results also cite the raw log. Live `tool_output` events are not session data.
 
-## Session Store API
+## Store APIs
 
-`SessionStore` (in `mycode/src/mycode/session.py`):
+SDK `SessionStore` (`mycode/src/mycode/session.py`) manages only the timeline:
 
 - `SessionStore(data_dir: Path)` — required; no default
-- `session_exists(session_id)` — check by `meta.json` presence
-- `create_session(session_id, *, cwd)` — write `meta.json` and touch `messages.jsonl`
-- `list_sessions(*, cwd=None)` — filter by workspace, sorted by `updated_at` desc; derived `title` / `updated_at` included per entry
-- `load_session(session_id)` — load with full replay pipeline (returns `None` when absent)
+- `session_exists(session_id)` — check whether `messages.jsonl` exists
+- `load_messages(session_id)` — visible history after applying rewind markers
 - `load_raw_messages(session_id)` — raw append-only JSONL, including rewound tails and markers; returns `[]` when absent
-- `delete_session(session_id)` — recursive directory delete
-- `clear_session(session_id)` — truncate `messages.jsonl`, reset `title` to the default and bump `updated_at`
-- `append_message(session_id, message)` — append one line; refresh meta's `updated_at` and promote `title` on the first user message
+- `append_message(session_id, message)` — append one line, creating the session directory lazily
 - `append_rewind(session_id, rewind_to)` — append a rewind marker
+- `clear_messages(session_id)` — truncate an existing timeline
+
+CLI `SessionStore` (`cli/src/mycode_cli/sessions.py`) extends the SDK store with catalog and application lifecycle operations:
+
+- `create_session(session_id, *, cwd)` — create a `"New chat"` catalog entry without creating a timeline
+- `record_user_turn(session_id, *, cwd, text)` — lazily create metadata, derive the first title, and update activity time
+- `touch(session_id)` — update activity time after rewind or successful manual compact
+- `load_session(session_id)` — load catalog metadata and visible messages
+- `list_sessions(*, cwd=None)` / `latest_session(...)` — scan and sort the catalog
+- `clear_session(session_id)` — clear the timeline, reset the title, and update activity time
+- `delete_session(session_id)` — remove catalog, timeline, and tool output together
 
 All file I/O is offloaded to `asyncio.to_thread()`.
