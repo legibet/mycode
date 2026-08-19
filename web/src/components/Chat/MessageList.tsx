@@ -224,7 +224,7 @@ function WindowedMessages({
     <div
       ref={containerRef}
       onScroll={handleScroll}
-      className="min-h-0 flex-1 overflow-y-auto pb-4 pt-6 [overflow-anchor:none]"
+      className="min-h-0 flex-1 overflow-y-auto pb-4 pt-6 [overflow-anchor:none] [scrollbar-gutter:stable_both-edges]"
     >
       <div className="mx-auto flex min-h-full max-w-4xl flex-col gap-6 max-md:max-w-none max-md:gap-5">
         {messages.length === 0 && (
