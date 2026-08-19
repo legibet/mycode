@@ -132,7 +132,9 @@ interface ToolCardProps {
 
 // ---------------------------------------------------------------------------
 // Shared code surface for text-based tools — one execution reads as one block:
-// input on top, output below, split by a hairline rule instead of a gap.
+// one fill, no internal rule. Input and output are told apart by text colour,
+// the way a terminal does it; a rule has to out-shout the fill to be seen, and
+// a second fill turns one surface into a titlebar plus a content pane.
 // Diffs are not text: EditDiff owns its own container (see EditDiff.tsx).
 // ---------------------------------------------------------------------------
 
@@ -146,12 +148,7 @@ function ToolSurface({ head, body }: { head?: ReactNode; body?: ReactNode }) {
         </div>
       )}
       {body && (
-        <div
-          className={cn(
-            "px-3 py-2 leading-relaxed text-muted-foreground whitespace-pre-wrap overflow-auto scrollbar-subtle max-h-[240px]",
-            head && "border-t border-border/60",
-          )}
-        >
+        <div className="px-3 py-2 leading-relaxed text-muted-foreground whitespace-pre-wrap overflow-auto scrollbar-subtle max-h-60">
           {body}
         </div>
       )}
@@ -262,7 +259,7 @@ function BashBody({ args, display }: { args: Args; display: string }) {
         command && (
           <>
             <span className="text-muted-foreground/40 select-none">$ </span>
-            <span className="text-foreground/75 whitespace-pre-wrap break-all">
+            <span className="text-foreground whitespace-pre-wrap break-all">
               {command}
             </span>
           </>
