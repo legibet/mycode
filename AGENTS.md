@@ -20,7 +20,6 @@ mycode/src/mycode/        # SDK package
   session.py              # append-only JSONL timeline and rewind replay
   models.py               # bundled model metadata lookup
   models_catalog.json     # generated; source: scripts/update_models_catalog.py
-  utils.py                # small typed helpers
   providers/              # one file per protocol family
     base.py               # ProviderAdapter ABC + prepare_messages()
     anthropic_like.py     # anthropic, moonshotai, minimax

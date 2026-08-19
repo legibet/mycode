@@ -31,7 +31,6 @@ from mycode.providers.base import (
     normalize_provider_error,
     parse_tool_call_input,
 )
-from mycode.utils import omit_none
 
 
 @dataclass
@@ -203,7 +202,7 @@ class OpenAIChatAdapter(ProviderAdapter):
             "stream_options": {"include_usage": True},
         }
         payload.update(self._build_provider_payload_overrides(request))
-        return omit_none(payload)
+        return {key: value for key, value in payload.items() if value is not None}
 
     def _build_provider_payload_overrides(self, request: ProviderRequest) -> dict[str, Any]:
         return {"reasoning_effort": request.reasoning_effort} if request.reasoning_effort else {}

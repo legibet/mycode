@@ -32,7 +32,6 @@ from mycode.providers.base import (
     parse_tool_call_input,
     tool_result_content_blocks,
 )
-from mycode.utils import omit_none
 
 _RETRYABLE_RESPONSE_ERROR_CODES = {"rate_limit_exceeded", "server_error"}
 
@@ -176,7 +175,7 @@ class OpenAIResponsesAdapter(ProviderAdapter):
             if request.reasoning_effort != "none":
                 reasoning["summary"] = "auto"
             payload["reasoning"] = reasoning
-        return omit_none(payload)
+        return {key: value for key, value in payload.items() if value is not None}
 
     def _serialize_user_message(self, message: ConversationMessage) -> list[dict[str, Any]]:
         items: list[dict[str, Any]] = []
@@ -327,13 +326,12 @@ class OpenAIResponsesAdapter(ProviderAdapter):
                         text_parts.append(text)
 
                 summary = dump_model(getattr(item, "summary", None))
-                item_meta = omit_none(
-                    {
-                        "item_id": getattr(item, "id", None),
-                        "status": getattr(item, "status", None),
-                        "summary": summary or None,
-                    }
-                )
+                raw_item_meta = {
+                    "item_id": getattr(item, "id", None),
+                    "status": getattr(item, "status", None),
+                    "summary": summary or None,
+                }
+                item_meta = {key: value for key, value in raw_item_meta.items() if value is not None}
                 blocks.append(
                     thinking_block(
                         "".join(text_parts),
@@ -360,12 +358,11 @@ class OpenAIResponsesAdapter(ProviderAdapter):
 
             if item_type == "function_call":
                 tool_input, invalid_meta = parse_tool_call_input(getattr(item, "arguments", "") or "")
-                item_meta = omit_none(
-                    {
-                        "item_id": getattr(item, "id", None),
-                        "status": getattr(item, "status", None),
-                    }
-                )
+                raw_item_meta = {
+                    "item_id": getattr(item, "id", None),
+                    "status": getattr(item, "status", None),
+                }
+                item_meta = {key: value for key, value in raw_item_meta.items() if value is not None}
                 block_meta = {**(native_block_meta(item_meta) or {}), **invalid_meta}
                 blocks.append(
                     tool_use_block(

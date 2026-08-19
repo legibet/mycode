@@ -19,8 +19,6 @@ from __future__ import annotations
 
 from typing import Any
 
-from mycode.utils import omit_none
-
 ContentBlock = dict[str, Any]
 ConversationMessage = dict[str, Any]
 
@@ -155,16 +153,15 @@ def build_usage(
 
     if total_tokens is None and input_tokens is not None and output_tokens is not None:
         total_tokens = input_tokens + output_tokens
-    return omit_none(
-        {
-            "total_tokens": total_tokens,
-            "input_tokens": input_tokens,
-            "cache_read_tokens": cache_read_tokens,
-            "cache_write_tokens": cache_write_tokens,
-            "output_tokens": output_tokens,
-            "reasoning_tokens": reasoning_tokens,
-        }
-    )
+    usage = {
+        "total_tokens": total_tokens,
+        "input_tokens": input_tokens,
+        "cache_read_tokens": cache_read_tokens,
+        "cache_write_tokens": cache_write_tokens,
+        "output_tokens": output_tokens,
+        "reasoning_tokens": reasoning_tokens,
+    }
+    return {key: value for key, value in usage.items() if value is not None}
 
 
 def assistant_message(
@@ -194,7 +191,7 @@ def assistant_message(
     if cost is not None:
         meta["cost"] = dict(cost)
     if native_meta:
-        native = omit_none(native_meta)
+        native = {key: value for key, value in native_meta.items() if value is not None}
         if native:
             meta["native"] = native
     return build_message("assistant", blocks, meta=meta or None)
