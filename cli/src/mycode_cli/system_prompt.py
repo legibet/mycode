@@ -67,7 +67,7 @@ def build_system_prompt(cwd: str, settings: Settings | None = None) -> str:
     if skills_prompt:
         parts.append(skills_prompt)
 
-    parts.append(f"Current working directory: {resolved_cwd}\nCurrent date: {date.today().strftime('%Y-%m')}")
+    parts.append(f"Current working directory: {resolved_cwd}\nCurrent date: {date.today().strftime('%Y-%m-%d')}")
     return "\n\n".join(parts)
 
 
