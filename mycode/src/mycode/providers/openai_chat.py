@@ -419,7 +419,7 @@ class ZAIAdapter(OpenAIChatAdapter):
     label = "Z.AI"
     default_base_url = "https://api.z.ai/api/paas/v4/"
     env_api_key_names = ("ZAI_API_KEY",)
-    default_models = ("glm-5.2",)
+    default_models = ("glm-5.3",)
     auto_discoverable = True
     supports_reasoning_effort = True
 
