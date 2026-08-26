@@ -318,6 +318,11 @@ class ProviderAdapter(ABC):
                 return value
         return None
 
+    def can_authenticate_from_env(self) -> bool:
+        """Return whether ambient environment state can authenticate this adapter."""
+
+        return self.api_key_from_env() is not None
+
     def require_api_key(self, api_key: str | None) -> str:
         resolved = (api_key or "").strip() or self.api_key_from_env() or ""
         if resolved:

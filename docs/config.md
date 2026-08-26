@@ -81,7 +81,7 @@ file and adapts it for the UI.
 - `providers.<name>.base_url` — override the adapter's default base URL
 - `providers.<name>.supports_reasoning_effort` — opt-in (default `false`) for a generic `openai_chat` endpoint that accepts the standard top-level `reasoning_effort`. Ignored for other provider types, which declare effort support in their adapter
 
-## API Key Resolution Order
+## Provider Authentication Resolution
 
 For a resolved provider (`_resolve_provider_runtime` in `config.py`):
 
@@ -91,7 +91,7 @@ For a resolved provider (`_resolve_provider_runtime` in `config.py`):
    - plain string — used as-is
 3. Provider adapter's built-in default env vars (e.g., `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`)
 
-If no API key is found at any step, provider resolution raises an error listing which env vars were checked.
+If no API key is found at any step and the adapter cannot authenticate from ambient environment state (`can_authenticate_from_env()`), resolution raises an error listing which env vars were checked. Otherwise the provider resolves with `api_key` unset — e.g. a configured `google_vertex` entry using ADC via `GOOGLE_CLOUD_PROJECT`.
 
 Web provider keys follow the same explicit-reference behavior:
 
@@ -108,10 +108,16 @@ Loading config and building an agent do not require web keys. Selecting a web pr
 
 1. If `provider_name` given: resolve it as a configured alias or raw provider id; failures raise.
 2. If no `provider_name`: try the configured default; failures fall through to step 3.
-3. Iterate configured providers with valid credentials, then env-discoverable built-in providers.
+3. Iterate configured providers with available authentication, then env-discoverable built-in providers.
 4. If nothing found: raise error listing checked env vars.
 
-Auto-discovery is limited to providers where `auto_discoverable=True` and the corresponding env var is set.
+For configured entries, availability is resolved in this order:
+
+1. If `api_key` is an explicit `${ENV_NAME}` reference, that environment variable must be set.
+2. A literal `api_key` makes the entry available.
+3. Otherwise, use the adapter's `can_authenticate_from_env()` result.
+
+Auto-discovery is narrower: only providers with `auto_discoverable=True` and a built-in API key env var set; `can_authenticate_from_env()` is not consulted. So `GOOGLE_CLOUD_API_KEY` auto-discovers `google_vertex` while `GOOGLE_CLOUD_PROJECT` alone does not — ADC users opt in with a configured entry such as `{"type": "google_vertex"}`, which `GOOGLE_CLOUD_PROJECT` then makes available.
 
 `ResolvedProvider.model_config` is the selected model's config override, or `None`.
 

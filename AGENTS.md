@@ -23,7 +23,7 @@ mycode/src/mycode/        # SDK package
   providers/              # one file per protocol family
     base.py               # ProviderAdapter ABC + prepare_messages()
     anthropic_like.py     # anthropic, moonshotai, minimax
-    gemini.py             # google
+    gemini.py             # google, google_vertex
     openai_responses.py   # openai
     openai_chat.py        # alibaba, openai_chat, deepseek, zai, openrouter, xai
 
@@ -75,7 +75,7 @@ Per user turn (`mycode/src/mycode/agent.py`):
 
 ## Provider Adapters
 
-Adapter ids: `alibaba`, `anthropic`, `moonshotai`, `minimax`, `google`, `openai`, `openai_chat`, `deepseek`, `zai`, `openrouter`, `xai`. All implement `ProviderAdapter.stream_turn()`; canonical → wire-format projection lives in `prepare_messages()`.
+Adapter ids: `alibaba`, `anthropic`, `moonshotai`, `minimax`, `google`, `google_vertex`, `openai`, `openai_chat`, `deepseek`, `zai`, `openrouter`, `xai`. All implement `ProviderAdapter.stream_turn()`; canonical → wire-format projection lives in `prepare_messages()`.
 
 Per-adapter SDK, base URL, env vars, reasoning effort mapping, image/PDF serialization, and replay quirks live in `docs/providers.md`. Most adapter regressions come from missing replay shapes (native thought signatures, empty `reasoning_content` markers, function-call id matching).
 

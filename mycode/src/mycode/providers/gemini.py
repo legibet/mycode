@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from collections.abc import AsyncIterator
 from contextlib import suppress
 from typing import Any, override
@@ -81,8 +82,7 @@ class GoogleGeminiAdapter(ProviderAdapter):
 
     @override
     async def stream_turn(self, request: ProviderRequest) -> AsyncIterator[ProviderStreamEvent]:
-        api_key = self.require_api_key(request.api_key)
-        client = genai.Client(api_key=api_key, http_options=self._http_options(request))
+        client = self._build_client(request)
 
         blocks: list[dict[str, Any]] = []
         response_id: str | None = None
@@ -153,6 +153,10 @@ class GoogleGeminiAdapter(ProviderAdapter):
                 )
             },
         )
+
+    def _build_client(self, request: ProviderRequest) -> genai.Client:
+        api_key = self.require_api_key(request.api_key)
+        return genai.Client(api_key=api_key, http_options=self._http_options(request))
 
     def _http_options(self, request: ProviderRequest) -> types.HttpOptions:
         base_url = self.resolve_base_url(request.api_base)
@@ -359,3 +363,44 @@ class GoogleGeminiAdapter(ProviderAdapter):
             thinking_block(str(text), meta=part_meta) if is_thought else text_block(str(text), meta=part_meta)
         )
         return event
+
+
+class GoogleVertexAdapter(GoogleGeminiAdapter):
+    """Adapter for Google Agent Platform on Vertex AI."""
+
+    provider_id = "google_vertex"
+    label = "Google Agent Platform"
+    default_base_url = None
+    env_api_key_names = ("GOOGLE_CLOUD_API_KEY",)
+
+    @override
+    def can_authenticate_from_env(self) -> bool:
+        return bool(self.api_key_from_env() or (os.environ.get("GOOGLE_CLOUD_PROJECT") or "").strip())
+
+    @override
+    def _build_client(self, request: ProviderRequest) -> genai.Client:
+        api_key = (request.api_key or "").strip() or self.api_key_from_env()
+        project = (os.environ.get("GOOGLE_CLOUD_PROJECT") or "").strip() or None
+        location = (os.environ.get("GOOGLE_CLOUD_LOCATION") or "").strip() or None
+        if not api_key and not project:
+            checked = "GOOGLE_CLOUD_API_KEY, GOOGLE_CLOUD_PROJECT, GOOGLE_CLOUD_LOCATION"
+            raise ValueError(f"missing authentication for provider google_vertex; checked: {checked}")
+        # Every auth value is passed explicitly: the SDK's implicit discovery would
+        # pick up GOOGLE_API_KEY/GEMINI_API_KEY, which belong to the google provider.
+        return genai.Client(
+            enterprise=True,
+            api_key=api_key,
+            project=project,
+            location=location,
+            http_options=self._http_options(request),
+        )
+
+    @override
+    def _http_options(self, request: ProviderRequest) -> types.HttpOptions:
+        # The SDK builds Agent Platform URLs from the auth mode and location; only
+        # an explicit api_base override is passed through, with no forced api_version.
+        return types.HttpOptions(
+            base_url=self.resolve_base_url(request.api_base),
+            timeout=int(request.request_timeout * 1000),
+            retry_options=types.HttpRetryOptions(attempts=1),
+        )

@@ -17,6 +17,7 @@ from mycode.providers import (
     list_env_discoverable_providers,
     list_supported_providers,
     provider_api_key_from_env,
+    provider_can_authenticate_from_env,
     provider_default_models,
     provider_env_api_key_names,
 )
@@ -667,12 +668,14 @@ def resolve_web_api_key(web: WebConfig, provider: Literal["tavily", "exa"]) -> s
     return (os.environ.get(WEB_PROVIDER_ENV_VARS[provider]) or "").strip() or None
 
 
-def provider_has_api_key(provider: ProviderConfig) -> bool:
+def provider_is_available(provider: ProviderConfig) -> bool:
     """Return whether a configured provider can authenticate right now."""
 
     if provider.api_key_env_var:
         return bool((os.environ.get(provider.api_key_env_var) or "").strip())
-    return bool(provider.api_key or provider_api_key_from_env(provider.type))
+    if provider.api_key:
+        return True
+    return provider_can_authenticate_from_env(provider.type)
 
 
 def resolve_provider(
@@ -754,7 +757,7 @@ def _available_provider_references(settings: Settings) -> list[str]:
             return
 
         if provider_config:
-            if not provider_has_api_key(provider_config):
+            if not provider_is_available(provider_config):
                 return
             configured_types_with_credentials.add(provider_type)
         elif not provider_api_key_from_env(provider_type):
@@ -766,7 +769,7 @@ def _available_provider_references(settings: Settings) -> list[str]:
     add(settings.default_provider)
 
     for name, provider in settings.providers.items():
-        if provider_has_api_key(provider):
+        if provider_is_available(provider):
             add(name)
 
     for provider_id in list_env_discoverable_providers():
@@ -835,7 +838,7 @@ def _resolve_provider_runtime(
     if not resolved_api_key:
         resolved_api_key = provider_api_key_from_env(provider_type)
 
-    if not resolved_api_key:
+    if not resolved_api_key and not provider_can_authenticate_from_env(provider_type):
         checked = ", ".join(provider_env_api_key_names(provider_type)) or "<api key env>"
         raise ValueError(f"provider {selected_name!r} is selected but no API key is available; checked: {checked}")
 

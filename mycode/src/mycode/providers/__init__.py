@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from mycode.providers.anthropic_like import AnthropicAdapter, MiniMaxAdapter, MoonshotAIAdapter
 from mycode.providers.base import ProviderAdapter
-from mycode.providers.gemini import GoogleGeminiAdapter
+from mycode.providers.gemini import GoogleGeminiAdapter, GoogleVertexAdapter
 from mycode.providers.openai_chat import (
     AlibabaAdapter,
     DeepSeekAdapter,
@@ -21,6 +21,7 @@ _PROVIDERS: dict[str, ProviderAdapter] = {
         AnthropicAdapter(),
         OpenAIResponsesAdapter(),
         GoogleGeminiAdapter(),
+        GoogleVertexAdapter(),
         DeepSeekAdapter(),
         ZAIAdapter(),
         MoonshotAIAdapter(),
@@ -69,6 +70,11 @@ def provider_api_key_from_env(provider_name: str | None) -> str | None:
     return adapter.api_key_from_env() if adapter else None
 
 
+def provider_can_authenticate_from_env(provider_name: str | None) -> bool:
+    adapter = _PROVIDERS.get(provider_name) if provider_name else None
+    return adapter.can_authenticate_from_env() if adapter else False
+
+
 def provider_default_models(provider_name: str | None) -> tuple[str, ...]:
     adapter = _PROVIDERS.get(provider_name) if provider_name else None
     return adapter.default_models if adapter else ()
@@ -79,6 +85,7 @@ __all__ = [
     "AnthropicAdapter",
     "ProviderAdapter",
     "GoogleGeminiAdapter",
+    "GoogleVertexAdapter",
     "MiniMaxAdapter",
     "MoonshotAIAdapter",
     "DeepSeekAdapter",
@@ -92,6 +99,7 @@ __all__ = [
     "is_supported_provider",
     "list_supported_providers",
     "provider_api_key_from_env",
+    "provider_can_authenticate_from_env",
     "provider_default_models",
     "provider_env_api_key_names",
 ]

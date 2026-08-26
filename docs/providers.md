@@ -116,6 +116,19 @@ Provider quirks:
 - Images serialize as `inline_data`
 - PDFs serialize as `inline_data`
 
+### `google_vertex` — `gemini.py`
+
+- SDK: `google-genai>=2.15.0` (official); 2.15.0 added combined API key + project/location initialization
+- API: Google Agent Platform (formerly Vertex AI), selected with `enterprise=True`
+- Base URL: built by the SDK from the auth mode and location; an explicit `api_base` overrides it
+- API key env: `GOOGLE_CLOUD_API_KEY`
+- ADC env: `GOOGLE_CLOUD_PROJECT` (required) and `GOOGLE_CLOUD_LOCATION` (optional; the SDK defaults ADC requests to `global`)
+- Auth values are resolved independently and passed explicitly: key alone selects express mode; project/location alone uses Application Default Credentials; key + project/location uses the project-bound combined mode and skips ADC
+- Combined key + project without location builds an invalid `locations/None` resource path (google-genai 2.20.0); set `GOOGLE_CLOUD_LOCATION` whenever combining them
+- Never uses the SDK's implicit key discovery, so `GEMINI_API_KEY`/`GOOGLE_API_KEY` cannot leak from the `google` provider
+- ADC is opt-in via a configured entry such as `{"type": "google_vertex"}`; `GOOGLE_CLOUD_PROJECT` alone does not auto-discover the provider (see `docs/config.md`)
+- Default models, model metadata, reasoning effort, message projection, streaming, thought signatures, and image/PDF input are all inherited from `google`
+
 ### `openai` — `openai_responses.py`
 
 - SDK: `openai` (official)

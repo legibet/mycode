@@ -176,7 +176,9 @@ def lookup_model_metadata(
         return None
 
     model_name = requested_model.split("/", 1)[1].strip() if "/" in requested_model else requested_model
-    catalog_entry = catalog.providers.get(provider_type, {}).get(requested_model)
+    # Agent Platform serves the same Gemini models; share the google catalog.
+    catalog_provider = "google" if provider_type == "google_vertex" else provider_type
+    catalog_entry = catalog.providers.get(catalog_provider, {}).get(requested_model)
     if catalog_entry is None:
         catalog_entry = catalog.fallback.get(model_name)
 

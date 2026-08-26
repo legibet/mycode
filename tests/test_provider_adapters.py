@@ -17,6 +17,7 @@ from mycode.providers import (
     AnthropicAdapter,
     DeepSeekAdapter,
     GoogleGeminiAdapter,
+    GoogleVertexAdapter,
     MiniMaxAdapter,
     MoonshotAIAdapter,
     OpenAIChatAdapter,
@@ -883,6 +884,86 @@ def test_openai_responses_rejects_dynamic_object_schemas() -> None:
 
 
 # Gemini adapter
+
+
+@pytest.mark.parametrize(
+    ("request_key", "cloud_key", "project", "location", "expected"),
+    [
+        ("request-key", None, None, None, ("request-key", None, None)),
+        (None, "cloud-key", None, None, ("cloud-key", None, None)),
+        (None, None, "my-project", None, (None, "my-project", None)),
+        (None, "cloud-key", "my-project", "us-central1", ("cloud-key", "my-project", "us-central1")),
+    ],
+)
+async def test_google_vertex_passes_resolved_auth_to_the_sdk(
+    monkeypatch: pytest.MonkeyPatch,
+    request_key: str | None,
+    cloud_key: str | None,
+    project: str | None,
+    location: str | None,
+    expected: tuple[str | None, str | None, str | None],
+) -> None:
+    # A Gemini Developer API key in the environment must never reach Agent Platform.
+    monkeypatch.setenv("GEMINI_API_KEY", "must-not-leak")
+    for env_name, value in (
+        ("GOOGLE_CLOUD_API_KEY", cloud_key),
+        ("GOOGLE_CLOUD_PROJECT", project),
+        ("GOOGLE_CLOUD_LOCATION", location),
+    ):
+        if value:
+            monkeypatch.setenv(env_name, value)
+        else:
+            monkeypatch.delenv(env_name, raising=False)
+    client = MagicMock()
+    client.aio.models.generate_content_stream = AsyncMock(return_value=_stream_mock([]))
+    client.aio.aclose = AsyncMock()
+    client_factory = MagicMock(return_value=client)
+    monkeypatch.setattr("mycode.providers.gemini.genai.Client", client_factory)
+
+    _ = [event async for event in GoogleVertexAdapter().stream_turn(request_obj(api_key=request_key))]
+
+    call = client_factory.call_args
+    assert call is not None
+    assert call.kwargs["enterprise"] is True
+    assert (call.kwargs["api_key"], call.kwargs["project"], call.kwargs["location"]) == expected
+
+
+async def test_google_vertex_requires_an_api_key_or_project(monkeypatch: pytest.MonkeyPatch) -> None:
+    for env_name in ("GOOGLE_CLOUD_API_KEY", "GOOGLE_CLOUD_PROJECT", "GOOGLE_CLOUD_LOCATION"):
+        monkeypatch.delenv(env_name, raising=False)
+    monkeypatch.setenv("GEMINI_API_KEY", "must-not-leak")
+    client_factory = MagicMock()
+    monkeypatch.setattr("mycode.providers.gemini.genai.Client", client_factory)
+
+    with pytest.raises(ValueError, match="GOOGLE_CLOUD_API_KEY.*GOOGLE_CLOUD_PROJECT"):
+        _ = [event async for event in GoogleVertexAdapter().stream_turn(request_obj())]
+
+    client_factory.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    ("api_base", "expected_base_url"),
+    [(None, None), ("https://gateway.example/vertex/", "https://gateway.example/vertex")],
+)
+async def test_google_vertex_leaves_url_construction_to_the_sdk(
+    monkeypatch: pytest.MonkeyPatch, api_base: str | None, expected_base_url: str | None
+) -> None:
+    monkeypatch.setenv("GOOGLE_CLOUD_API_KEY", "cloud-key")
+    client = MagicMock()
+    client.aio.models.generate_content_stream = AsyncMock(return_value=_stream_mock([]))
+    client.aio.aclose = AsyncMock()
+    client_factory = MagicMock(return_value=client)
+    monkeypatch.setattr("mycode.providers.gemini.genai.Client", client_factory)
+
+    _ = [event async for event in GoogleVertexAdapter().stream_turn(request_obj(api_base=api_base))]
+
+    http_options = client_factory.call_args.kwargs["http_options"]
+    assert http_options.base_url == expected_base_url
+    # No forced api_version (the google adapter's v1beta default is Developer-API
+    # specific) and no SDK-level retries (retries are owned by the Agent runtime).
+    assert http_options.api_version is None
+    assert http_options.retry_options is not None
+    assert http_options.retry_options.attempts == 1
 
 
 async def test_google_gemini_replays_foreign_thinking_as_plain_model_text(

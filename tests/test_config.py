@@ -14,6 +14,7 @@ from mycode_cli.config import (
     WebProviderConfig,
     get_settings,
     resolve_provider,
+    resolve_provider_choices,
     resolve_web_api_key,
 )
 from mycode_cli.runtime import build_agent
@@ -45,6 +46,8 @@ def clear_provider_env(monkeypatch: pytest.MonkeyPatch) -> None:
         for env_name in provider_env_api_key_names(provider):
             monkeypatch.delenv(env_name, raising=False)
     monkeypatch.delenv("ANTHROPIC_AUTH_TOKEN", raising=False)
+    monkeypatch.delenv("GOOGLE_CLOUD_PROJECT", raising=False)
+    monkeypatch.delenv("GOOGLE_CLOUD_LOCATION", raising=False)
     monkeypatch.delenv("TAVILY_API_KEY", raising=False)
     monkeypatch.delenv("EXA_API_KEY", raising=False)
 
@@ -352,6 +355,47 @@ class TestGetSettings:
 
 
 class TestResolveProvider:
+    def test_google_vertex_auto_discovery_requires_cloud_api_key(
+        self, workspace: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        settings = get_settings(str(workspace.resolve()))
+        monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "my-project")
+
+        assert resolve_provider_choices(settings) == []
+
+        monkeypatch.setenv("GOOGLE_CLOUD_API_KEY", "cloud-key")
+
+        choices = resolve_provider_choices(settings)
+        assert [choice.provider for choice in choices] == ["google_vertex"]
+        assert choices[0].api_key == "cloud-key"
+
+    def test_configured_google_vertex_is_available_with_adc_project(
+        self,
+        workspace: Path,
+        config_home: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        write_json(config_home / "config.json", {"providers": {"vertex": {"type": "google_vertex"}}})
+        monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "my-project")
+
+        settings = get_settings(str(workspace.resolve()))
+        choices = resolve_provider_choices(settings)
+        resolved = resolve_provider(settings)
+
+        assert [choice.provider_name for choice in choices] == ["vertex"]
+        assert resolved.provider == "google_vertex"
+        assert resolved.api_key is None
+
+    def test_configured_google_vertex_is_unavailable_without_cloud_auth(
+        self, workspace: Path, config_home: Path
+    ) -> None:
+        write_json(config_home / "config.json", {"providers": {"vertex": {"type": "google_vertex"}}})
+        settings = get_settings(str(workspace.resolve()))
+
+        assert resolve_provider_choices(settings) == []
+        with pytest.raises(ValueError, match="no available providers found"):
+            resolve_provider(settings)
+
     @pytest.mark.parametrize(
         ("provider_name", "env_name", "env_value", "model", "expected_model"),
         [

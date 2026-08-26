@@ -46,7 +46,7 @@ from mycode_cli.config import (
     Settings,
     get_settings,
     normalize_reasoning_effort,
-    provider_has_api_key,
+    provider_is_available,
     resolve_mycode_home,
     resolve_provider,
 )
@@ -379,7 +379,7 @@ def list_provider_options(settings: Settings) -> list[ProviderOption]:
                 api_base=config.base_url,
             )
         )
-        if provider_has_api_key(config):
+        if provider_is_available(config):
             configured_types.add(config.type)
 
     for provider_name in list_env_discoverable_providers():
