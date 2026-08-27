@@ -181,7 +181,7 @@ Provider quirks:
 - SDK: `openai` against Z.AI's OpenAI-compatible endpoint
 - Base URL: `https://api.z.ai/api/paas/v4/`
 - API key env: `ZAI_API_KEY`
-- Default models: `glm-5.3`
+- Default models: `glm-5.3`, `glm-5.3-flash`
 - `supports_reasoning_effort`: true; thinking enabled by default via `thinking: {type: "enabled", clear_thinking: false}`; explicit values pass through unchanged
 - `auto_discoverable`: true
 - `clear_thinking: false` preserves same-model reasoning across tool loops; historical `reasoning_content` is replayed unmodified
