@@ -708,6 +708,7 @@ class Agent:
             api_key=self.api_key,
             api_base=self.api_base,
             reasoning_effort=reasoning_effort,
+            supports_reasoning=self.supports_reasoning,
             supports_image_input=self.supports_image_input,
             supports_pdf_input=self.supports_pdf_input,
             transcript_path=self.transcript_path,

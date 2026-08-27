@@ -120,6 +120,7 @@ class ProviderRequest:
     api_key: str | None
     api_base: str | None
     reasoning_effort: str | None = None
+    supports_reasoning: bool | None = None
     supports_image_input: bool = True
     supports_pdf_input: bool = True
     transcript_path: str | None = None

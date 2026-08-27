@@ -170,8 +170,10 @@ class OpenAIResponsesAdapter(ProviderAdapter):
             "tools": [self._serialize_tool(tool) for tool in request.tools] or None,
             "tool_choice": "auto" if request.tools else None,
         }
-        if request.reasoning_effort:
-            reasoning: dict[str, str] = {"effort": request.reasoning_effort}
+        if request.reasoning_effort or request.supports_reasoning is True:
+            reasoning: dict[str, str] = {}
+            if request.reasoning_effort:
+                reasoning["effort"] = request.reasoning_effort
             if request.reasoning_effort != "none":
                 reasoning["summary"] = "auto"
             payload["reasoning"] = reasoning
