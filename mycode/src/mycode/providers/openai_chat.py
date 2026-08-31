@@ -7,7 +7,7 @@ from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from typing import Any, override
 
-import httpx
+import httpx2
 from openai import APIError, AsyncOpenAI
 
 from mycode.messages import (
@@ -81,7 +81,7 @@ class OpenAIChatAdapter(ProviderAdapter):
                 base_url=self.resolve_base_url(request.api_base),
                 # connect stays at the SDK's 5s default; retries are owned by
                 # the Agent runtime.
-                timeout=httpx.Timeout(request.request_timeout, connect=5.0),
+                timeout=httpx2.Timeout(request.request_timeout, connect=5.0),
                 max_retries=0,
             ) as client:
                 stream = await client.chat.completions.create(**self._build_request_payload(request), stream=True)
@@ -128,7 +128,7 @@ class OpenAIChatAdapter(ProviderAdapter):
                                 state.name = function.name
                             if function.arguments:
                                 state.arguments_text += function.arguments
-        except (APIError, httpx.HTTPError) as exc:
+        except (APIError, httpx2.HTTPError) as exc:
             raise normalize_provider_error(exc, self.provider_id) from exc
 
         blocks = []

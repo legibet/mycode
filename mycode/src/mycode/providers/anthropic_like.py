@@ -6,7 +6,7 @@ import hashlib
 from collections.abc import AsyncIterator
 from typing import Any, cast, override
 
-import httpx
+import httpx2
 from anthropic import APIError, AsyncAnthropic
 
 from mycode.messages import (
@@ -150,7 +150,7 @@ class AnthropicLikeAdapter(ProviderAdapter):
                     base_url=self.resolve_base_url(request.api_base),
                     # connect stays at the SDK's 5s default; retries are owned
                     # by the Agent runtime.
-                    timeout=httpx.Timeout(request.request_timeout, connect=5.0),
+                    timeout=httpx2.Timeout(request.request_timeout, connect=5.0),
                     max_retries=0,
                 ) as client,
                 client.messages.stream(**self._build_request_payload(request)) as stream,
@@ -172,7 +172,7 @@ class AnthropicLikeAdapter(ProviderAdapter):
                             yield ProviderStreamEvent("text_delta", {"text": text})
 
                 final_message = await stream.get_final_message()
-        except (APIError, httpx.HTTPError) as exc:
+        except (APIError, httpx2.HTTPError) as exc:
             error = normalize_provider_error(exc, self.provider_id)
             if self.provider_id == "anthropic" and getattr(exc, "type", None) in _RETRYABLE_ANTHROPIC_ERROR_TYPES:
                 error.retryable = True

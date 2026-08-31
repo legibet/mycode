@@ -14,7 +14,7 @@ from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
-import httpx
+import httpx2
 
 from mycode.attachments import unsupported_attachment_block
 from mycode.compact import apply_compact_replay
@@ -61,7 +61,7 @@ def normalize_provider_error(exc: Exception, provider_id: str) -> ProviderError:
     """Project one SDK exception onto the shared :class:`ProviderError` shape.
 
     Works on duck-typed attributes shared by the openai/anthropic SDKs
-    (``status_code``, ``response``) and google-genai (``code``), plus the httpx
+    (``status_code``, ``response``) and google-genai (``code``), plus the HTTPX2
     transport exceptions all three surface directly or as ``__cause__``.
     """
 
@@ -71,8 +71,8 @@ def normalize_provider_error(exc: Exception, provider_id: str) -> ProviderError:
     status_code = raw_status if isinstance(raw_status, int) and 400 <= raw_status <= 599 else None
 
     # TimeoutException is a TransportError subclass — check it first.
-    timed_out = isinstance(exc, httpx.TimeoutException) or isinstance(exc.__cause__, httpx.TimeoutException)
-    connection_failed = isinstance(exc, httpx.TransportError) or isinstance(exc.__cause__, httpx.TransportError)
+    timed_out = isinstance(exc, httpx2.TimeoutException) or isinstance(exc.__cause__, httpx2.TimeoutException)
+    connection_failed = isinstance(exc, httpx2.TransportError) or isinstance(exc.__cause__, httpx2.TransportError)
 
     if status_code is not None:
         reason = "http_status"
@@ -87,7 +87,7 @@ def normalize_provider_error(exc: Exception, provider_id: str) -> ProviderError:
         reason = "provider_error"
         retryable = False
 
-    # str(httpx.ReadTimeout()) is empty — fall back to type and phase.
+    # str(httpx2.ReadTimeout()) is empty — fall back to type and phase.
     message = str(exc).strip() or f"{type(exc).__name__} while streaming from {provider_id}"
 
     headers = getattr(getattr(exc, "response", None), "headers", None)

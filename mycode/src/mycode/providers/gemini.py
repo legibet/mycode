@@ -4,11 +4,10 @@ from __future__ import annotations
 
 import os
 from collections.abc import AsyncIterator
-from contextlib import suppress
 from typing import Any, override
 from urllib.parse import urlparse
 
-import httpx
+import httpx2
 from google import genai
 from google.genai import types
 from google.genai.errors import APIError
@@ -82,44 +81,46 @@ class GoogleGeminiAdapter(ProviderAdapter):
 
     @override
     async def stream_turn(self, request: ProviderRequest) -> AsyncIterator[ProviderStreamEvent]:
-        client = self._build_client(request)
-
         blocks: list[dict[str, Any]] = []
         response_id: str | None = None
         finish_reason: str | None = None
         finish_message: str | None = None
         usage: dict[str, Any] | None = None
 
-        try:
-            stream = await client.aio.models.generate_content_stream(
-                model=request.model,
-                contents=self._build_contents(request),
-                config=self._build_config(request),
-            )
-            started = False
-            async for chunk in stream:
-                if not started:
-                    started = True
-                    yield ProviderStreamEvent("stream_started")
-                response_id = response_id or getattr(chunk, "response_id", None)
-                usage = _to_json(getattr(chunk, "usage_metadata", None)) or usage
+        with httpx2.Client(follow_redirects=True) as http_client:
+            async with httpx2.AsyncClient(follow_redirects=True) as http_async_client:
+                http_options = self._http_options(request)
+                http_options.httpx_client = http_client
+                http_options.httpx_async_client = http_async_client
+                client = self._build_client(request, http_options)
 
-                candidates = getattr(chunk, "candidates", None) or []
-                if not candidates:
-                    continue
-                candidate = candidates[0]
+                try:
+                    stream = await client.aio.models.generate_content_stream(
+                        model=request.model,
+                        contents=self._build_contents(request),
+                        config=self._build_config(request),
+                    )
+                    started = False
+                    async for chunk in stream:
+                        if not started:
+                            started = True
+                            yield ProviderStreamEvent("stream_started")
+                        response_id = response_id or getattr(chunk, "response_id", None)
+                        usage = _to_json(getattr(chunk, "usage_metadata", None)) or usage
 
-                finish_reason = _to_json(getattr(candidate, "finish_reason", None)) or finish_reason
-                finish_message = getattr(candidate, "finish_message", None) or finish_message
+                        candidates = getattr(chunk, "candidates", None) or []
+                        if not candidates:
+                            continue
+                        candidate = candidates[0]
 
-                for part in getattr(getattr(candidate, "content", None), "parts", None) or []:
-                    if event := self._consume_part(blocks, part):
-                        yield event
-        except (APIError, httpx.HTTPError) as exc:
-            raise normalize_provider_error(exc, self.provider_id) from exc
-        finally:
-            with suppress(Exception):
-                await client.aio.aclose()
+                        finish_reason = _to_json(getattr(candidate, "finish_reason", None)) or finish_reason
+                        finish_message = getattr(candidate, "finish_message", None) or finish_message
+
+                        for part in getattr(getattr(candidate, "content", None), "parts", None) or []:
+                            if event := self._consume_part(blocks, part):
+                                yield event
+                except (APIError, httpx2.HTTPError) as exc:
+                    raise normalize_provider_error(exc, self.provider_id) from exc
 
         raw_usage = usage or {}
         # Gemini omits zero-valued counts (proto3), so once a usage payload
@@ -154,9 +155,13 @@ class GoogleGeminiAdapter(ProviderAdapter):
             },
         )
 
-    def _build_client(self, request: ProviderRequest) -> genai.Client:
+    def _build_client(
+        self,
+        request: ProviderRequest,
+        http_options: types.HttpOptions,
+    ) -> genai.Client:
         api_key = self.require_api_key(request.api_key)
-        return genai.Client(api_key=api_key, http_options=self._http_options(request))
+        return genai.Client(api_key=api_key, http_options=http_options)
 
     def _http_options(self, request: ProviderRequest) -> types.HttpOptions:
         base_url = self.resolve_base_url(request.api_base)
@@ -167,7 +172,7 @@ class GoogleGeminiAdapter(ProviderAdapter):
             base_url=base_url,
             api_version=api_version,
             # google-genai only takes a scalar per-request timeout (in ms) that
-            # overrides any client-level httpx.Timeout, so connect cannot be
+            # overrides any client-level httpx2.Timeout, so connect cannot be
             # pinned separately; the Agent's stream_start_timeout bounds it.
             timeout=int(request.request_timeout * 1000),
             # attempts=1 means no retries; retries are owned by the Agent
@@ -378,7 +383,11 @@ class GoogleVertexAdapter(GoogleGeminiAdapter):
         return bool(self.api_key_from_env() or (os.environ.get("GOOGLE_CLOUD_PROJECT") or "").strip())
 
     @override
-    def _build_client(self, request: ProviderRequest) -> genai.Client:
+    def _build_client(
+        self,
+        request: ProviderRequest,
+        http_options: types.HttpOptions,
+    ) -> genai.Client:
         api_key = (request.api_key or "").strip() or self.api_key_from_env()
         project = (os.environ.get("GOOGLE_CLOUD_PROJECT") or "").strip() or None
         location = (os.environ.get("GOOGLE_CLOUD_LOCATION") or "").strip() or None
@@ -392,7 +401,7 @@ class GoogleVertexAdapter(GoogleGeminiAdapter):
             api_key=api_key,
             project=project,
             location=location,
-            http_options=self._http_options(request),
+            http_options=http_options,
         )
 
     @override

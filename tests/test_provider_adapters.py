@@ -6,7 +6,7 @@ from dataclasses import replace
 from typing import Any, Literal
 from unittest.mock import AsyncMock, MagicMock
 
-import httpx
+import httpx2
 import pytest
 from anthropic import APIStatusError as AnthropicAPIStatusError
 from google.genai import types
@@ -81,6 +81,55 @@ def _stream_mock(items: list[Any], *, final_message: Any = None) -> MagicMock:
     if final_message is not None:
         stream.get_final_message = AsyncMock(return_value=final_message)
     return stream
+
+
+# Provider transport configuration
+
+
+@pytest.mark.parametrize(
+    ("adapter", "client_path"),
+    [
+        pytest.param(
+            OpenAIResponsesAdapter(),
+            "mycode.providers.openai_responses.AsyncOpenAI",
+            id="openai-responses",
+        ),
+        pytest.param(
+            OpenAIChatAdapter(),
+            "mycode.providers.openai_chat.AsyncOpenAI",
+            id="openai-chat",
+        ),
+        pytest.param(
+            AnthropicAdapter(),
+            "mycode.providers.anthropic_like.AsyncAnthropic",
+            id="anthropic",
+        ),
+    ],
+)
+async def test_provider_clients_preserve_timeout_and_disable_sdk_retries(
+    monkeypatch: pytest.MonkeyPatch,
+    adapter: OpenAIResponsesAdapter | OpenAIChatAdapter | AnthropicAdapter,
+    client_path: str,
+) -> None:
+    class ClientOptionsCaptured(Exception):
+        pass
+
+    client_factory = MagicMock(side_effect=ClientOptionsCaptured)
+    monkeypatch.setattr(client_path, client_factory)
+
+    with pytest.raises(ClientOptionsCaptured):
+        _ = [
+            event
+            async for event in adapter.stream_turn(
+                request_obj(api_key="test-key", request_timeout=37.5),
+            )
+        ]
+
+    client_options = client_factory.call_args.kwargs
+    timeout = client_options["timeout"]
+    assert isinstance(timeout, httpx2.Timeout)
+    assert timeout.as_dict() == {"connect": 5.0, "read": 37.5, "write": 37.5, "pool": 37.5}
+    assert client_options["max_retries"] == 0
 
 
 # User media block wire shapes
@@ -916,7 +965,6 @@ async def test_google_vertex_passes_resolved_auth_to_the_sdk(
             monkeypatch.delenv(env_name, raising=False)
     client = MagicMock()
     client.aio.models.generate_content_stream = AsyncMock(return_value=_stream_mock([]))
-    client.aio.aclose = AsyncMock()
     client_factory = MagicMock(return_value=client)
     monkeypatch.setattr("mycode.providers.gemini.genai.Client", client_factory)
 
@@ -951,7 +999,6 @@ async def test_google_vertex_leaves_url_construction_to_the_sdk(
     monkeypatch.setenv("GOOGLE_CLOUD_API_KEY", "cloud-key")
     client = MagicMock()
     client.aio.models.generate_content_stream = AsyncMock(return_value=_stream_mock([]))
-    client.aio.aclose = AsyncMock()
     client_factory = MagicMock(return_value=client)
     monkeypatch.setattr("mycode.providers.gemini.genai.Client", client_factory)
 
@@ -959,11 +1006,40 @@ async def test_google_vertex_leaves_url_construction_to_the_sdk(
 
     http_options = client_factory.call_args.kwargs["http_options"]
     assert http_options.base_url == expected_base_url
-    # No forced api_version (the google adapter's v1beta default is Developer-API
-    # specific) and no SDK-level retries (retries are owned by the Agent runtime).
+    # The google adapter's v1beta default is Developer-API specific.
     assert http_options.api_version is None
-    assert http_options.retry_options is not None
+
+
+@pytest.mark.parametrize(
+    "adapter",
+    [
+        pytest.param(GoogleGeminiAdapter(), id="gemini"),
+        pytest.param(GoogleVertexAdapter(), id="vertex"),
+    ],
+)
+async def test_google_uses_httpx2_clients_with_agent_owned_timeout_and_retries(
+    monkeypatch: pytest.MonkeyPatch,
+    adapter: GoogleGeminiAdapter,
+) -> None:
+    client = MagicMock()
+    client.aio.models.generate_content_stream = AsyncMock(return_value=_stream_mock([]))
+    client_factory = MagicMock(return_value=client)
+    monkeypatch.setattr("mycode.providers.gemini.genai.Client", client_factory)
+
+    _ = [
+        event
+        async for event in adapter.stream_turn(
+            request_obj(api_key="test-key", request_timeout=37.5),
+        )
+    ]
+
+    http_options = client_factory.call_args.kwargs["http_options"]
+    assert http_options.timeout == 37_500
     assert http_options.retry_options.attempts == 1
+    assert isinstance(http_options.httpx_client, httpx2.Client)
+    assert isinstance(http_options.httpx_async_client, httpx2.AsyncClient)
+    assert http_options.httpx_client.is_closed
+    assert http_options.httpx_async_client.is_closed
 
 
 async def test_google_gemini_replays_foreign_thinking_as_plain_model_text(
@@ -972,7 +1048,6 @@ async def test_google_gemini_replays_foreign_thinking_as_plain_model_text(
     adapter = GoogleGeminiAdapter()
     client = MagicMock()
     client.aio.models.generate_content_stream = AsyncMock(return_value=_stream_mock([]))
-    client.aio.aclose = AsyncMock()
     monkeypatch.setattr("mycode.providers.gemini.genai.Client", lambda **_kwargs: client)
 
     _ = [
@@ -1016,7 +1091,6 @@ async def test_google_gemini_replaces_native_signatures_after_model_switch(
 ) -> None:
     client = MagicMock()
     client.aio.models.generate_content_stream = AsyncMock(return_value=_stream_mock([]))
-    client.aio.aclose = AsyncMock()
     monkeypatch.setattr("mycode.providers.gemini.genai.Client", lambda **_kwargs: client)
 
     _ = [
@@ -2031,8 +2105,8 @@ async def test_anthropic_classifies_stream_failures(
     error_type: str,
     retryable: bool,
 ) -> None:
-    request = httpx.Request("POST", "https://api.anthropic.com/v1/messages")
-    response = httpx.Response(200, request=request)
+    request = httpx2.Request("POST", "https://api.anthropic.com/v1/messages")
+    response = httpx2.Response(200, request=request)
     sdk_error = AnthropicAPIStatusError(
         "stream failed",
         response=response,
@@ -2452,7 +2526,6 @@ async def test_gemini_normalizes_usage_details(monkeypatch: pytest.MonkeyPatch) 
         )
     ]
     client.aio.models.generate_content_stream = AsyncMock(return_value=_stream_mock(chunks))
-    client.aio.aclose = AsyncMock()
     monkeypatch.setattr("mycode.providers.gemini.genai.Client", lambda **_kwargs: client)
 
     events = [

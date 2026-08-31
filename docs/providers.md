@@ -39,7 +39,7 @@ class ProviderAdapter(ABC):
 
 Retries are owned by the Agent runtime, so provider SDK retries are disabled: openai and anthropic clients are constructed with `max_retries=0`, gemini with an explicit `HttpRetryOptions(attempts=1)` (google-genai defaults to no retries, but flips to multiple attempts once `retry_options` is set at all).
 
-`ProviderRequest.request_timeout` is the per-attempt transport timeout. openai and anthropic clients receive `httpx.Timeout(request_timeout, connect=5)`, keeping the SDKs' 5s connect default. google-genai only takes a scalar per-request timeout (`HttpOptions.timeout`, milliseconds) that overrides any client-level `httpx.Timeout`, so gemini has no separate connect phase; its pre-stream waits are bounded by the Agent's `stream_start_timeout` instead.
+`ProviderRequest.request_timeout` is the per-attempt transport timeout. openai and anthropic clients receive `httpx2.Timeout(request_timeout, connect=5)`, keeping the SDKs' 5s connect default. google-genai only takes a scalar per-request timeout (`HttpOptions.timeout`, milliseconds) that overrides any client-level `httpx2.Timeout`, so gemini has no separate connect phase; its pre-stream waits are bounded by the Agent's `stream_start_timeout` instead. Gemini receives application-owned sync and async HTTPX2 clients whose contexts own connection cleanup.
 
 Adapters raise `ProviderError` for upstream failures. The shared normalizer handles transport errors and HTTP statuses; adapters classify transient errors carried inside successful streams. The Agent only reads `ProviderError.retryable`.
 
@@ -118,7 +118,7 @@ Provider quirks:
 
 ### `google_vertex` — `gemini.py`
 
-- SDK: `google-genai>=2.15.0` (official); 2.15.0 added combined API key + project/location initialization
+- SDK: `google-genai>=2.20.0` (official; custom HTTPX2 clients are injected through `HttpOptions`)
 - API: Google Agent Platform (formerly Vertex AI), selected with `enterprise=True`
 - Base URL: built by the SDK from the auth mode and location; an explicit `api_base` overrides it
 - API key env: `GOOGLE_CLOUD_API_KEY`

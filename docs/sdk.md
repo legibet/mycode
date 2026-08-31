@@ -303,9 +303,9 @@ Async tools work the same way:
 async def fetch_url(url: str) -> str:
     """Fetch a URL and return its body."""
 
-    import httpx
+    import httpx2
 
-    async with httpx.AsyncClient() as client:
+    async with httpx2.AsyncClient() as client:
         response = await client.get(url)
         return response.text
 ```

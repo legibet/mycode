@@ -7,7 +7,7 @@ from collections.abc import AsyncIterator
 from copy import deepcopy
 from typing import Any, cast, override
 
-import httpx
+import httpx2
 from openai import APIError, AsyncOpenAI
 
 from mycode.messages import (
@@ -72,7 +72,7 @@ class OpenAIResponsesAdapter(ProviderAdapter):
                 base_url=self.resolve_base_url(request.api_base),
                 # connect stays at the SDK's 5s default; retries are owned by
                 # the Agent runtime.
-                timeout=httpx.Timeout(request.request_timeout, connect=5.0),
+                timeout=httpx2.Timeout(request.request_timeout, connect=5.0),
                 max_retries=0,
             ) as client:
                 stream = await client.responses.create(**payload, stream=True)
@@ -137,7 +137,7 @@ class OpenAIResponsesAdapter(ProviderAdapter):
                             )
                         },
                     )
-        except (APIError, httpx.HTTPError) as exc:
+        except (APIError, httpx2.HTTPError) as exc:
             raise normalize_provider_error(exc, self.provider_id) from exc
 
     def _build_request_payload(self, request: ProviderRequest) -> dict[str, Any]:

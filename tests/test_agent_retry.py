@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
-import httpx
+import httpx2
 import pytest
 
 from mycode import Agent, Event, ProviderError, SessionStore
@@ -307,8 +307,8 @@ async def test_acompact_retries_and_keeps_successful_marker_usage(tmp_path: Path
 
 
 def test_normalized_provider_errors_are_readable_and_classified() -> None:
-    # str(httpx.ReadTimeout("")) is empty; the incident surfaced it as a blank error.
-    error = normalize_provider_error(httpx.ReadTimeout(""), "openai")
+    # str(httpx2.ReadTimeout("")) is empty; the incident surfaced it as a blank error.
+    error = normalize_provider_error(httpx2.ReadTimeout(""), "openai")
     assert error.retryable
     assert error.reason == "request_timeout"
     assert str(error) == "ReadTimeout while streaming from openai"
@@ -319,7 +319,7 @@ def test_normalized_provider_errors_are_readable_and_classified() -> None:
         def __init__(self) -> None:
             super().__init__("rate limited")
             self.status_code = 429
-            self.response = httpx.Response(429, headers={"retry-after": "7"})
+            self.response = httpx2.Response(429, headers={"retry-after": "7"})
 
     error = normalize_provider_error(_FakeStatusError(), "openai")
     assert error.retryable
