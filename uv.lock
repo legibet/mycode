@@ -655,7 +655,7 @@ wheels = [
 
 [[package]]
 name = "mycode-cli"
-version = "0.13.3"
+version = "0.14.0"
 source = { editable = "cli" }
 dependencies = [
     { name = "beautifulsoup4" },
@@ -688,7 +688,7 @@ requires-dist = [
 
 [[package]]
 name = "mycode-sdk"
-version = "0.13.3"
+version = "0.14.0"
 source = { editable = "mycode" }
 dependencies = [
     { name = "anthropic" },
