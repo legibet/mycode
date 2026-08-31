@@ -216,7 +216,7 @@ export const EffortTrigger = memo(function EffortTrigger({
       />
       <DropdownMenuContent
         side="top"
-        align="end"
+        align="start"
         sideOffset={6}
         className="min-w-35"
       >
