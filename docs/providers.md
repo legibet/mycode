@@ -204,7 +204,7 @@ Provider quirks:
 - SDK: `openai` against Alibaba Cloud Model Studio Chat Completions
 - Base URL: `https://dashscope.aliyuncs.com/compatible-mode/v1`
 - API key env: `DASHSCOPE_API_KEY`
-- Default model: `qwen3.8-max`
+- Default models: `qwen3.8-max`, `qwen3.8-flash`
 - `supports_reasoning_effort`: true; explicit values pass through unchanged
 - Always sends `preserve_thinking: true`
 - Uses `max_completion_tokens` instead of `max_tokens`

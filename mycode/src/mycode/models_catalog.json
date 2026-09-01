@@ -1066,18 +1066,6 @@
       "supports_pdf_input": false,
       "supports_reasoning": true
     },
-    "gemini-robotics-er-1.6-preview": {
-      "context_window": 131072,
-      "cost": {
-        "input": 1,
-        "output": 5
-      },
-      "max_output_tokens": 65536,
-      "reasoning_efforts": [],
-      "supports_image_input": true,
-      "supports_pdf_input": false,
-      "supports_reasoning": true
-    },
     "gemma-4-26b-a4b-it": {
       "context_window": 262144,
       "max_output_tokens": 32768,
@@ -2119,6 +2107,22 @@
       "supports_pdf_input": false,
       "supports_reasoning": true
     },
+    "hy4-preview": {
+      "context_window": 1024000,
+      "cost": {
+        "cache_read": 0.042,
+        "input": 0.834,
+        "output": 2.501
+      },
+      "max_output_tokens": 64000,
+      "reasoning_efforts": [
+        "none",
+        "high"
+      ],
+      "supports_image_input": false,
+      "supports_pdf_input": false,
+      "supports_reasoning": true
+    },
     "kimi-k2-thinking": {
       "context_window": 262144,
       "cost": {
@@ -3054,6 +3058,24 @@
       "supports_pdf_input": false,
       "supports_reasoning": true
     },
+    "qwen3.8-flash": {
+      "context_window": 1000000,
+      "cost": {
+        "cache_read": 0.016,
+        "cache_write": 0.2,
+        "input": 0.15,
+        "output": 0.47
+      },
+      "max_output_tokens": 131072,
+      "reasoning_efforts": [
+        "low",
+        "medium",
+        "xhigh"
+      ],
+      "supports_image_input": true,
+      "supports_pdf_input": false,
+      "supports_reasoning": true
+    },
     "qwen3.8-max": {
       "context_window": 1000000,
       "cost": {
@@ -3867,6 +3889,24 @@
         },
         "max_output_tokens": 65536,
         "reasoning_efforts": [],
+        "supports_image_input": true,
+        "supports_pdf_input": false,
+        "supports_reasoning": true
+      },
+      "qwen3.8-flash": {
+        "context_window": 1000000,
+        "cost": {
+          "cache_read": 0.016,
+          "cache_write": 0.2,
+          "input": 0.15,
+          "output": 0.47
+        },
+        "max_output_tokens": 131072,
+        "reasoning_efforts": [
+          "low",
+          "medium",
+          "xhigh"
+        ],
         "supports_image_input": true,
         "supports_pdf_input": false,
         "supports_reasoning": true
@@ -4687,18 +4727,6 @@
         "cost": {
           "input": 1.5,
           "output": 17.5
-        },
-        "max_output_tokens": 65536,
-        "reasoning_efforts": [],
-        "supports_image_input": true,
-        "supports_pdf_input": false,
-        "supports_reasoning": true
-      },
-      "gemini-robotics-er-1.6-preview": {
-        "context_window": 131072,
-        "cost": {
-          "input": 1,
-          "output": 5
         },
         "max_output_tokens": 65536,
         "reasoning_efforts": [],
@@ -5851,18 +5879,6 @@
         "supports_pdf_input": false,
         "supports_reasoning": false
       },
-      "allenai/olmo-3-32b-think": {
-        "context_window": 65536,
-        "cost": {
-          "input": 0.15,
-          "output": 0.5
-        },
-        "max_output_tokens": 58982,
-        "reasoning_efforts": [],
-        "supports_image_input": false,
-        "supports_pdf_input": false,
-        "supports_reasoning": true
-      },
       "amazon/nova-2-lite-v1": {
         "context_window": 1000000,
         "cost": {
@@ -5927,7 +5943,7 @@
       "anthracite-org/magnum-v4-72b": {
         "context_window": 32768,
         "cost": {
-          "input": 3,
+          "input": 2.5,
           "output": 5
         },
         "max_output_tokens": 4096,
@@ -6070,26 +6086,6 @@
               "size": 200000
             }
           ]
-        },
-        "max_output_tokens": 128000,
-        "reasoning_efforts": [
-          "low",
-          "medium",
-          "high",
-          "xhigh",
-          "max"
-        ],
-        "supports_image_input": true,
-        "supports_pdf_input": true,
-        "supports_reasoning": true
-      },
-      "anthropic/claude-opus-4.7-fast": {
-        "context_window": 1000000,
-        "cost": {
-          "cache_read": 3,
-          "cache_write": 37.5,
-          "input": 30,
-          "output": 150
         },
         "max_output_tokens": 128000,
         "reasoning_efforts": [
@@ -6281,26 +6277,14 @@
         "context_window": 262144,
         "cost": {
           "cache_read": 0.06,
-          "input": 0.22,
-          "output": 0.85
+          "input": 0.25,
+          "output": 0.8
         },
-        "max_output_tokens": 235929,
+        "max_output_tokens": 80000,
         "reasoning_efforts": [],
         "supports_image_input": false,
         "supports_pdf_input": false,
         "supports_reasoning": true
-      },
-      "arcee-ai/virtuoso-large": {
-        "context_window": 131072,
-        "cost": {
-          "input": 0.75,
-          "output": 1.2
-        },
-        "max_output_tokens": 64000,
-        "reasoning_efforts": null,
-        "supports_image_input": false,
-        "supports_pdf_input": false,
-        "supports_reasoning": false
       },
       "baidu/ernie-4.5-vl-424b-a47b": {
         "context_window": 123000,
@@ -6610,11 +6594,11 @@
       "deepseek/deepseek-v3.2": {
         "context_window": 163840,
         "cost": {
-          "cache_read": 0.13,
-          "input": 0.26,
-          "output": 0.38
+          "cache_read": 0.1345,
+          "input": 0.269,
+          "output": 0.4
         },
-        "max_output_tokens": 147456,
+        "max_output_tokens": 65536,
         "reasoning_efforts": [],
         "supports_image_input": false,
         "supports_pdf_input": false,
@@ -6635,9 +6619,9 @@
       "deepseek/deepseek-v4-flash": {
         "context_window": 1048576,
         "cost": {
-          "cache_read": 0.015904,
-          "input": 0.07952,
-          "output": 0.15904
+          "cache_read": 0.016184,
+          "input": 0.08092,
+          "output": 0.16184
         },
         "max_output_tokens": 384000,
         "reasoning_efforts": [
@@ -6651,9 +6635,9 @@
       "deepseek/deepseek-v4-flash-0731": {
         "context_window": 1310720,
         "cost": {
-          "cache_read": 0.012,
-          "input": 0.06,
-          "output": 0.12
+          "cache_read": 0.016,
+          "input": 0.065,
+          "output": 0.18
         },
         "max_output_tokens": 943718,
         "reasoning_efforts": [
@@ -6685,11 +6669,11 @@
       "deepseek/deepseek-v4-pro": {
         "context_window": 1048576,
         "cost": {
-          "cache_read": 0.0725,
-          "input": 0.87,
-          "output": 1.74
+          "cache_read": 0.135,
+          "input": 1.6,
+          "output": 3.2
         },
-        "max_output_tokens": 384000,
+        "max_output_tokens": 393216,
         "reasoning_efforts": [
           "high",
           "xhigh"
@@ -6701,11 +6685,11 @@
       "deepseek/deepseek-v4-pro-0813": {
         "context_window": 1048576,
         "cost": {
-          "cache_read": 0.0374,
-          "input": 1.122,
-          "output": 3.366
+          "cache_read": 0.022,
+          "input": 0.66,
+          "output": 1.98
         },
-        "max_output_tokens": 943717,
+        "max_output_tokens": 384000,
         "reasoning_efforts": [
           "low",
           "high",
@@ -7092,11 +7076,11 @@
       "google/gemini-3.7-flash": {
         "context_window": 1048576,
         "cost": {
-          "cache_read": 0.0375,
-          "cache_write": 0.020833,
-          "input": 0.375,
-          "output": 1.875,
-          "reasoning": 1.875
+          "cache_read": 0.075,
+          "cache_write": 0.041667,
+          "input": 0.75,
+          "output": 3.75,
+          "reasoning": 3.75
         },
         "max_output_tokens": 65536,
         "reasoning_efforts": [
@@ -7133,7 +7117,7 @@
         "supports_reasoning": false
       },
       "google/gemma-3-27b-it": {
-        "context_window": 262144,
+        "context_window": 131072,
         "cost": {
           "cache_read": 0.04,
           "input": 0.08,
@@ -7267,6 +7251,23 @@
         "supports_pdf_input": false,
         "supports_reasoning": false
       },
+      "ibm-granite/granite-4.2-8b": {
+        "context_window": 131072,
+        "cost": {
+          "cache_read": 0.05,
+          "input": 0.1,
+          "output": 0.15
+        },
+        "max_output_tokens": 117964,
+        "reasoning_efforts": [
+          "none",
+          "low",
+          "high"
+        ],
+        "supports_image_input": false,
+        "supports_pdf_input": false,
+        "supports_reasoning": true
+      },
       "inception/mercury-2": {
         "context_window": 128000,
         "cost": {
@@ -7298,18 +7299,17 @@
         "supports_pdf_input": false,
         "supports_reasoning": true
       },
-      "kwaipilot/kat-coder-air-v2.5": {
-        "context_window": 256000,
+      "inclusionai/ling-3.0-flash-fin:free": {
+        "context_window": 262144,
         "cost": {
-          "cache_read": 0.03,
-          "input": 0.15,
-          "output": 0.6
+          "input": 0,
+          "output": 0
         },
-        "max_output_tokens": 80000,
-        "reasoning_efforts": null,
+        "max_output_tokens": 32768,
+        "reasoning_efforts": [],
         "supports_image_input": false,
         "supports_pdf_input": false,
-        "supports_reasoning": false
+        "supports_reasoning": true
       },
       "kwaipilot/kat-coder-pro-v2": {
         "context_window": 262144,
@@ -7318,20 +7318,20 @@
           "input": 0.3,
           "output": 1.2
         },
-        "max_output_tokens": 80000,
+        "max_output_tokens": 144000,
         "reasoning_efforts": null,
         "supports_image_input": false,
         "supports_pdf_input": false,
         "supports_reasoning": false
       },
       "kwaipilot/kat-coder-pro-v2.5": {
-        "context_window": 256000,
+        "context_window": 262144,
         "cost": {
           "cache_read": 0.15,
           "input": 0.74,
           "output": 2.96
         },
-        "max_output_tokens": 80000,
+        "max_output_tokens": 235929,
         "reasoning_efforts": null,
         "supports_image_input": false,
         "supports_pdf_input": false,
@@ -7352,7 +7352,7 @@
       "mancer/weaver": {
         "context_window": 8000,
         "cost": {
-          "input": 0.5,
+          "input": 0.4,
           "output": 0.75
         },
         "max_output_tokens": 6000,
@@ -7440,9 +7440,9 @@
         "context_window": 1048576,
         "cost": {
           "input": 0.2,
-          "output": 0.8
+          "output": 0.696
         },
-        "max_output_tokens": 16384,
+        "max_output_tokens": 115200,
         "reasoning_efforts": null,
         "supports_image_input": true,
         "supports_pdf_input": false,
@@ -7451,11 +7451,10 @@
       "meta-llama/llama-4-scout": {
         "context_window": 1310720,
         "cost": {
-          "cache_read": 0.055,
-          "input": 0.11,
-          "output": 0.34
+          "input": 0.1,
+          "output": 0.3
         },
-        "max_output_tokens": 8192,
+        "max_output_tokens": 16384,
         "reasoning_efforts": null,
         "supports_image_input": true,
         "supports_pdf_input": false,
@@ -7477,10 +7476,10 @@
         "context_window": 131072,
         "cost": {
           "cache_read": 0.04,
-          "input": 0.35,
-          "output": 1.5
+          "input": 0.3,
+          "output": 1.2
         },
-        "max_output_tokens": 117964,
+        "max_output_tokens": 16384,
         "reasoning_efforts": [
           "low",
           "medium",
@@ -7713,9 +7712,9 @@
       "mistralai/devstral-2512": {
         "context_window": 262144,
         "cost": {
-          "cache_read": 0.044,
-          "input": 0.44,
-          "output": 2.2
+          "cache_read": 0.04,
+          "input": 0.4,
+          "output": 2
         },
         "max_output_tokens": 209715,
         "reasoning_efforts": null,
@@ -7746,18 +7745,6 @@
         "max_output_tokens": 104857,
         "reasoning_efforts": null,
         "supports_image_input": true,
-        "supports_pdf_input": false,
-        "supports_reasoning": false
-      },
-      "mistralai/ministral-8b": {
-        "context_window": 128000,
-        "cost": {
-          "input": 0.11,
-          "output": 0.11
-        },
-        "max_output_tokens": 102400,
-        "reasoning_efforts": null,
-        "supports_image_input": false,
         "supports_pdf_input": false,
         "supports_reasoning": false
       },
@@ -7945,13 +7932,13 @@
         "supports_reasoning": false
       },
       "mistralai/voxtral-small-24b-2507": {
-        "context_window": 32000,
+        "context_window": 32768,
         "cost": {
           "cache_read": 0.01,
           "input": 0.1,
           "output": 0.3
         },
-        "max_output_tokens": 25600,
+        "max_output_tokens": 26214,
         "reasoning_efforts": null,
         "supports_image_input": false,
         "supports_pdf_input": true,
@@ -7997,9 +7984,9 @@
       "moonshotai/kimi-k2.5": {
         "context_window": 262144,
         "cost": {
-          "cache_read": 0.1,
-          "input": 0.6,
-          "output": 3
+          "cache_read": 0.07,
+          "input": 0.45,
+          "output": 2.25
         },
         "max_output_tokens": 235929,
         "reasoning_efforts": [],
@@ -8204,13 +8191,13 @@
         "supports_reasoning": true
       },
       "nvidia/nemotron-3-ultra-550b-a55b": {
-        "context_window": 512288,
+        "context_window": 262144,
         "cost": {
-          "cache_read": 0.2,
-          "input": 0.6,
-          "output": 3.6
+          "cache_read": 0.1,
+          "input": 0.5,
+          "output": 2.2
         },
-        "max_output_tokens": 461059,
+        "max_output_tokens": 16384,
         "reasoning_efforts": [
           "medium",
           "high"
@@ -9821,10 +9808,10 @@
       "qwen/qwen3-vl-30b-a3b-instruct": {
         "context_window": 262144,
         "cost": {
-          "input": 0.13,
-          "output": 0.52
+          "input": 0.15,
+          "output": 0.6
         },
-        "max_output_tokens": 32768,
+        "max_output_tokens": 16384,
         "reasoning_efforts": null,
         "supports_image_input": true,
         "supports_pdf_input": false,
@@ -9881,10 +9868,10 @@
       "qwen/qwen3.5-122b-a10b": {
         "context_window": 262144,
         "cost": {
-          "input": 0.26,
-          "output": 2.08
+          "input": 0.29,
+          "output": 2.4
         },
-        "max_output_tokens": 235929,
+        "max_output_tokens": 81920,
         "reasoning_efforts": [],
         "supports_image_input": true,
         "supports_pdf_input": false,
@@ -9994,10 +9981,11 @@
       "qwen/qwen3.6-27b": {
         "context_window": 262144,
         "cost": {
-          "input": 0.32,
-          "output": 3.2
+          "cache_read": 0.12,
+          "input": 0.6,
+          "output": 3.6
         },
-        "max_output_tokens": 81920,
+        "max_output_tokens": 235929,
         "reasoning_efforts": [],
         "supports_image_input": true,
         "supports_pdf_input": false,
@@ -10153,7 +10141,7 @@
           "input": 2,
           "output": 6
         },
-        "max_output_tokens": 131072,
+        "max_output_tokens": 262144,
         "reasoning_efforts": [
           "low",
           "medium",
@@ -10451,6 +10439,23 @@
         "supports_pdf_input": false,
         "supports_reasoning": true
       },
+      "tencent/hy4-preview": {
+        "context_window": 1048576,
+        "cost": {
+          "cache_read": 0.042,
+          "input": 0.834,
+          "output": 2.501
+        },
+        "max_output_tokens": 64000,
+        "reasoning_efforts": [
+          "none",
+          "low",
+          "high"
+        ],
+        "supports_image_input": false,
+        "supports_pdf_input": false,
+        "supports_reasoning": true
+      },
       "thedrummer/cydonia-24b-v4.1": {
         "context_window": 131072,
         "cost": {
@@ -10459,18 +10464,6 @@
           "output": 0.5
         },
         "max_output_tokens": 117964,
-        "reasoning_efforts": null,
-        "supports_image_input": false,
-        "supports_pdf_input": false,
-        "supports_reasoning": false
-      },
-      "thedrummer/rocinante-12b": {
-        "context_window": 65536,
-        "cost": {
-          "input": 0.25,
-          "output": 0.5
-        },
-        "max_output_tokens": 58982,
         "reasoning_efforts": null,
         "supports_image_input": false,
         "supports_pdf_input": false,
@@ -10504,11 +10497,11 @@
       "thinkingmachines/inkling": {
         "context_window": 1048576,
         "cost": {
-          "cache_read": 0.16,
-          "input": 0.95,
+          "cache_read": 0.17,
+          "input": 1,
           "output": 4.05
         },
-        "max_output_tokens": 262144,
+        "max_output_tokens": 471859,
         "reasoning_efforts": [
           "none",
           "minimal",
@@ -10920,11 +10913,11 @@
       "z-ai/glm-5.1": {
         "context_window": 204800,
         "cost": {
-          "cache_read": 0.234,
-          "input": 1.26,
-          "output": 3.96
+          "cache_read": 0.1794,
+          "input": 0.966,
+          "output": 3.036
         },
-        "max_output_tokens": 182476,
+        "max_output_tokens": 128000,
         "reasoning_efforts": [],
         "supports_image_input": false,
         "supports_pdf_input": false,
@@ -10962,7 +10955,7 @@
         "supports_reasoning": true
       },
       "z-ai/glm-5.3": {
-        "context_window": 1048576,
+        "context_window": 1310720,
         "cost": {
           "cache_read": 0.26,
           "input": 1.4,
@@ -11085,11 +11078,11 @@
       "~deepseek/deepseek-v4-flash-latest": {
         "context_window": 1310720,
         "cost": {
-          "cache_read": 0.007,
-          "input": 0.03,
-          "output": 0.1
+          "cache_read": 0.013,
+          "input": 0.05,
+          "output": 0.16
         },
-        "max_output_tokens": 131072,
+        "max_output_tokens": 393216,
         "reasoning_efforts": [
           "low",
           "high",
@@ -11102,11 +11095,11 @@
       "~google/gemini-flash-latest": {
         "context_window": 1048576,
         "cost": {
-          "cache_read": 0.0375,
-          "cache_write": 0.020833,
-          "input": 0.375,
-          "output": 1.875,
-          "reasoning": 1.875
+          "cache_read": 0.075,
+          "cache_write": 0.041667,
+          "input": 0.75,
+          "output": 3.75,
+          "reasoning": 3.75
         },
         "max_output_tokens": 65536,
         "reasoning_efforts": [
@@ -11238,13 +11231,13 @@
         "supports_reasoning": true
       },
       "~z-ai/glm-latest": {
-        "context_window": 1048576,
+        "context_window": 1310720,
         "cost": {
-          "cache_read": 0.26,
-          "input": 1.4,
-          "output": 4.4
+          "cache_read": 0.234,
+          "input": 1.17,
+          "output": 3.96
         },
-        "max_output_tokens": 131072,
+        "max_output_tokens": 943718,
         "reasoning_efforts": [
           "low",
           "high",

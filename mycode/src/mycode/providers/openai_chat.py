@@ -438,7 +438,7 @@ class AlibabaAdapter(OpenAIChatAdapter):
     label = "Alibaba Cloud"
     default_base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
     env_api_key_names = ("DASHSCOPE_API_KEY",)
-    default_models = ("qwen3.8-max",)
+    default_models = ("qwen3.8-max", "qwen3.8-flash")
     auto_discoverable = True
     supports_reasoning_effort = True
 
