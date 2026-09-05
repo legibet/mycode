@@ -58,7 +58,7 @@ class OpenAIResponsesAdapter(ProviderAdapter):
     label = "OpenAI Responses"
     default_base_url = "https://api.openai.com/v1"
     env_api_key_names = ("OPENAI_API_KEY",)
-    default_models = ("gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna")
+    default_models = ("gpt-6-astra", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna")
     supports_reasoning_effort = True
 
     @override

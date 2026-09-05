@@ -155,6 +155,26 @@
       "supports_pdf_input": true,
       "supports_reasoning": true
     },
+    "claude-fable-5-1": {
+      "context_window": 1000000,
+      "cost": {
+        "cache_read": 0.25,
+        "cache_write": 12.5,
+        "input": 10,
+        "output": 50
+      },
+      "max_output_tokens": 128000,
+      "reasoning_efforts": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
+      "supports_image_input": true,
+      "supports_pdf_input": true,
+      "supports_reasoning": true
+    },
     "claude-haiku-4-5": {
       "context_window": 200000,
       "cost": {
@@ -979,6 +999,23 @@
       "supports_reasoning": true
     },
     "gemini-3.7-flash": {
+      "context_window": 1048576,
+      "cost": {
+        "cache_read": 0.075,
+        "input": 0.75,
+        "output": 3.75
+      },
+      "max_output_tokens": 65536,
+      "reasoning_efforts": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "supports_image_input": true,
+      "supports_pdf_input": true,
+      "supports_reasoning": true
+    },
+    "gemini-3.8-flash": {
       "context_window": 1048576,
       "cost": {
         "cache_read": 0.075,
@@ -1868,6 +1905,35 @@
       "supports_pdf_input": true,
       "supports_reasoning": true
     },
+    "gpt-6-astra": {
+      "context_window": 1050000,
+      "cost": {
+        "cache_read": 1,
+        "cache_write": 12.5,
+        "input": 10,
+        "output": 50,
+        "tiers": [
+          {
+            "cache_read": 2,
+            "cache_write": 25,
+            "input": 20,
+            "output": 75,
+            "size": 272000
+          }
+        ]
+      },
+      "max_output_tokens": 128000,
+      "reasoning_efforts": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
+      "supports_image_input": true,
+      "supports_pdf_input": true,
+      "supports_reasoning": true
+    },
     "gpt-image-1": {
       "context_window": 0,
       "max_output_tokens": 0,
@@ -2057,7 +2123,7 @@
       "supports_reasoning": true
     },
     "grok-imagine-image-2.0": {
-      "context_window": 8000,
+      "context_window": 64000,
       "max_output_tokens": 0,
       "reasoning_efforts": null,
       "supports_image_input": true,
@@ -2080,7 +2146,7 @@
         "input": 0,
         "output": 0
       },
-      "max_output_tokens": 64000,
+      "max_output_tokens": 128000,
       "reasoning_efforts": [
         "none",
         "high"
@@ -2465,13 +2531,13 @@
       "supports_reasoning": true
     },
     "muse-spark-1.1": {
-      "context_window": 1000000,
+      "context_window": 1048576,
       "cost": {
         "cache_read": 0.15,
         "input": 1.25,
         "output": 4.25
       },
-      "max_output_tokens": 32000,
+      "max_output_tokens": 131072,
       "reasoning_efforts": [
         "minimal",
         "low",
@@ -2497,6 +2563,26 @@
         "medium",
         "high",
         "xhigh"
+      ],
+      "supports_image_input": true,
+      "supports_pdf_input": true,
+      "supports_reasoning": true
+    },
+    "muse-spark-1.3": {
+      "context_window": 1048576,
+      "cost": {
+        "cache_read": 0.15,
+        "input": 1.25,
+        "output": 4.25
+      },
+      "max_output_tokens": 131072,
+      "reasoning_efforts": [
+        "minimal",
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
       ],
       "supports_image_input": true,
       "supports_pdf_input": true,
@@ -3963,6 +4049,26 @@
         "supports_pdf_input": true,
         "supports_reasoning": true
       },
+      "claude-fable-5-1": {
+        "context_window": 1000000,
+        "cost": {
+          "cache_read": 0.25,
+          "cache_write": 12.5,
+          "input": 10,
+          "output": 50
+        },
+        "max_output_tokens": 128000,
+        "reasoning_efforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ],
+        "supports_image_input": true,
+        "supports_pdf_input": true,
+        "supports_reasoning": true
+      },
       "claude-haiku-4-5": {
         "context_window": 200000,
         "cost": {
@@ -4647,6 +4753,23 @@
         "supports_reasoning": true
       },
       "gemini-3.7-flash": {
+        "context_window": 1048576,
+        "cost": {
+          "cache_read": 0.075,
+          "input": 0.75,
+          "output": 3.75
+        },
+        "max_output_tokens": 65536,
+        "reasoning_efforts": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "supports_image_input": true,
+        "supports_pdf_input": true,
+        "supports_reasoning": true
+      },
+      "gemini-3.8-flash": {
         "context_window": 1048576,
         "cost": {
           "cache_read": 0.075,
@@ -5634,6 +5757,35 @@
         "supports_pdf_input": true,
         "supports_reasoning": true
       },
+      "gpt-6-astra": {
+        "context_window": 1050000,
+        "cost": {
+          "cache_read": 1,
+          "cache_write": 12.5,
+          "input": 10,
+          "output": 50,
+          "tiers": [
+            {
+              "cache_read": 2,
+              "cache_write": 25,
+              "input": 20,
+              "output": 75,
+              "size": 272000
+            }
+          ]
+        },
+        "max_output_tokens": 128000,
+        "reasoning_efforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ],
+        "supports_image_input": true,
+        "supports_pdf_input": true,
+        "supports_reasoning": true
+      },
       "gpt-image-1": {
         "context_window": 0,
         "max_output_tokens": 0,
@@ -5986,6 +6138,26 @@
         "supports_pdf_input": true,
         "supports_reasoning": true
       },
+      "anthropic/claude-fable-5.1": {
+        "context_window": 1000000,
+        "cost": {
+          "cache_read": 0.25,
+          "cache_write": 12.5,
+          "input": 10,
+          "output": 50
+        },
+        "max_output_tokens": 128000,
+        "reasoning_efforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ],
+        "supports_image_input": true,
+        "supports_pdf_input": true,
+        "supports_reasoning": true
+      },
       "anthropic/claude-haiku-4.5": {
         "context_window": 200000,
         "cost": {
@@ -6119,26 +6291,6 @@
         "supports_pdf_input": true,
         "supports_reasoning": true
       },
-      "anthropic/claude-opus-4.8-fast": {
-        "context_window": 1000000,
-        "cost": {
-          "cache_read": 1,
-          "cache_write": 12.5,
-          "input": 10,
-          "output": 50
-        },
-        "max_output_tokens": 128000,
-        "reasoning_efforts": [
-          "low",
-          "medium",
-          "high",
-          "xhigh",
-          "max"
-        ],
-        "supports_image_input": true,
-        "supports_pdf_input": true,
-        "supports_reasoning": true
-      },
       "anthropic/claude-opus-5": {
         "context_window": 1000000,
         "cost": {
@@ -6146,26 +6298,6 @@
           "cache_write": 6.25,
           "input": 5,
           "output": 25
-        },
-        "max_output_tokens": 128000,
-        "reasoning_efforts": [
-          "low",
-          "medium",
-          "high",
-          "xhigh",
-          "max"
-        ],
-        "supports_image_input": true,
-        "supports_pdf_input": true,
-        "supports_reasoning": true
-      },
-      "anthropic/claude-opus-5-fast": {
-        "context_window": 1000000,
-        "cost": {
-          "cache_read": 1,
-          "cache_write": 12.5,
-          "input": 10,
-          "output": 50
         },
         "max_output_tokens": 128000,
         "reasoning_efforts": [
@@ -6507,10 +6639,10 @@
       "deepseek/deepseek-chat": {
         "context_window": 163840,
         "cost": {
-          "input": 0.2574,
-          "output": 1.0287
+          "input": 0.32,
+          "output": 0.89
         },
-        "max_output_tokens": 16000,
+        "max_output_tokens": 16384,
         "reasoning_efforts": null,
         "supports_image_input": false,
         "supports_pdf_input": false,
@@ -6619,9 +6751,9 @@
       "deepseek/deepseek-v4-flash": {
         "context_window": 1048576,
         "cost": {
-          "cache_read": 0.016184,
-          "input": 0.08092,
-          "output": 0.16184
+          "cache_read": 0.01694,
+          "input": 0.0847,
+          "output": 0.1694
         },
         "max_output_tokens": 384000,
         "reasoning_efforts": [
@@ -6669,11 +6801,11 @@
       "deepseek/deepseek-v4-pro": {
         "context_window": 1048576,
         "cost": {
-          "cache_read": 0.135,
-          "input": 1.6,
-          "output": 3.2
+          "cache_read": 0.071659,
+          "input": 0.859908,
+          "output": 1.719816
         },
-        "max_output_tokens": 393216,
+        "max_output_tokens": 384000,
         "reasoning_efforts": [
           "high",
           "xhigh"
@@ -6685,9 +6817,9 @@
       "deepseek/deepseek-v4-pro-0813": {
         "context_window": 1048576,
         "cost": {
-          "cache_read": 0.022,
-          "input": 0.66,
-          "output": 1.98
+          "cache_read": 0.037356,
+          "input": 1.12068,
+          "output": 3.36204
         },
         "max_output_tokens": 384000,
         "reasoning_efforts": [
@@ -7092,6 +7224,25 @@
         "supports_pdf_input": true,
         "supports_reasoning": true
       },
+      "google/gemini-3.8-flash": {
+        "context_window": 1048576,
+        "cost": {
+          "cache_read": 0.075,
+          "cache_write": 0.041667,
+          "input": 0.75,
+          "output": 3.75,
+          "reasoning": 3.75
+        },
+        "max_output_tokens": 65536,
+        "reasoning_efforts": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "supports_image_input": true,
+        "supports_pdf_input": true,
+        "supports_reasoning": true
+      },
       "google/gemma-2-27b-it": {
         "context_window": 8192,
         "cost": {
@@ -7238,19 +7389,6 @@
         "supports_pdf_input": false,
         "supports_reasoning": false
       },
-      "ibm-granite/granite-4.1-8b": {
-        "context_window": 131072,
-        "cost": {
-          "cache_read": 0.05,
-          "input": 0.05,
-          "output": 0.1
-        },
-        "max_output_tokens": 117964,
-        "reasoning_efforts": null,
-        "supports_image_input": false,
-        "supports_pdf_input": false,
-        "supports_reasoning": false
-      },
       "ibm-granite/granite-4.2-8b": {
         "context_window": 131072,
         "cost": {
@@ -7286,6 +7424,24 @@
         "supports_pdf_input": false,
         "supports_reasoning": true
       },
+      "inception/mercury-2.5-preview": {
+        "context_window": 260000,
+        "cost": {
+          "cache_read": 0.004,
+          "input": 0.04,
+          "output": 0.15
+        },
+        "max_output_tokens": 65536,
+        "reasoning_efforts": [
+          "none",
+          "low",
+          "medium",
+          "high"
+        ],
+        "supports_image_input": false,
+        "supports_pdf_input": false,
+        "supports_reasoning": true
+      },
       "inclusionai/ling-3.0-flash": {
         "context_window": 262144,
         "cost": {
@@ -7299,7 +7455,32 @@
         "supports_pdf_input": false,
         "supports_reasoning": true
       },
+      "inclusionai/ling-3.0-flash-fin": {
+        "context_window": 262144,
+        "cost": {
+          "cache_read": 0.012,
+          "input": 0.06,
+          "output": 0.18
+        },
+        "max_output_tokens": 235929,
+        "reasoning_efforts": [],
+        "supports_image_input": false,
+        "supports_pdf_input": false,
+        "supports_reasoning": true
+      },
       "inclusionai/ling-3.0-flash-fin:free": {
+        "context_window": 262144,
+        "cost": {
+          "input": 0,
+          "output": 0
+        },
+        "max_output_tokens": 32768,
+        "reasoning_efforts": [],
+        "supports_image_input": false,
+        "supports_pdf_input": false,
+        "supports_reasoning": true
+      },
+      "inclusionai/ling-3.0-flash-sante:free": {
         "context_window": 262144,
         "cost": {
           "input": 0,
@@ -7426,11 +7607,10 @@
       "meta-llama/llama-3.3-70b-instruct": {
         "context_window": 131072,
         "cost": {
-          "cache_read": 0.71,
-          "input": 0.71,
-          "output": 0.71
+          "input": 0.1,
+          "output": 0.32
         },
-        "max_output_tokens": 115200,
+        "max_output_tokens": 16384,
         "reasoning_efforts": null,
         "supports_image_input": false,
         "supports_pdf_input": false,
@@ -7477,9 +7657,9 @@
         "cost": {
           "cache_read": 0.04,
           "input": 0.3,
-          "output": 1.2
+          "output": 1.1
         },
-        "max_output_tokens": 16384,
+        "max_output_tokens": 117964,
         "reasoning_efforts": [
           "low",
           "medium",
@@ -7542,6 +7722,46 @@
           "medium",
           "high",
           "xhigh"
+        ],
+        "supports_image_input": true,
+        "supports_pdf_input": true,
+        "supports_reasoning": true
+      },
+      "meta/muse-spark-1.3": {
+        "context_window": 1048576,
+        "cost": {
+          "cache_read": 0.15,
+          "input": 1.25,
+          "output": 4.25
+        },
+        "max_output_tokens": 943718,
+        "reasoning_efforts": [
+          "minimal",
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ],
+        "supports_image_input": true,
+        "supports_pdf_input": true,
+        "supports_reasoning": true
+      },
+      "meta/muse-spark-1.3-contributor": {
+        "context_window": 1048576,
+        "cost": {
+          "cache_read": 0.002,
+          "input": 0.1,
+          "output": 0.2
+        },
+        "max_output_tokens": 943718,
+        "reasoning_efforts": [
+          "minimal",
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
         ],
         "supports_image_input": true,
         "supports_pdf_input": true,
@@ -8138,11 +8358,11 @@
       "nvidia/nemotron-3-nano-30b-a3b": {
         "context_window": 262144,
         "cost": {
-          "cache_read": 0.025,
+          "cache_read": 0.03,
           "input": 0.05,
           "output": 0.2
         },
-        "max_output_tokens": 228000,
+        "max_output_tokens": 235929,
         "reasoning_efforts": [],
         "supports_image_input": false,
         "supports_pdf_input": false,
@@ -8193,11 +8413,11 @@
       "nvidia/nemotron-3-ultra-550b-a55b": {
         "context_window": 262144,
         "cost": {
-          "cache_read": 0.1,
-          "input": 0.5,
-          "output": 2.2
+          "cache_read": 0.1875,
+          "input": 0.625,
+          "output": 3.125
         },
-        "max_output_tokens": 16384,
+        "max_output_tokens": 32768,
         "reasoning_efforts": [
           "medium",
           "high"
@@ -8218,6 +8438,18 @@
           "high"
         ],
         "supports_image_input": false,
+        "supports_pdf_input": false,
+        "supports_reasoning": true
+      },
+      "nvidia/nemotron-3.5-content-safety": {
+        "context_window": 131072,
+        "cost": {
+          "input": 0.2,
+          "output": 0.2
+        },
+        "max_output_tokens": 117964,
+        "reasoning_efforts": [],
+        "supports_image_input": true,
         "supports_pdf_input": false,
         "supports_reasoning": true
       },
@@ -9044,6 +9276,64 @@
         "supports_pdf_input": true,
         "supports_reasoning": true
       },
+      "openai/gpt-6-astra": {
+        "context_window": 1050000,
+        "cost": {
+          "cache_read": 1,
+          "cache_write": 12.5,
+          "input": 10,
+          "output": 50,
+          "tiers": [
+            {
+              "cache_read": 2,
+              "cache_write": 25,
+              "input": 20,
+              "output": 75,
+              "size": 272000
+            }
+          ]
+        },
+        "max_output_tokens": 128000,
+        "reasoning_efforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ],
+        "supports_image_input": true,
+        "supports_pdf_input": true,
+        "supports_reasoning": true
+      },
+      "openai/gpt-6-astra-pro": {
+        "context_window": 1050000,
+        "cost": {
+          "cache_read": 1,
+          "cache_write": 12.5,
+          "input": 10,
+          "output": 50,
+          "tiers": [
+            {
+              "cache_read": 2,
+              "cache_write": 25,
+              "input": 20,
+              "output": 75,
+              "size": 272000
+            }
+          ]
+        },
+        "max_output_tokens": 128000,
+        "reasoning_efforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ],
+        "supports_image_input": true,
+        "supports_pdf_input": true,
+        "supports_reasoning": true
+      },
       "openai/gpt-audio": {
         "context_window": 128000,
         "cost": {
@@ -9485,10 +9775,11 @@
       "qwen/qwen2.5-vl-72b-instruct": {
         "context_window": 128000,
         "cost": {
-          "input": 0.25,
-          "output": 0.75
+          "cache_read": 0.4,
+          "input": 0.8,
+          "output": 1
         },
-        "max_output_tokens": 28800,
+        "max_output_tokens": 115200,
         "reasoning_efforts": null,
         "supports_image_input": true,
         "supports_pdf_input": false,
@@ -9521,11 +9812,10 @@
       "qwen/qwen3-235b-a22b-2507": {
         "context_window": 262144,
         "cost": {
-          "cache_read": 0.0175,
-          "input": 0.0875,
-          "output": 0.35
+          "input": 0.09,
+          "output": 0.55
         },
-        "max_output_tokens": 235929,
+        "max_output_tokens": 16384,
         "reasoning_efforts": null,
         "supports_image_input": false,
         "supports_pdf_input": false,
@@ -9892,11 +10182,10 @@
       "qwen/qwen3.5-35b-a3b": {
         "context_window": 262144,
         "cost": {
-          "cache_read": 0.25,
-          "input": 0.25,
-          "output": 1.25
+          "input": 0.08,
+          "output": 0.75
         },
-        "max_output_tokens": 235929,
+        "max_output_tokens": 16384,
         "reasoning_efforts": [],
         "supports_image_input": true,
         "supports_pdf_input": false,
@@ -9905,10 +10194,11 @@
       "qwen/qwen3.5-397b-a17b": {
         "context_window": 262144,
         "cost": {
-          "input": 0.39,
-          "output": 2.34
+          "cache_read": 0.225,
+          "input": 0.55,
+          "output": 3.5
         },
-        "max_output_tokens": 65536,
+        "max_output_tokens": 235929,
         "reasoning_efforts": [],
         "supports_image_input": true,
         "supports_pdf_input": false,
@@ -9981,11 +10271,11 @@
       "qwen/qwen3.6-27b": {
         "context_window": 262144,
         "cost": {
-          "cache_read": 0.12,
-          "input": 0.6,
-          "output": 3.6
+          "cache_read": 0.03,
+          "input": 0.3,
+          "output": 2
         },
-        "max_output_tokens": 235929,
+        "max_output_tokens": 65536,
         "reasoning_efforts": [],
         "supports_image_input": true,
         "supports_pdf_input": false,
@@ -10155,9 +10445,8 @@
         "context_window": 1000000,
         "cost": {
           "cache_read": 0.085,
-          "cache_write": 0.53125,
-          "input": 0.425,
-          "output": 2.55
+          "input": 0.42,
+          "output": 3
         },
         "max_output_tokens": 131072,
         "reasoning_efforts": [
@@ -10183,7 +10472,7 @@
         "supports_pdf_input": false,
         "supports_reasoning": true
       },
-      "qwen/qwen3.8-max": {
+      "qwen/qwen3.8-max-0902": {
         "context_window": 1000000,
         "cost": {
           "cache_read": 0.25,
@@ -10575,10 +10864,10 @@
       "undi95/remm-slerp-l2-13b": {
         "context_window": 6144,
         "cost": {
-          "input": 0.45,
+          "input": 0.35,
           "output": 0.65
         },
-        "max_output_tokens": 4096,
+        "max_output_tokens": 5529,
         "reasoning_efforts": null,
         "supports_image_input": false,
         "supports_pdf_input": false,
@@ -10835,11 +11124,11 @@
       "z-ai/glm-4.6": {
         "context_window": 204800,
         "cost": {
-          "cache_read": 0.08,
-          "input": 0.43,
-          "output": 1.75
+          "cache_read": 0.11,
+          "input": 0.55,
+          "output": 2.2
         },
-        "max_output_tokens": 16384,
+        "max_output_tokens": 131072,
         "reasoning_efforts": [],
         "supports_image_input": false,
         "supports_pdf_input": false,
@@ -10926,11 +11215,11 @@
       "z-ai/glm-5.2": {
         "context_window": 1048576,
         "cost": {
-          "cache_read": 0.221,
-          "input": 1.19,
-          "output": 3.74
+          "cache_read": 0.1932,
+          "input": 0.966,
+          "output": 3.036
         },
-        "max_output_tokens": 262144,
+        "max_output_tokens": 131072,
         "reasoning_efforts": [
           "high",
           "xhigh"
@@ -10957,11 +11246,11 @@
       "z-ai/glm-5.3": {
         "context_window": 1310720,
         "cost": {
-          "cache_read": 0.26,
+          "cache_read": 0.14,
           "input": 1.4,
           "output": 4.4
         },
-        "max_output_tokens": 131072,
+        "max_output_tokens": 262144,
         "reasoning_efforts": [
           "low",
           "high",
@@ -11004,7 +11293,7 @@
       "~anthropic/claude-fable-latest": {
         "context_window": 1000000,
         "cost": {
-          "cache_read": 1,
+          "cache_read": 0.25,
           "cache_write": 12.5,
           "input": 10,
           "output": 50
@@ -11078,11 +11367,11 @@
       "~deepseek/deepseek-v4-flash-latest": {
         "context_window": 1310720,
         "cost": {
-          "cache_read": 0.013,
-          "input": 0.05,
-          "output": 0.16
+          "cache_read": 0.009996,
+          "input": 0.04998,
+          "output": 0.09996
         },
-        "max_output_tokens": 393216,
+        "max_output_tokens": 131072,
         "reasoning_efforts": [
           "low",
           "high",
@@ -11230,14 +11519,31 @@
         "supports_pdf_input": true,
         "supports_reasoning": true
       },
+      "~z-ai/glm-flash-latest": {
+        "context_window": 1310720,
+        "cost": {
+          "cache_read": 0.015,
+          "input": 0.075,
+          "output": 0.25
+        },
+        "max_output_tokens": 943718,
+        "reasoning_efforts": [
+          "low",
+          "high",
+          "max"
+        ],
+        "supports_image_input": true,
+        "supports_pdf_input": false,
+        "supports_reasoning": true
+      },
       "~z-ai/glm-latest": {
         "context_window": 1310720,
         "cost": {
-          "cache_read": 0.234,
-          "input": 1.17,
-          "output": 3.96
+          "cache_read": 0.1,
+          "input": 1.15,
+          "output": 3.5
         },
-        "max_output_tokens": 943718,
+        "max_output_tokens": 235929,
         "reasoning_efforts": [
           "low",
           "high",
@@ -11416,7 +11722,7 @@
         "supports_reasoning": true
       },
       "grok-imagine-image": {
-        "context_window": 8000,
+        "context_window": 16000,
         "max_output_tokens": 0,
         "reasoning_efforts": null,
         "supports_image_input": true,
@@ -11424,7 +11730,7 @@
         "supports_reasoning": false
       },
       "grok-imagine-image-2.0": {
-        "context_window": 8000,
+        "context_window": 64000,
         "max_output_tokens": 0,
         "reasoning_efforts": null,
         "supports_image_input": true,
@@ -11432,7 +11738,7 @@
         "supports_reasoning": false
       },
       "grok-imagine-image-quality": {
-        "context_window": 8000,
+        "context_window": 16000,
         "max_output_tokens": 0,
         "reasoning_efforts": null,
         "supports_image_input": true,

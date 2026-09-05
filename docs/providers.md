@@ -135,9 +135,9 @@ Provider quirks:
 - API: OpenAI Responses API
 - Base URL: `https://api.openai.com/v1`
 - API key env: `OPENAI_API_KEY`
-- Default models: `gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna`
+- Default models: `gpt-6-astra`, `gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna`
 - `supports_reasoning_effort`: true (sent through `reasoning.effort`)
-- OpenAI recommends Responses API for GPT-5.6 reasoning/tool-calling/multi-turn use cases; GPT-5.6 defaults to `medium` effort and `low` is the recommended first step for latency-sensitive workloads
+- OpenAI recommends Responses API for reasoning/tool-calling/multi-turn use cases; GPT-6 Astra requires Responses for tool calling and does not support `none` effort. GPT-5.6 defaults to `medium` effort and `low` is the recommended first step for latency-sensitive workloads
 - Runs stateless: `store=false`, `include=["reasoning.encrypted_content"]`
 - When reasoning is enabled, requests `reasoning.summary=auto`; streams `response.reasoning_summary_text.delta` as canonical thinking and does not surface raw `response.reasoning_text.delta`
 - Final reasoning items use `summary` text for the canonical thinking block and retain full native output items for replay

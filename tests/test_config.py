@@ -534,7 +534,7 @@ class TestResolveProvider:
 
         assert resolved.provider_name == "openai"
         assert resolved.provider == "openai"
-        assert resolved.model == "gpt-5.6-sol"
+        assert resolved.model == "gpt-6-astra"
         assert resolved.api_key == "openai-env-key"
 
     def test_auto_discovery_prefers_configured_provider_with_credentials(
