@@ -66,7 +66,6 @@ Provider quirks:
 - `supports_reasoning_effort`: true
 - Default-on Claude 5 models and explicitly enabled thinking use adaptive summarized output; `none` disables thinking
 - Sends other explicit values unchanged through `output_config.effort`
-- Omits `temperature`; Anthropic-compatible providers use provider-default sampling
 - Replays same-model native `thinking` and `redacted_thinking` unchanged; legacy signature-only blocks remain supported
 - Adds ephemeral `cache_control` to system prompt block and last user content block
 - Tool call IDs projected to ASCII-safe format (letters, numbers, underscores, dashes, max 64 chars) with SHA1 collision suffix
@@ -80,7 +79,6 @@ Provider quirks:
 - API key env: `MOONSHOT_API_KEY`
 - Default models: `kimi-k3`, `kimi-k2.6`
 - `supports_reasoning_effort`: true; `none` disables thinking, while other explicit values use adaptive thinking and pass unchanged through `output_config.effort`
-- Omits `temperature`; Anthropic-compatible providers use provider-default sampling
 - Replays native thinking blocks unchanged across tool loops
 - Shares Anthropic-like ephemeral cache markers and tool call ID projection
 - Same image format as `anthropic`
@@ -94,7 +92,6 @@ Provider quirks:
 - Default models: `MiniMax-M3`
 - `supports_reasoning_effort`: false
 - `MiniMax-M3` uses adaptive thinking by default; MiniMax Anthropic endpoint does not support effort depth
-- Omits `temperature`; Anthropic-compatible providers use provider-default sampling
 - Replays native thinking blocks unchanged across tool loops
 - Shares Anthropic-like ephemeral cache markers and tool call ID projection
 - Same image format as `anthropic`

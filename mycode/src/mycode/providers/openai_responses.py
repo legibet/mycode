@@ -166,7 +166,6 @@ class OpenAIResponsesAdapter(ProviderAdapter):
             "include": ["reasoning.encrypted_content"],
             "prompt_cache_key": request.session_id or None,
             "max_output_tokens": request.max_tokens,
-            "temperature": request.temperature,
             "tools": [self._serialize_tool(tool) for tool in request.tools] or None,
             "tool_choice": "auto" if request.tools else None,
         }

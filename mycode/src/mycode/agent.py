@@ -210,7 +210,6 @@ class Agent:
         messages: list[ConversationMessage] | None = None,
         max_turns: int | None = None,
         max_tokens: int | None = None,
-        temperature: float = 1.0,
         request_timeout: float = DEFAULT_REQUEST_TIMEOUT,
         stream_start_timeout: float = 60.0,
         max_retries: int = 2,
@@ -258,16 +257,6 @@ class Agent:
         self.request_timeout = float(request_timeout)
         self.stream_start_timeout = float(stream_start_timeout)
         self.max_retries = int(max_retries)
-        if not 0 <= temperature <= 1:
-            raise ValueError("temperature must be between 0 and 1")
-        if (
-            provider in {"anthropic", "moonshotai", "minimax"}
-            and reasoning_effort
-            and reasoning_effort != "none"
-            and temperature != 1.0
-        ):
-            raise ValueError(f"{provider} does not support custom temperature when thinking is enabled")
-        self.temperature = float(temperature)
         self.compact_threshold = compact_threshold if compact_threshold is not None else DEFAULT_COMPACT_THRESHOLD
         self.reasoning_effort = reasoning_effort
         # Whether the endpoint accepts the effort knob. Comes from provider
@@ -704,7 +693,6 @@ class Agent:
             system=self.system,
             tools=self.tools.definitions if tools is None else tools,
             max_tokens=self.max_tokens if max_tokens is None else max_tokens,
-            temperature=self.temperature,
             api_key=self.api_key,
             api_base=self.api_base,
             reasoning_effort=reasoning_effort,

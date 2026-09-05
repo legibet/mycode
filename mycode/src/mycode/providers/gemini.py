@@ -305,7 +305,6 @@ class GoogleGeminiAdapter(ProviderAdapter):
         return types.GenerateContentConfig(
             system_instruction=request.system or None,
             max_output_tokens=request.max_tokens,
-            temperature=request.temperature,
             tools=tools,
             thinking_config=types.ThinkingConfig(
                 include_thoughts=True,

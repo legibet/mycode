@@ -70,7 +70,6 @@ class AnthropicLikeAdapter(ProviderAdapter):
             "max_tokens": request.max_tokens,
             "messages": messages,
         }
-        # Anthropic-compatible providers use provider-default sampling; temperature is intentionally omitted.
         if request.system:
             payload["system"] = [
                 {
