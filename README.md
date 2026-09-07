@@ -4,12 +4,6 @@
 
 A minimal coding agent.
 
-- Minimal (~10k lines) but complete.
-- Multiple provider support and robust message replay.
-- Built-in file and shell tools, plus configurable web access, expanded via skills.
-- Mobile-friendly web UI.
-- Native image and pdf input support.
-
 ## Quick Start
 
 Requires Python 3.12+. Install via [uv](https://docs.astral.sh/uv/):
