@@ -255,7 +255,8 @@ class OpenAIResponsesAdapter(ProviderAdapter):
         }
 
         replay_items: list[dict[str, Any]] = []
-        for item in cast(list[dict[str, Any]], deepcopy(output_items)):
+        for raw_item in output_items:
+            item = dict(raw_item)
             item_type = str(item.get("type") or "")
             item.pop("status", None)  # some gateways don't expect this field in input items
             if item_type != "reasoning":

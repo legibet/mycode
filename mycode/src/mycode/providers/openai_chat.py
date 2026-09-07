@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
+import dataclasses
 import json
 from collections.abc import AsyncIterator
-from dataclasses import dataclass
 from typing import Any, override
 
 import httpx2
@@ -33,13 +33,13 @@ from mycode.providers.base import (
 )
 
 
-@dataclass
+@dataclasses.dataclass
 class _ChatToolCallState:
     """Accumulate one streamed tool call from chat-completions deltas."""
 
     tool_id: str | None = None
     name: str = ""
-    arguments_text: str = ""
+    arguments_parts: list[str] = dataclasses.field(default_factory=list)
 
 
 def _normalize_finish_reason(raw_reason: str | None) -> CanonicalStopReason:
@@ -118,7 +118,9 @@ class OpenAIChatAdapter(ProviderAdapter):
 
                         for tool_call in delta.tool_calls or []:
                             index = tool_call.index or 0
-                            state = tool_calls.setdefault(index, _ChatToolCallState())
+                            if index not in tool_calls:
+                                tool_calls[index] = _ChatToolCallState()
+                            state = tool_calls[index]
                             if tool_call.id:
                                 state.tool_id = tool_call.id
                             function = tool_call.function
@@ -127,7 +129,7 @@ class OpenAIChatAdapter(ProviderAdapter):
                             if function.name:
                                 state.name = function.name
                             if function.arguments:
-                                state.arguments_text += function.arguments
+                                state.arguments_parts.append(function.arguments)
         except (APIError, httpx2.HTTPError) as exc:
             raise normalize_provider_error(exc, self.provider_id) from exc
 
@@ -144,7 +146,7 @@ class OpenAIChatAdapter(ProviderAdapter):
 
         for index in sorted(tool_calls):
             state = tool_calls[index]
-            tool_input, invalid_meta = parse_tool_call_input(state.arguments_text)
+            tool_input, invalid_meta = parse_tool_call_input("".join(state.arguments_parts))
             blocks.append(
                 tool_use_block(
                     tool_id=state.tool_id or f"tool_call_{index}",

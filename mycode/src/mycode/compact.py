@@ -74,15 +74,12 @@ def should_compact(
 def has_compactable_history(messages: list[ConversationMessage]) -> bool:
     """True when at least one non-empty user/assistant message follows the latest compact marker."""
 
-    last_compact = -1
-    for i, message in enumerate(messages):
+    for message in reversed(messages):
         if message.get("role") == "compact":
-            last_compact = i
-
-    return any(
-        message.get("role") in ("user", "assistant") and message.get("content")
-        for message in messages[last_compact + 1 :]
-    )
+            return False
+        if message.get("role") in ("user", "assistant") and message.get("content"):
+            return True
+    return False
 
 
 def build_compact_event(
@@ -116,12 +113,11 @@ def apply_compact_replay(
     Returns ``messages`` unchanged when no compact event is present.
     """
 
-    last_compact = -1
-    for i, message in enumerate(messages):
-        if message.get("role") == "compact":
+    for i in range(len(messages) - 1, -1, -1):
+        if messages[i].get("role") == "compact":
             last_compact = i
-
-    if last_compact < 0:
+            break
+    else:
         return messages
 
     summary_text = ""
@@ -130,7 +126,7 @@ def apply_compact_replay(
             summary_text = str(block.get("text") or "")
             break
 
-    tail = [m for m in messages[last_compact + 1 :] if m.get("role") != "compact"]
+    tail = messages[last_compact + 1 :]
     # No tail or assistant-led tail = mid-loop; resume directly. A user-led
     # tail needs an "Acknowledged." assistant turn to keep role alternation.
     continue_now = not tail or tail[0].get("role") == "assistant"

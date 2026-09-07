@@ -249,11 +249,7 @@ class ProviderAdapter(ABC):
                 message, request
             )
             projected_blocks: list[dict[str, Any]] = []
-            for raw_block in message.get("content") or []:
-                if not isinstance(raw_block, dict):
-                    continue
-
-                block = dict(raw_block)
+            for block in message["content"]:
                 if portable_replay:
                     if block.get("type") == "thinking":
                         projected_thinking = self._project_incompatible_thinking(block)
@@ -277,11 +273,10 @@ class ProviderAdapter(ABC):
 
                 projected_blocks.append(block)
 
-            projected_message = dict(message)
-            projected_message["content"] = projected_blocks
+            message["content"] = projected_blocks
             if portable_replay:
-                projected_message = _without_native_meta(projected_message)
-            prepared_messages.append(projected_message)
+                message = _without_native_meta(message)
+            prepared_messages.append(message)
 
         return prepared_messages
 

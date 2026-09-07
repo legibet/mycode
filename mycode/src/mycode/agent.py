@@ -34,8 +34,6 @@ from mycode.messages import (
     ConversationMessage,
     build_message,
     flatten_message_text,
-    text_block,
-    thinking_block,
     tool_result_block,
     user_text_message,
 )
@@ -73,7 +71,7 @@ class _ToolOutputBuffer:
         self._loop = loop
         self._event = asyncio.Event()
         self._lock = threading.Lock()
-        self._pending = ""
+        self._pending = bytearray()
         self._omitted = False
         self._finished = False
         self._notified = False
@@ -85,8 +83,11 @@ class _ToolOutputBuffer:
         with self._lock:
             if self._finished:
                 return
-            self._pending, truncated = self._bounded_tail(self._pending + delta)
-            self._omitted = self._omitted or truncated
+            self._pending.extend(delta.encode("utf-8"))
+            excess = len(self._pending) - _LIVE_OUTPUT_MAX_BYTES
+            if excess > 0:
+                del self._pending[:excess]
+                self._omitted = True
             if self._notified:
                 return
             self._notified = True
@@ -103,10 +104,10 @@ class _ToolOutputBuffer:
     async def get(self) -> str | None:
         await self._event.wait()
         with self._lock:
-            pending = self._pending
+            pending = self._pending.decode("utf-8", errors="ignore")
             omitted = self._omitted
             finished = self._finished
-            self._pending = ""
+            self._pending.clear()
             self._omitted = False
             self._notified = False
             self._event.clear()
@@ -125,13 +126,6 @@ class _ToolOutputBuffer:
         if pending:
             return pending
         return None if finished else ""
-
-    @staticmethod
-    def _bounded_tail(text: str) -> tuple[str, bool]:
-        encoded = text.encode("utf-8")
-        if len(encoded) <= _LIVE_OUTPUT_MAX_BYTES:
-            return text, False
-        return encoded[-_LIVE_OUTPUT_MAX_BYTES:].decode("utf-8", errors="ignore"), True
 
 
 @dataclass
@@ -355,14 +349,6 @@ class Agent:
     # Tool execution
     # ------------------------------------------------------------------
 
-    async def _execute_tool(
-        self,
-        spec: ToolSpec,
-        args: dict[str, Any],
-        ctx: ToolContext[Any],
-    ) -> ToolExecutionResult:
-        return await self.tools.aexecute(spec.name, args, ctx)
-
     async def _reject_tool_call(
         self,
         tool_use: dict[str, Any],
@@ -441,7 +427,7 @@ class Agent:
 
         try:
             ctx = self._ctx_for_call(tool_id)
-            task = asyncio.create_task(self._execute_tool(spec, args, ctx))
+            task = asyncio.create_task(self.tools.aexecute(spec.name, args, ctx))
             self._active_tool_task = task
             try:
                 result = await task
@@ -470,15 +456,8 @@ class Agent:
 
         output_buffer = _ToolOutputBuffer(asyncio.get_running_loop())
 
-        def on_output(delta: str) -> None:
-            output_buffer.append(delta)
-
-        ctx = self._ctx_for_call(tool_id, emit=on_output)
-
-        async def run_tool() -> ToolExecutionResult:
-            return await self._execute_tool(spec, args, ctx)
-
-        task = asyncio.create_task(run_tool())
+        ctx = self._ctx_for_call(tool_id, emit=output_buffer.append)
+        task = asyncio.create_task(self.tools.aexecute(spec.name, args, ctx))
         # The callback wakes the consumer even when cancellation happens
         # before the tool coroutine starts.
         task.add_done_callback(lambda _task: output_buffer.finish())
@@ -722,13 +701,14 @@ class Agent:
 
     def _partial_assistant_message(
         self,
-        partial_content: list[dict[str, Any]],
+        partial_blocks: list[tuple[str, list[str]]],
         duration_ms: int | None,
         *,
         stop_reason: str | None = None,
     ) -> ConversationMessage:
         """Build the assistant message persisted for an interrupted stream."""
 
+        partial_content = [{"type": block_type, "text": "".join(parts)} for block_type, parts in partial_blocks]
         if duration_ms is not None:
             self._stamp_thinking_duration(partial_content, duration_ms)
         meta: dict[str, Any] = {
@@ -738,7 +718,7 @@ class Agent:
         }
         if stop_reason:
             meta["stop_reason"] = stop_reason
-        return build_message("assistant", [dict(block) for block in partial_content], meta=meta)
+        return build_message("assistant", partial_content, meta=meta)
 
     def _usage_event(
         self,
@@ -801,9 +781,6 @@ class Agent:
     ) -> AsyncIterator[Event]:
         """Run the full agent loop for one user message."""
 
-        async def persist(message: ConversationMessage) -> None:
-            await self._persist_message(message, on_persist)
-
         self._event_loop = asyncio.get_running_loop()
         self._cancel_event.clear()
 
@@ -838,7 +815,7 @@ class Agent:
                 return
 
         self.messages.append(user_message)
-        await persist(user_message)
+        await self._persist_message(user_message, on_persist)
 
         adapter = get_provider_adapter(self.provider)
 
@@ -856,7 +833,7 @@ class Agent:
                 return
 
             assistant_message: ConversationMessage | None = None
-            partial_content: list[dict[str, Any]] = []
+            partial_blocks: list[tuple[str, list[str]]] = []
             thinking_started_at: float | None = None
             thinking_duration_ms: int | None = None
             provider_cancelled = False
@@ -877,10 +854,10 @@ class Agent:
                         if delta_text:
                             if thinking_started_at is None:
                                 thinking_started_at = time.monotonic()
-                            if partial_content and partial_content[-1].get("type") == "thinking":
-                                partial_content[-1]["text"] = f"{partial_content[-1].get('text') or ''}{delta_text}"
+                            if partial_blocks and partial_blocks[-1][0] == "thinking":
+                                partial_blocks[-1][1].append(delta_text)
                             else:
-                                partial_content.append(thinking_block(delta_text))
+                                partial_blocks.append(("thinking", [delta_text]))
                             yield Event("reasoning", {"delta": delta_text})
                         continue
 
@@ -890,10 +867,10 @@ class Agent:
                             if thinking_started_at is not None and thinking_duration_ms is None:
                                 thinking_duration_ms = self._elapsed_ms(thinking_started_at)
                                 yield Event("reasoning_done", {"duration_ms": thinking_duration_ms})
-                            if partial_content and partial_content[-1].get("type") == "text":
-                                partial_content[-1]["text"] = f"{partial_content[-1].get('text') or ''}{delta_text}"
+                            if partial_blocks and partial_blocks[-1][0] == "text":
+                                partial_blocks[-1][1].append(delta_text)
                             else:
-                                partial_content.append(text_block(delta_text))
+                                partial_blocks.append(("text", [delta_text]))
                             yield Event("text", {"delta": delta_text})
                         continue
 
@@ -912,31 +889,31 @@ class Agent:
                 provider_cancelled = True
             except Exception as exc:
                 logger.exception("Provider request failed")
-                if partial_content:
+                if partial_blocks:
                     # Output already reached the caller, so the attempt was not
                     # retried; keep the JSONL consistent with what was shown.
                     # stop_reason="error" excludes the partial from replay.
                     if thinking_started_at is not None and thinking_duration_ms is None:
                         thinking_duration_ms = self._elapsed_ms(thinking_started_at)
                     failed_message = self._partial_assistant_message(
-                        partial_content, thinking_duration_ms, stop_reason="error"
+                        partial_blocks, thinking_duration_ms, stop_reason="error"
                     )
                     self.messages.append(failed_message)
-                    await persist(failed_message)
+                    await self._persist_message(failed_message, on_persist)
                 yield Event("error", {"message": str(exc)})
                 return
 
             if provider_cancelled:
-                if partial_content:
+                if partial_blocks:
                     if thinking_started_at is not None and thinking_duration_ms is None:
                         thinking_duration_ms = self._elapsed_ms(thinking_started_at)
                     cancelled_message = self._partial_assistant_message(
-                        partial_content,
+                        partial_blocks,
                         thinking_duration_ms,
                         stop_reason="cancelled",
                     )
                     self.messages.append(cancelled_message)
-                    await persist(cancelled_message)
+                    await self._persist_message(cancelled_message, on_persist)
                 yield Event("error", {"message": "cancelled"})
                 return
 
@@ -950,7 +927,7 @@ class Agent:
             request_usage, request_cost = self._finalize_request_message(assistant_message)
 
             self.messages.append(assistant_message)
-            await persist(assistant_message)
+            await self._persist_message(assistant_message, on_persist)
 
             context_tokens = request_usage.get("total_tokens")
             turn_cost = _accumulate_usage(turn_usage, turn_cost, request_usage, request_cost)
@@ -1019,7 +996,7 @@ class Agent:
 
                 tool_result_message = build_message("user", tool_results)
                 self.messages.append(tool_result_message)
-                await persist(tool_result_message)
+                await self._persist_message(tool_result_message, on_persist)
 
             if self._cancel_event.is_set():
                 return
@@ -1066,15 +1043,17 @@ class Agent:
 
         async def collect() -> RunResult:
             result = RunResult()
+            text_parts: list[str] = []
             async for event in self.achat(user_input, attachments=attachments, on_persist=on_persist):
                 if event.type != "tool_output":
                     result.events.append(event)
                 if event.type == "text":
-                    result.text += str(event.data.get("delta") or "")
+                    text_parts.append(str(event.data.get("delta") or ""))
                 elif event.type == "usage":
                     result.usage = event.data
                 elif event.type == "error" and result.error is None:
                     result.error = str(event.data.get("message") or "")
+            result.text = "".join(text_parts)
             return result
 
         return asyncio.run(collect())

@@ -356,8 +356,9 @@ class GoogleGeminiAdapter(ProviderAdapter):
                 last_signature = last_part.get("thought_signature")
                 current_signature = native_part.get("thought_signature")
                 if not (last_signature and current_signature and last_signature != current_signature):
-                    blocks[-1]["text"] = f"{blocks[-1].get('text') or ''}{text}"
-                    last_part["text"] = f"{last_part.get('text') or ''}{text}"
+                    merged_text = f"{blocks[-1].get('text') or ''}{text}"
+                    blocks[-1]["text"] = merged_text
+                    last_part["text"] = merged_text
                     if current_signature and not last_signature:
                         last_part["thought_signature"] = current_signature
                     return event

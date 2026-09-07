@@ -211,5 +211,7 @@ def flatten_message_text(message: ConversationMessage, *, include_thinking: bool
             continue
         btype = block.get("type")
         if btype == "text" or (include_thinking and btype == "thinking"):
-            parts.append(str(block.get("text") or ""))
-    return " ".join(part.strip() for part in parts if part and part.strip()).strip()
+            text = str(block.get("text") or "").strip()
+            if text:
+                parts.append(text)
+    return " ".join(parts)
