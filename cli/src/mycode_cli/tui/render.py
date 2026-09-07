@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from collections import deque
 from datetime import datetime
 from typing import Any, ClassVar, override
 
@@ -357,7 +358,7 @@ class ReplyRenderer:
         self._context_window = context_window
         self._session_cost_base = session_cost_base
         self._live: Live | None = None
-        self._reasoning: list[str] = []
+        self._reasoning: deque[str] = deque(maxlen=31)
         self._text: list[str] = []
         self._text_started = False
         # Reasoning & stats
@@ -719,7 +720,7 @@ class ReplyRenderer:
         # Thinking in progress: show rolling preview of reasoning content.
         # Join only the tail to avoid O(full_length) work on every frame.
         if self._reasoning and not self._text:
-            tail = "".join(self._reasoning[-30:])
+            tail = "".join(list(self._reasoning)[-30:])
             content = " ".join(tail.split())
             if content:
                 preview = content[-80:].strip()

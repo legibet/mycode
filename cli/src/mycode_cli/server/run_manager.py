@@ -6,7 +6,7 @@ import asyncio
 import copy
 import time
 from collections.abc import AsyncGenerator, AsyncIterator, Awaitable, Callable
-from contextlib import asynccontextmanager, suppress
+from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from typing import Any, Literal, Protocol
 from uuid import uuid4
@@ -217,18 +217,21 @@ class RunManager:
         last_seq = max(0, after)
         while True:
             async with state.condition:
-                pending = [event for event in state.events if int(event.get("seq") or 0) > last_seq]
+                pending = []
+                for event in reversed(state.events):
+                    if event["seq"] <= last_seq:
+                        break
+                    pending.append(event)
+                pending.reverse()
                 finished = state.status != "running"
 
                 if not pending and not finished:
-                    # Wake on the next event or re-poll after the timeout; both just re-loop.
-                    with suppress(TimeoutError):
-                        await asyncio.wait_for(state.condition.wait(), timeout=0.5)
+                    await state.condition.wait()
                     continue
 
             for payload in pending:
                 yield payload
-                last_seq = int(payload.get("seq") or last_seq)
+                last_seq = payload["seq"]
 
             if finished:
                 break

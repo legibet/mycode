@@ -7,7 +7,7 @@ import os
 import sys
 from contextlib import suppress
 from dataclasses import dataclass, replace
-from typing import Annotated, Any, Literal
+from typing import TYPE_CHECKING, Annotated, Any, Literal
 from uuid import uuid4
 
 import typer
@@ -28,8 +28,9 @@ from mycode_cli.permissions import PERMISSION_DENIED_BY_USER_OUTPUT, PERMISSION_
 from mycode_cli.sessions import SessionStore
 
 from .runtime import build_agent
-from .tui.chat import TerminalChat
-from .tui.render import TerminalView
+
+if TYPE_CHECKING:
+    from .tui.render import TerminalView
 
 app = typer.Typer(add_completion=False, pretty_exceptions_enable=False)
 session_app = typer.Typer(help="Session management")
@@ -157,6 +158,8 @@ def _bootstrap(
 ) -> _BootstrapContext:
     """Shared setup for the chat and run commands."""
 
+    from .tui.render import TerminalView
+
     if session and continue_last:
         raise typer.BadParameter("--session and --continue are mutually exclusive")
 
@@ -243,6 +246,8 @@ def chat(
 
     if ctx.invoked_subcommand is not None:
         return
+
+    from .tui.chat import TerminalChat
 
     setup = _bootstrap(
         provider=provider,
@@ -342,6 +347,8 @@ def session_list(
     all_workspaces: Annotated[bool, typer.Option("--all", help="Show sessions from all workspaces")] = False,
 ) -> None:
     """List saved sessions."""
+
+    from .tui.render import TerminalView
 
     cwd = os.path.abspath(os.getcwd())
     store = SessionStore(data_dir=resolve_sessions_dir())

@@ -504,45 +504,37 @@ def get_settings(cwd: str | None = None) -> Settings:
         if resolved_path not in config_paths:
             config_paths.append(resolved_path)
 
-        for name, raw in (data.get("providers") or {}).items():
-            if not isinstance(name, str) or not isinstance(raw, dict):
-                continue
-
+        for name, raw in data.get("providers", {}).items():
             merged = dict(raw_providers.get(name, {}))
 
             if "type" in raw:
-                merged["type"] = raw.get("type") or "anthropic"
+                merged["type"] = raw["type"]
             if "models" in raw:
-                merged["models"] = raw.get("models")
+                merged["models"] = raw["models"]
             if "api_key" in raw:
-                api_key, api_key_env_var = _parse_config_api_key(raw.get("api_key"))
+                api_key, api_key_env_var = _parse_config_api_key(raw["api_key"])
                 merged["api_key"] = api_key
                 merged["api_key_env_var"] = api_key_env_var
             if "base_url" in raw:
-                merged["base_url"] = raw.get("base_url") or None
+                merged["base_url"] = raw["base_url"]
             if "supports_reasoning_effort" in raw:
-                merged["supports_reasoning_effort"] = raw.get("supports_reasoning_effort")
+                merged["supports_reasoning_effort"] = raw["supports_reasoning_effort"]
 
             raw_providers[name] = merged
 
-        default = data.get("default")
-        if isinstance(default, dict):
-            if "provider" in default:
-                v = default.get("provider")
-                default_provider = v if isinstance(v, str) else None
-            if "model" in default:
-                v = default.get("model")
-                default_model = v if isinstance(v, str) else None
-            if "compact_threshold" in default:
-                parsed_threshold = parse_compact_threshold(default.get("compact_threshold"))
-                if parsed_threshold is not None:
-                    compact_threshold = parsed_threshold
+        default = data.get("default", {})
+        if "provider" in default:
+            default_provider = default["provider"]
+        if "model" in default:
+            default_model = default["model"]
+        if "compact_threshold" in default:
+            compact_threshold = float(default["compact_threshold"])
 
         if "permission" in data:
             permission = parse_permission(data.get("permission"), permission)
 
-        if data.get("web") is not None:
-            web = _validate_web_config(data["web"])
+        if "web" in data:
+            web = data["web"]
             for key in ("fetch", "search"):
                 if key in web:
                     raw_web[key] = web[key]
@@ -768,14 +760,12 @@ def _available_provider_references(settings: Settings) -> list[str]:
 
     add(settings.default_provider)
 
-    for name, provider in settings.providers.items():
-        if provider_is_available(provider):
-            add(name)
+    for name in settings.providers:
+        add(name)
 
     for provider_id in list_env_discoverable_providers():
-        if provider_id in configured_types_with_credentials or not provider_api_key_from_env(provider_id):
-            continue
-        add(provider_id)
+        if provider_id not in configured_types_with_credentials:
+            add(provider_id)
 
     return available
 

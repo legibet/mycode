@@ -63,7 +63,7 @@ router = APIRouter()
 def _resolve_workspace_attachment_path(rel_path: str, *, cwd: str) -> Path:
     base = resolve_path(".", cwd=cwd)
     path = resolve_path(rel_path, cwd=cwd)
-    if base != path and not path.is_relative_to(base):
+    if not path.is_relative_to(base):
         raise HTTPException(status_code=400, detail=f"path outside workspace: {rel_path}")
     return path
 
@@ -97,7 +97,9 @@ async def _build_user_message(chat: ChatRequest, cwd: str) -> ConversationMessag
     for block in chat.input:
         if block.type == "text":
             if block.path:
-                blocks.extend(_read_workspace_text_attachment(block.path, name=block.name, cwd=cwd))
+                blocks.extend(
+                    await asyncio.to_thread(_read_workspace_text_attachment, block.path, name=block.name, cwd=cwd)
+                )
                 continue
             text = block.text or ""
             if block.is_attachment:

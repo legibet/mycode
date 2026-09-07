@@ -238,21 +238,21 @@ def _closest_line_hint(text: str, needle: str) -> str | None:
 def _normalize_text(text: str) -> tuple[str, list[int]]:
     """Normalize text while preserving a map back to original offsets."""
 
-    chars: list[str] = []
+    parts: list[str] = []
     imap: list[int] = []
     pos = 0
     for line in text.splitlines(keepends=True):
         content = line.rstrip("\r\n")
         trimmed = content.rstrip(" \t")
-        chars.extend(trimmed)
+        parts.append(trimmed)
         imap.extend(range(pos, pos + len(trimmed)))
         eol = line[len(content) :]
         if eol:
-            chars.append("\n")
+            parts.append("\n")
             imap.append(pos + len(content))
         pos += len(line)
 
-    return "".join(chars), imap
+    return "".join(parts), imap
 
 
 @tool(
@@ -362,10 +362,13 @@ def edit_tool(ctx: ToolContext[CliDeps], path: str, edits: list[EditEntry]) -> T
                 is_error=True,
             )
 
-    # Apply replacements back-to-front so earlier offsets stay valid.
-    updated = text
-    for start, end, new_text, _ in reversed(matches):
-        updated = updated[:start] + new_text + updated[end:]
+    parts: list[str] = []
+    cursor = 0
+    for start, end, new_text, _ in matches:
+        parts.extend((text[cursor:start], new_text))
+        cursor = end
+    parts.append(text[cursor:])
+    updated = "".join(parts)
 
     if updated == text:
         return ToolExecutionResult(output="error: edits produced no changes", is_error=True)
@@ -570,10 +573,6 @@ class _BashOutputAccumulator:
 
     def _trim_tail(self) -> None:
         encoded = self.tail_text.encode("utf-8")
-        if len(encoded) <= DEFAULT_MAX_BYTES * 2:
-            self.tail_bytes = len(encoded)
-            return
-
         start = len(encoded) - DEFAULT_MAX_BYTES * 2
         while start < len(encoded) and encoded[start] & 0xC0 == 0x80:
             start += 1

@@ -323,13 +323,14 @@ def discover_slash_skills(cwd: str) -> list[Skill]:
 def build_skill_snapshot_blocks(text: str, cwd: str) -> list[ContentBlock]:
     """Expand standalone ``/<skill-name>`` references in first-use order."""
 
+    names = [token[1:] for token in text.split() if token.startswith("/")]
+    if not names:
+        return []
+
     skills = {skill.name: skill for skill in discover_slash_skills(cwd)}
     blocks: list[ContentBlock] = []
     seen: set[str] = set()
-    for token in text.split():
-        if not token.startswith("/"):
-            continue
-        name = token[1:]
+    for name in names:
         skill = skills.get(name)
         if not skill or name in seen:
             continue

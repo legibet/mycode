@@ -6,7 +6,6 @@ import asyncio
 import re
 import shlex
 from collections.abc import Iterable
-from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, override
@@ -62,19 +61,18 @@ from .theme import ERROR, ERROR_MARKER, MUTED, PROMPT_CHAR, TERMINAL_THEME, TOOL
 
 _PROMPT = ANSI(f"\033[1m\033[34m{PROMPT_CHAR}\033[0m ")
 
-# (command, help usage, description) — the completer offers `command`, help prints `usage`.
 _COMMANDS = (
-    ("/clear", "/c, /clear", "Clear conversation"),
-    ("/compact", "/compact", "Compact conversation context"),
-    ("/new", "/new", "New session"),
-    ("/resume", "/resume", "Switch session"),
-    ("/rewind", "/rewind", "Rewind to a previous message"),
-    ("/provider", "/provider [name]", "Switch provider"),
-    ("/model", "/model [name]", "Switch model"),
-    ("/effort", "/effort [level]", "Set reasoning effort"),
-    ("/q", "/q", "Quit"),
+    ("/clear", "Clear conversation"),
+    ("/compact", "Compact conversation context"),
+    ("/new", "New session"),
+    ("/resume", "Switch session"),
+    ("/rewind", "Rewind to a previous message"),
+    ("/provider", "Switch provider"),
+    ("/model", "Switch model"),
+    ("/effort", "Set reasoning effort"),
+    ("/q", "Quit"),
 )
-_SLASH_COMMANDS = tuple(command for command, _, _ in _COMMANDS)
+_SLASH_COMMANDS = tuple(command for command, _ in _COMMANDS)
 # Only treat `@path` as a reference when it starts a standalone token.
 _AT_PATH_RE = re.compile(r"""(?<!\S)@(?:'(?P<single>[^']*)'?$|"(?P<double>[^"]*)"?$|(?P<plain>[^\s'"]*))$""")
 _SKILL_TOKEN_RE = re.compile(r"(?<!\S)/(?P<name>[a-zA-Z0-9_-]*)$")
@@ -151,7 +149,7 @@ class _PromptCompleter(Completer):
 
         text = text_before_cursor.lstrip()
         if re.fullmatch(r"/\S*", text):
-            for cmd, _usage, desc in _COMMANDS:
+            for cmd, desc in _COMMANDS:
                 if cmd.startswith(text):
                     yield Completion(cmd, start_position=-len(text), display_meta=desc)
 
@@ -195,10 +193,9 @@ class _PromptCompleter(Completer):
 
         if not base_dir.is_dir():
             return
-        for entry in sorted(base_dir.iterdir(), key=lambda item: (not item.is_dir(), item.name.lower())):
-            if partial and not entry.name.startswith(partial):
-                continue
-            candidate = f"{base_prefix}{entry.name}{'/' if entry.is_dir() else ''}"
+        entries = [(entry, entry.is_dir()) for entry in base_dir.iterdir() if entry.name.startswith(partial)]
+        for entry, is_dir in sorted(entries, key=lambda item: (not item[1], item[0].name.lower())):
+            candidate = f"{base_prefix}{entry.name}{'/' if is_dir else ''}"
             if quote:
                 replacement = f"@{quote}{candidate}{quote}"
             elif any(ch.isspace() for ch in candidate):
@@ -209,7 +206,7 @@ class _PromptCompleter(Completer):
                 replacement,
                 start_position=-len(match.group(0)),
                 display="@" + candidate,
-                display_meta="dir" if entry.is_dir() else "file",
+                display_meta="dir" if is_dir else "file",
             )
 
 
@@ -332,7 +329,6 @@ class ProviderOption:
     name: str
     provider: str
     models: tuple[str, ...]
-    api_base: str | None
 
 
 def clone_agent(agent: Agent, *, store: SessionStore, session_id: str, cwd: str) -> Agent:
@@ -376,7 +372,6 @@ def list_provider_options(settings: Settings) -> list[ProviderOption]:
                 name=name,
                 provider=config.type,
                 models=tuple(config.models),
-                api_base=config.base_url,
             )
         )
         if provider_is_available(config):
@@ -390,7 +385,6 @@ def list_provider_options(settings: Settings) -> list[ProviderOption]:
                 name=provider_name,
                 provider=provider_name,
                 models=provider_default_models(provider_name),
-                api_base=None,
             )
         )
 
@@ -548,11 +542,10 @@ class TerminalChat:
             except (KeyboardInterrupt, asyncio.CancelledError):
                 self.agent.cancel()
                 renderer.cancel()
-                # Python 3.11+: uncancel the task so the loop can continue after Ctrl+C.
+                # Uncancel the task so the loop can continue after Ctrl+C.
                 task = asyncio.current_task()
                 if task is not None:
-                    with suppress(AttributeError):
-                        task.uncancel()
+                    task.uncancel()
             finally:
                 self._current_renderer = None
 
@@ -655,14 +648,6 @@ class TerminalChat:
 
         return True
 
-    def _print_help(self) -> None:
-        self.view.console.print()
-        for _command, usage, desc in _COMMANDS:
-            line = Text()
-            line.append(f"  {usage:<20}", style="bold")
-            line.append(desc, style=MUTED)
-            self.view.console.print(line)
-
     def _print_runtime_status(self, action: str, value: str, *, changed: bool) -> None:
         """Print the result of a runtime-only change."""
 
@@ -690,11 +675,10 @@ class TerminalChat:
             return
         except (KeyboardInterrupt, asyncio.CancelledError):
             self.agent.cancel()
-            # Python 3.11+: uncancel the task so the loop can continue after Ctrl+C.
+            # Uncancel the task so the loop can continue after Ctrl+C.
             task = asyncio.current_task()
             if task is not None:
-                with suppress(AttributeError):
-                    task.uncancel()
+                task.uncancel()
             self.view.console.print(Text("cancelled", style=MUTED))
             return
         except Exception as exc:
@@ -815,7 +799,7 @@ class TerminalChat:
         """Prompt for a configured provider and apply it to the active agent."""
 
         options = list_provider_options(self.settings)
-        current = get_provider_option(self.settings, provider_name=self.provider_name)
+        current = next((option for option in options if option.name == self.provider_name), None)
 
         choices: list[tuple[str, str]] = []
         for option in options:
@@ -919,10 +903,7 @@ class TerminalChat:
 
     def _restore_effort(self) -> None:
         saved = self.effort_preferences.get(self._effort_key())
-        if saved is None:
-            self.agent.reasoning_effort = None
-            return
-        if saved == "auto":
+        if saved is None or saved == "auto":
             self.agent.reasoning_effort = None
             return
         if self.agent.supports_reasoning_effort and saved in self.reasoning_efforts:

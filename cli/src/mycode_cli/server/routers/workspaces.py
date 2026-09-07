@@ -121,7 +121,7 @@ def list_workspace_files(
 
     target = (base / dir).resolve(strict=False)
     # Reject traversal outside cwd after resolving symlinks.
-    if target != base and not target.is_relative_to(base):
+    if not target.is_relative_to(base):
         return {"entries": [], "truncated": False, "error": "path outside workspace"}
     if not target.is_dir():
         return {"entries": [], "truncated": False, "error": "not a directory"}
@@ -133,7 +133,7 @@ def list_workspace_files(
                 continue
             try:
                 resolved = entry.resolve()
-                if resolved != base and not resolved.is_relative_to(base):
+                if not resolved.is_relative_to(base):
                     continue
                 is_dir = entry.is_dir()
             except OSError:

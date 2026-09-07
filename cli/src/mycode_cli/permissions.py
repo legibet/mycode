@@ -13,7 +13,6 @@ from mycode_cli.config import PermissionConfig, PermissionLevel, Settings
 from mycode_cli.system_prompt import discover_skills
 from mycode_cli.workspace import CliDeps, resolve_path
 
-PermissionTier = Literal["readonly", "safe", "standard", "yolo"]
 PermissionDecision = Literal["allow", "ask", "deny"]
 ToolReviewDecision = Literal["allow", "deny"]
 
@@ -54,7 +53,7 @@ _FIND_DANGEROUS_FLAGS = {
 
 
 class PermissionCheck(NamedTuple):
-    tier: PermissionTier
+    tier: PermissionLevel
     preview: str
 
 
@@ -102,10 +101,8 @@ def build_permission_hooks(
     return hooks
 
 
-def permission_decision(permission: PermissionConfig, tier: PermissionTier) -> PermissionDecision:
-    if permission.level == "yolo":
-        return "allow"
-    if tier != "yolo" and _LEVEL_RANK[tier] <= _LEVEL_RANK[permission.level]:
+def permission_decision(permission: PermissionConfig, tier: PermissionLevel) -> PermissionDecision:
+    if _LEVEL_RANK[tier] <= _LEVEL_RANK[permission.level]:
         return "allow"
     return permission.mode
 
@@ -147,7 +144,7 @@ def classify_tool(
     return PermissionCheck("yolo", ctx.tool_name)
 
 
-def _classify_bash(command: str) -> PermissionTier:
+def _classify_bash(command: str) -> PermissionLevel:
     if not command:
         return "yolo"
     # Newlines and shell expansion bypass static analysis; treat as compound.
