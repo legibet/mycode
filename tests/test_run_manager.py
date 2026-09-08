@@ -7,8 +7,10 @@ from typing import override
 
 import pytest
 
+from mycode import Agent, tool
 from mycode.agent import Event
 from mycode.messages import ConversationMessage
+from mycode.providers.base import ProviderStreamEvent
 from mycode_cli.server.run_manager import ActiveRunError, RunManager, RunState
 
 pytestmark = pytest.mark.asyncio
@@ -456,25 +458,61 @@ class CleanupAgent(ChatOnlyAgent):
         yield Event("error", {"message": "cancelled"})
 
 
-async def test_cancel_request_interruption_does_not_interrupt_run_cleanup() -> None:
+async def test_shutdown_preserves_tool_cleanup_after_cancel_request_is_interrupted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    started = asyncio.Event()
+    cleaning_up = asyncio.Event()
+    release_cleanup = asyncio.Event()
+    cleaned_up = False
+
+    @tool
+    async def wait_tool() -> str:
+        """Wait for cancellation and release resources."""
+        nonlocal cleaned_up
+        started.set()
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            cleaning_up.set()
+            await release_cleanup.wait()
+            cleaned_up = True
+        return "cleaned up"
+
+    class ToolAdapter:
+        async def stream_turn(self, request):
+            yield ProviderStreamEvent(
+                "message_done",
+                {
+                    "message": {
+                        "role": "assistant",
+                        "content": [{"type": "tool_use", "id": "call-1", "name": "wait_tool", "input": {}}],
+                        "meta": {"stop_reason": "tool_use"},
+                    }
+                },
+            )
+
+    monkeypatch.setattr("mycode.agent.get_provider_adapter", lambda _: ToolAdapter())
     manager = RunManager()
-    agent = CleanupAgent()
+    agent = Agent(provider="anthropic", model="test-model", api_key="test-key", tools=[wait_tool])
     run = await manager.start_run(session_id="s1", user_message={"role": "user"}, base_messages=[], agent=agent)
-    await asyncio.wait_for(agent.started.wait(), 2)
+    await asyncio.wait_for(started.wait(), 2)
     request = asyncio.create_task(manager.cancel_run(run["id"]))
-    await asyncio.wait_for(agent.cleaning_up.wait(), 2)
+    await asyncio.wait_for(cleaning_up.wait(), 2)
     request.cancel()
     with pytest.raises(asyncio.CancelledError):
         await request
     state = await manager.get_run(run["id"])
     assert state is not None
     assert state.task is not None
+    closing = asyncio.create_task(manager.aclose())
     try:
+        await asyncio.sleep(0)
         assert not state.task.done()
     finally:
-        agent.release_cleanup.set()
-        await state.task
-    assert agent.cleaned_up
+        release_cleanup.set()
+        await asyncio.wait_for(closing, 2)
+    assert cleaned_up
     assert state.status == "cancelled"
 
 
@@ -565,6 +603,7 @@ class CompactAgent:
     def __init__(self) -> None:
         self.cancelled = False
         self.compacted = False
+        self.started = asyncio.Event()
         self.release = asyncio.Event()
 
     def cancel(self) -> None:
@@ -577,6 +616,7 @@ class CompactAgent:
         yield  # unreached; makes this an async generator
 
     async def acompact(self) -> ConversationMessage:
+        self.started.set()
         await self.release.wait()
         if self.cancelled:
             raise asyncio.CancelledError
@@ -656,6 +696,7 @@ async def test_compact_run_cancellation_emits_no_compact_event() -> None:
     agent = CompactAgent()
 
     run = await manager.start_compact(session_id="session-1", base_messages=[], agent=agent, session_cost_base=0.4)
+    await asyncio.wait_for(agent.started.wait(), 2)
     cancelled = await manager.cancel_run(run["id"])
     assert cancelled is not None
     assert cancelled["status"] == "cancelled"

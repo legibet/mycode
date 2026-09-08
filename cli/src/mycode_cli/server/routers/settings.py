@@ -169,14 +169,15 @@ def put_settings_endpoint(payload: SettingsRequest) -> dict[str, Any]:
     # existing literal forward so secrets survive a save without round-tripping.
     existing_providers = existing.get("providers") or {}
     incoming_providers = incoming.get("providers")
-    for name, entry in incoming_providers.items() if isinstance(incoming_providers, dict) else ():
-        if not isinstance(entry, dict) or entry.get("api_key") is not None:
-            continue
-        prior = existing_providers.get(name) if isinstance(existing_providers, dict) else None
-        if isinstance(prior, dict) and "api_key" in prior:
-            entry["api_key"] = prior["api_key"]
-        else:
-            entry.pop("api_key", None)
+    if isinstance(incoming_providers, dict):
+        for name, entry in incoming_providers.items():
+            if not isinstance(entry, dict) or entry.get("api_key") is not None:
+                continue
+            prior = existing_providers.get(name) if isinstance(existing_providers, dict) else None
+            if isinstance(prior, dict) and "api_key" in prior:
+                entry["api_key"] = prior["api_key"]
+            else:
+                entry.pop("api_key", None)
 
     existing_web = existing.get("web") or {}
     incoming_web = incoming.get("web") or {}

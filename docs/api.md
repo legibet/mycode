@@ -6,9 +6,9 @@ Base prefix: `/api`. All endpoints are defined in `cli/src/mycode_cli/server/rou
 
 `mycode web` serves packaged static assets and does not enable CORS. `mycode web --dev` starts the API-only app for Vite development and allows only `http://localhost:5173` and `http://127.0.0.1:5173`.
 
-Each application lifespan owns its session store and run manager. Importing the application does not configure logging; `mycode web` supplies the logging configuration to Uvicorn, including reload workers.
+Each application lifespan owns its session store and run manager. `mycode web` configures Uvicorn logging, including reload workers; importing the app leaves logging unchanged.
 
-On exit, Uvicorn stops accepting connections and drains HTTP requests up to the `timeout_graceful_shutdown` configured in `main.py::web()`, then cancels remaining requests, including SSE. Lifespan shutdown cancels and awaits owned runs, allowing their persistence and tool cleanup to finish. The HTTP drain timeout does not bound run cleanup or the lifetime of synchronous tool threads; see the SDK cancellation contract in `docs/sdk.md`.
+On exit, Uvicorn drains requests up to `timeout_graceful_shutdown` in `main.py::web()`, then cancels remaining requests, including SSE. Lifespan shutdown calls `RunManager.aclose()`. The drain timeout does not bound run cleanup; synchronous tools follow [SDK cancellation semantics](sdk.md#cancellation).
 
 ## Chat
 
@@ -311,9 +311,9 @@ Load session with full message history. If the session has an active run, overla
 
 `pending_events` contains the active run's buffered SSE events. The web UI reapplies them, then reconnects with `after=<last seq>`.
 
-For an idle session, `messages` and `session_cost` are derived from one raw JSONL read. Cost sums persisted `meta.cost.total` values, including tool loops, compaction, and rewound turns. Records without cost are skipped; the total is `null` only when no cost is known.
+For idle sessions, `messages` and `session_cost` come from one raw timeline read. Cost includes tool loops, compaction, and rewound turns; unpriced records are skipped. `null` means no cost is known.
 
-For an active run, history, pending events, and the latest known cost come from one in-memory snapshot; only catalog metadata is read from disk. The run retains its current cost even when older usage events are evicted. Subsequent `usage` SSE events update that value. Session loading is serialized with run starts, clear, and delete; a snapshot taken before a run finishes remains valid for replaying its remaining SSE events.
+For active runs, history, pending events, and current cost come from one in-memory snapshot. Cost survives usage-event eviction and is updated by subsequent SSE usage events. Loading is serialized with run starts, clear, and delete.
 
 Assistant and compact messages return their persisted per-request `meta.usage` and `meta.cost` unchanged.
 
@@ -415,7 +415,7 @@ Every event also carries `seq: int` for reconnect support. The web UI uses `afte
 - Compact runs carry no `user_message`; snapshots return `base_messages` unchanged
 - `RunState` tracks a bounded reconnect event buffer and condition variable for streaming
 - Explicit permission `deny` marks the run as cancelled and calls `agent.cancel()`
-- `cancel_run()` waits for the agent task to finish before returning the final run info; cancellation of the HTTP request does not interrupt the run's cleanup
-- `aclose()` cancels all unfinished runs, waits for cleanup, and releases the reconnect cache at application shutdown
+- `cancel_run()` requests cancellation once and waits for completion; repeated requests and HTTP disconnection do not interrupt cleanup
+- `aclose()` cancels unfinished runs, awaits their cleanup, and releases cached state
 - Finished runs pruned after 300 seconds (`FINISHED_RUN_TTL_SECONDS`)
 - `snapshot_session()` returns reconnect data (base messages, buffered events, and current cost) for active runs

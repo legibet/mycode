@@ -61,8 +61,7 @@ class RunState:
     agent: RunAgent
     kind: RunKind = "chat"
     user_message: ConversationMessage | None = None
-    # Session cost before this run (folded from the session JSONL by the chat
-    # router); None means unknown. Composed with each usage event's turn cost.
+    # Fixed history cost, combined with cumulative turn costs on each update.
     session_cost_base: float | None = None
     session_cost: float | None = None
     on_complete: RunCompletionCallback | None = None
@@ -255,6 +254,9 @@ class RunManager:
         return state.info()
 
     def _request_cancel(self, state: RunState) -> None:
+        # Repeated task.cancel() can interrupt a tool's cancellation cleanup.
+        if state.cancel_requested or state.status != "running":
+            return
         state.cancel_requested = True
         state.agent.cancel()
         for fut in state.pending_decisions.values():
@@ -316,8 +318,7 @@ class RunManager:
         try:
             decision = await future
             if decision == "deny":
-                state.cancel_requested = True
-                state.agent.cancel()
+                self._request_cancel(state)
             return decision
         except asyncio.CancelledError:
             # Treat cancellation as deny so the agent loop unwinds via its own cancel check.
