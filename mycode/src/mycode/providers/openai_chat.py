@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-import dataclasses
 import json
 from collections.abc import AsyncIterator
+from dataclasses import dataclass, field
 from typing import Any, override
 
 import httpx2
-from openai import APIError, AsyncOpenAI
 
 from mycode.messages import (
     ConversationMessage,
@@ -33,13 +32,13 @@ from mycode.providers.base import (
 )
 
 
-@dataclasses.dataclass
+@dataclass
 class _ChatToolCallState:
     """Accumulate one streamed tool call from chat-completions deltas."""
 
     tool_id: str | None = None
     name: str = ""
-    arguments_parts: list[str] = dataclasses.field(default_factory=list)
+    arguments_parts: list[str] = field(default_factory=list)
 
 
 def _normalize_finish_reason(raw_reason: str | None) -> CanonicalStopReason:
@@ -65,6 +64,8 @@ class OpenAIChatAdapter(ProviderAdapter):
 
     @override
     async def stream_turn(self, request: ProviderRequest) -> AsyncIterator[ProviderStreamEvent]:
+        from openai import APIError, AsyncOpenAI
+
         api_key = self.require_api_key(request.api_key)
 
         tool_calls: dict[int, _ChatToolCallState] = {}
@@ -343,17 +344,17 @@ class OpenAIChatAdapter(ProviderAdapter):
         # Known fields: reasoning, reasoning_content, reasoning_details.
         values: dict[str, Any] = {}
         for source in (delta, getattr(delta, "model_extra", None) or {}):
-            for field in ("reasoning", "reasoning_content", "reasoning_details"):
-                if field in values:
+            for name in ("reasoning", "reasoning_content", "reasoning_details"):
+                if name in values:
                     continue
                 if isinstance(source, dict):
-                    if field not in source:
+                    if name not in source:
                         continue
-                    values[field] = source[field]
+                    values[name] = source[name]
                     continue
-                value = getattr(source, field, None)
+                value = getattr(source, name, None)
                 if value is not None:
-                    values[field] = value
+                    values[name] = value
 
         raw_details = dump_model(values.get("reasoning_details"))
         details = [item for item in raw_details if isinstance(item, dict)] if isinstance(raw_details, list) else None
@@ -362,14 +363,14 @@ class OpenAIChatAdapter(ProviderAdapter):
             stored_details.extend(details)
             native_meta["reasoning_field"] = "reasoning_details"
         elif native_meta.get("reasoning_field") != "reasoning_details":
-            for field in ("reasoning", "reasoning_content"):
-                if field in values:
-                    native_meta["reasoning_field"] = field
+            for name in ("reasoning", "reasoning_content"):
+                if name in values:
+                    native_meta["reasoning_field"] = name
                     break
 
         text = ""
-        for field in ("reasoning", "reasoning_content"):
-            value = values.get(field)
+        for name in ("reasoning", "reasoning_content"):
+            value = values.get(name)
             if isinstance(value, str):
                 text = value
                 break

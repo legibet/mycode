@@ -8,7 +8,6 @@ from copy import deepcopy
 from typing import Any, cast, override
 
 import httpx2
-from openai import APIError, AsyncOpenAI
 
 from mycode.messages import (
     ConversationMessage,
@@ -63,6 +62,8 @@ class OpenAIResponsesAdapter(ProviderAdapter):
 
     @override
     async def stream_turn(self, request: ProviderRequest) -> AsyncIterator[ProviderStreamEvent]:
+        from openai import APIError, AsyncOpenAI
+
         api_key = self.require_api_key(request.api_key)
 
         payload = self._build_request_payload(request)

@@ -4,13 +4,10 @@ from __future__ import annotations
 
 import os
 from collections.abc import AsyncIterator
-from typing import Any, override
+from typing import TYPE_CHECKING, Any, override
 from urllib.parse import urlparse
 
 import httpx2
-from google import genai
-from google.genai import types
-from google.genai.errors import APIError
 
 from mycode.messages import assistant_message, build_usage, text_block, thinking_block, tool_use_block
 from mycode.providers.base import (
@@ -23,6 +20,10 @@ from mycode.providers.base import (
     load_image_block_payload,
     normalize_provider_error,
 )
+
+if TYPE_CHECKING:
+    from google import genai
+    from google.genai import types
 
 _DUMMY_THOUGHT_SIGNATURE = "skip_thought_signature_validator"
 
@@ -81,6 +82,8 @@ class GoogleGeminiAdapter(ProviderAdapter):
 
     @override
     async def stream_turn(self, request: ProviderRequest) -> AsyncIterator[ProviderStreamEvent]:
+        from google.genai.errors import APIError
+
         blocks: list[dict[str, Any]] = []
         response_id: str | None = None
         finish_reason: str | None = None
@@ -160,10 +163,14 @@ class GoogleGeminiAdapter(ProviderAdapter):
         request: ProviderRequest,
         http_options: types.HttpOptions,
     ) -> genai.Client:
+        from google import genai
+
         api_key = self.require_api_key(request.api_key)
         return genai.Client(api_key=api_key, http_options=http_options)
 
     def _http_options(self, request: ProviderRequest) -> types.HttpOptions:
+        from google.genai import types
+
         base_url = self.resolve_base_url(request.api_base)
         api_version = "v1beta"
         if base_url and urlparse(base_url).path.rstrip("/").lower().endswith(("/v1", "/v1beta")):
@@ -285,6 +292,8 @@ class GoogleGeminiAdapter(ProviderAdapter):
         return contents
 
     def _build_config(self, request: ProviderRequest) -> types.GenerateContentConfig:
+        from google.genai import types
+
         tools: list[types.Tool] | None = None
         if request.tools:
             tools = [
@@ -388,6 +397,8 @@ class GoogleVertexAdapter(GoogleGeminiAdapter):
         request: ProviderRequest,
         http_options: types.HttpOptions,
     ) -> genai.Client:
+        from google import genai
+
         api_key = (request.api_key or "").strip() or self.api_key_from_env()
         project = (os.environ.get("GOOGLE_CLOUD_PROJECT") or "").strip() or None
         location = (os.environ.get("GOOGLE_CLOUD_LOCATION") or "").strip() or None
@@ -406,6 +417,8 @@ class GoogleVertexAdapter(GoogleGeminiAdapter):
 
     @override
     def _http_options(self, request: ProviderRequest) -> types.HttpOptions:
+        from google.genai import types
+
         # The SDK builds Agent Platform URLs from the auth mode and location; only
         # an explicit api_base override is passed through, with no forced api_version.
         return types.HttpOptions(

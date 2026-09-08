@@ -90,17 +90,17 @@ def _stream_mock(items: list[Any], *, final_message: Any = None) -> MagicMock:
     [
         pytest.param(
             OpenAIResponsesAdapter(),
-            "mycode.providers.openai_responses.AsyncOpenAI",
+            "openai.AsyncOpenAI",
             id="openai-responses",
         ),
         pytest.param(
             OpenAIChatAdapter(),
-            "mycode.providers.openai_chat.AsyncOpenAI",
+            "openai.AsyncOpenAI",
             id="openai-chat",
         ),
         pytest.param(
             AnthropicAdapter(),
-            "mycode.providers.anthropic_like.AsyncAnthropic",
+            "anthropic.AsyncAnthropic",
             id="anthropic",
         ),
     ],
@@ -463,7 +463,7 @@ async def test_openai_responses_replays_foreign_thinking_as_assistant_text(
             ]
         )
     )
-    monkeypatch.setattr("mycode.providers.openai_responses.AsyncOpenAI", lambda **_kwargs: client)
+    monkeypatch.setattr("openai.AsyncOpenAI", lambda **_kwargs: client)
 
     _ = [
         event
@@ -528,7 +528,7 @@ async def test_openai_responses_classifies_stream_failures(
             ]
         )
     )
-    monkeypatch.setattr("mycode.providers.openai_responses.AsyncOpenAI", lambda **_kwargs: client)
+    monkeypatch.setattr("openai.AsyncOpenAI", lambda **_kwargs: client)
 
     with pytest.raises(ProviderError) as caught:
         async for _ in OpenAIResponsesAdapter().stream_turn(request_obj(api_key="test-key")):
@@ -681,7 +681,7 @@ async def test_openai_responses_handles_incomplete_stream(monkeypatch: pytest.Mo
     )
     client = _async_context_mock()
     client.responses.create = AsyncMock(return_value=stream)
-    monkeypatch.setattr("mycode.providers.openai_responses.AsyncOpenAI", lambda **_kwargs: client)
+    monkeypatch.setattr("openai.AsyncOpenAI", lambda **_kwargs: client)
 
     events = [event async for event in OpenAIResponsesAdapter().stream_turn(request_obj(api_key="k", model="gpt-5.4"))]
 
@@ -965,7 +965,7 @@ async def test_google_vertex_passes_resolved_auth_to_the_sdk(
     client = MagicMock()
     client.aio.models.generate_content_stream = AsyncMock(return_value=_stream_mock([]))
     client_factory = MagicMock(return_value=client)
-    monkeypatch.setattr("mycode.providers.gemini.genai.Client", client_factory)
+    monkeypatch.setattr("google.genai.Client", client_factory)
 
     _ = [event async for event in GoogleVertexAdapter().stream_turn(request_obj(api_key=request_key))]
 
@@ -980,7 +980,7 @@ async def test_google_vertex_requires_an_api_key_or_project(monkeypatch: pytest.
         monkeypatch.delenv(env_name, raising=False)
     monkeypatch.setenv("GEMINI_API_KEY", "must-not-leak")
     client_factory = MagicMock()
-    monkeypatch.setattr("mycode.providers.gemini.genai.Client", client_factory)
+    monkeypatch.setattr("google.genai.Client", client_factory)
 
     with pytest.raises(ValueError, match="GOOGLE_CLOUD_API_KEY.*GOOGLE_CLOUD_PROJECT"):
         _ = [event async for event in GoogleVertexAdapter().stream_turn(request_obj())]
@@ -999,7 +999,7 @@ async def test_google_vertex_leaves_url_construction_to_the_sdk(
     client = MagicMock()
     client.aio.models.generate_content_stream = AsyncMock(return_value=_stream_mock([]))
     client_factory = MagicMock(return_value=client)
-    monkeypatch.setattr("mycode.providers.gemini.genai.Client", client_factory)
+    monkeypatch.setattr("google.genai.Client", client_factory)
 
     _ = [event async for event in GoogleVertexAdapter().stream_turn(request_obj(api_base=api_base))]
 
@@ -1023,7 +1023,7 @@ async def test_google_uses_httpx2_clients_with_agent_owned_timeout_and_retries(
     client = MagicMock()
     client.aio.models.generate_content_stream = AsyncMock(return_value=_stream_mock([]))
     client_factory = MagicMock(return_value=client)
-    monkeypatch.setattr("mycode.providers.gemini.genai.Client", client_factory)
+    monkeypatch.setattr("google.genai.Client", client_factory)
 
     _ = [
         event
@@ -1047,7 +1047,7 @@ async def test_google_gemini_replays_foreign_thinking_as_plain_model_text(
     adapter = GoogleGeminiAdapter()
     client = MagicMock()
     client.aio.models.generate_content_stream = AsyncMock(return_value=_stream_mock([]))
-    monkeypatch.setattr("mycode.providers.gemini.genai.Client", lambda **_kwargs: client)
+    monkeypatch.setattr("google.genai.Client", lambda **_kwargs: client)
 
     _ = [
         event
@@ -1090,7 +1090,7 @@ async def test_google_gemini_replaces_native_signatures_after_model_switch(
 ) -> None:
     client = MagicMock()
     client.aio.models.generate_content_stream = AsyncMock(return_value=_stream_mock([]))
-    monkeypatch.setattr("mycode.providers.gemini.genai.Client", lambda **_kwargs: client)
+    monkeypatch.setattr("google.genai.Client", lambda **_kwargs: client)
 
     _ = [
         event
@@ -1574,7 +1574,7 @@ async def test_chat_targets_replay_foreign_thinking_as_assistant_content(
 ) -> None:
     client = _async_context_mock()
     client.chat.completions.create = AsyncMock(return_value=_stream_mock([]))
-    monkeypatch.setattr("mycode.providers.openai_chat.AsyncOpenAI", lambda **_kwargs: client)
+    monkeypatch.setattr("openai.AsyncOpenAI", lambda **_kwargs: client)
 
     _ = [
         event
@@ -1609,7 +1609,7 @@ async def test_openrouter_replays_foreign_thinking_through_reasoning_channel(
     adapter = OpenRouterAdapter()
     client = _async_context_mock()
     client.chat.completions.create = AsyncMock(return_value=_stream_mock([]))
-    monkeypatch.setattr("mycode.providers.openai_chat.AsyncOpenAI", lambda **_kwargs: client)
+    monkeypatch.setattr("openai.AsyncOpenAI", lambda **_kwargs: client)
 
     _ = [
         event
@@ -1701,7 +1701,7 @@ async def test_openrouter_preserves_structured_reasoning_across_models(monkeypat
         clients.append(client)
         return client
 
-    monkeypatch.setattr("mycode.providers.openai_chat.AsyncOpenAI", fake_client)
+    monkeypatch.setattr("openai.AsyncOpenAI", fake_client)
 
     first_events = [
         event
@@ -1877,7 +1877,7 @@ async def test_openai_chat_replays_its_native_reasoning_field(
         clients.append(client)
         return client
 
-    monkeypatch.setattr("mycode.providers.openai_chat.AsyncOpenAI", fake_client)
+    monkeypatch.setattr("openai.AsyncOpenAI", fake_client)
 
     first_events = [event async for event in adapter.stream_turn(request_obj(api_key="test-key", model="test-model"))]
     stored_message = first_events[-1].data["message"]
@@ -1935,7 +1935,7 @@ async def test_deepseek_replays_native_reasoning_across_turns(
         clients.append(client)
         return client
 
-    monkeypatch.setattr("mycode.providers.openai_chat.AsyncOpenAI", fake_client)
+    monkeypatch.setattr("openai.AsyncOpenAI", fake_client)
 
     first_events = [
         event async for event in adapter.stream_turn(request_obj(api_key="test-key", model="deepseek-v4-pro"))
@@ -2061,7 +2061,7 @@ async def test_anthropic_preserves_native_thinking_blocks_across_tool_turns(
     client = _async_context_mock()
     streams = [_stream_mock([], final_message=response) for response in (first_response, second_response)]
     client.messages.stream.side_effect = streams
-    monkeypatch.setattr("mycode.providers.anthropic_like.AsyncAnthropic", lambda **_kwargs: client)
+    monkeypatch.setattr("anthropic.AsyncAnthropic", lambda **_kwargs: client)
 
     first_events = [
         event async for event in adapter.stream_turn(request_obj(api_key="test-key", model="claude-sonnet-5"))
@@ -2113,7 +2113,7 @@ async def test_anthropic_classifies_stream_failures(
     )
     client = _async_context_mock()
     client.messages.stream.side_effect = sdk_error
-    monkeypatch.setattr("mycode.providers.anthropic_like.AsyncAnthropic", lambda **_kwargs: client)
+    monkeypatch.setattr("anthropic.AsyncAnthropic", lambda **_kwargs: client)
 
     with pytest.raises(ProviderError) as caught:
         async for _ in AnthropicAdapter().stream_turn(request_obj(api_key="test-key")):
@@ -2149,7 +2149,7 @@ async def test_anthropic_like_targets_replay_foreign_thinking_as_assistant_text(
             content=[_Obj(type="text", text="done", citations=[])],
         ),
     )
-    monkeypatch.setattr("mycode.providers.anthropic_like.AsyncAnthropic", lambda **_kwargs: client)
+    monkeypatch.setattr("anthropic.AsyncAnthropic", lambda **_kwargs: client)
 
     _ = [
         event
@@ -2201,7 +2201,7 @@ async def test_anthropic_does_not_reuse_thinking_signature_after_model_switch(
             content=[_Obj(type="text", text="done", citations=[])],
         ),
     )
-    monkeypatch.setattr("mycode.providers.anthropic_like.AsyncAnthropic", lambda **_kwargs: client)
+    monkeypatch.setattr("anthropic.AsyncAnthropic", lambda **_kwargs: client)
 
     _ = [
         event
@@ -2273,7 +2273,7 @@ async def test_moonshot_replays_native_unsigned_thinking(
     client.messages.stream.side_effect = [
         _stream_mock([], final_message=response) for response in (first_response, second_response)
     ]
-    monkeypatch.setattr("mycode.providers.anthropic_like.AsyncAnthropic", lambda **_kwargs: client)
+    monkeypatch.setattr("anthropic.AsyncAnthropic", lambda **_kwargs: client)
 
     first_events = [
         event async for event in adapter.stream_turn(request_obj(api_key="test-key", model="kimi-k2.7-code"))
@@ -2449,7 +2449,7 @@ async def test_openai_chat_normalizes_usage_details(monkeypatch: pytest.MonkeyPa
         )
     ]
     client.chat.completions.create = AsyncMock(return_value=_stream_mock(chunks))
-    monkeypatch.setattr("mycode.providers.openai_chat.AsyncOpenAI", lambda **_kwargs: client)
+    monkeypatch.setattr("openai.AsyncOpenAI", lambda **_kwargs: client)
 
     events = [event async for event in OpenAIChatAdapter().stream_turn(request_obj(api_key="k", model="m"))]
 
@@ -2479,7 +2479,7 @@ async def test_deepseek_falls_back_to_its_cache_hit_extension_field(monkeypatch:
         )
     ]
     client.chat.completions.create = AsyncMock(return_value=_stream_mock(chunks))
-    monkeypatch.setattr("mycode.providers.openai_chat.AsyncOpenAI", lambda **_kwargs: client)
+    monkeypatch.setattr("openai.AsyncOpenAI", lambda **_kwargs: client)
 
     events = [event async for event in DeepSeekAdapter().stream_turn(request_obj(api_key="k", model="deepseek-chat"))]
 
@@ -2498,7 +2498,7 @@ async def test_openrouter_stores_the_charged_cost(monkeypatch: pytest.MonkeyPatc
         )
     ]
     client.chat.completions.create = AsyncMock(return_value=_stream_mock(chunks))
-    monkeypatch.setattr("mycode.providers.openai_chat.AsyncOpenAI", lambda **_kwargs: client)
+    monkeypatch.setattr("openai.AsyncOpenAI", lambda **_kwargs: client)
 
     events = [event async for event in OpenRouterAdapter().stream_turn(request_obj(api_key="k", model="vendor/model"))]
 
@@ -2525,7 +2525,7 @@ async def test_gemini_normalizes_usage_details(monkeypatch: pytest.MonkeyPatch) 
         )
     ]
     client.aio.models.generate_content_stream = AsyncMock(return_value=_stream_mock(chunks))
-    monkeypatch.setattr("mycode.providers.gemini.genai.Client", lambda **_kwargs: client)
+    monkeypatch.setattr("google.genai.Client", lambda **_kwargs: client)
 
     events = [
         event async for event in GoogleGeminiAdapter().stream_turn(request_obj(api_key="k", model="gemini-3.6-flash"))

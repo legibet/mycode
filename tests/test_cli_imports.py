@@ -1,13 +1,41 @@
 """Tests for CLI import side effects."""
 
-import importlib
+import subprocess
 import sys
+import textwrap
 
 
-def test_importing_cli_does_not_import_server_app() -> None:
-    sys.modules.pop("mycode_cli.main", None)
-    sys.modules.pop("mycode_cli.server.app", None)
+def test_startup_imports_only_required_modules() -> None:
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            textwrap.dedent("""
+                import sys
+                from mycode import Agent
+                from mycode.providers import get_provider_adapter, list_supported_providers
+                from mycode_cli.main import app
 
-    importlib.import_module("mycode_cli.main")
+                assert "mycode_cli.server.app" not in sys.modules
 
-    assert "mycode_cli.server.app" not in sys.modules
+                from mycode_cli.server.app import create_api_app
+                from typer.testing import CliRunner
+
+                for provider in list_supported_providers():
+                    adapter = get_provider_adapter(provider)
+                    adapter.api_key_from_env()
+                    adapter.can_authenticate_from_env()
+                    Agent(provider=provider, model="test-model", api_key="test-key")
+                create_api_app()
+                for option in ("--version", "--help"):
+                    result = CliRunner().invoke(app, [option])
+                    assert result.exit_code == 0, result.output
+                loaded = {name for name in ("openai", "anthropic", "google.genai") if name in sys.modules}
+                assert not loaded, loaded
+            """),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=15,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr

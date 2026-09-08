@@ -7,7 +7,6 @@ from collections.abc import AsyncIterator
 from typing import Any, cast, override
 
 import httpx2
-from anthropic import APIError, AsyncAnthropic
 
 from mycode.messages import (
     ConversationMessage,
@@ -140,6 +139,8 @@ class AnthropicLikeAdapter(ProviderAdapter):
 
     @override
     async def stream_turn(self, request: ProviderRequest) -> AsyncIterator[ProviderStreamEvent]:
+        from anthropic import APIError, AsyncAnthropic
+
         api_key = self.require_api_key(request.api_key)
 
         try:
