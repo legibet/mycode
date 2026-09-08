@@ -10,6 +10,7 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from typing import Any, Literal, Protocol
 from uuid import uuid4
+from weakref import WeakValueDictionary
 
 from mycode.agent import Event
 from mycode.messages import ConversationMessage
@@ -98,7 +99,7 @@ class RunManager:
         self._lock = asyncio.Lock()
         self._active_by_session: dict[str, RunState] = {}
         self._runs_by_id: dict[str, RunState] = {}
-        self._session_locks: dict[str, asyncio.Lock] = {}
+        self._session_locks: WeakValueDictionary[str, asyncio.Lock] = WeakValueDictionary()
 
     async def start_run(
         self,
@@ -200,6 +201,7 @@ class RunManager:
 
     @asynccontextmanager
     async def session_operation(self, session_id: str) -> AsyncGenerator[None]:
+        # Keep a strong reference while waiting and holding the session lock.
         async with self._lock:
             lock = self._session_locks.get(session_id)
             if lock is None:

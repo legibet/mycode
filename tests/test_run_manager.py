@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import gc
 from typing import override
 
 import pytest
@@ -224,6 +225,56 @@ async def test_reconnect_buffer_reports_eviction_as_a_seq_gap(monkeypatch: pytes
 
     agent.release.set()
     await _wait_for_run_task(manager, run["id"])
+
+
+async def test_session_locks_are_reclaimed_after_normal_and_exceptional_exit() -> None:
+    manager = RunManager()
+    for index in range(100):
+        async with manager.session_operation(str(index)):
+            pass
+    gc.collect()
+    assert not manager._session_locks
+
+    with pytest.raises(ValueError, match="operation failed"):
+        async with manager.session_operation("failed"):
+            raise ValueError("operation failed")
+    gc.collect()
+    assert not manager._session_locks
+
+
+async def test_session_lock_preserves_waiters_across_cancellation_and_handoff() -> None:
+    manager = RunManager()
+    queued = {name: asyncio.Event() for name in ("cancelled", "waiting", "newcomer")}
+    entered = asyncio.Event()
+    release = asyncio.Event()
+    order: list[str] = []
+
+    async def operation(name: str) -> None:
+        queued[name].set()
+        async with manager.session_operation("shared"):
+            order.append(name)
+            entered.set()
+            await release.wait()
+
+    async with asyncio.timeout(2), asyncio.TaskGroup() as tasks:
+        async with manager.session_operation("shared"):
+            cancelled = tasks.create_task(operation("cancelled"))
+            tasks.create_task(operation("waiting"))
+            await queued["cancelled"].wait()
+            await queued["waiting"].wait()
+            assert order == []
+            cancelled.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await cancelled
+
+        # A new caller arrives before the queued waiter resumes.
+        tasks.create_task(operation("newcomer"))
+        await entered.wait()
+        await queued["newcomer"].wait()
+        assert order == ["waiting"]
+        release.set()
+
+    assert order == ["waiting", "newcomer"]
 
 
 async def test_same_session_cannot_start_second_run() -> None:
