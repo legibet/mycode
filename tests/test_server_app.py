@@ -13,6 +13,7 @@ from starlette.testclient import TestClient
 from mycode.messages import ConversationMessage
 from mycode.models import ModelMetadata
 from mycode.providers.base import ProviderRequest, ProviderStreamEvent
+from mycode.session import SessionStore as TimelineStore
 from mycode_cli.server.app import create_api_app, create_app
 from mycode_cli.server.deps import get_run_manager, get_store
 from mycode_cli.server.run_manager import RunManager
@@ -99,6 +100,73 @@ def test_api_dev_app_allows_only_local_vite_cors() -> None:
 
 
 # Chat API
+
+
+@pytest.mark.parametrize("history", ["new", "empty", "timeline-only", "existing", "rewind"])
+def test_chat_reads_only_required_history_and_preserves_replay_and_cost(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, history: str
+) -> None:
+    monkeypatch.setenv("MYCODE_HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    adapter = _CaptureAdapter()
+    monkeypatch.setattr("mycode.agent.get_provider_adapter", lambda _provider: adapter)
+    store = SessionStore(data_dir=tmp_path / "sessions")
+    runs = RunManager()
+    app = create_api_app()
+    app.dependency_overrides[get_store] = lambda: store
+    app.dependency_overrides[get_run_manager] = lambda: runs
+    has_timeline = history in {"timeline-only", "existing", "rewind"}
+
+    async def seed() -> None:
+        if history in {"empty", "existing", "rewind"}:
+            await store.create_session("s1", cwd=str(tmp_path))
+        if has_timeline:
+            await store.append_message("s1", {"role": "user", "content": [{"type": "text", "text": "discarded"}]})
+            await store.append_message("s1", {"role": "assistant", "meta": {"cost": {"total": 0.25}}})
+            await store.append_rewind("s1", 0)
+            await store.append_message("s1", {"role": "user", "content": [{"type": "text", "text": "kept"}]})
+            await store.append_message(
+                "s1",
+                {
+                    "role": "assistant",
+                    "content": [{"type": "text", "text": "answer"}],
+                    "meta": {"cost": {"total": 0.5}},
+                },
+            )
+
+    asyncio.run(seed())
+    reads = 0
+    original_load = TimelineStore.load_raw_messages_sync
+
+    def load(timeline: TimelineStore, session_id: str) -> list[ConversationMessage]:
+        nonlocal reads
+        reads += 1
+        return original_load(timeline, session_id)
+
+    monkeypatch.setattr(TimelineStore, "load_raw_messages_sync", load)
+    payload: dict[str, object] = {
+        "session_id": "s1",
+        "cwd": str(tmp_path),
+        "message": "follow-up",
+        "provider": "anthropic",
+        "model": "claude-sonnet-4-6",
+    }
+    if history == "rewind":
+        payload["rewind_to"] = 0
+    with TestClient(app) as client:
+        response = client.post("/api/chat", json=payload)
+        assert response.status_code == 200, response.text
+        assert reads == (3 if history == "rewind" else 2)
+        run_id = response.json()["run"]["id"]
+        with client.stream("GET", f"/api/runs/{run_id}/stream") as stream:
+            events = [json.loads(line[6:]) for line in stream.iter_lines() if line.startswith("data: {")]
+
+    assert adapter.messages is not None
+    texts = [block["text"] for message in adapter.messages for block in message.get("content") or []]
+    assert texts == (["kept", "answer"] if has_timeline and history != "rewind" else []) + ["follow-up"]
+    usage = [event for event in events if event["type"] == "usage"]
+    assert usage
+    assert usage[-1].get("session_cost") == (0.75 if has_timeline else None)
 
 
 @pytest.mark.parametrize(

@@ -147,11 +147,8 @@ def _validate_rewind_request(
     *,
     session: dict[str, Any] | None,
     messages: list[ConversationMessage],
-    rewind_to: int | None,
+    rewind_to: int,
 ) -> None:
-    if rewind_to is None:
-        return
-
     if session is None:
         raise HTTPException(status_code=400, detail="rewind_to requires an existing session")
 
@@ -238,10 +235,11 @@ async def chat(chat: ChatRequest, store: StoreDep, runs: RunManagerDep) -> ChatR
                 detail={"message": "session already has a running task", "run": active},
             )
 
-        data = await store.load_session(session_id)
-        session = cast(dict[str, Any] | None, data["session"] if data else None)
-        existing_messages = data["messages"] if data else []
-        _validate_rewind_request(session=session, messages=existing_messages, rewind_to=chat.rewind_to)
+        if chat.rewind_to is not None:
+            data = await store.load_session(session_id)
+            session = cast(dict[str, Any] | None, data["session"] if data else None)
+            existing_messages = data["messages"] if data else []
+            _validate_rewind_request(session=session, messages=existing_messages, rewind_to=chat.rewind_to)
 
         # All validation passed. Land the rewind marker (if any) and register
         # the user turn in the catalog: first turn creates the entry and sets
