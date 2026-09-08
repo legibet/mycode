@@ -5,7 +5,7 @@ from __future__ import annotations
 from mycode.agent import Agent
 from mycode_cli.config import ResolvedProvider, Settings
 from mycode_cli.permissions import ToolReviewCallback, build_permission_hooks
-from mycode_cli.sessions import SessionStore
+from mycode_cli.sessions import SessionStore, sum_session_cost
 from mycode_cli.system_prompt import build_system_prompt
 from mycode_cli.tools import DEFAULT_TOOLS
 from mycode_cli.web_tools import build_web_tools
@@ -24,18 +24,7 @@ async def load_session_cost(store: SessionStore, session_id: str) -> float | Non
     discarded by rewind. Records without a cost are skipped.
     """
 
-    total: float | None = None
-    for message in await store.load_raw_messages(session_id):
-        if message.get("role") not in {"assistant", "compact"}:
-            continue
-        meta = message.get("meta") or {}
-        cost = meta.get("cost")
-        if not isinstance(cost, dict):
-            continue
-        request_total = cost.get("total")
-        if isinstance(request_total, int | float):
-            total = sum_known_costs(total, float(request_total))
-    return total
+    return sum_session_cost(await store.load_raw_messages(session_id))
 
 
 def build_agent(

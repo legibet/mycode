@@ -9,7 +9,6 @@ from fastapi import APIRouter, HTTPException, Query
 from fastapi import Path as PathParam
 
 from mycode.messages import ConversationMessage
-from mycode_cli.runtime import load_session_cost
 from mycode_cli.server.deps import RunManagerDep, StoreDep, resolve_workspace_cwd
 from mycode_cli.server.schemas import SessionCreateRequest, StatusResponse
 
@@ -57,19 +56,18 @@ async def load_session(
 ) -> dict[str, Any]:
     """Load a session, overlaying any active in-memory run state."""
 
-    data = await store.load_session(session_id)
-    # Folded from the raw JSONL: counts everything persisted so far, including
-    # rewound-away turns. During an active run the SSE usage events supersede it.
-    session_cost = await load_session_cost(store, session_id)
-    active = await runs.snapshot_session(session_id)
-    if active:
-        return {
-            "session": data["session"] if data else None,
-            "messages": _redact_document_data(active["messages"]),
-            "session_cost": session_cost,
-            "active_run": active["run"],
-            "pending_events": active["pending_events"],
-        }
+    async with runs.session_operation(session_id):
+        active = await runs.snapshot_session(session_id)
+        if active:
+            return {
+                "session": await store.load_metadata(session_id),
+                "messages": _redact_document_data(active["messages"]),
+                "session_cost": active["session_cost"],
+                "active_run": active["run"],
+                "pending_events": active["pending_events"],
+            }
+
+        data = await store.load_session(session_id)
 
     if data is None:
         return {"session": None, "messages": [], "session_cost": None, "active_run": None, "pending_events": []}
@@ -77,7 +75,7 @@ async def load_session(
     return {
         "session": data["session"],
         "messages": _redact_document_data(data["messages"]),
-        "session_cost": session_cost,
+        "session_cost": data["session_cost"],
         "active_run": None,
         "pending_events": [],
     }

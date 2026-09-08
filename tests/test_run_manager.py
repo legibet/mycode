@@ -129,6 +129,7 @@ async def test_usage_events_compose_known_session_costs(
     usage_events = [event for event in state.events if event["type"] == "usage"]
     expected_cost = pytest.approx(expected) if expected is not None else None
     assert usage_events[0]["session_cost"] == expected_cost
+    assert state.session_cost == expected_cost
     assert usage_events[0]["model"] == "test-model"
     assert usage_events[0]["context_window"] == 1_000
 
@@ -580,10 +581,11 @@ class CompactAgent:
         if self.cancelled:
             raise asyncio.CancelledError
         self.compacted = True
-        return {"role": "compact", "content": [{"type": "text", "text": "SUMMARY"}]}
+        return {"role": "compact", "content": [{"type": "text", "text": "SUMMARY"}], "meta": {"cost": {"total": 0.1}}}
 
 
-async def test_compact_run_snapshot_has_kind_and_no_user_message() -> None:
+@pytest.mark.parametrize("session_cost_base", [None, 0.0, 0.4])
+async def test_compact_run_snapshot_has_kind_and_no_user_message(session_cost_base: float | None) -> None:
     manager = RunManager()
     agent = CompactAgent()
     base = [{"role": "user", "content": [{"type": "text", "text": "earlier"}]}]
@@ -596,6 +598,7 @@ async def test_compact_run_snapshot_has_kind_and_no_user_message() -> None:
         session_id="session-1",
         base_messages=base,
         agent=agent,
+        session_cost_base=session_cost_base,
         on_complete=on_complete,
     )
     assert run["kind"] == "compact"
@@ -606,6 +609,7 @@ async def test_compact_run_snapshot_has_kind_and_no_user_message() -> None:
     assert snapshot["run"]["kind"] == "compact"
     assert snapshot["messages"] == base
     assert snapshot["pending_events"] == []
+    assert snapshot["session_cost"] == session_cost_base
 
     agent.release.set()
     state = await _wait_for_run_task(manager, run["id"])
@@ -613,6 +617,7 @@ async def test_compact_run_snapshot_has_kind_and_no_user_message() -> None:
     assert agent.compacted is True
     assert state.status == "completed"
     assert state.events == [{"seq": 1, "type": "compact"}]
+    assert state.session_cost == pytest.approx((session_cost_base or 0.0) + 0.1)
     assert completed == ["session-1"]
     assert not await manager.has_active_run("session-1")
 
@@ -633,11 +638,13 @@ async def test_compact_run_failure_emits_error_and_fails() -> None:
         session_id="session-1",
         base_messages=[],
         agent=FailingCompactAgent(),
+        session_cost_base=0.4,
         on_complete=on_complete,
     )
     state = await _wait_for_run_task(manager, run["id"])
 
     assert state.status == "failed"
+    assert state.session_cost == 0.4
     assert state.error == "nothing to compact"
     assert state.events == [{"seq": 1, "type": "error", "message": "nothing to compact"}]
     assert completed == []
@@ -648,7 +655,7 @@ async def test_compact_run_cancellation_emits_no_compact_event() -> None:
     manager = RunManager()
     agent = CompactAgent()
 
-    run = await manager.start_compact(session_id="session-1", base_messages=[], agent=agent)
+    run = await manager.start_compact(session_id="session-1", base_messages=[], agent=agent, session_cost_base=0.4)
     cancelled = await manager.cancel_run(run["id"])
     assert cancelled is not None
     assert cancelled["status"] == "cancelled"
@@ -657,6 +664,7 @@ async def test_compact_run_cancellation_emits_no_compact_event() -> None:
     state = await _wait_for_run_task(manager, run["id"])
     assert agent.compacted is False
     assert state.events == []
+    assert state.session_cost == 0.4
     assert not await manager.has_active_run("session-1")
 
 

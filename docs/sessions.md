@@ -180,7 +180,8 @@ CLI `SessionStore` (`cli/src/mycode_cli/sessions.py`) extends the SDK store with
 - `create_session(session_id, *, cwd)` — create a `"New chat"` catalog entry without creating a timeline
 - `record_user_turn(session_id, *, cwd, text)` — lazily create metadata, derive the first title, and update activity time
 - `touch(session_id)` — update activity time after rewind or successful manual compact
-- `load_session(session_id)` — load catalog metadata and visible messages
+- `load_metadata(session_id)` — load catalog metadata without reading the timeline
+- `load_session(session_id)` — load catalog metadata, visible messages, and cumulative cost from one raw timeline read
 - `list_sessions(*, cwd=None)` / `latest_session(...)` — scan and sort the catalog
 - `clear_session(session_id)` — clear the timeline, reset the title, and update activity time
 - `delete_session(session_id)` — remove catalog, timeline, and tool output together

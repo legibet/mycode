@@ -15,6 +15,7 @@ from mycode.agent import Event
 from mycode.messages import ConversationMessage
 from mycode_cli.permissions import ToolReviewDecision
 from mycode_cli.runtime import sum_known_costs
+from mycode_cli.sessions import sum_session_cost
 
 RunStatus = Literal["running", "completed", "failed", "cancelled"]
 RunKind = Literal["chat", "compact"]
@@ -63,6 +64,7 @@ class RunState:
     # Session cost before this run (folded from the session JSONL by the chat
     # router); None means unknown. Composed with each usage event's turn cost.
     session_cost_base: float | None = None
+    session_cost: float | None = None
     on_complete: RunCompletionCallback | None = None
     status: RunStatus = "running"
     error: str | None = None
@@ -123,6 +125,7 @@ class RunManager:
         session_id: str,
         base_messages: list[ConversationMessage],
         agent: RunAgent,
+        session_cost_base: float | None = None,
         on_complete: RunCompletionCallback | None = None,
     ) -> dict[str, Any]:
         return await self._start(
@@ -131,6 +134,7 @@ class RunManager:
             user_message=None,
             base_messages=base_messages,
             agent=agent,
+            session_cost_base=session_cost_base,
             on_complete=on_complete,
         )
 
@@ -158,6 +162,7 @@ class RunManager:
                 kind=kind,
                 user_message=copy.deepcopy(user_message),
                 session_cost_base=session_cost_base,
+                session_cost=session_cost_base,
                 base_messages=copy.deepcopy(base_messages),
                 agent=agent,
                 on_complete=on_complete,
@@ -182,6 +187,8 @@ class RunManager:
             return None
 
         async with state.condition:
+            if state.status != "running":
+                return None
             messages = copy.deepcopy(state.base_messages)
             if state.user_message is not None:
                 messages.append(copy.deepcopy(state.user_message))
@@ -189,6 +196,7 @@ class RunManager:
                 "run": state.info(),
                 "messages": messages,
                 "pending_events": list(state.events),
+                "session_cost": state.session_cost,
             }
 
     @asynccontextmanager
@@ -354,10 +362,10 @@ class RunManager:
         try:
             if state.kind == "compact":
                 # The agent persists the compact marker before this returns.
-                await state.agent.acompact()
+                marker = await state.agent.acompact()
                 if state.on_complete is not None:
                     await state.on_complete(state.session_id)
-                await self._append_event(state, Event("compact", {}))
+                await self._append_event(state, Event("compact", {}), compact_cost=sum_session_cost([marker]))
             else:
                 assert state.user_message is not None
                 async for event in state.agent.achat(state.user_message):
@@ -365,22 +373,6 @@ class RunManager:
                         continue
                     if event.type == "error":
                         last_error = str(event.data.get("message") or "unknown error")
-                    elif event.type == "usage":
-                        turn_cost = event.data.get("turn_cost")
-                        turn_total = turn_cost.get("total") if isinstance(turn_cost, dict) else None
-                        session_cost = sum_known_costs(
-                            state.session_cost_base,
-                            turn_total,
-                        )
-                        event = Event(
-                            "usage",
-                            {
-                                **event.data,
-                                "context_window": state.agent.context_window,
-                                "model": state.agent.model,
-                                "session_cost": session_cost,
-                            },
-                        )
                     await self._append_event(state, event)
         except asyncio.CancelledError:
             # BaseException, not caught by ``except Exception`` — without this
@@ -403,8 +395,24 @@ class RunManager:
 
         await self._finish_run(state, status="completed")
 
-    async def _append_event(self, state: RunState, event: Event) -> None:
+    async def _append_event(self, state: RunState, event: Event, *, compact_cost: float | None = None) -> None:
         async with state.condition:
+            if event.type == "usage":
+                turn_cost = event.data.get("turn_cost")
+                turn_total = turn_cost.get("total") if isinstance(turn_cost, dict) else None
+                state.session_cost = sum_known_costs(state.session_cost_base, turn_total)
+                event = Event(
+                    "usage",
+                    {
+                        **event.data,
+                        "context_window": state.agent.context_window,
+                        "model": state.agent.model,
+                        "session_cost": state.session_cost,
+                    },
+                )
+            elif event.type == "compact" and state.kind == "compact":
+                state.session_cost = sum_known_costs(state.session_cost_base, compact_cost)
+
             if event.type == "tool_done":
                 tool_use_id = event.data.get("tool_use_id")
                 retained = [

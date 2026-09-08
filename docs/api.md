@@ -311,7 +311,9 @@ Load session with full message history. If the session has an active run, overla
 
 `pending_events` contains the active run's buffered SSE events. The web UI reapplies them, then reconnects with `after=<last seq>`.
 
-`session_cost` sums persisted `meta.cost.total` values from the raw JSONL timeline, including tool loops, compaction, and rewound turns. Records without cost are skipped; the total is `null` only when no cost is known. During an active run, the value from `usage` SSE events takes precedence.
+For an idle session, `messages` and `session_cost` are derived from one raw JSONL read. Cost sums persisted `meta.cost.total` values, including tool loops, compaction, and rewound turns. Records without cost are skipped; the total is `null` only when no cost is known.
+
+For an active run, history, pending events, and the latest known cost come from one in-memory snapshot; only catalog metadata is read from disk. The run retains its current cost even when older usage events are evicted. Subsequent `usage` SSE events update that value. Session loading is serialized with run starts, clear, and delete; a snapshot taken before a run finishes remains valid for replaying its remaining SSE events.
 
 Assistant and compact messages return their persisted per-request `meta.usage` and `meta.cost` unchanged.
 
@@ -416,4 +418,4 @@ Every event also carries `seq: int` for reconnect support. The web UI uses `afte
 - `cancel_run()` waits for the agent task to finish before returning the final run info; cancellation of the HTTP request does not interrupt the run's cleanup
 - `aclose()` cancels all unfinished runs, waits for cleanup, and releases the reconnect cache at application shutdown
 - Finished runs pruned after 300 seconds (`FINISHED_RUN_TTL_SECONDS`)
-- `snapshot_session()` returns reconnect data (base messages + buffered events) for active runs
+- `snapshot_session()` returns reconnect data (base messages, buffered events, and current cost) for active runs

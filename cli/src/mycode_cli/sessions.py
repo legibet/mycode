@@ -23,12 +23,14 @@ import asyncio
 import json
 import os
 import shutil
+from collections.abc import Iterable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TypedDict
 
 from mycode.messages import ConversationMessage
 from mycode.session import SessionStore as TimelineStore
+from mycode.session import apply_rewind
 
 DEFAULT_SESSION_TITLE = "New chat"
 _META_KEYS = ("cwd", "title", "created_at", "updated_at")
@@ -39,6 +41,23 @@ SessionMetaDict = dict[str, object]
 class SessionData(TypedDict):
     session: SessionMetaDict
     messages: list[ConversationMessage]
+    session_cost: float | None
+
+
+def sum_session_cost(messages: Iterable[ConversationMessage]) -> float | None:
+    """Sum known request costs, including compact markers and rewound turns."""
+
+    total: float | None = None
+    for message in messages:
+        if message.get("role") not in {"assistant", "compact"}:
+            continue
+        cost = (message.get("meta") or {}).get("cost")
+        if not isinstance(cost, dict):
+            continue
+        request_total = cost.get("total")
+        if isinstance(request_total, int | float):
+            total = (total if total is not None else 0.0) + float(request_total)
+    return total
 
 
 def _now() -> str:
@@ -185,16 +204,27 @@ class SessionStore(TimelineStore):
         sessions = await self.list_sessions(cwd=cwd)
         return sessions[0] if sessions else None
 
+    async def load_metadata(self, session_id: str) -> SessionMetaDict | None:
+        """Load a catalog entry without reading its message timeline."""
+
+        def load() -> SessionMetaDict | None:
+            meta = self._read_meta(session_id)
+            return self._summary(session_id, meta) if meta is not None else None
+
+        return await asyncio.to_thread(load)
+
     async def load_session(self, session_id: str) -> SessionData | None:
-        """Load one cataloged session's meta and visible messages."""
+        """Load metadata, visible messages, and cost from one raw timeline read."""
 
         def load() -> SessionData | None:
             meta = self._read_meta(session_id)
             if meta is None:
                 return None
+            raw = self.load_raw_messages_sync(session_id)
             return {
                 "session": self._summary(session_id, meta),
-                "messages": self.load_messages_sync(session_id),
+                "messages": apply_rewind(raw),
+                "session_cost": sum_session_cost(raw),
             }
 
         return await asyncio.to_thread(load)

@@ -9,9 +9,12 @@ from pathlib import Path
 from threading import Event as ThreadEvent
 from typing import cast, override
 
+import httpx2
 import pytest
+from fastapi import Request
 from starlette.testclient import TestClient
 
+from mycode.agent import Event
 from mycode.messages import ConversationMessage
 from mycode.models import ModelMetadata
 from mycode.providers.base import ProviderRequest, ProviderStreamEvent
@@ -449,7 +452,10 @@ def _seed_session(store: SessionStore, session_id: str, cwd: str) -> None:
     async def seed() -> None:
         await store.create_session(session_id, cwd=cwd)
         await store.append_message(session_id, {"role": "user", "content": [{"type": "text", "text": "hello"}]})
-        await store.append_message(session_id, {"role": "assistant", "content": [{"type": "text", "text": "hi"}]})
+        await store.append_message(
+            session_id,
+            {"role": "assistant", "content": [{"type": "text", "text": "hi"}], "meta": {"cost": {"total": 0.25}}},
+        )
 
     asyncio.run(seed())
 
@@ -538,6 +544,7 @@ def test_compact_endpoint_conflicts_and_cancel_write_no_marker(
         # turn, and both compact and chat starts conflict.
         session = client.get("/api/sessions/s1").json()
         assert session["active_run"]["kind"] == "compact"
+        assert session["session_cost"] == 0.25
         assert [message["role"] for message in session["messages"]] == ["user", "assistant"]
 
         conflict = client.post("/api/sessions/s1/compact", json={})
@@ -559,11 +566,13 @@ def test_compact_endpoint_conflicts_and_cancel_write_no_marker(
 # Sessions API
 
 
-def test_session_load_returns_persisted_costs(tmp_path: Path) -> None:
+def test_session_load_returns_persisted_costs_from_one_read(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     store = SessionStore(data_dir=tmp_path / "sessions")
 
     async def seed() -> None:
         await store.create_session("s1", cwd=str(tmp_path))
+        await store.append_message("s1", {"role": "compact", "meta": {"cost": {"total": 0.03}}})
+        await store.append_rewind("s1", 0)
         await store.append_message("s1", {"role": "user", "content": [{"type": "text", "text": "hi"}]})
         await store.append_message(
             "s1",
@@ -588,15 +597,160 @@ def test_session_load_returns_persisted_costs(tmp_path: Path) -> None:
         )
 
     asyncio.run(seed())
+    reads = 0
+    original_load = store.load_raw_messages_sync
+
+    def load(session_id: str) -> list[ConversationMessage]:
+        nonlocal reads
+        reads += 1
+        return original_load(session_id)
+
+    monkeypatch.setattr(store, "load_raw_messages_sync", load)
     app = create_api_app()
     app.dependency_overrides[get_store] = lambda: store
     app.dependency_overrides[get_run_manager] = lambda: RunManager()
 
     with TestClient(app) as client:
         payload = client.get("/api/sessions/s1").json()
+        assert reads == 1
+        assert client.get("/api/sessions/missing").json()["session"] is None
+        assert reads == 1
 
     user_message, priced, unpriced = payload["messages"]
     assert "cost" not in (user_message.get("meta") or {})
     assert priced["meta"]["cost"] == pytest.approx({"input": 0.01, "output": 0.01, "total": 0.02})
     assert "cost" not in unpriced["meta"]
-    assert payload["session_cost"] == pytest.approx(0.02)
+    assert payload["session_cost"] == pytest.approx(0.05)
+
+
+async def test_running_session_uses_snapshot_cost_after_usage_eviction_then_loads_final_history(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("MYCODE_HOME", str(tmp_path / "home"))
+    monkeypatch.setattr("mycode_cli.server.run_manager.RUN_EVENT_BUFFER_SIZE", 1)
+    app = create_api_app()
+    async with app.router.lifespan_context(app):
+        store = cast(SessionStore, app.state.store)
+        runs = cast(RunManager, app.state.runs)
+        await store.create_session("s1", cwd=str(tmp_path))
+        await store.append_message("s1", {"role": "assistant", "meta": {"cost": {"total": 0.25}}})
+        data = await store.load_session("s1")
+        assert data is not None
+        ready = asyncio.Event()
+        release = asyncio.Event()
+
+        class StreamingAgent:
+            model = "test-model"
+            context_window = 1000
+
+            def cancel(self) -> None:
+                release.set()
+
+            async def acompact(self) -> ConversationMessage:
+                raise NotImplementedError
+
+            async def achat(self, user_input: str | ConversationMessage) -> AsyncIterator[Event]:
+                assert isinstance(user_input, dict)
+                await store.append_message("s1", user_input)
+                yield Event("usage", {"turn_cost": {"total": 0.5}})
+                yield Event("text", {"delta": "answer"})
+                ready.set()
+                await release.wait()
+                await store.append_message(
+                    "s1",
+                    {
+                        "role": "assistant",
+                        "content": [{"type": "text", "text": "answer"}],
+                        "meta": {"cost": {"total": 0.5}},
+                    },
+                )
+
+        run = await runs.start_run(
+            session_id="s1",
+            user_message={"role": "user", "content": [{"type": "text", "text": "question"}]},
+            base_messages=data["messages"],
+            session_cost_base=0.25,
+            agent=StreamingAgent(),
+        )
+        await asyncio.wait_for(ready.wait(), 2)
+        state = await runs.get_run(run["id"])
+        assert state is not None
+        assert state.task is not None
+        reads = 0
+        original_load = store.load_raw_messages_sync
+
+        def load(session_id: str) -> list[ConversationMessage]:
+            nonlocal reads
+            reads += 1
+            return original_load(session_id)
+
+        monkeypatch.setattr(store, "load_raw_messages_sync", load)
+        async with httpx2.AsyncClient(transport=httpx2.ASGITransport(app), base_url="http://test") as client:
+            active = (await client.get("/api/sessions/s1")).json()
+            assert reads == 0
+            assert active["session_cost"] == 0.75
+            assert active["active_run"]["id"] == run["id"]
+            assert [event["type"] for event in active["pending_events"]] == ["text"]
+            assert active["messages"][-1]["content"][0]["text"] == "question"
+
+            release.set()
+            await state.task
+            finished = (await client.get("/api/sessions/s1")).json()
+            assert reads == 1
+            assert finished["active_run"] is None
+            assert finished["session_cost"] == active["session_cost"]
+            assert finished["messages"][-1]["content"][0]["text"] == "answer"
+
+
+@pytest.mark.parametrize("operation", ["clear", "delete"])
+async def test_session_read_serializes_with_catalog_mutation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, operation: str
+) -> None:
+    monkeypatch.setenv("MYCODE_HOME", str(tmp_path / "home"))
+    app = create_api_app()
+    async with app.router.lifespan_context(app):
+        store = cast(SessionStore, app.state.store)
+        runs = cast(RunManager, app.state.runs)
+        await store.create_session("s1", cwd=str(tmp_path))
+        await store.append_message("s1", {"role": "user", "content": [{"type": "text", "text": "original"}]})
+        reading = asyncio.Event()
+        release_read = asyncio.Event()
+        mutation_requested = asyncio.Event()
+        mutation_started = asyncio.Event()
+        original_load = store.load_session
+        original_mutation = store.clear_session if operation == "clear" else store.delete_session
+
+        async def load(session_id: str):
+            reading.set()
+            await release_read.wait()
+            return await original_load(session_id)
+
+        async def mutate(session_id: str) -> None:
+            mutation_started.set()
+            await original_mutation(session_id)
+
+        async def manager(request: Request) -> RunManager:
+            if request.method != "GET":
+                mutation_requested.set()
+            return runs
+
+        monkeypatch.setattr(store, "load_session", load)
+        monkeypatch.setattr(store, f"{operation}_session", mutate)
+        app.dependency_overrides[get_run_manager] = manager
+        async with httpx2.AsyncClient(transport=httpx2.ASGITransport(app), base_url="http://test") as client:
+            read = asyncio.create_task(client.get("/api/sessions/s1"))
+            await asyncio.wait_for(reading.wait(), 2)
+            mutation = asyncio.create_task(
+                client.post("/api/sessions/s1/clear") if operation == "clear" else client.delete("/api/sessions/s1")
+            )
+            try:
+                await asyncio.wait_for(mutation_requested.wait(), 2)
+                assert not mutation_started.is_set()
+            finally:
+                release_read.set()
+                before, changed = await asyncio.gather(read, mutation)
+            assert before.json()["messages"][0]["content"][0]["text"] == "original"
+            assert changed.status_code == 200
+            after = (await client.get("/api/sessions/s1")).json()
+            assert after["messages"] == []
+            assert after["session_cost"] is None

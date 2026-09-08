@@ -374,6 +374,7 @@ async def compact_session(
                 session_id=session_id,
                 base_messages=agent.messages,
                 agent=agent,
+                session_cost_base=data["session_cost"],
                 on_complete=store.touch,
             )
         except ActiveRunError as exc:
