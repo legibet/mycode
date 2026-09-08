@@ -187,7 +187,7 @@ def parse_compact_threshold(value: Any) -> float | None:
         return None
     threshold = float(value)
 
-    if threshold < 0 or threshold > 1:
+    if not 0 <= threshold <= 1:
         return None
     return threshold
 

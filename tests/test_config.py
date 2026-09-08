@@ -72,6 +72,14 @@ def workspace(tmp_path: Path, config_home: Path) -> Path:
 
 
 class TestGetSettings:
+    @pytest.mark.parametrize("threshold", [float("nan"), float("inf"), float("-inf")])
+    def test_nonfinite_compact_threshold_is_rejected(
+        self, config_home: Path, workspace: Path, threshold: float
+    ) -> None:
+        write_json(config_home / "config.json", {"default": {"compact_threshold": threshold}})
+        with pytest.raises(ValueError, match="compact_threshold"):
+            get_settings(str(workspace))
+
     def test_web_key_resolution_honors_conventional_and_explicit_env_vars(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:

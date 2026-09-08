@@ -168,7 +168,8 @@ def put_settings_endpoint(payload: SettingsRequest) -> dict[str, Any]:
     # Three-state api_key merge: when the UI sends null / omits it, we copy the
     # existing literal forward so secrets survive a save without round-tripping.
     existing_providers = existing.get("providers") or {}
-    for name, entry in (incoming.get("providers") or {}).items():
+    incoming_providers = incoming.get("providers")
+    for name, entry in incoming_providers.items() if isinstance(incoming_providers, dict) else ():
         if not isinstance(entry, dict) or entry.get("api_key") is not None:
             continue
         prior = existing_providers.get(name) if isinstance(existing_providers, dict) else None

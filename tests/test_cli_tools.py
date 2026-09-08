@@ -4,10 +4,14 @@ from __future__ import annotations
 
 import base64
 import tempfile
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from threading import Barrier, Lock, local
+
+import pytest
 
 from mycode.tools import ToolContext, ToolExecutor
-from mycode_cli.tools import DEFAULT_TOOLS, READ_MAX_LINE_CHARS
+from mycode_cli.tools import DEFAULT_TOOLS, READ_MAX_LINE_CHARS, _atomic_write_text
 from mycode_cli.workspace import CliDeps
 
 _PNG_1X1 = base64.b64decode(
@@ -32,6 +36,56 @@ def _ctx(
         ),
         supports_image_input=supports_image_input,
     )
+
+
+def test_atomic_writes_commit_their_own_content(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    target = tmp_path / "file.txt"
+    neighbor = tmp_path / "file.txt.tmp"
+    neighbor.write_text("unrelated", encoding="utf-8")
+    ready = Barrier(2, timeout=5)
+    replacing = Lock()
+    writer = local()
+    original_replace = Path.replace
+
+    def replace(source: Path, destination: Path) -> Path:
+        ready.wait()
+        with replacing:
+            assert source.read_bytes() == writer.expected
+            result = original_replace(source, destination)
+            assert destination.read_bytes() == writer.expected
+            return result
+
+    def write(content: str) -> None:
+        writer.expected = content.encode("utf-8")
+        _atomic_write_text(target, content)
+
+    monkeypatch.setattr(Path, "replace", replace)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        futures = [pool.submit(write, text) for text in ("甲" * 10000, "乙" * 20000)]
+        for future in futures:
+            future.result(timeout=10)
+
+    assert neighbor.read_text(encoding="utf-8") == "unrelated"
+    assert set(tmp_path.iterdir()) == {target, neighbor}
+    assert target.stat().st_mode == neighbor.stat().st_mode
+
+
+@pytest.mark.parametrize("failure", ["encode", "replace"])
+def test_atomic_write_failure_preserves_target_and_cleans_temp(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failure: str
+) -> None:
+    target = tmp_path / "file.txt"
+    target.write_text("original", encoding="utf-8")
+
+    def fail_replace(source: Path, destination: Path) -> Path:
+        raise OSError("replacement failed")
+
+    if failure == "replace":
+        monkeypatch.setattr(Path, "replace", fail_replace)
+    with pytest.raises((UnicodeEncodeError, OSError)):
+        _atomic_write_text(target, "\ud800" if failure == "encode" else "replacement")
+    assert target.read_text(encoding="utf-8") == "original"
+    assert list(tmp_path.iterdir()) == [target]
 
 
 class TestRead:

@@ -128,26 +128,34 @@ class TestSettingsApi:
         assert env["MY_CUSTOM_KEY"] is False
 
     @pytest.mark.parametrize(
-        ("api_key", "expected"),
+        ("entry", "expected"),
         [
-            (None, "sk-old"),  # null → keep existing secret
-            ("", None),  # empty string → clear
-            ("sk-new", "sk-new"),  # string → replace
+            ({}, "sk-old"),
+            ({"api_key": None}, "sk-old"),
+            ({"api_key": ""}, None),
+            ({"api_key": "sk-new"}, "sk-new"),
         ],
     )
+    @pytest.mark.parametrize(("section", "provider"), [("providers", "anthropic"), ("web", "exa")])
     def test_put_api_key_three_states(
-        self, client: TestClient, home: Path, api_key: str | None, expected: str | None
+        self,
+        client: TestClient,
+        home: Path,
+        entry: dict[str, str | None],
+        expected: str | None,
+        section: str,
+        provider: str,
     ) -> None:
-        _write_config(home, {"providers": {"anthropic": {"type": "anthropic", "api_key": "sk-old"}}})
+        _write_config(home, {section: {provider: {"api_key": "sk-old"}}})
 
         response = client.put(
             "/api/settings",
-            json={"config": {"providers": {"anthropic": {"type": "anthropic", "api_key": api_key}}}},
+            json={"config": {section: {provider: entry}}},
         )
         assert response.status_code == 200, response.text
 
         on_disk = json.loads((home / "config.json").read_text(encoding="utf-8"))
-        assert on_disk["providers"]["anthropic"].get("api_key") == expected
+        assert on_disk.get(section, {}).get(provider, {}).get("api_key") == expected
 
     def test_put_normalizes_ui_config_for_storage(self, client: TestClient, home: Path) -> None:
         response = client.put(
@@ -178,6 +186,10 @@ class TestSettingsApi:
     @pytest.mark.parametrize(
         ("config", "error"),
         [
+            ({"providers": ["anthropic"]}, "providers must be an object"),
+            ({"providers": "anthropic"}, "providers must be an object"),
+            ({"providers": []}, "providers must be an object"),
+            ({"default": {"compact_threshold": float("nan")}}, "compact_threshold"),
             ({"providers": {"weird": {"type": "not-a-real-provider"}}}, "unsupported"),
             (
                 {"providers": {"custom": {"type": "openai_chat", "supports_reasoning_effort": "yes"}}},
@@ -197,12 +209,16 @@ class TestSettingsApi:
         config: dict[str, object],
         error: str,
     ) -> None:
+        _write_config(home, {"providers": {"anthropic": {"api_key": "saved-secret"}}})
+        before = (home / "config.json").read_bytes()
         response = client.put(
             "/api/settings",
-            json={"config": config},
+            content=json.dumps({"config": config}),
+            headers={"Content-Type": "application/json"},
         )
         assert response.status_code == 400
         assert error in response.json()["detail"]
+        assert (home / "config.json").read_bytes() == before
 
 
 class TestSettingsWriteNormalization:

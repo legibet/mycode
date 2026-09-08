@@ -20,6 +20,7 @@ from dataclasses import dataclass
 from difflib import SequenceMatcher, unified_diff
 from pathlib import Path
 from typing import BinaryIO
+from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -162,16 +163,18 @@ def read_tool(
 
 
 def _atomic_write_text(path: Path, content: str, *, newline: str | None = None) -> None:
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    if newline is None:
-        tmp.write_text(content, encoding="utf-8")
-    else:
-        normalized = content.replace("\r\n", "\n")
+    if newline is not None:
+        content = content.replace("\r\n", "\n")
         if newline == "\r\n":
-            normalized = normalized.replace("\n", "\r\n")
-        with tmp.open("w", encoding="utf-8", newline="") as file:
-            file.write(normalized)
-    tmp.replace(path)
+            content = content.replace("\n", "\r\n")
+    tmp = path.with_name(f".{uuid4().hex}.tmp")
+    file = tmp.open("x", encoding="utf-8", newline=None if newline is None else "")
+    try:
+        with file:
+            file.write(content)
+        tmp.replace(path)
+    finally:
+        tmp.unlink(missing_ok=True)
 
 
 @tool(
