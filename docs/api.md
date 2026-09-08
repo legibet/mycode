@@ -6,6 +6,10 @@ Base prefix: `/api`. All endpoints are defined in `cli/src/mycode_cli/server/rou
 
 `mycode web` serves packaged static assets and does not enable CORS. `mycode web --dev` starts the API-only app for Vite development and allows only `http://localhost:5173` and `http://127.0.0.1:5173`.
 
+Each application lifespan owns its session store and run manager. Importing the application does not configure logging; `mycode web` supplies the logging configuration to Uvicorn, including reload workers.
+
+On exit, Uvicorn stops accepting connections and drains HTTP requests up to the `timeout_graceful_shutdown` configured in `main.py::web()`, then cancels remaining requests, including SSE. Lifespan shutdown cancels and awaits owned runs, allowing their persistence and tool cleanup to finish. The HTTP drain timeout does not bound run cleanup or the lifetime of synchronous tool threads; see the SDK cancellation contract in `docs/sdk.md`.
+
 ## Chat
 
 ### `POST /api/chat`
@@ -409,6 +413,7 @@ Every event also carries `seq: int` for reconnect support. The web UI uses `afte
 - Compact runs carry no `user_message`; snapshots return `base_messages` unchanged
 - `RunState` tracks a bounded reconnect event buffer and condition variable for streaming
 - Explicit permission `deny` marks the run as cancelled and calls `agent.cancel()`
-- `cancel_run()` waits for the agent task to finish before returning the final run info
+- `cancel_run()` waits for the agent task to finish before returning the final run info; cancellation of the HTTP request does not interrupt the run's cleanup
+- `aclose()` cancels all unfinished runs, waits for cleanup, and releases the reconnect cache at application shutdown
 - Finished runs pruned after 300 seconds (`FINISHED_RUN_TTL_SECONDS`)
 - `snapshot_session()` returns reconnect data (base messages + buffered events) for active runs

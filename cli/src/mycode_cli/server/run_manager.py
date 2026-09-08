@@ -240,14 +240,32 @@ class RunManager:
         state = await self.get_run(run_id)
         if not state:
             return None
+        self._request_cancel(state)
+        if state.task is not None:
+            # Request cancellation must not interrupt the run's own cleanup.
+            await asyncio.shield(state.task)
+        return state.info()
+
+    def _request_cancel(self, state: RunState) -> None:
         state.cancel_requested = True
         state.agent.cancel()
         for fut in state.pending_decisions.values():
             if not fut.done():
                 fut.cancel()
-        if state.task is not None:
-            await state.task
-        return state.info()
+
+    async def aclose(self) -> None:
+        """Cancel and await owned runs after the application stops handling requests."""
+
+        async with self._lock:
+            tasks = []
+            for state in self._runs_by_id.values():
+                if state.task is not None and not state.task.done():
+                    self._request_cancel(state)
+                    tasks.append(state.task)
+        await asyncio.gather(*tasks)
+        self._runs_by_id.clear()
+        self._active_by_session.clear()
+        self._session_locks.clear()
 
     async def has_active_run(self, session_id: str) -> bool:
         async with self._lock:
@@ -325,6 +343,11 @@ class RunManager:
 
     async def _run(self, state: RunState) -> None:
         """Run the agent and store streamed events."""
+
+        # Agent entrypoints reset their cancellation flags for a new turn.
+        if state.cancel_requested:
+            await self._finish_run(state, status="cancelled")
+            return
 
         last_error: str | None = None
 

@@ -328,6 +328,7 @@ def web(
     resolved_port = port or settings.port
 
     import uvicorn
+    from uvicorn.config import LOGGING_CONFIG
 
     app_factory = "mycode_cli.server.app:create_web_app"
     if dev:
@@ -339,6 +340,11 @@ def web(
         port=resolved_port,
         reload=dev,
         factory=True,
+        timeout_graceful_shutdown=5,
+        log_config={
+            **LOGGING_CONFIG,
+            "root": {"handlers": ["default"], "level": "INFO"},
+        },
     )
 
 

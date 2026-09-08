@@ -12,13 +12,17 @@ def test_startup_imports_only_required_modules() -> None:
             "-c",
             textwrap.dedent("""
                 import sys
+                import logging
                 from mycode import Agent
                 from mycode.providers import get_provider_adapter, list_supported_providers
                 from mycode_cli.main import app
 
                 assert "mycode_cli.server.app" not in sys.modules
 
+                root = logging.getLogger()
+                handlers, level = list(root.handlers), root.level
                 from mycode_cli.server.app import create_api_app
+                assert root.handlers == handlers and root.level == level
                 from typer.testing import CliRunner
 
                 for provider in list_supported_providers():

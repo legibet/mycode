@@ -435,6 +435,81 @@ async def test_cancel_run_unblocks_pending_decision_as_deny() -> None:
     assert state.pending_decisions == {}
 
 
+class CleanupAgent(ChatOnlyAgent):
+    def __init__(self) -> None:
+        self.started = asyncio.Event()
+        self.cancel_requested = asyncio.Event()
+        self.cleaning_up = asyncio.Event()
+        self.release_cleanup = asyncio.Event()
+        self.cleaned_up = False
+
+    def cancel(self) -> None:
+        self.cancel_requested.set()
+
+    async def achat(self, user_input):
+        self.started.set()
+        await self.cancel_requested.wait()
+        self.cleaning_up.set()
+        await self.release_cleanup.wait()
+        self.cleaned_up = True
+        yield Event("error", {"message": "cancelled"})
+
+
+async def test_cancel_request_interruption_does_not_interrupt_run_cleanup() -> None:
+    manager = RunManager()
+    agent = CleanupAgent()
+    run = await manager.start_run(session_id="s1", user_message={"role": "user"}, base_messages=[], agent=agent)
+    await asyncio.wait_for(agent.started.wait(), 2)
+    request = asyncio.create_task(manager.cancel_run(run["id"]))
+    await asyncio.wait_for(agent.cleaning_up.wait(), 2)
+    request.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await request
+    state = await manager.get_run(run["id"])
+    assert state is not None
+    assert state.task is not None
+    try:
+        assert not state.task.done()
+    finally:
+        agent.release_cleanup.set()
+        await state.task
+    assert agent.cleaned_up
+    assert state.status == "cancelled"
+
+
+async def test_close_cancels_all_runs_and_waits_for_cleanup() -> None:
+    manager = RunManager()
+    agent = CleanupAgent()
+    review = ReviewAgent(manager, "review")
+    run = await manager.start_run(session_id="s1", user_message={"role": "user"}, base_messages=[], agent=agent)
+    review_run = await manager.start_run(
+        session_id="review", user_message={"role": "user"}, base_messages=[], agent=review
+    )
+    await _wait_for_event(manager, review_run["id"], "permission_request")
+    closing = asyncio.create_task(manager.aclose())
+    await asyncio.wait_for(agent.cleaning_up.wait(), 2)
+    try:
+        await _wait_for_event(manager, review_run["id"], "permission_resolved")
+        assert review.cancelled
+        assert review.decision == "deny"
+        assert not closing.done()
+    finally:
+        agent.release_cleanup.set()
+        await asyncio.wait_for(closing, 2)
+    assert agent.cleaned_up
+    assert await manager.get_run(run["id"]) is None
+    assert not await manager.has_active_run("s1")
+
+
+async def test_close_does_not_enter_a_queued_agent_turn() -> None:
+    manager = RunManager()
+    agent = CleanupAgent()
+    await manager.start_run(session_id="s1", user_message={"role": "user"}, base_messages=[], agent=agent)
+    async with asyncio.timeout(2):
+        await manager.aclose()
+    assert not agent.started.is_set()
+
+
 async def test_resolve_decision_returns_false_for_unknown_request() -> None:
     manager = RunManager()
     agent = ReviewAgent(manager, "session-1")

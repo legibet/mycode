@@ -3,12 +3,10 @@
 from __future__ import annotations
 
 import os
-from functools import cache
-from typing import Annotated
+from typing import Annotated, cast
 
-from fastapi import Depends, HTTPException
+from fastapi import Depends, HTTPException, Request
 
-from mycode_cli.config import resolve_sessions_dir
 from mycode_cli.server.run_manager import RunManager
 from mycode_cli.sessions import SessionStore
 
@@ -22,18 +20,16 @@ def resolve_workspace_cwd(raw: str | None) -> str:
     return cwd
 
 
-@cache
-def get_store() -> SessionStore:
-    """Return the shared session store for server requests."""
+async def get_store(request: Request) -> SessionStore:
+    """Return this application's session store."""
 
-    return SessionStore(data_dir=resolve_sessions_dir())
+    return cast(SessionStore, request.app.state.store)
 
 
-@cache
-def get_run_manager() -> RunManager:
-    """Return the shared in-process run manager."""
+async def get_run_manager(request: Request) -> RunManager:
+    """Return this application's run manager."""
 
-    return RunManager()
+    return cast(RunManager, request.app.state.runs)
 
 
 StoreDep = Annotated[SessionStore, Depends(get_store)]

@@ -6,6 +6,8 @@ import asyncio
 import json
 from collections.abc import AsyncIterator
 from pathlib import Path
+from threading import Event as ThreadEvent
+from typing import cast, override
 
 import pytest
 from starlette.testclient import TestClient
@@ -37,6 +39,52 @@ class _CaptureAdapter:
 
 
 # App serving and CORS
+
+
+def test_app_lifespans_isolate_resources_and_persist_cancelled_runs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    started = ThreadEvent()
+
+    class PartialAdapter(_CaptureAdapter):
+        @override
+        async def stream_turn(self, request: ProviderRequest) -> AsyncIterator[ProviderStreamEvent]:
+            yield ProviderStreamEvent("text_delta", {"text": "partial reply"})
+            started.set()
+            await asyncio.Event().wait()
+
+    monkeypatch.setattr("mycode.agent.get_provider_adapter", lambda _provider: PartialAdapter())
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    monkeypatch.setenv("MYCODE_HOME", str(tmp_path / "first"))
+    first_app = create_app(serve_web=False)
+    second_app = create_app(serve_web=False)
+    with TestClient(first_app) as first:
+        response = first.post(
+            "/api/chat",
+            json={"session_id": "s1", "cwd": str(tmp_path), "provider": "anthropic", "message": "hello"},
+        )
+        assert response.status_code == 200, response.text
+        assert started.wait(2)
+        runs = cast(RunManager, first_app.state.runs)
+        store = cast(SessionStore, first_app.state.store)
+        assert first.portal is not None
+        state = first.portal.call(runs.get_run, response.json()["run"]["id"])
+        assert state is not None
+        assert state.task is not None
+
+        monkeypatch.setenv("MYCODE_HOME", str(tmp_path / "second"))
+        with TestClient(second_app) as second:
+            assert second_app.state.store is not store
+            assert second_app.state.runs is not runs
+            assert second.get("/api/sessions").json()["sessions"] == []
+            assert [session["id"] for session in first.get("/api/sessions").json()["sessions"]] == ["s1"]
+        assert state.status == "running"
+
+    assert state.task.done()
+    assert state.status == "cancelled"
+    messages = store.load_raw_messages_sync("s1")
+    assert messages[-1]["meta"]["stop_reason"] == "cancelled"
+    assert messages[-1]["content"][0]["text"] == "partial reply"
 
 
 @pytest.mark.parametrize(

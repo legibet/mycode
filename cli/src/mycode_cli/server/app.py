@@ -1,20 +1,24 @@
 """FastAPI application entry point."""
 
+import asyncio
 import logging
-from collections.abc import Sequence
+from collections.abc import AsyncGenerator, Sequence
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
+from mycode_cli.config import resolve_sessions_dir
 from mycode_cli.server.routers.chat import router as chat_router
 from mycode_cli.server.routers.sessions import router as sessions_router
 from mycode_cli.server.routers.settings import router as settings_router
 from mycode_cli.server.routers.workspaces import router as workspaces_router
+from mycode_cli.server.run_manager import RunManager
+from mycode_cli.sessions import SessionStore
 
 logger = logging.getLogger(__name__)
-logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 DEV_CORS_ORIGINS = ("http://localhost:5173", "http://127.0.0.1:5173")
 
 
@@ -24,9 +28,20 @@ def web_static_path() -> Path:
     return Path(__file__).resolve().parent / "static"
 
 
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
+    app.state.store = await asyncio.to_thread(SessionStore, data_dir=resolve_sessions_dir())
+    runs = RunManager()
+    app.state.runs = runs
+    try:
+        yield
+    finally:
+        await runs.aclose()
+
+
 def create_app(*, serve_web: bool = True, cors_origins: Sequence[str] = ()) -> FastAPI:
     """Create the FastAPI app."""
-    application = FastAPI(title="mycode")
+    application = FastAPI(title="mycode", lifespan=lifespan)
 
     if cors_origins:
         application.add_middleware(
