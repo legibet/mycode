@@ -72,7 +72,7 @@ The SDK infers the provider from the model string (`claude-*` to Anthropic, `gpt
 | xAI | `xai` | `XAI_API_KEY` |
 | OpenAI-compatible | `openai_chat` | - |
 
-Pass `api_key=` to override the env var, `api_base=` for a custom endpoint. Model metadata is bundled from [models.dev](https://models.dev); pass `context_window`, `supports_reasoning`, `supports_image_input`, or `supports_pdf_input` to override.
+Pass `api_key=` to override the env var, `api_base=` for a custom endpoint. Model metadata is bundled from [models.dev](https://models.dev); pass `context_window`, `supports_image_input`, or `supports_pdf_input` to override.
 
 ## Multi-turn conversations
 

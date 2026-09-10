@@ -249,7 +249,6 @@ def test_chat_capability_failure_does_not_create_session(
         lambda **_: ModelMetadata(
             provider="anthropic",
             model="claude-sonnet-4-6",
-            supports_reasoning=True,
             supports_image_input=False,
             supports_pdf_input=True,
         ),

@@ -76,7 +76,6 @@ def extract_model(raw_model: dict[str, Any]) -> dict[str, Any]:
     entry: dict[str, Any] = {
         "context_window": limits.get("context"),
         "max_output_tokens": limits.get("output"),
-        "supports_reasoning": raw_model.get("reasoning"),
         "reasoning_efforts": extract_reasoning_efforts(raw_model),
         "supports_image_input": "image" in input_modalities,
         "supports_pdf_input": "pdf" in input_modalities,

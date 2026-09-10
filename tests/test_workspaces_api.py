@@ -65,7 +65,6 @@ def test_workspace_symlink_cannot_attach_file_outside_cwd(
         lambda **_: ModelMetadata(
             provider="anthropic",
             model="claude-sonnet-4-6",
-            supports_reasoning=True,
             supports_image_input=False,
             supports_pdf_input=True,
         ),

@@ -631,7 +631,6 @@ class TestAgentCapabilities:
                 model="gpt-4.1-mini",
                 context_window=1_000_000,
                 max_output_tokens=32_768,
-                supports_reasoning=False,
                 supports_image_input=True,
                 supports_pdf_input=True,
             ),
@@ -669,7 +668,6 @@ class TestAgentCapabilities:
                 model="gpt-5.5",
                 context_window=400_000,
                 max_output_tokens=128_000,
-                supports_reasoning=True,
                 reasoning_efforts=("low", "high"),
                 supports_image_input=None,
                 supports_pdf_input=None,
@@ -700,6 +698,5 @@ class TestAgentCapabilities:
 
         assert agent.context_window == 500_000
         assert agent.max_tokens == 64_000
-        assert agent.supports_reasoning is True
         assert agent.supports_image_input is True
         assert resolved.reasoning_efforts == ()

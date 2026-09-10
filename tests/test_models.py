@@ -36,11 +36,10 @@ def test_lookup_model_metadata_prefers_openrouter_match(monkeypatch) -> None:
     patch_catalog(
         monkeypatch,
         {
-            "models": {"gpt-5": {"max_output_tokens": 128_000, "supports_reasoning": True}},
+            "models": {"gpt-5": {"max_output_tokens": 128_000}},
             "openrouter": {
                 "openai/gpt-5": {
                     "max_output_tokens": 64_000,
-                    "supports_reasoning": True,
                     "supports_image_input": True,
                     "supports_pdf_input": True,
                 }
@@ -64,7 +63,6 @@ def test_lookup_model_metadata_uses_official_model_name(monkeypatch) -> None:
             "models": {
                 "muse-spark-1.2": {
                     "max_output_tokens": 131_072,
-                    "supports_reasoning": True,
                     "reasoning_efforts": ["minimal", "low", "medium", "high", "xhigh"],
                     "cost": {"input": 1.25, "output": 4.25},
                 }

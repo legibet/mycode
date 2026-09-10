@@ -39,7 +39,6 @@ class _ModelCost(_CatalogSchema):
 class _CatalogEntry(_CatalogSchema):
     context_window: int | None = None
     max_output_tokens: int | None = None
-    supports_reasoning: bool | None = None
     reasoning_efforts: tuple[str, ...] | None = None
     supports_image_input: bool | None = None
     supports_pdf_input: bool | None = None
@@ -73,7 +72,6 @@ class ModelMetadata:
     model: str
     context_window: int | None = None
     max_output_tokens: int | None = None
-    supports_reasoning: bool | None = None
     reasoning_efforts: tuple[str, ...] | None = None
     supports_image_input: bool | None = None
     supports_pdf_input: bool | None = None
@@ -132,7 +130,6 @@ def resolve_model_metadata(
     model: str,
     context_window: int | None = None,
     max_output_tokens: int | None = None,
-    supports_reasoning: bool | None = None,
     reasoning_efforts: tuple[str, ...] | None = None,
     supports_image_input: bool | None = None,
     supports_pdf_input: bool | None = None,
@@ -147,7 +144,6 @@ def resolve_model_metadata(
     overrides = {
         "context_window": context_window,
         "max_output_tokens": max_output_tokens,
-        "supports_reasoning": supports_reasoning,
         "reasoning_efforts": reasoning_efforts,
         "supports_image_input": supports_image_input,
         "supports_pdf_input": supports_pdf_input,
@@ -191,7 +187,6 @@ def lookup_model_metadata(
         model=requested_model,
         context_window=catalog_entry.context_window,
         max_output_tokens=catalog_entry.max_output_tokens,
-        supports_reasoning=catalog_entry.supports_reasoning,
         reasoning_efforts=catalog_entry.reasoning_efforts,
         supports_image_input=catalog_entry.supports_image_input,
         supports_pdf_input=catalog_entry.supports_pdf_input,

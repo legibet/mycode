@@ -210,7 +210,6 @@ class Agent:
         context_window: int | None = None,
         compact_threshold: float | None = None,
         reasoning_effort: str | None = None,
-        supports_reasoning: bool | None = None,
         supports_reasoning_effort: bool = False,
         supports_image_input: bool | None = None,
         supports_pdf_input: bool | None = None,
@@ -282,7 +281,6 @@ class Agent:
         self.refresh_capabilities(
             max_tokens=max_tokens,
             context_window=context_window,
-            supports_reasoning=supports_reasoning,
             supports_image_input=supports_image_input,
             supports_pdf_input=supports_pdf_input,
         )
@@ -292,7 +290,6 @@ class Agent:
         *,
         max_tokens: int | None = None,
         context_window: int | None = None,
-        supports_reasoning: bool | None = None,
         supports_image_input: bool | None = None,
         supports_pdf_input: bool | None = None,
     ) -> None:
@@ -308,14 +305,12 @@ class Agent:
             model=self.model,
             max_output_tokens=max_tokens,
             context_window=context_window,
-            supports_reasoning=supports_reasoning,
             supports_image_input=supports_image_input,
             supports_pdf_input=supports_pdf_input,
         )
         self.max_tokens: int = meta.max_output_tokens or 16_384
         self.context_window: int = meta.context_window or 128_000
         self.model_pricing: dict[str, Any] | None = meta.pricing
-        self.supports_reasoning: bool | None = meta.supports_reasoning
         self.supports_image_input: bool = bool(meta.supports_image_input)
         self.supports_pdf_input: bool = bool(meta.supports_pdf_input)
 
@@ -675,7 +670,6 @@ class Agent:
             api_key=self.api_key,
             api_base=self.api_base,
             reasoning_effort=reasoning_effort,
-            supports_reasoning=self.supports_reasoning,
             supports_image_input=self.supports_image_input,
             supports_pdf_input=self.supports_pdf_input,
             transcript_path=self.transcript_path,
