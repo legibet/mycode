@@ -187,7 +187,7 @@ def parse_tool_call_input(raw_arguments: str) -> tuple[dict[str, Any], dict[str,
     ``parse_error`` carry what the model needs to correct the call.
     """
 
-    if not raw_arguments.strip():
+    if not raw_arguments or raw_arguments.isspace():
         return {}, {}
     try:
         parsed = json.loads(raw_arguments)

@@ -21,11 +21,6 @@ from typing import cast
 
 from mycode.messages import ConversationMessage
 
-
-def _now() -> str:
-    return datetime.now(UTC).isoformat()
-
-
 # ---------------------------------------------------------------------
 # Rewind markers
 # ---------------------------------------------------------------------
@@ -38,7 +33,7 @@ def build_rewind_event(rewind_to: int) -> ConversationMessage:
         "role": "rewind",
         "meta": {
             "rewind_to": rewind_to,
-            "created_at": _now(),
+            "created_at": datetime.now(UTC).isoformat(),
         },
     }
 
@@ -52,7 +47,8 @@ def apply_rewind(messages: list[ConversationMessage]) -> list[ConversationMessag
             # Rewind indices refer to the visible message list at that moment,
             # so replay truncates the accumulated result in place.
             rewind_to = (message.get("meta") or {}).get("rewind_to", 0)
-            result = result[:rewind_to]
+            if rewind_to is not None:
+                del result[rewind_to:]
         else:
             result.append(message)
     return result
