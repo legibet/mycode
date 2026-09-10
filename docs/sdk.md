@@ -94,6 +94,16 @@ async for _ in agent.achat("follow-up that references the earlier answer"):
 
 `agent.clear()` drops the in-memory history without touching the on-disk log.
 
+### Model metadata
+
+The bundled models.dev catalog stores one official model list and separate OpenRouter data. `lookup_model_metadata(provider_type=..., model=...)` selects metadata as follows:
+
+- OpenRouter requests first look up the full model id in the OpenRouter data.
+- Other requests, and unmatched OpenRouter requests, look up the official model name, first as supplied and then without its prefix.
+- A match supplies all metadata fields, including reasoning efforts and reference pricing. An unmatched model returns `None`.
+
+`resolve_model_metadata()` applies non-`None` explicit overrides to the matched metadata. If no model matches, unspecified fields remain `None`.
+
 ### Reasoning effort
 
 `Agent(reasoning_effort=...)` passes the value directly to the selected provider adapter. Pass `None` to leave the effort unspecified. The adapter converts string values to the provider's request format and may reject unsupported values.

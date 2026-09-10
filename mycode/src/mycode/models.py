@@ -47,8 +47,8 @@ class _CatalogEntry(_CatalogSchema):
 
 
 class _ModelsCatalog(_CatalogSchema):
-    providers: dict[str, dict[str, _CatalogEntry]]
-    fallback: dict[str, _CatalogEntry]
+    models: dict[str, _CatalogEntry]
+    openrouter: dict[str, _CatalogEntry]
 
 
 @dataclass(frozen=True)
@@ -56,12 +56,12 @@ class ModelMetadata:
     """Model metadata for the requested provider/model.
 
     ``provider`` and ``model`` keep the original query identity. Other fields
-    may come from a fallback catalog entry.
+    come from the official model entry or an OpenRouter entry.
 
     ``pricing`` holds models.dev prices in USD per 1M tokens — keys ``input``,
     ``output``, ``cache_read``, ``cache_write``, ``reasoning`` plus optional
     ``tiers`` (long-context price overrides, ``[{"size": ..., <prices>}]``).
-    Fallback metadata comes from the model owner's selected official endpoint,
+    Official metadata comes from the model owner's selected official endpoint,
     including its pricing and reasoning efforts.
 
     ``reasoning_efforts`` is ``None`` when the source has no reasoning options,
@@ -164,8 +164,8 @@ def lookup_model_metadata(
 
     Catalog lookup order:
 
-    1. Requested provider and requested model.
-    2. Official metadata for the unprefixed model name.
+    1. Exact OpenRouter model id, only for OpenRouter requests.
+    2. Official model name, first as supplied and then without its prefix.
     """
 
     requested_model = (model or "").strip()
@@ -175,12 +175,13 @@ def lookup_model_metadata(
     if catalog is None:
         return None
 
-    model_name = requested_model.split("/", 1)[1].strip() if "/" in requested_model else requested_model
-    # Agent Platform serves the same Gemini models; share the google catalog.
-    catalog_provider = "google" if provider_type == "google_vertex" else provider_type
-    catalog_entry = catalog.providers.get(catalog_provider, {}).get(requested_model)
+    catalog_entry = None
+    if provider_type == "openrouter":
+        catalog_entry = catalog.openrouter.get(requested_model)
+
     if catalog_entry is None:
-        catalog_entry = catalog.fallback.get(model_name)
+        model_name = requested_model.split("/", 1)[-1].strip()
+        catalog_entry = catalog.models.get(requested_model) or catalog.models.get(model_name)
 
     if catalog_entry is None:
         return None

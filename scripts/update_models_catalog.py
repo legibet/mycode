@@ -9,19 +9,6 @@ from urllib.request import Request, urlopen
 
 MODELS_DEV_URL = "https://models.dev/catalog.json"
 TARGET_PATH = Path(__file__).resolve().parents[1] / "mycode" / "src" / "mycode" / "models_catalog.json"
-PROVIDERS = (
-    "alibaba",
-    "anthropic",
-    "deepseek",
-    "google",
-    "minimax",
-    "moonshotai",
-    "openai",
-    "openrouter",
-    "xai",
-    "zai",
-)
-
 OFFICIAL_MODEL_PROVIDERS = {
     "alibaba": "alibaba",
     "anthropic": "anthropic",
@@ -106,13 +93,7 @@ def main() -> None:
 
     source_providers = source["providers"]
 
-    providers: dict[str, dict[str, dict[str, Any]]] = {}
-    for provider_name in PROVIDERS:
-        raw_models = source_providers[provider_name]["models"]
-        models = {model_id: extract_model(raw_model) for model_id, raw_model in raw_models.items()}
-        providers[provider_name] = models
-
-    fallback: dict[str, dict[str, Any]] = {}
+    models: dict[str, dict[str, Any]] = {}
     for model_id in source["models"]:
         owner, model_name = model_id.split("/", 1)
         provider_name = OFFICIAL_MODEL_PROVIDERS.get(owner)
@@ -121,11 +102,14 @@ def main() -> None:
         raw_model = source_providers[provider_name]["models"].get(model_name)
         if raw_model is None:
             continue
-        if model_name in fallback:
+        if model_name in models:
             raise ValueError(f"duplicate official model name: {model_name}")
-        fallback[model_name] = extract_model(raw_model)
+        models[model_name] = extract_model(raw_model)
 
-    catalog = {"fallback": fallback, "providers": providers}
+    openrouter = {
+        model_id: extract_model(raw_model) for model_id, raw_model in source_providers["openrouter"]["models"].items()
+    }
+    catalog = {"models": models, "openrouter": openrouter}
     TARGET_PATH.write_text(json.dumps(catalog, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     print(f"Wrote {TARGET_PATH}")
 

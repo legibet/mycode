@@ -19,11 +19,11 @@ def test_bundled_catalog_is_valid() -> None:
     catalog = models.load_models_catalog()
 
     assert catalog is not None
-    assert catalog.providers
-    assert catalog.fallback
+    assert catalog.models
+    assert catalog.openrouter
 
 
-def test_bundled_catalog_uses_meta_metadata_for_muse_fallback() -> None:
+def test_bundled_catalog_uses_official_meta_metadata() -> None:
     metadata = lookup_model_metadata(provider_type="openai_chat", model="muse-spark-1.2")
 
     assert metadata is not None
@@ -32,19 +32,17 @@ def test_bundled_catalog_uses_meta_metadata_for_muse_fallback() -> None:
     assert metadata.pricing == {"input": 1.25, "output": 4.25, "cache_read": 0.15}
 
 
-def test_lookup_model_metadata_prefers_provider_specific_match(monkeypatch) -> None:
+def test_lookup_model_metadata_prefers_openrouter_match(monkeypatch) -> None:
     patch_catalog(
         monkeypatch,
         {
-            "fallback": {"gpt-5": {"max_output_tokens": 128_000, "supports_reasoning": True}},
-            "providers": {
-                "openrouter": {
-                    "openai/gpt-5": {
-                        "max_output_tokens": 64_000,
-                        "supports_reasoning": True,
-                        "supports_image_input": True,
-                        "supports_pdf_input": True,
-                    }
+            "models": {"gpt-5": {"max_output_tokens": 128_000, "supports_reasoning": True}},
+            "openrouter": {
+                "openai/gpt-5": {
+                    "max_output_tokens": 64_000,
+                    "supports_reasoning": True,
+                    "supports_image_input": True,
+                    "supports_pdf_input": True,
                 }
             },
         },
@@ -59,11 +57,11 @@ def test_lookup_model_metadata_prefers_provider_specific_match(monkeypatch) -> N
     assert metadata.supports_pdf_input is True
 
 
-def test_lookup_model_metadata_uses_official_bare_model_fallback(monkeypatch) -> None:
+def test_lookup_model_metadata_uses_official_model_name(monkeypatch) -> None:
     patch_catalog(
         monkeypatch,
         {
-            "fallback": {
+            "models": {
                 "muse-spark-1.2": {
                     "max_output_tokens": 131_072,
                     "supports_reasoning": True,
@@ -71,7 +69,7 @@ def test_lookup_model_metadata_uses_official_bare_model_fallback(monkeypatch) ->
                     "cost": {"input": 1.25, "output": 4.25},
                 }
             },
-            "providers": {},
+            "openrouter": {},
         },
     )
 
@@ -89,11 +87,9 @@ def test_lookup_model_metadata_does_not_scan_openrouter_suffixes(monkeypatch) ->
     patch_catalog(
         monkeypatch,
         {
-            "fallback": {},
-            "providers": {
-                "openrouter": {
-                    "meta/muse-spark-1.2": {"max_output_tokens": 1_048_576},
-                }
+            "models": {},
+            "openrouter": {
+                "meta/muse-spark-1.2": {"max_output_tokens": 1_048_576},
             },
         },
     )
@@ -107,8 +103,8 @@ def test_lookup_model_metadata_requires_query_provider(monkeypatch) -> None:
     patch_catalog(
         monkeypatch,
         {
-            "fallback": {"gpt-5": {"max_output_tokens": 128_000}},
-            "providers": {},
+            "models": {"gpt-5": {"max_output_tokens": 128_000}},
+            "openrouter": {},
         },
     )
 
@@ -116,50 +112,45 @@ def test_lookup_model_metadata_requires_query_provider(monkeypatch) -> None:
     assert lookup_model_metadata(provider_type=None, model="gpt-5") is None
 
 
-def test_pricing_comes_from_exact_and_official_fallback_entries(monkeypatch) -> None:
+def test_pricing_comes_from_official_model_for_any_non_openrouter_provider(monkeypatch) -> None:
     patch_catalog(
         monkeypatch,
         {
-            "fallback": {
+            "models": {
                 "deepseek-chat": {
                     "context_window": 128_000,
                     "cost": {"input": 0.14, "output": 0.28},
                 }
             },
-            "providers": {
-                "deepseek": {
-                    "deepseek-chat": {
-                        "context_window": 64_000,
-                        "cost": {"input": 0.2, "output": 0.4},
-                    }
+            "openrouter": {
+                "deepseek/deepseek-chat": {
+                    "context_window": 64_000,
+                    "cost": {"input": 0.2, "output": 0.4},
                 }
             },
         },
     )
 
-    direct = lookup_model_metadata(provider_type="deepseek", model="deepseek-chat")
-    assert direct is not None
-    assert direct.context_window == 64_000
-    assert direct.pricing == {"input": 0.2, "output": 0.4}
-
-    fallback = lookup_model_metadata(provider_type="openai_chat", model="deepseek-chat")
-    assert fallback is not None
-    assert fallback.context_window == 128_000
-    assert fallback.pricing == {"input": 0.14, "output": 0.28}
+    for provider in ("deepseek", "openai_chat"):
+        for model in ("deepseek-chat", "deepseek/deepseek-chat"):
+            metadata = lookup_model_metadata(provider_type=provider, model=model)
+            assert metadata is not None
+            assert metadata.provider == provider
+            assert metadata.model == model
+            assert metadata.context_window == 128_000
+            assert metadata.pricing == {"input": 0.14, "output": 0.28}
 
 
 def test_catalog_pricing_tiers_keep_the_public_json_shape(monkeypatch) -> None:
     patch_catalog(
         monkeypatch,
         {
-            "fallback": {},
-            "providers": {
-                "openai": {
-                    "gpt-5": {
-                        "cost": {
-                            "input": 1.0,
-                            "tiers": [{"size": 200_000, "input": 2.0}],
-                        }
+            "openrouter": {},
+            "models": {
+                "gpt-5": {
+                    "cost": {
+                        "input": 1.0,
+                        "tiers": [{"size": 200_000, "input": 2.0}],
                     }
                 }
             },
