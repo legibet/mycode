@@ -1777,6 +1777,31 @@ def test_alibaba_builds_provider_specific_payload() -> None:
 
 
 @pytest.mark.parametrize(
+    ("adapter", "field"),
+    [
+        pytest.param(OpenAIChatAdapter(), "max_completion_tokens", id="openai_chat"),
+        pytest.param(DeepSeekAdapter(), "max_tokens", id="deepseek"),
+        pytest.param(ZAIAdapter(), "max_tokens", id="zai"),
+        pytest.param(OpenRouterAdapter(), "max_completion_tokens", id="openrouter"),
+        pytest.param(XAIAdapter(), "max_completion_tokens", id="xai"),
+        pytest.param(AlibabaAdapter(), "max_completion_tokens", id="alibaba"),
+    ],
+)
+def test_chat_adapters_send_max_tokens_in_their_wire_field(adapter: OpenAIChatAdapter, field: str) -> None:
+    payload = adapter._build_request_payload(request_obj())
+
+    assert payload[field] == 4096
+    assert set(payload) & {"max_tokens", "max_completion_tokens"} == {field}
+
+
+def test_openai_chat_legacy_max_tokens_opt_in() -> None:
+    payload = OpenAIChatAdapter()._build_request_payload(request_obj(legacy_max_tokens=True))
+
+    assert payload["max_tokens"] == 4096
+    assert "max_completion_tokens" not in payload
+
+
+@pytest.mark.parametrize(
     ("adapter", "expected_thinking"),
     [
         pytest.param(

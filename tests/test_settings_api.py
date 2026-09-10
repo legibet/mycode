@@ -172,6 +172,7 @@ class TestSettingsApi:
                             },
                             "api_key": "sk",
                             "supports_reasoning_effort": True,
+                            "legacy_max_tokens": True,
                         }
                     },
                 }
@@ -182,6 +183,7 @@ class TestSettingsApi:
         on_disk = json.loads((home / "config.json").read_text(encoding="utf-8"))
         assert on_disk["providers"]["custom"]["models"] == {"custom-model": {"reasoning_efforts": []}}
         assert on_disk["providers"]["custom"]["supports_reasoning_effort"] is True
+        assert on_disk["providers"]["custom"]["legacy_max_tokens"] is True
 
     @pytest.mark.parametrize(
         ("config", "error"),
@@ -194,6 +196,10 @@ class TestSettingsApi:
             (
                 {"providers": {"custom": {"type": "openai_chat", "supports_reasoning_effort": "yes"}}},
                 "supports_reasoning_effort",
+            ),
+            (
+                {"providers": {"custom": {"type": "openai_chat", "legacy_max_tokens": "yes"}}},
+                "legacy_max_tokens",
             ),
             (
                 {"providers": {"openai": {"models": {"gpt-5": {"context_window": "128000"}}}}},

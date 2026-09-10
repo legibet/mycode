@@ -33,7 +33,7 @@ class ProviderAdapter(ABC):
 - `text_delta` — response text
 - `message_done` — final `ConversationMessage` with all blocks and metadata
 
-`ProviderRequest` carries: provider, model, session_id, messages, system, tools, max_tokens, api_key, api_base, reasoning_effort, supports_image_input, supports_pdf_input, request_timeout.
+`ProviderRequest` carries: provider, model, session_id, messages, system, tools, max_tokens, api_key, api_base, reasoning_effort, legacy_max_tokens, supports_image_input, supports_pdf_input, request_timeout.
 
 ## Timeouts, Retries, and Errors
 
@@ -51,8 +51,26 @@ Provider quirks:
 
 - Gemini proto3 omits zero-valued counts, so absent optional counts become 0 after a usage payload arrives.
 - DeepSeek: `prompt_tokens_details.cached_tokens` wins; top-level `prompt_cache_hit_tokens` is the fallback.
+- xAI: `completion_tokens` excludes reasoning tokens (reported in `completion_tokens_details.reasoning_tokens` and still included in `total_tokens`), so canonical `output_tokens` under-reports billed output.
 - OpenRouter: `usage.cost` is persisted as `meta.cost = {"total": ...}`. Other Chat Completions providers' `cost` extensions are ignored.
 - Anthropic-compatible providers need all input and cache counters to compute effective input.
+
+## Output Token Cap
+
+`ProviderRequest.max_tokens` (fed from the catalog's `max_output_tokens`, sourced from models.dev `limit.output`) means **the total generated tokens for one response, reasoning included**. Hitting the cap surfaces as the provider's length finish reason, which normalizes to canonical `stop_reason="length"`.
+
+Endpoints disagree on which wire field carries this cap, so each adapter sends the one whose documented meaning is the total-output cap on its endpoint:
+
+| adapter       | wire field              | why                                                                                                             |
+| ------------- | ----------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `openai_chat` | `max_completion_tokens` | OpenAI's current parameter; `max_tokens` is deprecated and rejected by OpenAI reasoning models                  |
+| `deepseek`    | `max_tokens`            | caps reasoning and answer; `max_completion_tokens` is silently ignored                                          |
+| `zai`         | `max_tokens`            | only documented field; thinking tokens count inside its budget                                                  |
+| `openrouter`  | `max_completion_tokens` | OpenRouter's recommended field; `max_tokens` is deprecated there                                                |
+| `xai`         | `max_completion_tokens` | both fields accepted; `max_tokens` does not bound reasoning; whether `max_completion_tokens` does is unverified |
+| `alibaba`     | `max_completion_tokens` | DashScope's `max_tokens` caps the answer only, excluding chain-of-thought                                       |
+
+DeepSeek and Z.AI pin the legacy name via `max_tokens_field`. Generic `openai_chat` endpoints send `max_completion_tokens` by default; endpoints that only implement `max_tokens` (Ollama, older llama.cpp, Together, NVIDIA) silently drop it, so set `providers.<name>.legacy_max_tokens` on such providers (see `docs/config.md`).
 
 ## Adapters
 
@@ -204,7 +222,6 @@ Provider quirks:
 - Default models: `qwen3.8-max`, `qwen3.8-flash`
 - `supports_reasoning_effort`: true; explicit values pass through unchanged
 - Always sends `preserve_thinking: true`
-- Uses `max_completion_tokens` instead of `max_tokens`
 
 ### `xai` — `openai_chat.py`
 
@@ -222,11 +239,11 @@ Provider quirks:
 
 Adapters persist only these canonical values: `stop`, `tool_use`, `length`, `error`, and `unknown` (the Agent adds `cancelled` for user cancellation).
 
-| adapter | provider values |
-| --- | --- |
-| Anthropic-like | `end_turn`, `stop_sequence` -> `stop`; `tool_use` -> `tool_use`; `max_tokens` -> `length` |
-| OpenAI Chat | `stop` -> `stop`; `tool_calls`, `function_call` -> `tool_use`; `length` -> `length`; `content_filter` -> `error` |
-| Gemini | `STOP` -> `stop`; `MAX_TOKENS` -> `length`; documented safety, policy, recitation, and malformed tool-call reasons -> `error` |
+| adapter          | provider values                                                                                                                                        |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Anthropic-like   | `end_turn`, `stop_sequence` -> `stop`; `tool_use` -> `tool_use`; `max_tokens` -> `length`                                                              |
+| OpenAI Chat      | `stop` -> `stop`; `tool_calls`, `function_call` -> `tool_use`; `length` -> `length`; `content_filter` -> `error`                                       |
+| Gemini           | `STOP` -> `stop`; `MAX_TOKENS` -> `length`; documented safety, policy, recitation, and malformed tool-call reasons -> `error`                          |
 | OpenAI Responses | `completed` -> `stop` or `tool_use` from output items; `incomplete.max_output_tokens` -> `length`; `incomplete.content_filter` and `failed` -> `error` |
 
 An adapter returns `unknown` for a provider value outside its documented mapping. Raw provider values are not stored in assistant metadata.

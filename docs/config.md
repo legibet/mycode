@@ -80,6 +80,7 @@ file and adapts it for the UI.
 - `providers.<name>.api_key` — literal value or `${ENV_NAME}` reference
 - `providers.<name>.base_url` — override the adapter's default base URL
 - `providers.<name>.supports_reasoning_effort` — opt-in (default `false`) for a generic `openai_chat` endpoint that accepts the standard top-level `reasoning_effort`. Ignored for other provider types, which declare effort support in their adapter
+- `providers.<name>.legacy_max_tokens` — opt-in (default `false`) for a generic `openai_chat` endpoint that only implements the legacy `max_tokens` field and would silently drop the default `max_completion_tokens`. Ignored for other provider types, which send the field their endpoint defines
 
 ## Provider Authentication Resolution
 

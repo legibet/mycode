@@ -486,6 +486,37 @@ class TestResolveProvider:
 
         assert resolved.api_key == "request-key"
 
+    def test_legacy_max_tokens_only_applies_to_generic_openai_chat(
+        self, workspace: Path, config_home: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("DEEPSEEK_API_KEY", "env-key")
+        write_json(
+            config_home / "config.json",
+            {
+                "providers": {
+                    "generic": {
+                        "type": "openai_chat",
+                        "api_key": "config-key",
+                        "base_url": "https://compat.example/v1",
+                        "legacy_max_tokens": True,
+                        "models": {"some-model": {}},
+                    },
+                    "vendor": {
+                        "type": "deepseek",
+                        "legacy_max_tokens": True,
+                        "models": {"deepseek-v4-flash": {}},
+                    },
+                },
+            },
+        )
+
+        settings = get_settings(str(workspace.resolve()))
+        generic = resolve_provider(settings, provider_name="generic", model="some-model")
+        vendor = resolve_provider(settings, provider_name="vendor", model="deepseek-v4-flash")
+
+        assert generic.legacy_max_tokens is True
+        assert vendor.legacy_max_tokens is False
+
     def test_reads_api_key_from_configured_env_var_before_default_env(
         self, workspace: Path, config_home: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

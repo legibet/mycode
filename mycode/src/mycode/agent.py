@@ -211,6 +211,7 @@ class Agent:
         compact_threshold: float | None = None,
         reasoning_effort: str | None = None,
         supports_reasoning_effort: bool = False,
+        legacy_max_tokens: bool = False,
         supports_image_input: bool | None = None,
         supports_pdf_input: bool | None = None,
         system: str = "",
@@ -255,6 +256,8 @@ class Agent:
         # Whether the endpoint accepts the effort knob. Comes from provider
         # config, not the catalog, so it stays out of refresh_capabilities.
         self.supports_reasoning_effort = supports_reasoning_effort
+        # Whether the endpoint only implements the legacy max_tokens field.
+        self.legacy_max_tokens = legacy_max_tokens
 
         self.system = system
         self.hooks = hooks or Hooks()
@@ -670,6 +673,7 @@ class Agent:
             api_key=self.api_key,
             api_base=self.api_base,
             reasoning_effort=reasoning_effort,
+            legacy_max_tokens=self.legacy_max_tokens,
             supports_image_input=self.supports_image_input,
             supports_pdf_input=self.supports_pdf_input,
             transcript_path=self.transcript_path,

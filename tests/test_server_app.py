@@ -31,10 +31,12 @@ class _CaptureAdapter:
     def __init__(self) -> None:
         self.messages: list[ConversationMessage] | None = None
         self.reasoning_effort: str | None = None
+        self.legacy_max_tokens = False
 
     async def stream_turn(self, request: ProviderRequest) -> AsyncIterator[ProviderStreamEvent]:
         self.messages = list(request.messages)
         self.reasoning_effort = request.reasoning_effort
+        self.legacy_max_tokens = request.legacy_max_tokens
         yield ProviderStreamEvent(
             "message_done",
             {"message": {"role": "assistant", "content": [{"type": "text", "text": "ok"}]}},
@@ -383,6 +385,53 @@ def test_chat_rejects_unsupported_reasoning_effort(
 
     if expected_status == 200:
         assert adapter.reasoning_effort == "low"
+
+
+def test_chat_legacy_max_tokens_reaches_provider_request(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    home = tmp_path / "home" / ".mycode"
+    home.mkdir(parents=True)
+    monkeypatch.setenv("TEST_API_KEY", "test-key")
+    monkeypatch.setenv("MYCODE_HOME", str(home))
+    home.joinpath("config.json").write_text(
+        json.dumps(
+            {
+                "providers": {
+                    "custom": {
+                        "type": "openai_chat",
+                        "api_key": "${TEST_API_KEY}",
+                        "base_url": "https://compat.example/v1",
+                        "legacy_max_tokens": True,
+                        "models": {"some-model": {}},
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    adapter = _CaptureAdapter()
+    monkeypatch.setattr("mycode.agent.get_provider_adapter", lambda _provider: adapter)
+    app = create_api_app()
+    app.dependency_overrides[get_store] = lambda: SessionStore(data_dir=tmp_path / "sessions")
+    runs = RunManager()
+    app.dependency_overrides[get_run_manager] = lambda: runs
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/chat",
+            json={
+                "session_id": "legacy-max-tokens-session",
+                "cwd": str(tmp_path),
+                "provider": "custom",
+                "model": "some-model",
+                "message": "hi",
+            },
+        )
+        assert response.status_code == 200
+        run_id = response.json()["run"]["id"]
+        with client.stream("GET", f"/api/runs/{run_id}/stream") as stream:
+            list(stream.iter_lines())
+
+    assert adapter.legacy_max_tokens is True
 
 
 @pytest.mark.parametrize(

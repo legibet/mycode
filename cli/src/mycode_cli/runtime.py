@@ -54,6 +54,7 @@ def build_agent(
         api_base=resolved_provider.api_base,
         reasoning_effort=resolved_provider.reasoning_effort,
         supports_reasoning_effort=resolved_provider.supports_reasoning_effort,
+        legacy_max_tokens=resolved_provider.legacy_max_tokens,
         max_tokens=model_config.max_output_tokens if model_config else None,
         context_window=model_config.context_window if model_config else None,
         supports_image_input=model_config.supports_image_input if model_config else None,

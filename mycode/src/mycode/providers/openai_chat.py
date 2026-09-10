@@ -61,6 +61,12 @@ class OpenAIChatAdapter(ProviderAdapter):
     label = "OpenAI Chat Completions"
     default_base_url = "https://api.openai.com/v1"
     auto_discoverable = False
+    # Wire field for the canonical max_tokens: the total number of tokens the
+    # model may generate for one response, reasoning included. Adapters for
+    # endpoints that don't support max_completion_tokens override this with
+    # the legacy "max_tokens"; generic endpoints do so per request via
+    # ProviderRequest.legacy_max_tokens.
+    max_tokens_field = "max_completion_tokens"
 
     @override
     async def stream_turn(self, request: ProviderRequest) -> AsyncIterator[ProviderStreamEvent]:
@@ -195,12 +201,13 @@ class OpenAIChatAdapter(ProviderAdapter):
         for message in self.prepare_messages(request):
             messages.extend(self._serialize_message(message))
 
+        max_tokens_field = "max_tokens" if request.legacy_max_tokens else self.max_tokens_field
         payload: dict[str, Any] = {
             "model": request.model,
             "messages": messages,
             "tools": [self._serialize_tool(tool) for tool in request.tools] or None,
             "tool_choice": "auto" if request.tools else None,
-            "max_tokens": request.max_tokens,
+            max_tokens_field: request.max_tokens,
             "stream_options": {"include_usage": True},
         }
         payload.update(self._build_provider_payload_overrides(request))
@@ -396,6 +403,9 @@ class DeepSeekAdapter(OpenAIChatAdapter):
     default_models = ("deepseek-v4-pro", "deepseek-v4-flash")
     auto_discoverable = True
     supports_reasoning_effort = True
+    # DeepSeek's max_tokens caps reasoning and answer; max_completion_tokens
+    # is silently ignored.
+    max_tokens_field = "max_tokens"
 
     @override
     def _build_provider_payload_overrides(self, request: ProviderRequest) -> dict[str, Any]:
@@ -424,6 +434,8 @@ class ZAIAdapter(OpenAIChatAdapter):
     default_models = ("glm-5.3", "glm-5.3-flash")
     auto_discoverable = True
     supports_reasoning_effort = True
+    # Z.AI only documents max_tokens; thinking tokens count inside its budget.
+    max_tokens_field = "max_tokens"
 
     @override
     def _build_provider_payload_overrides(self, request: ProviderRequest) -> dict[str, Any]:
@@ -443,12 +455,6 @@ class AlibabaAdapter(OpenAIChatAdapter):
     default_models = ("qwen3.8-max", "qwen3.8-flash")
     auto_discoverable = True
     supports_reasoning_effort = True
-
-    @override
-    def _build_request_payload(self, request: ProviderRequest) -> dict[str, Any]:
-        payload = super()._build_request_payload(request)
-        payload["max_completion_tokens"] = payload.pop("max_tokens")
-        return payload
 
     @override
     def _build_provider_payload_overrides(self, request: ProviderRequest) -> dict[str, Any]:

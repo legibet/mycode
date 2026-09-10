@@ -71,6 +71,9 @@ class ProviderConfig:
     # Opt-in for generic openai_chat endpoints that accept the standard
     # top-level reasoning_effort param. Ignored for other provider types.
     supports_reasoning_effort: bool = False
+    # Opt-in for generic openai_chat endpoints that only implement the legacy
+    # max_tokens field. Ignored for other provider types.
+    legacy_max_tokens: bool = False
 
 
 @dataclass(frozen=True)
@@ -119,6 +122,7 @@ class ResolvedProvider:
     provider_name: str | None = None
     model_config: ModelConfig | None = None
     supports_reasoning_effort: bool = False
+    legacy_max_tokens: bool = False
     reasoning_efforts: tuple[str, ...] = ()
 
 
@@ -434,6 +438,12 @@ def _validate_provider_config(name: str, raw: Any) -> dict[str, Any]:
             raise ValueError(f"provider {name!r}: supports_reasoning_effort must be a boolean")
         out["supports_reasoning_effort"] = supports_effort
 
+    legacy_max_tokens = raw.get("legacy_max_tokens")
+    if legacy_max_tokens is not None:
+        if not isinstance(legacy_max_tokens, bool):
+            raise ValueError(f"provider {name!r}: legacy_max_tokens must be a boolean")
+        out["legacy_max_tokens"] = legacy_max_tokens
+
     raw_models = raw.get("models")
     if raw_models is not None:
         models = _validate_model_config_entries(name, raw_models)
@@ -519,6 +529,8 @@ def get_settings(cwd: str | None = None) -> Settings:
                 merged["base_url"] = raw["base_url"]
             if "supports_reasoning_effort" in raw:
                 merged["supports_reasoning_effort"] = raw["supports_reasoning_effort"]
+            if "legacy_max_tokens" in raw:
+                merged["legacy_max_tokens"] = raw["legacy_max_tokens"]
 
             raw_providers[name] = merged
 
@@ -623,6 +635,7 @@ def _build_providers(raw_providers: dict[str, dict[str, Any]]) -> dict[str, Prov
             api_key_env_var=raw.get("api_key_env_var") or None,
             base_url=raw.get("base_url") or None,
             supports_reasoning_effort=raw.get("supports_reasoning_effort") is True,
+            legacy_max_tokens=raw.get("legacy_max_tokens") is True,
         )
 
     return providers
@@ -815,6 +828,8 @@ def _resolve_provider_runtime(
     supports_effort = adapter.supports_reasoning_effort or bool(
         provider_config and provider_config.supports_reasoning_effort and isinstance(adapter, OpenAIChatAdapter)
     )
+    # The legacy max_tokens opt-in only applies to generic openai_chat providers.
+    legacy_max_tokens = bool(provider_config and provider_config.legacy_max_tokens and provider_type == "openai_chat")
     resolved_api_key = api_key
     if not resolved_api_key and provider_config:
         if env_name := provider_config.api_key_env_var:
@@ -841,5 +856,6 @@ def _resolve_provider_runtime(
         reasoning_effort=None,
         model_config=model_config,
         supports_reasoning_effort=supports_effort,
+        legacy_max_tokens=legacy_max_tokens,
         reasoning_efforts=reasoning_efforts,
     )
