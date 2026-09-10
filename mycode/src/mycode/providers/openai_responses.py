@@ -181,9 +181,7 @@ class OpenAIResponsesAdapter(ProviderAdapter):
     def _serialize_user_message(self, message: ConversationMessage) -> list[dict[str, Any]]:
         items: list[dict[str, Any]] = []
         blocks = [block for block in message.get("content") or [] if isinstance(block, dict)]
-        message_content = self._serialize_input_content(
-            [block for block in blocks if block.get("type") in {"text", "image", "document"}]
-        )
+        message_content = self._serialize_input_content(blocks)
         if message_content:
             items.append(
                 {

@@ -61,7 +61,11 @@ class AnthropicLikeAdapter(ProviderAdapter):
             message = self._serialize_message(replay_message)
             if message["content"]:
                 messages.append(message)
-        self._apply_cache_control(messages)
+        # Serialized user messages contain only cacheable blocks and are non-empty.
+        for message in reversed(messages):
+            if message["role"] == "user":
+                message["content"][-1]["cache_control"] = {"type": "ephemeral"}
+                break
         thinking = self.thinking_config(request)
 
         payload: dict[str, Any] = {
@@ -113,29 +117,6 @@ class AnthropicLikeAdapter(ProviderAdapter):
             if candidate not in used_tool_call_ids:
                 return candidate
             counter += 1
-
-    def _apply_cache_control(self, messages: list[dict[str, Any]]) -> None:
-        """Mark the last replayed user content block as ephemeral."""
-
-        for message in reversed(messages):
-            if message.get("role") != "user":
-                continue
-
-            content = message.get("content")
-            if not isinstance(content, list):
-                return
-
-            for block in reversed(content):
-                if not isinstance(block, dict):
-                    continue
-                block_type = str(block.get("type") or "")
-                if block_type not in {"text", "image", "document", "tool_result"}:
-                    continue
-
-                block["cache_control"] = {"type": "ephemeral"}
-                return
-
-            return
 
     @override
     async def stream_turn(self, request: ProviderRequest) -> AsyncIterator[ProviderStreamEvent]:
