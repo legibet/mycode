@@ -460,13 +460,11 @@ class Agent:
         # before the tool coroutine starts.
         task.add_done_callback(lambda _task: output_buffer.finish())
         self._active_tool_task = task
-        normal_completion = False
 
         try:
             while True:
                 output = await output_buffer.get()
                 if output is None:
-                    normal_completion = True
                     break
                 if output and not self._cancel_event.is_set():
                     yield Event("tool_output", {"tool_use_id": tool_id, "output": output})
@@ -488,7 +486,7 @@ class Agent:
 
             yield await self._finish_tool_call(tool_id, hook_ctx, result)
         finally:
-            if not normal_completion and not task.done():
+            if not task.done():
                 task.cancel()
             with suppress(asyncio.CancelledError, Exception):
                 await task
@@ -799,7 +797,7 @@ class Agent:
 
         if attachments:
             blocks = await asyncio.to_thread(build_attachment_blocks, attachments)
-            user_message["content"] = list(user_message.get("content") or []) + blocks
+            user_message["content"].extend(blocks)
 
         content_blocks = user_message.get("content") or []
         for block_type, supported, label in (
