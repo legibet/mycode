@@ -10,10 +10,9 @@ from mycode.providers.openai_chat import (
     DeepSeekAdapter,
     OpenAIChatAdapter,
     OpenRouterAdapter,
-    XAIAdapter,
     ZAIAdapter,
 )
-from mycode.providers.openai_responses import OpenAIResponsesAdapter
+from mycode.providers.openai_responses import OpenAIResponsesAdapter, XAIAdapter
 
 _PROVIDERS: dict[str, ProviderAdapter] = {
     adapter.provider_id: adapter

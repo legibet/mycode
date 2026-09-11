@@ -1,4 +1,4 @@
-"""OpenAI Responses API adapter."""
+"""Responses API adapters for OpenAI and xAI."""
 
 from __future__ import annotations
 
@@ -59,6 +59,8 @@ class OpenAIResponsesAdapter(ProviderAdapter):
     env_api_key_names = ("OPENAI_API_KEY",)
     default_models = ("gpt-6-astra", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna")
     supports_reasoning_effort = True
+    _thinking_delta_types: tuple[str, ...] = ("response.reasoning_summary_text.delta",)
+    _reasoning_text_fields: tuple[str, ...] = ("summary",)
 
     @override
     async def stream_turn(self, request: ProviderRequest) -> AsyncIterator[ProviderStreamEvent]:
@@ -91,7 +93,7 @@ class OpenAIResponsesAdapter(ProviderAdapter):
                             yield ProviderStreamEvent("stream_started")
                         event_type = getattr(event, "type", None)
 
-                        if event_type == "response.reasoning_summary_text.delta":
+                        if event_type in self._thinking_delta_types:
                             delta = cast(str | None, getattr(event, "delta", None))
                             if delta:
                                 yield ProviderStreamEvent("thinking_delta", {"text": delta})
@@ -122,10 +124,11 @@ class OpenAIResponsesAdapter(ProviderAdapter):
 
                         if event_type in {"response.completed", "response.incomplete"}:
                             final_response = getattr(event, "response", None)
-                            break
+                            # Keep consuming the stream: the SDK closes its nested
+                            # response streams only once iteration finishes.
 
                     if final_response is None:
-                        raise ProviderError("OpenAI Responses stream ended before response.completed")
+                        raise ProviderError(f"{self.label} stream ended before response.completed")
 
                     yield ProviderStreamEvent(
                         "message_done",
@@ -233,7 +236,7 @@ class OpenAIResponsesAdapter(ProviderAdapter):
         return content
 
     def _native_output_items(self, message: ConversationMessage) -> list[dict[str, Any]] | None:
-        """Replay stored OpenAI output items when history already came from Responses."""
+        """Replay stored output items when history already came from Responses."""
 
         raw_meta = message.get("meta")
         if not isinstance(raw_meta, dict):
@@ -313,17 +316,21 @@ class OpenAIResponsesAdapter(ProviderAdapter):
         request_model: str | None = None,
     ) -> ConversationMessage:
         raw_output = output_items if output_items is not None else (getattr(response, "output", None) or [])
-        dumped_output_items = dump_model(raw_output)
+        # Persist received fields only; a full dump fills absent optionals with null.
+        dumped_output_items = [item.model_dump(exclude_unset=True) for item in raw_output]
         blocks: list[dict[str, Any]] = []
         for item in raw_output:
             item_type = getattr(item, "type", None)
 
             if item_type == "reasoning":
                 text_parts = []
-                for summary in getattr(item, "summary", None) or []:
-                    text = getattr(summary, "text", None)
-                    if text:
-                        text_parts.append(text)
+                for field in self._reasoning_text_fields:
+                    for part in getattr(item, field, None) or []:
+                        text = getattr(part, "text", None)
+                        if text:
+                            text_parts.append(text)
+                    if text_parts:
+                        break
 
                 summary = dump_model(getattr(item, "summary", None))
                 raw_item_meta = {
@@ -398,6 +405,48 @@ class OpenAIResponsesAdapter(ProviderAdapter):
                 "output_items": dumped_output_items or None,
             },
         )
+
+
+class XAIAdapter(OpenAIResponsesAdapter):
+    """xAI's Responses endpoint."""
+
+    provider_id = "xai"
+    label = "xAI"
+    default_base_url = "https://api.x.ai/v1"
+    env_api_key_names = ("XAI_API_KEY",)
+    default_models = ("grok-4.6",)
+    _thinking_delta_types = ("response.reasoning_summary_text.delta", "response.reasoning_text.delta")
+    _reasoning_text_fields = ("summary", "content")
+
+    @override
+    def _serialize_tool(self, tool: dict[str, Any]) -> dict[str, Any]:
+        # xAI validates arguments against the supplied schema directly; optional
+        # parameters keep their defaults and need no strict-mode rewriting.
+        return {
+            "type": "function",
+            "name": tool.get("name") or "",
+            "description": tool.get("description") or "",
+            "parameters": tool.get("input_schema") or {"type": "object", "properties": {}},
+        }
+
+    @override
+    def _convert_final_response(
+        self,
+        response: Any,
+        *,
+        output_items: list[Any] | None = None,
+        request_model: str | None = None,
+    ) -> ConversationMessage:
+        message = super()._convert_final_response(
+            response,
+            output_items=output_items,
+            request_model=request_model,
+        )
+        raw_usage = dump_model(getattr(response, "usage", None)) or {}
+        cost_ticks = raw_usage.get("cost_in_usd_ticks")
+        if cost_ticks is not None:
+            message["meta"]["cost"] = {"total": cost_ticks / 10_000_000_000}
+        return message
 
 
 def _normalize_strict_schema(schema: Any) -> None:

@@ -51,7 +51,7 @@ Provider quirks:
 
 - Gemini proto3 omits zero-valued counts, so absent optional counts become 0 after a usage payload arrives.
 - DeepSeek: `prompt_tokens_details.cached_tokens` wins; top-level `prompt_cache_hit_tokens` is the fallback.
-- xAI: `completion_tokens` excludes reasoning tokens (reported in `completion_tokens_details.reasoning_tokens` and still included in `total_tokens`), so canonical `output_tokens` under-reports billed output.
+- xAI: `usage.cost_in_usd_ticks / 10_000_000_000` is persisted as `meta.cost = {"total": ...}`; responses without the field fall back to the SDK's estimate.
 - OpenRouter: `usage.cost` is persisted as `meta.cost = {"total": ...}`. Other Chat Completions providers' `cost` extensions are ignored.
 - Anthropic-compatible providers need all input and cache counters to compute effective input.
 
@@ -61,14 +61,14 @@ Provider quirks:
 
 Endpoints disagree on which wire field carries this cap, so each adapter sends the one whose documented meaning is the total-output cap on its endpoint:
 
-| adapter       | wire field              | why                                                                                                             |
-| ------------- | ----------------------- | --------------------------------------------------------------------------------------------------------------- |
-| `openai_chat` | `max_completion_tokens` | OpenAI's current parameter; `max_tokens` is deprecated and rejected by OpenAI reasoning models                  |
-| `deepseek`    | `max_tokens`            | caps reasoning and answer; `max_completion_tokens` is silently ignored                                          |
-| `zai`         | `max_tokens`            | only documented field; thinking tokens count inside its budget                                                  |
-| `openrouter`  | `max_completion_tokens` | OpenRouter's recommended field; `max_tokens` is deprecated there                                                |
-| `xai`         | `max_completion_tokens` | both fields accepted; `max_tokens` does not bound reasoning; whether `max_completion_tokens` does is unverified |
-| `alibaba`     | `max_completion_tokens` | DashScope's `max_tokens` caps the answer only, excluding chain-of-thought                                       |
+| adapter       | wire field              | why                                                                                            |
+| ------------- | ----------------------- | ---------------------------------------------------------------------------------------------- |
+| `openai_chat` | `max_completion_tokens` | OpenAI's current parameter; `max_tokens` is deprecated and rejected by OpenAI reasoning models |
+| `deepseek`    | `max_tokens`            | caps reasoning and answer; `max_completion_tokens` is silently ignored                         |
+| `zai`         | `max_tokens`            | only documented field; thinking tokens count inside its budget                                 |
+| `openrouter`  | `max_completion_tokens` | OpenRouter's recommended field; `max_tokens` is deprecated there                               |
+| `xai`         | `max_output_tokens`     | the Responses cap covers reasoning and answer tokens together                                  |
+| `alibaba`     | `max_completion_tokens` | DashScope's `max_tokens` caps the answer only, excluding chain-of-thought                      |
 
 DeepSeek and Z.AI pin the legacy name via `max_tokens_field`. Generic `openai_chat` endpoints send `max_completion_tokens` by default; endpoints that only implement `max_tokens` (Ollama, older llama.cpp, Together, NVIDIA) silently drop it, so set `providers.<name>.legacy_max_tokens` on such providers (see `docs/config.md`).
 
@@ -157,7 +157,7 @@ DeepSeek and Z.AI pin the legacy name via `max_tokens_field`. Generic `openai_ch
 - Requests `reasoning.summary=auto` unless effort is `none`; streams `response.reasoning_summary_text.delta` as canonical thinking and does not surface raw `response.reasoning_text.delta`
 - Final reasoning items use `summary` text for the canonical thinking block and retain full native output items for replay
 - OpenAI recommends reserving at least ~25k `max_output_tokens` for reasoning + output when first tuning reasoning models to avoid incomplete responses during reasoning
-- Replays complete native output items for the same model; a `function_call` item marked `invalid_input` replays with `arguments: "{}"`
+- Replays complete native output items for the same model with the fields the endpoint returned (assistant messages keep `phase`); a `function_call` item marked `invalid_input` replays with `arguments: "{}"`
 - Tool results replay as `function_call_output`
 - Passes `prompt_cache_key` using current session id
 - Tool schemas use `strict: true` with nullable optional parameters
@@ -223,17 +223,17 @@ DeepSeek and Z.AI pin the legacy name via `max_tokens_field`. Generic `openai_ch
 - `supports_reasoning_effort`: true; explicit values pass through unchanged
 - Always sends `preserve_thinking: true`
 
-### `xai` — `openai_chat.py`
+### `xai` — `openai_responses.py`
 
-- SDK: `openai` against xAI's OpenAI-compatible Chat Completions endpoint
+- SDK: `openai` against xAI's Responses endpoint
 - Base URL: `https://api.x.ai/v1`
 - API key env: `XAI_API_KEY`
 - Default models: `grok-4.6`
-- `supports_reasoning_effort`: true; explicit values pass through the standard top-level `reasoning_effort`
+- `supports_reasoning_effort`: true (sent through `reasoning.effort`)
 - `auto_discoverable`: true
-- Grok reasoning streams as `reasoning_content`, replayed for the same model by the shared `openai_chat` handling
-- Same image format as `openai_chat`
-- Same PDF format as `openai_chat`
+- Same stateless replay, `prompt_cache_key`, and image/PDF formats as `openai`
+- Streams `response.reasoning_text.delta` as thinking in addition to the summary deltas; final reasoning items use `summary` text, falling back to `content` when the summary carries no text
+- Tool schemas are sent exactly as defined, without `strict: true` or the strict-mode rewriting; xAI validates arguments against the supplied schema, so optional parameters keep their defaults
 
 ## Stop Reason Normalization
 
@@ -269,5 +269,6 @@ Upstream behavior references:
 - Gemini [thought signatures](https://ai.google.dev/gemini-api/docs/generate-content/thought-signatures): replay signatures in their original parts; use the documented dummy signature for transferred tool traces.
 - OpenAI [reasoning](https://developers.openai.com/api/docs/guides/reasoning#preserve-reasoning-without-stored-responses): stateless Responses requests replay the complete native output items.
 - OpenAI Chat/SDK: additive response fields are allowed by the [API compatibility policy](https://developers.openai.com/api/reference/overview#backwards-compatibility), and the official Python SDK exposes undocumented response properties through [`model_extra`](https://github.com/openai/openai-python#undocumented-request-params).
+- xAI: [stateless Responses and encrypted reasoning](https://docs.x.ai/developers/model-capabilities/text/generate-text), [cache routing](https://docs.x.ai/developers/advanced-api-usage/prompt-caching/maximizing-cache-hits), [tool schemas](https://docs.x.ai/developers/model-capabilities/text/structured-outputs), and [request cost tracking](https://docs.x.ai/developers/cost-tracking).
 - OpenRouter: [reasoning tokens](https://openrouter.ai/docs/guides/best-practices/reasoning-tokens#preserving-reasoning) can be returned and replayed as `reasoning`, `reasoning_content`, or structured `reasoning_details`; streamed `reasoning_details` chunks must be concatenated in order and replayed unmodified.
 - Z.AI: [preserved/interleaved thinking](https://docs.z.ai/guides/capabilities/thinking-mode#preserved-thinking) requires returning historical `reasoning_content` unmodified when `clear_thinking: false` is used.

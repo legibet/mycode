@@ -10,7 +10,9 @@ import httpx2
 import pytest
 from anthropic import APIStatusError as AnthropicAPIStatusError
 from google.genai import types
+from openai.types.responses import ResponseReasoningItem
 
+from mycode import Agent
 from mycode.compact import build_compact_event
 from mycode.providers import (
     AlibabaAdapter,
@@ -39,7 +41,7 @@ class _Obj:
     def __init__(self, **kwargs):
         self.__dict__.update(kwargs)
 
-    def model_dump(self):
+    def model_dump(self, **_kwargs):
         def _dump(value):
             if hasattr(value, "model_dump"):
                 return value.model_dump()
@@ -327,7 +329,7 @@ def test_repair_messages_for_replay_downgrades_pdf_for_unsupported_models() -> N
 # Request replay and media
 
 
-def test_openai_responses_replays_native_output_items_for_tool_results() -> None:
+def test_responses_replay_native_output_items_for_tool_results() -> None:
     adapter = OpenAIResponsesAdapter()
     request = request_obj(
         model="gpt-5.4",
@@ -390,6 +392,7 @@ def test_openai_responses_replays_native_output_items_for_tool_results() -> None
     ]
     assert input_items[0]["encrypted_content"] == "enc_1"
     assert input_items[1]["content"][0]["text"] == "Checking the file."
+    assert input_items[1]["phase"] == "commentary"
     assert input_items[2]["call_id"] == "call_1"
     assert input_items[2]["arguments"] == '{"path": "x.py"}'
     assert input_items[3] == {"type": "function_call_output", "call_id": "call_1", "output": "file contents"}
@@ -562,7 +565,7 @@ def test_openai_responses_fallback_replay_skips_reasoning_blocks() -> None:
     assert input_items[2]["output"] == "error: tool call was interrupted"
 
 
-def test_openai_responses_build_request_payload_includes_prompt_cache_key() -> None:
+def test_responses_build_stateless_request_payload() -> None:
     adapter = OpenAIResponsesAdapter()
     request = request_obj(
         model="gpt-5.4",
@@ -574,6 +577,7 @@ def test_openai_responses_build_request_payload_includes_prompt_cache_key() -> N
             }
         ],
         system="You are helpful.",
+        reasoning_effort="high",
     )
 
     payload = adapter._build_request_payload(request)
@@ -582,9 +586,126 @@ def test_openai_responses_build_request_payload_includes_prompt_cache_key() -> N
     assert payload["store"] is False
     assert payload["include"] == ["reasoning.encrypted_content"]
     assert "previous_response_id" not in payload
+    assert payload["max_output_tokens"] == request.max_tokens
+    assert not {"max_tokens", "max_completion_tokens", "messages"} & payload.keys()
+    assert payload["reasoning"] == {"effort": "high", "summary": "auto"}
+
+
+def test_responses_preserve_wire_fields_through_json_replay() -> None:
+    adapter = OpenAIResponsesAdapter()
+    item = ResponseReasoningItem(id="rs_1", type="reasoning", summary=[], encrypted_content="opaque")
+    assert "content" not in item.model_fields_set
+    assert item.model_dump()["content"] is None
+    message = adapter._convert_final_response(_Obj(id="resp_1", model="m", status="completed", output=[item]))
+    message = json.loads(json.dumps(message))
+
+    stored_item = message["meta"]["native"]["output_items"][0]
+    assert stored_item == item.model_dump(exclude_unset=True)
+    payload = adapter._build_request_payload(request_obj(model="m", messages=[message]))
+    assert payload["input"] == [stored_item]
+
+
+def test_xai_preserves_optional_tool_parameters() -> None:
+    schema: dict[str, Any] = {
+        "type": "object",
+        "properties": {"path": {"type": "string"}, "limit": {"type": "integer", "default": 20}},
+        "required": ["path"],
+    }
+    tool = {"name": "read", "description": "Read a file.", "input_schema": schema}
+    payload = XAIAdapter()._build_request_payload(request_obj(tools=[tool]))
+
+    assert payload["tools"] == [
+        {"type": "function", "name": "read", "description": "Read a file.", "parameters": schema}
+    ]
+    assert schema["required"] == ["path"]
+    assert schema["properties"]["limit"] == {"type": "integer", "default": 20}
+
+
+@pytest.mark.parametrize("ticks", [9840000, 0, None])
+def test_xai_persists_reported_cost_and_falls_back_to_estimate(ticks: int | None) -> None:
+    response = _Obj(
+        id="resp_1",
+        model="grok-4.6",
+        status="completed",
+        output=[],
+        usage=_Obj(
+            input_tokens=756,
+            input_tokens_details=_Obj(cached_tokens=512),
+            output_tokens=40,
+            output_tokens_details=_Obj(reasoning_tokens=28),
+            total_tokens=796,
+            cost_in_usd_ticks=ticks,
+        ),
+    )
+    message = XAIAdapter()._convert_final_response(response)
+    assert message["meta"]["usage"] == {
+        "input_tokens": 756,
+        "cache_read_tokens": 512,
+        "output_tokens": 40,
+        "reasoning_tokens": 28,
+        "total_tokens": 796,
+    }
+    if ticks is None:
+        assert "cost" not in message["meta"]
+    else:
+        assert message["meta"]["cost"] == {"total": ticks / 10_000_000_000}
+
+    agent = Agent(provider="xai", model="grok-4.6", api_key="unused")
+    _, cost = agent._finalize_request_message(message)
+    assert cost is not None
+    assert cost["total"] == pytest.approx(ticks / 10_000_000_000 if ticks is not None else 0.000984)
+    if ticks is not None:
+        assert cost == {"total": ticks / 10_000_000_000}
+
+
+@pytest.mark.parametrize("adapter", [OpenAIResponsesAdapter(), XAIAdapter()], ids=["openai", "xai"])
+@pytest.mark.parametrize("channel", ["summary", "content"])
+async def test_responses_stream_and_persist_reasoning(
+    monkeypatch: pytest.MonkeyPatch,
+    adapter: OpenAIResponsesAdapter,
+    channel: str,
+) -> None:
+    event_type = "response.reasoning_summary_text.delta" if channel == "summary" else "response.reasoning_text.delta"
+    item = _Obj(type="reasoning", id="rs_1", **{channel: [_Obj(text="thinking")]})
+    client = _async_context_mock()
+    client.responses.create = AsyncMock(
+        return_value=_stream_mock(
+            [
+                _Obj(type=event_type, delta="thinking"),
+                _Obj(type="response.output_item.done", output_index=0, item=item),
+                _Obj(type="response.completed", response=_Obj(id="resp_1", model="m", status="completed", output=[])),
+            ]
+        )
+    )
+    monkeypatch.setattr("openai.AsyncOpenAI", lambda **_kwargs: client)
+    events = [event async for event in adapter.stream_turn(request_obj(api_key="unused"))]
+
+    expected = "thinking" if channel == "summary" or adapter.provider_id == "xai" else ""
+    assert "".join(event.data["text"] for event in events if event.type == "thinking_delta") == expected
+    assert events[-1].data["message"]["content"][0]["text"] == expected
 
 
 # Response conversion
+
+
+async def test_responses_exhausts_stream_after_completion(monkeypatch: pytest.MonkeyPatch) -> None:
+    exhausted = False
+
+    def chunks():
+        nonlocal exhausted
+        yield _Obj(type="response.completed", response=_Obj(id="resp_1", status="completed", output=[]))
+        exhausted = True
+
+    stream = _async_context_mock()
+    stream.__aiter__.return_value = chunks()
+    client = _async_context_mock()
+    client.responses.create = AsyncMock(return_value=stream)
+    monkeypatch.setattr("openai.AsyncOpenAI", lambda **_kwargs: client)
+
+    events = [event async for event in OpenAIResponsesAdapter().stream_turn(request_obj(api_key="unused"))]
+
+    assert events[-1].type == "message_done"
+    assert exhausted
 
 
 def test_openai_responses_converts_final_response_blocks() -> None:
@@ -1565,7 +1686,6 @@ def test_anthropic_prepare_messages_normalizes_tool_ids() -> None:
         pytest.param(OpenAIChatAdapter(), id="openai-chat"),
         pytest.param(DeepSeekAdapter(), id="deepseek"),
         pytest.param(ZAIAdapter(), id="zai"),
-        pytest.param(XAIAdapter(), id="xai"),
     ],
 )
 async def test_chat_targets_replay_foreign_thinking_as_assistant_content(
@@ -1728,7 +1848,6 @@ async def test_openrouter_preserves_structured_reasoning_across_models(monkeypat
     ("adapter", "expected"),
     [
         pytest.param(OpenAIChatAdapter(), {"reasoning_effort": "vendor-specific"}, id="openai-chat"),
-        pytest.param(XAIAdapter(), {"reasoning_effort": "vendor-specific"}, id="xai"),
         pytest.param(
             DeepSeekAdapter(),
             {
@@ -1783,7 +1902,6 @@ def test_alibaba_builds_provider_specific_payload() -> None:
         pytest.param(DeepSeekAdapter(), "max_tokens", id="deepseek"),
         pytest.param(ZAIAdapter(), "max_tokens", id="zai"),
         pytest.param(OpenRouterAdapter(), "max_completion_tokens", id="openrouter"),
-        pytest.param(XAIAdapter(), "max_completion_tokens", id="xai"),
         pytest.param(AlibabaAdapter(), "max_completion_tokens", id="alibaba"),
     ],
 )
@@ -2438,6 +2556,7 @@ def test_openai_responses_normalizes_usage_details() -> None:
             output_tokens=50,
             output_tokens_details=_Obj(reasoning_tokens=30),
             total_tokens=1_050,
+            cost_in_usd_ticks=9840000,
         ),
         output=[],
     )
@@ -2453,6 +2572,7 @@ def test_openai_responses_normalizes_usage_details() -> None:
         "reasoning_tokens": 30,
     }
     assert "native" not in converted["meta"]
+    assert "cost" not in converted["meta"]
 
 
 async def test_openai_chat_normalizes_usage_details(monkeypatch: pytest.MonkeyPatch) -> None:

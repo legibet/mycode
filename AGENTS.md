@@ -24,8 +24,8 @@ mycode/src/mycode/        # SDK package
     base.py               # ProviderAdapter ABC + prepare_messages()
     anthropic_like.py     # anthropic, moonshotai, minimax
     gemini.py             # google, google_vertex
-    openai_responses.py   # openai
-    openai_chat.py        # alibaba, openai_chat, deepseek, zai, openrouter, xai
+    openai_responses.py   # openai, xai
+    openai_chat.py        # alibaba, openai_chat, deepseek, zai, openrouter
 
 cli/src/mycode_cli/       # CLI + FastAPI web server
   main.py                 # Typer entrypoint, slash commands, session resolution

@@ -464,18 +464,6 @@ class AlibabaAdapter(OpenAIChatAdapter):
         return payload
 
 
-class XAIAdapter(OpenAIChatAdapter):
-    """xAI's OpenAI-compatible Chat Completions endpoint."""
-
-    provider_id = "xai"
-    label = "xAI"
-    default_base_url = "https://api.x.ai/v1"
-    env_api_key_names = ("XAI_API_KEY",)
-    default_models = ("grok-4.6",)
-    auto_discoverable = True
-    supports_reasoning_effort = True
-
-
 class OpenRouterAdapter(OpenAIChatAdapter):
     """OpenRouter's OpenAI-compatible chat endpoint."""
 

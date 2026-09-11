@@ -77,12 +77,12 @@ Failed or cancelled streams may persist partial assistant content with `stop_rea
 
 Adapter normalization (canonical ← raw; missing fields stay unknown unless noted in docs/providers.md):
 
-| provider       | input                                              | cache read / write                                            | output                                          | reasoning                                    |
-| -------------- | -------------------------------------------------- | ------------------------------------------------------------- | ----------------------------------------------- | -------------------------------------------- |
-| `anthropic*`   | `input_tokens + cache_creation_* + cache_read_*`   | `cache_read_input_tokens` / `cache_creation_input_tokens`     | `output_tokens`                                 | `output_tokens_details.thinking_tokens`      |
-| `openai`       | `input_tokens`                                     | `input_tokens_details.cached_tokens` / `.cache_write_tokens`  | `output_tokens`                                 | `output_tokens_details.reasoning_tokens`     |
-| `openai_chat*` | `prompt_tokens`                                    | `prompt_tokens_details.cached_tokens` / `.cache_write_tokens` | `completion_tokens`                             | `completion_tokens_details.reasoning_tokens` |
-| `google`       | `prompt_token_count + tool_use_prompt_token_count` | `cached_content_token_count` / not reported                   | `candidates_token_count + thoughts_token_count` | `thoughts_token_count`                       |
+| provider        | input                                              | cache read / write                                            | output                                          | reasoning                                    |
+| --------------- | -------------------------------------------------- | ------------------------------------------------------------- | ----------------------------------------------- | -------------------------------------------- |
+| `anthropic*`    | `input_tokens + cache_creation_* + cache_read_*`   | `cache_read_input_tokens` / `cache_creation_input_tokens`     | `output_tokens`                                 | `output_tokens_details.thinking_tokens`      |
+| `openai`, `xai` | `input_tokens`                                     | `input_tokens_details.cached_tokens` / `.cache_write_tokens`  | `output_tokens`                                 | `output_tokens_details.reasoning_tokens`     |
+| `openai_chat*`  | `prompt_tokens`                                    | `prompt_tokens_details.cached_tokens` / `.cache_write_tokens` | `completion_tokens`                             | `completion_tokens_details.reasoning_tokens` |
+| `google`        | `prompt_token_count + tool_use_prompt_token_count` | `cached_content_token_count` / not reported                   | `candidates_token_count + thoughts_token_count` | `thoughts_token_count`                       |
 
 ### Compact event
 
