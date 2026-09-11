@@ -343,6 +343,12 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
           "text",
           `\n\n**Error:** ${event.message || "Unknown"}`,
         );
+      } else if (event.type === "cancelled") {
+        for (const [id, runtime] of Object.entries(toolRuntimeById)) {
+          if (runtime.pending) {
+            toolRuntimeById[id] = { ...runtime, pending: false, isError: true };
+          }
+        }
       } else if (event.type === "usage") {
         // The event carries the turn's cumulative values, so replace the
         // previous snapshot instead of summing it again.
@@ -572,6 +578,9 @@ export function useChat(
                 );
                 continue;
               }
+              if (event.type === "cancelled") {
+                setPendingPermissions([]);
+              }
               if (kind === "compact") {
                 // A compact run only surfaces its marker or failure here. The
                 // completed stream reloads persisted history and session cost.
@@ -685,6 +694,9 @@ export function useChat(
         if (event?.type === "permission_resolved") {
           replayedPermissions.delete(event.request_id);
           continue;
+        }
+        if (event?.type === "cancelled") {
+          replayedPermissions.clear();
         }
         if (isCompactRun) {
           // Same routing as the live stream: only the marker reaches history.

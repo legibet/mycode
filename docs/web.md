@@ -98,6 +98,8 @@ A live `compact` SSE event is consumed by the reducer at the position it arrives
 
 `permission_request` opens the approval prompt. `permission_resolved` clears it. `deny` cancels the active run.
 
+`cancelled` clears pending permissions and tool activity without adding an error message. The preceding `tool_done` retains the cancelled tool's error status and cleanup output.
+
 Streaming state tracking:
 
 - `streamTokenRef` — incremented to invalidate stale streams
@@ -108,7 +110,7 @@ Streaming state tracking:
 Manual compaction (`/compact`):
 
 - `compactSession()` posts `POST /api/sessions/{id}/compact` with the active provider/model and streams the returned `kind: "compact"` run through the normal SSE reader. No optimistic user/assistant message is created; a 409 attaches to the existing run using its `kind`.
-- Compact runs send only `compact` to the reducer; errors set `compactError`. On completion, the UI reloads persisted history and session cost. Pending-event replay follows the same routing.
+- Compact runs send only `compact` to the reducer; errors set `compactError`; `cancelled` is a stop and does not. On completion, the UI reloads persisted history and session cost. Pending-event replay follows the same routing.
 - Compacting feedback lives in the message area, not the toolbar: while a compact run is active, `MessageList` renders a pending `CompactMarker` (same divider geometry, pulsing `compacting…` label) at the tail, which settles into the real `compacted` divider when the marker arrives. Failures render a quiet inline note (`compaction failed` / `nothing to compact`, full detail in `title`) in the same position from `compactError`, which clears on the next run or session change. The input area only reflects the shared busy state (disabled composer + stop button).
 
 Composer and attachments:

@@ -1152,38 +1152,47 @@ describe("useChat", () => {
     });
   });
 
-  it("routes compact run errors to compactError and leaves history unchanged", async () => {
-    mockCompactSessionRoutes({
-      "/api/sessions/session-c/compact": createJsonResponse({
-        run: {
-          id: "run-c",
-          session_id: "session-c",
-          kind: "compact",
-          status: "running",
-          last_seq: 0,
-        },
-      }),
-      "/api/runs/run-c/stream?after=0": new Response(
-        'data: {"seq":1,"type":"error","message":"compaction produced no response"}\n\ndata: [DONE]\n\n',
-        { status: 200, headers: { "Content-Type": "text/event-stream" } },
-      ),
-    });
+  it.each([
+    {
+      event: { type: "error", message: "compaction produced no response" },
+      expectedError: "compaction produced no response",
+    },
+    { event: { type: "cancelled" }, expectedError: null },
+  ])(
+    "handles compact $event.type without changing history",
+    async ({ event, expectedError }) => {
+      mockCompactSessionRoutes({
+        "/api/sessions/session-c/compact": createJsonResponse({
+          run: {
+            id: "run-c",
+            session_id: "session-c",
+            kind: "compact",
+            status: "running",
+            last_seq: 0,
+          },
+        }),
+        "/api/runs/run-c/stream?after=0": new Response(
+          `data: ${JSON.stringify({ seq: 1, ...event })}\n\ndata: [DONE]\n\n`,
+          { status: 200, headers: { "Content-Type": "text/event-stream" } },
+        ),
+      });
 
-    const { result } = renderChatHook();
-    await waitFor(() => expect(result.current.messages).toHaveLength(2));
+      const { result } = renderChatHook();
+      await waitFor(() => expect(result.current.messages).toHaveLength(2));
 
-    await act(async () => {
-      await result.current.compactSession();
-    });
-    await waitFor(() => expect(result.current.loading).toBe(false));
+      await act(async () => {
+        await result.current.compactSession();
+      });
+      await waitFor(() => expect(result.current.loading).toBe(false));
 
-    expect(result.current.compactError).toBe("compaction produced no response");
-    expect(result.current.messages).toHaveLength(2);
-    expect(expectChat(result.current.messages[1]).content[0]).toMatchObject({
-      type: "text",
-      text: "hi there",
-    });
-  });
+      expect(result.current.compactError).toBe(expectedError);
+      expect(result.current.messages).toHaveLength(2);
+      expect(expectChat(result.current.messages[1]).content[0]).toMatchObject({
+        type: "text",
+        text: "hi there",
+      });
+    },
+  );
 
   it("surfaces nothing-to-compact from the start request without a run", async () => {
     mockCompactSessionRoutes({
@@ -1267,6 +1276,145 @@ describe("useChat", () => {
     await waitFor(() => expect(result.current.runKind).toBe("chat"));
   });
 
+  it("stops unfinished tools and clears permissions on a live cancelled event", async () => {
+    saveActiveSession("/workspace/a", "session-2");
+    const encoder = new TextEncoder();
+    let streamController!: ReadableStreamDefaultController<Uint8Array>;
+    const liveStream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        streamController = controller;
+      },
+    });
+    mockFetch({
+      "/api/sessions?cwd=": createJsonResponse({
+        sessions: [{ id: "session-2", title: "Running" }],
+      }),
+      "/api/sessions/session-2": createJsonResponse({
+        session: { id: "session-2", title: "Running" },
+        messages: [{ role: "user", content: [{ type: "text", text: "run" }] }],
+        active_run: {
+          id: "run-2",
+          session_id: "session-2",
+          kind: "chat",
+          status: "running",
+          last_seq: 0,
+        },
+        pending_events: [],
+      }),
+      "/api/runs/run-2/stream?after=0": new Response(liveStream, {
+        status: 200,
+        headers: { "Content-Type": "text/event-stream" },
+      }),
+    });
+
+    const { result } = renderChatHook();
+    await waitFor(() => {
+      expect(result.current.activeSession.id).toBe("session-2");
+      expect(result.current.loading).toBe(true);
+      expect(streamController).toBeDefined();
+    });
+
+    streamController.enqueue(
+      encoder.encode(
+        'data: {"seq":1,"type":"tool_start","tool_call":{"id":"call-1","name":"bash","input":{}}}\n\n',
+      ),
+    );
+    streamController.enqueue(
+      encoder.encode(
+        'data: {"seq":2,"type":"permission_request","request_id":"req-1","tool_use_id":"call-1","tool_name":"bash","preview":"ls"}\n\n',
+      ),
+    );
+    await waitFor(() => {
+      expect(result.current.pendingPermission?.request_id).toBe("req-1");
+    });
+    expect(expectChat(result.current.messages[1]).content[0]).toMatchObject({
+      type: "tool_use",
+      runtime: { pending: true },
+    });
+
+    streamController.enqueue(
+      encoder.encode('data: {"seq":3,"type":"cancelled"}\n\ndata: [DONE]\n\n'),
+    );
+    streamController.close();
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.pendingPermission).toBeNull();
+    const assistant = expectChat(result.current.messages[1]);
+    expect(assistant.content.filter((block) => block.type === "text")).toEqual(
+      [],
+    );
+    expect(assistant.content[0]).toMatchObject({
+      type: "tool_use",
+      runtime: { pending: false, isError: true },
+    });
+  });
+
+  it("preserves tool cleanup results when replaying a cancelled run", async () => {
+    saveActiveSession("/workspace/a", "session-2");
+    mockFetch({
+      "/api/sessions?cwd=": createJsonResponse({
+        sessions: [{ id: "session-2", title: "Running" }],
+      }),
+      "/api/sessions/session-2": createJsonResponse({
+        session: { id: "session-2", title: "Running" },
+        messages: [{ role: "user", content: [{ type: "text", text: "run" }] }],
+        active_run: {
+          id: "run-2",
+          session_id: "session-2",
+          kind: "chat",
+          status: "running",
+          last_seq: 4,
+        },
+        pending_events: [
+          {
+            type: "tool_start",
+            seq: 1,
+            tool_call: { id: "call-1", name: "bash", input: {} },
+          },
+          {
+            type: "permission_request",
+            seq: 2,
+            request_id: "req-1",
+            tool_use_id: "call-1",
+            tool_name: "bash",
+            preview: "ls",
+          },
+          {
+            type: "tool_done",
+            seq: 3,
+            tool_use_id: "call-1",
+            output: "partial\nerror: cancelled",
+            is_error: true,
+          },
+          { type: "cancelled", seq: 4 },
+        ],
+      }),
+      "/api/runs/run-2/stream?after=4": new Response("data: [DONE]\n\n", {
+        status: 200,
+        headers: { "Content-Type": "text/event-stream" },
+      }),
+    });
+
+    const { result } = renderChatHook();
+    await waitFor(() => {
+      expect(result.current.messages).toHaveLength(2);
+      expect(result.current.loading).toBe(false);
+    });
+    expect(result.current.pendingPermission).toBeNull();
+    const assistant = expectChat(result.current.messages[1]);
+    expect(assistant.content.filter((block) => block.type === "text")).toEqual(
+      [],
+    );
+    expect(assistant.content[0]).toMatchObject({
+      type: "tool_use",
+      runtime: {
+        pending: false,
+        isError: true,
+        finalOutput: "partial\nerror: cancelled",
+      },
+    });
+  });
+
   it("cancel during compact reloads the session state", async () => {
     let cancelled = false;
     mockCompactSessionRoutes({
@@ -1311,6 +1459,42 @@ describe("useChat", () => {
       expect(cancelled).toBe(true);
       expect(result.current.runKind).toBeNull();
     });
+    expect(result.current.messages).toHaveLength(2);
+  });
+
+  it("finishes a replayed compact cancellation and reloads idle history", async () => {
+    const sessionResponse = vi
+      .fn()
+      .mockReturnValueOnce(
+        createJsonResponse({
+          ...COMPACT_SESSION,
+          active_run: {
+            id: "run-c",
+            session_id: "session-c",
+            kind: "compact",
+            status: "running",
+            last_seq: 1,
+          },
+          pending_events: [{ type: "cancelled", seq: 1 }],
+        }),
+      )
+      .mockImplementation(() => createJsonResponse(COMPACT_SESSION));
+    mockCompactSessionRoutes(
+      {
+        "/api/runs/run-c/stream?after=1": new Response("data: [DONE]\n\n", {
+          status: 200,
+        }),
+      },
+      sessionResponse,
+    );
+
+    const { result } = renderChatHook();
+    await waitFor(() => {
+      expect(sessionResponse).toHaveBeenCalledTimes(2);
+      expect(result.current.sessionLoading).toBe(false);
+      expect(result.current.runKind).toBeNull();
+    });
+    expect(result.current.compactError).toBeNull();
     expect(result.current.messages).toHaveLength(2);
   });
 });

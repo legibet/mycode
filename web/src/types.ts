@@ -294,6 +294,10 @@ interface ErrorEvent extends StreamEventBase {
   message?: string;
 }
 
+interface CancelledEvent extends StreamEventBase {
+  type: "cancelled";
+}
+
 interface CompactEvent extends StreamEventBase {
   type: "compact";
 }
@@ -333,6 +337,7 @@ export type StreamEvent =
   | ToolOutputEvent
   | ToolDoneEvent
   | ErrorEvent
+  | CancelledEvent
   | CompactEvent
   | PermissionRequestEvent
   | PermissionResolvedEvent
