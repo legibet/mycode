@@ -70,7 +70,7 @@ Path attachments expand `~`; relative paths use the Python process's current wor
 
 ### `run()` synchronous wrapper
 
-`run()` consumes `achat()` via `asyncio.run`, concatenates `text` deltas into `RunResult.text`, captures the first error message in `RunResult.error`, and keeps the last `usage` payload in `RunResult.usage`. `RunResult.events` keeps the non-transient events, including final `tool_done` results; live `tool_output` deltas are omitted so synchronous runs do not retain complete command streams in memory.
+`run()` consumes `achat()` via `asyncio.run`, concatenates `text` deltas into `RunResult.text`, captures the first error message in `RunResult.error`, and keeps the last `usage` payload in `RunResult.usage`. User cancellation sets `RunResult.cancelled=True` and leaves `error=None`. `RunResult.events` keeps the non-transient events, including final `tool_done` results; live `tool_output` deltas are omitted so synchronous runs do not retain complete command streams in memory.
 
 ```python
 result = agent.run("Hello")
@@ -94,6 +94,8 @@ async for _ in agent.achat("follow-up that references the earlier answer"):
 
 `agent.clear()` drops the in-memory history without touching the on-disk log.
 
+Run one chat or compact operation at a time per Agent. Starting another operation or calling `clear()` while one is active raises `RuntimeError` without changing history.
+
 ### Model metadata
 
 The bundled catalog stores one official model list per supported provider (models.dev data via [basellm/llm-metadata](https://github.com/basellm/llm-metadata)). `lookup_model_metadata(provider_type=..., model=...)` looks up the official model name, first as supplied and then without its prefix, so routed ids such as OpenRouter's `owner/model` resolve to the official entry. A match supplies all metadata fields, including reasoning efforts and reference pricing — for routed providers the pricing is the official provider's, not the router's. An unmatched model returns `None`.
@@ -108,11 +110,11 @@ The bundled catalog stores one official model list per supported provider (model
 
 ### Cancellation
 
-`agent.cancel()` can be called from another task or thread. It sets the cancel flag and cancels the active provider stream or tool task.
+Call `agent.cancel()` from any task or thread, then continue consuming `achat()` until its terminal `cancelled` event. Repeated calls are safe; idle calls do nothing. The agent finishes cleanup before reporting the stop. Cleanup and persistence failures remain errors.
 
-Tool cancellation is task cancellation. An async tool receives `asyncio.CancelledError` and either propagates it — the runtime then reports `error: cancelled` — or cleans up its own external resources (subprocesses, connections) and returns a final result, which becomes the error `tool_done`. Synchronous tools run in a worker thread that cancellation cannot interrupt: the turn ends immediately with `error: cancelled`, while the thread keeps running in the background until the tool returns; its late result is discarded, but external side effects still happen. Keep sync tools quick; implement long-running or cancellable work as `async def`.
+Async tools and hooks must handle `asyncio.CancelledError` cooperatively. A tool may return its cleanup result; the runtime preserves its output, content, and metadata with `is_error=True`. Otherwise it reports `error: cancelled`. Cancelled tools skip `after_tool`, and no further tools run. Synchronous tools cannot be interrupted; `run()` may wait for their worker threads to finish.
 
-A cancelled provider stream emits an `error` event with `message="cancelled"`. Already streamed `thinking` and text are persisted with `meta.stop_reason="cancelled"` when session persistence is enabled.
+External task cancellation propagates `CancelledError`, so `asyncio.timeout()` works normally. If you stop iterating early, use `contextlib.aclosing(agent.achat(...))` to release resources and preserve text and reasoning already emitted by the provider; `break` alone does not close the generator.
 
 ### Timeouts and retries
 
@@ -150,6 +152,7 @@ Adapters raise `ProviderError` (`reason`, `retryable`, `status_code`, `retry_aft
 | `retry`          | fields under Timeouts and retries; emitted before each new attempt       |
 | `usage`          | see below; emitted after every provider request                          |
 | `error`          | `{"message"}`; fatal for the turn, then the iterator stops               |
+| `cancelled`      | `{}`; user stop completed, then the iterator stops                       |
 
 ### Usage and cost
 
@@ -214,17 +217,19 @@ Construct an `Agent` with the same `(session_dir, session_id)` to resume across 
 
 `achat(..., on_persist=coro)` and `run(..., on_persist=coro)` await `coro(message)` once per persisted message, **before** the internal store appends it. It fires for the user input, the assistant response, `tool_result` messages, and `compact` events alike, and works with or without `session_dir`. Use it as a custom persistence backend, or to stage related records alongside the SDK's own append (the CLI web server lands rewind markers this way).
 
+Once a commit starts, the callback and SDK append finish before cancellation is reported. Committed records are not rolled back; persistence failures propagate.
+
 ### Compaction
 
 When a turn reaches a full assistant/tool-result boundary the agent compares the latest assistant message's `meta.usage.total_tokens` against `context_window * compact_threshold` (default `0.8`; pass `0` to disable). If over, it asks the same provider/model for a text-only summary capped at `max_tokens=8192`, persists a `compact` marker, and appends it inline to `agent.messages`. The pre-compact messages stay in place; only the next provider request sees the summary substitution.
 
-Compaction is best-effort: a failed summary call is logged and the turn continues with the uncompacted history. The exception is a user-initiated cancel inside the summary call, which ends the turn with `error` `message="cancelled"`.
+Automatic compaction is best-effort: a failed summary call is logged and the turn continues with the uncompacted history. A failure to persist the marker propagates to the caller. A user-initiated cancel inside the summary call ends the turn with `cancelled` after cleanup.
 
 #### Manual compaction
 
 `await agent.acompact()` (and the synchronous `agent.compact()` wrapper) compacts on demand, independent of `compact_threshold`. Both run the same summary request and persistence path as automatic compaction and **return the persisted `compact` marker** (a `ConversationMessage`); they append no user or assistant turn. Pass `on_persist=coro` to stage the marker alongside your own store, exactly as `achat` does.
 
-Manual compaction requires new context after the latest marker. Otherwise it raises `NothingToCompactError` before any provider request. A `cancel()` during the summary call raises `asyncio.CancelledError` and writes no marker. `compact()` raises `RuntimeError` inside a running event loop, matching `run()`.
+Manual compaction requires new context after the latest marker. Otherwise it raises `NothingToCompactError` before any provider request. A `cancel()` during the summary call raises `asyncio.CancelledError` and writes no marker. If cancellation arrives after the marker commit has begun, that commit finishes before cancellation is raised; a committed marker is never rolled back. `compact()` raises `RuntimeError` inside a running event loop, matching `run()`.
 
 ```python
 agent.run("Review the project")
@@ -398,5 +403,5 @@ agent = Agent(model="...", api_key="...", tools=[delete_file], hooks=hooks)
 - `tool_start` is emitted before `before_tool` runs, so a hook that blocks (e.g. waiting on an external review) keeps the call visible in the event stream while it waits.
 - `before_tool` exceptions become `ToolExecutionResult(output="error: tool hook failed: ...", is_error=True)`, the real tool is not run, and later `before_tool` hooks are skipped.
 - `after_tool` exceptions are logged and the existing tool result is forwarded unchanged. Later `after_tool` hooks are skipped. Hooks that need to fail closed (e.g. redaction) must catch internally and return an explicit error result.
-- Cancellation is controlled by the runtime. Cancelled tool results do not run `after_tool` hooks and cannot be replaced.
+- Cancelled tools skip `after_tool`. A `before_tool` hook that requests a stop may finish with an error result, preserving its refusal reason. Results from externally interrupted hooks are discarded; no later hooks or tools run.
 - Streaming tools still stream `tool_output` during real execution. If a `before_tool` hook skips the tool, no live `tool_output` events are emitted.

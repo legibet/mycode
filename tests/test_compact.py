@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 from collections.abc import AsyncIterator
+from contextlib import suppress
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
@@ -249,22 +250,43 @@ async def test_acompact_cancellation_writes_no_marker(tmp_path: Path) -> None:
     agent.messages.append({"role": "user", "content": [{"type": "text", "text": "hi"}]})
     messages_path = SessionStore(data_dir=tmp_path).messages_path(agent.session_id)
 
-    class _CancellingAdapter:
+    class _HangThenSummary:
+        def __init__(self) -> None:
+            self.entered = asyncio.Event()
+            self.hang = True
+
         async def stream_turn(self, _request: Any) -> AsyncIterator[ProviderStreamEvent]:
-            agent.cancel()
+            self.entered.set()
+            if self.hang:
+                # A late summary must not be committed after cancellation.
+                with suppress(asyncio.CancelledError):
+                    await asyncio.Event().wait()
             yield ProviderStreamEvent(
                 "message_done",
                 {"message": {"role": "assistant", "content": [{"type": "text", "text": "SUMMARY"}]}},
             )
 
-    with (
-        patch("mycode.agent.get_provider_adapter", return_value=_CancellingAdapter()),
-        pytest.raises(asyncio.CancelledError),
-    ):
-        await agent.acompact()
+    adapter = _HangThenSummary()
+    with patch("mycode.agent.get_provider_adapter", return_value=adapter):
+        compact_task = asyncio.create_task(agent.acompact())
+        async with asyncio.timeout(2):
+            await adapter.entered.wait()
+            with pytest.raises(RuntimeError):
+                await anext(agent.achat("intrude"))
+            with pytest.raises(RuntimeError):
+                agent.clear()
+            agent.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await compact_task
+        assert all(m.get("role") != "compact" for m in agent.messages)
+        assert not messages_path.exists()
 
-    assert all(m.get("role") != "compact" for m in agent.messages)
-    assert not messages_path.exists()
+        adapter.hang = False
+        async with asyncio.timeout(2):
+            marker = await agent.acompact()
+
+    assert marker["role"] == "compact"
+    assert marker["content"][0]["text"] == "SUMMARY"
 
 
 class _UsageDetailAdapter:

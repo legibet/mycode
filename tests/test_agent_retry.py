@@ -98,6 +98,17 @@ async def _collect(agent: Agent, prompt: str = "hi") -> list[Event]:
     return [event async for event in agent.achat(prompt)]
 
 
+def test_sync_operations_retry_across_event_loops(tmp_path: Path) -> None:
+    agent = _new_agent(tmp_path)
+    for operation in (lambda: agent.run("first"), agent.compact, lambda: agent.run("second")):
+        adapter = _ScriptedAdapter(errors=[_transient_error()], turn=_text_turn())
+        agent.cancel()  # Idle cancellation must not carry into the next operation.
+        with patch("mycode.agent.get_provider_adapter", return_value=adapter):
+            operation()
+        assert adapter.attempts == 2
+    assert [message["role"] for message in agent.messages] == ["user", "assistant", "compact", "user", "assistant"]
+
+
 async def test_transient_failures_retry_until_success(tmp_path: Path) -> None:
     adapter = _ScriptedAdapter(
         errors=[
@@ -245,7 +256,37 @@ async def test_cancel_interrupts_backoff_and_honors_retry_after(tmp_path: Path) 
     retries = [event for event in events if event.type == "retry"]
     assert retries[0].data["delay_seconds"] == 30.0
     assert adapter.attempts == 1
-    assert events[-1] == Event("error", {"message": "cancelled"})
+    assert events[-1] == Event("cancelled")
+
+
+@pytest.mark.parametrize("error", [OSError("close failed"), ProviderError("close failed", retryable=True)])
+@pytest.mark.parametrize("stop", ["cancel", "close"])
+async def test_provider_cleanup_failure_survives_stop(tmp_path: Path, error: Exception, stop: str) -> None:
+    class Adapter:
+        attempts = 0
+
+        async def stream_turn(self, _request):
+            self.attempts += 1
+            try:
+                yield ProviderStreamEvent("text_delta", {"text": "partial"})
+                await asyncio.Event().wait()
+            finally:
+                raise error
+
+    agent = _new_agent(tmp_path)
+    adapter = Adapter()
+    with patch("mycode.agent.get_provider_adapter", return_value=adapter):
+        stream = agent.achat("go")
+        assert (await anext(stream)).type == "text"
+        if stop == "cancel":
+            agent.cancel()
+            events = [event async for event in stream]
+            assert events == [Event("error", {"message": "close failed"})]
+        else:
+            with pytest.raises(type(error), match="close failed"):
+                await stream.aclose()
+
+    assert adapter.attempts == 1
 
 
 async def test_failure_after_stream_start_but_before_output_still_retries(tmp_path: Path) -> None:

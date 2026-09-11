@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator
 from pathlib import Path
 from time import sleep
@@ -286,6 +287,83 @@ async def test_cancellation_after_before_hooks_cannot_be_replaced(tmp_path: Path
 
 
 @pytest.mark.asyncio
+async def test_cancelled_before_hook_cannot_enter_tool_or_after(tmp_path: Path) -> None:
+    started = asyncio.Event()
+    calls: list[str] = []
+    after_calls: list[str] = []
+    hooks = Hooks()
+
+    def runner(_ctx: ToolContext[None], _args: dict[str, object]) -> ToolExecutionResult:
+        calls.append("tool")
+        return ToolExecutionResult(output="ran")
+
+    @hooks.before_tool
+    async def block(_ctx: ToolHookContext[None]) -> ToolExecutionResult:
+        started.set()
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            return ToolExecutionResult(output="blocked by hook", is_error=True)
+        raise AssertionError("unreachable")
+
+    @hooks.after_tool
+    def audit(_ctx: ToolHookContext[None], _result: ToolExecutionResult) -> None:
+        after_calls.append("after")
+
+    async def collect() -> list[Event]:
+        return _chat_events([event async for event in agent.achat("run ping")])
+
+    agent = _agent(tmp_path, tool=_tool(runner), hooks=hooks)
+    with patch("mycode.agent.get_provider_adapter", return_value=_ToolUseAdapter("ping", {})):
+        async with asyncio.timeout(2):
+            task = asyncio.create_task(collect())
+            await started.wait()
+            agent.cancel()
+            events = await task
+
+    assert calls == []
+    assert after_calls == []
+    assert events[0].type == "tool_start"
+    assert events[1].data["output"] == "error: cancelled"
+    assert events[1].data["is_error"] is True
+    assert events[-1] == Event("cancelled", {})
+
+
+@pytest.mark.asyncio
+async def test_cancelled_after_hook_cannot_replace_result(tmp_path: Path) -> None:
+    started = asyncio.Event()
+    hooks = Hooks()
+
+    def runner(_ctx: ToolContext[None], _args: dict[str, object]) -> ToolExecutionResult:
+        return ToolExecutionResult(output="original")
+
+    @hooks.after_tool
+    async def replace(_ctx: ToolHookContext[None], _result: ToolExecutionResult) -> ToolExecutionResult:
+        started.set()
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            return ToolExecutionResult(output="replaced")
+        raise AssertionError("unreachable")
+
+    async def collect() -> list[Event]:
+        return _chat_events([event async for event in agent.achat("run ping")])
+
+    agent = _agent(tmp_path, tool=_tool(runner), hooks=hooks)
+    with patch("mycode.agent.get_provider_adapter", return_value=_ToolUseAdapter("ping", {})):
+        async with asyncio.timeout(2):
+            task = asyncio.create_task(collect())
+            await started.wait()
+            agent.cancel()
+            events = await task
+
+    done = next(event for event in events if event.type == "tool_done")
+    assert done.data["output"] == "error: cancelled"
+    assert done.data["is_error"] is True
+    assert events[-1] == Event("cancelled", {})
+
+
+@pytest.mark.asyncio
 async def test_before_tool_blocks_streaming_tool_without_live_output(tmp_path: Path) -> None:
     calls: list[str] = []
     hooks = Hooks()
@@ -390,5 +468,5 @@ async def test_streaming_cancellation_cannot_be_replaced(tmp_path: Path) -> None
     assert first.type == "tool_start"
     assert second.data == {"tool_use_id": "call-1", "output": "live"}
     assert after_calls == []
-    assert [event.type for event in rest] == ["tool_done"]
+    assert [event.type for event in rest] == ["tool_done", "cancelled"]
     assert rest[0].data == {"tool_use_id": "call-1", "output": "error: cancelled", "is_error": True}

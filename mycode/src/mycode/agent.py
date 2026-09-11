@@ -12,9 +12,9 @@ import logging
 import random
 import threading
 import time
-from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
-from contextlib import suppress
-from dataclasses import dataclass, field
+from collections.abc import AsyncGenerator, AsyncIterator, Awaitable, Callable, Sequence
+from contextlib import aclosing, asynccontextmanager
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, cast
 from uuid import uuid4
@@ -62,6 +62,101 @@ _LIVE_OUTPUT_OMISSION = "[live output omitted]"
 # Bound on pending live output per tool call; the overflow is replaced by
 # _LIVE_OUTPUT_OMISSION rather than blocking the tool.
 _LIVE_OUTPUT_MAX_BYTES = 50 * 1024
+
+
+class _RunCancelled(BaseException):
+    """A user stop request, distinct from cancellation of the caller's task."""
+
+
+async def _finish_task[T](task: asyncio.Future[T]) -> T:
+    """Finish owned cleanup or persistence before propagating caller cancellation."""
+
+    interrupted = False
+    while not task.done():
+        try:
+            await asyncio.shield(task)
+        except asyncio.CancelledError:
+            if task.cancelled():
+                raise
+            interrupted = True
+    result = task.result()
+    if interrupted:
+        raise asyncio.CancelledError
+    return result
+
+
+@dataclass
+class _RunState:
+    loop: asyncio.AbstractEventLoop
+    cancel_requested: bool = False
+    active_task: asyncio.Future[Any] | None = None
+
+    def cancel_active_task(self) -> None:
+        task = self.active_task
+        self.active_task = None
+        if task is None or task.done():
+            return
+        # Clearing the reference protects cleanup even if the tool calls uncancel().
+        if not isinstance(task, asyncio.Task) or not task.cancelling():
+            task.cancel()
+
+    def cancel(self) -> None:
+        if not self.cancel_requested:
+            self.cancel_requested = True
+            # A hook requesting the stop itself must be able to finish its refusal.
+            if self.active_task is not asyncio.current_task():
+                self.cancel_active_task()
+
+    def check_cancelled(self) -> None:
+        if self.cancel_requested:
+            raise _RunCancelled
+
+    @asynccontextmanager
+    async def task[T](self, awaitable: Awaitable[T]) -> AsyncGenerator[asyncio.Future[T], None]:
+        """Own one interruptible task, including its cancellation cleanup."""
+
+        caller = asyncio.current_task()
+        assert caller is not None
+        cancelling = caller.cancelling()
+        task = asyncio.ensure_future(awaitable)
+        self.active_task = task
+        if self.cancel_requested:
+            self.cancel_active_task()
+        try:
+            yield task
+        except asyncio.CancelledError:
+            # Either the task running this scope was cancelled from outside
+            # (for example by asyncio.timeout), or run.cancel() stopped the
+            # owned task. An outside cancellation propagates, and the stop is
+            # recorded first so nested scopes and cleanup still wind down; a
+            # stop of the owned task is reported as _RunCancelled instead.
+            # The cancel count separates the two cases: a count above the one
+            # recorded on entry came from outside. A task that did not enter
+            # the scope has no recorded count, so any pending cancellation in
+            # it counts as outside.
+            current = asyncio.current_task()
+            assert current is not None
+            baseline = cancelling if current is caller else 0
+            if current.cancelling() > baseline or not self.cancel_requested:
+                self.cancel_requested = True
+                raise
+            raise _RunCancelled from None
+        except GeneratorExit:
+            self.cancel_requested = True
+            raise
+        finally:
+            try:
+                if not task.done():
+                    self.cancel_active_task()
+                    (outcome,) = await _finish_task(asyncio.gather(task, return_exceptions=True))
+                else:
+                    outcome = None if task.cancelled() else task.exception()
+                if isinstance(outcome, BaseException) and not isinstance(
+                    outcome, (_RunCancelled, asyncio.CancelledError)
+                ):
+                    raise outcome
+            finally:
+                self.active_task = None
 
 
 class _ToolOutputBuffer:
@@ -144,6 +239,7 @@ class RunResult:
     events: list[Event] = field(default_factory=list)
     error: str | None = None
     usage: dict[str, Any] | None = None
+    cancelled: bool = False
 
 
 def _accumulate_usage(
@@ -261,10 +357,7 @@ class Agent:
 
         self.system = system
         self.hooks = hooks or Hooks()
-        self._cancel_event = asyncio.Event()
-        self._event_loop: asyncio.AbstractEventLoop | None = None
-        self._provider_event_task: asyncio.Future[ProviderStreamEvent] | None = None
-        self._active_tool_task: asyncio.Task[ToolExecutionResult] | None = None
+        self._active_run: _RunState | None = None
 
         # History resolution:
         # - messages is None → auto-resume from disk if the session exists
@@ -318,57 +411,144 @@ class Agent:
         self.supports_pdf_input: bool = bool(meta.supports_pdf_input)
 
     def cancel(self) -> None:
-        """Request cancellation of the in-flight turn."""
+        """Request a user stop; the active operation finishes its own cleanup."""
 
+        run = self._active_run
+        if run is None:
+            return
         try:
             running_loop = asyncio.get_running_loop()
         except RuntimeError:
             running_loop = None
-
-        loop = self._event_loop
-        if loop is not None and loop.is_running() and running_loop is not loop:
-            loop.call_soon_threadsafe(self._cancel_in_loop)
+        if running_loop is run.loop:
+            run.cancel()
             return
-        self._cancel_in_loop()
-
-    def _cancel_in_loop(self) -> None:
-        self._cancel_event.set()
-        if self._provider_event_task and not self._provider_event_task.done():
-            self._provider_event_task.cancel()
-        if self._active_tool_task and not self._active_tool_task.done():
-            self._active_tool_task.cancel()
+        try:
+            run.loop.call_soon_threadsafe(run.cancel)
+        except RuntimeError:
+            # The captured run may have finished and closed its loop meanwhile.
+            if self._active_run is run:
+                raise
 
     def clear(self) -> None:
         """Drop the in-memory conversation history."""
 
+        if self._active_run is not None:
+            raise RuntimeError("cannot clear history during an active operation")
         self.messages = []
+
+    async def achat(
+        self,
+        user_input: str | ConversationMessage,
+        *,
+        attachments: Sequence[AttachmentLike] = (),
+        on_persist: PersistCallback | None = None,
+    ) -> AsyncGenerator[Event, None]:
+        """Run the full agent loop for one user message."""
+
+        terminal: Event | None = None
+        async with self._run_scope() as run:
+            try:
+                async with aclosing(self._achat(run, user_input, attachments, on_persist)) as stream:
+                    async for event in stream:
+                        if event.type == "error":
+                            terminal = event
+                            break
+                        yield event
+                if terminal is None:
+                    run.check_cancelled()
+            except _RunCancelled:
+                terminal = Event("cancelled")
+        if terminal is not None:
+            yield terminal
+
+    def run(
+        self,
+        user_input: str | ConversationMessage,
+        *,
+        attachments: Sequence[AttachmentLike] = (),
+        on_persist: PersistCallback | None = None,
+    ) -> RunResult:
+        """Run one user turn synchronously and collect the streamed result."""
+
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            pass
+        else:
+            raise RuntimeError("Agent.run() cannot run inside an active event loop; use Agent.achat() instead")
+
+        async def collect() -> RunResult:
+            result = RunResult()
+            text_parts: list[str] = []
+            async for event in self.achat(user_input, attachments=attachments, on_persist=on_persist):
+                if event.type != "tool_output":
+                    result.events.append(event)
+                if event.type == "text":
+                    text_parts.append(str(event.data.get("delta") or ""))
+                elif event.type == "usage":
+                    result.usage = event.data
+                elif event.type == "error" and result.error is None:
+                    result.error = str(event.data.get("message") or "")
+                elif event.type == "cancelled":
+                    result.cancelled = True
+            result.text = "".join(text_parts)
+            return result
+
+        return asyncio.run(collect())
+
+    async def acompact(
+        self,
+        *,
+        on_persist: PersistCallback | None = None,
+    ) -> ConversationMessage:
+        """Compact now; raise NothingToCompactError for empty context or CancelledError on stop."""
+
+        try:
+            async with self._run_scope() as run:
+                adapter = get_provider_adapter(self.provider)
+                marker = await self._summarize(run, adapter)
+                await self._persist_message(marker, on_persist)
+                self.messages.append(marker)
+                run.check_cancelled()
+                return marker
+        except _RunCancelled:
+            raise asyncio.CancelledError from None
+
+    def compact(
+        self,
+        *,
+        on_persist: PersistCallback | None = None,
+    ) -> ConversationMessage:
+        """Compact the conversation synchronously; see :meth:`acompact`."""
+
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            pass
+        else:
+            raise RuntimeError("Agent.compact() cannot run inside an active event loop; use Agent.acompact() instead")
+
+        return asyncio.run(self.acompact(on_persist=on_persist))
+
+    @asynccontextmanager
+    async def _run_scope(self) -> AsyncGenerator[_RunState, None]:
+        if self._active_run is not None:
+            raise RuntimeError("Agent already has an active operation")
+        run = _RunState(asyncio.get_running_loop())
+        self._active_run = run
+        try:
+            yield run
+        finally:
+            self._active_run = None
 
     # ------------------------------------------------------------------
     # Tool execution
     # ------------------------------------------------------------------
 
-    async def _reject_tool_call(
-        self,
-        tool_use: dict[str, Any],
-        message: str,
-    ) -> AsyncIterator[Event]:
-        """Report a tool call that must not reach a runner."""
-
-        tool_id = str(tool_use.get("id") or "")
-        args = tool_use.get("input") if isinstance(tool_use.get("input"), dict) else {}
-        yield Event(
-            "tool_start",
-            {
-                "tool_call": {
-                    "id": tool_id,
-                    "name": str(tool_use.get("name") or ""),
-                    "input": args,
-                }
-            },
-        )
-        yield self._error_done(tool_id, message)
-
-    async def _run_tool_call(self, tool_use: dict[str, Any]) -> AsyncIterator[Event]:
+    async def _run_tool_call(
+        self, run: _RunState, tool_use: dict[str, Any], stop_reason: str
+    ) -> AsyncGenerator[Event, None]:
         """Run one tool call and emit the standard tool events."""
 
         tool_id = str(tool_use.get("id") or "")
@@ -380,7 +560,30 @@ class Agent:
         # always visible — even when a hook is awaiting a permission decision.
         yield Event("tool_start", {"tool_call": {"id": tool_id, "name": name, "input": args}})
 
-        if self._cancel_event.is_set():
+        block_meta = tool_use.get("meta") or {}
+        if stop_reason == "length":
+            yield self._error_done(
+                tool_id, "error: tool call was truncated by the output token limit and was not executed"
+            )
+            return
+        if block_meta.get("invalid_input") is True:
+            yield self._error_done(
+                tool_id,
+                "\n".join(
+                    [
+                        f"error: invalid arguments for {tool_use.get('name')} and the call was not executed.",
+                        f"parse error: {block_meta.get('parse_error')}",
+                        f"raw arguments: {block_meta.get('raw_arguments')}",
+                    ]
+                ),
+            )
+            return
+        if stop_reason not in {"stop", "tool_use"}:
+            yield self._error_done(
+                tool_id, "error: provider response did not complete the tool call and it was not executed"
+            )
+            return
+        if run.cancel_requested:
             yield self._error_done(tool_id, "error: cancelled")
             return
 
@@ -399,129 +602,72 @@ class Agent:
             tool_input=args,
             tool=spec,
         )
+        output_buffer = _ToolOutputBuffer(run.loop) if spec.streams_output else None
+        ctx = ToolContext(
+            executor=self.tools,
+            deps=self.deps,
+            supports_image_input=self.supports_image_input,
+            tool_call_id=tool_id,
+            emit=output_buffer.append if output_buffer else None,
+        )
         try:
-            result = await self.hooks.run_before_tool(hook_ctx)
-        except Exception as exc:
-            yield self._error_done(tool_id, f"error: tool hook failed: {exc}")
-            return
+            async with run.task(self._execute_tool(run, hook_ctx, ctx, args)) as task:
+                if output_buffer is not None:
+                    # The done callback wakes the consumer even when the tool
+                    # task is cancelled before its coroutine starts.
+                    task.add_done_callback(lambda _task: output_buffer.finish())
+                    while (output := await output_buffer.get()) is not None:
+                        if output and not run.cancel_requested:
+                            yield Event("tool_output", {"tool_use_id": tool_id, "output": output})
+                result = await asyncio.shield(task)
+        except _RunCancelled:
+            result = ToolExecutionResult(output="error: cancelled", is_error=True)
+        yield self._tool_done_event(tool_id, result)
 
-        if result is not None:
-            yield await self._finish_tool_call(tool_id, hook_ctx, result)
-            return
-
-        if self._cancel_event.is_set():
-            yield self._error_done(tool_id, "error: cancelled")
-            return
-
-        if spec.streams_output:
-            async for event in self._run_streaming_tool(
-                tool_id=tool_id,
-                spec=spec,
-                args=args,
-                hook_ctx=hook_ctx,
-            ):
-                yield event
-            return
-
-        try:
-            ctx = self._ctx_for_call(tool_id)
-            task = asyncio.create_task(self.tools.aexecute(spec.name, args, ctx))
-            self._active_tool_task = task
-            try:
-                result = await task
-            finally:
-                if self._active_tool_task is task:
-                    self._active_tool_task = None
-        except asyncio.CancelledError:
-            if self._cancel_event.is_set():
-                yield self._error_done(tool_id, "error: cancelled")
-                return
-            raise
-        except Exception as exc:  # pragma: no cover - defensive
-            result = ToolExecutionResult(output=f"error: {exc}", is_error=True)
-
-        yield await self._finish_tool_call(tool_id, hook_ctx, result)
-
-    async def _run_streaming_tool(
+    async def _execute_tool(
         self,
-        *,
-        tool_id: str,
-        spec: ToolSpec,
+        run: _RunState,
+        hook_ctx: ToolHookContext[Any],
+        ctx: ToolContext[Any],
         args: dict[str, Any],
-        hook_ctx: ToolHookContext[Any],
-    ) -> AsyncIterator[Event]:
-        """Run one streaming tool, forwarding ``tool_output`` events live."""
-
-        output_buffer = _ToolOutputBuffer(asyncio.get_running_loop())
-
-        ctx = self._ctx_for_call(tool_id, emit=output_buffer.append)
-        task = asyncio.create_task(self.tools.aexecute(spec.name, args, ctx))
-        # The callback wakes the consumer even when cancellation happens
-        # before the tool coroutine starts.
-        task.add_done_callback(lambda _task: output_buffer.finish())
-        self._active_tool_task = task
+    ) -> ToolExecutionResult:
+        """One execution policy for hooks and both streaming and non-streaming tools."""
 
         try:
-            while True:
-                output = await output_buffer.get()
-                if output is None:
-                    break
-                if output and not self._cancel_event.is_set():
-                    yield Event("tool_output", {"tool_use_id": tool_id, "output": output})
+            result = await self.hooks.run_before_tool(hook_ctx, check_cancelled=run.check_cancelled)
+        except Exception as exc:
+            return ToolExecutionResult(output=f"error: tool hook failed: {exc}", is_error=True)
+        # run.cancel() leaves active_task set when the stop is requested from
+        # inside this task, so the intact slot means a hook stopped its own
+        # call and its refusal result survives. An outside stop cancels this
+        # task and discards whatever the hooks returned.
+        if (
+            run.cancel_requested
+            and result is not None
+            and result.is_error
+            and run.active_task is asyncio.current_task()
+        ):
+            return result
+        run.check_cancelled()
 
+        if result is None:
             try:
-                result = await task
-            except asyncio.CancelledError:
-                if not self._cancel_event.is_set():
-                    raise
-                result = ToolExecutionResult(output="error: cancelled", is_error=True)
-            except Exception as exc:  # pragma: no cover - defensive
+                result = await self.tools.aexecute(hook_ctx.tool_name, args, ctx)
+            except Exception as exc:
                 result = ToolExecutionResult(output=f"error: {exc}", is_error=True)
+        if run.cancel_requested:
+            return replace(result, is_error=True)
 
-            if self._cancel_event.is_set():
-                # A cancelled call keeps the tool's own final result (or this
-                # synthesized error) and skips after_tool hooks.
-                yield self._tool_done_event(tool_id, result)
-                return
-
-            yield await self._finish_tool_call(tool_id, hook_ctx, result)
-        finally:
-            if not task.done():
-                task.cancel()
-            with suppress(asyncio.CancelledError, Exception):
-                await task
-            if self._active_tool_task is task:
-                self._active_tool_task = None
-
-    async def _finish_tool_call(
-        self,
-        tool_id: str,
-        hook_ctx: ToolHookContext[Any],
-        result: ToolExecutionResult,
-    ) -> Event:
         try:
-            result = await self.hooks.run_after_tool(hook_ctx, result)
+            result = await self.hooks.run_after_tool(hook_ctx, result, check_cancelled=run.check_cancelled)
         except Exception:
             logger.exception(
                 "after_tool hook failed for %s (call %s)",
                 hook_ctx.tool_name,
                 hook_ctx.tool_call_id,
             )
-        return self._tool_done_event(tool_id, result)
-
-    def _ctx_for_call(
-        self,
-        tool_id: str,
-        *,
-        emit: Callable[[str], None] | None = None,
-    ) -> ToolContext[Any]:
-        return ToolContext(
-            executor=self.tools,
-            deps=self.deps,
-            supports_image_input=self.supports_image_input,
-            tool_call_id=tool_id,
-            emit=emit,
-        )
+        run.check_cancelled()
+        return result
 
     @staticmethod
     def _tool_done_event(tool_id: str, result: ToolExecutionResult) -> Event:
@@ -547,9 +693,10 @@ class Agent:
 
     async def _stream_provider_turn(
         self,
+        run: _RunState,
         adapter: ProviderAdapter,
         request: ProviderRequest,
-    ) -> AsyncIterator[ProviderStreamEvent]:
+    ) -> AsyncGenerator[ProviderStreamEvent, None]:
         """Stream one provider turn, retrying failed attempts before visible output.
 
         Yields an internal ``retry`` event before each new attempt. Once a
@@ -562,15 +709,16 @@ class Agent:
         for attempt in range(1, max_attempts + 1):
             visible_output_emitted = False
             try:
-                async for event in self._stream_provider_attempt(adapter, request):
-                    if event.type == "stream_started":
-                        continue
-                    if event.type in {"thinking_delta", "text_delta"}:
-                        visible_output_emitted = True
-                    yield event
+                async with aclosing(self._stream_provider_attempt(run, adapter, request)) as stream:
+                    async for event in stream:
+                        if event.type == "stream_started":
+                            continue
+                        if event.type in {"thinking_delta", "text_delta"}:
+                            visible_output_emitted = True
+                        yield event
                 return
             except ProviderError as exc:
-                if visible_output_emitted or not exc.retryable or attempt >= max_attempts:
+                if run.cancel_requested or visible_output_emitted or not exc.retryable or attempt >= max_attempts:
                     raise
                 delay = self._retry_delay(attempt, exc)
                 retry_data: dict[str, Any] = {
@@ -583,13 +731,16 @@ class Agent:
                 if exc.status_code is not None:
                     retry_data["status_code"] = exc.status_code
                 yield ProviderStreamEvent("retry", retry_data)
-                await self._backoff(delay)
+                async with run.task(asyncio.sleep(delay)) as wait:
+                    await asyncio.shield(wait)
+                run.check_cancelled()
 
     async def _stream_provider_attempt(
         self,
+        run: _RunState,
         adapter: ProviderAdapter,
         request: ProviderRequest,
-    ) -> AsyncIterator[ProviderStreamEvent]:
+    ) -> AsyncGenerator[ProviderStreamEvent, None]:
         """Iterate one provider attempt with cancellation and the start deadline.
 
         The deadline covers everything up to the first upstream event: DNS,
@@ -602,27 +753,22 @@ class Agent:
 
         try:
             while True:
-                if self._cancel_event.is_set():
-                    raise asyncio.CancelledError
-
-                self._provider_event_task = asyncio.ensure_future(anext(provider_stream))
+                run.check_cancelled()
                 try:
-                    if started:
-                        event = await self._provider_event_task
-                    else:
-                        try:
-                            # wait_for cancels the pending anext and awaits its
-                            # cancellation before raising.
-                            event = await asyncio.wait_for(self._provider_event_task, self.stream_start_timeout)
-                        except TimeoutError:
-                            raise StreamStartTimeoutError(
-                                f"no provider stream event received within {self.stream_start_timeout:g}s"
-                            ) from None
+                    async with run.task(anext(provider_stream)) as task:
+                        if started:
+                            event = await asyncio.shield(task)
+                        else:
+                            try:
+                                event = await asyncio.wait_for(asyncio.shield(task), self.stream_start_timeout)
+                            except TimeoutError:
+                                raise StreamStartTimeoutError(
+                                    f"no provider stream event received within {self.stream_start_timeout:g}s"
+                                ) from None
                 except StopAsyncIteration:
                     return
-                finally:
-                    self._provider_event_task = None
 
+                run.check_cancelled()
                 started = True
                 yield event
         finally:
@@ -630,8 +776,7 @@ class Agent:
             # stream is closed before the next attempt starts.
             close = cast(Callable[[], Awaitable[None]] | None, getattr(provider_stream, "aclose", None))
             if close is not None:
-                with suppress(Exception):
-                    await close()
+                await _finish_task(asyncio.ensure_future(close()))
 
     def _retry_delay(self, failed_attempts: int, error: ProviderError) -> float:
         """Backoff before the next attempt: Retry-After when sane, else exponential."""
@@ -640,15 +785,6 @@ class Agent:
             return error.retry_after
         base = min(8.0, 0.5 * 2 ** (failed_attempts - 1))
         return base * (1 - 0.25 * random.random())
-
-    async def _backoff(self, delay: float) -> None:
-        """Wait between attempts; Agent.cancel() interrupts immediately."""
-
-        try:
-            await asyncio.wait_for(self._cancel_event.wait(), timeout=delay)
-        except TimeoutError:
-            return
-        raise asyncio.CancelledError
 
     def _build_request(
         self,
@@ -756,29 +892,28 @@ class Agent:
     ) -> None:
         """Persist one message: caller callback first, then the SDK session store."""
 
-        if on_persist is not None:
-            # Callers may need to write related records before the SDK
-            # appends this message to its own session log.
-            await on_persist(message)
-        if self._store is None:
-            return
-        await self._store.append_message(self.session_id, message)
+        async def persist() -> None:
+            if on_persist is not None:
+                await on_persist(message)
+            if self._store is not None:
+                await self._store.append_message(self.session_id, message)
+
+        if on_persist is not None or self._store is not None:
+            # The task lets the commit survive cancellation: once persistence
+            # has started, it runs to completion before cancellation is reported.
+            await _finish_task(asyncio.create_task(persist()))
 
     # ------------------------------------------------------------------
-    # Public entry points
+    # Agent loop
     # ------------------------------------------------------------------
 
-    async def achat(
+    async def _achat(
         self,
+        run: _RunState,
         user_input: str | ConversationMessage,
-        *,
-        attachments: Sequence[AttachmentLike] = (),
-        on_persist: PersistCallback | None = None,
-    ) -> AsyncIterator[Event]:
-        """Run the full agent loop for one user message."""
-
-        self._event_loop = asyncio.get_running_loop()
-        self._cancel_event.clear()
+        attachments: Sequence[AttachmentLike],
+        on_persist: PersistCallback | None,
+    ) -> AsyncGenerator[Event, None]:
 
         user_message: ConversationMessage
         if isinstance(user_input, str):
@@ -796,7 +931,8 @@ class Agent:
                 user_message["meta"] = {str(k): v for k, v in raw_meta.items()}
 
         if attachments:
-            blocks = await asyncio.to_thread(build_attachment_blocks, attachments)
+            async with run.task(asyncio.to_thread(build_attachment_blocks, attachments)) as task:
+                blocks = await asyncio.shield(task)
             user_message["content"].extend(blocks)
 
         content_blocks = user_message.get("content") or []
@@ -810,6 +946,7 @@ class Agent:
                 yield Event("error", {"message": f"current model does not support {label}"})
                 return
 
+        run.check_cancelled()
         self.messages.append(user_message)
         await self._persist_message(user_message, on_persist)
 
@@ -820,54 +957,44 @@ class Agent:
         context_tokens: int | None = None
         turn_number = 0
         while True:
+            run.check_cancelled()
             if self.max_turns is not None and turn_number >= self.max_turns:
                 yield Event("error", {"message": "max_turns reached"})
                 return
             turn_number += 1
-            if self._cancel_event.is_set():
-                yield Event("error", {"message": "cancelled"})
-                return
-
             assistant_message: ConversationMessage | None = None
             partial_blocks: list[tuple[str, list[str]]] = []
             thinking_started_at: float | None = None
             thinking_duration_ms: int | None = None
-            provider_cancelled = False
             request = self._build_request(reasoning_effort=self.reasoning_effort)
 
+            stream = self._stream_provider_turn(run, adapter, request)
             try:
-                async for provider_event in self._stream_provider_turn(adapter, request):
-                    if self._cancel_event.is_set():
-                        provider_cancelled = True
-                        break
-
+                async for provider_event in stream:
+                    run.check_cancelled()
                     if provider_event.type == "retry":
                         yield Event("retry", dict(provider_event.data))
                         continue
 
-                    if provider_event.type == "thinking_delta":
+                    if provider_event.type in {"thinking_delta", "text_delta"}:
                         delta_text = str(provider_event.data.get("text") or "")
-                        if delta_text:
+                        if not delta_text:
+                            continue
+
+                        is_thinking = provider_event.type == "thinking_delta"
+                        if is_thinking:
                             if thinking_started_at is None:
                                 thinking_started_at = time.monotonic()
-                            if partial_blocks and partial_blocks[-1][0] == "thinking":
-                                partial_blocks[-1][1].append(delta_text)
-                            else:
-                                partial_blocks.append(("thinking", [delta_text]))
-                            yield Event("reasoning", {"delta": delta_text})
-                        continue
+                        elif thinking_started_at is not None and thinking_duration_ms is None:
+                            thinking_duration_ms = self._elapsed_ms(thinking_started_at)
+                            yield Event("reasoning_done", {"duration_ms": thinking_duration_ms})
 
-                    if provider_event.type == "text_delta":
-                        delta_text = str(provider_event.data.get("text") or "")
-                        if delta_text:
-                            if thinking_started_at is not None and thinking_duration_ms is None:
-                                thinking_duration_ms = self._elapsed_ms(thinking_started_at)
-                                yield Event("reasoning_done", {"duration_ms": thinking_duration_ms})
-                            if partial_blocks and partial_blocks[-1][0] == "text":
-                                partial_blocks[-1][1].append(delta_text)
-                            else:
-                                partial_blocks.append(("text", [delta_text]))
-                            yield Event("text", {"delta": delta_text})
+                        block_type = "thinking" if is_thinking else "text"
+                        if partial_blocks and partial_blocks[-1][0] == block_type:
+                            partial_blocks[-1][1].append(delta_text)
+                        else:
+                            partial_blocks.append((block_type, [delta_text]))
+                        yield Event("reasoning" if is_thinking else "text", {"delta": delta_text})
                         continue
 
                     if provider_event.type != "message_done":
@@ -881,37 +1008,29 @@ class Agent:
                     if isinstance(message, dict):
                         assistant_message = message
 
-            except asyncio.CancelledError:
-                provider_cancelled = True
-            except Exception as exc:
-                logger.exception("Provider request failed")
+            except (_RunCancelled, asyncio.CancelledError, GeneratorExit, Exception) as exc:
+                cancelled = isinstance(exc, (_RunCancelled, asyncio.CancelledError, GeneratorExit))
+                if not cancelled:
+                    logger.exception("Provider request failed")
                 if partial_blocks:
-                    # Output already reached the caller, so the attempt was not
-                    # retried; keep the JSONL consistent with what was shown.
-                    # stop_reason="error" excludes the partial from replay.
+                    # Persist what was already streamed so the JSONL matches the
+                    # visible turn; the stop_reason keeps this partial message
+                    # out of provider replay.
                     if thinking_started_at is not None and thinking_duration_ms is None:
                         thinking_duration_ms = self._elapsed_ms(thinking_started_at)
-                    failed_message = self._partial_assistant_message(
-                        partial_blocks, thinking_duration_ms, stop_reason="error"
+                    partial_message = self._partial_assistant_message(
+                        partial_blocks, thinking_duration_ms, stop_reason="cancelled" if cancelled else "error"
                     )
-                    self.messages.append(failed_message)
-                    await self._persist_message(failed_message, on_persist)
+                    self.messages.append(partial_message)
+                    await self._persist_message(partial_message, on_persist)
+                if cancelled:
+                    raise
                 yield Event("error", {"message": str(exc)})
                 return
-
-            if provider_cancelled:
-                if partial_blocks:
-                    if thinking_started_at is not None and thinking_duration_ms is None:
-                        thinking_duration_ms = self._elapsed_ms(thinking_started_at)
-                    cancelled_message = self._partial_assistant_message(
-                        partial_blocks,
-                        thinking_duration_ms,
-                        stop_reason="cancelled",
-                    )
-                    self.messages.append(cancelled_message)
-                    await self._persist_message(cancelled_message, on_persist)
-                yield Event("error", {"message": "cancelled"})
-                return
+            finally:
+                # Closing errors must propagate; the generator may already be
+                # unwinding and cannot yield another event.
+                await stream.aclose()
 
             if not assistant_message:
                 yield Event("error", {"message": "provider produced no assistant message"})
@@ -943,49 +1062,26 @@ class Agent:
             if tool_calls:
                 tool_results: list[dict[str, Any]] = []
                 for tool_call in tool_calls:
-                    block_meta = tool_call.get("meta") or {}
-                    if stop_reason == "length":
-                        events = self._reject_tool_call(
-                            tool_call,
-                            "error: tool call was truncated by the output token limit and was not executed",
-                        )
-                    elif block_meta.get("invalid_input") is True:
-                        events = self._reject_tool_call(
-                            tool_call,
-                            "\n".join(
-                                [
-                                    f"error: invalid arguments for {tool_call.get('name')} and the call was not executed.",
-                                    f"parse error: {block_meta.get('parse_error')}",
-                                    f"raw arguments: {block_meta.get('raw_arguments')}",
-                                ]
-                            ),
-                        )
-                    elif stop_reason not in {"stop", "tool_use"}:
-                        events = self._reject_tool_call(
-                            tool_call,
-                            "error: provider response did not complete the tool call and it was not executed",
-                        )
-                    else:
-                        events = self._run_tool_call(tool_call)
+                    run.check_cancelled()
+                    async with aclosing(self._run_tool_call(run, tool_call, stop_reason)) as events:
+                        async for event in events:
+                            yield event
 
-                    async for event in events:
-                        yield event
+                            if event.type != "tool_done":
+                                continue
 
-                        if event.type != "tool_done":
-                            continue
-
-                        d = event.data
-                        tool_results.append(
-                            tool_result_block(
-                                tool_use_id=d["tool_use_id"],
-                                output=d["output"],
-                                metadata=d.get("metadata"),
-                                is_error=d["is_error"],
-                                content=d.get("content"),
+                            data = event.data
+                            tool_results.append(
+                                tool_result_block(
+                                    tool_use_id=data["tool_use_id"],
+                                    output=data["output"],
+                                    metadata=data.get("metadata"),
+                                    is_error=data["is_error"],
+                                    content=data.get("content"),
+                                )
                             )
-                        )
 
-                    if self._cancel_event.is_set():
+                    if run.cancel_requested:
                         # Skip remaining tool calls; the results collected so
                         # far are still persisted below.
                         break
@@ -994,109 +1090,38 @@ class Agent:
                 self.messages.append(tool_result_message)
                 await self._persist_message(tool_result_message, on_persist)
 
-            if self._cancel_event.is_set():
-                return
+            run.check_cancelled()
             if should_compact(context_tokens, self.context_window, self.compact_threshold):
                 try:
-                    compact_marker = await self._compact(adapter, on_persist)
-                    yield Event("compact", {})
-                    # The summary call is a billed provider request; its total
-                    # is not the post-compact context size, so context_tokens
-                    # keeps the last normal request's value.
-                    compact_usage = cast(dict[str, Any], (compact_marker.get("meta") or {}).get("usage") or {})
-                    compact_cost = cast(Cost | None, (compact_marker.get("meta") or {}).get("cost"))
-                    turn_cost = _accumulate_usage(turn_usage, turn_cost, compact_usage, compact_cost)
-                    yield self._usage_event(context_tokens, turn_usage, turn_cost)
-                except asyncio.CancelledError:
-                    yield Event("error", {"message": "cancelled"})
-                    return
+                    compact_marker = await self._summarize(run, adapter)
                 except Exception:
+                    if run.cancel_requested:
+                        raise
                     # Compaction must not block the current answer; the full
                     # transcript is still available for the next turn.
                     logger.warning(
                         "Context compaction failed, continuing without compaction",
                         exc_info=True,
                     )
+                else:
+                    await self._persist_message(compact_marker, on_persist)
+                    self.messages.append(compact_marker)
+                    yield Event("compact", {})
+                    # Summary usage is billed, but does not describe the normal context size.
+                    compact_usage = cast(dict[str, Any], (compact_marker.get("meta") or {}).get("usage") or {})
+                    compact_cost = cast(Cost | None, (compact_marker.get("meta") or {}).get("cost"))
+                    turn_cost = _accumulate_usage(turn_usage, turn_cost, compact_usage, compact_cost)
+                    yield self._usage_event(context_tokens, turn_usage, turn_cost)
 
             if not tool_calls:
                 return
 
-    def run(
+    async def _summarize(
         self,
-        user_input: str | ConversationMessage,
-        *,
-        attachments: Sequence[AttachmentLike] = (),
-        on_persist: PersistCallback | None = None,
-    ) -> RunResult:
-        """Run one user turn synchronously and collect the streamed result."""
-
-        try:
-            asyncio.get_running_loop()
-        except RuntimeError:
-            pass
-        else:
-            raise RuntimeError("Agent.run() cannot run inside an active event loop; use Agent.achat() instead")
-
-        async def collect() -> RunResult:
-            result = RunResult()
-            text_parts: list[str] = []
-            async for event in self.achat(user_input, attachments=attachments, on_persist=on_persist):
-                if event.type != "tool_output":
-                    result.events.append(event)
-                if event.type == "text":
-                    text_parts.append(str(event.data.get("delta") or ""))
-                elif event.type == "usage":
-                    result.usage = event.data
-                elif event.type == "error" and result.error is None:
-                    result.error = str(event.data.get("message") or "")
-            result.text = "".join(text_parts)
-            return result
-
-        return asyncio.run(collect())
-
-    # ------------------------------------------------------------------
-    # Context compaction
-    # ------------------------------------------------------------------
-
-    async def acompact(
-        self,
-        *,
-        on_persist: PersistCallback | None = None,
-    ) -> ConversationMessage:
-        """Compact the conversation now and return the persisted compact marker.
-
-        Raises :class:`NothingToCompactError` when no new context follows the
-        latest compact marker, and :class:`asyncio.CancelledError` when
-        :meth:`cancel` stops the summary request.
-        """
-
-        self._event_loop = asyncio.get_running_loop()
-        self._cancel_event.clear()
-        adapter = get_provider_adapter(self.provider)
-        return await self._compact(adapter, on_persist)
-
-    def compact(
-        self,
-        *,
-        on_persist: PersistCallback | None = None,
-    ) -> ConversationMessage:
-        """Compact the conversation synchronously; see :meth:`acompact`."""
-
-        try:
-            asyncio.get_running_loop()
-        except RuntimeError:
-            pass
-        else:
-            raise RuntimeError("Agent.compact() cannot run inside an active event loop; use Agent.acompact() instead")
-
-        return asyncio.run(self.acompact(on_persist=on_persist))
-
-    async def _compact(
-        self,
+        run: _RunState,
         adapter: ProviderAdapter,
-        on_persist: PersistCallback | None,
     ) -> ConversationMessage:
-        """Ask the provider for a summary, persist and append the compact marker."""
+        """Build a compact marker; callers own persistence and its failures."""
 
         if not has_compactable_history(self.messages):
             raise NothingToCompactError("nothing to compact")
@@ -1108,11 +1133,12 @@ class Agent:
         )
 
         summary_message: ConversationMessage | None = None
-        async for provider_event in self._stream_provider_turn(adapter, request):
-            if provider_event.type == "message_done":
-                msg = provider_event.data.get("message")
-                if isinstance(msg, dict):
-                    summary_message = msg
+        async with aclosing(self._stream_provider_turn(run, adapter, request)) as stream:
+            async for provider_event in stream:
+                if provider_event.type == "message_done":
+                    msg = provider_event.data.get("message")
+                    if isinstance(msg, dict):
+                        summary_message = msg
 
         if not summary_message:
             raise ValueError("compaction produced no response")
@@ -1121,11 +1147,10 @@ class Agent:
         if not summary_text:
             raise ValueError("compaction produced empty summary")
 
-        if self._cancel_event.is_set():
-            raise asyncio.CancelledError
+        run.check_cancelled()
 
         summary_usage, summary_cost = self._finalize_request_message(summary_message)
-        compact_event = build_compact_event(
+        return build_compact_event(
             summary_text,
             provider=self.provider,
             model=self.model,
@@ -1133,7 +1158,3 @@ class Agent:
             usage=summary_usage,
             cost=summary_cost,
         )
-
-        await self._persist_message(compact_event, on_persist)
-        self.messages.append(compact_event)
-        return compact_event

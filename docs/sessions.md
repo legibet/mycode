@@ -126,7 +126,7 @@ summary capped at `min(agent.max_tokens, 8192)`. Lowering
 `compact_threshold` just triggers earlier; raising it is bounded by how much
 headroom the compact call needs to fit.
 
-If the summary request fails or returns no text, the agent logs a warning and keeps the full in-memory history. No `compact` record is persisted in that case, and the next threshold check will try compaction again — compaction is best-effort and never aborts the turn. A user-initiated cancel inside compaction is the one exception: it ends the turn immediately by emitting an `error` event with message `"cancelled"`, mirroring how phase 1 handles cancellation.
+If the summary request fails or returns no text, the agent logs a warning and keeps the full history for a later attempt. Marker persistence failures propagate. User stop ends the turn with `cancelled` after cleanup; a marker commit already in progress finishes and is not rolled back.
 
 ### Manual compaction
 

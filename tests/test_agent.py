@@ -3,6 +3,7 @@
 import asyncio
 import tempfile
 import threading
+from collections.abc import AsyncIterator
 from copy import deepcopy
 from pathlib import Path
 from unittest.mock import patch
@@ -117,6 +118,10 @@ def _chat_events(events: list[Event]) -> list[Event]:
     """Drop the per-request usage events; usage flows have dedicated tests."""
 
     return [event for event in events if event.type != "usage"]
+
+
+async def _collect_events(stream: AsyncIterator[Event]) -> list[Event]:
+    return [event async for event in stream]
 
 
 def _new_agent(tmp_path: Path, **overrides) -> Agent:
@@ -255,13 +260,14 @@ class _SlowProviderAdapter:
     async def stream_turn(self, _request):
         try:
             yield ProviderStreamEvent("thinking_delta", {"text": "working"})
-            await asyncio.sleep(10)
+            await asyncio.Event().wait()
         finally:
             self.closed.set()
 
 
 class _CancelledCompactAdapter:
-    def __init__(self):
+    def __init__(self, agent: Agent):
+        self.agent = agent
         self.requests = 0
 
     async def stream_turn(self, _request):
@@ -269,6 +275,7 @@ class _CancelledCompactAdapter:
         if self.requests == 1:
             yield _text_turn(meta={"usage": {"total_tokens": 90}})[0]
             return
+        self.agent.cancel()
         raise asyncio.CancelledError
 
 
@@ -690,18 +697,27 @@ class TestCustomTools:
         assert not run_thread.is_alive()
         assert cleaned_up.is_set()
         assert len(results) == 1
+        assert results[0].cancelled
+        assert results[0].error is None
         events = _chat_events(results[0].events)
-        assert [event.type for event in events] == ["tool_start", "tool_done"]
-        assert events[-1].data == {
+        assert [event.type for event in events] == ["tool_start", "tool_done", "cancelled"]
+        assert events[-2].data == {
             "tool_use_id": "call-1",
             "output": "error: cancelled",
             "is_error": True,
         }
 
-    def test_cancel_uses_result_returned_by_async_tool(self, tmp_path: Path) -> None:
-        started = threading.Event()
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("streams_output", [False, True])
+    async def test_cancel_preserves_tool_cleanup_and_skips_remaining_calls(
+        self, tmp_path: Path, streams_output: bool
+    ) -> None:
+        started = asyncio.Event()
+        cleaning = asyncio.Event()
+        release = asyncio.Event()
+        skipped_calls: list[str] = []
 
-        @tool(streams_output=True)
+        @tool(streams_output=streams_output)
         async def finish_on_cancel() -> ToolExecutionResult:
             """Return a final result while handling cancellation."""
 
@@ -709,30 +725,53 @@ class TestCustomTools:
             try:
                 await asyncio.Event().wait()
             except asyncio.CancelledError:
-                return ToolExecutionResult(output="cancelled cleanly", is_error=True)
+                current = asyncio.current_task()
+                assert current is not None
+                current.uncancel()
+                cleaning.set()
+                await release.wait()
+                return ToolExecutionResult(
+                    output="cancelled cleanly", content=[{"type": "text", "text": "kept"}], metadata={"cleaned": True}
+                )
             raise AssertionError("unreachable")
 
-        agent = _new_agent(tmp_path, tools=[finish_on_cancel])
-        adapter = _FakeProviderAdapter([_tool_turn("call-1", name="finish_on_cancel", tool_input={})])
-        results: list[RunResult] = []
-        run_thread = threading.Thread(target=lambda: results.append(agent.run("start")), daemon=True)
+        @tool
+        def skipped() -> str:
+            """Must not run after cancellation."""
+            skipped_calls.append("ran")
+            return "unexpected"
 
+        agent = _new_agent(tmp_path, tools=[finish_on_cancel, skipped])
+        adapter = _FakeProviderAdapter(
+            [
+                _assistant_turn(
+                    {"type": "tool_use", "id": "call-1", "name": "finish_on_cancel", "input": {}},
+                    {"type": "tool_use", "id": "call-2", "name": "skipped", "input": {}},
+                )
+            ]
+        )
         with patch("mycode.agent.get_provider_adapter", return_value=adapter):
-            run_thread.start()
-            assert started.wait(timeout=1)
-            agent.cancel()
-            run_thread.join(timeout=1)
+            async with asyncio.timeout(2):
+                task = asyncio.create_task(_collect_events(agent.achat("start")))
+                await started.wait()
+                agent.cancel()
+                await cleaning.wait()
+                agent.cancel()
+                release.set()
+                events = _chat_events(await task)
 
-        assert not run_thread.is_alive()
-        events = _chat_events(results[0].events)
-        assert events[-1].data == {
+        assert [event.type for event in events] == ["tool_start", "tool_done", "cancelled"]
+        assert events[-2].data == {
             "tool_use_id": "call-1",
             "output": "cancelled cleanly",
             "is_error": True,
+            "content": [{"type": "text", "text": "kept"}],
+            "metadata": {"cleaned": True},
         }
+        assert skipped_calls == []
 
     @pytest.mark.asyncio
-    async def test_cancel_after_assistant_persist_still_emits_tool_start(self):
+    async def test_cancel_after_assistant_persist_does_not_start_tools(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             agent = Agent(
                 model="gpt-5.5",
@@ -754,24 +793,13 @@ class TestCustomTools:
             with patch("mycode.agent.get_provider_adapter", return_value=adapter):
                 events = _chat_events([event async for event in agent.achat("hello", on_persist=on_persist)])
 
-            assert [event.type for event in events] == ["tool_start", "tool_done"]
-            assert events[0].data == {
-                "tool_call": {
-                    "id": "call-1",
-                    "name": "ping",
-                    "input": {"text": "hello"},
-                }
-            }
-            assert events[1].data == {
-                "tool_use_id": "call-1",
-                "output": "error: cancelled",
-                "is_error": True,
-            }
+            assert events == [Event("cancelled")]
+            assert agent.messages[-1]["role"] == "assistant"
 
 
 class TestAgentCancel:
     @pytest.mark.asyncio
-    async def test_cancelled_automatic_compaction_emits_error(self):
+    async def test_cancelled_automatic_compaction_emits_cancelled(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             agent = Agent(
                 model="gpt-5.5",
@@ -781,17 +809,18 @@ class TestAgentCancel:
                 compact_threshold=0.8,
             )
 
-            adapter = _CancelledCompactAdapter()
+            adapter = _CancelledCompactAdapter(agent)
 
             with patch("mycode.agent.get_provider_adapter", return_value=adapter):
                 events = [event async for event in agent.achat("hello")]
 
             assert adapter.requests == 2
-            assert [event.type for event in events] == ["usage", "error"]
-            assert events[-1].data == {"message": "cancelled"}
+            assert [event.type for event in events] == ["usage", "cancelled"]
+            assert events[-1].data == {}
 
     @pytest.mark.asyncio
-    async def test_cancel_stops_inflight_provider_stream(self):
+    @pytest.mark.parametrize("interrupt", ["cancel", "athrow", "task_cancel"])
+    async def test_cancel_stops_inflight_provider_stream(self, interrupt: str):
         with tempfile.TemporaryDirectory() as tmpdir:
             agent = Agent(
                 model="gpt-5.5",
@@ -806,12 +835,26 @@ class TestAgentCancel:
                 assert first_event.type == "reasoning"
                 assert first_event.data == {"delta": "working"}
 
-                agent.cancel()
-                remaining_events = [event async for event in stream]
+                history = deepcopy(agent.messages)
+                with pytest.raises(RuntimeError):
+                    await anext(agent.achat("intrude"))
+                with pytest.raises(RuntimeError):
+                    await agent.acompact()
+                with pytest.raises(RuntimeError):
+                    agent.clear()
+                assert agent.messages == history
+                if interrupt == "cancel":
+                    agent.cancel()
+                    assert await anext(stream) == Event("cancelled")
+                elif interrupt == "athrow":
+                    with pytest.raises(asyncio.CancelledError):
+                        await stream.athrow(asyncio.CancelledError())
+                else:
+                    task = asyncio.create_task(anext(stream))
+                    asyncio.get_running_loop().call_soon(task.cancel)
+                    with pytest.raises(asyncio.CancelledError):
+                        await task
 
-            [error_event] = remaining_events
-            assert error_event.type == "error"
-            assert error_event.data == {"message": "cancelled"}
             assert adapter.closed.is_set()
             assert agent.messages[-1]["role"] == "assistant"
             assert agent.messages[-1]["content"] == [
@@ -820,6 +863,129 @@ class TestAgentCancel:
             assert agent.messages[-1]["meta"]["provider"] == "openai"
             assert agent.messages[-1]["meta"]["model"] == "gpt-5.5"
             assert agent.messages[-1]["meta"]["stop_reason"] == "cancelled"
+            assert SessionStore(data_dir=Path(tmpdir)).load_messages_sync(agent.session_id) == agent.messages
+
+            # Reuse is allowed while the first generator is still at its terminal yield.
+            with patch("mycode.agent.get_provider_adapter", return_value=_FakeProviderAdapter([_text_turn("next")])):
+                follow_up = await _collect_events(agent.achat("next"))
+                assert not any(event.type in {"cancelled", "error"} for event in follow_up)
+            await stream.aclose()
+
+    @pytest.mark.asyncio
+    async def test_aclose_releases_provider_and_operation(self, tmp_path: Path) -> None:
+        agent = _new_agent(tmp_path)
+        adapter = _SlowProviderAdapter()
+        with patch("mycode.agent.get_provider_adapter", return_value=adapter):
+            stream = agent.achat("hello")
+            assert (await anext(stream)).type == "reasoning"
+            await asyncio.wait_for(stream.aclose(), 2)
+        assert adapter.closed.is_set()
+        stored = SessionStore(data_dir=tmp_path).load_messages_sync(agent.session_id)
+        assert stored[-1]["role"] == "assistant"
+        assert stored[-1]["meta"]["stop_reason"] == "cancelled"
+        assert stored[-1]["content"][0]["text"] == "working"
+        agent.clear()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("streams_output", [False, True])
+    async def test_external_cancel_and_timeout_propagate(self, tmp_path: Path, streams_output: bool) -> None:
+        started = asyncio.Event()
+
+        @tool(streams_output=streams_output)
+        async def swallow() -> str:
+            """Return a result after receiving cancellation."""
+            started.set()
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                return "swallowed"
+            raise AssertionError("unreachable")
+
+        agent = _new_agent(tmp_path, tools=[swallow])
+        adapter = _FakeProviderAdapter(
+            [_tool_turn(call_id, name="swallow", tool_input={}) for call_id in ("cancel-call", "timeout-call")]
+        )
+        with patch("mycode.agent.get_provider_adapter", return_value=adapter):
+            async with asyncio.timeout(2):
+                task = asyncio.create_task(_collect_events(agent.achat("cancel")))
+                await started.wait()
+                task.cancel()
+                with pytest.raises(asyncio.CancelledError):
+                    await task
+
+            started.clear()
+            deadline = asyncio.timeout(None)
+
+            async def consume() -> None:
+                async with deadline:
+                    await _collect_events(agent.achat("timeout"))
+
+            task = asyncio.create_task(consume())
+            await asyncio.wait_for(started.wait(), 2)
+            deadline.reschedule(asyncio.get_running_loop().time())
+            done, _ = await asyncio.wait({task}, timeout=2)
+            assert task in done, "agent did not finish after caller timeout"
+            with pytest.raises(TimeoutError):
+                await task
+
+    @pytest.mark.asyncio
+    async def test_aclose_does_not_interrupt_tool_cleanup(self, tmp_path: Path) -> None:
+        cleaning = asyncio.Event()
+        release = asyncio.Event()
+        finished = asyncio.Event()
+
+        @tool(streams_output=True)
+        async def hold(ctx: ToolContext[None]) -> str:
+            """Drain resources after cancellation."""
+            assert ctx.emit is not None
+            ctx.emit("started")
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                current = asyncio.current_task()
+                assert current is not None
+                current.uncancel()
+                cleaning.set()
+                await release.wait()
+                finished.set()
+                return "cleaned"
+            raise AssertionError("unreachable")
+
+        agent = _new_agent(tmp_path, tools=[hold])
+        with patch(
+            "mycode.agent.get_provider_adapter",
+            return_value=_FakeProviderAdapter([_tool_turn("1", name="hold", tool_input={})]),
+        ):
+            async with asyncio.timeout(2):
+                stream = agent.achat("go")
+                while (await anext(stream)).type != "tool_output":
+                    pass
+                agent.cancel()
+                await cleaning.wait()
+                closing = asyncio.create_task(stream.aclose())
+                asyncio.get_running_loop().call_soon(release.set)
+                await closing
+        assert finished.is_set()
+        agent.clear()
+
+    @pytest.mark.asyncio
+    async def test_cancel_finishes_started_persistence(self, tmp_path: Path) -> None:
+        started = asyncio.Event()
+        release = asyncio.Event()
+
+        async def persist(_message: ConversationMessage) -> None:
+            started.set()
+            await release.wait()
+
+        agent = _new_agent(tmp_path)
+        with patch("mycode.agent.get_provider_adapter", return_value=_FakeProviderAdapter([])):
+            async with asyncio.timeout(2):
+                task = asyncio.create_task(_collect_events(agent.achat("first", on_persist=persist)))
+                await started.wait()
+                agent.cancel()
+                release.set()
+                assert (await task)[-1] == Event("cancelled")
+        assert SessionStore(data_dir=tmp_path).load_messages_sync(agent.session_id) == agent.messages
 
 
 class TestTurnUsage:

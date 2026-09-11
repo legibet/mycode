@@ -61,15 +61,30 @@ class Hooks:
         self._after_tool.append(hook)
         return hook
 
-    async def run_before_tool(self, ctx: ToolHookContext[Any]) -> ToolExecutionResult | None:
+    async def run_before_tool(
+        self,
+        ctx: ToolHookContext[Any],
+        *,
+        check_cancelled: Callable[[], None] | None = None,
+    ) -> ToolExecutionResult | None:
         for hook in self._before_tool:
+            if check_cancelled is not None:
+                check_cancelled()
             result = await _resolve(hook(ctx))
             if result is not None:
                 return result
         return None
 
-    async def run_after_tool(self, ctx: ToolHookContext[Any], result: ToolExecutionResult) -> ToolExecutionResult:
+    async def run_after_tool(
+        self,
+        ctx: ToolHookContext[Any],
+        result: ToolExecutionResult,
+        *,
+        check_cancelled: Callable[[], None] | None = None,
+    ) -> ToolExecutionResult:
         for hook in self._after_tool:
+            if check_cancelled is not None:
+                check_cancelled()
             replacement = await _resolve(hook(ctx, result))
             if replacement is not None:
                 result = replacement
