@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import os
 import sys
-from contextlib import suppress
+from contextlib import aclosing, suppress
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Annotated, Any, Literal
 from uuid import uuid4
@@ -107,13 +107,14 @@ async def run_noninteractive(agent: Agent, message: str, *, store: SessionStore,
             latest_assistant = payload
 
     error_message = ""
-    async for event in agent.achat(message, on_persist=track):
-        if event.type == "error":
-            error_message = str(event.data.get("message") or "agent error")
-        elif event.type == "tool_done" and event.data.get("is_error"):
-            output = str(event.data.get("output") or "")
-            if output in {PERMISSION_DENIED_OUTPUT, PERMISSION_DENIED_BY_USER_OUTPUT}:
-                error_message = output
+    async with aclosing(agent.achat(message, on_persist=track)) as stream:
+        async for event in stream:
+            if event.type == "error":
+                error_message = str(event.data.get("message") or "agent error")
+            elif event.type == "tool_done" and event.data.get("is_error"):
+                output = str(event.data.get("output") or "")
+                if output in {PERMISSION_DENIED_OUTPUT, PERMISSION_DENIED_BY_USER_OUTPUT}:
+                    error_message = output
 
     reply = ""
     if latest_assistant:

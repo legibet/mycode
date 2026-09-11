@@ -6,7 +6,7 @@ import asyncio
 import copy
 import time
 from collections.abc import AsyncGenerator, AsyncIterator, Awaitable, Callable
-from contextlib import asynccontextmanager
+from contextlib import aclosing, asynccontextmanager
 from dataclasses import dataclass, field
 from typing import Any, Literal, Protocol
 from uuid import uuid4
@@ -47,7 +47,7 @@ class RunAgent(Protocol):
 
     def cancel(self) -> None: ...
 
-    def achat(self, user_input: str | ConversationMessage) -> AsyncIterator[Event]: ...
+    def achat(self, user_input: str | ConversationMessage) -> AsyncGenerator[Event, None]: ...
 
     def acompact(self) -> Awaitable[ConversationMessage]: ...
 
@@ -355,12 +355,14 @@ class RunManager:
     async def _run(self, state: RunState) -> None:
         """Run the agent and store streamed events."""
 
-        # Agent entrypoints reset their cancellation flags for a new turn.
+        # A run can be stopped before the SDK operation has started.
         if state.cancel_requested:
+            await self._append_event(state, Event("cancelled", {}))
             await self._finish_run(state, status="cancelled")
             return
 
         last_error: str | None = None
+        cancelled = False
 
         try:
             if state.kind == "compact":
@@ -371,29 +373,32 @@ class RunManager:
                 await self._append_event(state, Event("compact", {}), compact_cost=sum_session_cost([marker]))
             else:
                 assert state.user_message is not None
-                async for event in state.agent.achat(state.user_message):
-                    if event.type == "retry":
-                        continue
-                    if event.type == "error":
-                        last_error = str(event.data.get("message") or "unknown error")
-                    await self._append_event(state, event)
+                async with aclosing(state.agent.achat(state.user_message)) as stream:
+                    async for event in stream:
+                        if event.type == "retry":
+                            continue
+                        if event.type == "error":
+                            last_error = str(event.data.get("message") or "unknown error")
+                        elif event.type == "cancelled":
+                            cancelled = True
+                            continue
+                        await self._append_event(state, event)
         except asyncio.CancelledError:
-            # BaseException, not caught by ``except Exception`` — without this
-            # branch ``_finish_run`` never runs and the active-session lock
-            # leaks (next /api/chat returns 409).
-            last_error = "cancelled"
+            # Manual compaction and external task cancellation both end the run.
+            cancelled = True
         except Exception as exc:
             # Reached by compact failures (e.g. nothing to compact, provider
-            # errors); chat runs surface errors as events instead.
+            # errors) and by persist/cleanup failures during a chat turn.
             last_error = str(exc)
             await self._append_event(state, Event("error", {"message": last_error}))
 
-        if state.cancel_requested or last_error == "cancelled":
-            await self._finish_run(state, status="cancelled", error=last_error)
+        if last_error is not None:
+            await self._finish_run(state, status="failed", error=last_error)
             return
 
-        if last_error:
-            await self._finish_run(state, status="failed", error=last_error)
+        if cancelled or state.cancel_requested:
+            await self._append_event(state, Event("cancelled", {}))
+            await self._finish_run(state, status="cancelled")
             return
 
         await self._finish_run(state, status="completed")

@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 
 import pytest
 
-from mycode import ToolHookContext
+from mycode import Agent, SessionStore, ToolHookContext, tool
+from mycode.providers.base import ProviderStreamEvent
 from mycode.tools import ToolExecutionResult, ToolSpec
 from mycode_cli.config import PermissionConfig, Settings
 from mycode_cli.permissions import (
@@ -243,14 +245,44 @@ async def test_permission_hook_allows_interactive_approval(tmp_path: Path, monke
 @pytest.mark.asyncio
 async def test_permission_hook_distinguishes_user_denial(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("mycode_cli.permissions.discover_skills", lambda _cwd: [])
+    calls: list[str] = []
+
+    @tool
+    def probe() -> str:
+        """Must not execute after user denial."""
+        calls.append("executed")
+        return "unexpected"
 
     async def review(_request: ToolReviewRequest) -> ToolReviewDecision:
+        agent.cancel()
+        await asyncio.sleep(0)  # Allow asynchronous review cleanup to finish.
         return "deny"
 
     hooks = build_permission_hooks(
         _settings(tmp_path, permission=PermissionConfig(level="safe", mode="ask")),
         review=review,
     )
-    result = await hooks.run_before_tool(_ctx("bash", {"command": "pnpm install"}))
+    agent = Agent(model="test", provider="openai", tools=[probe], hooks=hooks, session_dir=tmp_path, max_turns=1)
 
-    assert result == ToolExecutionResult(output=PERMISSION_DENIED_BY_USER_OUTPUT, is_error=True)
+    class Adapter:
+        async def stream_turn(self, _request):
+            yield ProviderStreamEvent(
+                "message_done",
+                {
+                    "message": {
+                        "role": "assistant",
+                        "content": [{"type": "tool_use", "id": "call-1", "name": "probe", "input": {}}],
+                        "meta": {"stop_reason": "tool_use"},
+                    }
+                },
+            )
+
+    monkeypatch.setattr("mycode.agent.get_provider_adapter", lambda _: Adapter())
+    events = [event async for event in agent.achat("go")]
+    done = next(event for event in events if event.type == "tool_done")
+    assert done.data["output"] == PERMISSION_DENIED_BY_USER_OUTPUT
+    assert done.data["is_error"] is True
+    assert events[-1].type == "cancelled"
+    assert calls == []
+    stored = SessionStore(data_dir=tmp_path).load_messages_sync(agent.session_id)
+    assert stored[-1]["content"][0]["output"] == PERMISSION_DENIED_BY_USER_OUTPUT

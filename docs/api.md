@@ -144,7 +144,7 @@ Error responses:
 - `400` — `{"detail": "nothing to compact"}` when no new user/assistant message follows the latest compact marker
 - `409` — session already has a running task; body is `{"detail": {"message": "...", "run": {...}}}`
 
-Cancellation (`POST /api/runs/{run_id}/cancel`) and summary failure write no marker; failures surface as one `error` event and `status: "failed"`.
+Cancellation during the summary request writes no marker. A marker commit already in progress finishes before cancellation is reported. User stop emits `cancelled` with `status: "cancelled"`; failures emit `error` with `status: "failed"`.
 
 ### `GET /api/config?cwd=...`
 
@@ -394,11 +394,14 @@ Response:
 | `tool_done`           | `tool_use_id: str`, `output: str`, `is_error: bool`, `metadata?`, `content?`                                 |
 | `compact`             | _empty payload_                                                                                              |
 | `error`               | `message: str`                                                                                               |
+| `cancelled`           | _empty payload_                                                                                              |
 | `permission_request`  | `request_id: str`, `tool_use_id: str`, `tool_name: str`, `preview: str`                                      |
 | `permission_resolved` | `request_id: str`, `decision: "allow" \| "deny"`                                                             |
 | `usage`               | `context_tokens?`, `context_window?`, `model?`, `turn_usage?`, `turn_cost?`, `session_cost?`                 |
 
 `tool_output` is ordered, append-only display text. Clients do not insert separators between events. Under buffer pressure, `[live output omitted]` replaces one continuous middle segment. `tool_done.output` is the authoritative final result. Once a tool's `tool_done` is buffered, the server may drop that tool's earlier `tool_output` events — a consumer that has not read them yet skips straight to the `tool_done`.
+
+`cancelled` ends a user-stopped chat or compact run after cleanup. A cancelled in-flight tool emits `tool_done` with `is_error: true` and its cleanup output before `cancelled`.
 
 `permission_request` and `permission_resolved` bracket a wait inside the agent's `before_tool` hook. Clients respond via `POST /api/runs/{run_id}/decide`; `permission_resolved` lets reconnecting or second-tab clients dismiss the prompt.
 
@@ -415,6 +418,7 @@ Every event also carries `seq: int` for reconnect support. The web UI uses `afte
 - Compact runs carry no `user_message`; snapshots return `base_messages` unchanged
 - `RunState` tracks a bounded reconnect event buffer and condition variable for streaming
 - Explicit permission `deny` marks the run as cancelled and calls `agent.cancel()`
+- A user stop ends the run with a `cancelled` event and `status: "cancelled"`; `error` stays unset. Persist or cleanup exceptions still fail the run even if cancel was already requested
 - `cancel_run()` requests cancellation once and waits for completion; repeated requests and HTTP disconnection do not interrupt cleanup
 - `aclose()` cancels unfinished runs, awaits their cleanup, and releases cached state
 - Finished runs pruned after 300 seconds (`FINISHED_RUN_TTL_SECONDS`)

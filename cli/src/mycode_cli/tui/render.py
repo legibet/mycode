@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import time
 from collections import deque
+from contextlib import aclosing
 from datetime import datetime
 from typing import Any, ClassVar, override
 
@@ -389,38 +390,42 @@ class ReplyRenderer:
 
         self._ensure_live()
 
-        async for event in agent.achat(message, on_persist=on_persist):
-            match event.type:
-                case "reasoning":
-                    self.reasoning(event.data.get("delta", ""))
-                case "reasoning_done":
-                    duration_ms = event.data.get("duration_ms")
-                    if isinstance(duration_ms, int):
-                        self._thinking_duration_ms = duration_ms
-                case "text":
-                    self.text(event.data.get("delta", ""))
-                case "tool_start":
-                    tool_call = event.data.get("tool_call") or {}
-                    self.tool_start(tool_call.get("name", ""), tool_call.get("input") or {})
-                case "tool_output":
-                    self.tool_output(event.data.get("output", ""))
-                case "tool_done":
-                    output = str(event.data.get("output") or "")
-                    is_error = bool(event.data.get("is_error"))
-                    raw_meta = event.data.get("metadata")
-                    metadata = raw_meta if isinstance(raw_meta, dict) else None
-                    self.tool_done(output, is_error=is_error, metadata=metadata)
-                    if is_error:
+        async with aclosing(agent.achat(message, on_persist=on_persist)) as stream:
+            async for event in stream:
+                match event.type:
+                    case "reasoning":
+                        self.reasoning(event.data.get("delta", ""))
+                    case "reasoning_done":
+                        duration_ms = event.data.get("duration_ms")
+                        if isinstance(duration_ms, int):
+                            self._thinking_duration_ms = duration_ms
+                    case "text":
+                        self.text(event.data.get("delta", ""))
+                    case "tool_start":
+                        tool_call = event.data.get("tool_call") or {}
+                        self.tool_start(tool_call.get("name", ""), tool_call.get("input") or {})
+                    case "tool_output":
+                        self.tool_output(event.data.get("output", ""))
+                    case "tool_done":
+                        output = str(event.data.get("output") or "")
+                        is_error = bool(event.data.get("is_error"))
+                        raw_meta = event.data.get("metadata")
+                        metadata = raw_meta if isinstance(raw_meta, dict) else None
+                        self.tool_done(output, is_error=is_error, metadata=metadata)
+                        if is_error:
+                            exit_code = 1
+                    case "usage":
+                        self._stats = dict(event.data)
+                    case "compact":
+                        self.compact()
+                    case "cancelled":
+                        self.cancel()
+                        return 0
+                    case "error":
                         exit_code = 1
-                case "usage":
-                    self._stats = dict(event.data)
-                case "compact":
-                    self.compact()
-                case "error":
-                    exit_code = 1
-                    self.error(event.data.get("message", ""))
-                case _:
-                    pass
+                        self.error(event.data.get("message", ""))
+                    case _:
+                        pass
 
         self.finish()
         return exit_code

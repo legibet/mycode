@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator, AsyncIterator
 from pathlib import Path
 from threading import Event as ThreadEvent
 from typing import cast, override
@@ -697,7 +697,7 @@ async def test_running_session_uses_snapshot_cost_after_usage_eviction_then_load
             async def acompact(self) -> ConversationMessage:
                 raise NotImplementedError
 
-            async def achat(self, user_input: str | ConversationMessage) -> AsyncIterator[Event]:
+            async def achat(self, user_input: str | ConversationMessage) -> AsyncGenerator[Event, None]:
                 assert isinstance(user_input, dict)
                 await store.append_message("s1", user_input)
                 yield Event("usage", {"turn_cost": {"total": 0.5}})

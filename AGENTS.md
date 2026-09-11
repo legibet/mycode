@@ -59,6 +59,8 @@ Skill snapshots use text blocks with `meta.skill_snapshot=true`. Providers recei
 
 Cancelled provider streams may persist partial assistant `thinking`/`text` with `meta.stop_reason="cancelled"`. Cancelled tool calls end in an error `tool_done`; Bash keeps its captured output and appends `error: cancelled`. Tool calls with canonical `length` or `unknown` stop reasons are rejected before execution; a canonical `error` response ends the turn. Malformed JSON arguments carry `meta.invalid_input=true`.
 
+Each Agent allows one active chat/compact operation. User stops end with `cancelled` after cleanup; `RunResult.cancelled` is separate from `error`. External task cancellation propagates `CancelledError`.
+
 Full schema, JSONL record types, replay rules, and the rewind/compact projection live in `docs/sessions.md`. The SDK-level event surface and `Agent` API live in `docs/sdk.md`.
 
 ## Agent Loop
@@ -81,7 +83,7 @@ Per-adapter SDK, base URL, env vars, reasoning effort mapping, image/PDF seriali
 
 ## SSE Contract
 
-`GET /api/runs/{run_id}/stream` event types: `reasoning`, `reasoning_done`, `text`, `tool_start`, `tool_output`, `tool_done`, `compact`, `error`, `permission_request`, `permission_resolved`, `usage`. Every event also carries a monotonically increasing `seq: int`. `tool_output.output` is ordered, append-only display text; clients do not insert separators, and `[live output omitted]` marks a dropped middle segment.
+`GET /api/runs/{run_id}/stream` event types: `reasoning`, `reasoning_done`, `text`, `tool_start`, `tool_output`, `tool_done`, `compact`, `error`, `cancelled`, `permission_request`, `permission_resolved`, `usage`. Every event also carries a monotonically increasing `seq: int`. `tool_output.output` is ordered, append-only display text; clients do not insert separators, and `[live output omitted]` marks a dropped middle segment.
 
 Event names and payload shapes are a cross-component contract — changes need to land in server, CLI, and web UI together. Full payload fields, reconnect semantics (`after=<seq>`), and the permission request/resolve flow live in `docs/api.md`. SDK-level event variants (used by SDK embedders) live in `docs/sdk.md`.
 

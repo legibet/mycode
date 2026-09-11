@@ -32,6 +32,7 @@ from mycode_cli.tui.chat import (
     clone_agent,
 )
 from mycode_cli.tui.render import ReplyRenderer, TerminalView
+from mycode_cli.tui.theme import ERROR_MARKER
 from mycode_cli.web_tools import build_web_tools
 from mycode_cli.workspace import CliDeps
 
@@ -380,6 +381,28 @@ class TestReplyRenderer:
             assert "$" not in rendered
         else:
             assert f"${expected:.2f}" in rendered
+
+    @pytest.mark.asyncio
+    async def test_cancelled_event_is_a_muted_stop_not_an_error(self) -> None:
+        class _CancelledAgent:
+            async def achat(self, message: str, *, on_persist=None):
+                yield Event("text", {"delta": "partial"})
+                yield Event("cancelled", {})
+
+        output = StringIO()
+        renderer = ReplyRenderer(
+            Console(file=output, force_terminal=False, color_system=None, width=120),
+            model="m",
+            context_window=None,
+        )
+
+        code = await renderer.render(cast(Any, _CancelledAgent()), "hi")
+
+        rendered = output.getvalue()
+        assert code == 0
+        assert "partial" in rendered
+        assert "cancelled" in rendered
+        assert ERROR_MARKER not in rendered
 
 
 class TestLoadSessionCost:

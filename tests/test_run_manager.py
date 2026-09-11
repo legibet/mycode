@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import gc
+from pathlib import Path
 from typing import override
 
 import pytest
@@ -12,6 +13,8 @@ from mycode import Agent, tool
 from mycode.agent import Event
 from mycode.messages import ConversationMessage
 from mycode.providers.base import ProviderStreamEvent
+from mycode_cli.config import PermissionConfig, Settings
+from mycode_cli.permissions import PERMISSION_DENIED_BY_USER_OUTPUT, ToolReviewRequest, build_permission_hooks
 from mycode_cli.server.run_manager import ActiveRunError, RunManager, RunState
 
 pytestmark = pytest.mark.asyncio
@@ -41,7 +44,7 @@ class BlockingAgent(ChatOnlyAgent):
         yield Event("text", {"delta": f"reply:{text}"})
         await self.release.wait()
         if self.cancelled:
-            yield Event("error", {"message": "cancelled"})
+            yield Event("cancelled", {})
 
 
 class SimpleAgent(ChatOnlyAgent):
@@ -318,10 +321,27 @@ async def test_cancel_only_marks_target_run_cancelled() -> None:
         agent=second_agent,
     )
 
+    collected: list[dict[str, object]] = []
+    got_text = asyncio.Event()
+
+    async def collect() -> None:
+        async for event in manager.stream_events(first["id"], after=0):
+            collected.append(event)
+            if event["type"] == "text":
+                got_text.set()
+
+    follower = asyncio.create_task(collect())
+    await asyncio.wait_for(got_text.wait(), 2)
+
     cancelled = await manager.cancel_run(first["id"])
     assert cancelled is not None
     assert cancelled["status"] == "cancelled"
+    assert "error" not in cancelled
     assert not await manager.has_active_run("session-1")
+    await follower
+
+    assert collected[0]["type"] == "text"
+    assert collected[-1] == {"seq": 2, "type": "cancelled"}
 
     await _wait_for_run_task(manager, first["id"])
 
@@ -369,7 +389,48 @@ async def test_cancelled_error_in_agent_still_finalizes_run() -> None:
     final = await manager.get_run(run["id"])
     assert final is not None
     assert final.status == "cancelled"
+    assert final.error is None
+    assert [event["type"] for event in final.events] == ["text", "cancelled"]
     # Active-session lock must be released so the next /api/chat does not 409.
+    assert not await manager.has_active_run("session-1")
+
+
+class PersistFailAfterCancelAgent(ChatOnlyAgent):
+    def __init__(self) -> None:
+        self.started = asyncio.Event()
+        self.release = asyncio.Event()
+
+    def cancel(self) -> None:
+        self.release.set()
+
+    async def achat(self, user_input):
+        del user_input
+        yield Event("text", {"delta": "partial"})
+        self.started.set()
+        await self.release.wait()
+        raise OSError()
+
+
+async def test_persist_failure_after_cancel_marks_run_failed() -> None:
+    manager = RunManager()
+    agent = PersistFailAfterCancelAgent()
+    run = await manager.start_run(
+        session_id="session-1",
+        user_message={"role": "user", "content": [{"type": "text", "text": "hi"}]},
+        base_messages=[],
+        agent=agent,
+    )
+    await asyncio.wait_for(agent.started.wait(), 2)
+
+    finished = await manager.cancel_run(run["id"])
+    assert finished is not None
+    assert finished["status"] == "failed"
+
+    state = await manager.get_run(run["id"])
+    assert state is not None
+    assert state.status == "failed"
+    assert state.events[-1]["type"] == "error"
+    assert not any(event["type"] == "cancelled" for event in state.events)
     assert not await manager.has_active_run("session-1")
 
 
@@ -442,9 +503,57 @@ async def test_request_decision_allow_resumes_agent() -> None:
     assert state.pending_decisions == {}
 
 
-async def test_request_decision_deny_returns_deny() -> None:
+async def test_request_decision_deny_returns_deny(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     manager = RunManager()
-    agent = ReviewAgent(manager, "session-1")
+    calls: list[str] = []
+
+    @tool
+    def probe() -> str:
+        """Must not execute after user denial."""
+        calls.append("executed")
+        return "unexpected"
+
+    async def review(request: ToolReviewRequest):
+        return await manager.request_decision(
+            session_id="session-1",
+            tool_call_id=request.tool_call_id,
+            tool_name=request.tool_name,
+            preview=request.preview,
+        )
+
+    settings = Settings(
+        providers={},
+        default_provider=None,
+        default_model=None,
+        port=8000,
+        cwd=str(tmp_path),
+        project=str(tmp_path),
+        config_paths=[],
+        permission=PermissionConfig(level="readonly", mode="ask"),
+    )
+    monkeypatch.setattr("mycode_cli.permissions.discover_skills", lambda _: [])
+    agent = Agent(
+        model="test",
+        provider="openai",
+        tools=[probe],
+        max_turns=1,
+        hooks=build_permission_hooks(settings, review=review),
+    )
+
+    class Adapter:
+        async def stream_turn(self, _request):
+            yield ProviderStreamEvent(
+                "message_done",
+                {
+                    "message": {
+                        "role": "assistant",
+                        "content": [{"type": "tool_use", "id": "call-1", "name": "probe", "input": {}}],
+                        "meta": {"stop_reason": "tool_use"},
+                    }
+                },
+            )
+
+    monkeypatch.setattr("mycode.agent.get_provider_adapter", lambda _: Adapter())
 
     run = await manager.start_run(
         session_id="session-1",
@@ -458,11 +567,15 @@ async def test_request_decision_deny_returns_deny() -> None:
 
     state = await _wait_for_run_task(manager, run["id"])
 
-    assert agent.decision == "deny"
-    assert agent.cancelled is True
+    assert calls == []
+    done = next(event for event in state.events if event["type"] == "tool_done")
+    assert done["output"] == PERMISSION_DENIED_BY_USER_OUTPUT
+    assert done["is_error"] is True
     resolved_event = next(event for event in state.events if event["type"] == "permission_resolved")
     assert resolved_event["decision"] == "deny"
+    assert [event["type"] for event in state.events][-1] == "cancelled"
     assert state.status == "cancelled"
+    assert state.error is None
     assert not await manager.has_active_run("session-1")
 
 
@@ -486,6 +599,7 @@ async def test_cancel_run_unblocks_pending_decision_as_deny() -> None:
     assert agent.decision == "deny"
     resolved_event = next(event for event in state.events if event["type"] == "permission_resolved")
     assert resolved_event["decision"] == "deny"
+    assert [event["type"] for event in state.events][-1] == "cancelled"
     assert state.pending_decisions == {}
 
 
@@ -506,7 +620,7 @@ class CleanupAgent(ChatOnlyAgent):
         self.cleaning_up.set()
         await self.release_cleanup.wait()
         self.cleaned_up = True
-        yield Event("error", {"message": "cancelled"})
+        yield Event("cancelled", {})
 
 
 async def test_shutdown_preserves_tool_cleanup_after_cancel_request_is_interrupted(
@@ -565,6 +679,13 @@ async def test_shutdown_preserves_tool_cleanup_after_cancel_request_is_interrupt
         await asyncio.wait_for(closing, 2)
     assert cleaned_up
     assert state.status == "cancelled"
+    assert state.error is None
+    types = [event["type"] for event in state.events]
+    assert types[-1] == "cancelled"
+    done = next(event for event in state.events if event["type"] == "tool_done")
+    assert done["is_error"] is True
+    assert done["output"] == "cleaned up"
+    assert "error" not in types
 
 
 async def test_close_cancels_all_runs_and_waits_for_cleanup() -> None:
@@ -742,7 +863,7 @@ async def test_compact_run_failure_emits_error_and_fails() -> None:
     assert not await manager.has_active_run("session-1")
 
 
-async def test_compact_run_cancellation_emits_no_compact_event() -> None:
+async def test_compact_run_cancellation_emits_cancelled_not_compact() -> None:
     manager = RunManager()
     agent = CompactAgent()
 
@@ -752,11 +873,13 @@ async def test_compact_run_cancellation_emits_no_compact_event() -> None:
     assert cancelled is not None
     assert cancelled["status"] == "cancelled"
     assert cancelled["kind"] == "compact"
+    assert "error" not in cancelled
 
     state = await _wait_for_run_task(manager, run["id"])
     assert agent.compacted is False
-    assert state.events == []
+    assert state.events == [{"seq": 1, "type": "cancelled"}]
     assert state.session_cost == 0.4
+    assert state.error is None
     assert not await manager.has_active_run("session-1")
 
 
