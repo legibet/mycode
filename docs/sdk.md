@@ -96,11 +96,7 @@ async for _ in agent.achat("follow-up that references the earlier answer"):
 
 ### Model metadata
 
-The bundled models.dev catalog stores one official model list and separate OpenRouter data. `lookup_model_metadata(provider_type=..., model=...)` selects metadata as follows:
-
-- OpenRouter requests first look up the full model id in the OpenRouter data.
-- Other requests, and unmatched OpenRouter requests, look up the official model name, first as supplied and then without its prefix.
-- A match supplies all metadata fields, including reasoning efforts and reference pricing. An unmatched model returns `None`.
+The bundled catalog stores one official model list per supported provider (models.dev data via [basellm/llm-metadata](https://github.com/basellm/llm-metadata)). `lookup_model_metadata(provider_type=..., model=...)` looks up the official model name, first as supplied and then without its prefix, so routed ids such as OpenRouter's `owner/model` resolve to the official entry. A match supplies all metadata fields, including reasoning efforts and reference pricing — for routed providers the pricing is the official provider's, not the router's. An unmatched model returns `None`.
 
 `resolve_model_metadata()` applies non-`None` explicit overrides to the matched metadata. If no model matches, unspecified fields remain `None`.
 

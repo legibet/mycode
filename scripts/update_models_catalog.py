@@ -1,4 +1,8 @@
-"""Update the bundled model metadata catalog from models.dev."""
+"""Update the bundled model metadata catalog from basellm/llm-metadata.
+
+basellm repackages models.dev data as native-provider-only model lists:
+https://github.com/basellm/llm-metadata
+"""
 
 from __future__ import annotations
 
@@ -7,32 +11,59 @@ from pathlib import Path
 from typing import Any
 from urllib.request import Request, urlopen
 
-MODELS_DEV_URL = "https://models.dev/catalog.json"
+BASELLM_URL = "https://basellm.github.io/llm-metadata/api/all.json"
 TARGET_PATH = Path(__file__).resolve().parents[1] / "mycode" / "src" / "mycode" / "models_catalog.json"
-OFFICIAL_MODEL_PROVIDERS = {
-    "alibaba": "alibaba",
-    "anthropic": "anthropic",
-    "cohere": "cohere",
-    "deepseek": "deepseek",
-    "google": "google",
-    "meta": "meta",
-    "minimax": "minimax",
-    "mistral": "mistral",
-    "moonshotai": "moonshotai",
-    "openai": "openai",
-    "stepfun": "stepfun",
-    "tencent": "tencent-tokenhub",
-    "xai": "xai",
-    "xiaomi": "xiaomi",
-    "zhipuai": "zai",
-}
+
+# basellm provider ids matching the official providers mycode ships adapters for.
+OFFICIAL_PROVIDERS = (
+    "alibaba",
+    "anthropic",
+    "cohere",
+    "deepseek",
+    "google",
+    "meta",
+    "minimax",
+    "mistral",
+    "moonshotai",
+    "openai",
+    "stepfun",
+    "tencent-tokenhub",
+    "xai",
+    "xiaomi",
+    "zai",
+)
 
 
 PRICE_KEYS = ("input", "output", "cache_read", "cache_write", "reasoning")
 
+# Hand-curated catalog entries, merged over the fetched data so they survive
+# regeneration. Add model names basellm's official lists do not carry (e.g.
+# release names that third-party interfaces serve) or pin/correct upstream
+# data. Entries are frozen at maintenance time.
+MANUAL_MODELS: dict[str, dict[str, Any]] = {
+    # Served as "deepseek-flash" by the official API; the release name is what
+    # third-party interfaces expose.
+    "deepseek-v4.1-flash": {
+        "context_window": 1_000_000,
+        "max_output_tokens": 384_000,
+        "reasoning_efforts": ["low", "high", "max"],
+        "supports_image_input": True,
+        "supports_pdf_input": False,
+        "cost": {"input": 0.15, "output": 0.6, "cache_read": 0.003, "reasoning": 0.6},
+    },
+    "qwen3.8-27b": {
+        "context_window": 1_000_000,
+        "max_output_tokens": 131_072,
+        "reasoning_efforts": None,
+        "supports_image_input": True,
+        "supports_pdf_input": False,
+        "cost": {"input": 0.5, "output": 3.0, "cache_read": 0.1},
+    },
+}
+
 
 def extract_cost(raw_model: dict[str, Any]) -> dict[str, Any] | None:
-    """Normalize models.dev cost data: USD per 1M tokens, context tiers only."""
+    """Normalize basellm cost data: USD per 1M tokens, context tiers only."""
 
     raw_cost = raw_model.get("cost")
     if raw_cost is None:
@@ -86,31 +117,24 @@ def extract_model(raw_model: dict[str, Any]) -> dict[str, Any]:
 
 
 def main() -> None:
-    request = Request(MODELS_DEV_URL, headers={"User-Agent": "mycode/1.0"})
+    request = Request(BASELLM_URL, headers={"User-Agent": "mycode/1.0"})
     with urlopen(request, timeout=30) as response:
         source: dict[str, Any] = json.load(response)
 
-    source_providers = source["providers"]
-
     models: dict[str, dict[str, Any]] = {}
-    for model_id in source["models"]:
-        owner, model_name = model_id.split("/", 1)
-        provider_name = OFFICIAL_MODEL_PROVIDERS.get(owner)
-        if provider_name is None:
-            continue
-        raw_model = source_providers[provider_name]["models"].get(model_name)
-        if raw_model is None:
-            continue
-        if model_name in models:
-            raise ValueError(f"duplicate official model name: {model_name}")
-        models[model_name] = extract_model(raw_model)
+    for provider_id in OFFICIAL_PROVIDERS:
+        for model_name, raw_model in source[provider_id]["models"].items():
+            if model_name in models:
+                raise ValueError(f"duplicate official model name: {model_name}")
+            models[model_name] = extract_model(raw_model)
 
-    openrouter = {
-        model_id: extract_model(raw_model) for model_id, raw_model in source_providers["openrouter"]["models"].items()
-    }
-    catalog = {"models": models, "openrouter": openrouter}
+    for name in sorted(MANUAL_MODELS.keys() & models.keys()):
+        print(f"manual entry shadows upstream data: {name}")
+    models.update(MANUAL_MODELS)
+
+    catalog = {"models": models}
     TARGET_PATH.write_text(json.dumps(catalog, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    print(f"Wrote {TARGET_PATH}")
+    print(f"Wrote {TARGET_PATH} ({len(models)} models)")
 
 
 if __name__ == "__main__":

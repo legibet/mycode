@@ -20,7 +20,6 @@ def test_bundled_catalog_is_valid() -> None:
 
     assert catalog is not None
     assert catalog.models
-    assert catalog.openrouter
 
 
 def test_bundled_catalog_uses_official_meta_metadata() -> None:
@@ -30,30 +29,6 @@ def test_bundled_catalog_uses_official_meta_metadata() -> None:
     assert metadata.max_output_tokens == 131_072
     assert metadata.reasoning_efforts == ("minimal", "low", "medium", "high", "xhigh")
     assert metadata.pricing == {"input": 1.25, "output": 4.25, "cache_read": 0.15}
-
-
-def test_lookup_model_metadata_prefers_openrouter_match(monkeypatch) -> None:
-    patch_catalog(
-        monkeypatch,
-        {
-            "models": {"gpt-5": {"max_output_tokens": 128_000}},
-            "openrouter": {
-                "openai/gpt-5": {
-                    "max_output_tokens": 64_000,
-                    "supports_image_input": True,
-                    "supports_pdf_input": True,
-                }
-            },
-        },
-    )
-
-    metadata = lookup_model_metadata(provider_type="openrouter", model="openai/gpt-5")
-
-    assert metadata is not None
-    assert metadata.provider == "openrouter"
-    assert metadata.max_output_tokens == 64_000
-    assert metadata.supports_image_input is True
-    assert metadata.supports_pdf_input is True
 
 
 def test_lookup_model_metadata_uses_official_model_name(monkeypatch) -> None:
@@ -67,7 +42,6 @@ def test_lookup_model_metadata_uses_official_model_name(monkeypatch) -> None:
                     "cost": {"input": 1.25, "output": 4.25},
                 }
             },
-            "openrouter": {},
         },
     )
 
@@ -81,28 +55,11 @@ def test_lookup_model_metadata_uses_official_model_name(monkeypatch) -> None:
     assert metadata.pricing == {"input": 1.25, "output": 4.25}
 
 
-def test_lookup_model_metadata_does_not_scan_openrouter_suffixes(monkeypatch) -> None:
-    patch_catalog(
-        monkeypatch,
-        {
-            "models": {},
-            "openrouter": {
-                "meta/muse-spark-1.2": {"max_output_tokens": 1_048_576},
-            },
-        },
-    )
-
-    metadata = lookup_model_metadata(provider_type="openai_chat", model="muse-spark-1.2")
-
-    assert metadata is None
-
-
 def test_lookup_model_metadata_requires_query_provider(monkeypatch) -> None:
     patch_catalog(
         monkeypatch,
         {
             "models": {"gpt-5": {"max_output_tokens": 128_000}},
-            "openrouter": {},
         },
     )
 
@@ -110,7 +67,7 @@ def test_lookup_model_metadata_requires_query_provider(monkeypatch) -> None:
     assert lookup_model_metadata(provider_type=None, model="gpt-5") is None
 
 
-def test_pricing_comes_from_official_model_for_any_non_openrouter_provider(monkeypatch) -> None:
+def test_pricing_comes_from_official_model_for_any_provider(monkeypatch) -> None:
     patch_catalog(
         monkeypatch,
         {
@@ -120,16 +77,10 @@ def test_pricing_comes_from_official_model_for_any_non_openrouter_provider(monke
                     "cost": {"input": 0.14, "output": 0.28},
                 }
             },
-            "openrouter": {
-                "deepseek/deepseek-chat": {
-                    "context_window": 64_000,
-                    "cost": {"input": 0.2, "output": 0.4},
-                }
-            },
         },
     )
 
-    for provider in ("deepseek", "openai_chat"):
+    for provider in ("deepseek", "openai_chat", "openrouter"):
         for model in ("deepseek-chat", "deepseek/deepseek-chat"):
             metadata = lookup_model_metadata(provider_type=provider, model=model)
             assert metadata is not None
@@ -143,7 +94,6 @@ def test_catalog_pricing_tiers_keep_the_public_json_shape(monkeypatch) -> None:
     patch_catalog(
         monkeypatch,
         {
-            "openrouter": {},
             "models": {
                 "gpt-5": {
                     "cost": {

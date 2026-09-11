@@ -124,6 +124,13 @@
       "supports_image_input": true,
       "supports_pdf_input": false
     },
+    "chatgpt-image-latest": {
+      "context_window": 0,
+      "max_output_tokens": 0,
+      "reasoning_efforts": null,
+      "supports_image_input": true,
+      "supports_pdf_input": false
+    },
     "claude-fable-5": {
       "context_window": 1000000,
       "cost": {
@@ -510,13 +517,13 @@
       "supports_image_input": true,
       "supports_pdf_input": true
     },
-    "deepseek-v4-flash": {
+    "deepseek-flash": {
       "context_window": 1000000,
       "cost": {
-        "cache_read": 0.0028,
-        "input": 0.14,
-        "output": 0.28,
-        "reasoning": 0.28
+        "cache_read": 0.003,
+        "input": 0.15,
+        "output": 0.6,
+        "reasoning": 0.6
       },
       "max_output_tokens": 384000,
       "reasoning_efforts": [
@@ -524,16 +531,33 @@
         "high",
         "max"
       ],
-      "supports_image_input": false,
+      "supports_image_input": true,
+      "supports_pdf_input": false
+    },
+    "deepseek-v4-flash": {
+      "context_window": 1000000,
+      "cost": {
+        "cache_read": 0.003,
+        "input": 0.15,
+        "output": 0.6,
+        "reasoning": 0.6
+      },
+      "max_output_tokens": 384000,
+      "reasoning_efforts": [
+        "low",
+        "high",
+        "max"
+      ],
+      "supports_image_input": true,
       "supports_pdf_input": false
     },
     "deepseek-v4-flash-vision-exp": {
       "context_window": 1000000,
       "cost": {
-        "cache_read": 0.0028,
-        "input": 0.14,
-        "output": 0.28,
-        "reasoning": 0.28
+        "cache_read": 0.003,
+        "input": 0.15,
+        "output": 0.6,
+        "reasoning": 0.6
       },
       "max_output_tokens": 384000,
       "reasoning_efforts": [
@@ -560,7 +584,35 @@
       "supports_image_input": false,
       "supports_pdf_input": false
     },
+    "deepseek-v4.1-flash": {
+      "context_window": 1000000,
+      "cost": {
+        "cache_read": 0.003,
+        "input": 0.15,
+        "output": 0.6,
+        "reasoning": 0.6
+      },
+      "max_output_tokens": 384000,
+      "reasoning_efforts": [
+        "low",
+        "high",
+        "max"
+      ],
+      "supports_image_input": true,
+      "supports_pdf_input": false
+    },
     "devstral-2512": {
+      "context_window": 262144,
+      "cost": {
+        "input": 0.4,
+        "output": 2
+      },
+      "max_output_tokens": 262144,
+      "reasoning_efforts": null,
+      "supports_image_input": false,
+      "supports_pdf_input": false
+    },
+    "devstral-latest": {
       "context_window": 262144,
       "cost": {
         "input": 0.4,
@@ -589,6 +641,17 @@
         "output": 2
       },
       "max_output_tokens": 262144,
+      "reasoning_efforts": null,
+      "supports_image_input": false,
+      "supports_pdf_input": false
+    },
+    "devstral-small-2505": {
+      "context_window": 128000,
+      "cost": {
+        "input": 0.1,
+        "output": 0.3
+      },
+      "max_output_tokens": 128000,
       "reasoning_efforts": null,
       "supports_image_input": false,
       "supports_pdf_input": false
@@ -658,6 +721,17 @@
       "supports_image_input": true,
       "supports_pdf_input": true
     },
+    "gemini-2.5-flash-preview-tts": {
+      "context_window": 8192,
+      "cost": {
+        "input": 0.5,
+        "output": 10
+      },
+      "max_output_tokens": 16384,
+      "reasoning_efforts": null,
+      "supports_image_input": false,
+      "supports_pdf_input": false
+    },
     "gemini-2.5-pro": {
       "context_window": 1048576,
       "cost": {
@@ -677,6 +751,17 @@
       "reasoning_efforts": [],
       "supports_image_input": true,
       "supports_pdf_input": true
+    },
+    "gemini-2.5-pro-preview-tts": {
+      "context_window": 8192,
+      "cost": {
+        "input": 1,
+        "output": 20
+      },
+      "max_output_tokens": 16384,
+      "reasoning_efforts": null,
+      "supports_image_input": false,
+      "supports_pdf_input": false
     },
     "gemini-3-flash-preview": {
       "context_window": 1048576,
@@ -1697,6 +1782,35 @@
       "supports_image_input": true,
       "supports_pdf_input": true
     },
+    "gpt-5.6": {
+      "context_window": 1050000,
+      "cost": {
+        "cache_read": 0.4,
+        "cache_write": 5,
+        "input": 4,
+        "output": 20,
+        "tiers": [
+          {
+            "cache_read": 0.8,
+            "cache_write": 10,
+            "input": 8,
+            "output": 30,
+            "size": 272000
+          }
+        ]
+      },
+      "max_output_tokens": 128000,
+      "reasoning_efforts": [
+        "none",
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
+      "supports_image_input": true,
+      "supports_pdf_input": true
+    },
     "gpt-5.6-luna": {
       "context_window": 1050000,
       "cost": {
@@ -1819,6 +1933,13 @@
       "supports_image_input": true,
       "supports_pdf_input": false
     },
+    "gpt-image-1-mini": {
+      "context_window": 0,
+      "max_output_tokens": 0,
+      "reasoning_efforts": null,
+      "supports_image_input": true,
+      "supports_pdf_input": false
+    },
     "gpt-image-1.5": {
       "context_window": 0,
       "max_output_tokens": 0,
@@ -1893,6 +2014,31 @@
       },
       "max_output_tokens": 30000,
       "reasoning_efforts": [],
+      "supports_image_input": true,
+      "supports_pdf_input": true
+    },
+    "grok-4.20-multi-agent-0309": {
+      "context_window": 1000000,
+      "cost": {
+        "cache_read": 0.2,
+        "input": 1.25,
+        "output": 2.5,
+        "tiers": [
+          {
+            "cache_read": 0.4,
+            "input": 2.5,
+            "output": 5,
+            "size": 200000
+          }
+        ]
+      },
+      "max_output_tokens": 30000,
+      "reasoning_efforts": [
+        "low",
+        "medium",
+        "high",
+        "xhigh"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": true
     },
@@ -1990,8 +2136,29 @@
       "supports_image_input": true,
       "supports_pdf_input": true
     },
+    "grok-imagine-image": {
+      "context_window": 16000,
+      "max_output_tokens": 0,
+      "reasoning_efforts": null,
+      "supports_image_input": true,
+      "supports_pdf_input": true
+    },
     "grok-imagine-image-2.0": {
       "context_window": 64000,
+      "max_output_tokens": 0,
+      "reasoning_efforts": null,
+      "supports_image_input": true,
+      "supports_pdf_input": true
+    },
+    "grok-imagine-image-quality": {
+      "context_window": 16000,
+      "max_output_tokens": 0,
+      "reasoning_efforts": null,
+      "supports_image_input": true,
+      "supports_pdf_input": true
+    },
+    "grok-imagine-video": {
+      "context_window": 1024,
       "max_output_tokens": 0,
       "reasoning_efforts": null,
       "supports_image_input": true,
@@ -2104,6 +2271,17 @@
       "supports_image_input": true,
       "supports_pdf_input": false
     },
+    "labs-devstral-small-2512": {
+      "context_window": 256000,
+      "cost": {
+        "input": 0,
+        "output": 0
+      },
+      "max_output_tokens": 256000,
+      "reasoning_efforts": null,
+      "supports_image_input": true,
+      "supports_pdf_input": false
+    },
     "lyria-3-clip-preview": {
       "context_window": 1048576,
       "cost": {
@@ -2133,6 +2311,17 @@
         "output": 5
       },
       "max_output_tokens": 16384,
+      "reasoning_efforts": [],
+      "supports_image_input": false,
+      "supports_pdf_input": false
+    },
+    "magistral-small": {
+      "context_window": 128000,
+      "cost": {
+        "input": 0.5,
+        "output": 1.5
+      },
+      "max_output_tokens": 128000,
       "reasoning_efforts": [],
       "supports_image_input": false,
       "supports_pdf_input": false
@@ -2209,6 +2398,39 @@
       "supports_image_input": false,
       "supports_pdf_input": false
     },
+    "ministral-3b-latest": {
+      "context_window": 128000,
+      "cost": {
+        "input": 0.04,
+        "output": 0.04
+      },
+      "max_output_tokens": 128000,
+      "reasoning_efforts": null,
+      "supports_image_input": false,
+      "supports_pdf_input": false
+    },
+    "ministral-8b-latest": {
+      "context_window": 128000,
+      "cost": {
+        "input": 0.1,
+        "output": 0.1
+      },
+      "max_output_tokens": 128000,
+      "reasoning_efforts": null,
+      "supports_image_input": false,
+      "supports_pdf_input": false
+    },
+    "mistral-embed": {
+      "context_window": 8000,
+      "cost": {
+        "input": 0.1,
+        "output": 0
+      },
+      "max_output_tokens": 3072,
+      "reasoning_efforts": null,
+      "supports_image_input": false,
+      "supports_pdf_input": false
+    },
     "mistral-large-2411": {
       "context_window": 131072,
       "cost": {
@@ -2249,6 +2471,17 @@
         "output": 2
       },
       "max_output_tokens": 131072,
+      "reasoning_efforts": null,
+      "supports_image_input": true,
+      "supports_pdf_input": false
+    },
+    "mistral-medium-2508": {
+      "context_window": 262144,
+      "cost": {
+        "input": 0.4,
+        "output": 2
+      },
+      "max_output_tokens": 262144,
       "reasoning_efforts": null,
       "supports_image_input": true,
       "supports_pdf_input": false
@@ -2367,6 +2600,24 @@
       "supports_image_input": true,
       "supports_pdf_input": true
     },
+    "muse-spark-1.2-contributor": {
+      "context_window": 1048576,
+      "cost": {
+        "cache_read": 0.002,
+        "input": 0.1,
+        "output": 0.2
+      },
+      "max_output_tokens": 131072,
+      "reasoning_efforts": [
+        "minimal",
+        "low",
+        "medium",
+        "high",
+        "xhigh"
+      ],
+      "supports_image_input": true,
+      "supports_pdf_input": true
+    },
     "muse-spark-1.3": {
       "context_window": 1048576,
       "cost": {
@@ -2382,6 +2633,24 @@
         "high",
         "xhigh",
         "max"
+      ],
+      "supports_image_input": true,
+      "supports_pdf_input": true
+    },
+    "muse-spark-1.3-contributor": {
+      "context_window": 1048576,
+      "cost": {
+        "cache_read": 0.002,
+        "input": 0.1,
+        "output": 0.2
+      },
+      "max_output_tokens": 131072,
+      "reasoning_efforts": [
+        "minimal",
+        "low",
+        "medium",
+        "high",
+        "xhigh"
       ],
       "supports_image_input": true,
       "supports_pdf_input": true
@@ -2494,6 +2763,50 @@
       "supports_image_input": true,
       "supports_pdf_input": false
     },
+    "open-mistral-7b": {
+      "context_window": 8000,
+      "cost": {
+        "input": 0.25,
+        "output": 0.25
+      },
+      "max_output_tokens": 8000,
+      "reasoning_efforts": null,
+      "supports_image_input": false,
+      "supports_pdf_input": false
+    },
+    "open-mistral-nemo": {
+      "context_window": 128000,
+      "cost": {
+        "input": 0.15,
+        "output": 0.15
+      },
+      "max_output_tokens": 128000,
+      "reasoning_efforts": null,
+      "supports_image_input": false,
+      "supports_pdf_input": false
+    },
+    "open-mixtral-8x22b": {
+      "context_window": 64000,
+      "cost": {
+        "input": 2,
+        "output": 6
+      },
+      "max_output_tokens": 64000,
+      "reasoning_efforts": null,
+      "supports_image_input": false,
+      "supports_pdf_input": false
+    },
+    "open-mixtral-8x7b": {
+      "context_window": 32000,
+      "cost": {
+        "input": 0.7,
+        "output": 0.7
+      },
+      "max_output_tokens": 32000,
+      "reasoning_efforts": null,
+      "supports_image_input": false,
+      "supports_pdf_input": false
+    },
     "pixtral-12b": {
       "context_window": 128000,
       "cost": {
@@ -2513,6 +2826,17 @@
       },
       "max_output_tokens": 128000,
       "reasoning_efforts": null,
+      "supports_image_input": true,
+      "supports_pdf_input": false
+    },
+    "qvq-max": {
+      "context_window": 131072,
+      "cost": {
+        "input": 1.2,
+        "output": 4.8
+      },
+      "max_output_tokens": 8192,
+      "reasoning_efforts": [],
       "supports_image_input": true,
       "supports_pdf_input": false
     },
@@ -2538,11 +2862,44 @@
       "supports_image_input": false,
       "supports_pdf_input": false
     },
+    "qwen-mt-plus": {
+      "context_window": 16384,
+      "cost": {
+        "input": 2.46,
+        "output": 7.37
+      },
+      "max_output_tokens": 8192,
+      "reasoning_efforts": null,
+      "supports_image_input": false,
+      "supports_pdf_input": false
+    },
+    "qwen-mt-turbo": {
+      "context_window": 16384,
+      "cost": {
+        "input": 0.16,
+        "output": 0.49
+      },
+      "max_output_tokens": 8192,
+      "reasoning_efforts": null,
+      "supports_image_input": false,
+      "supports_pdf_input": false
+    },
     "qwen-omni-turbo": {
       "context_window": 32768,
       "cost": {
         "input": 0.07,
         "output": 0.27
+      },
+      "max_output_tokens": 2048,
+      "reasoning_efforts": null,
+      "supports_image_input": true,
+      "supports_pdf_input": false
+    },
+    "qwen-omni-turbo-realtime": {
+      "context_window": 32768,
+      "cost": {
+        "input": 0.27,
+        "output": 1.07
       },
       "max_output_tokens": 2048,
       "reasoning_efforts": null,
@@ -2558,6 +2915,17 @@
       },
       "max_output_tokens": 32768,
       "reasoning_efforts": [],
+      "supports_image_input": false,
+      "supports_pdf_input": false
+    },
+    "qwen-plus-character-ja": {
+      "context_window": 8192,
+      "cost": {
+        "input": 0.5,
+        "output": 1.4
+      },
+      "max_output_tokens": 512,
+      "reasoning_efforts": null,
       "supports_image_input": false,
       "supports_pdf_input": false
     },
@@ -2584,6 +2952,17 @@
       "supports_image_input": true,
       "supports_pdf_input": false
     },
+    "qwen-vl-ocr": {
+      "context_window": 34096,
+      "cost": {
+        "input": 0.72,
+        "output": 0.72
+      },
+      "max_output_tokens": 4096,
+      "reasoning_efforts": null,
+      "supports_image_input": true,
+      "supports_pdf_input": false
+    },
     "qwen-vl-plus": {
       "context_window": 131072,
       "cost": {
@@ -2591,6 +2970,61 @@
         "output": 0.63
       },
       "max_output_tokens": 8192,
+      "reasoning_efforts": null,
+      "supports_image_input": true,
+      "supports_pdf_input": false
+    },
+    "qwen2-5-14b-instruct": {
+      "context_window": 131072,
+      "cost": {
+        "input": 0.35,
+        "output": 1.4
+      },
+      "max_output_tokens": 8192,
+      "reasoning_efforts": null,
+      "supports_image_input": false,
+      "supports_pdf_input": false
+    },
+    "qwen2-5-32b-instruct": {
+      "context_window": 131072,
+      "cost": {
+        "input": 0.7,
+        "output": 2.8
+      },
+      "max_output_tokens": 8192,
+      "reasoning_efforts": null,
+      "supports_image_input": false,
+      "supports_pdf_input": false
+    },
+    "qwen2-5-72b-instruct": {
+      "context_window": 131072,
+      "cost": {
+        "input": 1.4,
+        "output": 5.6
+      },
+      "max_output_tokens": 8192,
+      "reasoning_efforts": null,
+      "supports_image_input": false,
+      "supports_pdf_input": false
+    },
+    "qwen2-5-7b-instruct": {
+      "context_window": 131072,
+      "cost": {
+        "input": 0.175,
+        "output": 0.7
+      },
+      "max_output_tokens": 8192,
+      "reasoning_efforts": null,
+      "supports_image_input": false,
+      "supports_pdf_input": false
+    },
+    "qwen2-5-omni-7b": {
+      "context_window": 32768,
+      "cost": {
+        "input": 0.1,
+        "output": 0.4
+      },
+      "max_output_tokens": 2048,
       "reasoning_efforts": null,
       "supports_image_input": true,
       "supports_pdf_input": false
@@ -2604,6 +3038,29 @@
       "max_output_tokens": 8192,
       "reasoning_efforts": null,
       "supports_image_input": true,
+      "supports_pdf_input": false
+    },
+    "qwen2-5-vl-7b-instruct": {
+      "context_window": 131072,
+      "cost": {
+        "input": 0.35,
+        "output": 1.05
+      },
+      "max_output_tokens": 8192,
+      "reasoning_efforts": null,
+      "supports_image_input": true,
+      "supports_pdf_input": false
+    },
+    "qwen3-14b": {
+      "context_window": 131072,
+      "cost": {
+        "input": 0.35,
+        "output": 1.4,
+        "reasoning": 4.2
+      },
+      "max_output_tokens": 8192,
+      "reasoning_efforts": [],
+      "supports_image_input": false,
       "supports_pdf_input": false
     },
     "qwen3-235b-a22b": {
@@ -2627,6 +3084,29 @@
       },
       "max_output_tokens": 16384,
       "reasoning_efforts": [],
+      "supports_image_input": false,
+      "supports_pdf_input": false
+    },
+    "qwen3-8b": {
+      "context_window": 131072,
+      "cost": {
+        "input": 0.18,
+        "output": 0.7,
+        "reasoning": 2.1
+      },
+      "max_output_tokens": 8192,
+      "reasoning_efforts": [],
+      "supports_image_input": false,
+      "supports_pdf_input": false
+    },
+    "qwen3-asr-flash": {
+      "context_window": 53248,
+      "cost": {
+        "input": 0.035,
+        "output": 0.035
+      },
+      "max_output_tokens": 4096,
+      "reasoning_efforts": null,
       "supports_image_input": false,
       "supports_pdf_input": false
     },
@@ -2698,6 +3178,17 @@
       "supports_image_input": false,
       "supports_pdf_input": false
     },
+    "qwen3-livetranslate-flash-realtime": {
+      "context_window": 53248,
+      "cost": {
+        "input": 10,
+        "output": 10
+      },
+      "max_output_tokens": 4096,
+      "reasoning_efforts": null,
+      "supports_image_input": true,
+      "supports_pdf_input": false
+    },
     "qwen3-max": {
       "context_window": 262144,
       "cost": {
@@ -2729,6 +3220,52 @@
       "max_output_tokens": 32768,
       "reasoning_efforts": [],
       "supports_image_input": false,
+      "supports_pdf_input": false
+    },
+    "qwen3-omni-flash": {
+      "context_window": 65536,
+      "cost": {
+        "input": 0.43,
+        "output": 1.66
+      },
+      "max_output_tokens": 16384,
+      "reasoning_efforts": [],
+      "supports_image_input": true,
+      "supports_pdf_input": false
+    },
+    "qwen3-omni-flash-realtime": {
+      "context_window": 65536,
+      "cost": {
+        "input": 0.52,
+        "output": 1.99
+      },
+      "max_output_tokens": 16384,
+      "reasoning_efforts": null,
+      "supports_image_input": true,
+      "supports_pdf_input": false
+    },
+    "qwen3-vl-235b-a22b": {
+      "context_window": 131072,
+      "cost": {
+        "input": 0.7,
+        "output": 2.8,
+        "reasoning": 8.4
+      },
+      "max_output_tokens": 32768,
+      "reasoning_efforts": [],
+      "supports_image_input": true,
+      "supports_pdf_input": false
+    },
+    "qwen3-vl-30b-a3b": {
+      "context_window": 131072,
+      "cost": {
+        "input": 0.2,
+        "output": 0.8,
+        "reasoning": 2.4
+      },
+      "max_output_tokens": 32768,
+      "reasoning_efforts": [],
+      "supports_image_input": true,
       "supports_pdf_input": false
     },
     "qwen3-vl-plus": {
@@ -2960,6 +3497,30 @@
       "supports_image_input": false,
       "supports_pdf_input": false
     },
+    "step-1-32k": {
+      "context_window": 32768,
+      "cost": {
+        "cache_read": 0.41,
+        "input": 2.05,
+        "output": 9.59
+      },
+      "max_output_tokens": 32768,
+      "reasoning_efforts": null,
+      "supports_image_input": false,
+      "supports_pdf_input": false
+    },
+    "step-2-16k": {
+      "context_window": 16384,
+      "cost": {
+        "cache_read": 1.04,
+        "input": 5.21,
+        "output": 16.44
+      },
+      "max_output_tokens": 8192,
+      "reasoning_efforts": null,
+      "supports_image_input": false,
+      "supports_pdf_input": false
+    },
     "step-3.5-flash": {
       "context_window": 256000,
       "cost": {
@@ -3006,6 +3567,60 @@
       "supports_image_input": true,
       "supports_pdf_input": false
     },
+    "step-tts-2": {
+      "context_window": 0,
+      "max_output_tokens": 0,
+      "reasoning_efforts": null,
+      "supports_image_input": false,
+      "supports_pdf_input": false
+    },
+    "stepaudio-2.5-asr": {
+      "context_window": 0,
+      "max_output_tokens": 0,
+      "reasoning_efforts": null,
+      "supports_image_input": false,
+      "supports_pdf_input": false
+    },
+    "stepaudio-2.5-tts": {
+      "context_window": 0,
+      "max_output_tokens": 0,
+      "reasoning_efforts": null,
+      "supports_image_input": false,
+      "supports_pdf_input": false
+    },
+    "text-embedding-3-large": {
+      "context_window": 8191,
+      "cost": {
+        "input": 0.13,
+        "output": 0
+      },
+      "max_output_tokens": 3072,
+      "reasoning_efforts": null,
+      "supports_image_input": false,
+      "supports_pdf_input": false
+    },
+    "text-embedding-3-small": {
+      "context_window": 8191,
+      "cost": {
+        "input": 0.02,
+        "output": 0
+      },
+      "max_output_tokens": 1536,
+      "reasoning_efforts": null,
+      "supports_image_input": false,
+      "supports_pdf_input": false
+    },
+    "text-embedding-ada-002": {
+      "context_window": 8192,
+      "cost": {
+        "input": 0.1,
+        "output": 0
+      },
+      "max_output_tokens": 1536,
+      "reasoning_efforts": null,
+      "supports_image_input": false,
+      "supports_pdf_input": false
+    },
     "veo-3.1-fast-generate-preview": {
       "context_window": 480,
       "max_output_tokens": 8192,
@@ -3027,6 +3642,20 @@
       "supports_image_input": true,
       "supports_pdf_input": false
     },
+    "voxtral-mini-latest": {
+      "context_window": 0,
+      "max_output_tokens": 0,
+      "reasoning_efforts": null,
+      "supports_image_input": false,
+      "supports_pdf_input": false
+    },
+    "voxtral-mini-tts-latest": {
+      "context_window": 0,
+      "max_output_tokens": 0,
+      "reasoning_efforts": null,
+      "supports_image_input": false,
+      "supports_pdf_input": false
+    },
     "voxtral-small-latest": {
       "context_window": 32000,
       "cost": {
@@ -3037,5190 +3666,16 @@
       "reasoning_efforts": null,
       "supports_image_input": false,
       "supports_pdf_input": false
-    }
-  },
-  "openrouter": {
-    "aion-labs/aion-2.0": {
-      "context_window": 131072,
-      "cost": {
-        "cache_read": 0.2,
-        "input": 0.8,
-        "output": 1.6
-      },
-      "max_output_tokens": 32768,
-      "reasoning_efforts": [],
-      "supports_image_input": false,
-      "supports_pdf_input": false
     },
-    "aion-labs/aion-3.0": {
-      "context_window": 131072,
-      "cost": {
-        "cache_read": 0.75,
-        "input": 3,
-        "output": 6
-      },
-      "max_output_tokens": 32768,
-      "reasoning_efforts": [],
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "aion-labs/aion-3.0-mini": {
-      "context_window": 131072,
-      "cost": {
-        "cache_read": 0.18,
-        "input": 0.7,
-        "output": 1.4
-      },
-      "max_output_tokens": 32768,
-      "reasoning_efforts": [],
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "aion-labs/aion-rp-llama-3.1-8b": {
-      "context_window": 32768,
-      "cost": {
-        "input": 0.8,
-        "output": 1.6
-      },
-      "max_output_tokens": 29491,
-      "reasoning_efforts": null,
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "amazon/nova-2-lite-v1": {
+    "zai-glm-5-2": {
       "context_window": 1000000,
       "cost": {
-        "input": 0.3,
-        "output": 2.5
-      },
-      "max_output_tokens": 65535,
-      "reasoning_efforts": [],
-      "supports_image_input": true,
-      "supports_pdf_input": true
-    },
-    "amazon/nova-lite-v1": {
-      "context_window": 300000,
-      "cost": {
-        "input": 0.06,
-        "output": 0.24
-      },
-      "max_output_tokens": 5120,
-      "reasoning_efforts": null,
-      "supports_image_input": true,
-      "supports_pdf_input": false
-    },
-    "amazon/nova-micro-v1": {
-      "context_window": 128000,
-      "cost": {
-        "input": 0.035,
-        "output": 0.14
-      },
-      "max_output_tokens": 5120,
-      "reasoning_efforts": null,
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "amazon/nova-premier-v1": {
-      "context_window": 1000000,
-      "cost": {
-        "cache_read": 0.625,
-        "input": 2.5,
-        "output": 12.5
-      },
-      "max_output_tokens": 32000,
-      "reasoning_efforts": null,
-      "supports_image_input": true,
-      "supports_pdf_input": false
-    },
-    "amazon/nova-pro-v1": {
-      "context_window": 300000,
-      "cost": {
-        "input": 0.8,
-        "output": 3.2
-      },
-      "max_output_tokens": 5120,
-      "reasoning_efforts": null,
-      "supports_image_input": true,
-      "supports_pdf_input": false
-    },
-    "anthracite-org/magnum-v4-72b": {
-      "context_window": 32768,
-      "cost": {
-        "input": 2.5,
-        "output": 5
-      },
-      "max_output_tokens": 4096,
-      "reasoning_efforts": null,
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "anthropic/claude-3-haiku": {
-      "context_window": 200000,
-      "cost": {
-        "cache_read": 0.03,
-        "cache_write": 0.3,
-        "input": 0.25,
-        "output": 1.25
-      },
-      "max_output_tokens": 4096,
-      "reasoning_efforts": null,
-      "supports_image_input": true,
-      "supports_pdf_input": false
-    },
-    "anthropic/claude-fable-5": {
-      "context_window": 1000000,
-      "cost": {
-        "cache_read": 1,
-        "cache_write": 12.5,
-        "input": 10,
-        "output": 50
-      },
-      "max_output_tokens": 128000,
-      "reasoning_efforts": [
-        "low",
-        "medium",
-        "high",
-        "xhigh",
-        "max"
-      ],
-      "supports_image_input": true,
-      "supports_pdf_input": true
-    },
-    "anthropic/claude-fable-5.1": {
-      "context_window": 1000000,
-      "cost": {
-        "cache_read": 0.25,
-        "cache_write": 12.5,
-        "input": 10,
-        "output": 50
-      },
-      "max_output_tokens": 128000,
-      "reasoning_efforts": [
-        "low",
-        "medium",
-        "high",
-        "xhigh",
-        "max"
-      ],
-      "supports_image_input": true,
-      "supports_pdf_input": true
-    },
-    "anthropic/claude-haiku-4.5": {
-      "context_window": 200000,
-      "cost": {
-        "cache_read": 0.1,
-        "cache_write": 1.25,
-        "input": 1,
-        "output": 5
-      },
-      "max_output_tokens": 64000,
-      "reasoning_efforts": [],
-      "supports_image_input": true,
-      "supports_pdf_input": true
-    },
-    "anthropic/claude-opus-4": {
-      "context_window": 200000,
-      "cost": {
-        "cache_read": 1.5,
-        "cache_write": 18.75,
-        "input": 15,
-        "output": 75
-      },
-      "max_output_tokens": 32000,
-      "reasoning_efforts": [],
-      "supports_image_input": true,
-      "supports_pdf_input": true
-    },
-    "anthropic/claude-opus-4.1": {
-      "context_window": 200000,
-      "cost": {
-        "cache_read": 1.5,
-        "cache_write": 18.75,
-        "input": 15,
-        "output": 75
-      },
-      "max_output_tokens": 32000,
-      "reasoning_efforts": [],
-      "supports_image_input": true,
-      "supports_pdf_input": true
-    },
-    "anthropic/claude-opus-4.5": {
-      "context_window": 200000,
-      "cost": {
-        "cache_read": 0.5,
-        "cache_write": 6.25,
-        "input": 5,
-        "output": 25
-      },
-      "max_output_tokens": 64000,
-      "reasoning_efforts": [],
-      "supports_image_input": true,
-      "supports_pdf_input": true
-    },
-    "anthropic/claude-opus-4.6": {
-      "context_window": 1000000,
-      "cost": {
-        "cache_read": 0.5,
-        "cache_write": 6.25,
-        "input": 5,
-        "output": 25,
-        "tiers": [
-          {
-            "cache_read": 1,
-            "cache_write": 12.5,
-            "input": 10,
-            "output": 37.5,
-            "size": 200000
-          }
-        ]
-      },
-      "max_output_tokens": 128000,
-      "reasoning_efforts": [
-        "low",
-        "medium",
-        "high",
-        "max"
-      ],
-      "supports_image_input": true,
-      "supports_pdf_input": true
-    },
-    "anthropic/claude-opus-4.7": {
-      "context_window": 1000000,
-      "cost": {
-        "cache_read": 0.5,
-        "cache_write": 6.25,
-        "input": 5,
-        "output": 25,
-        "tiers": [
-          {
-            "cache_read": 1,
-            "cache_write": 12.5,
-            "input": 10,
-            "output": 37.5,
-            "size": 200000
-          }
-        ]
-      },
-      "max_output_tokens": 128000,
-      "reasoning_efforts": [
-        "low",
-        "medium",
-        "high",
-        "xhigh",
-        "max"
-      ],
-      "supports_image_input": true,
-      "supports_pdf_input": true
-    },
-    "anthropic/claude-opus-4.8": {
-      "context_window": 1000000,
-      "cost": {
-        "cache_read": 0.5,
-        "cache_write": 6.25,
-        "input": 5,
-        "output": 25
-      },
-      "max_output_tokens": 128000,
-      "reasoning_efforts": [
-        "low",
-        "medium",
-        "high",
-        "xhigh",
-        "max"
-      ],
-      "supports_image_input": true,
-      "supports_pdf_input": true
-    },
-    "anthropic/claude-opus-5": {
-      "context_window": 1000000,
-      "cost": {
-        "cache_read": 0.5,
-        "cache_write": 6.25,
-        "input": 5,
-        "output": 25
-      },
-      "max_output_tokens": 128000,
-      "reasoning_efforts": [
-        "low",
-        "medium",
-        "high",
-        "xhigh",
-        "max"
-      ],
-      "supports_image_input": true,
-      "supports_pdf_input": true
-    },
-    "anthropic/claude-sonnet-4": {
-      "context_window": 1000000,
-      "cost": {
-        "cache_read": 0.3,
-        "cache_write": 3.75,
-        "input": 3,
-        "output": 15,
-        "tiers": [
-          {
-            "cache_read": 0.6,
-            "cache_write": 7.5,
-            "input": 6,
-            "output": 22.5,
-            "size": 200000
-          }
-        ]
-      },
-      "max_output_tokens": 64000,
-      "reasoning_efforts": [],
-      "supports_image_input": true,
-      "supports_pdf_input": true
-    },
-    "anthropic/claude-sonnet-4.5": {
-      "context_window": 1000000,
-      "cost": {
-        "cache_read": 0.3,
-        "cache_write": 3.75,
-        "input": 3,
-        "output": 15,
-        "tiers": [
-          {
-            "cache_read": 0.6,
-            "cache_write": 7.5,
-            "input": 6,
-            "output": 22.5,
-            "size": 200000
-          }
-        ]
-      },
-      "max_output_tokens": 64000,
-      "reasoning_efforts": [],
-      "supports_image_input": true,
-      "supports_pdf_input": true
-    },
-    "anthropic/claude-sonnet-4.6": {
-      "context_window": 1000000,
-      "cost": {
-        "cache_read": 0.3,
-        "cache_write": 3.75,
-        "input": 3,
-        "output": 15,
-        "tiers": [
-          {
-            "cache_read": 0.6,
-            "cache_write": 7.5,
-            "input": 6,
-            "output": 22.5,
-            "size": 200000
-          }
-        ]
-      },
-      "max_output_tokens": 128000,
-      "reasoning_efforts": [
-        "low",
-        "medium",
-        "high",
-        "max"
-      ],
-      "supports_image_input": true,
-      "supports_pdf_input": true
-    },
-    "anthropic/claude-sonnet-5": {
-      "context_window": 1000000,
-      "cost": {
-        "cache_read": 0.2,
-        "cache_write": 2.5,
-        "input": 2,
-        "output": 10
-      },
-      "max_output_tokens": 128000,
-      "reasoning_efforts": [
-        "low",
-        "medium",
-        "high",
-        "xhigh",
-        "max"
-      ],
-      "supports_image_input": true,
-      "supports_pdf_input": true
-    },
-    "arcee-ai/trinity-large-thinking": {
-      "context_window": 262144,
-      "cost": {
-        "cache_read": 0.06,
-        "input": 0.25,
-        "output": 0.8
-      },
-      "max_output_tokens": 80000,
-      "reasoning_efforts": [],
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "baidu/ernie-4.5-vl-424b-a47b": {
-      "context_window": 123000,
-      "cost": {
-        "input": 0.42,
-        "output": 1.25
-      },
-      "max_output_tokens": 16000,
-      "reasoning_efforts": [],
-      "supports_image_input": true,
-      "supports_pdf_input": false
-    },
-    "bytedance-seed/seed-1.6": {
-      "context_window": 262144,
-      "cost": {
-        "input": 0.25,
-        "output": 2,
-        "tiers": [
-          {
-            "input": 0.5,
-            "output": 4,
-            "size": 128000
-          }
-        ]
-      },
-      "max_output_tokens": 32768,
-      "reasoning_efforts": [],
-      "supports_image_input": true,
-      "supports_pdf_input": false
-    },
-    "bytedance-seed/seed-1.6-flash": {
-      "context_window": 262144,
-      "cost": {
-        "input": 0.075,
-        "output": 0.3,
-        "tiers": [
-          {
-            "input": 0.1,
-            "output": 0.8,
-            "size": 128000
-          }
-        ]
-      },
-      "max_output_tokens": 32768,
-      "reasoning_efforts": [],
-      "supports_image_input": true,
-      "supports_pdf_input": false
-    },
-    "bytedance-seed/seed-2-1-turbo": {
-      "context_window": 262144,
-      "cost": {
-        "input": 0.5,
-        "output": 2.5
-      },
-      "max_output_tokens": 235929,
-      "reasoning_efforts": [],
-      "supports_image_input": true,
-      "supports_pdf_input": false
-    },
-    "bytedance-seed/seed-2.0-code": {
-      "context_window": 262144,
-      "cost": {
-        "input": 0.5,
-        "output": 3,
-        "tiers": [
-          {
-            "input": 1,
-            "output": 6,
-            "size": 128000
-          }
-        ]
-      },
-      "max_output_tokens": 131072,
-      "reasoning_efforts": [
-        "low",
-        "medium",
-        "high"
-      ],
-      "supports_image_input": true,
-      "supports_pdf_input": false
-    },
-    "bytedance-seed/seed-2.0-lite": {
-      "context_window": 262144,
-      "cost": {
-        "input": 0.25,
-        "output": 2,
-        "tiers": [
-          {
-            "input": 0.5,
-            "output": 4,
-            "size": 128000
-          }
-        ]
-      },
-      "max_output_tokens": 131072,
-      "reasoning_efforts": [
-        "minimal",
-        "low",
-        "medium",
-        "high"
-      ],
-      "supports_image_input": true,
-      "supports_pdf_input": false
-    },
-    "bytedance-seed/seed-2.0-mini": {
-      "context_window": 262144,
-      "cost": {
-        "input": 0.1,
-        "output": 0.4,
-        "tiers": [
-          {
-            "input": 0.2,
-            "output": 0.8,
-            "size": 128000
-          }
-        ]
-      },
-      "max_output_tokens": 131072,
-      "reasoning_efforts": [
-        "minimal",
-        "low",
-        "medium",
-        "high"
-      ],
-      "supports_image_input": true,
-      "supports_pdf_input": false
-    },
-    "bytedance/ui-tars-1.5-7b": {
-      "context_window": 128000,
-      "cost": {
-        "cache_read": 0.1,
-        "input": 0.1,
-        "output": 0.2
-      },
-      "max_output_tokens": 2048,
-      "reasoning_efforts": null,
-      "supports_image_input": true,
-      "supports_pdf_input": false
-    },
-    "cognitivecomputations/dolphin-mistral-24b-venice-edition": {
-      "context_window": 128000,
-      "cost": {
-        "input": 0.2,
-        "output": 0.9
-      },
-      "max_output_tokens": 8192,
-      "reasoning_efforts": null,
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "cohere/command-a": {
-      "context_window": 256000,
-      "cost": {
-        "input": 2.5,
-        "output": 10
-      },
-      "max_output_tokens": 8192,
-      "reasoning_efforts": null,
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "cohere/command-r-08-2024": {
-      "context_window": 128000,
-      "cost": {
-        "input": 0.15,
-        "output": 0.6
-      },
-      "max_output_tokens": 4000,
-      "reasoning_efforts": null,
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "cohere/command-r-plus-08-2024": {
-      "context_window": 128000,
-      "cost": {
-        "input": 2.5,
-        "output": 10
-      },
-      "max_output_tokens": 4000,
-      "reasoning_efforts": null,
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "cohere/command-r7b-12-2024": {
-      "context_window": 128000,
-      "cost": {
-        "input": 0.0375,
-        "output": 0.15
-      },
-      "max_output_tokens": 4000,
-      "reasoning_efforts": null,
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "cohere/north-mini-code:free": {
-      "context_window": 256000,
-      "cost": {
-        "input": 0,
-        "output": 0
-      },
-      "max_output_tokens": 64000,
-      "reasoning_efforts": [],
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "deepseek/deepseek-chat": {
-      "context_window": 163840,
-      "cost": {
-        "input": 0.2574,
-        "output": 1.0287
-      },
-      "max_output_tokens": 16000,
-      "reasoning_efforts": null,
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "deepseek/deepseek-chat-v3-0324": {
-      "context_window": 163840,
-      "cost": {
-        "cache_read": 0.11,
-        "input": 0.29,
-        "output": 1.14
-      },
-      "max_output_tokens": 147456,
-      "reasoning_efforts": null,
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "deepseek/deepseek-chat-v3.1": {
-      "context_window": 163840,
-      "cost": {
-        "cache_read": 0.13,
-        "input": 0.25,
-        "output": 0.95
-      },
-      "max_output_tokens": 32768,
-      "reasoning_efforts": [],
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "deepseek/deepseek-r1": {
-      "context_window": 64000,
-      "cost": {
-        "input": 0.7,
-        "output": 2.5
-      },
-      "max_output_tokens": 16000,
-      "reasoning_efforts": [],
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "deepseek/deepseek-r1-0528": {
-      "context_window": 163840,
-      "cost": {
-        "cache_read": 0.35,
-        "input": 0.5,
-        "output": 2.15
-      },
-      "max_output_tokens": 32768,
-      "reasoning_efforts": [],
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "deepseek/deepseek-r1-distill-llama-70b": {
-      "context_window": 8192,
-      "cost": {
-        "input": 0.8,
-        "output": 0.8
-      },
-      "max_output_tokens": 7372,
-      "reasoning_efforts": [],
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "deepseek/deepseek-v3.1-terminus": {
-      "context_window": 163840,
-      "cost": {
-        "cache_read": 0.135,
-        "input": 0.27,
-        "output": 1
-      },
-      "max_output_tokens": 32768,
-      "reasoning_efforts": [],
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "deepseek/deepseek-v3.2": {
-      "context_window": 163840,
-      "cost": {
-        "cache_read": 0.1345,
-        "input": 0.269,
-        "output": 0.4
-      },
-      "max_output_tokens": 65536,
-      "reasoning_efforts": [],
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "deepseek/deepseek-v3.2-exp": {
-      "context_window": 163840,
-      "cost": {
-        "input": 0.27,
-        "output": 0.41
-      },
-      "max_output_tokens": 65536,
-      "reasoning_efforts": [],
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "deepseek/deepseek-v4-flash": {
-      "context_window": 1048576,
-      "cost": {
-        "cache_read": 0.017721,
-        "input": 0.088606,
-        "output": 0.177212
-      },
-      "max_output_tokens": 384000,
-      "reasoning_efforts": [
-        "high",
-        "xhigh"
-      ],
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "deepseek/deepseek-v4-flash-0731": {
-      "context_window": 1310720,
-      "cost": {
-        "cache_read": 0.016,
-        "input": 0.065,
-        "output": 0.18
-      },
-      "max_output_tokens": 943718,
-      "reasoning_efforts": [
-        "low",
-        "high",
-        "max"
-      ],
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "deepseek/deepseek-v4-flash-vision-exp": {
-      "context_window": 1048576,
-      "cost": {
-        "cache_read": 0.007,
-        "input": 0.22,
-        "output": 0.66
-      },
-      "max_output_tokens": 943718,
-      "reasoning_efforts": [
-        "low",
-        "high",
-        "max"
-      ],
-      "supports_image_input": true,
-      "supports_pdf_input": false
-    },
-    "deepseek/deepseek-v4-pro": {
-      "context_window": 1048576,
-      "cost": {
-        "cache_read": 0.079605,
-        "input": 0.95526,
-        "output": 1.91052
-      },
-      "max_output_tokens": 384000,
-      "reasoning_efforts": [
-        "high",
-        "xhigh"
-      ],
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "deepseek/deepseek-v4-pro-0813": {
-      "context_window": 1048576,
-      "cost": {
-        "cache_read": 0.03498,
-        "input": 1.0494,
-        "output": 3.1482
-      },
-      "max_output_tokens": 384000,
-      "reasoning_efforts": [
-        "low",
-        "high",
-        "max"
-      ],
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "deepseek/deepseek-v4.1-flash": {
-      "context_window": 1048576,
-      "cost": {
-        "cache_read": 0.006,
-        "input": 0.3,
-        "output": 1.2
-      },
-      "max_output_tokens": 384000,
-      "reasoning_efforts": [
-        "low",
-        "high",
-        "max"
-      ],
-      "supports_image_input": true,
-      "supports_pdf_input": false
-    },
-    "dots-studio/dots-3-note-preview:free": {
-      "context_window": 512000,
-      "cost": {
-        "input": 0,
-        "output": 0
-      },
-      "max_output_tokens": 460800,
-      "reasoning_efforts": [],
-      "supports_image_input": true,
-      "supports_pdf_input": false
-    },
-    "google/gemini-2.5-flash": {
-      "context_window": 1048576,
-      "cost": {
-        "cache_read": 0.03,
-        "cache_write": 0.083333,
-        "input": 0.3,
-        "output": 2.5,
-        "reasoning": 2.5
-      },
-      "max_output_tokens": 65535,
-      "reasoning_efforts": [],
-      "supports_image_input": true,
-      "supports_pdf_input": true
-    },
-    "google/gemini-2.5-flash-image": {
-      "context_window": 32768,
-      "cost": {
-        "cache_read": 0.03,
-        "cache_write": 0.083333,
-        "input": 0.3,
-        "output": 2.5
-      },
-      "max_output_tokens": 8192,
-      "reasoning_efforts": null,
-      "supports_image_input": true,
-      "supports_pdf_input": false
-    },
-    "google/gemini-2.5-flash-lite": {
-      "context_window": 1048576,
-      "cost": {
-        "cache_read": 0.01,
-        "cache_write": 0.083333,
-        "input": 0.1,
-        "output": 0.4,
-        "reasoning": 0.4
-      },
-      "max_output_tokens": 65535,
-      "reasoning_efforts": [],
-      "supports_image_input": true,
-      "supports_pdf_input": true
-    },
-    "google/gemini-2.5-pro": {
-      "context_window": 1048576,
-      "cost": {
-        "cache_read": 0.125,
-        "cache_write": 0.375,
-        "input": 1.25,
-        "output": 10,
-        "reasoning": 10,
-        "tiers": [
-          {
-            "cache_read": 0.25,
-            "input": 2.5,
-            "output": 15,
-            "size": 200000
-          }
-        ]
-      },
-      "max_output_tokens": 65536,
-      "reasoning_efforts": [],
-      "supports_image_input": true,
-      "supports_pdf_input": true
-    },
-    "google/gemini-2.5-pro-preview": {
-      "context_window": 1048576,
-      "cost": {
-        "cache_read": 0.125,
-        "cache_write": 0.375,
-        "input": 1.25,
-        "output": 10,
-        "reasoning": 10,
-        "tiers": [
-          {
-            "cache_read": 0.25,
-            "input": 2.5,
-            "output": 15,
-            "size": 200000
-          }
-        ]
-      },
-      "max_output_tokens": 65536,
-      "reasoning_efforts": [],
-      "supports_image_input": true,
-      "supports_pdf_input": true
-    },
-    "google/gemini-2.5-pro-preview-05-06": {
-      "context_window": 1048576,
-      "cost": {
-        "cache_read": 0.125,
-        "cache_write": 0.375,
-        "input": 1.25,
-        "output": 10,
-        "reasoning": 10,
-        "tiers": [
-          {
-            "cache_read": 0.25,
-            "input": 2.5,
-            "output": 15,
-            "size": 200000
-          }
-        ]
-      },
-      "max_output_tokens": 65535,
-      "reasoning_efforts": [],
-      "supports_image_input": true,
-      "supports_pdf_input": true
-    },
-    "google/gemini-3-flash-preview": {
-      "context_window": 1048576,
-      "cost": {
-        "cache_read": 0.05,
-        "cache_write": 0.083333,
-        "input": 0.5,
-        "output": 3,
-        "reasoning": 3
-      },
-      "max_output_tokens": 65536,
-      "reasoning_efforts": [
-        "minimal",
-        "low",
-        "medium",
-        "high"
-      ],
-      "supports_image_input": true,
-      "supports_pdf_input": true
-    },
-    "google/gemini-3-pro-image": {
-      "context_window": 131072,
-      "cost": {
-        "cache_read": 0.2,
-        "cache_write": 0.375,
-        "input": 2,
-        "output": 12,
-        "reasoning": 12
-      },
-      "max_output_tokens": 32768,
-      "reasoning_efforts": [],
-      "supports_image_input": true,
-      "supports_pdf_input": false
-    },
-    "google/gemini-3-pro-image-preview": {
-      "context_window": 65536,
-      "cost": {
-        "cache_read": 0.2,
-        "cache_write": 0.375,
-        "input": 2,
-        "output": 12,
-        "reasoning": 12
-      },
-      "max_output_tokens": 32768,
-      "reasoning_efforts": [],
-      "supports_image_input": true,
-      "supports_pdf_input": false
-    },
-    "google/gemini-3.1-flash-image": {
-      "context_window": 131072,
-      "cost": {
-        "input": 0.5,
-        "output": 3
-      },
-      "max_output_tokens": 32768,
-      "reasoning_efforts": [
-        "minimal",
-        "high"
-      ],
-      "supports_image_input": true,
-      "supports_pdf_input": false
-    },
-    "google/gemini-3.1-flash-image-preview": {
-      "context_window": 65536,
-      "cost": {
-        "input": 0.5,
-        "output": 3
-      },
-      "max_output_tokens": 58982,
-      "reasoning_efforts": [
-        "minimal",
-        "high"
-      ],
-      "supports_image_input": true,
-      "supports_pdf_input": false
-    },
-    "google/gemini-3.1-flash-lite": {
-      "context_window": 1048576,
-      "cost": {
-        "cache_read": 0.025,
-        "cache_write": 0.083333,
-        "input": 0.25,
-        "output": 1.5,
-        "reasoning": 1.5
-      },
-      "max_output_tokens": 65536,
-      "reasoning_efforts": [
-        "minimal",
-        "low",
-        "medium",
-        "high"
-      ],
-      "supports_image_input": true,
-      "supports_pdf_input": true
-    },
-    "google/gemini-3.1-flash-lite-image": {
-      "context_window": 65536,
-      "cost": {
-        "input": 0.25,
-        "output": 1.5
-      },
-      "max_output_tokens": 58982,
-      "reasoning_efforts": [
-        "minimal",
-        "high"
-      ],
-      "supports_image_input": true,
-      "supports_pdf_input": false
-    },
-    "google/gemini-3.1-flash-lite-preview": {
-      "context_window": 1048576,
-      "cost": {
-        "cache_read": 0.025,
-        "cache_write": 0.083333,
-        "input": 0.25,
-        "output": 1.5,
-        "reasoning": 1.5
-      },
-      "max_output_tokens": 65536,
-      "reasoning_efforts": [
-        "minimal",
-        "low",
-        "medium",
-        "high"
-      ],
-      "supports_image_input": true,
-      "supports_pdf_input": true
-    },
-    "google/gemini-3.1-pro-preview": {
-      "context_window": 1048576,
-      "cost": {
-        "cache_read": 0.2,
-        "cache_write": 0.375,
-        "input": 2,
-        "output": 12,
-        "reasoning": 12,
-        "tiers": [
-          {
-            "cache_read": 0.4,
-            "input": 4,
-            "output": 18,
-            "size": 200000
-          }
-        ]
-      },
-      "max_output_tokens": 65536,
-      "reasoning_efforts": [
-        "low",
-        "medium",
-        "high"
-      ],
-      "supports_image_input": true,
-      "supports_pdf_input": true
-    },
-    "google/gemini-3.1-pro-preview-customtools": {
-      "context_window": 1048576,
-      "cost": {
-        "cache_read": 0.2,
-        "cache_write": 0.375,
-        "input": 2,
-        "output": 12,
-        "reasoning": 12,
-        "tiers": [
-          {
-            "cache_read": 0.4,
-            "input": 4,
-            "output": 18,
-            "size": 200000
-          }
-        ]
-      },
-      "max_output_tokens": 65536,
-      "reasoning_efforts": [
-        "low",
-        "medium",
-        "high"
-      ],
-      "supports_image_input": true,
-      "supports_pdf_input": true
-    },
-    "google/gemini-3.5-flash": {
-      "context_window": 1048576,
-      "cost": {
-        "cache_read": 0.15,
-        "cache_write": 0.083333,
-        "input": 1.5,
-        "output": 9,
-        "reasoning": 9
-      },
-      "max_output_tokens": 65536,
-      "reasoning_efforts": [
-        "minimal",
-        "low",
-        "medium",
-        "high"
-      ],
-      "supports_image_input": true,
-      "supports_pdf_input": true
-    },
-    "google/gemini-3.5-flash-lite": {
-      "context_window": 1048576,
-      "cost": {
-        "cache_read": 0.03,
-        "cache_write": 0.083333,
-        "input": 0.3,
-        "output": 2.5,
-        "reasoning": 2.5
-      },
-      "max_output_tokens": 65536,
-      "reasoning_efforts": [
-        "minimal",
-        "low",
-        "medium",
-        "high"
-      ],
-      "supports_image_input": true,
-      "supports_pdf_input": true
-    },
-    "google/gemini-3.6-flash": {
-      "context_window": 1048576,
-      "cost": {
-        "cache_read": 0.075,
-        "cache_write": 0.041667,
-        "input": 0.75,
-        "output": 3.75,
-        "reasoning": 3.75
-      },
-      "max_output_tokens": 65536,
-      "reasoning_efforts": [
-        "minimal",
-        "low",
-        "medium",
-        "high"
-      ],
-      "supports_image_input": true,
-      "supports_pdf_input": true
-    },
-    "google/gemini-3.7-flash": {
-      "context_window": 1048576,
-      "cost": {
-        "cache_read": 0.075,
-        "cache_write": 0.041667,
-        "input": 0.75,
-        "output": 3.75,
-        "reasoning": 3.75
-      },
-      "max_output_tokens": 65536,
-      "reasoning_efforts": [
-        "low",
-        "medium",
-        "high"
-      ],
-      "supports_image_input": true,
-      "supports_pdf_input": true
-    },
-    "google/gemini-3.8-flash": {
-      "context_window": 1048576,
-      "cost": {
-        "cache_read": 0.075,
-        "cache_write": 0.041667,
-        "input": 0.75,
-        "output": 3.75,
-        "reasoning": 3.75
-      },
-      "max_output_tokens": 65536,
-      "reasoning_efforts": [
-        "low",
-        "medium",
-        "high"
-      ],
-      "supports_image_input": true,
-      "supports_pdf_input": true
-    },
-    "google/gemma-2-27b-it": {
-      "context_window": 8192,
-      "cost": {
-        "input": 0.65,
-        "output": 0.65
-      },
-      "max_output_tokens": 2048,
-      "reasoning_efforts": null,
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "google/gemma-3-12b-it": {
-      "context_window": 131072,
-      "cost": {
-        "input": 0.05,
-        "output": 0.15
-      },
-      "max_output_tokens": 16384,
-      "reasoning_efforts": null,
-      "supports_image_input": true,
-      "supports_pdf_input": false
-    },
-    "google/gemma-3-27b-it": {
-      "context_window": 131072,
-      "cost": {
-        "cache_read": 0.04,
-        "input": 0.08,
-        "output": 0.45
-      },
-      "max_output_tokens": 117964,
-      "reasoning_efforts": null,
-      "supports_image_input": true,
-      "supports_pdf_input": false
-    },
-    "google/gemma-3-4b-it": {
-      "context_window": 131072,
-      "cost": {
-        "input": 0.05,
-        "output": 0.1
-      },
-      "max_output_tokens": 16384,
-      "reasoning_efforts": null,
-      "supports_image_input": true,
-      "supports_pdf_input": false
-    },
-    "google/gemma-4-26b-a4b-it": {
-      "context_window": 262144,
-      "cost": {
-        "input": 0.07,
-        "output": 0.34
-      },
-      "max_output_tokens": 16384,
-      "reasoning_efforts": [],
-      "supports_image_input": true,
-      "supports_pdf_input": false
-    },
-    "google/gemma-4-26b-a4b-it:free": {
-      "context_window": 262144,
-      "cost": {
-        "input": 0,
-        "output": 0
-      },
-      "max_output_tokens": 32768,
-      "reasoning_efforts": [],
-      "supports_image_input": true,
-      "supports_pdf_input": false
-    },
-    "google/gemma-4-31b-it": {
-      "context_window": 262144,
-      "cost": {
-        "cache_read": 0.05,
-        "input": 0.09,
-        "output": 0.34
-      },
-      "max_output_tokens": 16384,
-      "reasoning_efforts": [],
-      "supports_image_input": true,
-      "supports_pdf_input": false
-    },
-    "google/gemma-4-31b-it:free": {
-      "context_window": 262144,
-      "cost": {
-        "input": 0,
-        "output": 0
-      },
-      "max_output_tokens": 32768,
-      "reasoning_efforts": [],
-      "supports_image_input": true,
-      "supports_pdf_input": false
-    },
-    "google/lyria-3-clip-preview": {
-      "context_window": 1048576,
-      "cost": {
-        "input": 0,
-        "output": 0
-      },
-      "max_output_tokens": 65536,
-      "reasoning_efforts": null,
-      "supports_image_input": true,
-      "supports_pdf_input": false
-    },
-    "google/lyria-3-pro-preview": {
-      "context_window": 1048576,
-      "cost": {
-        "input": 0,
-        "output": 0
-      },
-      "max_output_tokens": 65536,
-      "reasoning_efforts": null,
-      "supports_image_input": true,
-      "supports_pdf_input": false
-    },
-    "gryphe/mythomax-l2-13b": {
-      "context_window": 8192,
-      "cost": {
-        "input": 0.06,
-        "output": 0.06
-      },
-      "max_output_tokens": 3686,
-      "reasoning_efforts": null,
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "ibm-granite/granite-4.0-h-micro": {
-      "context_window": 131000,
-      "cost": {
-        "input": 0.017,
-        "output": 0.112
-      },
-      "max_output_tokens": 117900,
-      "reasoning_efforts": null,
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "ibm-granite/granite-4.2-8b": {
-      "context_window": 131072,
-      "cost": {
-        "cache_read": 0.015,
-        "input": 0.06,
-        "output": 0.25
-      },
-      "max_output_tokens": 117964,
-      "reasoning_efforts": [
-        "none",
-        "low",
-        "high"
-      ],
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "inception/mercury-2": {
-      "context_window": 128000,
-      "cost": {
-        "cache_read": 0.025,
-        "input": 0.25,
-        "output": 0.75
-      },
-      "max_output_tokens": 50000,
-      "reasoning_efforts": [
-        "none",
-        "low",
-        "medium",
-        "high"
-      ],
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "inception/mercury-2.5": {
-      "context_window": 260000,
-      "cost": {
-        "cache_read": 0.004,
-        "input": 0.04,
-        "output": 0.15
-      },
-      "max_output_tokens": 65536,
-      "reasoning_efforts": [
-        "none",
-        "low",
-        "medium",
-        "high"
-      ],
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "inclusionai/ling-3.0-flash": {
-      "context_window": 262144,
-      "cost": {
-        "cache_read": 0.0042,
-        "input": 0.021,
-        "output": 0.063
-      },
-      "max_output_tokens": 32768,
-      "reasoning_efforts": [],
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "inclusionai/ling-3.0-flash-fin": {
-      "context_window": 262144,
-      "cost": {
-        "cache_read": 0.012,
-        "input": 0.06,
-        "output": 0.18
-      },
-      "max_output_tokens": 235929,
-      "reasoning_efforts": [],
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "inclusionai/ling-3.0-flash-fin:free": {
-      "context_window": 262144,
-      "cost": {
-        "input": 0,
-        "output": 0
-      },
-      "max_output_tokens": 32768,
-      "reasoning_efforts": [],
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "inclusionai/ling-3.0-flash-sante:free": {
-      "context_window": 262144,
-      "cost": {
-        "input": 0,
-        "output": 0
-      },
-      "max_output_tokens": 32768,
-      "reasoning_efforts": [],
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "kwaipilot/kat-coder-pro-v2": {
-      "context_window": 262144,
-      "cost": {
-        "cache_read": 0.06,
-        "input": 0.3,
-        "output": 1.2
-      },
-      "max_output_tokens": 144000,
-      "reasoning_efforts": null,
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "kwaipilot/kat-coder-pro-v2.5": {
-      "context_window": 262144,
-      "cost": {
-        "cache_read": 0.15,
-        "input": 0.74,
-        "output": 2.96
-      },
-      "max_output_tokens": 235929,
-      "reasoning_efforts": null,
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "liquid/lfm-2.5-2.6b:free": {
-      "context_window": 65536,
-      "cost": {
-        "input": 0,
-        "output": 0
-      },
-      "max_output_tokens": 8192,
-      "reasoning_efforts": [],
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "mancer/weaver": {
-      "context_window": 8000,
-      "cost": {
-        "input": 0.4,
-        "output": 0.75
-      },
-      "max_output_tokens": 6000,
-      "reasoning_efforts": null,
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "meituan/longcat-2.0": {
-      "context_window": 1048756,
-      "cost": {
-        "cache_read": 0.006,
-        "input": 0.3,
-        "output": 1.2
-      },
-      "max_output_tokens": 262144,
-      "reasoning_efforts": [],
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "meta-llama/llama-3.1-70b-instruct": {
-      "context_window": 131072,
-      "cost": {
-        "input": 0.4,
-        "output": 0.4
-      },
-      "max_output_tokens": 16384,
-      "reasoning_efforts": null,
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "meta-llama/llama-3.1-8b-instruct": {
-      "context_window": 131072,
-      "cost": {
-        "cache_read": 0.025,
-        "input": 0.05,
-        "output": 0.08
-      },
-      "max_output_tokens": 117964,
-      "reasoning_efforts": null,
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "meta-llama/llama-3.2-1b-instruct": {
-      "context_window": 60000,
-      "cost": {
-        "input": 0.027,
-        "output": 0.201
-      },
-      "max_output_tokens": 54000,
-      "reasoning_efforts": null,
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "meta-llama/llama-3.2-3b-instruct": {
-      "context_window": 131072,
-      "cost": {
-        "input": 0.05,
-        "output": 0.33
-      },
-      "max_output_tokens": 117964,
-      "reasoning_efforts": null,
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "meta-llama/llama-3.3-70b-instruct": {
-      "context_window": 131072,
-      "cost": {
-        "input": 0.1,
-        "output": 0.32
-      },
-      "max_output_tokens": 16384,
-      "reasoning_efforts": null,
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "meta-llama/llama-4-maverick": {
-      "context_window": 1048576,
-      "cost": {
-        "input": 0.2,
-        "output": 0.696
-      },
-      "max_output_tokens": 115200,
-      "reasoning_efforts": null,
-      "supports_image_input": true,
-      "supports_pdf_input": false
-    },
-    "meta-llama/llama-4-scout": {
-      "context_window": 1310720,
-      "cost": {
-        "input": 0.1,
-        "output": 0.3
-      },
-      "max_output_tokens": 16384,
-      "reasoning_efforts": null,
-      "supports_image_input": true,
-      "supports_pdf_input": false
-    },
-    "meta-llama/llama-guard-4-12b": {
-      "context_window": 163840,
-      "cost": {
-        "input": 0.18,
-        "output": 0.18
-      },
-      "max_output_tokens": 16384,
-      "reasoning_efforts": null,
-      "supports_image_input": true,
-      "supports_pdf_input": false
-    },
-    "meta/muse-glimmer-30b": {
-      "context_window": 131072,
-      "cost": {
-        "cache_read": 0.04,
-        "input": 0.3,
-        "output": 1.1
-      },
-      "max_output_tokens": 117964,
-      "reasoning_efforts": [
-        "low",
-        "medium",
-        "high",
-        "xhigh"
-      ],
-      "supports_image_input": true,
-      "supports_pdf_input": false
-    },
-    "meta/muse-spark-1.1": {
-      "context_window": 1048576,
-      "cost": {
-        "cache_read": 0.15,
-        "input": 1.25,
-        "output": 4.25
-      },
-      "max_output_tokens": 943718,
-      "reasoning_efforts": [
-        "minimal",
-        "low",
-        "medium",
-        "high",
-        "xhigh"
-      ],
-      "supports_image_input": true,
-      "supports_pdf_input": true
-    },
-    "meta/muse-spark-1.2": {
-      "context_window": 1048576,
-      "cost": {
-        "cache_read": 0.15,
-        "input": 1.25,
-        "output": 4.25
-      },
-      "max_output_tokens": 943718,
-      "reasoning_efforts": [
-        "minimal",
-        "low",
-        "medium",
-        "high",
-        "xhigh"
-      ],
-      "supports_image_input": true,
-      "supports_pdf_input": true
-    },
-    "meta/muse-spark-1.2-contributor": {
-      "context_window": 1048576,
-      "cost": {
-        "cache_read": 0.002,
-        "input": 0.1,
-        "output": 0.2
-      },
-      "max_output_tokens": 943718,
-      "reasoning_efforts": [
-        "minimal",
-        "low",
-        "medium",
-        "high",
-        "xhigh"
-      ],
-      "supports_image_input": true,
-      "supports_pdf_input": true
-    },
-    "meta/muse-spark-1.3": {
-      "context_window": 1048576,
-      "cost": {
-        "cache_read": 0.15,
-        "input": 1.25,
-        "output": 4.25
-      },
-      "max_output_tokens": 943718,
-      "reasoning_efforts": [
-        "minimal",
-        "low",
-        "medium",
-        "high",
-        "xhigh",
-        "max"
-      ],
-      "supports_image_input": true,
-      "supports_pdf_input": true
-    },
-    "meta/muse-spark-1.3-contributor": {
-      "context_window": 1048576,
-      "cost": {
-        "cache_read": 0.002,
-        "input": 0.1,
-        "output": 0.2
-      },
-      "max_output_tokens": 943718,
-      "reasoning_efforts": [
-        "minimal",
-        "low",
-        "medium",
-        "high",
-        "xhigh",
-        "max"
-      ],
-      "supports_image_input": true,
-      "supports_pdf_input": true
-    },
-    "microsoft/phi-4": {
-      "context_window": 16384,
-      "cost": {
-        "input": 0.07,
-        "output": 0.14
-      },
-      "max_output_tokens": 14745,
-      "reasoning_efforts": null,
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "microsoft/wizardlm-2-8x22b": {
-      "context_window": 65535,
-      "cost": {
-        "input": 0.62,
-        "output": 0.62
-      },
-      "max_output_tokens": 8000,
-      "reasoning_efforts": null,
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "minimax/minimax-01": {
-      "context_window": 1000192,
-      "cost": {
-        "input": 0.2,
-        "output": 1.1
-      },
-      "max_output_tokens": 900172,
-      "reasoning_efforts": null,
-      "supports_image_input": true,
-      "supports_pdf_input": false
-    },
-    "minimax/minimax-m1": {
-      "context_window": 1000000,
-      "cost": {
-        "input": 0.55,
-        "output": 2.2
-      },
-      "max_output_tokens": 40000,
-      "reasoning_efforts": [],
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "minimax/minimax-m2": {
-      "context_window": 204800,
-      "cost": {
-        "input": 0.255,
-        "output": 1.02
-      },
-      "max_output_tokens": 131072,
-      "reasoning_efforts": [],
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "minimax/minimax-m2-her": {
-      "context_window": 65536,
-      "cost": {
-        "cache_read": 0.03,
-        "input": 0.3,
-        "output": 1.2
-      },
-      "max_output_tokens": 2048,
-      "reasoning_efforts": null,
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "minimax/minimax-m2.1": {
-      "context_window": 204800,
-      "cost": {
-        "cache_read": 0.03,
-        "input": 0.3,
-        "output": 1.2
-      },
-      "max_output_tokens": 131072,
-      "reasoning_efforts": [],
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "minimax/minimax-m2.5": {
-      "context_window": 204800,
-      "cost": {
-        "cache_read": 0.03,
-        "input": 0.3,
-        "output": 1.2
-      },
-      "max_output_tokens": 131072,
-      "reasoning_efforts": [],
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "minimax/minimax-m2.7": {
-      "context_window": 204800,
-      "cost": {
-        "cache_read": 0.06,
-        "input": 0.3,
-        "output": 1.2
-      },
-      "max_output_tokens": 131072,
-      "reasoning_efforts": [],
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "minimax/minimax-m3": {
-      "context_window": 1048576,
-      "cost": {
-        "cache_read": 0.06,
-        "input": 0.3,
-        "output": 1.2
-      },
-      "max_output_tokens": 512000,
-      "reasoning_efforts": [],
-      "supports_image_input": true,
-      "supports_pdf_input": false
-    },
-    "mistralai/codestral-2508": {
-      "context_window": 256000,
-      "cost": {
-        "cache_read": 0.03,
-        "input": 0.3,
-        "output": 0.9
-      },
-      "max_output_tokens": 204800,
-      "reasoning_efforts": null,
-      "supports_image_input": false,
-      "supports_pdf_input": true
-    },
-    "mistralai/devstral-2512": {
-      "context_window": 262144,
-      "cost": {
-        "cache_read": 0.04,
-        "input": 0.4,
-        "output": 2
-      },
-      "max_output_tokens": 209715,
-      "reasoning_efforts": null,
-      "supports_image_input": false,
-      "supports_pdf_input": true
-    },
-    "mistralai/ministral-14b-2512": {
-      "context_window": 262144,
-      "cost": {
-        "cache_read": 0.02,
-        "input": 0.2,
-        "output": 0.2
-      },
-      "max_output_tokens": 209715,
-      "reasoning_efforts": null,
-      "supports_image_input": true,
-      "supports_pdf_input": false
-    },
-    "mistralai/ministral-3b-2512": {
-      "context_window": 131072,
-      "cost": {
-        "cache_read": 0.01,
-        "input": 0.1,
-        "output": 0.1
-      },
-      "max_output_tokens": 104857,
-      "reasoning_efforts": null,
-      "supports_image_input": true,
-      "supports_pdf_input": false
-    },
-    "mistralai/ministral-8b-2512": {
-      "context_window": 262144,
-      "cost": {
-        "cache_read": 0.015,
-        "input": 0.15,
-        "output": 0.15
-      },
-      "max_output_tokens": 209715,
-      "reasoning_efforts": null,
-      "supports_image_input": true,
-      "supports_pdf_input": false
-    },
-    "mistralai/mistral-large": {
-      "context_window": 128000,
-      "cost": {
-        "cache_read": 0.2,
-        "input": 2,
-        "output": 6
-      },
-      "max_output_tokens": 102400,
-      "reasoning_efforts": null,
-      "supports_image_input": false,
-      "supports_pdf_input": true
-    },
-    "mistralai/mistral-large-2407": {
-      "context_window": 131072,
-      "cost": {
-        "cache_read": 0.2,
-        "input": 2,
-        "output": 6
-      },
-      "max_output_tokens": 104857,
-      "reasoning_efforts": null,
-      "supports_image_input": false,
-      "supports_pdf_input": true
-    },
-    "mistralai/mistral-large-2512": {
-      "context_window": 262144,
-      "cost": {
-        "cache_read": 0.05,
-        "input": 0.5,
-        "output": 1.5
-      },
-      "max_output_tokens": 209715,
-      "reasoning_efforts": null,
-      "supports_image_input": true,
-      "supports_pdf_input": true
-    },
-    "mistralai/mistral-medium-3": {
-      "context_window": 131072,
-      "cost": {
-        "cache_read": 0.04,
-        "input": 0.4,
-        "output": 2
-      },
-      "max_output_tokens": 104857,
-      "reasoning_efforts": null,
-      "supports_image_input": true,
-      "supports_pdf_input": true
-    },
-    "mistralai/mistral-medium-3-5": {
-      "context_window": 262144,
-      "cost": {
-        "input": 1.5,
-        "output": 7.5
-      },
-      "max_output_tokens": 209715,
-      "reasoning_efforts": [
-        "none",
-        "high"
-      ],
-      "supports_image_input": true,
-      "supports_pdf_input": true
-    },
-    "mistralai/mistral-medium-3.1": {
-      "context_window": 131072,
-      "cost": {
-        "cache_read": 0.04,
-        "input": 0.4,
-        "output": 2
-      },
-      "max_output_tokens": 104857,
-      "reasoning_efforts": null,
-      "supports_image_input": true,
-      "supports_pdf_input": true
-    },
-    "mistralai/mistral-nemo": {
-      "context_window": 131072,
-      "cost": {
-        "input": 0.019,
-        "output": 0.03
-      },
-      "max_output_tokens": 16384,
-      "reasoning_efforts": null,
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "mistralai/mistral-saba": {
-      "context_window": 32768,
-      "cost": {
-        "cache_read": 0.02,
-        "input": 0.2,
-        "output": 0.6
-      },
-      "max_output_tokens": 26214,
-      "reasoning_efforts": null,
-      "supports_image_input": false,
-      "supports_pdf_input": true
-    },
-    "mistralai/mistral-small-24b-instruct-2501": {
-      "context_window": 32768,
-      "cost": {
-        "input": 0.05,
-        "output": 0.08
-      },
-      "max_output_tokens": 16384,
-      "reasoning_efforts": null,
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "mistralai/mistral-small-2603": {
-      "context_window": 262144,
-      "cost": {
-        "cache_read": 0.015,
-        "input": 0.15,
-        "output": 0.6
-      },
-      "max_output_tokens": 209715,
-      "reasoning_efforts": [
-        "none",
-        "high"
-      ],
-      "supports_image_input": true,
-      "supports_pdf_input": false
-    },
-    "mistralai/mistral-small-3.1-24b-instruct": {
-      "context_window": 128000,
-      "cost": {
-        "input": 0.351,
-        "output": 0.555
-      },
-      "max_output_tokens": 102400,
-      "reasoning_efforts": null,
-      "supports_image_input": true,
-      "supports_pdf_input": false
-    },
-    "mistralai/mistral-small-3.2-24b-instruct": {
-      "context_window": 131072,
-      "cost": {
-        "input": 0.075,
-        "output": 0.2
-      },
-      "max_output_tokens": 16384,
-      "reasoning_efforts": null,
-      "supports_image_input": true,
-      "supports_pdf_input": false
-    },
-    "mistralai/mixtral-8x22b-instruct": {
-      "context_window": 65536,
-      "cost": {
-        "cache_read": 0.2,
-        "input": 2,
-        "output": 6
-      },
-      "max_output_tokens": 52428,
-      "reasoning_efforts": null,
-      "supports_image_input": false,
-      "supports_pdf_input": true
-    },
-    "mistralai/voxtral-small-24b-2507": {
-      "context_window": 32768,
-      "cost": {
-        "cache_read": 0.01,
-        "input": 0.1,
-        "output": 0.3
-      },
-      "max_output_tokens": 26214,
-      "reasoning_efforts": null,
-      "supports_image_input": false,
-      "supports_pdf_input": true
-    },
-    "moonshotai/kimi-k2": {
-      "context_window": 131072,
-      "cost": {
-        "input": 0.57,
-        "output": 2.3
-      },
-      "max_output_tokens": 100352,
-      "reasoning_efforts": null,
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "moonshotai/kimi-k2-0905": {
-      "context_window": 262144,
-      "cost": {
-        "input": 0.6,
-        "output": 2.5
-      },
-      "max_output_tokens": 100352,
-      "reasoning_efforts": null,
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "moonshotai/kimi-k2-thinking": {
-      "context_window": 262144,
-      "cost": {
-        "cache_read": 0.15,
-        "input": 0.6,
-        "output": 2.5
-      },
-      "max_output_tokens": 100352,
-      "reasoning_efforts": [],
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "moonshotai/kimi-k2.5": {
-      "context_window": 262144,
-      "cost": {
-        "cache_read": 0.07,
-        "input": 0.45,
-        "output": 2.25
-      },
-      "max_output_tokens": 235929,
-      "reasoning_efforts": [],
-      "supports_image_input": true,
-      "supports_pdf_input": false
-    },
-    "moonshotai/kimi-k2.6": {
-      "context_window": 262144,
-      "cost": {
-        "cache_read": 0.16,
-        "input": 0.95,
-        "output": 4
-      },
-      "max_output_tokens": 235929,
-      "reasoning_efforts": [],
-      "supports_image_input": true,
-      "supports_pdf_input": false
-    },
-    "moonshotai/kimi-k2.7-code": {
-      "context_window": 262144,
-      "cost": {
-        "cache_read": 0.15,
-        "input": 0.71,
-        "output": 3.5
-      },
-      "max_output_tokens": 235929,
-      "reasoning_efforts": [],
-      "supports_image_input": true,
-      "supports_pdf_input": false
-    },
-    "moonshotai/kimi-k3": {
-      "context_window": 1048576,
-      "cost": {
-        "cache_read": 0.3,
-        "input": 3,
-        "output": 15
-      },
-      "max_output_tokens": 943718,
-      "reasoning_efforts": [
-        "low",
-        "high",
-        "max"
-      ],
-      "supports_image_input": true,
-      "supports_pdf_input": false
-    },
-    "morph/morph-v3-fast": {
-      "context_window": 81920,
-      "cost": {
-        "input": 0.8,
-        "output": 1.2
-      },
-      "max_output_tokens": 38000,
-      "reasoning_efforts": null,
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "morph/morph-v3-large": {
-      "context_window": 262144,
-      "cost": {
-        "input": 0.9,
-        "output": 1.9
-      },
-      "max_output_tokens": 131072,
-      "reasoning_efforts": null,
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "nex-agi/nex-n2.5-mini:free": {
-      "context_window": 262144,
-      "cost": {
-        "input": 0,
-        "output": 0
-      },
-      "max_output_tokens": 235929,
-      "reasoning_efforts": [
-        "none",
-        "medium",
-        "high"
-      ],
-      "supports_image_input": true,
-      "supports_pdf_input": false
-    },
-    "nex-agi/nex-n2.5-pro:free": {
-      "context_window": 262144,
-      "cost": {
-        "input": 0,
-        "output": 0
-      },
-      "max_output_tokens": 235929,
-      "reasoning_efforts": [
-        "none",
-        "medium",
-        "high"
-      ],
-      "supports_image_input": true,
-      "supports_pdf_input": false
-    },
-    "nousresearch/hermes-3-llama-3.1-405b": {
-      "context_window": 131072,
-      "cost": {
-        "input": 1,
-        "output": 1
-      },
-      "max_output_tokens": 16384,
-      "reasoning_efforts": null,
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "nousresearch/hermes-3-llama-3.1-70b": {
-      "context_window": 131072,
-      "cost": {
-        "input": 0.7,
-        "output": 0.7
-      },
-      "max_output_tokens": 16384,
-      "reasoning_efforts": null,
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "nousresearch/hermes-4-405b": {
-      "context_window": 131072,
-      "cost": {
-        "input": 1,
-        "output": 3
-      },
-      "max_output_tokens": 117964,
-      "reasoning_efforts": [],
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "nvidia/nemotron-3-nano-30b-a3b": {
-      "context_window": 262144,
-      "cost": {
-        "cache_read": 0.03,
-        "input": 0.05,
-        "output": 0.2
-      },
-      "max_output_tokens": 235929,
-      "reasoning_efforts": [],
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free": {
-      "context_window": 256000,
-      "cost": {
-        "input": 0,
-        "output": 0
-      },
-      "max_output_tokens": 65536,
-      "reasoning_efforts": [],
-      "supports_image_input": true,
-      "supports_pdf_input": false
-    },
-    "nvidia/nemotron-3-super-120b-a12b": {
-      "context_window": 262144,
-      "cost": {
-        "input": 0.085,
-        "output": 0.4
-      },
-      "max_output_tokens": 16384,
-      "reasoning_efforts": [
-        "low",
-        "medium"
-      ],
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "nvidia/nemotron-3-super-120b-a12b:free": {
-      "context_window": 262144,
-      "cost": {
-        "input": 0,
-        "output": 0
-      },
-      "max_output_tokens": 235929,
-      "reasoning_efforts": [
-        "low",
-        "medium"
-      ],
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "nvidia/nemotron-3-ultra-550b-a55b": {
-      "context_window": 262144,
-      "cost": {
-        "cache_read": 0.1875,
-        "input": 0.625,
-        "output": 3.125
-      },
-      "max_output_tokens": 32768,
-      "reasoning_efforts": [
-        "medium",
-        "high"
-      ],
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "nvidia/nemotron-3-ultra-550b-a55b:free": {
-      "context_window": 1000000,
-      "cost": {
-        "input": 0,
-        "output": 0
-      },
-      "max_output_tokens": 65536,
-      "reasoning_efforts": [
-        "medium",
-        "high"
-      ],
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "nvidia/nemotron-3.5-content-safety": {
-      "context_window": 131072,
-      "cost": {
-        "input": 0.2,
-        "output": 0.2
-      },
-      "max_output_tokens": 117964,
-      "reasoning_efforts": [],
-      "supports_image_input": true,
-      "supports_pdf_input": false
-    },
-    "nvidia/nemotron-3.5-content-safety:free": {
-      "context_window": 128000,
-      "cost": {
-        "input": 0,
-        "output": 0
-      },
-      "max_output_tokens": 8192,
-      "reasoning_efforts": [],
-      "supports_image_input": true,
-      "supports_pdf_input": false
-    },
-    "nvidia/nemotron-3.5-lightning": {
-      "context_window": 262144,
-      "cost": {
-        "cache_read": 0.04,
-        "input": 0.08,
-        "output": 0.2
-      },
-      "max_output_tokens": 131072,
-      "reasoning_efforts": [],
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "nvidia/nemotron-3.5-lightning:free": {
-      "context_window": 1000000,
-      "cost": {
-        "input": 0,
-        "output": 0
-      },
-      "max_output_tokens": 65536,
-      "reasoning_efforts": [],
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "openai/gpt-3.5-turbo": {
-      "context_window": 16385,
-      "cost": {
-        "input": 0.5,
-        "output": 1.5
-      },
-      "max_output_tokens": 4096,
-      "reasoning_efforts": null,
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "openai/gpt-3.5-turbo-0613": {
-      "context_window": 4095,
-      "cost": {
-        "input": 1,
-        "output": 2
-      },
-      "max_output_tokens": 3685,
-      "reasoning_efforts": null,
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "openai/gpt-3.5-turbo-16k": {
-      "context_window": 16385,
-      "cost": {
-        "input": 3,
-        "output": 4
-      },
-      "max_output_tokens": 4096,
-      "reasoning_efforts": null,
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "openai/gpt-3.5-turbo-instruct": {
-      "context_window": 4095,
-      "cost": {
-        "input": 1.5,
-        "output": 2
-      },
-      "max_output_tokens": 3685,
-      "reasoning_efforts": null,
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "openai/gpt-4": {
-      "context_window": 8191,
-      "cost": {
-        "input": 30,
-        "output": 60
-      },
-      "max_output_tokens": 4096,
-      "reasoning_efforts": null,
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "openai/gpt-4-turbo": {
-      "context_window": 128000,
-      "cost": {
-        "input": 10,
-        "output": 30
-      },
-      "max_output_tokens": 4096,
-      "reasoning_efforts": null,
-      "supports_image_input": true,
-      "supports_pdf_input": false
-    },
-    "openai/gpt-4-turbo-preview": {
-      "context_window": 128000,
-      "cost": {
-        "input": 10,
-        "output": 30
-      },
-      "max_output_tokens": 4096,
-      "reasoning_efforts": null,
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "openai/gpt-4.1": {
-      "context_window": 1047576,
-      "cost": {
-        "cache_read": 0.5,
-        "input": 2,
-        "output": 8
-      },
-      "max_output_tokens": 32768,
-      "reasoning_efforts": null,
-      "supports_image_input": true,
-      "supports_pdf_input": true
-    },
-    "openai/gpt-4.1-mini": {
-      "context_window": 1047576,
-      "cost": {
-        "cache_read": 0.1,
-        "input": 0.4,
-        "output": 1.6
-      },
-      "max_output_tokens": 32768,
-      "reasoning_efforts": null,
-      "supports_image_input": true,
-      "supports_pdf_input": true
-    },
-    "openai/gpt-4.1-nano": {
-      "context_window": 1047576,
-      "cost": {
-        "cache_read": 0.025,
-        "input": 0.1,
-        "output": 0.4
-      },
-      "max_output_tokens": 32768,
-      "reasoning_efforts": null,
-      "supports_image_input": true,
-      "supports_pdf_input": true
-    },
-    "openai/gpt-4o": {
-      "context_window": 128000,
-      "cost": {
-        "cache_read": 1.25,
-        "input": 2.5,
-        "output": 10
-      },
-      "max_output_tokens": 16384,
-      "reasoning_efforts": null,
-      "supports_image_input": true,
-      "supports_pdf_input": true
-    },
-    "openai/gpt-4o-2024-05-13": {
-      "context_window": 128000,
-      "cost": {
-        "input": 5,
-        "output": 15
-      },
-      "max_output_tokens": 4096,
-      "reasoning_efforts": null,
-      "supports_image_input": true,
-      "supports_pdf_input": true
-    },
-    "openai/gpt-4o-2024-08-06": {
-      "context_window": 128000,
-      "cost": {
-        "cache_read": 1.25,
-        "input": 2.5,
-        "output": 10
-      },
-      "max_output_tokens": 16384,
-      "reasoning_efforts": null,
-      "supports_image_input": true,
-      "supports_pdf_input": true
-    },
-    "openai/gpt-4o-2024-11-20": {
-      "context_window": 128000,
-      "cost": {
-        "cache_read": 1.25,
-        "input": 2.5,
-        "output": 10
-      },
-      "max_output_tokens": 16384,
-      "reasoning_efforts": null,
-      "supports_image_input": true,
-      "supports_pdf_input": true
-    },
-    "openai/gpt-4o-mini": {
-      "context_window": 128000,
-      "cost": {
-        "cache_read": 0.075,
-        "input": 0.15,
-        "output": 0.6
-      },
-      "max_output_tokens": 16384,
-      "reasoning_efforts": null,
-      "supports_image_input": true,
-      "supports_pdf_input": true
-    },
-    "openai/gpt-4o-mini-2024-07-18": {
-      "context_window": 128000,
-      "cost": {
-        "cache_read": 0.075,
-        "input": 0.15,
-        "output": 0.6
-      },
-      "max_output_tokens": 16384,
-      "reasoning_efforts": null,
-      "supports_image_input": true,
-      "supports_pdf_input": true
-    },
-    "openai/gpt-5": {
-      "context_window": 400000,
-      "cost": {
-        "cache_read": 0.125,
-        "input": 1.25,
-        "output": 10
-      },
-      "max_output_tokens": 128000,
-      "reasoning_efforts": [
-        "minimal",
-        "low",
-        "medium",
-        "high"
-      ],
-      "supports_image_input": true,
-      "supports_pdf_input": true
-    },
-    "openai/gpt-5-image": {
-      "context_window": 400000,
-      "cost": {
-        "cache_read": 1.25,
-        "input": 10,
-        "output": 10
-      },
-      "max_output_tokens": 128000,
-      "reasoning_efforts": [],
-      "supports_image_input": true,
-      "supports_pdf_input": true
-    },
-    "openai/gpt-5-image-mini": {
-      "context_window": 400000,
-      "cost": {
-        "cache_read": 0.25,
-        "input": 2.5,
-        "output": 2
-      },
-      "max_output_tokens": 128000,
-      "reasoning_efforts": [],
-      "supports_image_input": true,
-      "supports_pdf_input": true
-    },
-    "openai/gpt-5-mini": {
-      "context_window": 400000,
-      "cost": {
-        "cache_read": 0.025,
-        "input": 0.25,
-        "output": 2
-      },
-      "max_output_tokens": 128000,
-      "reasoning_efforts": [
-        "minimal",
-        "low",
-        "medium",
-        "high"
-      ],
-      "supports_image_input": true,
-      "supports_pdf_input": true
-    },
-    "openai/gpt-5-nano": {
-      "context_window": 400000,
-      "cost": {
-        "cache_read": 0.005,
-        "input": 0.05,
-        "output": 0.4
-      },
-      "max_output_tokens": 128000,
-      "reasoning_efforts": [
-        "minimal",
-        "low",
-        "medium",
-        "high"
-      ],
-      "supports_image_input": true,
-      "supports_pdf_input": true
-    },
-    "openai/gpt-5-pro": {
-      "context_window": 400000,
-      "cost": {
-        "input": 15,
-        "output": 120
-      },
-      "max_output_tokens": 128000,
-      "reasoning_efforts": [
-        "high"
-      ],
-      "supports_image_input": true,
-      "supports_pdf_input": true
-    },
-    "openai/gpt-5.1": {
-      "context_window": 400000,
-      "cost": {
-        "cache_read": 0.125,
-        "input": 1.25,
-        "output": 10
-      },
-      "max_output_tokens": 128000,
-      "reasoning_efforts": [
-        "none",
-        "low",
-        "medium",
-        "high"
-      ],
-      "supports_image_input": true,
-      "supports_pdf_input": true
-    },
-    "openai/gpt-5.1-codex": {
-      "context_window": 400000,
-      "cost": {
-        "cache_read": 0.13,
-        "input": 1.25,
-        "output": 10
-      },
-      "max_output_tokens": 128000,
-      "reasoning_efforts": [
-        "low",
-        "medium",
-        "high"
-      ],
-      "supports_image_input": true,
-      "supports_pdf_input": false
-    },
-    "openai/gpt-5.1-codex-max": {
-      "context_window": 400000,
-      "cost": {
-        "cache_read": 0.125,
-        "input": 1.25,
-        "output": 10
-      },
-      "max_output_tokens": 128000,
-      "reasoning_efforts": [
-        "low",
-        "medium",
-        "high",
-        "xhigh"
-      ],
-      "supports_image_input": true,
-      "supports_pdf_input": false
-    },
-    "openai/gpt-5.1-codex-mini": {
-      "context_window": 400000,
-      "cost": {
-        "cache_read": 0.03,
-        "input": 0.25,
-        "output": 2
-      },
-      "max_output_tokens": 128000,
-      "reasoning_efforts": [
-        "low",
-        "medium",
-        "high"
-      ],
-      "supports_image_input": true,
-      "supports_pdf_input": false
-    },
-    "openai/gpt-5.2": {
-      "context_window": 400000,
-      "cost": {
-        "cache_read": 0.175,
-        "input": 1.75,
-        "output": 14
-      },
-      "max_output_tokens": 128000,
-      "reasoning_efforts": [
-        "none",
-        "low",
-        "medium",
-        "high",
-        "xhigh"
-      ],
-      "supports_image_input": true,
-      "supports_pdf_input": true
-    },
-    "openai/gpt-5.2-chat": {
-      "context_window": 128000,
-      "cost": {
-        "cache_read": 0.175,
-        "input": 1.75,
-        "output": 14
-      },
-      "max_output_tokens": 32000,
-      "reasoning_efforts": null,
-      "supports_image_input": true,
-      "supports_pdf_input": true
-    },
-    "openai/gpt-5.2-codex": {
-      "context_window": 400000,
-      "cost": {
-        "cache_read": 0.175,
-        "input": 1.75,
-        "output": 14
-      },
-      "max_output_tokens": 128000,
-      "reasoning_efforts": [
-        "low",
-        "medium",
-        "high",
-        "xhigh"
-      ],
-      "supports_image_input": true,
-      "supports_pdf_input": false
-    },
-    "openai/gpt-5.2-pro": {
-      "context_window": 400000,
-      "cost": {
-        "input": 21,
-        "output": 168
-      },
-      "max_output_tokens": 128000,
-      "reasoning_efforts": [
-        "medium",
-        "high",
-        "xhigh"
-      ],
-      "supports_image_input": true,
-      "supports_pdf_input": true
-    },
-    "openai/gpt-5.3-codex": {
-      "context_window": 400000,
-      "cost": {
-        "cache_read": 0.175,
-        "input": 1.75,
-        "output": 14
-      },
-      "max_output_tokens": 128000,
-      "reasoning_efforts": [
-        "none",
-        "low",
-        "medium",
-        "high",
-        "xhigh"
-      ],
-      "supports_image_input": true,
-      "supports_pdf_input": true
-    },
-    "openai/gpt-5.4": {
-      "context_window": 1050000,
-      "cost": {
-        "cache_read": 0.25,
-        "input": 2.5,
-        "output": 15,
-        "tiers": [
-          {
-            "cache_read": 0.5,
-            "input": 5,
-            "output": 22.5,
-            "size": 272000
-          }
-        ]
-      },
-      "max_output_tokens": 128000,
-      "reasoning_efforts": [
-        "none",
-        "low",
-        "medium",
-        "high",
-        "xhigh"
-      ],
-      "supports_image_input": true,
-      "supports_pdf_input": true
-    },
-    "openai/gpt-5.4-image-2": {
-      "context_window": 272000,
-      "cost": {
-        "cache_read": 2,
-        "input": 8,
-        "output": 15
-      },
-      "max_output_tokens": 128000,
-      "reasoning_efforts": [
-        "none",
-        "low",
-        "medium",
-        "high",
-        "xhigh"
-      ],
-      "supports_image_input": true,
-      "supports_pdf_input": true
-    },
-    "openai/gpt-5.4-mini": {
-      "context_window": 400000,
-      "cost": {
-        "cache_read": 0.075,
-        "input": 0.75,
-        "output": 4.5
-      },
-      "max_output_tokens": 128000,
-      "reasoning_efforts": [
-        "none",
-        "low",
-        "medium",
-        "high",
-        "xhigh"
-      ],
-      "supports_image_input": true,
-      "supports_pdf_input": true
-    },
-    "openai/gpt-5.4-nano": {
-      "context_window": 400000,
-      "cost": {
-        "cache_read": 0.02,
-        "input": 0.2,
-        "output": 1.25
-      },
-      "max_output_tokens": 128000,
-      "reasoning_efforts": [
-        "none",
-        "low",
-        "medium",
-        "high",
-        "xhigh"
-      ],
-      "supports_image_input": true,
-      "supports_pdf_input": true
-    },
-    "openai/gpt-5.4-pro": {
-      "context_window": 1050000,
-      "cost": {
-        "input": 30,
-        "output": 180,
-        "tiers": [
-          {
-            "input": 60,
-            "output": 270,
-            "size": 272000
-          }
-        ]
-      },
-      "max_output_tokens": 128000,
-      "reasoning_efforts": [
-        "medium",
-        "high",
-        "xhigh"
-      ],
-      "supports_image_input": true,
-      "supports_pdf_input": true
-    },
-    "openai/gpt-5.5": {
-      "context_window": 1050000,
-      "cost": {
-        "cache_read": 0.5,
-        "input": 5,
-        "output": 30,
-        "tiers": [
-          {
-            "cache_read": 1,
-            "input": 10,
-            "output": 45,
-            "size": 272000
-          }
-        ]
-      },
-      "max_output_tokens": 128000,
-      "reasoning_efforts": [
-        "none",
-        "low",
-        "medium",
-        "high",
-        "xhigh"
-      ],
-      "supports_image_input": true,
-      "supports_pdf_input": true
-    },
-    "openai/gpt-5.5-pro": {
-      "context_window": 1050000,
-      "cost": {
-        "input": 30,
-        "output": 180,
-        "tiers": [
-          {
-            "input": 60,
-            "output": 270,
-            "size": 272000
-          }
-        ]
-      },
-      "max_output_tokens": 128000,
-      "reasoning_efforts": [
-        "medium",
-        "high",
-        "xhigh"
-      ],
-      "supports_image_input": true,
-      "supports_pdf_input": true
-    },
-    "openai/gpt-5.6-luna": {
-      "context_window": 1050000,
-      "cost": {
-        "cache_read": 0.02,
-        "cache_write": 0.25,
-        "input": 0.2,
-        "output": 1.2,
-        "tiers": [
-          {
-            "cache_read": 0.04,
-            "cache_write": 0.5,
-            "input": 0.4,
-            "output": 1.8,
-            "size": 272000
-          }
-        ]
-      },
-      "max_output_tokens": 128000,
-      "reasoning_efforts": [
-        "none",
-        "low",
-        "medium",
-        "high",
-        "xhigh",
-        "max"
-      ],
-      "supports_image_input": true,
-      "supports_pdf_input": true
-    },
-    "openai/gpt-5.6-luna-pro": {
-      "context_window": 1050000,
-      "cost": {
-        "cache_read": 0.02,
-        "cache_write": 0.25,
-        "input": 0.2,
-        "output": 1.2,
-        "tiers": [
-          {
-            "cache_read": 0.04,
-            "cache_write": 0.5,
-            "input": 0.4,
-            "output": 1.8,
-            "size": 272000
-          }
-        ]
-      },
-      "max_output_tokens": 128000,
-      "reasoning_efforts": [
-        "none",
-        "low",
-        "medium",
-        "high",
-        "xhigh",
-        "max"
-      ],
-      "supports_image_input": true,
-      "supports_pdf_input": true
-    },
-    "openai/gpt-5.6-sol": {
-      "context_window": 1050000,
-      "cost": {
-        "cache_read": 0.2,
-        "cache_write": 2.5,
-        "input": 2,
-        "output": 10,
-        "tiers": [
-          {
-            "cache_read": 0.4,
-            "cache_write": 5,
-            "input": 4,
-            "output": 15,
-            "size": 272000
-          }
-        ]
-      },
-      "max_output_tokens": 128000,
-      "reasoning_efforts": [
-        "none",
-        "low",
-        "medium",
-        "high",
-        "xhigh",
-        "max"
-      ],
-      "supports_image_input": true,
-      "supports_pdf_input": true
-    },
-    "openai/gpt-5.6-sol-pro": {
-      "context_window": 1050000,
-      "cost": {
-        "cache_read": 0.2,
-        "cache_write": 2.5,
-        "input": 2,
-        "output": 10,
-        "tiers": [
-          {
-            "cache_read": 0.4,
-            "cache_write": 5,
-            "input": 4,
-            "output": 15,
-            "size": 272000
-          }
-        ]
-      },
-      "max_output_tokens": 128000,
-      "reasoning_efforts": [
-        "none",
-        "low",
-        "medium",
-        "high",
-        "xhigh",
-        "max"
-      ],
-      "supports_image_input": true,
-      "supports_pdf_input": true
-    },
-    "openai/gpt-5.6-terra": {
-      "context_window": 1050000,
-      "cost": {
-        "cache_read": 0.2,
-        "cache_write": 2.5,
-        "input": 2,
-        "output": 12,
-        "tiers": [
-          {
-            "cache_read": 0.4,
-            "cache_write": 5,
-            "input": 4,
-            "output": 18,
-            "size": 272000
-          }
-        ]
-      },
-      "max_output_tokens": 128000,
-      "reasoning_efforts": [
-        "none",
-        "low",
-        "medium",
-        "high",
-        "xhigh",
-        "max"
-      ],
-      "supports_image_input": true,
-      "supports_pdf_input": true
-    },
-    "openai/gpt-5.6-terra-pro": {
-      "context_window": 1050000,
-      "cost": {
-        "cache_read": 0.2,
-        "cache_write": 2.5,
-        "input": 2,
-        "output": 12,
-        "tiers": [
-          {
-            "cache_read": 0.4,
-            "cache_write": 5,
-            "input": 4,
-            "output": 18,
-            "size": 272000
-          }
-        ]
-      },
-      "max_output_tokens": 128000,
-      "reasoning_efforts": [
-        "none",
-        "low",
-        "medium",
-        "high",
-        "xhigh",
-        "max"
-      ],
-      "supports_image_input": true,
-      "supports_pdf_input": true
-    },
-    "openai/gpt-6-astra": {
-      "context_window": 1050000,
-      "cost": {
-        "cache_read": 1,
-        "cache_write": 12.5,
-        "input": 10,
-        "output": 50,
-        "tiers": [
-          {
-            "cache_read": 2,
-            "cache_write": 25,
-            "input": 20,
-            "output": 75,
-            "size": 272000
-          }
-        ]
-      },
-      "max_output_tokens": 128000,
-      "reasoning_efforts": [
-        "low",
-        "medium",
-        "high",
-        "xhigh",
-        "max"
-      ],
-      "supports_image_input": true,
-      "supports_pdf_input": true
-    },
-    "openai/gpt-6-astra-pro": {
-      "context_window": 1050000,
-      "cost": {
-        "cache_read": 1,
-        "cache_write": 12.5,
-        "input": 10,
-        "output": 50,
-        "tiers": [
-          {
-            "cache_read": 2,
-            "cache_write": 25,
-            "input": 20,
-            "output": 75,
-            "size": 272000
-          }
-        ]
-      },
-      "max_output_tokens": 128000,
-      "reasoning_efforts": [
-        "low",
-        "medium",
-        "high",
-        "xhigh",
-        "max"
-      ],
-      "supports_image_input": true,
-      "supports_pdf_input": true
-    },
-    "openai/gpt-audio": {
-      "context_window": 128000,
-      "cost": {
-        "input": 2.5,
-        "output": 10
-      },
-      "max_output_tokens": 16384,
-      "reasoning_efforts": null,
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "openai/gpt-audio-mini": {
-      "context_window": 128000,
-      "cost": {
-        "input": 0.6,
-        "output": 2.4
-      },
-      "max_output_tokens": 16384,
-      "reasoning_efforts": null,
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "openai/gpt-chat-latest": {
-      "context_window": 400000,
-      "cost": {
-        "cache_read": 0.5,
-        "input": 5,
-        "output": 30
-      },
-      "max_output_tokens": 128000,
-      "reasoning_efforts": null,
-      "supports_image_input": true,
-      "supports_pdf_input": true
-    },
-    "openai/gpt-oss-120b": {
-      "context_window": 131072,
-      "cost": {
-        "input": 0.037,
-        "output": 0.17
-      },
-      "max_output_tokens": 117964,
-      "reasoning_efforts": [
-        "low",
-        "medium",
-        "high"
-      ],
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "openai/gpt-oss-20b": {
-      "context_window": 131072,
-      "cost": {
-        "cache_read": 0.03,
-        "input": 0.03,
-        "output": 0.13
-      },
-      "max_output_tokens": 117964,
-      "reasoning_efforts": [
-        "low",
-        "medium",
-        "high"
-      ],
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "openai/gpt-oss-safeguard-20b": {
-      "context_window": 131072,
-      "cost": {
-        "cache_read": 0.0375,
-        "input": 0.075,
-        "output": 0.3
-      },
-      "max_output_tokens": 65536,
-      "reasoning_efforts": [
-        "low",
-        "medium",
-        "high"
-      ],
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "openai/o1": {
-      "context_window": 200000,
-      "cost": {
-        "cache_read": 7.5,
-        "input": 15,
-        "output": 60
-      },
-      "max_output_tokens": 100000,
-      "reasoning_efforts": [],
-      "supports_image_input": true,
-      "supports_pdf_input": true
-    },
-    "openai/o1-pro": {
-      "context_window": 200000,
-      "cost": {
-        "input": 150,
-        "output": 600
-      },
-      "max_output_tokens": 100000,
-      "reasoning_efforts": [],
-      "supports_image_input": true,
-      "supports_pdf_input": true
-    },
-    "openai/o3": {
-      "context_window": 200000,
-      "cost": {
-        "cache_read": 0.5,
-        "input": 2,
-        "output": 8
-      },
-      "max_output_tokens": 100000,
-      "reasoning_efforts": [],
-      "supports_image_input": true,
-      "supports_pdf_input": true
-    },
-    "openai/o3-mini": {
-      "context_window": 200000,
-      "cost": {
-        "cache_read": 0.55,
-        "input": 1.1,
-        "output": 4.4
-      },
-      "max_output_tokens": 100000,
-      "reasoning_efforts": [],
-      "supports_image_input": false,
-      "supports_pdf_input": true
-    },
-    "openai/o3-mini-high": {
-      "context_window": 200000,
-      "cost": {
-        "cache_read": 0.55,
-        "input": 1.1,
-        "output": 4.4
-      },
-      "max_output_tokens": 100000,
-      "reasoning_efforts": [
-        "high"
-      ],
-      "supports_image_input": false,
-      "supports_pdf_input": true
-    },
-    "openai/o3-pro": {
-      "context_window": 200000,
-      "cost": {
-        "input": 20,
-        "output": 80
-      },
-      "max_output_tokens": 100000,
-      "reasoning_efforts": [],
-      "supports_image_input": true,
-      "supports_pdf_input": true
-    },
-    "openai/o4-mini": {
-      "context_window": 200000,
-      "cost": {
-        "cache_read": 0.275,
-        "input": 1.1,
-        "output": 4.4
-      },
-      "max_output_tokens": 100000,
-      "reasoning_efforts": [],
-      "supports_image_input": true,
-      "supports_pdf_input": true
-    },
-    "openai/o4-mini-high": {
-      "context_window": 200000,
-      "cost": {
-        "cache_read": 0.275,
-        "input": 1.1,
-        "output": 4.4
-      },
-      "max_output_tokens": 100000,
-      "reasoning_efforts": [
-        "high"
-      ],
-      "supports_image_input": true,
-      "supports_pdf_input": true
-    },
-    "openrouter/auto": {
-      "context_window": 2000000,
-      "max_output_tokens": 2000000,
-      "reasoning_efforts": [],
-      "supports_image_input": true,
-      "supports_pdf_input": true
-    },
-    "openrouter/bodybuilder": {
-      "context_window": 128000,
-      "max_output_tokens": 128000,
-      "reasoning_efforts": null,
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "openrouter/free": {
-      "context_window": 200000,
-      "cost": {
-        "input": 0,
-        "output": 0
-      },
-      "max_output_tokens": 8000,
-      "reasoning_efforts": [],
-      "supports_image_input": true,
-      "supports_pdf_input": false
-    },
-    "openrouter/fusion": {
-      "context_window": 1000000,
-      "max_output_tokens": 128000,
-      "reasoning_efforts": null,
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "openrouter/pareto-code": {
-      "context_window": 2000000,
-      "max_output_tokens": 200000,
-      "reasoning_efforts": null,
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "perceptron/perceptron-mk1": {
-      "context_window": 32768,
-      "cost": {
-        "input": 0.15,
-        "output": 1.5
-      },
-      "max_output_tokens": 8192,
-      "reasoning_efforts": [],
-      "supports_image_input": true,
-      "supports_pdf_input": false
-    },
-    "perplexity/sonar": {
-      "context_window": 127072,
-      "cost": {
-        "input": 1,
-        "output": 1
-      },
-      "max_output_tokens": 114364,
-      "reasoning_efforts": null,
-      "supports_image_input": true,
-      "supports_pdf_input": false
-    },
-    "perplexity/sonar-deep-research": {
-      "context_window": 128000,
-      "cost": {
-        "input": 2,
-        "output": 8,
-        "reasoning": 3
-      },
-      "max_output_tokens": 115200,
-      "reasoning_efforts": [],
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "perplexity/sonar-pro": {
-      "context_window": 200000,
-      "cost": {
-        "input": 3,
-        "output": 15
-      },
-      "max_output_tokens": 8000,
-      "reasoning_efforts": null,
-      "supports_image_input": true,
-      "supports_pdf_input": false
-    },
-    "perplexity/sonar-pro-search": {
-      "context_window": 200000,
-      "cost": {
-        "input": 3,
-        "output": 15
-      },
-      "max_output_tokens": 8000,
-      "reasoning_efforts": [],
-      "supports_image_input": true,
-      "supports_pdf_input": false
-    },
-    "perplexity/sonar-reasoning-pro": {
-      "context_window": 128000,
-      "cost": {
-        "input": 2,
-        "output": 8
-      },
-      "max_output_tokens": 115200,
-      "reasoning_efforts": [],
-      "supports_image_input": true,
-      "supports_pdf_input": false
-    },
-    "poolside/laguna-s-2.1": {
-      "context_window": 1048576,
-      "cost": {
-        "cache_read": 0.009,
-        "input": 0.09,
-        "output": 0.18
-      },
-      "max_output_tokens": 131072,
-      "reasoning_efforts": [],
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "poolside/laguna-s-2.1:free": {
-      "context_window": 262144,
-      "cost": {
-        "input": 0,
-        "output": 0
-      },
-      "max_output_tokens": 32768,
-      "reasoning_efforts": [],
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "poolside/laguna-xs-2.1": {
-      "context_window": 262144,
-      "cost": {
-        "cache_read": 0.03,
-        "input": 0.06,
-        "output": 0.12
-      },
-      "max_output_tokens": 32768,
-      "reasoning_efforts": [],
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "poolside/laguna-xs-2.1:free": {
-      "context_window": 262144,
-      "cost": {
-        "input": 0,
-        "output": 0
-      },
-      "max_output_tokens": 32768,
-      "reasoning_efforts": [],
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "qwen/qwen-2.5-72b-instruct": {
-      "context_window": 32768,
-      "cost": {
-        "input": 0.36,
-        "output": 0.4
-      },
-      "max_output_tokens": 16384,
-      "reasoning_efforts": null,
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "qwen/qwen-2.5-7b-instruct": {
-      "context_window": 32768,
-      "cost": {
-        "input": 0.1,
-        "output": 0.2
-      },
-      "max_output_tokens": 29491,
-      "reasoning_efforts": null,
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "qwen/qwen-2.5-coder-32b-instruct": {
-      "context_window": 32768,
-      "cost": {
-        "input": 0.66,
-        "output": 1
-      },
-      "max_output_tokens": 29491,
-      "reasoning_efforts": null,
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "qwen/qwen-plus": {
-      "context_window": 1000000,
-      "cost": {
-        "cache_read": 0.052,
-        "cache_write": 0.325,
-        "input": 0.26,
-        "output": 0.78,
-        "tiers": [
-          {
-            "cache_read": 0.156,
-            "cache_write": 0.975,
-            "input": 0.78,
-            "output": 2.34,
-            "size": 256000
-          }
-        ]
-      },
-      "max_output_tokens": 32768,
-      "reasoning_efforts": null,
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "qwen/qwen-plus-2025-07-28": {
-      "context_window": 1000000,
-      "cost": {
-        "input": 0.26,
-        "output": 0.78,
-        "tiers": [
-          {
-            "input": 0.78,
-            "output": 2.34,
-            "size": 256000
-          }
-        ]
-      },
-      "max_output_tokens": 32768,
-      "reasoning_efforts": null,
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "qwen/qwen2.5-vl-72b-instruct": {
-      "context_window": 128000,
-      "cost": {
-        "cache_read": 0.4,
-        "input": 0.8,
-        "output": 1
-      },
-      "max_output_tokens": 115200,
-      "reasoning_efforts": null,
-      "supports_image_input": true,
-      "supports_pdf_input": false
-    },
-    "qwen/qwen3-14b": {
-      "context_window": 131072,
-      "cost": {
-        "input": 0.2275,
-        "output": 0.91
-      },
-      "max_output_tokens": 8192,
-      "reasoning_efforts": [],
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "qwen/qwen3-235b-a22b": {
-      "context_window": 131072,
-      "cost": {
-        "input": 0.455,
-        "output": 1.82
-      },
-      "max_output_tokens": 8192,
-      "reasoning_efforts": [],
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "qwen/qwen3-235b-a22b-2507": {
-      "context_window": 262144,
-      "cost": {
-        "input": 0.22,
-        "output": 0.88
-      },
-      "max_output_tokens": 16384,
-      "reasoning_efforts": null,
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "qwen/qwen3-235b-a22b-thinking-2507": {
-      "context_window": 131072,
-      "cost": {
-        "input": 0.23,
-        "output": 2.3
-      },
-      "max_output_tokens": 117964,
-      "reasoning_efforts": [],
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "qwen/qwen3-30b-a3b": {
-      "context_window": 131072,
-      "cost": {
-        "input": 0.12,
-        "output": 0.5
-      },
-      "max_output_tokens": 16384,
-      "reasoning_efforts": [],
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "qwen/qwen3-30b-a3b-instruct-2507": {
-      "context_window": 262144,
-      "cost": {
-        "input": 0.09,
-        "output": 0.3
-      },
-      "max_output_tokens": 235929,
-      "reasoning_efforts": null,
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "qwen/qwen3-30b-a3b-thinking-2507": {
-      "context_window": 81920,
-      "cost": {
-        "input": 0.2,
-        "output": 2.4
-      },
-      "max_output_tokens": 32768,
-      "reasoning_efforts": [],
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "qwen/qwen3-32b": {
-      "context_window": 131072,
-      "cost": {
-        "input": 0.08,
-        "output": 0.28
-      },
-      "max_output_tokens": 16384,
-      "reasoning_efforts": [],
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "qwen/qwen3-8b": {
-      "context_window": 131072,
-      "cost": {
-        "input": 0.117,
-        "output": 0.455
-      },
-      "max_output_tokens": 8192,
-      "reasoning_efforts": [],
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "qwen/qwen3-coder": {
-      "context_window": 262144,
-      "cost": {
-        "cache_read": 0.1,
-        "input": 0.3,
-        "output": 1
-      },
-      "max_output_tokens": 65536,
-      "reasoning_efforts": null,
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "qwen/qwen3-coder-30b-a3b-instruct": {
-      "context_window": 262144,
-      "cost": {
-        "input": 0.07,
-        "output": 0.28
-      },
-      "max_output_tokens": 235929,
-      "reasoning_efforts": null,
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "qwen/qwen3-coder-flash": {
-      "context_window": 1000000,
-      "cost": {
-        "cache_read": 0.039,
-        "cache_write": 0.24375,
-        "input": 0.195,
-        "output": 0.975,
-        "tiers": [
-          {
-            "cache_read": 0.065,
-            "cache_write": 0.40625,
-            "input": 0.325,
-            "output": 1.625,
-            "size": 32000
-          },
-          {
-            "cache_read": 0.104,
-            "cache_write": 0.65,
-            "input": 0.52,
-            "output": 2.6,
-            "size": 128000
-          }
-        ]
-      },
-      "max_output_tokens": 65536,
-      "reasoning_efforts": null,
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "qwen/qwen3-coder-next": {
-      "context_window": 262144,
-      "cost": {
-        "cache_read": 0.07,
-        "input": 0.12,
-        "output": 0.8
-      },
-      "max_output_tokens": 235929,
-      "reasoning_efforts": null,
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "qwen/qwen3-coder-plus": {
-      "context_window": 1000000,
-      "cost": {
-        "cache_read": 0.13,
-        "cache_write": 0.8125,
-        "input": 0.65,
-        "output": 3.25,
-        "tiers": [
-          {
-            "cache_read": 0.234,
-            "cache_write": 1.4625,
-            "input": 1.17,
-            "output": 5.85,
-            "size": 32000
-          },
-          {
-            "cache_read": 0.39,
-            "cache_write": 2.4375,
-            "input": 1.95,
-            "output": 9.75,
-            "size": 128000
-          }
-        ]
-      },
-      "max_output_tokens": 65536,
-      "reasoning_efforts": null,
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "qwen/qwen3-max": {
-      "context_window": 262144,
-      "cost": {
-        "cache_read": 0.156,
-        "cache_write": 0.975,
-        "input": 0.78,
-        "output": 3.9,
-        "tiers": [
-          {
-            "cache_read": 0.312,
-            "cache_write": 1.95,
-            "input": 1.56,
-            "output": 7.8,
-            "size": 32000
-          },
-          {
-            "cache_read": 0.39,
-            "cache_write": 2.4375,
-            "input": 1.95,
-            "output": 9.75,
-            "size": 128000
-          }
-        ]
-      },
-      "max_output_tokens": 65536,
-      "reasoning_efforts": null,
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "qwen/qwen3-max-thinking": {
-      "context_window": 262144,
-      "cost": {
-        "input": 0.78,
-        "output": 3.9,
-        "tiers": [
-          {
-            "input": 1.56,
-            "output": 7.8,
-            "size": 32000
-          },
-          {
-            "input": 1.95,
-            "output": 9.75,
-            "size": 128000
-          }
-        ]
-      },
-      "max_output_tokens": 65536,
-      "reasoning_efforts": [],
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "qwen/qwen3-next-80b-a3b-instruct": {
-      "context_window": 262144,
-      "cost": {
-        "input": 0.09,
-        "output": 1.1
-      },
-      "max_output_tokens": 16384,
-      "reasoning_efforts": null,
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "qwen/qwen3-next-80b-a3b-thinking": {
-      "context_window": 262144,
-      "cost": {
-        "input": 0.15,
-        "output": 1.2
-      },
-      "max_output_tokens": 235929,
-      "reasoning_efforts": [],
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "qwen/qwen3-vl-235b-a22b-instruct": {
-      "context_window": 262144,
-      "cost": {
-        "cache_read": 0.1,
-        "input": 0.21,
-        "output": 1.9
-      },
-      "max_output_tokens": 32768,
-      "reasoning_efforts": null,
-      "supports_image_input": true,
-      "supports_pdf_input": false
-    },
-    "qwen/qwen3-vl-235b-a22b-thinking": {
-      "context_window": 131072,
-      "cost": {
-        "input": 0.4,
-        "output": 4
-      },
-      "max_output_tokens": 32768,
-      "reasoning_efforts": [],
-      "supports_image_input": true,
-      "supports_pdf_input": false
-    },
-    "qwen/qwen3-vl-30b-a3b-instruct": {
-      "context_window": 262144,
-      "cost": {
-        "input": 0.15,
-        "output": 0.6
-      },
-      "max_output_tokens": 16384,
-      "reasoning_efforts": null,
-      "supports_image_input": true,
-      "supports_pdf_input": false
-    },
-    "qwen/qwen3-vl-30b-a3b-thinking": {
-      "context_window": 262144,
-      "cost": {
-        "input": 0.2,
-        "output": 2.4
-      },
-      "max_output_tokens": 32768,
-      "reasoning_efforts": [],
-      "supports_image_input": true,
-      "supports_pdf_input": false
-    },
-    "qwen/qwen3-vl-32b-instruct": {
-      "context_window": 131072,
-      "cost": {
-        "input": 0.104,
-        "output": 0.416
-      },
-      "max_output_tokens": 32768,
-      "reasoning_efforts": null,
-      "supports_image_input": true,
-      "supports_pdf_input": false
-    },
-    "qwen/qwen3-vl-8b-instruct": {
-      "context_window": 262144,
-      "cost": {
-        "input": 0.117,
-        "output": 0.455
-      },
-      "max_output_tokens": 32768,
-      "reasoning_efforts": null,
-      "supports_image_input": true,
-      "supports_pdf_input": false
-    },
-    "qwen/qwen3-vl-8b-thinking": {
-      "context_window": 131072,
-      "cost": {
-        "input": 0.18,
-        "output": 2.1
-      },
-      "max_output_tokens": 32768,
-      "reasoning_efforts": [],
-      "supports_image_input": true,
-      "supports_pdf_input": false
-    },
-    "qwen/qwen3.5-122b-a10b": {
-      "context_window": 262144,
-      "cost": {
-        "input": 0.26,
-        "output": 2.08
-      },
-      "max_output_tokens": 65536,
-      "reasoning_efforts": [],
-      "supports_image_input": true,
-      "supports_pdf_input": false
-    },
-    "qwen/qwen3.5-27b": {
-      "context_window": 262144,
-      "cost": {
-        "input": 0.195,
-        "output": 1.56
-      },
-      "max_output_tokens": 65536,
-      "reasoning_efforts": [],
-      "supports_image_input": true,
-      "supports_pdf_input": false
-    },
-    "qwen/qwen3.5-35b-a3b": {
-      "context_window": 262144,
-      "cost": {
-        "cache_read": 0.15625,
-        "input": 0.3125,
-        "output": 1.25
-      },
-      "max_output_tokens": 16384,
-      "reasoning_efforts": [],
-      "supports_image_input": true,
-      "supports_pdf_input": false
-    },
-    "qwen/qwen3.5-397b-a17b": {
-      "context_window": 262144,
-      "cost": {
-        "cache_read": 0.225,
-        "input": 0.55,
-        "output": 3.5
-      },
-      "max_output_tokens": 235929,
-      "reasoning_efforts": [],
-      "supports_image_input": true,
-      "supports_pdf_input": false
-    },
-    "qwen/qwen3.5-9b": {
-      "context_window": 262144,
-      "cost": {
-        "input": 0.1,
-        "output": 0.15
-      },
-      "max_output_tokens": 235929,
-      "reasoning_efforts": [],
-      "supports_image_input": true,
-      "supports_pdf_input": false
-    },
-    "qwen/qwen3.5-flash-02-23": {
-      "context_window": 1000000,
-      "cost": {
-        "input": 0.065,
-        "output": 0.26
-      },
-      "max_output_tokens": 65536,
-      "reasoning_efforts": [],
-      "supports_image_input": true,
-      "supports_pdf_input": false
-    },
-    "qwen/qwen3.5-plus-02-15": {
-      "context_window": 1000000,
-      "cost": {
-        "input": 0.26,
-        "output": 1.56,
-        "tiers": [
-          {
-            "input": 0.325,
-            "output": 1.95,
-            "size": 256000
-          }
-        ]
-      },
-      "max_output_tokens": 65536,
-      "reasoning_efforts": [],
-      "supports_image_input": true,
-      "supports_pdf_input": false
-    },
-    "qwen/qwen3.5-plus-20260420": {
-      "context_window": 1000000,
-      "cost": {
-        "cache_write": 0.375,
-        "input": 0.3,
-        "output": 1.8,
-        "tiers": [
-          {
-            "cache_write": 0.46875,
-            "input": 0.375,
-            "output": 2.25,
-            "size": 256000
-          }
-        ]
-      },
-      "max_output_tokens": 65536,
-      "reasoning_efforts": [],
-      "supports_image_input": true,
-      "supports_pdf_input": false
-    },
-    "qwen/qwen3.6-27b": {
-      "context_window": 262144,
-      "cost": {
-        "cache_read": 0.03,
-        "input": 0.3,
-        "output": 2
-      },
-      "max_output_tokens": 65536,
-      "reasoning_efforts": [],
-      "supports_image_input": true,
-      "supports_pdf_input": false
-    },
-    "qwen/qwen3.6-35b-a3b": {
-      "context_window": 262144,
-      "cost": {
-        "cache_read": 0.05,
-        "input": 0.1,
-        "output": 0.9
-      },
-      "max_output_tokens": 235929,
-      "reasoning_efforts": [],
-      "supports_image_input": true,
-      "supports_pdf_input": false
-    },
-    "qwen/qwen3.6-flash": {
-      "context_window": 1000000,
-      "cost": {
-        "cache_write": 0.234375,
-        "input": 0.1875,
-        "output": 1.125,
-        "tiers": [
-          {
-            "cache_write": 0.9375,
-            "input": 0.75,
-            "output": 3,
-            "size": 256000
-          }
-        ]
-      },
-      "max_output_tokens": 65536,
-      "reasoning_efforts": [],
-      "supports_image_input": true,
-      "supports_pdf_input": false
-    },
-    "qwen/qwen3.6-max-preview": {
-      "context_window": 262144,
-      "cost": {
-        "cache_write": 1.28375,
-        "input": 1.027,
-        "output": 6.162,
-        "tiers": [
-          {
-            "cache_write": 1.975,
-            "input": 1.58,
-            "output": 9.48,
-            "size": 128000
-          }
-        ]
-      },
-      "max_output_tokens": 65536,
-      "reasoning_efforts": [],
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "qwen/qwen3.6-plus": {
-      "context_window": 1000000,
-      "cost": {
-        "cache_write": 0.40625,
-        "input": 0.325,
-        "output": 1.95,
-        "tiers": [
-          {
-            "cache_write": 1.625,
-            "input": 1.3,
-            "output": 3.9,
-            "size": 256000
-          }
-        ]
-      },
-      "max_output_tokens": 65536,
-      "reasoning_efforts": [],
-      "supports_image_input": true,
-      "supports_pdf_input": false
-    },
-    "qwen/qwen3.7-flash": {
-      "context_window": 1000000,
-      "cost": {
-        "cache_read": 0.006,
-        "cache_write": 0.038,
-        "input": 0.03,
-        "output": 0.13,
-        "tiers": [
-          {
-            "cache_read": 0.02,
-            "cache_write": 0.125,
-            "input": 0.1,
-            "output": 0.4,
-            "size": 32000
-          },
-          {
-            "cache_read": 0.04,
-            "cache_write": 0.25,
-            "input": 0.2,
-            "output": 0.8,
-            "size": 256000
-          }
-        ]
-      },
-      "max_output_tokens": 65536,
-      "reasoning_efforts": [],
-      "supports_image_input": true,
-      "supports_pdf_input": false
-    },
-    "qwen/qwen3.7-max": {
-      "context_window": 1000000,
-      "cost": {
-        "cache_read": 0.295,
-        "cache_write": 1.84375,
-        "input": 1.475,
-        "output": 4.425
-      },
-      "max_output_tokens": 131072,
-      "reasoning_efforts": [],
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "qwen/qwen3.7-plus": {
-      "context_window": 1000000,
-      "cost": {
-        "cache_read": 0.064,
-        "cache_write": 0.4,
-        "input": 0.32,
-        "output": 1.28,
-        "tiers": [
-          {
-            "cache_read": 0.192,
-            "cache_write": 1.2,
-            "input": 0.96,
-            "output": 3.84,
-            "size": 256000
-          }
-        ]
-      },
-      "max_output_tokens": 131072,
-      "reasoning_efforts": [],
-      "supports_image_input": true,
-      "supports_pdf_input": false
-    },
-    "qwen/qwen3.8-2.4t-a95b": {
-      "context_window": 1048576,
-      "cost": {
-        "cache_read": 0.25,
-        "input": 2,
-        "output": 6
-      },
-      "max_output_tokens": 131072,
-      "reasoning_efforts": [
-        "low",
-        "medium",
-        "xhigh"
-      ],
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "qwen/qwen3.8-27b": {
-      "context_window": 1000000,
-      "cost": {
-        "cache_read": 0.085,
-        "input": 0.42,
-        "output": 3
-      },
-      "max_output_tokens": 131072,
-      "reasoning_efforts": [
-        "low",
-        "medium",
-        "xhigh"
-      ],
-      "supports_image_input": true,
-      "supports_pdf_input": false
-    },
-    "qwen/qwen3.8-flash": {
-      "context_window": 1000000,
-      "cost": {
-        "cache_read": 0.016,
-        "cache_write": 0.2,
-        "input": 0.15,
-        "output": 0.47
-      },
-      "max_output_tokens": 131072,
-      "reasoning_efforts": [],
-      "supports_image_input": true,
-      "supports_pdf_input": false
-    },
-    "qwen/qwen3.8-max-0902": {
-      "context_window": 1000000,
-      "cost": {
-        "cache_read": 0.25,
-        "cache_write": 2.5,
-        "input": 2,
-        "output": 6
-      },
-      "max_output_tokens": 131072,
-      "reasoning_efforts": [
-        "minimal",
-        "low",
-        "medium",
-        "high",
-        "xhigh"
-      ],
-      "supports_image_input": true,
-      "supports_pdf_input": false
-    },
-    "rekaai/reka-edge": {
-      "context_window": 16384,
-      "cost": {
-        "input": 0.1,
-        "output": 0.1
-      },
-      "max_output_tokens": 14745,
-      "reasoning_efforts": null,
-      "supports_image_input": true,
-      "supports_pdf_input": false
-    },
-    "rekaai/reka-flash-3": {
-      "context_window": 65536,
-      "cost": {
-        "input": 0.1,
-        "output": 0.2
-      },
-      "max_output_tokens": 58982,
-      "reasoning_efforts": [],
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "relace/relace-apply-3": {
-      "context_window": 256000,
-      "cost": {
-        "input": 0.85,
-        "output": 1.25
-      },
-      "max_output_tokens": 128000,
-      "reasoning_efforts": null,
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "relace/relace-search": {
-      "context_window": 256000,
-      "cost": {
-        "input": 1,
-        "output": 3
-      },
-      "max_output_tokens": 128000,
-      "reasoning_efforts": null,
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "sakana/fugu-ultra": {
-      "context_window": 1000000,
-      "cost": {
-        "cache_read": 0.5,
-        "input": 5,
-        "output": 30,
-        "tiers": [
-          {
-            "cache_read": 1,
-            "input": 10,
-            "output": 45,
-            "size": 272000
-          }
-        ]
-      },
-      "max_output_tokens": 128000,
-      "reasoning_efforts": [
-        "high",
-        "xhigh",
-        "max"
-      ],
-      "supports_image_input": true,
-      "supports_pdf_input": false
-    },
-    "sakana/sakana-namazu": {
-      "context_window": 262144,
-      "cost": {
-        "cache_read": 0.15,
-        "input": 0.95,
-        "output": 4
-      },
-      "max_output_tokens": 65536,
-      "reasoning_efforts": [
-        "none",
-        "high"
-      ],
-      "supports_image_input": true,
-      "supports_pdf_input": true
-    },
-    "sao10k/l3-lunaris-8b": {
-      "context_window": 8192,
-      "cost": {
-        "input": 0.04,
-        "output": 0.05
-      },
-      "max_output_tokens": 7372,
-      "reasoning_efforts": null,
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "sao10k/l3.1-euryale-70b": {
-      "context_window": 131072,
-      "cost": {
-        "input": 0.85,
-        "output": 0.85
-      },
-      "max_output_tokens": 16384,
-      "reasoning_efforts": null,
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "sao10k/l3.3-euryale-70b": {
-      "context_window": 131072,
-      "cost": {
-        "input": 0.65,
-        "output": 0.75
-      },
-      "max_output_tokens": 16384,
-      "reasoning_efforts": null,
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "stepfun/step-3.5-flash": {
-      "context_window": 262144,
-      "cost": {
-        "input": 0.1,
-        "output": 0.3
-      },
-      "max_output_tokens": 65536,
-      "reasoning_efforts": [],
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "stepfun/step-3.7-flash": {
-      "context_window": 262144,
-      "cost": {
-        "cache_read": 0.04,
-        "input": 0.2,
-        "output": 1.15
-      },
-      "max_output_tokens": 230400,
-      "reasoning_efforts": [
-        "low",
-        "medium",
-        "high"
-      ],
-      "supports_image_input": true,
-      "supports_pdf_input": false
-    },
-    "tencent/hunyuan-a13b-instruct": {
-      "context_window": 131072,
-      "cost": {
-        "input": 0.14,
-        "output": 0.57
-      },
-      "max_output_tokens": 117964,
-      "reasoning_efforts": [],
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "tencent/hy-mt2-1.8b": {
-      "context_window": 8192,
-      "cost": {
-        "input": 0.044,
-        "output": 0.177
-      },
-      "max_output_tokens": 4096,
-      "reasoning_efforts": null,
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "tencent/hy-mt2-30b-a3b": {
-      "context_window": 8192,
-      "cost": {
-        "input": 0.074,
-        "output": 0.295
-      },
-      "max_output_tokens": 4096,
-      "reasoning_efforts": null,
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "tencent/hy-mt2-7b": {
-      "context_window": 8192,
-      "cost": {
-        "input": 0.074,
-        "output": 0.295
-      },
-      "max_output_tokens": 4096,
-      "reasoning_efforts": null,
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "tencent/hy3": {
-      "context_window": 262144,
-      "cost": {
-        "cache_read": 0.033,
-        "input": 0.132,
-        "output": 0.528
-      },
-      "max_output_tokens": 128000,
-      "reasoning_efforts": [
-        "none",
-        "low",
-        "high"
-      ],
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "tencent/hy3-preview": {
-      "context_window": 262144,
-      "cost": {
-        "cache_read": 0.06,
-        "input": 0.18,
-        "output": 0.6
-      },
-      "max_output_tokens": 235929,
-      "reasoning_efforts": [
-        "none",
-        "low",
-        "high"
-      ],
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "tencent/hy4-preview": {
-      "context_window": 1048576,
-      "cost": {
-        "cache_read": 0.042,
-        "input": 0.834,
-        "output": 2.501
-      },
-      "max_output_tokens": 64000,
-      "reasoning_efforts": [
-        "none",
-        "low",
-        "high"
-      ],
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "thedrummer/cydonia-24b-v4.1": {
-      "context_window": 131072,
-      "cost": {
-        "cache_read": 0.15,
-        "input": 0.3,
-        "output": 0.5
-      },
-      "max_output_tokens": 117964,
-      "reasoning_efforts": null,
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "thedrummer/skyfall-36b-v2": {
-      "context_window": 32768,
-      "cost": {
-        "cache_read": 0.25,
-        "input": 0.55,
-        "output": 0.8
-      },
-      "max_output_tokens": 29491,
-      "reasoning_efforts": null,
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "thedrummer/unslopnemo-12b": {
-      "context_window": 1024000,
-      "cost": {
-        "input": 0.4,
-        "output": 0.4
-      },
-      "max_output_tokens": 819200,
-      "reasoning_efforts": null,
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "thinkingmachines/inkling": {
-      "context_window": 1048576,
-      "cost": {
-        "cache_read": 0.17,
-        "input": 1,
-        "output": 4.05
-      },
-      "max_output_tokens": 32768,
-      "reasoning_efforts": [
-        "none",
-        "minimal",
-        "low",
-        "medium",
-        "high",
-        "max"
-      ],
-      "supports_image_input": true,
-      "supports_pdf_input": false
-    },
-    "thinkingmachines/inkling-small": {
-      "context_window": 1048576,
-      "cost": {
-        "cache_read": 0.1,
-        "input": 0.45,
-        "output": 1.2
-      },
-      "max_output_tokens": 262144,
-      "reasoning_efforts": [
-        "none",
-        "minimal",
-        "low",
-        "medium",
-        "high",
-        "max"
-      ],
-      "supports_image_input": true,
-      "supports_pdf_input": false
-    },
-    "thinkingmachines/inkling-small:free": {
-      "context_window": 1048576,
-      "cost": {
-        "input": 0,
-        "output": 0
-      },
-      "max_output_tokens": 262144,
-      "reasoning_efforts": [
-        "none",
-        "minimal",
-        "low",
-        "medium",
-        "high",
-        "max"
-      ],
-      "supports_image_input": true,
-      "supports_pdf_input": false
-    },
-    "thinkingmachines/inkling:free": {
-      "context_window": 1048576,
-      "cost": {
-        "input": 0,
-        "output": 0
-      },
-      "max_output_tokens": 262144,
-      "reasoning_efforts": [
-        "none",
-        "minimal",
-        "low",
-        "medium",
-        "high",
-        "max"
-      ],
-      "supports_image_input": true,
-      "supports_pdf_input": false
-    },
-    "undi95/remm-slerp-l2-13b": {
-      "context_window": 6144,
-      "cost": {
-        "input": 0.35,
-        "output": 0.65
-      },
-      "max_output_tokens": 5529,
-      "reasoning_efforts": null,
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "upstage/solar-pro-3": {
-      "context_window": 131072,
-      "cost": {
-        "cache_read": 0.015,
-        "input": 0.15,
-        "output": 0.6
-      },
-      "max_output_tokens": 117964,
-      "reasoning_efforts": [],
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "upstage/solar-pro4": {
-      "context_window": 524288,
-      "cost": {
-        "cache_read": 0.006,
-        "input": 0.03,
-        "output": 0.12
-      },
-      "max_output_tokens": 131072,
-      "reasoning_efforts": [],
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "writer/palmyra-x5": {
-      "context_window": 1040000,
-      "cost": {
-        "input": 0.6,
-        "output": 6
-      },
-      "max_output_tokens": 8192,
-      "reasoning_efforts": null,
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "x-ai/grok-4.20": {
-      "context_window": 2000000,
-      "cost": {
-        "cache_read": 0.2,
-        "input": 1.25,
-        "output": 2.5,
-        "tiers": [
-          {
-            "cache_read": 0.4,
-            "input": 2.5,
-            "output": 5,
-            "size": 200000
-          }
-        ]
-      },
-      "max_output_tokens": 1800000,
-      "reasoning_efforts": [],
-      "supports_image_input": true,
-      "supports_pdf_input": true
-    },
-    "x-ai/grok-4.20-multi-agent": {
-      "context_window": 2000000,
-      "cost": {
-        "cache_read": 0.2,
-        "input": 1.25,
-        "output": 2.5,
-        "tiers": [
-          {
-            "cache_read": 0.4,
-            "input": 2.5,
-            "output": 5,
-            "size": 200000
-          }
-        ]
-      },
-      "max_output_tokens": 1800000,
-      "reasoning_efforts": [
-        "low",
-        "medium",
-        "high",
-        "xhigh"
-      ],
-      "supports_image_input": true,
-      "supports_pdf_input": true
-    },
-    "x-ai/grok-4.3": {
-      "context_window": 1000000,
-      "cost": {
-        "cache_read": 0.2,
-        "input": 1.25,
-        "output": 2.5,
-        "tiers": [
-          {
-            "cache_read": 0.4,
-            "input": 2.5,
-            "output": 5,
-            "size": 200000
-          }
-        ]
-      },
-      "max_output_tokens": 900000,
-      "reasoning_efforts": [
-        "none",
-        "low",
-        "medium",
-        "high"
-      ],
-      "supports_image_input": true,
-      "supports_pdf_input": true
-    },
-    "x-ai/grok-4.5": {
-      "context_window": 500000,
-      "cost": {
-        "cache_read": 0.3,
-        "input": 2,
-        "output": 6,
-        "tiers": [
-          {
-            "cache_read": 0.6,
-            "input": 4,
-            "output": 12,
-            "size": 200000
-          }
-        ]
-      },
-      "max_output_tokens": 450000,
-      "reasoning_efforts": [
-        "low",
-        "medium",
-        "high"
-      ],
-      "supports_image_input": true,
-      "supports_pdf_input": true
-    },
-    "x-ai/grok-4.6": {
-      "context_window": 500000,
-      "cost": {
-        "cache_read": 0.5,
-        "input": 2,
-        "output": 6,
-        "tiers": [
-          {
-            "cache_read": 1,
-            "input": 4,
-            "output": 12,
-            "size": 200000
-          }
-        ]
-      },
-      "max_output_tokens": 450000,
-      "reasoning_efforts": [
-        "low",
-        "medium",
-        "high",
-        "xhigh"
-      ],
-      "supports_image_input": true,
-      "supports_pdf_input": true
-    },
-    "x-ai/grok-build-0.1": {
-      "context_window": 256000,
-      "cost": {
-        "cache_read": 0.2,
-        "input": 1,
-        "output": 2,
-        "tiers": [
-          {
-            "cache_read": 0.4,
-            "input": 2,
-            "output": 4,
-            "size": 200000
-          }
-        ]
-      },
-      "max_output_tokens": 230400,
-      "reasoning_efforts": [],
-      "supports_image_input": true,
-      "supports_pdf_input": true
-    },
-    "xiaomi/mimo-v2.5": {
-      "context_window": 1050000,
-      "cost": {
-        "cache_read": 0.0028,
-        "input": 0.14,
-        "output": 0.28
-      },
-      "max_output_tokens": 131072,
-      "reasoning_efforts": [],
-      "supports_image_input": true,
-      "supports_pdf_input": false
-    },
-    "xiaomi/mimo-v2.5-pro": {
-      "context_window": 1050000,
-      "cost": {
-        "cache_read": 0.0036,
-        "input": 0.435,
-        "output": 0.87
-      },
-      "max_output_tokens": 131072,
-      "reasoning_efforts": [],
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "z-ai/glm-4.5": {
-      "context_window": 131072,
-      "cost": {
-        "cache_read": 0.11,
-        "input": 0.6,
-        "output": 2.2
-      },
-      "max_output_tokens": 98304,
-      "reasoning_efforts": [],
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "z-ai/glm-4.5-air": {
-      "context_window": 131072,
-      "cost": {
-        "cache_read": 0.025,
-        "input": 0.13,
-        "output": 0.85
-      },
-      "max_output_tokens": 98304,
-      "reasoning_efforts": [],
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "z-ai/glm-4.5v": {
-      "context_window": 65536,
-      "cost": {
-        "cache_read": 0.11,
-        "input": 0.6,
-        "output": 1.8
-      },
-      "max_output_tokens": 16384,
-      "reasoning_efforts": [],
-      "supports_image_input": true,
-      "supports_pdf_input": false
-    },
-    "z-ai/glm-4.6": {
-      "context_window": 204800,
-      "cost": {
-        "cache_read": 0.08,
-        "input": 0.43,
-        "output": 1.75
-      },
-      "max_output_tokens": 16384,
-      "reasoning_efforts": [],
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "z-ai/glm-4.6v": {
-      "context_window": 131072,
-      "cost": {
-        "cache_read": 0.055,
-        "input": 0.3,
-        "output": 0.9
-      },
-      "max_output_tokens": 32768,
-      "reasoning_efforts": [],
-      "supports_image_input": true,
-      "supports_pdf_input": false
-    },
-    "z-ai/glm-4.7": {
-      "context_window": 204800,
-      "cost": {
-        "cache_read": 0.08,
-        "input": 0.4,
-        "output": 1.75
-      },
-      "max_output_tokens": 131072,
-      "reasoning_efforts": [],
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "z-ai/glm-4.7-flash": {
-      "context_window": 202752,
-      "cost": {
-        "input": 0.0605,
-        "output": 0.4
-      },
-      "max_output_tokens": 117964,
-      "reasoning_efforts": [],
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "z-ai/glm-5": {
-      "context_window": 204800,
-      "cost": {
-        "cache_read": 0.12,
-        "input": 0.6,
-        "output": 1.92
-      },
-      "max_output_tokens": 128000,
-      "reasoning_efforts": [],
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "z-ai/glm-5-turbo": {
-      "context_window": 202752,
-      "cost": {
-        "cache_read": 0.24,
-        "input": 1.2,
-        "output": 4
-      },
-      "max_output_tokens": 131072,
-      "reasoning_efforts": [],
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "z-ai/glm-5.1": {
-      "context_window": 204800,
-      "cost": {
-        "cache_read": 0.1794,
-        "input": 0.966,
-        "output": 3.036
-      },
-      "max_output_tokens": 128000,
-      "reasoning_efforts": [],
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "z-ai/glm-5.2": {
-      "context_window": 1048576,
-      "cost": {
-        "cache_read": 0.1932,
-        "input": 0.966,
-        "output": 3.036
-      },
-      "max_output_tokens": 131072,
-      "reasoning_efforts": [
-        "high",
-        "xhigh"
-      ],
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "z-ai/glm-5.3": {
-      "context_window": 1310720,
-      "cost": {
-        "cache_read": 0.26,
+        "cache_read": 0.14,
         "input": 1.4,
         "output": 4.4
       },
-      "max_output_tokens": 943718,
-      "reasoning_efforts": [
-        "low",
-        "high",
-        "max"
-      ],
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "z-ai/glm-5.3-flash": {
-      "context_window": 1310720,
-      "cost": {
-        "cache_read": 0.015,
-        "input": 0.075,
-        "output": 0.25
-      },
       "max_output_tokens": 131072,
       "reasoning_efforts": [
-        "low",
-        "high",
-        "max"
-      ],
-      "supports_image_input": true,
-      "supports_pdf_input": false
-    },
-    "z-ai/glm-5v-turbo": {
-      "context_window": 202752,
-      "cost": {
-        "cache_read": 0.24,
-        "input": 1.2,
-        "output": 4
-      },
-      "max_output_tokens": 131072,
-      "reasoning_efforts": [],
-      "supports_image_input": true,
-      "supports_pdf_input": false
-    },
-    "~anthropic/claude-fable-latest": {
-      "context_window": 1000000,
-      "cost": {
-        "cache_read": 0.25,
-        "cache_write": 12.5,
-        "input": 10,
-        "output": 50
-      },
-      "max_output_tokens": 128000,
-      "reasoning_efforts": [
-        "low",
-        "medium",
-        "high",
-        "xhigh",
-        "max"
-      ],
-      "supports_image_input": true,
-      "supports_pdf_input": true
-    },
-    "~anthropic/claude-haiku-latest": {
-      "context_window": 200000,
-      "cost": {
-        "cache_read": 0.1,
-        "cache_write": 1.25,
-        "input": 1,
-        "output": 5
-      },
-      "max_output_tokens": 64000,
-      "reasoning_efforts": [],
-      "supports_image_input": true,
-      "supports_pdf_input": true
-    },
-    "~anthropic/claude-opus-latest": {
-      "context_window": 1000000,
-      "cost": {
-        "cache_read": 0.5,
-        "cache_write": 6.25,
-        "input": 5,
-        "output": 25
-      },
-      "max_output_tokens": 128000,
-      "reasoning_efforts": [
-        "low",
-        "medium",
-        "high",
-        "xhigh",
-        "max"
-      ],
-      "supports_image_input": true,
-      "supports_pdf_input": true
-    },
-    "~anthropic/claude-sonnet-latest": {
-      "context_window": 1000000,
-      "cost": {
-        "cache_read": 0.2,
-        "cache_write": 2.5,
-        "input": 2,
-        "output": 10
-      },
-      "max_output_tokens": 128000,
-      "reasoning_efforts": [
-        "low",
-        "medium",
-        "high",
-        "xhigh",
-        "max"
-      ],
-      "supports_image_input": true,
-      "supports_pdf_input": true
-    },
-    "~deepseek/deepseek-v4-flash-latest": {
-      "context_window": 1310720,
-      "cost": {
-        "cache_read": 0.013,
-        "input": 0.05,
-        "output": 0.16
-      },
-      "max_output_tokens": 393216,
-      "reasoning_efforts": [
-        "low",
-        "high",
-        "max"
-      ],
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
-    "~google/gemini-flash-latest": {
-      "context_window": 1048576,
-      "cost": {
-        "cache_read": 0.075,
-        "cache_write": 0.041667,
-        "input": 0.75,
-        "output": 3.75,
-        "reasoning": 3.75
-      },
-      "max_output_tokens": 65536,
-      "reasoning_efforts": [
-        "low",
-        "medium",
-        "high"
-      ],
-      "supports_image_input": true,
-      "supports_pdf_input": true
-    },
-    "~google/gemini-pro-latest": {
-      "context_window": 1048576,
-      "cost": {
-        "cache_read": 0.2,
-        "cache_write": 0.375,
-        "input": 2,
-        "output": 12,
-        "reasoning": 12,
-        "tiers": [
-          {
-            "cache_read": 0.4,
-            "input": 4,
-            "output": 18,
-            "size": 200000
-          }
-        ]
-      },
-      "max_output_tokens": 65536,
-      "reasoning_efforts": [
-        "low",
-        "medium",
-        "high"
-      ],
-      "supports_image_input": true,
-      "supports_pdf_input": true
-    },
-    "~moonshotai/kimi-latest": {
-      "context_window": 1048576,
-      "cost": {
-        "cache_read": 0.24,
-        "input": 2.4,
-        "output": 12
-      },
-      "max_output_tokens": 943718,
-      "reasoning_efforts": [
-        "low",
-        "high",
-        "max"
-      ],
-      "supports_image_input": true,
-      "supports_pdf_input": false
-    },
-    "~openai/gpt-latest": {
-      "context_window": 1050000,
-      "cost": {
-        "cache_read": 0.2,
-        "cache_write": 2.5,
-        "input": 2,
-        "output": 10,
-        "tiers": [
-          {
-            "cache_read": 0.4,
-            "cache_write": 5,
-            "input": 4,
-            "output": 15,
-            "size": 272000
-          }
-        ]
-      },
-      "max_output_tokens": 128000,
-      "reasoning_efforts": [
-        "none",
-        "low",
-        "medium",
-        "high",
-        "xhigh",
-        "max"
-      ],
-      "supports_image_input": true,
-      "supports_pdf_input": true
-    },
-    "~openai/gpt-mini-latest": {
-      "context_window": 400000,
-      "cost": {
-        "cache_read": 0.075,
-        "input": 0.75,
-        "output": 4.5
-      },
-      "max_output_tokens": 128000,
-      "reasoning_efforts": [
-        "none",
-        "low",
-        "medium",
-        "high",
-        "xhigh"
-      ],
-      "supports_image_input": true,
-      "supports_pdf_input": true
-    },
-    "~x-ai/grok-latest": {
-      "context_window": 500000,
-      "cost": {
-        "cache_read": 0.5,
-        "input": 2,
-        "output": 6,
-        "tiers": [
-          {
-            "cache_read": 1,
-            "input": 4,
-            "output": 12,
-            "size": 200000
-          }
-        ]
-      },
-      "max_output_tokens": 450000,
-      "reasoning_efforts": [
-        "low",
-        "medium",
-        "high",
-        "xhigh"
-      ],
-      "supports_image_input": true,
-      "supports_pdf_input": true
-    },
-    "~z-ai/glm-flash-latest": {
-      "context_window": 1310720,
-      "cost": {
-        "cache_read": 0.015,
-        "input": 0.075,
-        "output": 0.25
-      },
-      "max_output_tokens": 131072,
-      "reasoning_efforts": [
-        "low",
-        "high",
-        "max"
-      ],
-      "supports_image_input": true,
-      "supports_pdf_input": false
-    },
-    "~z-ai/glm-latest": {
-      "context_window": 1310720,
-      "cost": {
-        "cache_read": 0.2015,
-        "input": 1.085,
-        "output": 3.41
-      },
-      "max_output_tokens": 128000,
-      "reasoning_efforts": [
-        "low",
         "high",
         "max"
       ],

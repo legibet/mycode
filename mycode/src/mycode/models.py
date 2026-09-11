@@ -47,7 +47,6 @@ class _CatalogEntry(_CatalogSchema):
 
 class _ModelsCatalog(_CatalogSchema):
     models: dict[str, _CatalogEntry]
-    openrouter: dict[str, _CatalogEntry]
 
 
 @dataclass(frozen=True)
@@ -55,7 +54,7 @@ class ModelMetadata:
     """Model metadata for the requested provider/model.
 
     ``provider`` and ``model`` keep the original query identity. Other fields
-    come from the official model entry or an OpenRouter entry.
+    come from the official model entry.
 
     ``pricing`` holds models.dev prices in USD per 1M tokens — keys ``input``,
     ``output``, ``cache_read``, ``cache_write``, ``reasoning`` plus optional
@@ -158,10 +157,9 @@ def lookup_model_metadata(
 ) -> ModelMetadata | None:
     """Return model metadata for a provider/model request.
 
-    Catalog lookup order:
-
-    1. Exact OpenRouter model id, only for OpenRouter requests.
-    2. Official model name, first as supplied and then without its prefix.
+    Looks up the official model name, first as supplied and then without its
+    prefix, so routed ids such as OpenRouter's ``owner/model`` resolve to the
+    official entry (with the official provider's pricing).
     """
 
     requested_model = (model or "").strip()
@@ -171,14 +169,8 @@ def lookup_model_metadata(
     if catalog is None:
         return None
 
-    catalog_entry = None
-    if provider_type == "openrouter":
-        catalog_entry = catalog.openrouter.get(requested_model)
-
-    if catalog_entry is None:
-        model_name = requested_model.split("/", 1)[-1].strip()
-        catalog_entry = catalog.models.get(requested_model) or catalog.models.get(model_name)
-
+    model_name = requested_model.split("/", 1)[-1].strip()
+    catalog_entry = catalog.models.get(requested_model) or catalog.models.get(model_name)
     if catalog_entry is None:
         return None
 
