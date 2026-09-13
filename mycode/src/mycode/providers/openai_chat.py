@@ -400,7 +400,7 @@ class DeepSeekAdapter(OpenAIChatAdapter):
     label = "DeepSeek"
     default_base_url = "https://api.deepseek.com"
     env_api_key_names = ("DEEPSEEK_API_KEY",)
-    default_models = ("deepseek-v4-pro", "deepseek-v4-flash")
+    default_models = ("deepseek-flash", "deepseek-v4-pro")
     auto_discoverable = True
     supports_reasoning_effort = True
     # DeepSeek's max_tokens caps reasoning and answer; max_completion_tokens

@@ -186,7 +186,7 @@ DeepSeek and Z.AI pin the legacy name via `max_tokens_field`. Generic `openai_ch
 - SDK: `openai` against DeepSeek's OpenAI-compatible endpoint
 - Base URL: `https://api.deepseek.com`
 - API key env: `DEEPSEEK_API_KEY`
-- Default models: `deepseek-v4-pro`, `deepseek-v4-flash`
+- Default models: `deepseek-flash`, `deepseek-v4-pro`
 - `supports_reasoning_effort`: true; `none` sends `thinking: {type: "disabled"}`, while other explicit values pass through unchanged with thinking enabled
 - `auto_discoverable`: true
 - Same-model `reasoning_content` is replayed on later requests, including empty markers after tool turns

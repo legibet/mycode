@@ -610,7 +610,7 @@ class TestResolveProvider:
 
         assert resolved.provider_name == "deepseek"
         assert resolved.provider == "deepseek"
-        assert resolved.model == "deepseek-v4-pro"
+        assert resolved.model == "deepseek-flash"
         assert resolved.api_key == "deepseek-env-key"
 
     def test_explicit_provider_name_does_not_fall_back(
