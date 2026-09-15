@@ -4,7 +4,14 @@
  * Mobile: sidebar as overlay, top header bar.
  */
 
-import { useCallback, useMemo, useState, useSyncExternalStore } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import useSWR from "swr";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
@@ -103,16 +110,36 @@ function AppContent() {
     () => SIDEBAR_MAX_WIDTH,
   );
 
+  // Revoke each image's blob URL once its attachment leaves state, whatever
+  // path removed it.
+  const prevAttachmentsRef = useRef<AttachedFile[]>([]);
+  useEffect(() => {
+    const prev = prevAttachmentsRef.current;
+    prevAttachmentsRef.current = attachments;
+    const alive = new Set(attachments.map((a) => a.id));
+    for (const a of prev) {
+      if (a.kind === "image" && !alive.has(a.id))
+        URL.revokeObjectURL(a.preview);
+    }
+  }, [attachments]);
+
+  // Persisted state slices are saved on change, not by their mutators.
+  useEffect(() => {
+    saveConfig(localConfig);
+  }, [localConfig]);
+  useEffect(() => {
+    saveHistory(cwdHistory);
+  }, [cwdHistory]);
+  useEffect(() => {
+    saveSidebarWidth(sidebarWidth);
+  }, [sidebarWidth]);
+
   const handleOpenSettings = useCallback(() => {
     setSettingsOpen(true);
   }, []);
 
   const handleResizeSidebar = useCallback((next: number) => {
-    setSidebarWidth((prev) => {
-      if (prev === next) return prev;
-      saveSidebarWidth(next);
-      return next;
-    });
+    setSidebarWidth(next);
   }, []);
 
   const handleResetSidebarWidth = useCallback(() => {
@@ -175,33 +202,21 @@ function AppContent() {
   const handleConfigUpdate = useCallback(
     (newConfig: LocalConfig) => {
       if (newConfig.cwd !== config.cwd) {
-        const nextHistory = addHistory(cwdHistory, newConfig.cwd);
-        setCwdHistory(nextHistory);
-        saveHistory(nextHistory);
+        setCwdHistory((prev) => addHistory(prev, newConfig.cwd));
       }
       setLocalConfig(newConfig);
-      saveConfig(newConfig);
     },
-    [config.cwd, cwdHistory],
+    [config.cwd],
   );
 
   const handleRemoveHistory = useCallback((cwd: string) => {
-    setCwdHistory((prev) => {
-      if (!prev.includes(cwd)) return prev;
-      const next = prev.filter((item) => item !== cwd);
-      saveHistory(next);
-      return next;
-    });
+    setCwdHistory((prev) =>
+      prev.includes(cwd) ? prev.filter((item) => item !== cwd) : prev,
+    );
   }, []);
 
   const clearAttachments = useCallback(() => {
-    setAttachments((prev) => {
-      for (const attachment of prev) {
-        if (attachment.kind === "image")
-          URL.revokeObjectURL(attachment.preview);
-      }
-      return [];
-    });
+    setAttachments([]);
   }, []);
 
   const handleSubmit = useCallback(
@@ -222,12 +237,7 @@ function AppContent() {
   }, []);
 
   const handleRemoveAttachment = useCallback((id: string) => {
-    setAttachments((prev) => {
-      const removed = prev.find((attachment) => attachment.id === id);
-      if (!removed) return prev;
-      if (removed.kind === "image") URL.revokeObjectURL(removed.preview);
-      return prev.filter((attachment) => attachment.id !== id);
-    });
+    setAttachments((prev) => prev.filter((attachment) => attachment.id !== id));
   }, []);
 
   const { image: supportsImageInput, pdf: supportsPdfInput } = useMemo(

@@ -35,6 +35,7 @@ import {
   type Ref,
   useEffect,
   useImperativeHandle,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -406,7 +407,8 @@ function ComposerInner({
   };
 
   // Keyboard handling is registered once; the closures read live state via
-  // this ref, refreshed every render.
+  // this ref. Lexical's commands run on native listeners, so the ref is
+  // refreshed in a layout effect to close the pre-paint staleness window.
   const keyState = {
     menuOpen,
     menuItems,
@@ -416,7 +418,9 @@ function ComposerInner({
     submit,
   };
   const keyStateRef = useRef(keyState);
-  keyStateRef.current = keyState;
+  useLayoutEffect(() => {
+    keyStateRef.current = keyState;
+  });
 
   useEffect(() => {
     const withMenu = (
