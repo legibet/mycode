@@ -1,13 +1,6 @@
 # Web UI
 
-## Serving Modes
-
-- `mycode web` — serves packaged web assets from `cli/src/mycode_cli/server/static/`
-- `mycode web --dev` — API only with backend hot reload; no static files (pair with `pnpm --dir web dev`)
-
-CORS is disabled by default for the packaged web app. The API-only dev app allows only
-`http://localhost:5173` and `http://127.0.0.1:5173` for the Vite dev server, which proxies `/api` to
-`http://localhost:8000`.
+The React + Vite UI in `web/src/`, served by the CLI server — serving modes and CORS rules live in `docs/api.md`. `pnpm --dir web dev` runs the Vite dev server against `mycode web --dev`, proxying `/api` to `http://localhost:8000`.
 
 ## Structure
 
@@ -87,18 +80,11 @@ Rendering rules:
 
 ## Streaming
 
-1. `POST /api/chat` → get `{run, session}`
-2. `GET /api/runs/{run_id}/stream` → SSE reader
-3. Each `data:` line parsed as `StreamEvent`, dispatched to reducer
-4. `data: [DONE]` ends the stream
-5. On disconnect: attempt session reload recovery via `GET /api/sessions/{id}`
-6. 409 conflict: attach to the existing run's stream
+`useChat.ts` follows the `docs/api.md` contract: `POST /api/chat` returns `{run, session}`; `GET /api/runs/{run_id}/stream` feeds each `data:` line into the reducer as a `StreamEvent`; `data: [DONE]` ends the stream. On disconnect the UI reloads via `GET /api/sessions/{id}`; a 409 on send attaches to the existing run's stream.
 
 A live `compact` SSE event is consumed by the reducer at the position it arrives — the marker lands between whatever just streamed and whatever streams next, mirroring where the agent emitted it (e.g. between two tool calls of the same turn). The server has already persisted the `compact` JSONL record at the same point, so a later session reload renders the same marker without any extra round-trip.
 
-`permission_request` opens the approval prompt. `permission_resolved` clears it. `deny` cancels the active run.
-
-`cancelled` clears pending permissions and tool activity without adding an error message. The preceding `tool_done` retains the cancelled tool's error status and cleanup output.
+`permission_request` opens the approval prompt and `permission_resolved` clears it. `cancelled` clears pending permissions and tool activity without adding an error message.
 
 Streaming state tracking:
 

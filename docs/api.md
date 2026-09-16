@@ -24,7 +24,7 @@ Request body (`ChatRequest`, `cli/src/mycode_cli/server/schemas.py`):
   "input": null,
   "session_id": "default",
   "provider": "anthropic",
-  "model": "claude-sonnet-4-6",
+  "model": "claude-sonnet-5",
   "cwd": "/path/to/workspace",
   "api_key": null,
   "api_base": null,
@@ -124,7 +124,7 @@ Request body (`CompactRequest`, `cli/src/mycode_cli/server/schemas.py`):
 ```json
 {
   "provider": "anthropic",
-  "model": "claude-sonnet-4-6"
+  "model": "claude-sonnet-5"
 }
 ```
 
@@ -159,18 +159,18 @@ Response:
       "name": "...",
       "provider": "anthropic",
       "type": "anthropic",
-      "models": ["claude-sonnet-4-6"],
+      "models": ["claude-sonnet-5"],
       "base_url": "",
       "has_api_key": true,
       "supports_reasoning_effort": true,
-      "reasoning_efforts": {"claude-sonnet-4-6": ["low", "medium", "high"]},
+      "reasoning_efforts": {"claude-sonnet-5": ["low", "medium", "high"]},
       "supports_image_input": true,
-      "image_input_models": ["claude-sonnet-4-6"],
+      "image_input_models": ["claude-sonnet-5"],
       "supports_pdf_input": true,
-      "pdf_input_models": ["claude-sonnet-4-6"]
+      "pdf_input_models": ["claude-sonnet-5"]
     }
   },
-  "default": { "provider": "<provider_name>", "model": "claude-sonnet-4-6" },
+  "default": { "provider": "<provider_name>", "model": "claude-sonnet-5" },
   "cwd": "...",
   "cwd_exists": true,
   "project": "...",
@@ -197,7 +197,7 @@ Returns the global config plus options for the editor UI.
   "path": "/Users/.../.mycode/config.json",
   "exists": true,
   "config": {
-    "default": {"provider": "anthropic", "model": "claude-sonnet-4-6"},
+    "default": {"provider": "anthropic", "model": "claude-sonnet-5"},
     "permission": {"level": "safe", "mode": "ask"},
     "web": {
       "fetch": "local",
@@ -207,7 +207,7 @@ Returns the global config plus options for the editor UI.
     "providers": {
       "anthropic": {
         "type": "anthropic",
-        "models": ["claude-sonnet-4-6"],
+        "models": ["claude-sonnet-5"],
         "api_key": null,
         "api_key_saved": true,
         "base_url": ""
@@ -221,7 +221,7 @@ Returns the global config plus options for the editor UI.
   },
   "env": {"ANTHROPIC_API_KEY": true, "OPENAI_API_KEY": false, "TAVILY_API_KEY": true, "EXA_API_KEY": false},
   "provider_type_env_vars": {"anthropic": ["ANTHROPIC_API_KEY"]},
-  "provider_type_default_models": {"anthropic": ["claude-sonnet-4-6"]}
+  "provider_type_default_models": {"anthropic": ["claude-sonnet-5"]}
 }
 ```
 
@@ -240,7 +240,7 @@ Replace the global config file. Validates input and writes atomically.
 ```json
 {
   "config": {
-    "default": {"provider": "anthropic", "model": "claude-sonnet-4-6"},
+    "default": {"provider": "anthropic", "model": "claude-sonnet-5"},
     "permission": {"level": "safe", "mode": "ask"},
     "web": {
       "fetch": "local",
@@ -250,7 +250,7 @@ Replace the global config file. Validates input and writes atomically.
     "providers": {
       "anthropic": {
         "type": "anthropic",
-        "models": ["claude-sonnet-4-6"],
+        "models": ["claude-sonnet-5"],
         "api_key": "sk-...",
         "base_url": ""
       }

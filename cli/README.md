@@ -49,55 +49,45 @@ Run `/model` in the TUI to see available models.
 
 ## Configuration
 
-A config file is optional. API keys from the environment are usually sufficient.
+A config file is optional — API keys from the environment are usually enough. Create `~/.mycode/config.json` (global) or `.mycode/config.json` in a project to customize further.
 
-Create `~/.mycode/config.json` (global) or `.mycode/config.json` under the current project to:
+Set a default provider and model:
 
-- set a default provider and model
-- expose additional models on an existing provider (e.g. OpenRouter's catalog)
-- register a custom endpoint, such as a private or regional deployment
+```json
+{"default": {"provider": "anthropic", "model": "claude-sonnet-5"}}
+```
+
+Expose additional models on an existing provider, or register a custom endpoint such as a private or regional deployment:
 
 ```json
 {
-  "default": {
-    "provider": "anthropic",
-    "model": "claude-sonnet-4-6"
-  },
   "providers": {
     "openrouter": {
-      "models": {
-        "deepseek/deepseek-v3.2": {},
-        "xiaomi/mimo-v2-pro": {}
-      }
+      "models": {"deepseek/deepseek-v4-pro": {}}
     },
-    "zhipu-coding-plan": {
-      "type": "zai",
-      "base_url": "https://open.bigmodel.cn/api/coding/paas/v4",
-      "api_key": "${ZHIPU_API_KEY}"
-    },
-    "custom-provider": {
+    "my-endpoint": {
       "type": "openai_chat",
-      "base_url": "https://custom-endpoint.com/v1",
-      "api_key": "${CUSTOM_API_KEY}",
-      "models": {
-        "custom-model": {
-          "context_window": 128000,
-          "max_output_tokens": 16384,
-          "supports_image_input": false
-        }
-      }
+      "base_url": "https://example.com/v1",
+      "api_key": "${MY_API_KEY}",
+      "models": {"my-model": {}}
     }
   }
 }
 ```
 
-- To override a built-in provider, reuse its id as the key. No `type` needed. Custom providers must declare a `type`, one of the built-in protocols.
-- API keys in config accept `${ENV_VAR}` references.
-- Model metadata is bundled from [models.dev](https://models.dev). `{}` is enough for most models. Provide explicit fields only for models not listed there.
+A `providers` key matching a built-in provider id overrides it; other names are custom providers and must declare a `type` (one of the ids in the table above). `api_key` accepts a literal value or a `${ENV_VAR}` reference. `{}` is enough for models covered by the bundled [models.dev](https://models.dev) metadata; add fields only for models it doesn't list.
 
 > Built-in Moonshot, MiniMax, and Z.AI providers default to international endpoints. Override `base_url` for China endpoints.
 
-See [docs/config.md](https://github.com/legibet/mycode/blob/main/docs/config.md) for the full schema and resolution rules.
+See [docs/config.md](https://github.com/legibet/mycode/blob/main/docs/config.md) for the full schema — permission levels, web providers, and resolution rules.
+
+## Skills and instructions
+
+The CLI assembles the system prompt from instructions files and discovered skills.
+
+- `AGENTS.md` files are injected as project instructions: `~/.mycode/AGENTS.md` (fallback `~/.agents/AGENTS.md`), then every `AGENTS.md` from the project root down to the current directory. Later files take precedence.
+- Skills are directories containing a `SKILL.md`. Scan roots, lowest to highest priority: `~/.agents/skills/`, `~/.mycode/skills/`, then `.agents/skills/` and `.mycode/skills/` from the project root down to the current directory. Later roots override earlier ones by skill name. `SKILL.md` needs YAML frontmatter with `name` and `description`.
+- A standalone `/<skill-name>` token in a message loads the matching skill, e.g. `Use /fastapi to review this route`. Names matching built-in slash commands are reserved.
 
 ## CLI Reference
 
@@ -113,6 +103,8 @@ mycode session list               list saved sessions
 ```
 
 Interactive slash commands: `/new` `/resume` `/rewind` `/provider` `/model` `/effort` `/clear` `/compact` `/q`
+
+Inside the TUI, `@path` attaches a file to the message — text files go as snapshots, images and PDFs as structured input.
 
 ## License
 

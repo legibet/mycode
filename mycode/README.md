@@ -32,7 +32,7 @@ def read_file(path: str) -> str:
 
 async def main() -> None:
     agent = Agent(
-        model="claude-sonnet-4-6",
+        model="claude-sonnet-5",
         api_key="YOUR_API_KEY",
         tools=[read_file],
     )
@@ -79,7 +79,7 @@ Pass `api_key=` to override the env var, `api_base=` for a custom endpoint. Mode
 Call `achat()` or `run()` again on the same `Agent` to continue:
 
 ```python
-agent = Agent(model="claude-sonnet-4-6", api_key="...")
+agent = Agent(model="claude-sonnet-5", api_key="...")
 
 agent.run("What is 2 + 2?")
 agent.run("Now multiply that by 10.")    # remembers the earlier answer
@@ -117,7 +117,7 @@ Pass `session_dir` to persist the conversation to disk. Each session lives in a 
 from pathlib import Path
 
 agent = Agent(
-    model="claude-sonnet-4-6",
+    model="claude-sonnet-5",
     api_key="...",
     session_dir=Path("./chats"),
     session_id="my-chat",
@@ -146,7 +146,7 @@ def greet(name: str) -> str:
 
 
 agent = Agent(
-    model="claude-sonnet-4-6",
+    model="claude-sonnet-5",
     api_key="...",
     tools=[greet],
 )
@@ -199,7 +199,7 @@ async def protect_dotfiles(ctx):
 
 
 agent = Agent(
-    model="claude-sonnet-4-6",
+    model="claude-sonnet-5",
     api_key="...",
     tools=[delete_file],
     hooks=hooks,

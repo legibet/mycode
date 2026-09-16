@@ -45,12 +45,15 @@ mycode                            start interactive session (new)
 mycode --continue                 resume the most recent session
 mycode --session <id>             resume a specific session
 mycode run "..."                  send one message, non-interactive
+mycode run --effort high "..."    set effort for one run
 mycode web                        start web server (default port 8000)
 mycode web --dev                  API only, no static files
 mycode session list               list saved sessions
 ```
 
 Interactive slash commands: `/new` `/resume` `/rewind` `/provider` `/model` `/effort` `/clear` `/compact` `/q`
+
+Inside the TUI, `@path` attaches a file to the message and a standalone `/<skill-name>` token loads a discovered skill.
 
 ## Development
 
@@ -82,6 +85,8 @@ uv build --package mycode-sdk
 uv build --package mycode-cli
 ```
 
+Detailed specs for the SDK internals, sessions, providers, and the server API live in [docs/](docs/).
+
 ## mycode-sdk
 
 Agent core of mycode as a lightweight Python SDK for building custom agents. Install via `uv add mycode-sdk`.
@@ -89,7 +94,7 @@ Agent core of mycode as a lightweight Python SDK for building custom agents. Ins
 ```python
 from mycode import Agent
 
-agent = Agent(model="claude-sonnet-4-6", api_key="...")
+agent = Agent(model="claude-sonnet-5", api_key="...")
 
 result = agent.run("What is 2 + 2?")
 print(result.text)

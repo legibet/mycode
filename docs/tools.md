@@ -1,6 +1,6 @@
 # Built-in Tools
 
-Sources: `cli/src/mycode_cli/tools.py`, `cli/src/mycode_cli/web_tools.py`
+Sources: `cli/src/mycode_cli/tools.py`, `cli/src/mycode_cli/web_tools.py`, `cli/src/mycode_cli/permissions.py`
 
 The CLI always registers `read`, `write`, `edit`, `bash`, and `webfetch`. It registers `websearch` when `web.search` selects a provider. They are ordinary `ToolSpec` values on the SDK tool runtime; streaming, cancellation, and hook behavior follow the contract in `docs/sdk.md`. The output text formats below are a cross-component contract: the TUI and web UI render them directly.
 
@@ -55,3 +55,15 @@ Searches with the configured Tavily or Exa provider and returns matching pages w
 - `search_depth` defaults to `balanced`; `fast` lowers latency and `deep` is reserved for searches where the normal mode is insufficient.
 - The internal whole-call timeout is fixed at 30 seconds. The tool has no timeout parameter.
 - Result metadata is `{"results": N}`, used by the WebUI collapsed suffix.
+
+## Permissions
+
+`permissions.py` classifies every tool call in a `before_tool` hook before execution. The `permission.level`/`mode` fields are defined in `docs/config.md`; this section is the classification contract.
+
+Both interactive surfaces (TUI and web) prompt for approval when `mode: "ask"` and the call falls outside the configured level. Non-interactive `mycode run` has no prompt and treats `ask` as `deny`. Automatic denials do not stop the run; the model receives the denied tool result and can reply with next steps. An explicit user `Deny` cancels the current run in both TUI and web.
+
+The shell checks are intentionally simple and conservative. Project commands such as tests, builds, formatters, package scripts, and task runners are `standard` because they execute project-defined code. Compound commands (`&&`, `||`, `;`, pipes, redirection, command substitution) and obvious destructive commands (`rm`, `sudo`, `chmod`, `git reset`, `git clean`, `git push --force`, etc.) fall outside `readonly`/`safe`/`standard` and require `yolo` or `mode: "ask"` approval.
+
+`webfetch` and `websearch` are `standard`. Their permission previews show the initial URL and query respectively. Reads inside the current session's `tool_output_dir` are `readonly`, including follow-up reads of truncated webfetch output.
+
+Local webfetch intentionally does not block localhost, private address ranges, or cloud metadata endpoints. The machine is the trust boundary. The permission prompt displays the initial URL only; redirects are followed up to five times without another prompt, so a public URL can redirect to a private or metadata address.

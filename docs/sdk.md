@@ -24,7 +24,7 @@ def word_count(text: str) -> int:
 
 
 agent = Agent(
-    model="claude-sonnet-4-6",
+    model="claude-sonnet-5",
     api_key="YOUR_API_KEY",
     system="You are helpful.",
     tools=[word_count],   # default: no tools registered
@@ -98,9 +98,9 @@ Run one chat or compact operation at a time per Agent. Starting another operatio
 
 ### Model metadata
 
-The bundled catalog stores one official model list per supported provider (models.dev data via [basellm/llm-metadata](https://github.com/basellm/llm-metadata)). `lookup_model_metadata(provider_type=..., model=...)` looks up the official model name, first as supplied and then without its prefix, so routed ids such as OpenRouter's `owner/model` resolve to the official entry. A match supplies all metadata fields, including reasoning efforts and reference pricing — for routed providers the pricing is the official provider's, not the router's. An unmatched model returns `None`.
+`models.py` reads the bundled `models_catalog.json` catalog, which stores one official model list per supported provider (models.dev data via [basellm/llm-metadata](https://github.com/basellm/llm-metadata)). `lookup_model_metadata(provider_type=..., model=...)` looks up the official model name, first as supplied and then without its prefix, so routed ids such as OpenRouter's `owner/model` resolve to the official entry. A match supplies all metadata fields, including reasoning efforts and reference pricing — for routed providers the pricing is the official provider's, not the router's. An unmatched model returns `None`.
 
-`resolve_model_metadata()` applies non-`None` explicit overrides to the matched metadata. If no model matches, unspecified fields remain `None`.
+`resolve_model_metadata()` applies non-`None` explicit overrides to the matched metadata. The metadata fields consumed at runtime are `reasoning_efforts`, `supports_image_input`, `supports_pdf_input`, `context_window` (compact threshold calculation), and `max_output_tokens` (provider output limit). If no model matches, unspecified fields remain `None`; `context_window` then defaults to `128000` and `max_output_tokens` to `16384`, image/PDF input is rejected, and no effort is sent.
 
 ### Reasoning effort
 
@@ -187,7 +187,7 @@ Persistence is opt-in. Without `session_dir` the agent runs purely in memory and
 
 ```python
 agent = Agent(
-    model="claude-sonnet-4-6",
+    model="claude-sonnet-5",
     api_key="...",
     session_dir=Path("/data/chats"),   # root directory for all sessions
     session_id="chat-42",              # subdirectory under session_dir
