@@ -740,6 +740,89 @@ export function useChat(
     loadSessionRef.current = loadSession;
   }, [loadSession]);
 
+  const postChat = useCallback(
+    async (
+      body: Record<string, unknown>,
+      sessionId: string,
+      requestCwd: string,
+      requestToken: number,
+    ): Promise<boolean> => {
+      try {
+        const res = await fetch("/api/chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+
+        const data = (await res.json()) as ChatResponse | ChatErrorResponse;
+        const isCurrentRequest = isCurrentSendRequest({
+          pendingRequestToken: pendingRequestTokenRef.current,
+          requestToken,
+          activeSessionId: activeSessionRef.current.id,
+          sessionId,
+          activeCwd: cwdRef.current,
+          requestCwd,
+        });
+
+        if (!res.ok) {
+          // Restore original messages on failure (the turn was optimistic).
+          if (isCurrentRequest) {
+            pendingRequestTokenRef.current = 0;
+            dispatch({ type: "rollback" });
+
+            const detail = getErrorDetail(data);
+            const existingRun = getRunFromDetail(detail);
+            if (res.status === 409 && existingRun?.id) {
+              streamRun(existingRun, sessionId, existingRun.last_seq || 0);
+              return false;
+            }
+
+            setRunKind(null);
+            dispatch({
+              type: "apply_event",
+              event: {
+                type: "error",
+                message: getMessageFromDetail(detail, "Failed to start task"),
+              },
+            });
+          }
+          return false;
+        }
+
+        pendingRequestTokenRef.current = 0;
+        if (!isCurrentRequest) return false;
+
+        const chatData = data as ChatResponse;
+
+        // Update active session from backend response (has real title, id, etc.)
+        if (chatData.session) {
+          setActiveSessionSnapshot(chatData.session);
+          saveActiveSession(requestCwd, chatData.session.id);
+        }
+
+        // Refresh sidebar immediately so title + is_running are visible
+        fetchSessions();
+        streamRun(chatData.run, sessionId, 0);
+        return true;
+      } catch (e) {
+        if (
+          pendingRequestTokenRef.current === requestToken &&
+          activeSessionRef.current.id === sessionId
+        ) {
+          pendingRequestTokenRef.current = 0;
+          setRunKind(null);
+          dispatch({ type: "rollback" });
+          dispatch({
+            type: "apply_event",
+            event: { type: "error", message: getErrorMessage(e) },
+          });
+        }
+        return false;
+      }
+    },
+    [fetchSessions, setActiveSessionSnapshot, streamRun],
+  );
+
   const send = useCallback(
     async (submission: ComposerSubmission, attachments?: AttachedFile[]) => {
       const content = submission.text.trim();
@@ -787,82 +870,9 @@ export function useChat(
             }
           : { ...commonFields, message: content };
 
-      try {
-        const res = await fetch("/api/chat", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
-        });
-
-        const data = (await res.json()) as ChatResponse | ChatErrorResponse;
-        const isCurrentRequest = isCurrentSendRequest({
-          pendingRequestToken: pendingRequestTokenRef.current,
-          requestToken,
-          activeSessionId: activeSessionRef.current.id,
-          sessionId,
-          activeCwd: cwdRef.current,
-          requestCwd,
-        });
-
-        if (!res.ok) {
-          const detail = getErrorDetail(data);
-          const existingRun = getRunFromDetail(detail);
-          if (res.status === 409 && existingRun?.id) {
-            if (isCurrentRequest) {
-              pendingRequestTokenRef.current = 0;
-              dispatch({ type: "rollback" });
-              streamRun(existingRun, sessionId, existingRun.last_seq || 0);
-            }
-            return false;
-          }
-          throw new Error(getMessageFromDetail(detail, "Failed to start task"));
-        }
-
-        pendingRequestTokenRef.current = 0;
-
-        if (!isCurrentRequest) {
-          return false;
-        }
-
-        const chatData = data as ChatResponse;
-
-        // Update active session from backend response (has real title, id, etc.)
-        if (chatData.session) {
-          const session = chatData.session;
-          setActiveSessionSnapshot(session);
-          saveActiveSession(requestCwd, session.id);
-        }
-
-        // Refresh sidebar immediately so title + is_running are visible
-        fetchSessions();
-
-        streamRun(chatData.run, sessionId, 0);
-        return true;
-      } catch (e) {
-        if (
-          pendingRequestTokenRef.current === requestToken &&
-          activeSessionRef.current.id === sessionId
-        ) {
-          pendingRequestTokenRef.current = 0;
-          setRunKind(null);
-          dispatch({ type: "rollback" });
-          dispatch({
-            type: "apply_event",
-            event: { type: "error", message: getErrorMessage(e) },
-          });
-        }
-        return false;
-      }
+      return postChat(body, sessionId, requestCwd, requestToken);
     },
-    [
-      activeSession.id,
-      config,
-      fetchSessions,
-      loading,
-      remoteConfig,
-      setActiveSessionSnapshot,
-      streamRun,
-    ],
+    [activeSession.id, config, loading, postChat, remoteConfig],
   );
 
   const rewindAndSend = useCallback(
@@ -881,95 +891,22 @@ export function useChat(
       setRunKind("chat");
       setCompactError(null);
 
-      try {
-        const res = await fetch("/api/chat", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            session_id: sessionId,
-            message: content,
-            rewind_to: rewindTo,
-            provider: config.provider || undefined,
-            model: config.model || undefined,
-            cwd: config.cwd,
-            reasoning_effort: getReasoningEffortOverride(config, remoteConfig),
-          }),
-        });
-
-        const data = (await res.json()) as ChatResponse | ChatErrorResponse;
-        const isCurrentRequest = isCurrentSendRequest({
-          pendingRequestToken: pendingRequestTokenRef.current,
-          requestToken,
-          activeSessionId: activeSessionRef.current.id,
-          sessionId,
-          activeCwd: cwdRef.current,
-          requestCwd,
-        });
-
-        if (!res.ok) {
-          // Restore original messages on failure (rewind was optimistic).
-          if (isCurrentRequest) {
-            pendingRequestTokenRef.current = 0;
-            dispatch({ type: "rollback" });
-
-            // If 409 (active run), attach to the existing run.
-            const detail = getErrorDetail(data);
-            const existingRun = getRunFromDetail(detail);
-            if (res.status === 409 && existingRun?.id) {
-              streamRun(existingRun, sessionId, existingRun.last_seq || 0);
-              return;
-            }
-
-            setRunKind(null);
-            dispatch({
-              type: "apply_event",
-              event: {
-                type: "error",
-                message: getMessageFromDetail(detail, "Failed to start task"),
-              },
-            });
-          }
-          return;
-        }
-
-        pendingRequestTokenRef.current = 0;
-
-        if (!isCurrentRequest) return;
-
-        const chatData = data as ChatResponse;
-
-        if (chatData.session) {
-          const session = chatData.session;
-          setActiveSessionSnapshot(session);
-          saveActiveSession(requestCwd, session.id);
-        }
-
-        fetchSessions();
-        streamRun(chatData.run, sessionId, 0);
-      } catch (e) {
-        if (
-          pendingRequestTokenRef.current === requestToken &&
-          activeSessionRef.current.id === sessionId
-        ) {
-          pendingRequestTokenRef.current = 0;
-          dispatch({ type: "rollback" });
-          setRunKind(null);
-          dispatch({
-            type: "apply_event",
-            event: { type: "error", message: getErrorMessage(e) },
-          });
-        }
-      }
+      await postChat(
+        {
+          session_id: sessionId,
+          message: content,
+          rewind_to: rewindTo,
+          provider: config.provider || undefined,
+          model: config.model || undefined,
+          cwd: config.cwd,
+          reasoning_effort: getReasoningEffortOverride(config, remoteConfig),
+        },
+        sessionId,
+        requestCwd,
+        requestToken,
+      );
     },
-    [
-      activeSession.id,
-      config,
-      fetchSessions,
-      loading,
-      remoteConfig,
-      setActiveSessionSnapshot,
-      streamRun,
-    ],
+    [activeSession.id, config, loading, postChat, remoteConfig],
   );
 
   const compactSession = useCallback(async () => {
