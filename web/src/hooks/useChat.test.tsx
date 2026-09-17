@@ -37,9 +37,9 @@ function createLocalStorage() {
   };
 }
 
-function createJsonResponse(data: unknown): Response {
+function createJsonResponse(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), {
-    status: 200,
+    status,
     headers: { "Content-Type": "application/json" },
   });
 }
@@ -316,6 +316,111 @@ describe("useChat", () => {
         name: "report.pdf",
         renderKey: "user:0:1",
       });
+    });
+  });
+
+  it("attaches to an existing chat run after rolling back a rejected send", async () => {
+    const fetchMock = mockFetch({
+      "/api/sessions?cwd=": createJsonResponse({ sessions: [] }),
+      "/api/chat": createJsonResponse(
+        {
+          detail: {
+            message: "session already has a running task",
+            run: {
+              id: "run-existing",
+              session_id: "session-existing",
+              kind: "chat",
+              status: "running",
+              last_seq: 7,
+            },
+          },
+        },
+        409,
+      ),
+      "/api/runs/run-existing/stream?after=7": new Response(
+        'data: {"type":"text","delta":"existing output","seq":8}\n\ndata: [DONE]\n\n',
+        {
+          status: 200,
+          headers: { "Content-Type": "text/event-stream" },
+        },
+      ),
+    });
+    const { result } = renderChatHook();
+    await waitFor(() => expect(result.current.sessionLoading).toBe(false));
+
+    let accepted!: boolean;
+    await act(async () => {
+      accepted = await result.current.send({
+        text: "new request",
+        workspaceFiles: [],
+      });
+    });
+
+    expect(accepted).toBe(false);
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+      expect(result.current.messages).toHaveLength(1);
+    });
+    expect(expectChat(result.current.messages[0]).content[0]).toMatchObject({
+      type: "text",
+      text: "existing output",
+    });
+    expect(
+      fetchMock.mock.calls.some(
+        ([url]) => url === "/api/runs/run-existing/stream?after=7",
+      ),
+    ).toBe(true);
+  });
+
+  it("restores the original history when a rewind send is rejected", async () => {
+    saveActiveSession("/workspace/a", "session-1");
+    const fetchMock = mockFetch({
+      "/api/sessions?cwd=": createJsonResponse({
+        sessions: [{ id: "session-1", title: "Persisted" }],
+      }),
+      "/api/sessions/session-1": createJsonResponse({
+        session: { id: "session-1", title: "Persisted" },
+        messages: [
+          { role: "user", content: [{ type: "text", text: "original" }] },
+          {
+            role: "assistant",
+            content: [{ type: "text", text: "original answer" }],
+          },
+        ],
+        active_run: null,
+        pending_events: [],
+      }),
+      "/api/chat": createJsonResponse({ detail: "rewind rejected" }, 400),
+    });
+    const { result } = renderChatHook();
+    await waitFor(() => {
+      expect(result.current.sessionLoading).toBe(false);
+      expect(result.current.messages).toHaveLength(2);
+    });
+
+    await act(async () => {
+      await result.current.rewindAndSend(0, "replacement");
+    });
+
+    expect(result.current.loading).toBe(false);
+    expect(result.current.messages).toHaveLength(2);
+    expect(expectChat(result.current.messages[0]).content[0]).toMatchObject({
+      type: "text",
+      text: "original",
+    });
+    const restoredAnswer = expectChat(result.current.messages[1]).content[0];
+    if (restoredAnswer?.type !== "text") {
+      throw new Error("expected restored assistant text");
+    }
+    expect(restoredAnswer.text).toContain("original answer");
+    expect(restoredAnswer.text).toContain("rewind rejected");
+
+    const chatCall = fetchMock.mock.calls.find(([url]) => url === "/api/chat");
+    expect(JSON.parse(String(chatCall?.[1]?.body))).toEqual({
+      session_id: "session-1",
+      message: "replacement",
+      rewind_to: 0,
+      cwd: "/workspace/a",
     });
   });
 

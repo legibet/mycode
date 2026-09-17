@@ -1,4 +1,4 @@
-import { act, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { RenderMessage } from "../../types";
 import { MessageList } from "./MessageList";
@@ -17,16 +17,20 @@ const history: RenderMessage[] = Array.from({ length: 80 }, (_, index) => ({
 
 describe("MessageList", () => {
   let scrollHeight = 0;
+  let scrollHeightForElement: ((element: HTMLElement) => number) | null = null;
   let nextFrameId = 1;
   let animationFrames = new Map<number, FrameRequestCallback>();
 
   beforeEach(() => {
     scrollHeight = 0;
+    scrollHeightForElement = null;
     nextFrameId = 1;
     animationFrames = new Map();
 
     vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockImplementation(
-      () => scrollHeight,
+      function (this: HTMLElement) {
+        return scrollHeightForElement?.(this) ?? scrollHeight;
+      },
     );
     vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockReturnValue(400);
     vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
@@ -74,5 +78,39 @@ describe("MessageList", () => {
 
     const scrollContainer = container.firstElementChild as HTMLElement;
     expect(scrollContainer.scrollTop).toBe(scrollContainer.scrollHeight);
+  });
+
+  it("preserves the viewport when older messages are prepended", () => {
+    const messageHeight = 40;
+    scrollHeightForElement = (element) =>
+      element.querySelectorAll(".chat-message-shell").length * messageHeight;
+
+    const { container } = render(
+      <MessageList
+        sessionId="long-session"
+        messages={history}
+        loading={false}
+        compacting={false}
+        compactError={null}
+      />,
+    );
+    flushAnimationFrames();
+
+    const scrollContainer = container.firstElementChild as HTMLElement;
+    const renderedBefore = container.querySelectorAll(
+      ".chat-message-shell",
+    ).length;
+    const scrollHeightBefore = scrollContainer.scrollHeight;
+
+    scrollContainer.scrollTop = 100;
+    fireEvent.scroll(scrollContainer);
+
+    const renderedAfter = container.querySelectorAll(
+      ".chat-message-shell",
+    ).length;
+    expect(renderedAfter).toBeGreaterThan(renderedBefore);
+    expect(scrollContainer.scrollTop).toBe(
+      100 + scrollContainer.scrollHeight - scrollHeightBefore,
+    );
   });
 });
