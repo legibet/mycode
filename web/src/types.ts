@@ -1,5 +1,3 @@
-import type { CSSProperties } from "react";
-
 export type Theme = "light" | "dark" | "system";
 export type ReasoningEffort =
   | "auto"
@@ -468,5 +466,3 @@ export interface ThemeContextValue {
   resolvedTheme: Exclude<Theme, "system">;
   setTheme: (theme: Theme) => void;
 }
-
-export type InlineStyle = CSSProperties;

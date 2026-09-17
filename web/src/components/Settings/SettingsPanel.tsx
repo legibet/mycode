@@ -114,16 +114,15 @@ const SAVE_BTN_CLASS = cn(
   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50",
 );
 
-const THEME_OPTIONS: { value: Theme; label: string; icon: React.ReactNode }[] =
-  [
-    {
-      value: "system",
-      label: "system",
-      icon: <Laptop className="size-3.5" />,
-    },
-    { value: "light", label: "light", icon: <Sun className="size-3.5" /> },
-    { value: "dark", label: "dark", icon: <Moon className="size-3.5" /> },
-  ];
+const THEME_OPTIONS: { value: Theme; label: string; icon: ReactNode }[] = [
+  {
+    value: "system",
+    label: "system",
+    icon: <Laptop className="size-3.5" />,
+  },
+  { value: "light", label: "light", icon: <Sun className="size-3.5" /> },
+  { value: "dark", label: "dark", icon: <Moon className="size-3.5" /> },
+];
 
 function buildDraft(response: SettingsResponse): DraftState {
   const { config } = response;

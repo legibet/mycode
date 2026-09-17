@@ -8,7 +8,11 @@
  *   • three font sizes (14 section / 13 control / 12 label·hint), three opacities (/100 /70 /50)
  */
 
-import type { ReactNode, SelectHTMLAttributes } from "react";
+import type {
+  InputHTMLAttributes,
+  ReactNode,
+  SelectHTMLAttributes,
+} from "react";
 import { cn } from "../../utils/cn";
 
 interface FieldProps {
@@ -108,7 +112,7 @@ export function Segmented<T extends string>({
   );
 }
 
-interface TextInputProps extends React.InputHTMLAttributes<HTMLInputElement> {
+interface TextInputProps extends InputHTMLAttributes<HTMLInputElement> {
   invalid?: boolean;
 }
 

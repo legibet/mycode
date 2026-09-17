@@ -1,5 +1,9 @@
-import { startTransition, useEffect, useState } from "react";
-import type { InlineStyle } from "../../types";
+import {
+  type CSSProperties,
+  startTransition,
+  useEffect,
+  useState,
+} from "react";
 
 // Safety note: shiki codeToHtml generates HTML from a tokenized AST,
 // producing only <pre>/<code>/<span> elements with inline styles.
@@ -15,7 +19,7 @@ const MONO_STYLE = {
   fontSize: "13px",
   lineHeight: "1.5",
   fontWeight: 400,
-} satisfies InlineStyle;
+} satisfies CSSProperties;
 
 interface HighlightedCodeProps {
   code: string;

@@ -5,7 +5,13 @@
 
 import { Checkbox } from "@base-ui/react/checkbox";
 import { Check, Plus, X } from "lucide-react";
-import { type KeyboardEvent, memo, useId, useState } from "react";
+import {
+  type KeyboardEvent,
+  memo,
+  type ReactNode,
+  useId,
+  useState,
+} from "react";
 import { cn } from "../../utils/cn";
 import { Field, NativeSelect, TextInput } from "./controls";
 
@@ -315,7 +321,7 @@ function computeApiKeyHint(
   draft: ProviderDraft,
   envByName: Record<string, boolean>,
   providerTypeEnvVars: Record<string, string[]>,
-): React.ReactNode {
+): ReactNode {
   const renamed =
     draft.original_name !== "" && draft.original_name !== draft.name.trim();
   if (renamed && draft.api_key_saved && !draft.api_key_dirty) {
@@ -372,7 +378,7 @@ function renderNameHint(
   draft: ProviderDraft,
   usedTypesByOthers: Set<string>,
   duplicateName: boolean,
-): React.ReactNode {
+): ReactNode {
   if (duplicateName) return undefined;
   const trimmed = draft.name.trim();
   if (!trimmed) {
@@ -396,9 +402,7 @@ function renderNameHint(
   return undefined;
 }
 
-function renderDefaultModelsHint(
-  defaults: string[] | undefined,
-): React.ReactNode {
+function renderDefaultModelsHint(defaults: string[] | undefined): ReactNode {
   if (!defaults || defaults.length === 0) {
     return "add at least one model id";
   }
