@@ -63,16 +63,7 @@ export const MessageList = memo(function MessageList({
   );
 });
 
-interface WindowedMessagesProps {
-  messages: RenderMessage[];
-  loading: boolean;
-  compacting: boolean;
-  compactError: string | null;
-  onRewindAndSend?:
-    | ((rewindTo: number, input: string) => Promise<void>)
-    | undefined;
-  emptyStateFooter?: ReactNode;
-}
+type WindowedMessagesProps = Omit<MessageListProps, "sessionId">;
 
 function getInitialStartIndex(messageCount: number): number {
   return Math.max(0, messageCount - INITIAL_MESSAGE_COUNT);

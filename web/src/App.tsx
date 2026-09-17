@@ -138,13 +138,9 @@ function AppContent() {
     setSettingsOpen(true);
   }, []);
 
-  const handleResizeSidebar = useCallback((next: number) => {
-    setSidebarWidth(next);
-  }, []);
-
   const handleResetSidebarWidth = useCallback(() => {
-    handleResizeSidebar(SIDEBAR_DEFAULT_WIDTH);
-  }, [handleResizeSidebar]);
+    setSidebarWidth(SIDEBAR_DEFAULT_WIDTH);
+  }, []);
 
   const isDesktop = useMediaQuery("(min-width: 768px)");
 
@@ -270,7 +266,7 @@ function AppContent() {
 
   const handleSelectSession = useCallback(
     (id: string) => {
-      selectSession(id);
+      void selectSession(id);
       setSidebarOpen(false);
       clearAttachments();
     },
@@ -309,6 +305,21 @@ function AppContent() {
     [handleCreateSession, clearSession, compactSession],
   );
 
+  const sidebarProps = {
+    sessions,
+    activeSession,
+    onSelectSession: handleSelectSession,
+    onCreateSession: handleCreateSession,
+    onDeleteSession: handleDeleteSession,
+    config,
+    remoteConfig,
+    cwdHistory,
+    onUpdateConfig: handleConfigUpdate,
+    onRemoveHistory: handleRemoveHistory,
+    onOpenSettings: handleOpenSettings,
+    workspaceMissing,
+  };
+
   return (
     <Layout>
       <div className="relative flex h-full min-h-0 overflow-hidden">
@@ -316,20 +327,9 @@ function AppContent() {
         {isDesktop ? (
           <div className="shrink-0">
             <Sidebar
-              sessions={sessions}
-              activeSession={activeSession}
-              onSelectSession={handleSelectSession}
-              onCreateSession={handleCreateSession}
-              onDeleteSession={handleDeleteSession}
-              config={config}
-              remoteConfig={remoteConfig}
-              cwdHistory={cwdHistory}
-              onUpdateConfig={handleConfigUpdate}
-              onRemoveHistory={handleRemoveHistory}
-              onOpenSettings={handleOpenSettings}
-              workspaceMissing={workspaceMissing}
+              {...sidebarProps}
               width={displayedSidebarWidth}
-              onResize={handleResizeSidebar}
+              onResize={setSidebarWidth}
               onResizeReset={handleResetSidebarWidth}
               className="h-full"
             />
@@ -342,22 +342,7 @@ function AppContent() {
               className="p-0 gap-0 w-65 bg-sidebar-bg"
             >
               <SheetTitle className="sr-only">Navigation</SheetTitle>
-              <Sidebar
-                sessions={sessions}
-                activeSession={activeSession}
-                onSelectSession={handleSelectSession}
-                onCreateSession={handleCreateSession}
-                onDeleteSession={handleDeleteSession}
-                config={config}
-                remoteConfig={remoteConfig}
-                cwdHistory={cwdHistory}
-                onUpdateConfig={handleConfigUpdate}
-                onRemoveHistory={handleRemoveHistory}
-                onOpenSettings={handleOpenSettings}
-                workspaceMissing={workspaceMissing}
-                width={260}
-                className="h-full"
-              />
+              <Sidebar {...sidebarProps} width={260} className="h-full" />
             </SheetContent>
           </Sheet>
         )}

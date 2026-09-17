@@ -25,6 +25,7 @@ import type {
   WebSearchProvider,
 } from "../../types";
 import { cn } from "../../utils/cn";
+import { prettifyPath } from "../../utils/format";
 import { useTheme } from "../ThemeProvider";
 import { Field, NativeSelect, Section, Segmented, TextInput } from "./controls";
 import { ProviderCard, type ProviderDraft } from "./ProviderCard";
@@ -853,10 +854,4 @@ export function SettingsPanel({
       </SheetContent>
     </Sheet>
   );
-}
-
-function prettifyPath(value: string): string {
-  if (!value) return "";
-  const home = value.match(/^(\/Users\/[^/]+|\/home\/[^/]+)(.*)$/);
-  return home ? `~${home[2] ?? ""}` : value;
 }

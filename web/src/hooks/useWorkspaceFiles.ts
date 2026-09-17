@@ -12,7 +12,11 @@ interface WorkspaceFilesState {
   truncated: boolean;
 }
 
-const EMPTY: WorkspaceFilesResponse["entries"] = [];
+const EMPTY_STATE: WorkspaceFilesState = {
+  entries: [],
+  loading: false,
+  truncated: false,
+};
 
 export function useWorkspaceFiles(
   cwd: string,
@@ -20,19 +24,11 @@ export function useWorkspaceFiles(
   prefix: string,
   enabled: boolean,
 ): WorkspaceFilesState {
-  const [state, setState] = useState<WorkspaceFilesState>({
-    entries: EMPTY,
-    loading: false,
-    truncated: false,
-  });
+  const [state, setState] = useState<WorkspaceFilesState>(EMPTY_STATE);
 
   useEffect(() => {
     if (!enabled) {
-      setState({
-        entries: EMPTY,
-        loading: false,
-        truncated: false,
-      });
+      setState(EMPTY_STATE);
       return;
     }
 
@@ -47,18 +43,14 @@ export function useWorkspaceFiles(
         if (!res.ok) throw new Error(`status ${res.status}`);
         const data = (await res.json()) as WorkspaceFilesResponse;
         setState({
-          entries: data.error ? EMPTY : data.entries,
+          entries: data.error ? [] : data.entries,
           loading: false,
           truncated: data.truncated,
         });
       } catch (e) {
         if (controller.signal.aborted) return;
         console.error("Failed to list workspace files:", e);
-        setState({
-          entries: EMPTY,
-          loading: false,
-          truncated: false,
-        });
+        setState(EMPTY_STATE);
       }
     }, 120);
 

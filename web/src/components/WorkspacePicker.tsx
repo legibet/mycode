@@ -86,8 +86,7 @@ async function browseFetcher(url: string): Promise<WorkspaceBrowseResponse> {
   return data;
 }
 
-const ROOTS_OPTS = { revalidateOnFocus: false } as const;
-const BROWSE_OPTS = { revalidateOnFocus: false } as const;
+const SWR_OPTS = { revalidateOnFocus: false } as const;
 
 function buildBrowseKey(
   target: { root: string; path: string } | null,
@@ -143,7 +142,7 @@ export function WorkspacePicker({
     data: roots = [],
     error: rootsError,
     isLoading: rootsLoading,
-  } = useSWR<string[]>("/api/workspaces/roots", rootsFetcher, ROOTS_OPTS);
+  } = useSWR<string[]>("/api/workspaces/roots", rootsFetcher, SWR_OPTS);
 
   const [targetOverride, setTargetOverride] = useState<{
     root: string;
@@ -161,7 +160,7 @@ export function WorkspacePicker({
   const requestedTarget = targetOverride ?? initialTarget;
   const browseKey = buildBrowseKey(requestedTarget);
   const { data: browseData, error: browseError } =
-    useSWR<WorkspaceBrowseResponse>(browseKey, browseFetcher, BROWSE_OPTS);
+    useSWR<WorkspaceBrowseResponse>(browseKey, browseFetcher, SWR_OPTS);
   const activeTarget = browseData
     ? { root: browseData.root, path: browseData.path }
     : requestedTarget;

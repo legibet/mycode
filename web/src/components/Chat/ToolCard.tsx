@@ -6,17 +6,10 @@
  * preserved.
  */
 
-import {
-  FileText,
-  Globe,
-  type LucideIcon,
-  PenLine,
-  Search,
-  SquarePen,
-  Terminal,
-} from "lucide-react";
+import { Terminal } from "lucide-react";
 import { lazy, memo, type ReactNode, Suspense, useState } from "react";
 import { cn } from "../../utils/cn";
+import { TOOL_ICON } from "./toolIcons";
 
 const EditDiff = lazy(() => import("./EditDiff"));
 
@@ -110,15 +103,6 @@ function EditDiffFallback({ edits }: { edits: EditEntry[] }) {
     </div>
   );
 }
-
-const TOOL_ICON: Record<string, LucideIcon> = {
-  bash: Terminal,
-  read: FileText,
-  write: PenLine,
-  edit: SquarePen,
-  webfetch: Globe,
-  websearch: Search,
-};
 
 interface ToolCardProps {
   name: string;

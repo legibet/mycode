@@ -12,6 +12,7 @@ import { Plus, Settings as SettingsIcon, Terminal, Trash2 } from "lucide-react";
 import { type CSSProperties, memo, useMemo, useRef, useState } from "react";
 import type { LocalConfig, RemoteConfig, SessionSummary } from "../types";
 import { cn } from "../utils/cn";
+import { prettifyPath } from "../utils/format";
 import {
   clampSidebarWidth,
   getMaxSidebarWidth,
@@ -30,9 +31,7 @@ function basename(path: string): string {
 
 function prettyPath(path: string): string {
   if (!path || path === ".") return "";
-  const home = path.match(/^(\/Users\/[^/]+|\/home\/[^/]+)(.*)$/);
-  if (home) return `~${home[2] || ""}`;
-  return path;
+  return prettifyPath(path);
 }
 
 // ─── time grouping ──────────────────────────────────────────────────────────

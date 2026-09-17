@@ -5,28 +5,11 @@
  * payload is typeset; the shell never changes.
  */
 
-import {
-  CornerDownLeft,
-  FileText,
-  Globe,
-  type LucideIcon,
-  PenLine,
-  Search,
-  SquarePen,
-  Terminal,
-} from "lucide-react";
+import { CornerDownLeft, Terminal } from "lucide-react";
 import { type KeyboardEvent, memo, useCallback } from "react";
 import type { PermissionRequest } from "../../types";
 import { cn } from "../../utils/cn";
-
-const TOOL_ICON: Record<string, LucideIcon> = {
-  bash: Terminal,
-  read: FileText,
-  write: PenLine,
-  edit: SquarePen,
-  webfetch: Globe,
-  websearch: Search,
-};
+import { TOOL_ICON } from "./toolIcons";
 
 const TOOL_TITLE: Record<string, string> = {
   bash: "Run this command?",
