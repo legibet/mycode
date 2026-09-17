@@ -203,27 +203,19 @@ export const Sidebar = memo(function Sidebar({
 
   const groups = useMemo(() => {
     const now = new Date();
-    const real = sessions.filter((s) => !s.isDraft);
-
-    const buckets: Record<Bucket, SessionSummary[]> = {
-      today: [],
-      yesterday: [],
-      week: [],
-      older: [],
-    };
-    for (const s of real) {
-      const d = parseDate(s.updated_at) || parseDate(s.created_at);
-      const b = d ? bucketOf(d, now) : "older";
-      buckets[b].push(s);
+    const buckets: Record<
+      Bucket,
+      { session: SessionSummary; date: Date | null }[]
+    > = { today: [], yesterday: [], week: [], older: [] };
+    for (const session of sessions) {
+      if (session.isDraft) continue;
+      const date =
+        parseDate(session.updated_at) || parseDate(session.created_at);
+      buckets[date ? bucketOf(date, now) : "older"].push({ session, date });
     }
-    const groups: { bucket: Bucket; sessions: SessionSummary[] }[] = [];
-    for (const bucket of ["today", "yesterday", "week", "older"] as Bucket[]) {
-      const bucketSessions = buckets[bucket];
-      if (bucketSessions.length > 0) {
-        groups.push({ bucket, sessions: bucketSessions });
-      }
-    }
-    return groups;
+    return (["today", "yesterday", "week", "older"] as Bucket[])
+      .filter((bucket) => buckets[bucket].length > 0)
+      .map((bucket) => ({ bucket, items: buckets[bucket] }));
   }, [sessions]);
 
   return (
@@ -314,18 +306,15 @@ export const Sidebar = memo(function Sidebar({
             no history yet
           </div>
         ) : (
-          groups.map(({ bucket, sessions: items }, gi) => (
+          groups.map(({ bucket, items }, gi) => (
             <div key={bucket} className={cn(gi > 0 && "mt-4")}>
               <div className="px-5 pb-1 text-[11px] tracking-wide text-muted-foreground/55 lowercase">
                 {BUCKET_LABEL[bucket]}
               </div>
-              {items.map((session) => {
+              {items.map(({ session, date }) => {
                 const isActive = activeSession?.id === session.id;
                 const isRunning = session.is_running;
-                const d =
-                  parseDate(session.updated_at) ||
-                  parseDate(session.created_at);
-                const showOlderDate = bucket === "older" && d;
+                const showOlderDate = bucket === "older" && date;
                 return (
                   <div key={session.id} className="group relative">
                     <span
@@ -365,7 +354,7 @@ export const Sidebar = memo(function Sidebar({
                       )}
                       {showOlderDate && !isRunning && (
                         <span className="shrink-0 text-[10px] font-mono text-muted-foreground/45">
-                          {formatOlder(d)}
+                          {formatOlder(date)}
                         </span>
                       )}
                     </button>

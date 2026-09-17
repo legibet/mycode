@@ -494,7 +494,7 @@ export function buildRenderMessages(
   if (!Array.isArray(messages)) return [];
 
   const result: RenderMessage[] = [];
-  const toolIndex: Record<string, ToolIndexEntry> = {};
+  const toolIndex = new Map<string, ToolIndexEntry>();
   let currentAssistant: ChatMessage | null = null;
   let turnStats: TurnStats | undefined;
   let turnStatsOwnerIndex: number | null = null;
@@ -582,7 +582,7 @@ export function buildRenderMessages(
       for (const block of toolResults) {
         const toolUseId = block.tool_use_id;
         const runtime = toolUseId ? toolRuntimeById[toolUseId] : undefined;
-        const entry = toolUseId ? toolIndex[toolUseId] : undefined;
+        const entry = toolUseId ? toolIndex.get(toolUseId) : undefined;
 
         if (entry) {
           // Tool result for a tool_use we already projected — splice the
@@ -624,10 +624,10 @@ export function buildRenderMessages(
         currentAssistant = { ...assistantMessage, content: assistantContent };
         result[result.length - 1] = currentAssistant;
         if (toolUseId) {
-          toolIndex[toolUseId] = {
+          toolIndex.set(toolUseId, {
             messageIndex: result.length - 1,
             blockIndex,
-          };
+          });
         }
       }
 
@@ -676,7 +676,7 @@ export function buildRenderMessages(
       assistantContent.push(renderBlock);
 
       if (block.id) {
-        toolIndex[block.id] = { messageIndex, blockIndex };
+        toolIndex.set(block.id, { messageIndex, blockIndex });
       }
     }
 
