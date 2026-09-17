@@ -188,7 +188,7 @@ export const ProviderCard = memo(function ProviderCard({
                 "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent/60",
               )}
             >
-              <span className="flex size-4 shrink-0 items-center justify-center rounded-[4px] border border-border/60 transition-colors group-hover:border-border group-data-[checked]:border-accent group-data-[checked]:bg-accent">
+              <span className="flex size-4 shrink-0 items-center justify-center rounded-lg border border-border/60 transition-colors group-hover:border-border group-data-checked:border-accent group-data-checked:bg-accent">
                 <Checkbox.Indicator>
                   <Check
                     className="size-3 text-accent-foreground"

@@ -46,7 +46,7 @@ function Payload({ toolName, preview }: { toolName: string; preview: string }) {
         "rounded-md bg-code px-3 py-2 leading-normal text-foreground/80",
         isQuery ? "text-[13px]" : "font-mono text-[12.5px]",
         isCommand &&
-          "max-h-24 overflow-y-auto scrollbar-subtle whitespace-pre-wrap break-words",
+          "max-h-24 overflow-y-auto scrollbar-subtle whitespace-pre-wrap wrap-break-word",
         !isCommand && !isQuery && "break-all",
       )}
     >
