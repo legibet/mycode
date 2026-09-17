@@ -191,6 +191,8 @@ function WindowedMessages({
     };
   }, []);
 
+  // No deps: must run after every render — handleScroll arms the snapshot
+  // during the same event pass that triggers the prepend re-render.
   useLayoutEffect(() => {
     const snapshot = prependSnapshot.current;
     if (snapshot == null) return;
@@ -202,7 +204,7 @@ function WindowedMessages({
     prependSnapshot.current = null;
     followOutputRef.current = isNearBottom(el);
     scheduleLayoutOptimization();
-  }, [isNearBottom, scheduleLayoutOptimization]);
+  });
 
   useLayoutEffect(() => {
     if (!layoutOptimized || !followOutputRef.current) return;
