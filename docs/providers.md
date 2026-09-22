@@ -228,7 +228,7 @@ DeepSeek and Z.AI pin the legacy name via `max_tokens_field`. Generic `openai_ch
 - SDK: `openai` against xAI's Responses endpoint
 - Base URL: `https://api.x.ai/v1`
 - API key env: `XAI_API_KEY`
-- Default models: `grok-4.6`
+- Default models: `grok-4.7`
 - `supports_reasoning_effort`: true (sent through `reasoning.effort`)
 - `auto_discoverable`: true
 - Same stateless replay, `prompt_cache_key`, and image/PDF formats as `openai`

@@ -414,7 +414,7 @@ class XAIAdapter(OpenAIResponsesAdapter):
     label = "xAI"
     default_base_url = "https://api.x.ai/v1"
     env_api_key_names = ("XAI_API_KEY",)
-    default_models = ("grok-4.6",)
+    default_models = ("grok-4.7",)
     _thinking_delta_types = ("response.reasoning_summary_text.delta", "response.reasoning_text.delta")
     _reasoning_text_fields = ("summary", "content")
 
