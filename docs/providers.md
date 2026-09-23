@@ -80,9 +80,9 @@ DeepSeek and Z.AI pin the legacy name via `max_tokens_field`. Generic `openai_ch
 - API: Anthropic Messages API
 - Base URL: `https://api.anthropic.com`
 - API key env: `ANTHROPIC_API_KEY`
-- Default models: `claude-sonnet-5`, `claude-opus-5`
+- Default models: `claude-opus-5-5`, `claude-sonnet-5`
 - `supports_reasoning_effort`: true
-- Default-on Claude 5 models and explicitly enabled thinking use adaptive summarized output; `none` disables thinking
+- Default-on Claude 5 models and explicitly enabled thinking use adaptive summarized output; `none` disables thinking on models that support it (Opus 5.5 rejects it)
 - Sends other explicit values unchanged through `output_config.effort`
 - Replays same-model native `thinking` and `redacted_thinking` unchanged; legacy signature-only blocks remain supported
 - Adds ephemeral `cache_control` to system prompt block and last user content block
@@ -150,9 +150,9 @@ DeepSeek and Z.AI pin the legacy name via `max_tokens_field`. Generic `openai_ch
 - API: OpenAI Responses API
 - Base URL: `https://api.openai.com/v1`
 - API key env: `OPENAI_API_KEY`
-- Default models: `gpt-6-astra`, `gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna`
+- Default models: `gpt-6-astra`, `gpt-6-sol`, `gpt-6-luna`
 - `supports_reasoning_effort`: true (sent through `reasoning.effort`)
-- OpenAI recommends Responses API for reasoning/tool-calling/multi-turn use cases; GPT-6 Astra requires Responses for tool calling and does not support `none` effort. GPT-5.6 defaults to `medium` effort and `low` is the recommended first step for latency-sensitive workloads
+- OpenAI recommends Responses API for reasoning/tool-calling/multi-turn use cases; GPT-6 Astra requires Responses for tool calling and does not support `none` effort. GPT-6 Sol and Luna default to `medium` effort
 - Runs stateless: `store=false`, `include=["reasoning.encrypted_content"]`
 - Requests `reasoning.summary=auto` unless effort is `none`; streams `response.reasoning_summary_text.delta` as canonical thinking and does not surface raw `response.reasoning_text.delta`
 - Final reasoning items use `summary` text for the canonical thinking block and retain full native output items for replay

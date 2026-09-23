@@ -332,7 +332,7 @@ class AnthropicAdapter(AnthropicLikeAdapter):
     label = "Anthropic"
     default_base_url = "https://api.anthropic.com"
     env_api_key_names = ("ANTHROPIC_API_KEY",)
-    default_models = ("claude-sonnet-5", "claude-opus-5")
+    default_models = ("claude-opus-5-5", "claude-sonnet-5")
     supports_reasoning_effort = True
 
     @override

@@ -304,6 +304,25 @@
       "supports_image_input": true,
       "supports_pdf_input": true
     },
+    "claude-opus-5-5": {
+      "context_window": 1000000,
+      "cost": {
+        "cache_read": 0.2,
+        "cache_write": 5,
+        "input": 4,
+        "output": 20
+      },
+      "max_output_tokens": 128000,
+      "reasoning_efforts": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
+      "supports_image_input": true,
+      "supports_pdf_input": true
+    },
     "claude-sonnet-4-5": {
       "context_window": 1000000,
       "cost": {
@@ -1957,6 +1976,64 @@
       "supports_image_input": true,
       "supports_pdf_input": true
     },
+    "gpt-6-luna": {
+      "context_window": 1050000,
+      "cost": {
+        "cache_read": 0.01,
+        "cache_write": 0.125,
+        "input": 0.1,
+        "output": 0.5,
+        "tiers": [
+          {
+            "cache_read": 0.02,
+            "cache_write": 0.25,
+            "input": 0.2,
+            "output": 0.75,
+            "size": 272000
+          }
+        ]
+      },
+      "max_output_tokens": 128000,
+      "reasoning_efforts": [
+        "none",
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
+      "supports_image_input": true,
+      "supports_pdf_input": true
+    },
+    "gpt-6-sol": {
+      "context_window": 1050000,
+      "cost": {
+        "cache_read": 0.2,
+        "cache_write": 2.5,
+        "input": 2,
+        "output": 10,
+        "tiers": [
+          {
+            "cache_read": 0.4,
+            "cache_write": 5,
+            "input": 4,
+            "output": 15,
+            "size": 272000
+          }
+        ]
+      },
+      "max_output_tokens": 128000,
+      "reasoning_efforts": [
+        "none",
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
+      "supports_image_input": true,
+      "supports_pdf_input": true
+    },
     "gpt-image-1": {
       "context_window": 0,
       "max_output_tokens": 0,
@@ -2445,6 +2522,42 @@
       "max_output_tokens": 131072,
       "reasoning_efforts": [],
       "supports_image_input": false,
+      "supports_pdf_input": false
+    },
+    "mimo-v2.6-flash": {
+      "context_window": 1048576,
+      "cost": {
+        "cache_read": 0.0028,
+        "input": 0.14,
+        "output": 0.28
+      },
+      "max_output_tokens": 131072,
+      "reasoning_efforts": [],
+      "supports_image_input": true,
+      "supports_pdf_input": true
+    },
+    "mimo-v2.6-pro": {
+      "context_window": 1048576,
+      "cost": {
+        "cache_read": 0.0036,
+        "input": 0.435,
+        "output": 0.87
+      },
+      "max_output_tokens": 131072,
+      "reasoning_efforts": [],
+      "supports_image_input": true,
+      "supports_pdf_input": true
+    },
+    "mimo-v2.6-pro-ultraspeed": {
+      "context_window": 1048576,
+      "cost": {
+        "cache_read": 0.036,
+        "input": 4.35,
+        "output": 8.7
+      },
+      "max_output_tokens": 131072,
+      "reasoning_efforts": [],
+      "supports_image_input": true,
       "supports_pdf_input": false
     },
     "ministral-3b-latest": {
