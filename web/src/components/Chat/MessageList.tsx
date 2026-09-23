@@ -1,13 +1,18 @@
 /**
  * Scrollable message list with auto-scroll.
- * Only auto-scrolls when the user is already near the bottom.
+ * Only auto-scrolls when the user is already near the bottom; away from it,
+ * a button jumps back to the latest output.
  * Empty state: blinking cursor terminal prompt.
  */
 
+import { ArrowDown } from "lucide-react";
 import {
+  Component,
   memo,
   type ReactNode,
+  type RefObject,
   useCallback,
+  useEffect,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -15,6 +20,8 @@ import {
 } from "react";
 import type { RenderMessage } from "../../types";
 import { isCompactMarker } from "../../types";
+import { cn } from "../../utils/cn";
+import { isInterrupted } from "../../utils/messages";
 import { CompactMarker } from "./CompactMarker";
 import { MessageBubble } from "./MessageBubble";
 
@@ -84,6 +91,109 @@ interface PrependSnapshot {
   scrollTop: number;
 }
 
+interface SettleSnapshot {
+  /** Work of the turn that just stopped streaming. */
+  work: HTMLElement;
+  /**
+   * The work edge to hold, at an offset from the container's top: the bottom
+   * at its old offset for a reader below the work, the top at 0 for a reader
+   * inside it, so the summary row lands where they were. Null for a reader
+   * above it, where nothing moves.
+   */
+  pin: { edge: "top" | "bottom"; offset: number } | null;
+}
+
+interface SettleAnchorProps {
+  loading: boolean;
+  containerRef: RefObject<HTMLDivElement | null>;
+  followOutputRef: RefObject<boolean>;
+  children: ReactNode;
+}
+
+/**
+ * Keeps the reader in place while a just-finished turn folds its work. The
+ * fold commits with the end of streaming, so the reader's position has to be
+ * read before React updates the DOM, which only getSnapshotBeforeUpdate can
+ * do. The pin is re-applied on each resize until the fold's transitions end
+ * or the user scrolls.
+ */
+class SettleAnchor extends Component<SettleAnchorProps> {
+  private stopSettle: (() => void) | null = null;
+
+  getSnapshotBeforeUpdate(prevProps: SettleAnchorProps): SettleSnapshot | null {
+    const el = this.props.containerRef.current;
+    if (!el || !prevProps.loading || this.props.loading) return null;
+    const work = el.querySelector<HTMLElement>("[data-streaming] [data-work]");
+    if (!work) return null;
+    const readerTop = el.getBoundingClientRect().top;
+    const { top, bottom } = work.getBoundingClientRect();
+    if (bottom <= readerTop) {
+      return { work, pin: { edge: "bottom", offset: bottom - readerTop } };
+    }
+    if (top < readerTop) return { work, pin: { edge: "top", offset: 0 } };
+    return { work, pin: null };
+  }
+
+  componentDidUpdate(
+    _prevProps: SettleAnchorProps,
+    _prevState: unknown,
+    snapshot: SettleSnapshot | null,
+  ) {
+    const el = this.props.containerRef.current;
+    if (!el || !snapshot?.work.isConnected) return;
+    const { work, pin } = snapshot;
+    // A turn that stopped or failed stays open, so nothing moves.
+    if (work.getAttribute("data-work") !== "folded") return;
+    const { followOutputRef } = this.props;
+
+    const hold = () => {
+      if (followOutputRef.current) {
+        el.scrollTop = el.scrollHeight;
+        return;
+      }
+      if (!pin) return;
+      const rect = work.getBoundingClientRect();
+      const edge = pin.edge === "top" ? rect.top : rect.bottom;
+      const delta = edge - el.getBoundingClientRect().top - pin.offset;
+      if (delta !== 0) el.scrollTop += delta;
+    };
+    this.stopSettle?.();
+    hold();
+
+    // Wait for transitions only: a looping animation in the work never ends.
+    const transitions =
+      work
+        .getAnimations?.({ subtree: true })
+        .filter((animation) => animation instanceof CSSTransition) ?? [];
+    if (transitions.length === 0) return;
+
+    const observer = new ResizeObserver(hold);
+    observer.observe(work);
+    const input = new AbortController();
+    const stop = () => {
+      observer.disconnect();
+      input.abort();
+      if (this.stopSettle === stop) this.stopSettle = null;
+    };
+    this.stopSettle = stop;
+    void Promise.allSettled(transitions.map((t) => t.finished)).then(stop);
+    // Scroll input ends the pin; its own scrollTop writes are not input.
+    const { signal } = input;
+    for (const type of ["wheel", "touchstart", "pointerdown"]) {
+      el.addEventListener(type, stop, { passive: true, signal });
+    }
+    el.ownerDocument.addEventListener("keydown", stop, { signal });
+  }
+
+  componentWillUnmount() {
+    this.stopSettle?.();
+  }
+
+  render() {
+    return this.props.children;
+  }
+}
+
 function WindowedMessages({
   messages,
   loading,
@@ -93,11 +203,14 @@ function WindowedMessages({
   emptyStateFooter,
 }: WindowedMessagesProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const contentRef = useRef<HTMLDivElement | null>(null);
   const followOutputRef = useRef(true);
+  const lastScrollTop = useRef(0);
   const previousOutputVersionRef = useRef("");
   const prependSnapshot = useRef<PrependSnapshot | null>(null);
   const layoutMeasureFrame = useRef<number | null>(null);
   const [layoutOptimized, setLayoutOptimized] = useState(false);
+  const [awayFromBottom, setAwayFromBottom] = useState(false);
   const [visibleStartIndex, setVisibleStartIndex] = useState(() =>
     getInitialStartIndex(messages.length),
   );
@@ -152,7 +265,15 @@ function WindowedMessages({
     const el = containerRef.current;
     if (!el) return;
 
-    followOutputRef.current = isNearBottom(el);
+    // Only scrolling up leaves the bottom on purpose: a smooth jump to the
+    // latest output passes through positions away from it.
+    const nearBottom = isNearBottom(el);
+    if (nearBottom) followOutputRef.current = true;
+    else if (el.scrollTop < lastScrollTop.current) {
+      followOutputRef.current = false;
+    }
+    lastScrollTop.current = el.scrollTop;
+    setAwayFromBottom(!nearBottom);
 
     if (el.scrollTop > LOAD_PREVIOUS_THRESHOLD || effectiveStartIndex === 0) {
       return;
@@ -168,11 +289,31 @@ function WindowedMessages({
     );
   }, [effectiveStartIndex, isNearBottom]);
 
+  const jumpToLatest = useCallback(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    followOutputRef.current = true;
+    el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+  }, []);
+
   useLayoutEffect(() => {
     followOutputRef.current = true;
     scrollToBottom();
     scheduleLayoutOptimization();
   }, [scheduleLayoutOptimization, scrollToBottom]);
+
+  // Expanding work grows the content without a scroll event.
+  useEffect(() => {
+    const el = containerRef.current;
+    const content = contentRef.current;
+    if (!el || !content) return;
+    const observer = new ResizeObserver(() =>
+      setAwayFromBottom(!isNearBottom(el)),
+    );
+    observer.observe(el);
+    observer.observe(content);
+    return () => observer.disconnect();
+  }, [isNearBottom]);
 
   useLayoutEffect(() => {
     return () => {
@@ -214,84 +355,114 @@ function WindowedMessages({
   }, [outputVersion, scrollToBottom]);
 
   return (
-    <div
-      ref={containerRef}
-      onScroll={handleScroll}
-      className="min-h-0 flex-1 overflow-y-auto pb-4 pt-6 [overflow-anchor:none] scrollbar-gutter-both"
-    >
-      <div className="mx-auto flex min-h-full max-w-4xl flex-col gap-6 max-md:max-w-none max-md:gap-5">
-        {messages.length === 0 && (
-          <div className="flex flex-1 flex-col items-center justify-center p-8 text-center">
-            <h1 className="font-display text-3xl tracking-[-0.022em] text-foreground/70">
-              mycode
-              <span className="ml-0.5 inline-block h-6 w-0.5 animate-cursor-blink bg-accent/60 align-middle" />
-            </h1>
-            {emptyStateFooter && <div className="mt-8">{emptyStateFooter}</div>}
-          </div>
-        )}
-        {visibleMessages.map((message, visibleIndex) => {
-          const index = effectiveStartIndex + visibleIndex;
-          const renderKey = message.renderKey || `msg-${index}`;
-          const isStreamingMessage =
-            loading &&
-            index === messages.length - 1 &&
-            !isCompactMarker(message) &&
-            message.role === "assistant";
-
-          if (isCompactMarker(message)) {
-            return (
-              <div
-                key={renderKey}
-                className="chat-message-shell"
-                data-layout-optimized={layoutOptimized}
-              >
-                <CompactMarker />
-              </div>
-            );
-          }
-
-          return (
-            <div
-              key={renderKey}
-              className="chat-message-shell"
-              data-layout-optimized={layoutOptimized}
-            >
-              <MessageBubble
-                role={message.role}
-                blocks={message.content}
-                sourceIndex={message.sourceIndex}
-                isStreaming={isStreamingMessage}
-                isLoading={loading}
-                model={message.meta?.model}
-                stats={message.stats}
-                onRewindAndSend={onRewindAndSend}
-              />
-            </div>
-          );
-        })}
-        {/* The freshly-appended marker replaces the pending divider in place. */}
-        {showPendingCompact && (
-          <div className="chat-message-shell">
-            <CompactMarker pending />
-          </div>
-        )}
-        {!compacting && compactError && (
+    <div className="relative flex min-h-0 flex-1 flex-col">
+      <div
+        ref={containerRef}
+        onScroll={handleScroll}
+        className="min-h-0 flex-1 overflow-y-auto pb-4 pt-6 [overflow-anchor:none] scrollbar-gutter-both"
+      >
+        <SettleAnchor
+          loading={loading}
+          containerRef={containerRef}
+          followOutputRef={followOutputRef}
+        >
           <div
-            role="status"
-            title={compactError}
-            className="flex select-none items-center justify-center px-2 py-1"
+            ref={contentRef}
+            className="mx-auto flex min-h-full max-w-4xl flex-col gap-6 max-md:max-w-none max-md:gap-5"
           >
-            <span className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground/50">
-              {compactError === "nothing to compact"
-                ? "nothing to compact"
-                : "compaction failed"}
-            </span>
+            {messages.length === 0 && (
+              <div className="flex flex-1 flex-col items-center justify-center p-8 text-center">
+                <h1 className="font-display text-3xl tracking-[-0.022em] text-foreground/70">
+                  mycode
+                  <span className="ml-0.5 inline-block h-6 w-0.5 animate-cursor-blink bg-accent/60 align-middle" />
+                </h1>
+                {emptyStateFooter && (
+                  <div className="mt-8">{emptyStateFooter}</div>
+                )}
+              </div>
+            )}
+            {visibleMessages.map((message, visibleIndex) => {
+              const index = effectiveStartIndex + visibleIndex;
+              const renderKey = message.renderKey || `msg-${index}`;
+              const isStreamingMessage =
+                loading &&
+                index === messages.length - 1 &&
+                !isCompactMarker(message) &&
+                message.role === "assistant";
+
+              if (isCompactMarker(message)) {
+                return (
+                  <div
+                    key={renderKey}
+                    className="chat-message-shell"
+                    data-layout-optimized={layoutOptimized}
+                  >
+                    <CompactMarker />
+                  </div>
+                );
+              }
+
+              return (
+                <div
+                  key={renderKey}
+                  className="chat-message-shell"
+                  data-layout-optimized={layoutOptimized}
+                  data-streaming={isStreamingMessage || undefined}
+                >
+                  <MessageBubble
+                    role={message.role}
+                    blocks={message.content}
+                    sourceIndex={message.sourceIndex}
+                    isStreaming={isStreamingMessage}
+                    isLoading={loading}
+                    model={message.meta?.model}
+                    stats={message.stats}
+                    interrupted={isInterrupted(message.meta)}
+                    onRewindAndSend={onRewindAndSend}
+                  />
+                </div>
+              );
+            })}
+            {/* The freshly-appended marker replaces the pending divider in place. */}
+            {showPendingCompact && (
+              <div className="chat-message-shell">
+                <CompactMarker pending />
+              </div>
+            )}
+            {!compacting && compactError && (
+              <div
+                role="status"
+                title={compactError}
+                className="flex select-none items-center justify-center px-2 py-1"
+              >
+                <span className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground/50">
+                  {compactError === "nothing to compact"
+                    ? "nothing to compact"
+                    : "compaction failed"}
+                </span>
+              </div>
+            )}
+            {(messages.length > 0 || showPendingCompact || compactError) && (
+              <div className="h-4" />
+            )}
           </div>
-        )}
-        {(messages.length > 0 || showPendingCompact || compactError) && (
-          <div className="h-4" />
-        )}
+        </SettleAnchor>
       </div>
+      {messages.length > 0 && (
+        <button
+          type="button"
+          aria-label="Scroll to latest"
+          title="Scroll to latest"
+          inert={!awayFromBottom}
+          onClick={jumpToLatest}
+          className={cn(
+            "absolute bottom-3 left-1/2 flex size-8 -translate-x-1/2 items-center justify-center rounded-full border border-border/60 bg-background text-muted-foreground shadow-sm transition-[color,opacity,scale] duration-150 hover:text-foreground active:scale-95",
+            !awayFromBottom && "scale-90 opacity-0",
+          )}
+        >
+          <ArrowDown className="size-4" />
+        </button>
+      )}
     </div>
   );
 }

@@ -313,6 +313,48 @@ export function updateLatestThinkingDuration(
   return messages;
 }
 
+/**
+ * Mark the tail assistant as stopped, as the SDK marks the partial response
+ * it persists. A stop between responses leaves no assistant at the tail.
+ */
+export function markTailAssistantStopped(
+  messages: ChatMessage[],
+  stopReason: "error" | "cancelled",
+): ChatMessage[] {
+  const tail = messages.at(-1);
+  if (tail?.role !== "assistant") return messages;
+  return [
+    ...messages.slice(0, -1),
+    { ...tail, meta: { ...tail.meta, stop_reason: stopReason } },
+  ];
+}
+
+/** Whether a response ended early instead of completing. */
+export function isInterrupted(meta: MessageMeta | undefined): boolean {
+  return meta?.stop_reason === "error" || meta?.stop_reason === "cancelled";
+}
+
+/**
+ * Split an assistant turn's blocks into its work, its answer (the trailing
+ * text), and an automatic compaction after the answer, which folds with the
+ * work.
+ */
+export function splitTurn(blocks: MessageBlock[]): {
+  work: MessageBlock[];
+  answer: MessageBlock[];
+  afterAnswer: MessageBlock[];
+} {
+  let answerEnd = blocks.length;
+  while (blocks[answerEnd - 1]?.type === "compact") answerEnd--;
+  let answerStart = answerEnd;
+  while (blocks[answerStart - 1]?.type === "text") answerStart--;
+  return {
+    work: blocks.slice(0, answerStart),
+    answer: blocks.slice(answerStart, answerEnd),
+    afterAnswer: blocks.slice(answerEnd),
+  };
+}
+
 export function updateLatestAssistantMeta(
   messages: ChatMessage[],
   patch: Partial<MessageMeta>,
@@ -412,15 +454,36 @@ function addCost(total: Cost | undefined, request: Cost | undefined) {
   return result;
 }
 
+const ZONED_TIMESTAMP = /(?:Z|[+-]\d{2}:?\d{2})$/i;
+
+/** Milliseconds between two SDK timestamps; zone-free stamps are unknown, as in the SDK. */
+function elapsedMs(
+  start: string | undefined,
+  end: string | undefined,
+): number | undefined {
+  if (
+    !start ||
+    !end ||
+    !ZONED_TIMESTAMP.test(start) ||
+    !ZONED_TIMESTAMP.test(end)
+  ) {
+    return undefined;
+  }
+  const ms = Date.parse(end) - Date.parse(start);
+  return Number.isNaN(ms) ? undefined : Math.max(0, ms);
+}
+
 /**
- * Fold one raw assistant's meta into the turn stats of its render bubble.
+ * Fold one raw record's meta into the turn stats of its render bubble.
  *
  * Two mutually exclusive shapes feed this:
  * - Streaming: SSE usage events patch turn-CUMULATIVE `turn_usage` /
- *   `turn_cost` onto each raw message, so the latest raw carrying them
- *   replaces everything accumulated before — summing would double-count.
+ *   `turn_cost` / `turn_duration_ms` onto each raw message, so the latest
+ *   raw carrying them replaces everything accumulated before — summing would
+ *   double-count.
  * - History: each raw carries its persisted per-request `usage` and `cost`,
- *   which sum across the turn.
+ *   which sum across the turn. Duration comes from the records' timestamps
+ *   in buildRenderMessages().
  *
  * Usage and cost are independent. A new usage record without a context total
  * clears the previous occupancy; a raw with neither usage nor cost contributes
@@ -448,6 +511,9 @@ function foldTurnStats(
     }
     const cost = readCost(meta.turn_cost);
     if (cost) stats.cost = cost;
+    if (typeof meta.turn_duration_ms === "number") {
+      stats.duration_ms = meta.turn_duration_ms;
+    }
     return stats;
   }
 
@@ -496,18 +562,32 @@ export function buildRenderMessages(
   const result: RenderMessage[] = [];
   const toolIndex = new Map<string, ToolIndexEntry>();
   let currentAssistant: ChatMessage | null = null;
+  // A turn runs from a real user message to the next one and renders as one
+  // assistant bubble, which owns the turn's stats.
   let turnStats: TurnStats | undefined;
-  let turnStatsOwnerIndex: number | null = null;
+  let turnOwnerIndex: number | null = null;
+  let turnStartedAt: string | undefined;
+  // Latest persisted record that the SDK reported a usage event for.
+  let turnEndedAt: string | undefined;
 
-  const commitTurnStats = () => {
-    if (turnStats && turnStatsOwnerIndex !== null) {
-      const owner = result[turnStatsOwnerIndex];
+  const commitTurn = () => {
+    // A streamed duration wins: a reattached run's history ends before the
+    // records still streaming.
+    const durationMs =
+      turnStats?.duration_ms ?? elapsedMs(turnStartedAt, turnEndedAt);
+    if (durationMs !== undefined) {
+      turnStats = { ...turnStats, duration_ms: durationMs };
+    }
+    if (turnStats && turnOwnerIndex !== null) {
+      const owner = result[turnOwnerIndex];
       if (owner && !isCompactMarker(owner)) {
-        result[turnStatsOwnerIndex] = { ...owner, stats: turnStats };
+        result[turnOwnerIndex] = { ...owner, stats: turnStats };
       }
     }
     turnStats = undefined;
-    turnStatsOwnerIndex = null;
+    turnOwnerIndex = null;
+    turnStartedAt = undefined;
+    turnEndedAt = undefined;
   };
 
   const ensureAssistantRenderMessage = (sourceIndex: number) => {
@@ -522,19 +602,29 @@ export function buildRenderMessages(
     const blocks = getBlocks(message);
 
     if (role === "compact") {
-      const contextTokens = turnStats?.context_tokens;
-      turnStats = foldTurnStats(
-        turnStats,
-        message?.meta as MessageMeta | undefined,
-      );
-      // The summary request is billed into the turn, but its total is not the
-      // post-compact context occupancy. Keep the last normal request's value.
-      if (turnStats) {
-        if (contextTokens === undefined) delete turnStats.context_tokens;
-        else turnStats.context_tokens = contextTokens;
+      const meta = message?.meta as MessageMeta | undefined;
+      if (meta?.trigger !== "auto") {
+        // Manual and untagged markers stand alone between turns.
+        commitTurn();
+        result.push(createCompactMarker(sourceIndex));
+        currentAssistant = null;
+        continue;
       }
-      result.push(createCompactMarker(sourceIndex));
-      currentAssistant = null;
+      // The summary request is billed to the turn, but the context occupancy
+      // after compaction is unknown until the next request reports it.
+      turnStats = foldTurnStats(turnStats, meta);
+      if (turnStats) delete turnStats.context_tokens;
+      if (meta.created_at) turnEndedAt = meta.created_at;
+      const assistantMessage = ensureAssistantRenderMessage(sourceIndex);
+      currentAssistant = {
+        ...assistantMessage,
+        content: [
+          ...getBlocks(assistantMessage),
+          { type: "compact", renderKey: `compact:${sourceIndex}` },
+        ],
+      };
+      turnOwnerIndex = result.length - 1;
+      result[turnOwnerIndex] = currentAssistant;
       continue;
     }
 
@@ -561,7 +651,8 @@ export function buildRenderMessages(
       }
 
       if (userBlocks.length > 0) {
-        commitTurnStats();
+        commitTurn();
+        turnStartedAt = (message?.meta as MessageMeta | undefined)?.created_at;
         const userMsg: ChatMessage = {
           role: "user",
           content: userBlocks,
@@ -695,12 +786,16 @@ export function buildRenderMessages(
       delete merged.meta;
     }
     turnStats = foldTurnStats(turnStats, rawMeta);
-    if (turnStats) turnStatsOwnerIndex = messageIndex;
+    // A partial response persisted on error or cancel had no usage event.
+    if (rawMeta?.created_at && !isInterrupted(rawMeta)) {
+      turnEndedAt = rawMeta.created_at;
+    }
+    turnOwnerIndex = messageIndex;
     currentAssistant = merged;
     result[messageIndex] = merged;
   }
 
-  commitTurnStats();
+  commitTurn();
   return result.filter((message, index) => {
     if (isCompactMarker(message)) return true;
     return (

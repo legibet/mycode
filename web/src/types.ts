@@ -132,13 +132,21 @@ export interface DocumentBlock {
   meta?: Record<string, unknown>;
 }
 
+/** Render-only: an automatic compaction inside a turn's work. */
+export interface CompactBlock {
+  type: "compact";
+  renderKey?: string;
+  meta?: Record<string, unknown>;
+}
+
 export type MessageBlock =
   | TextBlock
   | ThinkingBlock
   | ToolUseBlock
   | ToolResultBlock
   | ImageBlock
-  | DocumentBlock;
+  | DocumentBlock
+  | CompactBlock;
 
 interface AttachedImageFile {
   id: string;
@@ -193,8 +201,13 @@ export interface Cost {
 }
 
 export interface MessageMeta {
+  /** ISO-8601 UTC commit time recorded by the SDK (history path). */
+  created_at?: string;
   model?: string;
   provider?: string;
+  stop_reason?: string;
+  /** Compact markers only: what started the compaction. */
+  trigger?: "auto" | "manual";
   context_window?: number;
   /** Per-request token counts persisted by the SDK (history path). */
   usage?: Record<string, number>;
@@ -204,6 +217,7 @@ export interface MessageMeta {
   context_tokens?: number | null;
   turn_usage?: Record<string, number>;
   turn_cost?: Cost | null;
+  turn_duration_ms?: number | null;
   [key: string]: unknown;
 }
 
@@ -218,6 +232,8 @@ export interface TurnStats {
   context_tokens?: number;
   context_window?: number;
   cost?: Cost;
+  /** Opening user message to the latest record reported by a usage event. */
+  duration_ms?: number;
 }
 
 export interface ChatMessage {
@@ -298,6 +314,7 @@ interface CancelledEvent extends StreamEventBase {
 
 interface CompactEvent extends StreamEventBase {
   type: "compact";
+  trigger: "auto" | "manual";
 }
 
 interface PermissionRequestEvent extends StreamEventBase {
@@ -323,6 +340,8 @@ interface UsageEvent extends StreamEventBase {
   turn_usage?: Record<string, number>;
   /** Turn-cumulative cost. */
   turn_cost?: Cost | null;
+  /** Elapsed time from the turn's user message to the record this event follows. */
+  turn_duration_ms?: number;
   /** Pre-run session cost + turn cost, composed by the server. */
   session_cost?: number | null;
 }

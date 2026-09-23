@@ -1,5 +1,6 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
+import type { MessageBlock } from "../../types";
 import { MessageBubble } from "./MessageBubble";
 
 const blocks = [{ type: "text" as const, text: "Done" }];
@@ -76,5 +77,72 @@ describe("turn stats card", () => {
       "Input1$0.0000Output1<$0.0001Total2<$0.0001",
     );
     expect(screen.getByText("m · <$0.0001")).toBeInTheDocument();
+  });
+});
+
+describe("turn work folding", () => {
+  const turn: MessageBlock[] = [
+    {
+      type: "tool_use",
+      id: "t1",
+      name: "read",
+      input: { path: "a.py" },
+      renderKey: "t1",
+      runtime: {
+        pending: false,
+        output: "",
+        finalOutput: "1 line",
+        metadata: null,
+        isError: false,
+      },
+    },
+    { type: "text", text: "The answer", renderKey: "answer" },
+  ];
+
+  function renderTurn(props: { isStreaming: boolean; interrupted?: boolean }) {
+    return (
+      // biome-ignore lint/a11y/useValidAriaRole: component prop is the message role
+      <MessageBubble
+        role="assistant"
+        blocks={turn}
+        isLoading={props.isStreaming}
+        isStreaming={props.isStreaming}
+        interrupted={props.interrupted}
+        stats={{ duration_ms: 23_000 }}
+      />
+    );
+  }
+
+  it("folds the work once the turn ends, keeping the answer and tool state", () => {
+    const { rerender } = render(renderTurn({ isStreaming: true }));
+    const answer = screen.getByText("The answer");
+    const tool = screen.getByRole("button", { name: /read/ });
+    fireEvent.click(tool);
+    expect(screen.queryByText(/Worked/)).toBeNull();
+
+    rerender(renderTurn({ isStreaming: false }));
+
+    expect(
+      screen.getByRole("button", { name: "Worked for 23s · 1 read" }),
+    ).toHaveAttribute("aria-expanded", "false");
+    expect(screen.getByText("The answer")).toBe(answer);
+    expect(tool.isConnected).toBe(true);
+    expect(tool).toHaveAttribute("aria-expanded", "true");
+  });
+
+  it("shows a history turn's work when an error unfolds it", () => {
+    // A failed send appends its error to the previous, folded turn.
+    const { rerender } = render(renderTurn({ isStreaming: false }));
+    rerender(renderTurn({ isStreaming: false, interrupted: true }));
+
+    expect(screen.queryByText(/Worked/)).toBeNull();
+    expect(screen.getByRole("button", { name: /read/ })).toBeInTheDocument();
+  });
+
+  it("keeps a turn that ended on an error flat", () => {
+    render(renderTurn({ isStreaming: false, interrupted: true }));
+
+    expect(screen.queryByText(/Worked/)).toBeNull();
+    expect(screen.getByRole("button", { name: /read/ })).toBeInTheDocument();
   });
 });

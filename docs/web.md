@@ -14,6 +14,7 @@ web/src/
       InputArea.tsx            # composer controls and uploads
       MessageList.tsx          # message windowing and scroll behavior
       MessageBubble.tsx        # message block rendering
+      WorkSection.tsx          # folded turn work and its summary row
       ToolCard.tsx             # tool execution rendering
     Settings/                  # provider configuration editor
     ui/                        # shared UI primitives
@@ -41,7 +42,7 @@ Tests live beside the code they cover. `src/test/setup.ts` contains the shared V
 
 The render-ready list `messages: RenderMessage[]` (where `RenderMessage = ChatMessage | CompactMarkerMessage`) is derived via `useMemo(buildRenderMessages(rawMessages, toolRuntimeById))`. There is no second copy of state to keep in sync — every reducer transition produces a new `rawMessages` and/or `toolRuntimeById` reference and the projection is recomputed.
 
-`CompactMarkerMessage` (`{kind: "compact-marker", sourceIndex, renderKey}`) carries no content of its own — it just tells `MessageList` to render `CompactMarker` instead of `MessageBubble`. Use the `isCompactMarker(msg)` type guard from `types.ts` to narrow when iterating.
+`CompactMarkerMessage` (`{kind: "compact-marker", sourceIndex, renderKey}`) carries no content of its own — it just tells `MessageList` to render `CompactMarker` instead of `MessageBubble`. Use the `isCompactMarker(msg)` type guard from `types.ts` to narrow when iterating. Only manual and untagged compact markers become `CompactMarkerMessage`s; an automatic one (`meta.trigger: "auto"`) belongs to its turn and becomes a render-only `{type: "compact"}` block in that turn's bubble.
 
 State is managed via `useReducer` with actions:
 
@@ -51,13 +52,14 @@ State is managed via `useReducer` with actions:
 - `apply_event` — apply one SSE event to `rawMessages` / `toolRuntimeById`
 - `rollback` — restore the snapshot taken before an optimistic turn
 
-`buildRenderMessages()` in `utils/messages.ts` is the single projection used by both initial load and live streaming: tool results visually attach to their `tool_use`, multiple assistant turns of a tool loop merge into one bubble, and every `role: "compact"` entry surfaces as a `CompactMarkerMessage`. A live `compact` SSE event appends a `{role: "compact"}` entry to `rawMessages`; the marker appears on the next render.
+`buildRenderMessages()` in `utils/messages.ts` is the single projection used by both initial load and live streaming. A turn runs from a real user message to the next one and renders as one assistant bubble: tool results visually attach to their `tool_use`, the assistant messages of a tool loop merge, and automatic compaction stays inside the turn. A live `compact` SSE event appends a `{role: "compact", meta: {trigger}}` entry to `rawMessages`, which the next render projects the same way as the persisted marker.
 
-`buildRenderMessages()` also derives `TurnStats` for assistant footers:
+`buildRenderMessages()` also derives `TurnStats` for each turn's bubble:
 
 - History sums persisted per-request `usage` and `cost`. Missing costs are skipped; any total-only request downgrades the turn cost to total-only.
-- Streaming uses the latest cumulative `turn_usage` and `turn_cost` without summing prior events. Missing cost fields clear stale values.
-- Compact requests count toward the turn, but do not replace normal context occupancy. If a marker splits the reply, only the final assistant segment owns the stats.
+- Streaming uses the latest cumulative `turn_usage`, `turn_cost`, and `turn_duration_ms` without summing prior events. Missing fields clear stale values.
+- History `duration_ms` runs from the opening user message's `meta.created_at` to that of the turn's last completed assistant or automatic compact marker, the records the SDK sends `usage` for. Partial responses (`stop_reason` `error` / `cancelled`) are skipped, so a reload matches the streamed value. A streamed `turn_duration_ms` wins over timestamps: a reattached run's history ends before the records still streaming.
+- Automatic compaction bills its summary request to the turn and leaves the context occupancy unknown until the next request. Manual markers stand alone and add nothing to a turn.
 - `null` means unknown and is omitted by the UI. The Web never resolves model pricing.
 
 The composer shows `context % · session cost`; assistant footers show model and turn cost. `currentContext` uses the latest post-compact context. Mobile shows only the percentage.
@@ -74,15 +76,33 @@ Rendering rules:
 - `tool_use` blocks → `ToolCard` (with matching `tool_result` and live runtime folded in)
 - `text` blocks → `MarkdownBlock`
 - `image` blocks → inline image preview in `MessageBubble`
-- `compact-marker` entries → `CompactMarker` (a thin labelled divider, no interactivity)
+- `compact` blocks and `compact-marker` entries → `CompactMarker` (a thin labelled divider, no interactivity)
 
-`MessageList` renders long histories as a tail window: initial session load renders the latest messages and scrolls to the bottom before paint. Scrolling near the top prepends older messages in batches and preserves the current viewport by restoring the previous distance from the bottom. Auto-scroll follows incoming message updates only while the user is already near the bottom; local height changes such as expanding tools do not trigger it.
+Turn work folding (`WorkSection.tsx`, `splitTurn()` in `utils/messages.ts`):
+
+- `splitTurn()` splits an assistant turn into its work, its answer (the trailing text), and an automatic compaction after the answer.
+- While the turn runs, `WorkSection` renders the work open with no summary row, so a first tool call inserts nothing. It holds the work from the first block on, so folding never remounts the work or the answer.
+- A finished turn folds when it has an answer, a tool call or automatic compaction, and a last response that is not interrupted (`stop_reason` `error` / `cancelled`). Otherwise it stays flat. Live `error` and `cancelled` events mark the tail assistant the way the SDK marks the partial it persists.
+- Folding fades in one summary row, `Worked for 23s · 2 edits · 1 command · 5 reads · 1 failed`, and collapses the body, including a compaction after the answer, with the same grid-rows and opacity transition as `ReasoningBlock`. A history turn mounts its work the first time it opens and keeps it.
+- Tools are counted by name, side effects first, at most three segments plus `+N more` for the remaining calls. `failed` counts error results except the SDK's `error: cancelled`.
+- Copy takes the answer text only.
+
+`MessageList` renders long histories as a tail window: initial session load renders the latest messages and scrolls to the bottom before paint. Scrolling near the top prepends older messages in batches and preserves the current viewport by restoring the previous distance from the bottom. Auto-scroll follows incoming message updates only while the user is already near the bottom; local height changes such as expanding tools do not trigger it. Following stops when the user scrolls up away from the bottom and resumes near it. Away from the bottom, including after content grows without a scroll, a round arrow button fades in; clicking it follows again and smooth-scrolls to the latest output.
+
+The fold commits with the end of streaming, so `SettleAnchor` reads the reader's position in `getSnapshotBeforeUpdate` and, if the work folded, holds it until the fold's transitions end:
+
+- reading below the work: the work's bottom edge, and so the answer, stays put;
+- reading inside the work: the summary row moves to the top edge;
+- reading above the work: nothing moves;
+- following the bottom: stays at the bottom.
+
+Any scroll input (wheel, touch, pointer, key) ends the hold. Manual toggles need no correction: the body sits below the row that was clicked.
 
 ## Streaming
 
 `useChat.ts` follows the `docs/api.md` contract: `POST /api/chat` returns `{run, session}`; `GET /api/runs/{run_id}/stream` feeds each `data:` line into the reducer as a `StreamEvent`; `data: [DONE]` ends the stream. On disconnect the UI reloads via `GET /api/sessions/{id}`; a 409 on send attaches to the existing run's stream.
 
-A live `compact` SSE event is consumed by the reducer at the position it arrives — the marker lands between whatever just streamed and whatever streams next, mirroring where the agent emitted it (e.g. between two tool calls of the same turn). The server has already persisted the `compact` JSONL record at the same point, so a later session reload renders the same marker without any extra round-trip.
+A live `compact` SSE event is consumed by the reducer at the position it arrives — the marker lands between whatever just streamed and whatever streams next, mirroring where the agent emitted it (e.g. between two tool calls of the same turn). The server has already persisted the `compact` JSONL record at the same point with the same `trigger`, so a later session reload renders the same result without any extra round-trip.
 
 `permission_request` opens the approval prompt and `permission_resolved` clears it. `cancelled` clears pending permissions and tool activity without adding an error message.
 

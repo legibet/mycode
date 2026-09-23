@@ -43,6 +43,7 @@ import {
   createAssistantMessage,
   createUserMessage,
   createUserTextMessage,
+  markTailAssistantStopped,
   updateLatestAssistantMeta,
   updateLatestThinkingDuration,
 } from "../utils/messages";
@@ -343,12 +344,14 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
           "text",
           `\n\n**Error:** ${event.message || "Unknown"}`,
         );
+        rawMessages = markTailAssistantStopped(rawMessages, "error");
       } else if (event.type === "cancelled") {
         for (const [id, runtime] of Object.entries(toolRuntimeById)) {
           if (runtime.pending) {
             toolRuntimeById[id] = { ...runtime, pending: false, isError: true };
           }
         }
+        rawMessages = markTailAssistantStopped(rawMessages, "cancelled");
       } else if (event.type === "usage") {
         // The event carries the turn's cumulative values, so replace the
         // previous snapshot instead of summing it again.
@@ -356,6 +359,7 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
           context_tokens: event.context_tokens ?? null,
           turn_usage: event.turn_usage ?? {},
           turn_cost: event.turn_cost ?? null,
+          turn_duration_ms: event.turn_duration_ms ?? null,
         };
         if (typeof event.context_window === "number") {
           patch.context_window = event.context_window;
@@ -369,7 +373,10 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
           sessionCost: event.session_cost ?? null,
         };
       } else if (event.type === "compact") {
-        rawMessages = [...rawMessages, { role: "compact", content: [] }];
+        rawMessages = [
+          ...rawMessages,
+          { role: "compact", content: [], meta: { trigger: event.trigger } },
+        ];
       }
 
       return { ...state, rawMessages, toolRuntimeById };

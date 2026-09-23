@@ -5,6 +5,7 @@ import { isCompactMarker } from "../types";
 import {
   buildRenderMessages,
   createUserMessage,
+  splitTurn,
   updateLatestThinkingDuration,
 } from "./messages";
 
@@ -322,7 +323,7 @@ describe("turn stats", () => {
     });
   });
 
-  it("keeps cost-only requests in a compacted history turn", () => {
+  it("keeps cost-only requests in an automatically compacted turn", () => {
     const renderMessages = buildRenderMessages([
       { role: "user", content: [{ type: "text", text: "go" }] },
       {
@@ -345,7 +346,7 @@ describe("turn stats", () => {
       {
         role: "compact",
         content: [],
-        meta: { cost: { total: 0.005 } },
+        meta: { trigger: "auto", cost: { total: 0.005 } },
       },
       {
         role: "assistant",
@@ -357,7 +358,8 @@ describe("turn stats", () => {
       },
     ]);
 
-    expect(expectChat(renderMessages[3]).stats).toEqual({
+    expect(renderMessages).toHaveLength(2);
+    expect(expectChat(renderMessages[1]).stats).toEqual({
       total_tokens: 500,
       input_tokens: 450,
       output_tokens: 50,
@@ -423,7 +425,7 @@ describe("turn stats", () => {
     });
   });
 
-  it("shows a compacted tool turn's totals on its final reply", () => {
+  it("folds an automatic compaction into its turn's work and totals", () => {
     const renderMessages = buildRenderMessages([
       { role: "user", content: [{ type: "text", text: "go" }] },
       {
@@ -455,6 +457,7 @@ describe("turn stats", () => {
         role: "compact",
         content: [],
         meta: {
+          trigger: "auto",
           context_window: 100_000,
           usage: {
             total_tokens: 1_200,
@@ -479,14 +482,131 @@ describe("turn stats", () => {
       },
     ]);
 
-    expect(expectChat(renderMessages[1]).stats).toBeUndefined();
-    expect(expectChat(renderMessages[3]).stats).toEqual({
+    expect(renderMessages).toHaveLength(2);
+    const turn = expectChat(renderMessages[1]);
+    expect(turn.content.map((block) => block.type)).toEqual([
+      "tool_use",
+      "compact",
+      "text",
+    ]);
+    expect(turn.stats).toEqual({
       total_tokens: 2_700,
       input_tokens: 2_450,
       output_tokens: 250,
       context_tokens: 500,
       context_window: 100_000,
       cost: { input: 0.0135, output: 0.0035, total: 0.017 },
+    });
+  });
+});
+
+describe("turn duration", () => {
+  const at = (seconds: number) =>
+    new Date(Date.UTC(2026, 0, 1, 0, 0, seconds)).toISOString();
+  const toolResult = (id: string, created_at: string): ChatMessage => ({
+    role: "user",
+    content: [
+      {
+        type: "tool_result",
+        tool_use_id: id,
+        output: "ok",
+        metadata: null,
+        is_error: false,
+      },
+    ],
+    meta: { created_at },
+  });
+
+  it("ends a history turn at its last completed response or auto compaction", () => {
+    const renderMessages = buildRenderMessages([
+      {
+        role: "user",
+        content: [{ type: "text", text: "one" }],
+        meta: { created_at: at(0) },
+      },
+      {
+        role: "assistant",
+        content: [{ type: "tool_use", id: "t1", name: "read", input: {} }],
+        meta: { created_at: at(5), stop_reason: "tool_use" },
+      },
+      toolResult("t1", at(6)),
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "done" }],
+        meta: { created_at: at(12), stop_reason: "stop" },
+      },
+      {
+        role: "compact",
+        content: [],
+        meta: { created_at: at(15), trigger: "auto" },
+      },
+      {
+        role: "user",
+        content: [{ type: "text", text: "two" }],
+        meta: { created_at: at(20) },
+      },
+      {
+        role: "assistant",
+        content: [{ type: "tool_use", id: "t2", name: "read", input: {} }],
+        meta: { created_at: at(22), stop_reason: "tool_use" },
+      },
+      toolResult("t2", at(30)),
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "partial" }],
+        meta: { created_at: at(40), stop_reason: "cancelled" },
+      },
+    ]);
+
+    // The SDK sends no usage event for a partial response or a tool result.
+    expect(expectChat(renderMessages[1]).stats?.duration_ms).toBe(15_000);
+    expect(expectChat(renderMessages[3]).stats?.duration_ms).toBe(2_000);
+  });
+
+  it("keeps the streamed duration of a reattached run over its history", () => {
+    const renderMessages = buildRenderMessages([
+      {
+        role: "user",
+        content: [{ type: "text", text: "go" }],
+        meta: { created_at: at(0) },
+      },
+      {
+        role: "assistant",
+        content: [{ type: "tool_use", id: "t1", name: "read", input: {} }],
+        meta: { created_at: at(5), stop_reason: "tool_use" },
+      },
+      toolResult("t1", at(6)),
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "done" }],
+        meta: { turn_usage: { total_tokens: 10 }, turn_duration_ms: 9_000 },
+      },
+    ]);
+
+    expect(expectChat(renderMessages[1]).stats?.duration_ms).toBe(9_000);
+  });
+});
+
+describe("splitTurn", () => {
+  it("keeps interim text in the work and splits off a compaction after the answer", () => {
+    const thinking = { type: "thinking" as const, text: "plan" };
+    const interim = { type: "text" as const, text: "Let me look." };
+    const tool = {
+      type: "tool_use" as const,
+      id: "t1",
+      name: "read",
+      input: {},
+    };
+    const midCompact = { type: "compact" as const, renderKey: "c1" };
+    const answer = { type: "text" as const, text: "Done." };
+    const lastCompact = { type: "compact" as const, renderKey: "c2" };
+
+    expect(
+      splitTurn([thinking, interim, tool, midCompact, answer, lastCompact]),
+    ).toEqual({
+      work: [thinking, interim, tool, midCompact],
+      answer: [answer],
+      afterAnswer: [lastCompact],
     });
   });
 });

@@ -76,7 +76,8 @@ describe("MessageList", () => {
     scrollHeight = 2_400;
     flushAnimationFrames();
 
-    const scrollContainer = container.firstElementChild as HTMLElement;
+    const scrollContainer = container.firstElementChild
+      ?.firstElementChild as HTMLElement;
     expect(scrollContainer.scrollTop).toBe(scrollContainer.scrollHeight);
   });
 
@@ -96,7 +97,8 @@ describe("MessageList", () => {
     );
     flushAnimationFrames();
 
-    const scrollContainer = container.firstElementChild as HTMLElement;
+    const scrollContainer = container.firstElementChild
+      ?.firstElementChild as HTMLElement;
     const renderedBefore = container.querySelectorAll(
       ".chat-message-shell",
     ).length;
@@ -112,5 +114,127 @@ describe("MessageList", () => {
     expect(scrollContainer.scrollTop).toBe(
       100 + scrollContainer.scrollHeight - scrollHeightBefore,
     );
+  });
+
+  it("keeps following output that arrives during a smooth jump to the latest", () => {
+    scrollHeight = 2_000;
+    const props = {
+      sessionId: "s",
+      loading: true,
+      compacting: false,
+      compactError: null,
+    };
+    const { container, rerender } = render(
+      <MessageList {...props} messages={history} />,
+    );
+    flushAnimationFrames();
+    const scrollContainer = container.firstElementChild
+      ?.firstElementChild as HTMLElement;
+    // jsdom fires no scroll events for scrollTop writes and has no scrollTo,
+    // so each position is replayed by hand.
+    scrollContainer.scrollTo = () => {};
+    fireEvent.scroll(scrollContainer);
+
+    scrollContainer.scrollTop = 500;
+    fireEvent.scroll(scrollContainer);
+    fireEvent.click(screen.getByRole("button", { name: "Scroll to latest" }));
+    // The smooth scroll passes through positions still away from the bottom.
+    scrollContainer.scrollTop = 900;
+    fireEvent.scroll(scrollContainer);
+
+    scrollHeight = 2_600;
+    rerender(
+      <MessageList
+        {...props}
+        messages={[
+          ...history,
+          {
+            role: "assistant",
+            content: [{ type: "text", text: "More output" }],
+            renderKey: "message-80",
+            sourceIndex: 80,
+          },
+        ]}
+      />,
+    );
+
+    expect(scrollContainer.scrollTop).toBe(2_600);
+  });
+
+  it("leaves a reader inside the work in place when the turn stops unfolded", () => {
+    scrollHeight = 2_000;
+    const turn: RenderMessage = {
+      role: "assistant",
+      content: [
+        {
+          type: "tool_use",
+          id: "t1",
+          name: "read",
+          input: { path: "a.py" },
+          renderKey: "t1",
+        },
+        { type: "text", text: "Partial answer", renderKey: "answer" },
+      ],
+      renderKey: "message-80",
+      sourceIndex: 80,
+      meta: { stop_reason: "cancelled" },
+    };
+    const props = {
+      sessionId: "s",
+      messages: [...history, turn],
+      compacting: false,
+      compactError: null,
+    };
+    const { container, rerender } = render(<MessageList {...props} loading />);
+    flushAnimationFrames();
+    const scrollContainer = container.firstElementChild
+      ?.firstElementChild as HTMLElement;
+    fireEvent.scroll(scrollContainer);
+    scrollContainer.scrollTop = 500;
+    fireEvent.scroll(scrollContainer);
+    // The work starts above the container's top: the reader is inside it.
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(
+      function (this: HTMLElement) {
+        return this.hasAttribute("data-work")
+          ? new DOMRect(0, -300, 0, 1_000)
+          : new DOMRect();
+      },
+    );
+
+    rerender(<MessageList {...props} loading={false} />);
+
+    expect(scrollContainer.scrollTop).toBe(500);
+  });
+
+  it("shows the jump to the latest when content grows below the reader", () => {
+    let resize = () => {};
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        constructor(callback: () => void) {
+          resize = callback;
+        }
+        observe() {}
+        disconnect() {}
+      },
+    );
+    scrollHeight = 400;
+    render(
+      <MessageList
+        sessionId="s"
+        messages={history}
+        loading={false}
+        compacting={false}
+        compactError={null}
+      />,
+    );
+    const button = screen.getByLabelText("Scroll to latest");
+    expect(button).toHaveAttribute("inert");
+
+    // Expanding work grows the content without scrolling.
+    scrollHeight = 1_200;
+    act(() => resize());
+
+    expect(button).not.toHaveAttribute("inert");
   });
 });

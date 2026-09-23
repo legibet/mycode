@@ -29,10 +29,13 @@ import type {
 import { copyText } from "../../utils/clipboard";
 import { cn } from "../../utils/cn";
 import { formatCost } from "../../utils/format";
+import { splitTurn } from "../../utils/messages";
+import { CompactMarker } from "./CompactMarker";
 import { MarkdownBlock } from "./MarkdownBlock";
 import { ReasoningBlock } from "./ReasoningBlock";
 import { StatsHover } from "./StatsCard";
 import { ToolCard } from "./ToolCard";
+import { WorkSection } from "./WorkSection";
 
 interface MessageBubbleProps {
   role: ChatMessage["role"];
@@ -42,6 +45,8 @@ interface MessageBubbleProps {
   isLoading: boolean;
   model?: string | undefined;
   stats?: TurnStats | undefined;
+  /** The turn's last response ended on an error or cancel. */
+  interrupted?: boolean | undefined;
   onRewindAndSend?:
     | ((rewindTo: number, input: string) => Promise<void>)
     | undefined;
@@ -121,6 +126,8 @@ function blocksEqual(prev: MessageBlock, next: MessageBlock): boolean {
     );
   }
 
+  if (prev.type === "compact" && next.type === "compact") return true;
+
   if (prev.type === "tool_result" && next.type === "tool_result") {
     return (
       prev.tool_use_id === next.tool_use_id &&
@@ -167,7 +174,8 @@ function turnStatsEqual(
     prev.cost?.cache_read === next.cost?.cache_read &&
     prev.cost?.cache_write === next.cost?.cache_write &&
     prev.cost?.output === next.cost?.output &&
-    prev.cost?.reasoning === next.cost?.reasoning
+    prev.cost?.reasoning === next.cost?.reasoning &&
+    prev.duration_ms === next.duration_ms
   );
 }
 
@@ -180,6 +188,7 @@ function messageBubblePropsEqual(
     prev.sourceIndex !== next.sourceIndex ||
     prev.isStreaming !== next.isStreaming ||
     prev.model !== next.model ||
+    prev.interrupted !== next.interrupted ||
     !turnStatsEqual(prev.stats, next.stats) ||
     prev.onRewindAndSend !== next.onRewindAndSend
   ) {
@@ -346,6 +355,7 @@ export const MessageBubble = memo(function MessageBubble({
   isLoading,
   model,
   stats,
+  interrupted,
   onRewindAndSend,
 }: MessageBubbleProps) {
   const isUser = role === "user";
@@ -354,13 +364,29 @@ export const MessageBubble = memo(function MessageBubble({
   const [editText, setEditText] = useState("");
   const resetCopiedTimeoutRef = useRef<number | null>(null);
 
+  const { work, answer, afterAnswer } = useMemo(
+    () => splitTurn(blocks),
+    [blocks],
+  );
+  // The work folds once the turn completes with an answer; a stopped or
+  // failed turn stays flat.
+  const folded =
+    !isStreaming &&
+    !interrupted &&
+    answer.length > 0 &&
+    [...work, ...afterAnswer].some(
+      (block) => block.type === "tool_use" || block.type === "compact",
+    );
+
+  // Copy takes the visible text: a folded turn copies only its answer.
+  const copyBlocks = folded ? answer : blocks;
   const { textContent, textAttachmentBlocks, imageBlocks, documentBlocks } =
     useMemo(() => {
       const visibleText: string[] = [];
       const textAttachmentBlocks: TextBlock[] = [];
       const imageBlocks: ImageBlock[] = [];
       const documentBlocks: DocumentBlock[] = [];
-      for (const block of blocks) {
+      for (const block of copyBlocks) {
         if (!block) continue;
         if (block.type === "text") {
           if (getAttachmentMeta(block)?.attachment) {
@@ -380,7 +406,7 @@ export const MessageBubble = memo(function MessageBubble({
         imageBlocks,
         documentBlocks,
       };
-    }, [blocks]);
+    }, [copyBlocks]);
 
   useEffect(() => {
     return () => {
@@ -567,65 +593,68 @@ export const MessageBubble = memo(function MessageBubble({
     );
   }
 
+  const renderBlock = (block: MessageBlock) => {
+    if (block.type === "thinking") {
+      const renderKey = block.renderKey || `thinking:${block.text || "block"}`;
+      const durationMs = getDurationMs(block);
+      return (
+        <RenderErrorBoundary key={renderKey} fallback={renderErrorFallback}>
+          <ReasoningBlock
+            content={block.text}
+            durationMs={durationMs}
+            isStreaming={
+              isStreaming && durationMs == null && block === blocks.at(-1)
+            }
+          />
+        </RenderErrorBoundary>
+      );
+    }
+    if (block.type === "text") {
+      const renderKey = block.renderKey || `text:${block.text || "block"}`;
+      return (
+        <RenderErrorBoundary key={renderKey} fallback={renderErrorFallback}>
+          <MarkdownBlock content={block.text} />
+        </RenderErrorBoundary>
+      );
+    }
+    if (block.type === "tool_use") {
+      const renderKey =
+        block.renderKey || block.id || `tool:${block.name || "tool"}`;
+      return (
+        <RenderErrorBoundary key={renderKey} fallback={renderErrorFallback}>
+          <ToolCard
+            name={block.name}
+            args={block.input}
+            output={block.runtime?.output}
+            finalOutput={block.runtime?.finalOutput}
+            metadata={block.runtime?.metadata}
+            pending={block.runtime?.pending}
+            isError={block.runtime?.isError}
+          />
+        </RenderErrorBoundary>
+      );
+    }
+    if (block.type === "compact") {
+      return <CompactMarker key={block.renderKey} />;
+    }
+    return null;
+  };
+
   return (
     <div className="group/msg relative px-5 max-md:px-4">
       <div className="flex flex-col gap-3 text-foreground/90 leading-relaxed text-sm">
-        {blocks.map((block, blockIndex) => {
-          if (block.type === "thinking") {
-            const renderKey =
-              block.renderKey || `thinking:${block.text || "block"}`;
-            const durationMs = getDurationMs(block);
-            return (
-              <RenderErrorBoundary
-                key={renderKey}
-                fallback={renderErrorFallback}
-              >
-                <ReasoningBlock
-                  content={block.text}
-                  durationMs={durationMs}
-                  isStreaming={
-                    isStreaming &&
-                    durationMs == null &&
-                    blockIndex === blocks.length - 1
-                  }
-                />
-              </RenderErrorBoundary>
-            );
-          }
-          if (block.type === "text") {
-            const renderKey =
-              block.renderKey || `text:${block.text || "block"}`;
-            return (
-              <RenderErrorBoundary
-                key={renderKey}
-                fallback={renderErrorFallback}
-              >
-                <MarkdownBlock content={block.text} />
-              </RenderErrorBoundary>
-            );
-          }
-          if (block.type === "tool_use") {
-            const renderKey =
-              block.renderKey || block.id || `tool:${block.name || "tool"}`;
-            return (
-              <RenderErrorBoundary
-                key={renderKey}
-                fallback={renderErrorFallback}
-              >
-                <ToolCard
-                  name={block.name}
-                  args={block.input}
-                  output={block.runtime?.output}
-                  finalOutput={block.runtime?.finalOutput}
-                  metadata={block.runtime?.metadata}
-                  pending={block.runtime?.pending}
-                  isError={block.runtime?.isError}
-                />
-              </RenderErrorBoundary>
-            );
-          }
-          return null;
-        })}
+        {/* The work keeps its place from its first block on, so folding
+            never remounts it or the answer. */}
+        {(work.length > 0 || folded) && (
+          <WorkSection
+            blocks={work}
+            folded={folded}
+            durationMs={stats?.duration_ms}
+          >
+            {(folded ? [...work, ...afterAnswer] : work).map(renderBlock)}
+          </WorkSection>
+        )}
+        {(folded ? answer : [...answer, ...afterAnswer]).map(renderBlock)}
 
         {isStreaming && (
           <span className="inline-block w-[1.5px] h-4 bg-foreground/40 ml-0.5 align-middle" />
