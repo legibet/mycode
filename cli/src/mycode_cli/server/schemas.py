@@ -6,6 +6,7 @@ from typing import Any, Literal, Self
 
 from pydantic import BaseModel, Field, model_validator
 
+from mycode.compact import CompactTrigger
 from mycode.models import Cost
 
 RunKind = Literal["chat", "compact"]
@@ -102,11 +103,13 @@ class StreamEvent(BaseModel):
     tool_name: str | None = None  # permission_request
     preview: str | None = None  # permission_request
     decision: str | None = None  # permission_resolved
+    trigger: CompactTrigger | None = None  # compact
     context_tokens: int | None = None  # usage
     context_window: int | None = None  # usage
     model: str | None = None  # usage
     turn_usage: dict[str, int] | None = None  # usage
     turn_cost: Cost | None = None  # usage
+    turn_duration_ms: int | None = None  # usage
     session_cost: float | None = None  # usage; composed by the run manager
 
 

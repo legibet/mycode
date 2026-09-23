@@ -2,12 +2,17 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from mycode.messages import ConversationMessage, build_message, text_block
 from mycode.models import Cost
 
 DEFAULT_COMPACT_THRESHOLD = 0.8
+
+# What started the compaction: the agent loop crossing the threshold inside a
+# turn, or an explicit acompact() call. Their markers sit in the same places in
+# the log, so the origin is recorded instead of inferred.
+CompactTrigger = Literal["auto", "manual"]
 
 
 class NothingToCompactError(ValueError):
@@ -85,6 +90,7 @@ def has_compactable_history(messages: list[ConversationMessage]) -> bool:
 def build_compact_event(
     summary_text: str,
     *,
+    trigger: CompactTrigger,
     provider: str,
     model: str,
     context_window: int,
@@ -92,6 +98,7 @@ def build_compact_event(
     cost: Cost | None = None,
 ) -> ConversationMessage:
     meta: dict[str, Any] = {
+        "trigger": trigger,
         "provider": provider,
         "model": model,
         "context_window": context_window,

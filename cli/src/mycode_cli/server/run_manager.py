@@ -370,7 +370,9 @@ class RunManager:
                 marker = await state.agent.acompact()
                 if state.on_complete is not None:
                     await state.on_complete(state.session_id)
-                await self._append_event(state, Event("compact", {}), compact_cost=sum_session_cost([marker]))
+                await self._append_event(
+                    state, Event("compact", {"trigger": "manual"}), compact_cost=sum_session_cost([marker])
+                )
             else:
                 assert state.user_message is not None
                 async with aclosing(state.agent.achat(state.user_message)) as stream:

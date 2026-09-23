@@ -5,7 +5,9 @@ import tempfile
 import threading
 from collections.abc import AsyncIterator
 from copy import deepcopy
+from datetime import datetime, timedelta
 from pathlib import Path
+from typing import Any
 from unittest.mock import patch
 
 import pytest
@@ -118,6 +120,12 @@ def _chat_events(events: list[Event]) -> list[Event]:
     """Drop the per-request usage events; usage flows have dedicated tests."""
 
     return [event for event in events if event.type != "usage"]
+
+
+def _billing_facts(usage: dict[str, Any]) -> dict[str, Any]:
+    """A usage payload without its wall-clock field, for exact comparison."""
+
+    return {key: value for key, value in usage.items() if key != "turn_duration_ms"}
 
 
 async def _collect_events(stream: AsyncIterator[Event]) -> list[Event]:
@@ -359,6 +367,31 @@ class TestAgentSessions:
         loaded = await SessionStore(data_dir=tmp_path).load_messages("s1")
 
         assert [message["role"] for message in loaded] == ["user", "assistant"]
+
+    @pytest.mark.parametrize("failed_role", ["user", "assistant"])
+    async def test_failed_commit_does_not_publish_the_message(self, tmp_path: Path, failed_role: str) -> None:
+        agent = _new_agent(tmp_path)
+        adapter = _FakeProviderAdapter([_text_turn()])
+        failure = OSError("custom persistence failed")
+
+        async def persist(message: ConversationMessage) -> None:
+            assert datetime.fromisoformat(message["meta"]["created_at"]).utcoffset() == timedelta(0)
+            assert message not in agent.messages
+            if message["role"] == failed_role:
+                raise failure
+
+        with (
+            patch("mycode.agent.get_provider_adapter", return_value=adapter),
+            pytest.raises(OSError, match="custom persistence failed") as exc,
+        ):
+            await _collect_events(agent.achat("hello", on_persist=persist))
+
+        assert exc.value is failure
+        expected_roles = [] if failed_role == "user" else ["user"]
+        assert [message["role"] for message in agent.messages] == expected_roles
+        assert await SessionStore(data_dir=tmp_path).load_raw_messages(agent.session_id) == agent.messages
+        if failed_role == "user":
+            assert adapter.requests == []
 
     async def test_achat_resumes_existing_session_history(self, tmp_path: Path) -> None:
         first = _new_agent(tmp_path, session_id="s2")
@@ -989,6 +1022,38 @@ class TestAgentCancel:
 
 
 class TestTurnUsage:
+    @pytest.mark.parametrize(
+        ("created_at", "expected_duration_ms"),
+        [
+            pytest.param("2026-01-01T08:00:00+08:00", 2500, id="record-timestamps"),
+            pytest.param("2026-01-01T00:00:00", None, id="timezone-free"),
+            pytest.param("not-a-timestamp", None, id="invalid-timestamp"),
+            pytest.param("2026-01-01T00:00:03+00:00", 0, id="clock-moved-backwards"),
+        ],
+    )
+    def test_turn_duration_uses_record_timestamps_without_persisting_it(
+        self, tmp_path: Path, created_at: str, expected_duration_ms: int | None
+    ) -> None:
+        ended_at = "2026-01-01T00:00:02.500000+00:00"
+        adapter = _FakeProviderAdapter([_text_turn(meta={"created_at": ended_at})])
+        agent = _new_agent(tmp_path)
+        user: ConversationMessage = {
+            "role": "user",
+            "content": [text_block("hello")],
+            "meta": {"created_at": created_at},
+        }
+
+        with patch("mycode.agent.get_provider_adapter", return_value=adapter):
+            result = agent.run(user)
+
+        assert result.usage is not None
+        assert result.usage["turn_duration_ms"] == expected_duration_ms
+        records = SessionStore(data_dir=tmp_path).load_raw_messages_sync(agent.session_id)
+        assert records == agent.messages
+        assert records[0]["meta"]["created_at"] == created_at
+        assert records[1]["meta"]["created_at"] == ended_at
+        assert all("turn_duration_ms" not in record["meta"] for record in records)
+
     def test_all_unpriced_turn_has_no_cost_estimate(self, tmp_path: Path) -> None:
         adapter = _FakeProviderAdapter(
             [_text_turn(meta={"usage": {"total_tokens": 100, "input_tokens": 90, "output_tokens": 10}})]
@@ -999,7 +1064,8 @@ class TestTurnUsage:
         with patch("mycode.agent.get_provider_adapter", return_value=adapter):
             result = agent.run("hello")
 
-        assert result.usage == {
+        assert result.usage is not None
+        assert _billing_facts(result.usage) == {
             "context_tokens": 100,
             "turn_usage": {"total_tokens": 100, "input_tokens": 90, "output_tokens": 10},
             "turn_cost": None,
@@ -1022,7 +1088,7 @@ class TestTurnUsage:
             result = agent.run("hello")
 
         first, second = [event.data for event in result.events if event.type == "usage"]
-        assert first == {
+        assert _billing_facts(first) == {
             "context_tokens": 100,
             "turn_usage": {
                 "total_tokens": 100,
@@ -1031,6 +1097,8 @@ class TestTurnUsage:
             },
             "turn_cost": pytest.approx({"input": 0.00009, "output": 0.00002, "total": 0.00011}),
         }
+        # Both events time the same turn, so the elapsed value only grows.
+        assert 0 <= first["turn_duration_ms"] <= second["turn_duration_ms"]
         assert second["context_tokens"] == 150
         assert second["turn_usage"]["total_tokens"] == 250
         assert second["turn_usage"]["input_tokens"] == 220

@@ -828,7 +828,7 @@ async def test_compact_run_snapshot_has_kind_and_no_user_message(session_cost_ba
 
     assert agent.compacted is True
     assert state.status == "completed"
-    assert state.events == [{"seq": 1, "type": "compact"}]
+    assert state.events == [{"seq": 1, "type": "compact", "trigger": "manual"}]
     assert state.session_cost == pytest.approx((session_cost_base or 0.0) + 0.1)
     assert completed == ["session-1"]
     assert not await manager.has_active_run("session-1")

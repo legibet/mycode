@@ -15,6 +15,7 @@ import time
 from collections.abc import AsyncGenerator, AsyncIterator, Awaitable, Callable, Sequence
 from contextlib import aclosing, asynccontextmanager
 from dataclasses import dataclass, field, replace
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
 from uuid import uuid4
@@ -23,6 +24,7 @@ from mycode.attachments import AttachmentLike, build_attachment_blocks
 from mycode.compact import (
     COMPACT_SUMMARY_PROMPT,
     DEFAULT_COMPACT_THRESHOLD,
+    CompactTrigger,
     NothingToCompactError,
     build_compact_event,
     has_compactable_history,
@@ -285,6 +287,31 @@ def _accumulate_usage(
     return result
 
 
+def _created_at(message: ConversationMessage) -> datetime | None:
+    raw = (message.get("meta") or {}).get("created_at")
+    if not isinstance(raw, str):
+        return None
+    try:
+        stamp = datetime.fromisoformat(raw)
+    except ValueError:
+        return None
+    return stamp if stamp.tzinfo is not None else None
+
+
+def _turn_elapsed_ms(turn_start: ConversationMessage, record: ConversationMessage) -> int | None:
+    """Elapsed time between two committed records, read from their stamps.
+
+    Subtracting the stamps rather than keeping a separate clock is what makes
+    the streamed value equal the one a reloaded session derives from JSONL.
+    """
+
+    started = _created_at(turn_start)
+    ended = _created_at(record)
+    if started is None or ended is None:
+        return None
+    return max(0, int((ended - started).total_seconds() * 1000))
+
+
 class Agent:
     """Multi-turn tool-calling agent runtime."""
 
@@ -507,9 +534,8 @@ class Agent:
         try:
             async with self._run_scope() as run:
                 adapter = get_provider_adapter(self.provider)
-                marker = await self._summarize(run, adapter)
-                await self._persist_message(marker, on_persist)
-                self.messages.append(marker)
+                marker = await self._summarize(run, adapter, trigger="manual")
+                await self._commit(marker, on_persist)
                 run.check_cancelled()
                 return marker
         except _RunCancelled:
@@ -857,8 +883,9 @@ class Agent:
         context_tokens: int | None,
         turn_usage: dict[str, Any],
         turn_cost: Cost | None,
+        turn_duration_ms: int | None,
     ) -> Event:
-        """Build a usage event: turn-cumulative billing facts + context metric."""
+        """Build a usage event: the turn's cumulative totals + the context metric."""
 
         return Event(
             "usage",
@@ -866,6 +893,7 @@ class Agent:
                 "context_tokens": context_tokens,
                 "turn_usage": dict(turn_usage),
                 "turn_cost": dict(turn_cost) if turn_cost is not None else None,
+                "turn_duration_ms": turn_duration_ms,
             },
         )
 
@@ -885,12 +913,25 @@ class Agent:
             meta["cost"] = dict(cost)
         return usage, cost
 
-    async def _persist_message(
+    async def _commit(
         self,
         message: ConversationMessage,
         on_persist: PersistCallback | None,
     ) -> None:
-        """Persist one message: caller callback first, then the SDK session store."""
+        """Commit one message to the timeline: stamp, persist, publish.
+
+        ``meta.created_at`` is stamped here unless the caller supplied one.
+        ``on_persist`` runs before the session store. The message joins
+        ``self.messages`` only once its commit succeeded, so memory never runs
+        ahead of the log.
+        """
+
+        meta = cast(dict[str, Any], message.setdefault("meta", {}))
+        meta.setdefault("created_at", datetime.now(UTC).isoformat())
+
+        if on_persist is None and self._store is None:
+            self.messages.append(message)
+            return
 
         async def persist() -> None:
             if on_persist is not None:
@@ -898,10 +939,15 @@ class Agent:
             if self._store is not None:
                 await self._store.append_message(self.session_id, message)
 
-        if on_persist is not None or self._store is not None:
-            # The task lets the commit survive cancellation: once persistence
-            # has started, it runs to completion before cancellation is reported.
-            await _finish_task(asyncio.create_task(persist()))
+        # The task lets the commit survive cancellation: once persistence has
+        # started, it runs to completion before cancellation is reported.
+        task = asyncio.create_task(persist())
+        try:
+            await _finish_task(task)
+        finally:
+            # exception() raises on a cancelled task, so that is checked first.
+            if not task.cancelled() and task.exception() is None:
+                self.messages.append(message)
 
     # ------------------------------------------------------------------
     # Agent loop
@@ -947,8 +993,7 @@ class Agent:
                 return
 
         run.check_cancelled()
-        self.messages.append(user_message)
-        await self._persist_message(user_message, on_persist)
+        await self._commit(user_message, on_persist)
 
         adapter = get_provider_adapter(self.provider)
 
@@ -1021,8 +1066,7 @@ class Agent:
                     partial_message = self._partial_assistant_message(
                         partial_blocks, thinking_duration_ms, stop_reason="cancelled" if cancelled else "error"
                     )
-                    self.messages.append(partial_message)
-                    await self._persist_message(partial_message, on_persist)
+                    await self._commit(partial_message, on_persist)
                 if cancelled:
                     raise
                 yield Event("error", {"message": str(exc)})
@@ -1041,12 +1085,12 @@ class Agent:
 
             request_usage, request_cost = self._finalize_request_message(assistant_message)
 
-            self.messages.append(assistant_message)
-            await self._persist_message(assistant_message, on_persist)
+            await self._commit(assistant_message, on_persist)
 
             context_tokens = request_usage.get("total_tokens")
             turn_cost = _accumulate_usage(turn_usage, turn_cost, request_usage, request_cost)
-            yield self._usage_event(context_tokens, turn_usage, turn_cost)
+            elapsed_ms = _turn_elapsed_ms(user_message, assistant_message)
+            yield self._usage_event(context_tokens, turn_usage, turn_cost, elapsed_ms)
 
             assistant_meta = assistant_message.get("meta")
             stop_reason = str(assistant_meta.get("stop_reason") or "") if isinstance(assistant_meta, dict) else ""
@@ -1087,13 +1131,12 @@ class Agent:
                         break
 
                 tool_result_message = build_message("user", tool_results)
-                self.messages.append(tool_result_message)
-                await self._persist_message(tool_result_message, on_persist)
+                await self._commit(tool_result_message, on_persist)
 
             run.check_cancelled()
             if should_compact(context_tokens, self.context_window, self.compact_threshold):
                 try:
-                    compact_marker = await self._summarize(run, adapter)
+                    compact_marker = await self._summarize(run, adapter, trigger="auto")
                 except Exception:
                     if run.cancel_requested:
                         raise
@@ -1104,14 +1147,14 @@ class Agent:
                         exc_info=True,
                     )
                 else:
-                    await self._persist_message(compact_marker, on_persist)
-                    self.messages.append(compact_marker)
-                    yield Event("compact", {})
+                    await self._commit(compact_marker, on_persist)
+                    yield Event("compact", {"trigger": "auto"})
                     # Summary usage is billed, but does not describe the normal context size.
                     compact_usage = cast(dict[str, Any], (compact_marker.get("meta") or {}).get("usage") or {})
                     compact_cost = cast(Cost | None, (compact_marker.get("meta") or {}).get("cost"))
                     turn_cost = _accumulate_usage(turn_usage, turn_cost, compact_usage, compact_cost)
-                    yield self._usage_event(context_tokens, turn_usage, turn_cost)
+                    elapsed_ms = _turn_elapsed_ms(user_message, compact_marker)
+                    yield self._usage_event(context_tokens, turn_usage, turn_cost, elapsed_ms)
 
             if not tool_calls:
                 return
@@ -1120,6 +1163,8 @@ class Agent:
         self,
         run: _RunState,
         adapter: ProviderAdapter,
+        *,
+        trigger: CompactTrigger,
     ) -> ConversationMessage:
         """Build a compact marker; callers own persistence and its failures."""
 
@@ -1152,6 +1197,7 @@ class Agent:
         summary_usage, summary_cost = self._finalize_request_message(summary_message)
         return build_compact_event(
             summary_text,
+            trigger=trigger,
             provider=self.provider,
             model=self.model,
             context_window=self.context_window,

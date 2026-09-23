@@ -1563,7 +1563,9 @@ def test_provider_prepare_messages_applies_compact_before_appending_messages() -
         messages=[
             {"role": "user", "content": [{"type": "text", "text": "old prompt"}]},
             {"role": "assistant", "content": [{"type": "text", "text": "old answer"}]},
-            build_compact_event("latest summary", provider="openai", model="gpt-5.4", context_window=128_000),
+            build_compact_event(
+                "latest summary", trigger="auto", provider="openai", model="gpt-5.4", context_window=128_000
+            ),
             {"role": "assistant", "content": [{"type": "text", "text": "tail answer"}]},
         ],
     )

@@ -117,7 +117,7 @@ Returns `{status: "ok"}` on success, `404` if the run or `request_id` is unknown
 
 ### `POST /api/sessions/{session_id}/compact`
 
-Start a compact run: ask the provider for a summary of the session and append one `compact` marker. No user or assistant turn is created. The run streams over the normal `GET /api/runs/{run_id}/stream` endpoint; success emits a single `compact` event after the marker is persisted.
+Start a compact run: ask the provider for a summary of the session and append one `compact` marker. No user or assistant turn is created. The run streams over the normal `GET /api/runs/{run_id}/stream` endpoint; success emits a single `compact` event with `trigger: "manual"` after the marker is persisted.
 
 Request body (`CompactRequest`, `cli/src/mycode_cli/server/schemas.py`):
 
@@ -392,20 +392,22 @@ Response:
 | `tool_start`          | `tool_call: {id, name, input}`                                                                               |
 | `tool_output`         | `tool_use_id: str`, `output: str`                                                                            |
 | `tool_done`           | `tool_use_id: str`, `output: str`, `is_error: bool`, `metadata?`, `content?`                                 |
-| `compact`             | _empty payload_                                                                                              |
+| `compact`             | `trigger: "auto" \| "manual"`                                                                              |
 | `error`               | `message: str`                                                                                               |
 | `cancelled`           | _empty payload_                                                                                              |
 | `permission_request`  | `request_id: str`, `tool_use_id: str`, `tool_name: str`, `preview: str`                                      |
 | `permission_resolved` | `request_id: str`, `decision: "allow" \| "deny"`                                                             |
-| `usage`               | `context_tokens?`, `context_window?`, `model?`, `turn_usage?`, `turn_cost?`, `session_cost?`                 |
+| `usage`               | `context_tokens?`, `context_window?`, `model?`, `turn_usage?`, `turn_cost?`, `turn_duration_ms?`, `session_cost?` |
 
 `tool_output` is ordered, append-only display text. Clients do not insert separators between events. Under buffer pressure, `[live output omitted]` replaces one continuous middle segment. `tool_done.output` is the authoritative final result. Once a tool's `tool_done` is buffered, the server may drop that tool's earlier `tool_output` events — a consumer that has not read them yet skips straight to the `tool_done`.
+
+`compact.trigger` matches the persisted marker's `meta.trigger`: `auto` inside a chat run, where the marker belongs to the running turn, and `manual` for a compact run.
 
 `cancelled` ends a user-stopped chat or compact run after cleanup. A cancelled in-flight tool emits `tool_done` with `is_error: true` and its cleanup output before `cancelled`.
 
 `permission_request` and `permission_resolved` bracket a wait inside the agent's `before_tool` hook. Clients respond via `POST /api/runs/{run_id}/decide`; `permission_resolved` lets reconnecting or second-tab clients dismiss the prompt.
 
-The server adds `model`, `context_window`, and `session_cost` to the SDK usage event described in docs/sdk.md. `context_tokens` is the latest normal request's context usage; `turn_usage` and `turn_cost` are cumulative snapshots for the turn. `session_cost` sums the known pre-run session and current turn totals. All costs are USD. SSE omits `None` fields; absence means the current snapshot is unavailable and clients must clear any previous value.
+The server adds `model`, `context_window`, and `session_cost` to the SDK usage event described in docs/sdk.md. `context_tokens` is the latest normal request's context usage; `turn_usage`, `turn_cost`, and `turn_duration_ms` are cumulative snapshots for the turn. `session_cost` sums the known pre-run session and current turn totals. All costs are USD. SSE omits `None` fields; absence means the current snapshot is unavailable and clients must clear any previous value.
 
 Every event also carries `seq: int` for reconnect support. The web UI uses `after` to resume after a sequence number. The reconnect cache is bounded by event count and tool-output bytes; if older events were evicted, the first returned `seq` is greater than `after + 1`. The server does not synthesize or rewrite events to represent that gap.
 
@@ -414,7 +416,7 @@ Every event also carries `seq: int` for reconnect support. The web UI uses `afte
 `cli/src/mycode_cli/server/run_manager.py` manages concurrent runs:
 
 - One active run per session (enforced by `ActiveRunError` on conflict, regardless of kind)
-- Two run kinds share the lifecycle: `start_run()` iterates `agent.achat(user_message)`; `start_compact()` awaits `agent.acompact()` and emits one `compact` event after the marker is persisted
+- Two run kinds share the lifecycle: `start_run()` iterates `agent.achat(user_message)`; `start_compact()` awaits `agent.acompact()` and emits one `compact` event with `trigger: "manual"` after the marker is persisted
 - Compact runs carry no `user_message`; snapshots return `base_messages` unchanged
 - `RunState` tracks a bounded reconnect event buffer and condition variable for streaming
 - Explicit permission `deny` marks the run as cancelled and calls `agent.cancel()`

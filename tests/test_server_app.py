@@ -542,7 +542,7 @@ def test_compact_endpoint_persists_marker_without_synthetic_turns(
                 for line in stream.iter_lines()
                 if line.startswith("data:") and line != "data: [DONE]"
             ]
-        assert [event["type"] for event in events] == ["compact"]
+        assert [(event["type"], event["trigger"]) for event in events] == [("compact", "manual")]
 
         session = client.get("/api/sessions/s1").json()
 
@@ -554,6 +554,7 @@ def test_compact_endpoint_persists_marker_without_synthetic_turns(
     roles = [message["role"] for message in session["messages"]]
     assert roles == ["user", "assistant", "compact"]
     assert session["messages"][-1]["content"][0]["text"] == "ok"
+    assert session["messages"][-1]["meta"]["trigger"] == "manual"
     assert session["active_run"] is None
     # The summary request replayed the seeded history for the requested model.
     assert adapter.messages is not None

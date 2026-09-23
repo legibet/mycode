@@ -12,7 +12,7 @@ Sources: `mycode/src/mycode/session.py`, `cli/src/mycode_cli/sessions.py`
     tool-output/   # CLI tool spill files, created lazily
 ```
 
-The SDK owns only `messages.jsonl` and does not know about workspaces, titles, timestamps, or tool output. Applications may keep their own files beside the timeline. The CLI adds `meta.json` and `tool-output/` and resolves `data_dir` to `$MYCODE_HOME/sessions/` (default `~/.mycode/sessions/`).
+The SDK owns only `messages.jsonl` and does not know about workspaces, titles, catalog timestamps, or tool output. Applications may keep their own files beside the timeline. The CLI adds `meta.json` and `tool-output/` and resolves `data_dir` to `$MYCODE_HOME/sessions/` (default `~/.mycode/sessions/`).
 
 The SDK timeline appears on the first persisted message. The CLI normally creates its catalog entry on the first user turn; the explicit `POST /api/sessions` endpoint creates an empty `"New chat"` entry immediately.
 
@@ -44,13 +44,19 @@ Each line is a JSON object. The `role` field acts as a discriminator.
 Standard `user` or `assistant` message in the internal block format.
 
 ```json
-{"role": "user", "content": [{"type": "text", "text": "..."}], "meta": {...}}
-{"role": "assistant", "content": [{"type": "thinking", "text": "...", "meta": {"duration_ms": 1200}}, {"type": "text", "text": "..."}, {"type": "tool_use", "id": "...", "name": "...", "input": {...}}], "meta": {"provider": "...", "model": "...", "stop_reason": "...", "usage": {"total_tokens": 1456, "input_tokens": 1400, "cache_read_tokens": 1200, "cache_write_tokens": 100, "output_tokens": 56, "reasoning_tokens": 20}, "cost": {"input": 0.0001, "cache_read": 0.0002, "cache_write": 0.0001, "output": 0.0008, "reasoning": 0.0003, "total": 0.0015}, "context_window": 200000}}
+{"role": "user", "content": [{"type": "text", "text": "..."}], "meta": {"created_at": "..."}}
+{"role": "assistant", "content": [{"type": "thinking", "text": "...", "meta": {"duration_ms": 1200}}, {"type": "text", "text": "..."}, {"type": "tool_use", "id": "...", "name": "...", "input": {...}}], "meta": {"created_at": "...", "provider": "...", "model": "...", "stop_reason": "...", "usage": {"total_tokens": 1456, "input_tokens": 1400, "cache_read_tokens": 1200, "cache_write_tokens": 100, "output_tokens": 56, "reasoning_tokens": 20}, "cost": {"input": 0.0001, "cache_read": 0.0002, "cache_write": 0.0001, "output": 0.0008, "reasoning": 0.0003, "total": 0.0015}, "context_window": 200000}}
 ```
 
 `assistant.meta.stop_reason` uses the canonical values `stop`, `tool_use`, `length`, `error`, `cancelled`, and `unknown`. Provider adapters convert their native finish reasons before persistence. `assistant.meta.model` records the selected request model, not a provider-returned alias or routed model name. A streamed tool block with unparseable JSON carries `meta.invalid_input=true` plus the original text in `meta.raw_arguments` and the parser message in `meta.parse_error`.
 
 `tool_result.content` may store `text` and `image` blocks.
+
+`meta.created_at` (ISO-8601 UTC) records when the runtime committed the message, before `on_persist` and the store append. Every committed record carries it — user input, assistant responses, `tool_result` messages, and `compact` / `rewind` markers — with or without a configured store. A caller-supplied value is kept. Lines written before the field existed have none and are never backfilled.
+
+Turn timing is derived from `meta.created_at`. A turn starts at a user message that is not `tool_result`-only and continues until the next such message. Automatic compact markers belong to that turn; manual and untagged markers stand alone. Each `usage.turn_duration_ms` measures from the opening user record to the assistant or automatic compact record the event follows. Reloading those same records gives the same value; calculation rules are in docs/sdk.md.
+
+Interrupted turns may append partial assistant or tool-result records after the last `usage` event, so the last record's timestamp can exceed the streamed endpoint. `assistant.meta.stop_reason` describes one provider response, not the whole turn's outcome. Timestamp differences are wall-clock estimates, not runtime measurements of turn completion.
 
 Each matching `/<skill-name>` token prepends a text block with `meta.skill_snapshot=true` before the original user text. The snapshot contains the frontmatter-free `SKILL.md` body, source path, and base directory. The session persists it for provider replay. Session titles and TUI/Web history use the original text.
 
@@ -87,10 +93,12 @@ Adapter normalization (canonical ← raw; missing fields stay unknown unless not
 ### Compact event
 
 ```json
-{"role": "compact", "content": [{"type": "text", "text": "<summary>"}], "meta": {"provider": "...", "model": "...", "usage": {...}}}
+{"role": "compact", "content": [{"type": "text", "text": "<summary>"}], "meta": {"created_at": "...", "trigger": "auto", "provider": "...", "model": "...", "usage": {...}}}
 ```
 
 The marker stores the summary and its request usage. Automatic compaction also includes that request in the turn's cumulative usage. See "Context Compaction" below.
+
+`meta.trigger` is `auto` when the agent loop wrote the marker inside a turn and `manual` when an `acompact()` call wrote it. The two land in the same positions, so ownership reads the field rather than the position: an automatic marker belongs to its turn, a manual one stands alone. Markers written before the field existed have neither and stand alone.
 
 ### Rewind event
 
@@ -116,9 +124,9 @@ a full `assistant`/`tool_result` boundary.
 
 1. `should_compact()` — true when the latest assistant message's `usage.total_tokens` ≥ `context_window × compact_threshold` (default `0.8`). Tool outputs appended this turn aren't reflected in that figure until the next API call's usage; the `(1 - threshold)` headroom absorbs them.
 2. Ask the same provider/model for a summary with the normal system prompt, the current provider-projected messages (`prepare_messages`), no tools, text only, and `max_tokens = min(agent.max_tokens, 8192)`
-3. Build a compact event with the summary text, `meta.usage`, `meta.cost`, and `meta.context_window`
-4. Persist the compact event and append it to `agent.messages` (append-only — original messages stay in JSONL and in the visible list)
-5. Emit the `compact` stream event to the caller (empty payload — clients use it as the cue to insert their inline divider)
+3. Build a compact marker with the summary text, `meta.trigger="auto"`, `meta.usage`, `meta.cost`, and `meta.context_window`
+4. Persist the compact marker and append it to `agent.messages`; original messages remain in JSONL and visible history
+5. Emit the `compact` stream event with `{"trigger": "auto"}`
 
 The headroom `(1 - compact_threshold) × context_window` is reserved for the
 compact call itself: that call sends the full current history as input plus a
@@ -130,7 +138,7 @@ If the summary request fails or returns no text, the agent logs a warning and ke
 
 ### Manual compaction
 
-`Agent.acompact()` / `Agent.compact()` run steps 2–4 above on demand, ignoring the threshold in step 1. They share the same summary request and persistence path, so the on-disk record is identical to an automatic compaction. The one added precondition is `has_compactable_history()` — there must be a non-empty `user`/`assistant` message past the latest `compact` marker, or the call raises `NothingToCompactError` before any provider request. This is what stops a second immediate `/compact` from re-summarizing the previous summary. See `docs/sdk.md` for the public API and the CLI's `/compact` command.
+`Agent.acompact()` / `Agent.compact()` run steps 2–4 on demand, ignoring the threshold and recording `meta.trigger="manual"`. They return the committed marker. `has_compactable_history()` requires a non-empty `user`/`assistant` message after the latest compact marker; otherwise the call raises `NothingToCompactError` before any provider request. See docs/sdk.md for the public API and the CLI's `/compact` command.
 
 ### Provider projection
 

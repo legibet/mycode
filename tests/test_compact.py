@@ -6,6 +6,7 @@ import asyncio
 import json
 from collections.abc import AsyncIterator
 from contextlib import suppress
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
@@ -37,9 +38,9 @@ async def test_session_load_keeps_compact_markers_inline_and_append_only(store: 
     raw_messages = [
         {"role": "user", "content": [{"type": "text", "text": "hello"}]},
         {"role": "assistant", "content": [{"type": "text", "text": "hi"}]},
-        build_compact_event("old summary", provider="p", model="m", context_window=100),
+        build_compact_event("old summary", trigger="auto", provider="p", model="m", context_window=100),
         {"role": "user", "content": [{"type": "text", "text": "next"}]},
-        build_compact_event("new summary", provider="p", model="m", context_window=100),
+        build_compact_event("new summary", trigger="auto", provider="p", model="m", context_window=100),
         {"role": "assistant", "content": [{"type": "text", "text": "latest reply"}]},
     ]
     for message in raw_messages:
@@ -95,7 +96,7 @@ def test_compact_replay_preserves_role_order_after_summary(
     messages = [
         {"role": "user", "content": [{"type": "text", "text": "early"}]},
         {"role": "assistant", "content": [{"type": "text", "text": "ok"}]},
-        build_compact_event("summary", provider="p", model="m", context_window=100),
+        build_compact_event("summary", trigger="auto", provider="p", model="m", context_window=100),
         *tail,
     ]
 
@@ -110,9 +111,9 @@ def test_compact_replay_preserves_role_order_after_summary(
 def test_compact_replay_uses_latest_summary_and_transcript_hint() -> None:
     messages = [
         {"role": "user", "content": [{"type": "text", "text": "very old"}]},
-        build_compact_event("EARLIER_SUMMARY", provider="p", model="m", context_window=100),
+        build_compact_event("EARLIER_SUMMARY", trigger="auto", provider="p", model="m", context_window=100),
         {"role": "assistant", "content": [{"type": "text", "text": "mid"}]},
-        build_compact_event("LATEST_SUMMARY", provider="p", model="m", context_window=100),
+        build_compact_event("LATEST_SUMMARY", trigger="auto", provider="p", model="m", context_window=100),
         {"role": "assistant", "content": [{"type": "text", "text": "tail"}]},
     ]
 
@@ -235,7 +236,7 @@ async def test_acompact_persists_marker_and_uses_manual_request_contract(tmp_pat
 async def test_acompact_without_new_context_raises_before_provider_request(tmp_path: Path) -> None:
     agent = make_agent(tmp_path)
     agent.messages.append({"role": "user", "content": [{"type": "text", "text": "hi"}]})
-    agent.messages.append(build_compact_event("summary", provider="p", model="m", context_window=100))
+    agent.messages.append(build_compact_event("summary", trigger="auto", provider="p", model="m", context_window=100))
 
     adapter = _RecordingAdapter([])
     with patch("mycode.agent.get_provider_adapter", return_value=adapter), pytest.raises(NothingToCompactError):
@@ -299,6 +300,7 @@ class _UsageDetailAdapter:
         self.requests += 1
         if self.requests == 1:
             meta = {
+                "created_at": "2020-01-01T00:00:01+00:00",
                 "usage": {"total_tokens": 80_000, "input_tokens": 79_000, "output_tokens": 1_000},
                 "cost": {"total": 0.01},
             }
@@ -316,14 +318,23 @@ class _UsageDetailAdapter:
 
 
 @pytest.mark.asyncio
-async def test_auto_compact_usage_counts_into_the_turn() -> None:
-    agent = Agent(model="m", provider="anthropic", context_window=100_000)
+async def test_auto_compact_usage_counts_into_the_turn(tmp_path: Path) -> None:
+    agent = Agent(model="m", provider="anthropic", context_window=100_000, session_dir=tmp_path)
     adapter = _UsageDetailAdapter()
+    # Separate the response time from the compact commit without sleeping.
+    started_at = "2020-01-01T00:00:00+00:00"
 
     with patch("mycode.agent.get_provider_adapter", return_value=adapter):
-        events = [event async for event in agent.achat("hello")]
+        events = [
+            event
+            async for event in agent.achat(
+                {"role": "user", "content": [{"type": "text", "text": "hello"}], "meta": {"created_at": started_at}}
+            )
+        ]
 
     assert [event.type for event in events] == ["usage", "compact", "usage"]
+    assert events[0].data["turn_duration_ms"] == 1000
+    assert events[1].data["trigger"] == "auto"
     final_usage = events[-1].data
     # The summary call is billed into the turn, but the context metric keeps
     # the last normal request's total — the summary total is not context size.
@@ -333,8 +344,13 @@ async def test_auto_compact_usage_counts_into_the_turn() -> None:
     assert final_usage["turn_usage"]["output_tokens"] == 1_500
     assert final_usage["turn_cost"] == pytest.approx({"total": 0.015})
 
-    marker = agent.messages[-1]
+    records = await SessionStore(data_dir=tmp_path).load_raw_messages(agent.session_id)
+    assert records == agent.messages
+    marker = records[-1]
     assert marker["role"] == "compact"
+    assert marker["meta"]["trigger"] == "auto"
+    elapsed = datetime.fromisoformat(marker["meta"]["created_at"]) - datetime.fromisoformat(started_at)
+    assert final_usage["turn_duration_ms"] == int(elapsed.total_seconds() * 1000)
     assert marker["meta"]["usage"] == {"total_tokens": 80_500, "input_tokens": 80_000, "output_tokens": 500}
     assert marker["meta"]["cost"] == {"total": 0.005}
 
@@ -370,6 +386,26 @@ async def test_failed_auto_compact_keeps_successful_turn_usage() -> None:
         "output_tokens": 1_000,
     }
     assert all(message.get("role") != "compact" for message in agent.messages)
+
+
+@pytest.mark.asyncio
+async def test_failed_auto_compact_commit_propagates_without_publishing_marker(tmp_path: Path) -> None:
+    agent = Agent(model="m", provider="anthropic", context_window=100_000, session_dir=tmp_path)
+    failure = OSError("compact persistence failed")
+
+    async def persist(message: dict[str, Any]) -> None:
+        if message["role"] == "compact":
+            raise failure
+
+    with patch("mycode.agent.get_provider_adapter", return_value=_UsageDetailAdapter()):
+        stream = agent.achat("hello", on_persist=persist)
+        assert (await anext(stream)).type == "usage"
+        with pytest.raises(OSError, match="compact persistence failed") as exc:
+            await anext(stream)
+
+    assert exc.value is failure
+    assert [message["role"] for message in agent.messages] == ["user", "assistant"]
+    assert await SessionStore(data_dir=tmp_path).load_raw_messages(agent.session_id) == agent.messages
 
 
 class _LegacyMetaAdapter:

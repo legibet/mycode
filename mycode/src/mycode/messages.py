@@ -5,6 +5,8 @@ formats so the agent loop and session store stay provider-agnostic.
 
 Metadata layout:
 
+- ``meta.created_at`` (ISO-8601 UTC) marks when the agent committed the
+  message to the timeline
 - assistant message ``meta`` keeps only normalized top-level fields:
   ``provider``, ``model``, ``provider_message_id``, ``stop_reason``,
   ``usage``, ``cost``, ``context_window`` (see docs/sessions.md for ``usage``

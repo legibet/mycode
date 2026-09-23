@@ -148,15 +148,15 @@ Adapters raise `ProviderError` (`reason`, `retryable`, `status_code`, `retry_aft
 | `tool_start`     | `{"tool_call": {"id", "name", "input"}}`                                 |
 | `tool_output`    | `{"tool_use_id", "output"}`; delta from `streams_output=True` tools      |
 | `tool_done`      | `{"tool_use_id", "output", "is_error", "metadata"?, "content"?}`         |
-| `compact`        | `{}`; emitted right after a compact marker is appended                   |
+| `compact`        | `{"trigger": "auto"}`; emitted after an automatic compact marker is committed |
 | `retry`          | fields under Timeouts and retries; emitted before each new attempt       |
 | `usage`          | see below; emitted after every provider request                          |
 | `error`          | `{"message"}`; fatal for the turn, then the iterator stops               |
 | `cancelled`      | `{}`; user stop completed, then the iterator stops                       |
 
-### Usage and cost
+### Usage, cost, and turn duration
 
-A `usage` event follows each successful provider request, including automatic compaction. It reports the latest context occupancy and best-effort cumulative usage and cost for the turn:
+A `usage` event follows each successful provider request, including automatic compaction. It reports the latest context occupancy plus the turn's cumulative usage, cost, and elapsed time:
 
 ```python
 {
@@ -170,6 +170,7 @@ A `usage` event follows each successful provider request, including automatic co
         "output": 0.0081,
         "total": 0.0123,
     },
+    "turn_duration_ms": 23400,     # turn start -> the record this event follows
 }
 ```
 
@@ -177,7 +178,8 @@ A `usage` event follows each successful provider request, including automatic co
 - `turn_usage` sums each reported token field. Missing fields do not clear known totals.
 - `turn_cost.total` sums requests with known costs. Requests without cost are skipped; `turn_cost` is `None` only when no cost is known.
 - Detailed components are summed while every known request has them. If any known request reports only `total`, the cumulative cost contains only `total`.
-- Failed and cancelled requests without final usage do not emit an extra `usage` event.
+- `turn_duration_ms` is the difference in milliseconds between the opening user record's `meta.created_at` and the assistant or automatic compact record this event follows, clamped to zero. It is not persisted; reloading the same records gives the same value. Missing, invalid, or timezone-free stamps make it `None`.
+- Failed and cancelled requests without final usage do not emit an extra `usage` event, so an interrupted turn's last streamed `turn_duration_ms` stops at its last completed request.
 
 Each completed request persists token facts in `meta.usage` and its fixed USD cost in `meta.cost`; see docs/sessions.md. `estimate_cost(usage, pricing)` uses `ModelMetadata.pricing` from models.dev and applies long-context tiers per request. Missing cache/reasoning prices use base input/output prices. Missing required totals or prices and inconsistent token counts return `None`. OpenRouter's reported charge is persisted directly as `{"total": ...}`. Historical costs are never recomputed.
 
@@ -200,6 +202,8 @@ Every message emitted during a turn is appended as one JSONL line to `<session_d
 
 Runtime-only fields are **not** persisted: the `system` prompt, `api_key`, `api_base`, registered `tools`, and `deps`. Per-turn `provider` and `model` travel as `meta` on the individual assistant message.
 
+Every committed message carries `meta.created_at` (ISO-8601 UTC), stamped before `on_persist` runs and present even without a `session_dir`. A caller-supplied value is kept. docs/sessions.md covers how turn timing is derived from it.
+
 The session subdirectory is created lazily. Constructing an `Agent` with an unused `session_id` does not write anything. `<session_dir>/<session_id>/` and `messages.jsonl` appear when the first message is persisted. The `session_dir` root is created on `Agent` construction.
 
 ### Resolving `session_dir` and `session_id`
@@ -217,17 +221,17 @@ Construct an `Agent` with the same `(session_dir, session_id)` to resume across 
 
 `achat(..., on_persist=coro)` and `run(..., on_persist=coro)` await `coro(message)` once per persisted message, **before** the internal store appends it. It fires for the user input, the assistant response, `tool_result` messages, and `compact` events alike, and works with or without `session_dir`. Use it as a custom persistence backend, or to stage related records alongside the SDK's own append (the CLI web server lands rewind markers this way).
 
-Once a commit starts, the callback and SDK append finish before cancellation is reported. Committed records are not rolled back; persistence failures propagate.
+Once a commit starts, the callback and SDK append finish before cancellation is reported, and the record still joins `agent.messages`. A committed record is never rolled back; a failed one propagates the error and stays out of `agent.messages`, so memory never runs ahead of the log.
 
 ### Compaction
 
-When a turn reaches a full assistant/tool-result boundary the agent compares the latest assistant message's `meta.usage.total_tokens` against `context_window * compact_threshold` (default `0.8`; pass `0` to disable). If over, it asks the same provider/model for a text-only summary capped at `max_tokens=8192`, persists a `compact` marker, and appends it inline to `agent.messages`. The pre-compact messages stay in place; only the next provider request sees the summary substitution.
+When a turn reaches a full assistant/tool-result boundary the agent compares the latest assistant message's `meta.usage.total_tokens` against `context_window * compact_threshold` (default `0.8`; pass `0` to disable). If over, it asks the same provider/model for a text-only summary capped at `max_tokens=8192`, commits a `compact` marker carrying `meta.trigger="auto"`, and emits a `compact` event with the same trigger. The pre-compact messages stay in place; only the next provider request sees the summary substitution. A boundary can be reached after the turn's final answer, so an automatic marker may be the turn's last record.
 
 Automatic compaction is best-effort: a failed summary call is logged and the turn continues with the uncompacted history. A failure to persist the marker propagates to the caller. A user-initiated cancel inside the summary call ends the turn with `cancelled` after cleanup.
 
 #### Manual compaction
 
-`await agent.acompact()` (and the synchronous `agent.compact()` wrapper) compacts on demand, independent of `compact_threshold`. Both run the same summary request and persistence path as automatic compaction and **return the persisted `compact` marker** (a `ConversationMessage`); they append no user or assistant turn. Pass `on_persist=coro` to stage the marker alongside your own store, exactly as `achat` does.
+`await agent.acompact()` (and the synchronous `agent.compact()` wrapper) compacts on demand, independent of `compact_threshold`. Both run the same summary request and persistence path as automatic compaction and **return the persisted `compact` marker** (a `ConversationMessage`, carrying `meta.trigger="manual"`); they append no user or assistant turn. Pass `on_persist=coro` to stage the marker alongside your own store, exactly as `achat` does.
 
 Manual compaction requires new context after the latest marker. Otherwise it raises `NothingToCompactError` before any provider request. A `cancel()` during the summary call raises `asyncio.CancelledError` and writes no marker. If cancellation arrives after the marker commit has begun, that commit finishes before cancellation is raised; a committed marker is never rolled back. `compact()` raises `RuntimeError` inside a running event loop, matching `run()`.
 
