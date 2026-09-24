@@ -1,10 +1,13 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
 import {
+  addPromptHistory,
   loadActiveSession,
   loadConfig,
+  loadPromptHistory,
   removeActiveSession,
   saveActiveSession,
+  savePromptHistory,
 } from "./storage";
 
 function createLocalStorage() {
@@ -79,5 +82,21 @@ describe("storage", () => {
       cwd: "/workspace",
       reasoningEfforts: {},
     });
+  });
+
+  it("skips only a consecutive repeat when appending a prompt", () => {
+    const entries = ["a", "b"];
+    expect(addPromptHistory(entries, " b ")).toBe(entries);
+    expect(addPromptHistory(entries, "   ")).toBe(entries);
+    expect(addPromptHistory(entries, "a")).toEqual(["a", "b", "a"]);
+  });
+
+  it("stores prompt history per workspace", () => {
+    savePromptHistory("/workspace/a", ["one"]);
+    savePromptHistory("/workspace/b", ["two"]);
+
+    expect(loadPromptHistory(" /workspace/a ")).toEqual(["one"]);
+    expect(loadPromptHistory("/workspace/b")).toEqual(["two"]);
+    expect(loadPromptHistory("/workspace/c")).toEqual([]);
   });
 });

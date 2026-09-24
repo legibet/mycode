@@ -14,6 +14,8 @@ const STORAGE_KEY = "mycode_config";
 const HISTORY_KEY = "mycode_cwd_history";
 const ACTIVE_SESSIONS_KEY = "mycode_active_sessions";
 const SIDEBAR_WIDTH_KEY = "mycode_sidebar_width";
+const PROMPT_HISTORY_KEY = "mycode_prompt_history";
+const PROMPT_HISTORY_LIMIT = 30;
 const SCHEMA_VERSION = 2;
 
 const DEFAULT_CONFIG: LocalConfig = {
@@ -177,6 +179,50 @@ export function removeActiveSession(cwd: string): void {
   const activeSessions = loadActiveSessionMap();
   delete activeSessions[normalizeCwdKey(cwd)];
   saveActiveSessionMap(activeSessions);
+}
+
+function loadPromptHistoryMap(): Record<string, string[]> {
+  try {
+    const saved = localStorage.getItem(PROMPT_HISTORY_KEY);
+    if (!saved) return {};
+    const parsed = JSON.parse(saved) as unknown;
+    if (!isRecord(parsed)) return {};
+    return Object.fromEntries(
+      Object.entries(parsed)
+        .filter((entry): entry is [string, unknown[]] =>
+          Array.isArray(entry[1]),
+        )
+        .map(([cwd, entries]) => [
+          cwd,
+          entries.filter((item): item is string => typeof item === "string"),
+        ]),
+    );
+  } catch (e) {
+    console.error("Failed to load prompt history:", e);
+    return {};
+  }
+}
+
+/** Sent prompts for a workspace, oldest first. */
+export function loadPromptHistory(cwd: string): string[] {
+  return loadPromptHistoryMap()[normalizeCwdKey(cwd)] ?? [];
+}
+
+export function savePromptHistory(cwd: string, entries: string[]): void {
+  try {
+    const history = loadPromptHistoryMap();
+    history[normalizeCwdKey(cwd)] = entries;
+    localStorage.setItem(PROMPT_HISTORY_KEY, JSON.stringify(history));
+  } catch (e) {
+    console.error("Failed to save prompt history:", e);
+  }
+}
+
+/** Append a sent prompt (newest last), skipping a repeat of the latest one. */
+export function addPromptHistory(entries: string[], text: string): string[] {
+  const cleaned = text.trim();
+  if (!cleaned || entries.at(-1) === cleaned) return entries;
+  return [...entries, cleaned].slice(-PROMPT_HISTORY_LIMIT);
 }
 
 export function loadSidebarWidth(): number {

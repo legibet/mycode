@@ -16,6 +16,7 @@ import { HistoryPlugin } from "@lexical/react/LexicalHistoryPlugin";
 import { PlainTextPlugin } from "@lexical/react/LexicalPlainTextPlugin";
 import { mergeRegister } from "@lexical/utils";
 import {
+  $createLineBreakNode,
   $createParagraphNode,
   $createTextNode,
   $getRoot,
@@ -65,6 +66,7 @@ import {
 } from "./WorkspaceFileNode";
 
 const MENU_ID = "composer-completion-menu";
+const HISTORY_RECALL_TAG = "prompt-history-recall";
 
 export interface ComposerHandle {
   submit: () => void;
@@ -80,6 +82,8 @@ interface ComposerProps {
   supportsDocuments: boolean;
   skills: SkillInfo[];
   hasUploads: boolean;
+  /** Previously sent prompts for this workspace, oldest first. */
+  history: string[];
   /** Return false to reject the submission (composer keeps its content). */
   onSubmit: (submission: ComposerSubmission) => Promise<boolean>;
   onSlashCommand?: ((name: SlashCommand["name"]) => void) | undefined;
@@ -185,6 +189,19 @@ function $completeSkillToken(name: string): void {
   anchorNode.spliceText(query.start, offset - query.start, `/${name} `, true);
 }
 
+/** Replace the editor content with plain text, caret at the end. */
+function $setPlainText(text: string): void {
+  const root = $getRoot();
+  root.clear();
+  const paragraph = $createParagraphNode();
+  text.split("\n").forEach((line, index) => {
+    if (index > 0) paragraph.append($createLineBreakNode());
+    if (line) paragraph.append($createTextNode(line));
+  });
+  root.append(paragraph);
+  paragraph.selectEnd();
+}
+
 function ComposerInner({
   disabled,
   placeholder,
@@ -194,6 +211,7 @@ function ComposerInner({
   supportsDocuments,
   skills,
   hasUploads,
+  history,
   onSubmit,
   onSlashCommand,
   onPasteFiles,
@@ -210,6 +228,8 @@ function ComposerInner({
   });
   const [activeIndex, setActiveIndex] = useState(0);
   const submittingRef = useRef(false);
+  // Position in `history` while recalling prompts; null when not navigating.
+  const historyIndexRef = useRef<number | null>(null);
   // Both remember the root text they were set for, so any edit invalidates them.
   const [dismissedFor, setDismissedFor] = useState<string | null>(null);
   const [confirmingFor, setConfirmingFor] = useState<{
@@ -222,20 +242,30 @@ function ComposerInner({
   }, [editor, disabled]);
 
   useEffect(() => {
-    return editor.registerUpdateListener(({ editorState }) => {
-      const next = editorState.read($readEditorContext);
-      setContext((prev) =>
-        prev.rootText === next.rootText &&
-        prev.atQuery?.dir === next.atQuery?.dir &&
-        prev.atQuery?.prefix === next.atQuery?.prefix &&
-        (prev.atQuery === null) === (next.atQuery === null) &&
-        prev.skillQuery?.prefix === next.skillQuery?.prefix &&
-        (prev.skillQuery === null) === (next.skillQuery === null)
-          ? prev
-          : next,
-      );
-      onHasContentChange(next.rootText.trim().length > 0);
-    });
+    return editor.registerUpdateListener(
+      ({ editorState, prevEditorState, tags }) => {
+        const next = editorState.read($readEditorContext);
+        // Any text change not caused by recall leaves history navigation.
+        if (
+          !tags.has(HISTORY_RECALL_TAG) &&
+          next.rootText !==
+            prevEditorState.read(() => $getRoot().getTextContent())
+        ) {
+          historyIndexRef.current = null;
+        }
+        setContext((prev) =>
+          prev.rootText === next.rootText &&
+          prev.atQuery?.dir === next.atQuery?.dir &&
+          prev.atQuery?.prefix === next.atQuery?.prefix &&
+          (prev.atQuery === null) === (next.atQuery === null) &&
+          prev.skillQuery?.prefix === next.skillQuery?.prefix &&
+          (prev.skillQuery === null) === (next.skillQuery === null)
+            ? prev
+            : next,
+        );
+        onHasContentChange(next.rootText.trim().length > 0);
+      },
+    );
   }, [editor, onHasContentChange]);
 
   const slashCandidates = useMemo(
@@ -414,6 +444,7 @@ function ComposerInner({
     menuItems,
     menuIndex,
     rootText: context.rootText,
+    history,
     selectMenuItem,
     submit,
   };
@@ -435,6 +466,33 @@ function ComposerInner({
       return true;
     };
 
+    // Recall only starts from an empty editor (no text, no pills), so arrow
+    // keys keep moving the caret in a draft; once recalling, they keep walking.
+    const recallHistory = (
+      event: KeyboardEvent | null,
+      step: -1 | 1,
+    ): boolean => {
+      if (event?.isComposing) return false;
+      const { history } = keyStateRef.current;
+      const index = historyIndexRef.current;
+      if (index === null) {
+        const empty = editor
+          .getEditorState()
+          .read(() => $getRoot().getTextContent() === "");
+        if (step === 1 || !empty || history.length === 0) return false;
+      }
+      const nextIndex = (index ?? history.length) + step;
+      event?.preventDefault();
+      // Already at the oldest entry: keep it and swallow the key.
+      if (nextIndex < 0) return true;
+      const text = history[nextIndex];
+      historyIndexRef.current = text === undefined ? null : nextIndex;
+      editor.update(() => $setPlainText(text ?? ""), {
+        tag: HISTORY_RECALL_TAG,
+      });
+      return true;
+    };
+
     return mergeRegister(
       editor.registerCommand(
         KEY_ARROW_DOWN_COMMAND,
@@ -443,7 +501,7 @@ function ComposerInner({
             setActiveIndex(
               Math.min(state.menuIndex + 1, state.menuItems.length - 1),
             ),
-          ),
+          ) || recallHistory(event, 1),
         COMMAND_PRIORITY_HIGH,
       ),
       editor.registerCommand(
@@ -451,7 +509,7 @@ function ComposerInner({
         (event) =>
           withMenu(event, (state) =>
             setActiveIndex(Math.max(state.menuIndex - 1, 0)),
-          ),
+          ) || recallHistory(event, -1),
         COMMAND_PRIORITY_HIGH,
       ),
       editor.registerCommand(

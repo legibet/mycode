@@ -32,6 +32,11 @@ import { cn } from "../../utils/cn";
 import type { SlashCommand } from "../../utils/completion";
 import { formatCost } from "../../utils/format";
 import { randomId } from "../../utils/id";
+import {
+  addPromptHistory,
+  loadPromptHistory,
+  savePromptHistory,
+} from "../../utils/storage";
 import { Composer, type ComposerHandle } from "./Composer";
 import { EffortTrigger, ModelTrigger } from "./InputPills";
 import { StatsHover, StatsRow } from "./StatsCard";
@@ -286,6 +291,9 @@ export const InputArea = memo(function InputArea({
   const dragCounterRef = useRef(0);
   const [hasContent, setHasContent] = useState(false);
   const [inputNotice, setInputNotice] = useState<InputNotice | null>(null);
+  const [promptHistory, setPromptHistory] = useState(() =>
+    loadPromptHistory(config.cwd),
+  );
 
   const disabled = disabledProp || Boolean(disabledReason);
   const hasImageUpload = files.some((file) => file.kind === "image");
@@ -349,9 +357,19 @@ export const InputArea = memo(function InputArea({
         return false;
       }
       showInputNotice(null);
-      return onSubmit(submission);
+      const accepted = await onSubmit(submission);
+      if (accepted) {
+        const next = addPromptHistory(promptHistory, submission.text);
+        if (next !== promptHistory) {
+          setPromptHistory(next);
+          savePromptHistory(config.cwd, next);
+        }
+      }
+      return accepted;
     },
     [
+      config.cwd,
+      promptHistory,
       loading,
       disabled,
       files.length,
@@ -552,6 +570,7 @@ export const InputArea = memo(function InputArea({
           supportsDocuments={supportsDocuments}
           skills={remoteConfig?.skills ?? EMPTY_SKILLS}
           hasUploads={files.length > 0}
+          history={promptHistory}
           onSubmit={handleSubmission}
           onSlashCommand={onSlashCommand}
           onPasteFiles={handlePasteFiles}

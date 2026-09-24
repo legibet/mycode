@@ -4,6 +4,29 @@ import { createRef } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { Composer, type ComposerHandle } from "./Composer";
 
+function renderWithHistory(history: string[]) {
+  const composerRef = createRef<ComposerHandle>();
+  const onSubmit = vi.fn().mockResolvedValue(true);
+  render(
+    <Composer
+      ref={composerRef}
+      disabled={false}
+      placeholder="Message…"
+      loading={false}
+      cwd="/workspace"
+      supportsImages
+      supportsDocuments
+      skills={[]}
+      hasUploads={false}
+      history={history}
+      onSubmit={onSubmit}
+      onPasteFiles={() => {}}
+      onHasContentChange={() => {}}
+    />,
+  );
+  return { editor: screen.getByRole("textbox"), composerRef, onSubmit };
+}
+
 describe("Composer", () => {
   it("submits a selected workspace file and keeps it when rejected", async () => {
     const user = userEvent.setup();
@@ -42,6 +65,7 @@ describe("Composer", () => {
         supportsDocuments
         skills={[]}
         hasUploads={false}
+        history={[]}
         onSubmit={onSubmit}
         onPasteFiles={() => {}}
         onHasContentChange={() => {}}
@@ -83,6 +107,7 @@ describe("Composer", () => {
         supportsDocuments
         skills={[{ name: "ui", description: "Design user interfaces." }]}
         hasUploads={false}
+        history={[]}
         onSubmit={onSubmit}
         onPasteFiles={() => {}}
         onHasContentChange={() => {}}
@@ -101,5 +126,47 @@ describe("Composer", () => {
       text: "Please use /ui for this page",
       workspaceFiles: [],
     });
+  });
+
+  it("walks prompt history with arrow keys from an empty editor", async () => {
+    const user = userEvent.setup();
+    const { editor, composerRef, onSubmit } = renderWithHistory([
+      "first prompt",
+      "second\nline",
+    ]);
+    await user.click(editor);
+
+    await user.keyboard("{ArrowUp}");
+    expect(editor).toHaveTextContent("secondline");
+    await user.keyboard("{ArrowUp}");
+    expect(editor).toHaveTextContent("first prompt");
+    await user.keyboard("{ArrowUp}");
+    expect(editor).toHaveTextContent("first prompt");
+
+    await user.keyboard("{ArrowDown}");
+    expect(editor).toHaveTextContent("secondline");
+    await user.keyboard("{ArrowDown}");
+    expect(editor).toHaveTextContent("");
+
+    // Recalled multi-line text submits with its line break intact.
+    await user.keyboard("{ArrowUp}");
+    composerRef.current?.submit();
+    await waitFor(() =>
+      expect(onSubmit).toHaveBeenCalledWith({
+        text: "second\nline",
+        workspaceFiles: [],
+      }),
+    );
+  });
+
+  it("keeps a draft when ArrowUp is pressed in a non-empty editor", async () => {
+    const user = userEvent.setup();
+    const { editor } = renderWithHistory(["first prompt"]);
+    await user.click(editor);
+    await user.paste("draft");
+
+    await user.keyboard("{ArrowUp}");
+    expect(editor).toHaveTextContent("draft");
+    expect(editor).not.toHaveTextContent("first prompt");
   });
 });
