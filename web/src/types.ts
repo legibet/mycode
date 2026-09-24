@@ -206,6 +206,8 @@ export interface MessageMeta {
   model?: string;
   provider?: string;
   stop_reason?: string;
+  /** The run error message, set with `stop_reason: "error"`. */
+  error?: string;
   /** Compact markers only: what started the compaction. */
   trigger?: "auto" | "manual";
   context_window?: number;

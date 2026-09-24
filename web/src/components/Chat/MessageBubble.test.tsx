@@ -146,3 +146,21 @@ describe("turn work folding", () => {
     expect(screen.getByRole("button", { name: /read/ })).toBeInTheDocument();
   });
 });
+
+describe("run error row", () => {
+  it("renders the error as plain text, not markdown", () => {
+    const error = 'provider said **no** to {"model": "x_y"}';
+    render(
+      // biome-ignore lint/a11y/useValidAriaRole: component prop is the message role
+      <MessageBubble
+        role="assistant"
+        blocks={[{ type: "text", text: "Partial" }]}
+        isLoading={false}
+        interrupted
+        error={error}
+      />,
+    );
+
+    expect(screen.getByText(error)).toBeInTheDocument();
+  });
+});

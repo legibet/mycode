@@ -5,6 +5,7 @@ import { isCompactMarker } from "../types";
 import {
   buildRenderMessages,
   createUserMessage,
+  markTailAssistantStopped,
   splitTurn,
   updateLatestThinkingDuration,
 } from "./messages";
@@ -176,6 +177,27 @@ describe("messages", () => {
       text: "plan",
       meta: { native: { signature: "sig" }, duration_ms: 1200 },
     });
+  });
+});
+
+describe("run errors", () => {
+  it("gives an error before any output its own assistant", () => {
+    const user: ChatMessage = {
+      role: "user",
+      content: [{ type: "text", text: "hi" }],
+    };
+    const messages = markTailAssistantStopped([user], "error", "HTTP 401");
+
+    expect(messages.at(-1)).toEqual({
+      role: "assistant",
+      content: [],
+      meta: { stop_reason: "error", error: "HTTP 401" },
+    });
+    expect(markTailAssistantStopped([user], "cancelled")).toEqual([user]);
+
+    // Kept when a later turn follows, as a reloaded session would be.
+    const rendered = buildRenderMessages([...messages, user]);
+    expect(expectChat(rendered[1]).meta?.error).toBe("HTTP 401");
   });
 });
 

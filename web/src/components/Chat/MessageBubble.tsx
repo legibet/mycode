@@ -47,6 +47,8 @@ interface MessageBubbleProps {
   stats?: TurnStats | undefined;
   /** The turn's last response ended on an error or cancel. */
   interrupted?: boolean | undefined;
+  /** The run error that ended the turn, shown as plain text. */
+  error?: string | undefined;
   onRewindAndSend?:
     | ((rewindTo: number, input: string) => Promise<void>)
     | undefined;
@@ -189,6 +191,7 @@ function messageBubblePropsEqual(
     prev.isStreaming !== next.isStreaming ||
     prev.model !== next.model ||
     prev.interrupted !== next.interrupted ||
+    prev.error !== next.error ||
     !turnStatsEqual(prev.stats, next.stats) ||
     prev.onRewindAndSend !== next.onRewindAndSend
   ) {
@@ -356,6 +359,7 @@ export const MessageBubble = memo(function MessageBubble({
   model,
   stats,
   interrupted,
+  error,
   onRewindAndSend,
 }: MessageBubbleProps) {
   const isUser = role === "user";
@@ -657,6 +661,9 @@ export const MessageBubble = memo(function MessageBubble({
           </WorkSection>
         )}
         {(folded ? answer : [...answer, ...afterAnswer]).map(renderBlock)}
+        {error && (
+          <p className="break-words text-xs text-destructive/80">{error}</p>
+        )}
 
         {isStreaming && (
           <span className="inline-block w-[1.5px] h-4 bg-foreground/40 ml-0.5 align-middle" />

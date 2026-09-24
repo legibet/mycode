@@ -408,12 +408,14 @@ describe("useChat", () => {
       type: "text",
       text: "original",
     });
-    const restoredAnswer = expectChat(result.current.messages[1]).content[0];
-    if (restoredAnswer?.type !== "text") {
-      throw new Error("expected restored assistant text");
-    }
-    expect(restoredAnswer.text).toContain("original answer");
-    expect(restoredAnswer.text).toContain("rewind rejected");
+    const restoredAnswer = expectChat(result.current.messages[1]);
+    expect(restoredAnswer.content).toEqual([
+      expect.objectContaining({ type: "text", text: "original answer" }),
+    ]);
+    expect(restoredAnswer.meta).toMatchObject({
+      stop_reason: "error",
+      error: "rewind rejected",
+    });
 
     const chatCall = fetchMock.mock.calls.find(([url]) => url === "/api/chat");
     expect(JSON.parse(String(chatCall?.[1]?.body))).toEqual({

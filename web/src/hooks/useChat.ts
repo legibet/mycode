@@ -339,12 +339,11 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
           );
         }
       } else if (event.type === "error") {
-        rawMessages = appendAssistantDelta(
+        rawMessages = markTailAssistantStopped(
           rawMessages,
-          "text",
-          `\n\n**Error:** ${event.message || "Unknown"}`,
+          "error",
+          event.message || "Unknown error",
         );
-        rawMessages = markTailAssistantStopped(rawMessages, "error");
       } else if (event.type === "cancelled") {
         for (const [id, runtime] of Object.entries(toolRuntimeById)) {
           if (runtime.pending) {

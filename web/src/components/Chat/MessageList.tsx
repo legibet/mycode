@@ -418,6 +418,7 @@ function WindowedMessages({
                     model={message.meta?.model}
                     stats={message.stats}
                     interrupted={isInterrupted(message.meta)}
+                    error={message.meta?.error}
                     onRewindAndSend={onRewindAndSend}
                   />
                 </div>

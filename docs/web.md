@@ -77,6 +77,7 @@ Rendering rules:
 - `text` blocks → `MarkdownBlock`
 - `image` blocks → inline image preview in `MessageBubble`
 - `compact` blocks and `compact-marker` entries → `CompactMarker` (a thin labelled divider, no interactivity)
+- `meta.error` on a `stop_reason: "error"` assistant → one plain-text `text-destructive` line at the end of the bubble, not markdown and not part of the copied text
 
 Turn work folding (`WorkSection.tsx`, `splitTurn()` in `utils/messages.ts`):
 
@@ -105,6 +106,8 @@ Any scroll input (wheel, touch, pointer, key) ends the hold. Manual toggles need
 A live `compact` SSE event is consumed by the reducer at the position it arrives — the marker lands between whatever just streamed and whatever streams next, mirroring where the agent emitted it (e.g. between two tool calls of the same turn). The server has already persisted the `compact` JSONL record at the same point with the same `trigger`, so a later session reload renders the same result without any extra round-trip.
 
 `permission_request` opens the approval prompt and `permission_resolved` clears it. `cancelled` clears pending permissions and tool activity without adding an error message.
+
+A chat `error` event adds no content. `markTailAssistantStopped()` sets `meta.stop_reason: "error"` and `meta.error` (the event message, else `Unknown error`) on the tail assistant, creating an empty one when the tail is not an assistant, so an error before any output still has a bubble. When the SDK persisted a failed assistant record it carries the same `meta.error`, so a reload renders the same row; an error before any assistant record (a 401 before output, a failure between tool rounds) shows live only. A rejected send rolls back, then marks the previous turn's assistant this way, in UI state only.
 
 Streaming state tracking:
 

@@ -315,18 +315,23 @@ export function updateLatestThinkingDuration(
 
 /**
  * Mark the tail assistant as stopped, as the SDK marks the partial response
- * it persists. A stop between responses leaves no assistant at the tail.
+ * it persists. A cancel between responses leaves no assistant at the tail;
+ * an error always gets one so its message has a bubble to render in.
  */
 export function markTailAssistantStopped(
   messages: ChatMessage[],
   stopReason: "error" | "cancelled",
+  error?: string,
 ): ChatMessage[] {
-  const tail = messages.at(-1);
-  if (tail?.role !== "assistant") return messages;
-  return [
-    ...messages.slice(0, -1),
-    { ...tail, meta: { ...tail.meta, stop_reason: stopReason } },
-  ];
+  if (stopReason === "cancelled" && messages.at(-1)?.role !== "assistant") {
+    return messages;
+  }
+  const { messages: next, index } = ensureTailAssistant(messages);
+  const tail = next[index] ?? createAssistantMessage([]);
+  const meta: MessageMeta = { ...tail.meta, stop_reason: stopReason };
+  if (error !== undefined) meta.error = error;
+  next[index] = { ...tail, meta };
+  return next;
 }
 
 /** Whether a response ended early instead of completing. */
@@ -798,8 +803,10 @@ export function buildRenderMessages(
   commitTurn();
   return result.filter((message, index) => {
     if (isCompactMarker(message)) return true;
+    // An error with no output still renders its message.
     return (
       (Array.isArray(message.content) && message.content.length > 0) ||
+      Boolean(message.meta?.error) ||
       (index === result.length - 1 && message.role === "assistant")
     );
   });
