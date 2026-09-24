@@ -862,7 +862,8 @@ class Agent:
         partial_blocks: list[tuple[str, list[str]]],
         duration_ms: int | None,
         *,
-        stop_reason: str | None = None,
+        stop_reason: str,
+        error: str | None = None,
     ) -> ConversationMessage:
         """Build the assistant message persisted for an interrupted stream."""
 
@@ -873,9 +874,10 @@ class Agent:
             "provider": self.provider,
             "model": self.model,
             "context_window": self.context_window,
+            "stop_reason": stop_reason,
         }
-        if stop_reason:
-            meta["stop_reason"] = stop_reason
+        if error is not None:
+            meta["error"] = error
         return build_message("assistant", partial_content, meta=meta)
 
     def _usage_event(
@@ -1064,7 +1066,10 @@ class Agent:
                     if thinking_started_at is not None and thinking_duration_ms is None:
                         thinking_duration_ms = self._elapsed_ms(thinking_started_at)
                     partial_message = self._partial_assistant_message(
-                        partial_blocks, thinking_duration_ms, stop_reason="cancelled" if cancelled else "error"
+                        partial_blocks,
+                        thinking_duration_ms,
+                        stop_reason="cancelled" if cancelled else "error",
+                        error=None if cancelled else str(exc),
                     )
                     await self._commit(partial_message, on_persist)
                 if cancelled:
@@ -1085,6 +1090,12 @@ class Agent:
 
             request_usage, request_cost = self._finalize_request_message(assistant_message)
 
+            # _finalize_request_message guarantees a meta dict.
+            assistant_meta = cast(dict[str, Any], assistant_message["meta"])
+            stop_reason = str(assistant_meta.get("stop_reason") or "")
+            if stop_reason == "error":
+                assistant_meta["error"] = "provider returned an error response"
+
             await self._commit(assistant_message, on_persist)
 
             context_tokens = request_usage.get("total_tokens")
@@ -1092,10 +1103,8 @@ class Agent:
             elapsed_ms = _turn_elapsed_ms(user_message, assistant_message)
             yield self._usage_event(context_tokens, turn_usage, turn_cost, elapsed_ms)
 
-            assistant_meta = assistant_message.get("meta")
-            stop_reason = str(assistant_meta.get("stop_reason") or "") if isinstance(assistant_meta, dict) else ""
             if stop_reason == "error":
-                yield Event("error", {"message": "provider returned an error response"})
+                yield Event("error", {"message": assistant_meta["error"]})
                 return
 
             tool_calls = [

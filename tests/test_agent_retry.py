@@ -214,6 +214,7 @@ async def test_no_retry_after_output_and_partial_persisted_once(tmp_path: Path) 
     assert len(assistants) == 1
     assert assistants[0]["content"] == [{"type": "text", "text": "partial"}]
     assert assistants[0]["meta"]["stop_reason"] == "error"
+    assert assistants[0]["meta"]["error"] == "stream died mid-turn"
 
 
 async def test_no_retry_after_reasoning_and_partial_persisted_once(tmp_path: Path) -> None:

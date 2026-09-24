@@ -222,13 +222,13 @@ async def test_provider_error_message_ends_turn_without_executing_tools(tmp_path
     )[0]
     adapter = _FakeProviderAdapter([[assistant]])
 
+    agent = _new_agent(tmp_path, tools=[optional_tool])
     with patch("mycode.agent.get_provider_adapter", return_value=adapter):
-        events = _chat_events(
-            [event async for event in _new_agent(tmp_path, tools=[optional_tool]).achat("run the tool")]
-        )
+        events = _chat_events([event async for event in agent.achat("run the tool")])
 
     assert [event.type for event in events] == ["error"]
     assert events[0].data == {"message": "provider returned an error response"}
+    assert agent.messages[-1]["meta"]["error"] == "provider returned an error response"
     assert calls == []
     assert len(adapter.message_snapshots) == 1
 
