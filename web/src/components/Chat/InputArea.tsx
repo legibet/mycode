@@ -628,7 +628,7 @@ export const InputArea = memo(function InputArea({
               aria-label="Stop generating"
               onClick={onCancel}
               className="size-7 flex items-center justify-center rounded-md text-destructive/70 hover:text-destructive hover:bg-destructive/10 active:scale-95 transition-[color,background-color,scale] duration-150 shrink-0"
-              title="Stop"
+              title="Stop · Esc"
             >
               <Square className="size-3 fill-current" />
             </button>

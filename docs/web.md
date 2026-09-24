@@ -121,6 +121,7 @@ Manual compaction (`/compact`):
 
 Composer and attachments:
 
+- Esc while a run is active cancels it, the same path as the composer's stop button. The handler lives in `App.tsx` and yields when the event is already `defaultPrevented` (permission prompt denies, completion menu closes, message edit closes), when an IME composition is active, or when a `[role=dialog]` (settings sheet) is in the event path.
 - `Composer` (Lexical) is the single source of truth for message text + inline `@` refs; submit hands `useChat.send` a `ComposerSubmission = { text, workspaceFiles }` and `useChat` builds the `input` blocks (workspace refs deduped by `kind + path`, uploads appended).
 - `WorkspaceFileNode` pills serialize as `@path` inside the message text; the file content travels separately as a `path` input block — both must stay consistent with the CLI `@file` behavior.
 - Built-in slash commands match a whole-input token while the composer is idle with an empty upload list. Skills from `GET /api/config` complete as editable `/<skill-name>` text at any standalone slash token. The backend expands exact discovered names; other slash tokens are submitted as text.

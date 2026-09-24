@@ -195,6 +195,27 @@ function AppContent() {
     clearSession,
   } = useChat(config, remoteConfig);
 
+  // Esc is the keyboard twin of the composer's stop button. Controls that
+  // own Esc (permission prompt, completion menu, message edit) preventDefault
+  // first, and a Base UI dialog in the path (settings sheet) closes itself.
+  useEffect(() => {
+    if (!loading) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented) return;
+      if (event.isComposing) return;
+      if (
+        event
+          .composedPath()
+          .some((el) => el instanceof Element && el.matches("[role=dialog]"))
+      ) {
+        return;
+      }
+      void cancel();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [loading, cancel]);
+
   const handleConfigUpdate = useCallback(
     (newConfig: LocalConfig) => {
       if (newConfig.cwd !== config.cwd) {

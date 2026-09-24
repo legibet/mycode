@@ -472,6 +472,8 @@ export const MessageBubble = memo(function MessageBubble({
         e.preventDefault();
         submitEdit();
       } else if (e.key === "Escape") {
+        // Consumed here, or the App-level Esc handler stops a running turn.
+        e.preventDefault();
         cancelEdit();
       }
     },
