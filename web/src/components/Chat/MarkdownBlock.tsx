@@ -4,6 +4,8 @@
  * \(inline\) and \[display\] are normalized before parsing.
  * remark-cjk-friendly relaxes CommonMark emphasis flanking rules so that
  * e.g. 中文**"引号"**中文 renders as bold (commonmark-spec#650).
+ * While a block streams, remend closes unterminated inline markers so the
+ * raw syntax never flashes; finished text renders as written.
  */
 
 import {
@@ -19,6 +21,7 @@ import rehypeKatex from "rehype-katex";
 import remarkCjkFriendly from "remark-cjk-friendly";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
+import remend from "remend";
 import "katex/dist/katex.min.css";
 import { CodeBlock } from "./CodeBlock";
 import { remarkSingleDollarMath } from "./remarkSingleDollarMath";
@@ -34,6 +37,11 @@ const REMARK_PLUGINS: NonNullable<ReactMarkdownProps["remarkPlugins"]> = [
   remarkCjkFriendly,
 ];
 const REHYPE_PLUGINS = [rehypeKatex];
+// An unfinished link shows its text only: remend's default placeholder URL
+// fails react-markdown's protocol filter and would link to the current page.
+// remark-gfm already reads a single ~ as strikethrough; escaping it mid-stream
+// would flip the rendering once the block completes.
+const REMEND_OPTIONS = { linkMode: "text-only", singleTilde: false } as const;
 
 const MARKDOWN_COMPONENTS: Components = {
   pre: ({ children }: MarkdownPreProps) => children,
@@ -157,9 +165,12 @@ function normalizeMathDelimiters(text: string): string {
 
 export const MarkdownBlock = memo(function MarkdownBlock({
   content,
+  streaming = false,
 }: {
   content: string;
+  streaming?: boolean | undefined;
 }) {
+  const source = streaming ? remend(content, REMEND_OPTIONS) : content;
   return (
     <div className="prose max-w-none">
       <ReactMarkdown
@@ -167,7 +178,7 @@ export const MarkdownBlock = memo(function MarkdownBlock({
         rehypePlugins={REHYPE_PLUGINS}
         components={MARKDOWN_COMPONENTS}
       >
-        {normalizeMathDelimiters(content)}
+        {normalizeMathDelimiters(source)}
       </ReactMarkdown>
     </div>
   );

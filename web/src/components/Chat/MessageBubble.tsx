@@ -619,7 +619,10 @@ export const MessageBubble = memo(function MessageBubble({
       const renderKey = block.renderKey || `text:${block.text || "block"}`;
       return (
         <RenderErrorBoundary key={renderKey} fallback={renderErrorFallback}>
-          <MarkdownBlock content={block.text} />
+          <MarkdownBlock
+            content={block.text}
+            streaming={isStreaming && block === blocks.at(-1)}
+          />
         </RenderErrorBoundary>
       );
     }

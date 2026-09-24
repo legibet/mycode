@@ -74,7 +74,7 @@ Rendering rules:
 
 - `thinking` blocks → `ReasoningBlock` (expanded while streaming, uses `meta.duration_ms` when present)
 - `tool_use` blocks → `ToolCard` (with matching `tool_result` and live runtime folded in)
-- `text` blocks → `MarkdownBlock`
+- `text` blocks → `MarkdownBlock`. The last block of the streaming bubble gets `streaming`, which runs `remend` to close unterminated `**`, `` ` `` and `$$` before parsing and to show an unfinished link as its text alone (remend's placeholder URL would render as a link to the current page). Finished text renders as written: remend misreads complete text such as `./src/**/*`.
 - `image` blocks → inline image preview in `MessageBubble`
 - `compact` blocks and `compact-marker` entries → `CompactMarker` (a thin labelled divider, no interactivity)
 - `meta.error` on a `stop_reason: "error"` assistant → one plain-text `text-destructive` line at the end of the bubble, not markdown and not part of the copied text
