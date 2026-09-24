@@ -77,7 +77,7 @@
       "supports_pdf_input": false
     },
     "MiniMax-M3": {
-      "context_window": 1048576,
+      "context_window": 1000000,
       "cost": {
         "cache_read": 0.06,
         "input": 0.3,
@@ -544,7 +544,7 @@
         "output": 0.6,
         "reasoning": 0.6
       },
-      "max_output_tokens": 384000,
+      "max_output_tokens": 393216,
       "reasoning_efforts": [
         "low",
         "high",
@@ -561,7 +561,7 @@
         "output": 0.6,
         "reasoning": 0.6
       },
-      "max_output_tokens": 384000,
+      "max_output_tokens": 393216,
       "reasoning_efforts": [
         "low",
         "high",
@@ -578,7 +578,7 @@
         "output": 0.6,
         "reasoning": 0.6
       },
-      "max_output_tokens": 384000,
+      "max_output_tokens": 393216,
       "reasoning_efforts": [
         "low",
         "high",
@@ -595,7 +595,7 @@
         "output": 1.98,
         "reasoning": 1.98
       },
-      "max_output_tokens": 384000,
+      "max_output_tokens": 393216,
       "reasoning_efforts": [
         "low",
         "high",
@@ -688,7 +688,7 @@
       "supports_pdf_input": false
     },
     "gemini-2.5-computer-use-preview-10-2025": {
-      "context_window": 131072,
+      "context_window": 128000,
       "cost": {
         "input": 1.25,
         "output": 10,
@@ -700,7 +700,7 @@
           }
         ]
       },
-      "max_output_tokens": 65536,
+      "max_output_tokens": 64000,
       "reasoning_efforts": [],
       "supports_image_input": true,
       "supports_pdf_input": false
@@ -801,7 +801,7 @@
       "supports_pdf_input": true
     },
     "gemini-3-pro-image": {
-      "context_window": 131072,
+      "context_window": 65536,
       "cost": {
         "input": 2,
         "output": 120
@@ -826,12 +826,12 @@
       "supports_pdf_input": false
     },
     "gemini-3.1-flash-image": {
-      "context_window": 65536,
+      "context_window": 131072,
       "cost": {
         "input": 0.5,
         "output": 60
       },
-      "max_output_tokens": 65536,
+      "max_output_tokens": 32768,
       "reasoning_efforts": [
         "minimal",
         "high"
@@ -876,7 +876,7 @@
         "input": 0.25,
         "output": 30
       },
-      "max_output_tokens": 65536,
+      "max_output_tokens": 4096,
       "reasoning_efforts": [
         "minimal",
         "high"
@@ -2388,7 +2388,7 @@
         "input": 3,
         "output": 15
       },
-      "max_output_tokens": 131072,
+      "max_output_tokens": 1048576,
       "reasoning_efforts": [
         "low",
         "high",
@@ -2534,7 +2534,7 @@
       "max_output_tokens": 131072,
       "reasoning_efforts": [],
       "supports_image_input": true,
-      "supports_pdf_input": true
+      "supports_pdf_input": false
     },
     "mimo-v2.6-pro": {
       "context_window": 1048576,
@@ -2546,7 +2546,7 @@
       "max_output_tokens": 131072,
       "reasoning_efforts": [],
       "supports_image_input": true,
-      "supports_pdf_input": true
+      "supports_pdf_input": false
     },
     "mimo-v2.6-pro-ultraspeed": {
       "context_window": 1048576,
@@ -3575,7 +3575,7 @@
         "input": 2.5,
         "output": 7.5
       },
-      "max_output_tokens": 65536,
+      "max_output_tokens": 131072,
       "reasoning_efforts": [],
       "supports_image_input": false,
       "supports_pdf_input": false
@@ -3597,7 +3597,7 @@
           }
         ]
       },
-      "max_output_tokens": 65536,
+      "max_output_tokens": 131072,
       "reasoning_efforts": [],
       "supports_image_input": true,
       "supports_pdf_input": false
@@ -3721,6 +3721,22 @@
         "output": 8.1
       },
       "max_output_tokens": 256000,
+      "reasoning_efforts": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "supports_image_input": true,
+      "supports_pdf_input": false
+    },
+    "step-5-preview": {
+      "context_window": 1000000,
+      "cost": {
+        "cache_read": 0.048,
+        "input": 0.959,
+        "output": 2.741
+      },
+      "max_output_tokens": 65536,
       "reasoning_efforts": [
         "low",
         "medium",
