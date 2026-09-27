@@ -1,9 +1,10 @@
 """Semantic color tokens and UI symbols for the terminal CLI.
 
 Every color is one of the six ANSI base hues, so the terminal palette picks the
-actual shade and one set of styles works on dark and light backgrounds. Colored
-text is never bold (many terminals render bold colors in their bright variant),
-and bright variants, black, white, and background colors are not used.
+actual shade and one set of styles works on dark and light backgrounds; bright
+variants, black, white, and background colors are not used. The UI tokens never
+make colored text bold (many terminals render bold colors in their bright
+variant); rendered markdown keeps rich's heading styles.
 """
 
 from __future__ import annotations
@@ -25,28 +26,15 @@ ERROR = Style(color="red")
 WARNING = Style(color="yellow")  # needs attention: reviews, retries
 TOOL_NAME = Style(bold=True)
 
-# Markdown styles for every console the TUI renders with; these replace rich's
-# defaults, which use backgrounds, bright colors, and magenta headings.
+# Markdown styles for every console the TUI renders with. Rich's defaults stay,
+# except where they use a background or a bright color; quotes are kept quiet.
 MARKDOWN_THEME = Theme(
     {
         "markdown.code": "cyan",
         "markdown.code_block": "none",
-        "markdown.block_quote": "dim italic",
-        "markdown.list": "none",
-        "markdown.item.bullet": "dim",
-        "markdown.item.number": "dim",
-        "markdown.hr": "dim",
-        "markdown.h1": "bold",
-        "markdown.h2": "bold",
-        "markdown.h3": "bold",
-        "markdown.h4": "bold dim",
-        "markdown.h5": "bold dim",
-        "markdown.h6": "bold dim",
         "markdown.link": "blue",
-        "markdown.link_url": "dim underline",
-        "markdown.table.border": "dim",
-        "markdown.table.header": "bold",
         "markdown.kbd": "bold",
+        "markdown.block_quote": "dim",
     }
 )
 
