@@ -428,7 +428,7 @@ class TerminalChat:
         self.terminal.print(
             Text(),
             *header_lines(
-                provider=self.agent.provider,
+                provider=self.provider_name,
                 model=self.agent.model,
                 session=session,
                 mode=mode,
