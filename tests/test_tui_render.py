@@ -42,7 +42,19 @@ def test_history_preview_renders_recent_turns() -> None:
                     {"type": "thinking", "text": "hidden"},
                     {"type": "text", "text": "checking `foo`"},
                     {"type": "tool_use", "name": "read", "input": {"path": "foo.py"}},
+                    {"type": "tool_use", "id": "e1", "name": "edit", "input": {"path": "b.py"}},
                     {"type": "text", "text": "```py\nprint(1)\n```"},
+                ],
+            },
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": "e1",
+                        "output": "ok",
+                        "metadata": {"added_lines": 3, "removed_lines": 1},
+                    }
                 ],
             },
             {"role": "user", "content": [{"type": "text", "text": "latest question"}]},
@@ -59,6 +71,8 @@ def test_history_preview_renders_recent_turns() -> None:
     assert "check @main.py" in rendered
     assert "checking foo" in rendered
     assert "Read  foo.py" in rendered
+    # Tool lines read the stored result, as during the live turn.
+    assert "Edit  b.py  +3 −1" in rendered
     assert "print(1)" in rendered
     assert "latest question" in rendered
 
@@ -132,7 +146,7 @@ class TestTurnRenderer:
         assert "Let me think" not in rendered
         assert f"{THINKING_SYMBOL} thought · 1.2s\n\nanswer" in rendered
 
-    async def test_tool_output_prints_complete_lines(self, harness: TerminalHarness) -> None:
+    async def test_tool_output_chunks_are_joined_into_lines(self, harness: TerminalHarness) -> None:
         code, rendered = await _render_turn(
             harness,
             [
@@ -144,9 +158,9 @@ class TestTurnRenderer:
         )
 
         assert code == 0
-        assert f"{TOOL_MARKER} Bash  printf\n    one\n    second\n    third\n" in rendered
+        assert f"{TOOL_MARKER} Bash  printf\n  one\n  second\n  third\n" in rendered
 
-    async def test_tool_output_is_capped(self, harness: TerminalHarness) -> None:
+    async def test_tool_output_keeps_the_last_lines(self, harness: TerminalHarness) -> None:
         lines = "".join(f"line {index}\n" for index in range(8))
         _, rendered = await _render_turn(
             harness,
@@ -157,8 +171,8 @@ class TestTurnRenderer:
             ],
         )
 
-        assert "    line 4\n    +3 lines\n" in rendered
-        assert "line 5" not in rendered
+        assert "  … +3 lines\n  line 3\n  line 4\n  line 5\n  line 6\n  line 7\n" in rendered
+        assert "line 2" not in rendered
 
     async def test_tool_output_is_shown_as_a_terminal_would(self, harness: TerminalHarness) -> None:
         output = "\x1b]8;;https://x.test\x1b\\link\x1b]8;;\x1b\\\n10%\r100%\n" + "x" * 200 + "\n"
@@ -175,7 +189,7 @@ class TestTurnRenderer:
         )
 
         # One header line, escapes and overwritten progress removed, long lines cut to the width.
-        assert f"{TOOL_MARKER} Bash  make && make test\n    link\n    100%\n    {'x' * 75}…\n" in rendered
+        assert f"{TOOL_MARKER} Bash  make && make test\n  link\n  100%\n  {'x' * 77}…\n" in rendered
 
     async def test_tool_header_fits_one_line_and_keeps_the_suffix(self, harness: TerminalHarness) -> None:
         path = "src/" + "deep/" * 30 + "file.py"

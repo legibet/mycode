@@ -59,6 +59,7 @@ from .render import (
     header_lines,
     history_preview,
     shorten,
+    tool_label,
     user_echo,
 )
 from .state import load_efforts, save_efforts
@@ -418,7 +419,7 @@ class TerminalChat:
     async def _review_tool_call(self, request: ToolReviewRequest) -> ToolReviewDecision:
         title = Text()
         title.append(f"{TOOL_MARKER} Review", style=WARNING)
-        title.append(f"  {request.tool_name.capitalize()}")
+        title.append(f"  {tool_label(request.tool_name)}")
         lines: list[Text] = [Text(), title]
         if request.preview:
             lines.append(Text(f"  {shorten(request.preview, self.terminal.width - 2)}", style=MUTED))

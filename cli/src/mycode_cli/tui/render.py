@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import re
 import time
+from collections import deque
 from contextlib import aclosing
 from datetime import datetime
 from typing import Any
@@ -47,14 +48,14 @@ _REASONING_KEEP_CHARS = 1000
 # Delay that coalesces streamed text deltas into one commit and redraw.
 _TEXT_TICK_SECONDS = 0.05
 
-# Maps built-in tool names to the argument key most useful as a one-line preview.
-_TOOL_PREVIEW_KEY: dict[str, str] = {
-    "read": "path",
-    "write": "path",
-    "edit": "path",
-    "bash": "command",
-    "webfetch": "url",
-    "websearch": "query",
+# Built-in tools: display name and the argument shown as the one-line preview.
+_BUILTIN_TOOLS: dict[str, tuple[str, str]] = {
+    "read": ("Read", "path"),
+    "write": ("Write", "path"),
+    "edit": ("Edit", "path"),
+    "bash": ("Bash", "command"),
+    "webfetch": ("WebFetch", "url"),
+    "websearch": ("WebSearch", "query"),
 }
 
 # CSI, OSC, and two-character escape sequences in tool output.
@@ -62,16 +63,6 @@ _ANSI_ESCAPE = re.compile(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07\x1b]*(?:\x07|\x1
 
 
 # -- Static renderables ----------------------------------------------------------
-
-
-def _tool_preview(name: str, args: dict[str, Any]) -> str:
-    """Extract a one-line preview string for a tool call."""
-
-    if not args:
-        return ""
-    key = _TOOL_PREVIEW_KEY.get(name.lower())
-    raw = args.get(key) if key else next(iter(args.values()), "")
-    return " ".join(str(raw or "").split())
 
 
 def shorten(value: str, width: int) -> str:
@@ -179,26 +170,37 @@ def header_lines(
     return lines
 
 
-def _tool_title(name: str, args: dict[str, Any], width: int, *, suffix: Text | None = None) -> Text:
-    """Build ``Name  preview  [suffix]`` on one line of ``width`` cells; only the preview is shortened."""
+def tool_label(name: str) -> str:
+    """Return the display name of a tool."""
 
-    text = Text(name.capitalize(), style=TOOL_NAME)
+    return _BUILTIN_TOOLS[name][0] if name in _BUILTIN_TOOLS else name
+
+
+def _tool_title(name: str, args: dict[str, Any], width: int, *, suffix: Text | None = None) -> Text:
+    """Build ``Name  preview  [suffix]`` on one line of ``width`` cells; only the preview is shortened.
+
+    The preview is the tool's main argument, or the first one for tools that are not built in.
+    """
+
+    key = _BUILTIN_TOOLS[name][1] if name in _BUILTIN_TOOLS else ""
+    raw = args.get(key) if key else next(iter(args.values()), "")
+    preview = " ".join(str(raw or "").split())
+    text = Text(tool_label(name), style=TOOL_NAME)
     tail = Text("  ").append_text(suffix) if suffix else Text()
     room = width - text.cell_len - tail.cell_len - 2
-    preview = _tool_preview(name, args)
     if room > 1 and preview:
         # A path keeps its end, where the file name is.
-        is_path = _TOOL_PREVIEW_KEY.get(name.lower()) == "path"
-        text.append(f"  {_last_cells(preview, room) if is_path else shorten(preview, room)}", style=MUTED)
+        text.append(f"  {_last_cells(preview, room) if key == 'path' else shorten(preview, room)}", style=MUTED)
     return text.append_text(tail)
 
 
 def _tool_header(
-    name: str, args: dict[str, Any], width: int, *, suffix: Text | None = None, failed: bool = False
+    name: str, args: dict[str, Any], width: int, *, failed: bool, metadata: dict[str, Any] | None = None
 ) -> Text:
-    """Build the ``⏺ Name  preview  [suffix]`` tool header line."""
+    """Build the ``⏺ Name  preview  [suffix]`` line of a finished tool call; the suffix shows on success."""
 
     marker = Text(f"{TOOL_MARKER} ", style=ERROR if failed else SUCCESS, no_wrap=True, overflow="ellipsis")
+    suffix = None if failed else _tool_suffix(name, args, metadata)
     return marker.append_text(_tool_title(name, args, width - marker.cell_len, suffix=suffix))
 
 
@@ -206,6 +208,13 @@ def _history_turns(messages: list[ConversationMessage], *, limit: int = 3) -> li
     """Return the last few readable conversation turns for resumed sessions."""
 
     turns: list[list[tuple[str, Any]]] = []
+    results = {
+        block.get("tool_use_id"): block
+        for message in messages
+        if message.get("role") == "user" and isinstance(message.get("content"), list)
+        for block in message["content"]
+        if isinstance(block, dict) and block.get("type") == "tool_result"
+    }
 
     for message in messages:
         role = message.get("role")
@@ -238,7 +247,8 @@ def _history_turns(messages: list[ConversationMessage], *, limit: int = 3) -> li
                     if text:
                         parts.append(("text", text))
                 elif block.get("type") == "tool_use":
-                    parts.append(("tool", (str(block.get("name") or "tool"), block.get("input"))))
+                    result = results.get(block.get("id")) or {}
+                    parts.append(("tool", (str(block.get("name") or "tool"), block.get("input"), result)))
         else:
             text = str(content or "").strip()
             if text:
@@ -271,8 +281,17 @@ def history_preview(messages: list[ConversationMessage], *, width: int) -> list[
             elif kind == "compact":
                 lines.append(compact_marker(width))
             else:
-                name, args = content
-                lines.append(_tool_header(name, args if isinstance(args, dict) else {}, width))
+                name, args, result = content
+                metadata = result.get("metadata")
+                lines.append(
+                    _tool_header(
+                        name,
+                        args if isinstance(args, dict) else {},
+                        width,
+                        failed=bool(result.get("is_error")),
+                        metadata=metadata if isinstance(metadata, dict) else None,
+                    )
+                )
     return lines
 
 
@@ -321,22 +340,21 @@ def _format_cost(cost: float) -> str:
 
 
 def _tool_suffix(name: str, args: dict[str, Any], metadata: dict[str, Any] | None) -> Text | None:
-    """Build the inline suffix shown after a buffered tool's preview on success.
+    """Build the inline suffix shown after a successful tool's preview.
 
     Edit stats read from backend metadata so TUI and web display identical
     ``+N −M`` counts.
     """
 
     parts = Text()
-    lower = name.lower()
 
-    if lower == "edit":
+    if name == "edit":
         added = (metadata or {}).get("added_lines")
         removed = (metadata or {}).get("removed_lines")
         if isinstance(added, int) and isinstance(removed, int):
             parts.append(f"+{added}", style=SUCCESS)
             parts.append(f" −{removed}", style=ERROR)
-    elif lower == "read":
+    elif name == "read":
         offset = args.get("offset")
         limit = args.get("limit")
         if isinstance(offset, int) and isinstance(limit, int):
@@ -345,7 +363,7 @@ def _tool_suffix(name: str, args: dict[str, Any], metadata: dict[str, Any] | Non
             parts.append(f":{offset}", style=MUTED)
         elif isinstance(limit, int):
             parts.append(f":1-{limit}", style=MUTED)
-    elif lower == "write":
+    elif name == "write":
         content = args.get("content")
         if isinstance(content, str):
             lines = content.count("\n") + 1
@@ -361,7 +379,7 @@ class TurnRenderer:
     """Render one assistant turn from agent events: reasoning, markdown text, tools, and stats.
 
     Finished output is printed to the terminal scrollback; the unfinished part
-    (spinner or the current markdown block) lives in the terminal tail.
+    (spinner, current markdown block, or running tool) lives in the terminal tail.
     """
 
     def __init__(
@@ -388,10 +406,10 @@ class TurnRenderer:
         self._stream = MarkdownStream()
         self._text_active = False
         self._tick: asyncio.Task[None] | None = None
-        # Tool phase
+        # Tool phase: the last complete output lines, the unfinished line, and the complete line count.
         self._tool_name = ""
         self._tool_args: dict[str, Any] = {}
-        self._tool_header_printed = False
+        self._tool_lines: deque[str] = deque(maxlen=_TOOL_OUTPUT_MAX_LINES)
         self._tool_line = ""
         self._tool_line_count = 0
         # Stats reported by the agent's `usage` event for the latest request.
@@ -480,32 +498,23 @@ class TurnRenderer:
             self._tick = asyncio.get_running_loop().create_task(self._text_tick())
 
     def tool_start(self, name: str, args: dict[str, Any]) -> None:
-        """Render the start of a tool call."""
+        """Show a running tool in the tail; it reaches the scrollback once it finishes."""
 
         self._end_phase()
         self._tool_name = name
         self._tool_args = args
-        self._tool_header_printed = False
+        self._tool_lines.clear()
         self._tool_line = ""
         self._tool_line_count = 0
-
-        # The header is printed with the first output (bash) or the result (other
-        # tools), so a permission review never leaves an orphan header above it.
-        self._show_spinner(_tool_title(name, args, self._terminal.width - _SPINNER_CELLS))
+        self._show_tool()
 
     def tool_output(self, delta: str) -> None:
-        """Append streamed tool output; only complete lines are printed."""
-
-        if not delta:
-            return
-        if not self._tool_header_printed:
-            self._print(_tool_header(self._tool_name, self._tool_args, self._terminal.width))
-            self._tool_header_printed = True
-            self._show_spinner(Text())
+        """Append streamed tool output to the running tool."""
 
         *complete, self._tool_line = (self._tool_line + delta).split("\n")
-        for line in complete:
-            self._print_tool_line(line)
+        self._tool_lines.extend(complete)
+        self._tool_line_count += len(complete)
+        self._show_tool()
 
     def tool_done(
         self,
@@ -514,25 +523,7 @@ class TurnRenderer:
         is_error: bool,
         metadata: dict[str, Any] | None = None,
     ) -> None:
-        """Render the final tool result."""
-
-        # Bash streams; other tools are buffered and get an inline header suffix on success.
-        suffix = None
-        if self._tool_name.lower() != "bash" and not is_error:
-            suffix = _tool_suffix(self._tool_name, self._tool_args, metadata)
-        if not self._tool_header_printed:
-            self._print(
-                _tool_header(self._tool_name, self._tool_args, self._terminal.width, suffix=suffix, failed=is_error)
-            )
-            self._tool_header_printed = True
-
-        if self._tool_line:
-            self._print_tool_line(self._tool_line)
-            self._tool_line = ""
-
-        hidden_lines = self._tool_line_count - _TOOL_OUTPUT_MAX_LINES
-        if hidden_lines > 0:
-            self._print(Text(f"    +{hidden_lines} lines", style=MUTED))
+        """Print the finished tool: its header, last output lines, and result status."""
 
         result_lines = output.splitlines()
         status_prefixes = ("error:", "[Output truncated:", "[Command timed out", "[exit code:")
@@ -540,9 +531,11 @@ class TurnRenderer:
         if is_error and not status_lines and result_lines:
             status_lines = [result_lines[-1]]
         style = ERROR if is_error else MUTED
-        for line in status_lines[-2:]:
-            self._print(Text(f"    {_display_line(line)[:500]}", style=style))
-
+        self._print(
+            _tool_header(self._tool_name, self._tool_args, self._terminal.width, failed=is_error, metadata=metadata),
+            *self._tool_output(),
+            *(Text(f"  {_display_line(line)[:500]}", style=style) for line in status_lines[-2:]),
+        )
         # Waiting for the next model response.
         self._show_spinner(Text())
 
@@ -591,18 +584,27 @@ class TurnRenderer:
 
     # -- Internal helpers ----------------------------------------------------
 
-    def _print(self, renderable: RenderableType) -> None:
-        self._terminal.print(renderable)
+    def _print(self, *renderables: RenderableType) -> None:
+        self._terminal.print(*renderables)
         self._printed = True
 
     def _show_spinner(self, text: Text) -> None:
         self._spinner.text = text
         self._terminal.set_tail(self._spinner)
 
-    def _print_tool_line(self, line: str) -> None:
-        self._tool_line_count += 1
-        if self._tool_line_count <= _TOOL_OUTPUT_MAX_LINES:
-            self._print(Text(f"    {_display_line(line)}", style=MUTED, no_wrap=True, overflow="ellipsis"))
+    def _show_tool(self) -> None:
+        self._spinner.text = _tool_title(self._tool_name, self._tool_args, self._terminal.width - _SPINNER_CELLS)
+        self._terminal.set_tail(Group(self._spinner, *self._tool_output()))
+
+    def _tool_output(self) -> list[Text]:
+        """The last output lines of the current tool, after a count of the lines left out."""
+
+        lines = [*self._tool_lines, self._tool_line] if self._tool_line else [*self._tool_lines]
+        shown = lines[-_TOOL_OUTPUT_MAX_LINES:]
+        hidden = self._tool_line_count + bool(self._tool_line) - len(shown)
+        rows = [Text(f"  … +{hidden} lines", style=MUTED)] if hidden else []
+        rows += [Text(f"  {_display_line(line)}", style=MUTED, no_wrap=True, overflow="ellipsis") for line in shown]
+        return rows
 
     def _end_phase(self) -> None:
         self._end_reasoning()
