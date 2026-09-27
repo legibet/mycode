@@ -245,8 +245,6 @@ def test_web_dev_enables_backend_reload(monkeypatch: pytest.MonkeyPatch, tmp_pat
         "get_settings",
         lambda cwd: Settings(
             providers={},
-            default_provider=None,
-            default_model=None,
             port=8000,
             cwd=cwd,
             project=cwd,

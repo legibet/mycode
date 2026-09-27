@@ -38,8 +38,6 @@ from mycode_cli.workspace import CliDeps
 def settings_for(cwd: str) -> Settings:
     return Settings(
         providers={},
-        default_provider=None,
-        default_model=None,
         port=8000,
         cwd=cwd,
         project=cwd,

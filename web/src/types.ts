@@ -451,11 +451,7 @@ export interface WebProviderEntry {
 }
 
 export interface GlobalConfig {
-  default?: {
-    provider?: string;
-    model?: string;
-    compact_threshold?: number | false | null;
-  };
+  compact_threshold?: number | false | null;
   permission?:
     | PermissionLevel
     | { level?: PermissionLevel; mode?: PermissionMode };

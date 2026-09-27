@@ -162,7 +162,6 @@ class TestSettingsApi:
             "/api/settings",
             json={
                 "config": {
-                    "default": {"provider": "custom", "model": "custom-model"},
                     "providers": {
                         "custom": {
                             "type": "openai_chat",
@@ -191,7 +190,7 @@ class TestSettingsApi:
             ({"providers": ["anthropic"]}, "providers must be an object"),
             ({"providers": "anthropic"}, "providers must be an object"),
             ({"providers": []}, "providers must be an object"),
-            ({"default": {"compact_threshold": float("nan")}}, "compact_threshold"),
+            ({"compact_threshold": float("nan")}, "compact_threshold"),
             ({"providers": {"weird": {"type": "not-a-real-provider"}}}, "unsupported"),
             (
                 {"providers": {"custom": {"type": "openai_chat", "supports_reasoning_effort": "yes"}}},
@@ -235,7 +234,7 @@ class TestSettingsWriteNormalization:
             "/api/settings",
             json={
                 "config": {
-                    "default": {"provider": "", "model": None},
+                    "compact_threshold": None,
                     "permission": None,
                     "providers": {"anthropic": {"api_key": "", "base_url": None, "models": []}},
                 }
@@ -247,8 +246,8 @@ class TestSettingsWriteNormalization:
         assert on_disk == {"providers": {"anthropic": {}}}
 
     def test_put_compact_threshold_false_persists_as_false(self, client: TestClient, home: Path) -> None:
-        response = client.put("/api/settings", json={"config": {"default": {"compact_threshold": False}}})
+        response = client.put("/api/settings", json={"config": {"compact_threshold": False}})
         assert response.status_code == 200
 
         on_disk = json.loads((home / "config.json").read_text(encoding="utf-8"))
-        assert on_disk == {"default": {"compact_threshold": False}}
+        assert on_disk == {"compact_threshold": False}

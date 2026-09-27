@@ -76,7 +76,7 @@ class TestGetSettings:
     def test_nonfinite_compact_threshold_is_rejected(
         self, config_home: Path, workspace: Path, threshold: float
     ) -> None:
-        write_json(config_home / "config.json", {"default": {"compact_threshold": threshold}})
+        write_json(config_home / "config.json", {"compact_threshold": threshold})
         with pytest.raises(ValueError, match="compact_threshold"):
             get_settings(str(workspace))
 
@@ -131,10 +131,7 @@ class TestGetSettings:
         workspace: Path,
         config_home: Path,
     ) -> None:
-        config = {
-            "providers": {"openai": {"api_key": "sk-test"}},
-            "default": {"provider": "openai"},
-        }
+        config: dict[str, object] = {"providers": {"openai": {"api_key": "sk-test"}}}
         write_json(config_home / "config.json", config)
         settings = get_settings(str(workspace))
         agent = build_test_agent(tmp_path, workspace, settings, resolve_provider(settings))
@@ -169,7 +166,7 @@ class TestGetSettings:
                         "models": {"gpt-5-mini": {}},
                     }
                 },
-                "default": {"provider": "shared", "model": "gpt-5-mini", "compact_threshold": 0.7},
+                "compact_threshold": 0.7,
             },
         )
         write_json(
@@ -180,13 +177,12 @@ class TestGetSettings:
                         "base_url": "https://root.example/v1",
                     }
                 },
-                "default": {"compact_threshold": 0.9},
+                "compact_threshold": 0.9,
             },
         )
         write_json(
             cwd_config,
             {
-                "default": {"provider": "shared", "model": "gpt-5.5"},
                 "providers": {
                     "shared": {
                         "models": {"gpt-5.5": {}},
@@ -199,8 +195,6 @@ class TestGetSettings:
 
         assert settings.cwd == str(cwd.resolve())
         assert settings.project == str(project.resolve())
-        assert settings.default_provider == "shared"
-        assert settings.default_model == "gpt-5.5"
         assert settings.compact_threshold == 0.9
         assert settings.providers["shared"].api_key == "global-key"
         assert settings.providers["shared"].base_url == "https://root.example/v1"
@@ -215,13 +209,13 @@ class TestGetSettings:
         project = tmp_path / "project"
         cwd = project / "apps" / "api"
         cwd.mkdir(parents=True)
-        write_json(project / ".mycode" / "config.json", {"default": {"provider": "parent"}})
-        write_json(cwd / ".mycode" / "config.json", {"default": {"provider": "local"}})
+        write_json(project / ".mycode" / "config.json", {"compact_threshold": 0.5})
+        write_json(cwd / ".mycode" / "config.json", {"compact_threshold": 0.6})
 
         settings = get_settings(str(cwd.resolve()))
 
         assert settings.project == str(cwd.resolve())
-        assert settings.default_provider == "local"
+        assert settings.compact_threshold == 0.6
         assert settings.config_paths == [str((cwd / ".mycode" / "config.json").resolve())]
 
     def test_ignores_legacy_env_without_config(
@@ -234,14 +228,11 @@ class TestGetSettings:
         settings = get_settings(str(workspace.resolve()))
 
         assert settings.providers == {}
-        assert settings.default_provider is None
-        assert settings.default_model is None
 
     def test_ignores_agents_compat_config(self, tmp_path: Path, workspace: Path, config_home: Path) -> None:
         write_json(
             tmp_path / "home" / ".agents" / "config.json",
             {
-                "default": {"provider": "compat"},
                 "providers": {
                     "compat": {
                         "type": "openai",
@@ -254,7 +245,6 @@ class TestGetSettings:
         settings = get_settings(str(workspace.resolve()))
 
         assert settings.providers == {}
-        assert settings.default_provider is None
         assert settings.config_paths == []
 
     def test_builtin_provider_without_models_uses_builtin_defaults(self, workspace: Path, config_home: Path) -> None:
@@ -262,7 +252,6 @@ class TestGetSettings:
             config_home / "config.json",
             {
                 "providers": {"moonshotai": {"type": "moonshotai"}},
-                "default": {"provider": "moonshotai"},
             },
         )
 
@@ -282,7 +271,6 @@ class TestGetSettings:
                         "models": {"deepseek/deepseek-v3.2": {}},
                     }
                 },
-                "default": {"provider": "openrouter"},
             },
         )
 
@@ -447,10 +435,6 @@ class TestResolveProvider:
                         "models": {"claude-sonnet-4-6": {}},
                     }
                 },
-                "default": {
-                    "provider": "shared",
-                    "model": "claude-sonnet-4-6",
-                },
             },
         )
 
@@ -474,10 +458,6 @@ class TestResolveProvider:
                         "api_key": "config-key",
                         "models": {"claude-sonnet-4-6": {}},
                     }
-                },
-                "default": {
-                    "provider": "claude",
-                    "model": "claude-sonnet-4-6",
                 },
             },
         )
@@ -533,7 +513,6 @@ class TestResolveProvider:
                         "models": {"openai/gpt-5": {}},
                     }
                 },
-                "default": {"provider": "router", "model": "openai/gpt-5"},
             },
         )
 
@@ -541,7 +520,7 @@ class TestResolveProvider:
 
         assert resolved.api_key == "router-env-key"
 
-    def test_falls_back_when_default_provider_api_key_is_missing(
+    def test_skips_configured_provider_without_credentials(
         self, workspace: Path, config_home: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.setenv("OPENAI_API_KEY", "openai-env-key")
@@ -556,7 +535,6 @@ class TestResolveProvider:
                         "models": {"openai/gpt-5": {}},
                     }
                 },
-                "default": {"provider": "router", "model": "openai/gpt-5"},
             },
         )
 
@@ -626,7 +604,6 @@ class TestResolveProvider:
                         "models": {"claude-sonnet-4-6": {}},
                     }
                 },
-                "default": {"provider": "claude"},
             },
         )
 
@@ -675,7 +652,6 @@ class TestAgentCapabilities:
                         "models": {"gpt-4.1-mini": {}},
                     }
                 },
-                "default": {"provider": "shared"},
             },
         )
 
@@ -719,7 +695,6 @@ class TestAgentCapabilities:
                         }
                     }
                 },
-                "default": {"provider": "openai"},
             },
         )
 

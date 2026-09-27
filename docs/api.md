@@ -180,7 +180,7 @@ Response:
 }
 ```
 
-`reasoning_efforts` maps each model to its available effort values; an empty list means the model has no effort selector. `skills` lists the name and description used by slash completion. Skill paths and contents stay on the server. `image_input_models` lists models with image input. `pdf_input_models` lists models with PDF input. A provider setup error returns status `200`, an empty `providers` object, empty `default` fields, and `setup_error: {"message": "..."}`. A ready setup returns `setup_error: null`.
+`reasoning_efforts` maps each model to its available effort values; an empty list means the model has no effort selector. `skills` lists the name and description used by slash completion. Skill paths and contents stay on the server. `image_input_models` lists models with image input. `pdf_input_models` lists models with PDF input. `default` is the first available provider and its first model. A provider setup error returns status `200`, an empty `providers` object, empty `default` fields, and `setup_error: {"message": "..."}`. A ready setup returns `setup_error: null`.
 
 ## Settings
 
@@ -197,7 +197,6 @@ Returns the global config plus options for the editor UI.
   "path": "/Users/.../.mycode/config.json",
   "exists": true,
   "config": {
-    "default": {"provider": "anthropic", "model": "claude-sonnet-5"},
     "permission": {"level": "safe", "mode": "ask"},
     "web": {
       "fetch": "local",
@@ -240,7 +239,6 @@ Replace the global config file. Validates input and writes atomically.
 ```json
 {
   "config": {
-    "default": {"provider": "anthropic", "model": "claude-sonnet-5"},
     "permission": {"level": "safe", "mode": "ask"},
     "web": {
       "fetch": "local",
@@ -384,19 +382,19 @@ Response:
 
 **Do not change event names or payload shapes without updating server, CLI, and web UI.**
 
-| event                 | payload fields                                                                                               |
-| --------------------- | ------------------------------------------------------------------------------------------------------------ |
-| `reasoning`           | `delta: str`                                                                                                 |
-| `reasoning_done`      | `duration_ms: int`                                                                                           |
-| `text`                | `delta: str`                                                                                                 |
-| `tool_start`          | `tool_call: {id, name, input}`                                                                               |
-| `tool_output`         | `tool_use_id: str`, `output: str`                                                                            |
-| `tool_done`           | `tool_use_id: str`, `output: str`, `is_error: bool`, `metadata?`, `content?`                                 |
-| `compact`             | `trigger: "auto" \| "manual"`                                                                              |
-| `error`               | `message: str`                                                                                               |
-| `cancelled`           | _empty payload_                                                                                              |
-| `permission_request`  | `request_id: str`, `tool_use_id: str`, `tool_name: str`, `preview: str`                                      |
-| `permission_resolved` | `request_id: str`, `decision: "allow" \| "deny"`                                                             |
+| event                 | payload fields                                                                                                    |
+| --------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `reasoning`           | `delta: str`                                                                                                      |
+| `reasoning_done`      | `duration_ms: int`                                                                                                |
+| `text`                | `delta: str`                                                                                                      |
+| `tool_start`          | `tool_call: {id, name, input}`                                                                                    |
+| `tool_output`         | `tool_use_id: str`, `output: str`                                                                                 |
+| `tool_done`           | `tool_use_id: str`, `output: str`, `is_error: bool`, `metadata?`, `content?`                                      |
+| `compact`             | `trigger: "auto" \| "manual"`                                                                                     |
+| `error`               | `message: str`                                                                                                    |
+| `cancelled`           | _empty payload_                                                                                                   |
+| `permission_request`  | `request_id: str`, `tool_use_id: str`, `tool_name: str`, `preview: str`                                           |
+| `permission_resolved` | `request_id: str`, `decision: "allow" \| "deny"`                                                                  |
 | `usage`               | `context_tokens?`, `context_window?`, `model?`, `turn_usage?`, `turn_cost?`, `turn_duration_ms?`, `session_cost?` |
 
 `tool_output` is ordered, append-only display text. Clients do not insert separators between events. Under buffer pressure, `[live output omitted]` replaces one continuous middle segment. `tool_done.output` is the authoritative final result. Once a tool's `tool_done` is buffered, the server may drop that tool's earlier `tool_output` events — a consumer that has not read them yet skips straight to the `tool_done`.

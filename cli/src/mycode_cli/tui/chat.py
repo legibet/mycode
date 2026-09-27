@@ -6,6 +6,7 @@ import asyncio
 import re
 import shlex
 from collections.abc import Iterable
+from dataclasses import replace
 from pathlib import Path
 from typing import Any, Literal, override
 from uuid import uuid4
@@ -43,6 +44,7 @@ from mycode_cli.config import (
 from mycode_cli.permissions import ToolReviewDecision, ToolReviewRequest, build_permission_hooks
 from mycode_cli.runtime import load_session_cost
 from mycode_cli.sessions import SessionStore
+from mycode_cli.state import load_state, save_state
 from mycode_cli.system_prompt import build_skill_snapshot_blocks, discover_slash_skills
 from mycode_cli.workspace import CliDeps, resolve_path
 
@@ -57,7 +59,6 @@ from .render import (
     tool_label,
     user_echo,
 )
-from .state import load_efforts, save_efforts
 from .terminal import Terminal
 from .theme import MUTED, SUCCESS, TOOL_MARKER, WARNING
 
@@ -343,8 +344,7 @@ class TerminalChat:
         self.session_id = session_id
         self.provider_name = provider_name or agent.provider
         self.reasoning_efforts = reasoning_efforts
-        self.effort_preferences = load_efforts()
-        self._restore_effort()
+        self.state = load_state()
         self._session = session or {}
         self._mode: Literal["new", "resumed"] = mode
         self._messages = messages or []
@@ -712,11 +712,14 @@ class TerminalChat:
         except ValueError as exc:
             self.terminal.print(error_line(str(exc)))
             return
+        resolved = replace(resolved, reasoning_effort=self.state.effort_for(resolved))
 
         changed = apply_resolved_provider(self.agent, resolved)
         self.provider_name = provider_name
         self.reasoning_efforts = resolved.reasoning_efforts
-        self._restore_effort()
+        self.state.provider = provider_name
+        self.state.model = model
+        save_state(self.state)
         label = f"{provider_name} / {model}"
         if self.agent.reasoning_effort:
             label += f" [effort: {self.agent.reasoning_effort}]"
@@ -755,21 +758,6 @@ class TerminalChat:
 
         changed = resolved != self.agent.reasoning_effort
         self.agent.reasoning_effort = resolved
-        self.effort_preferences[self._effort_key()] = resolved or "auto"
-        save_efforts(self.effort_preferences)
+        self.state.set_effort(self.provider_name, self.agent.model, resolved)
+        save_state(self.state)
         self._print_runtime_status("effort", resolved or "auto", changed=changed)
-
-    def _effort_key(self) -> str:
-        return f"{self.provider_name}/{self.agent.model}"
-
-    def _restore_effort(self) -> None:
-        saved = self.effort_preferences.get(self._effort_key())
-        if saved is None or saved == "auto":
-            self.agent.reasoning_effort = None
-            return
-        if self.agent.supports_reasoning_effort and saved in self.reasoning_efforts:
-            self.agent.reasoning_effort = saved
-            return
-        del self.effort_preferences[self._effort_key()]
-        save_efforts(self.effort_preferences)
-        self.agent.reasoning_effort = None

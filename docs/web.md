@@ -139,6 +139,7 @@ Composer and attachments:
 The Web UI persists these values to `localStorage`:
 
 - `provider`, `model`, `cwd`, and `reasoningEfforts` keyed by `provider/model`
+- A stored provider that is no longer available falls back to the `default` provider from `GET /api/config`; a stored model the selected provider no longer lists falls back to its first model
 - A missing model-specific effort uses `auto`; `auto` is stored explicitly when selected
 - recent workspaces, active sessions, sidebar width, and theme
 

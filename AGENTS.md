@@ -35,6 +35,7 @@ cli/src/mycode_cli/       # CLI + FastAPI web server
   tools.py                # local tools (read, write, edit, bash)
   web_tools.py            # configurable webfetch / websearch tools
   config.py               # layered JSON config, config validation, provider resolution, paths
+  state.py                # remembered provider/model/effort (~/.mycode/cli.json)
   permissions.py          # tool permission policy + before_tool hook
   system_prompt.py        # base prompt + AGENTS.md + skills discovery
   tui/                    # interactive terminal chat (chat.py, terminal.py, render.py, markdown.py, theme.py)
@@ -84,7 +85,7 @@ Read the relevant doc before related changes.
 | `mycode/src/mycode/providers/*`                                                                              | `docs/providers.md`                           |
 | `cli/src/mycode_cli/tools.py`, `web_tools.py`, `permissions.py`                                              | `docs/tools.md`                               |
 | `cli/src/mycode_cli/server/**` or any SSE event / route                                                      | `docs/api.md`                                 |
-| `cli/src/mycode_cli/config.py`                                                                               | `docs/config.md`                              |
+| `cli/src/mycode_cli/config.py`, `state.py`                                                                   | `docs/config.md`                              |
 | `cli/src/mycode_cli/system_prompt.py` (skills / instructions discovery)                                      | `cli/README.md`                               |
 | `web/**`                                                                                                     | `docs/web.md`                                 |
 | Cross-cutting changes (e.g. a new SSE event)                                                                 | `docs/api.md` + `docs/sdk.md` + `docs/web.md` |

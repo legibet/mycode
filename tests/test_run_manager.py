@@ -523,8 +523,6 @@ async def test_request_decision_deny_returns_deny(tmp_path: Path, monkeypatch: p
 
     settings = Settings(
         providers={},
-        default_provider=None,
-        default_model=None,
         port=8000,
         cwd=str(tmp_path),
         project=str(tmp_path),

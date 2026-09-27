@@ -21,11 +21,11 @@ from mycode_cli.config import (
     get_settings,
     normalize_reasoning_effort,
     parse_permission,
-    resolve_provider,
     resolve_sessions_dir,
 )
 from mycode_cli.permissions import PERMISSION_DENIED_BY_USER_OUTPUT, PERMISSION_DENIED_OUTPUT
 from mycode_cli.sessions import SessionStore
+from mycode_cli.state import load_state, resolve_remembered_provider
 
 from .runtime import build_agent
 
@@ -164,9 +164,11 @@ def _bootstrap(
         settings = get_settings(cwd)
         if permission is not None:
             settings = replace(settings, permission=parse_permission(permission, settings.permission))
-        resolved_provider = resolve_provider(settings, provider_name=provider, model=model)
-        resolved_effort = normalize_reasoning_effort(reasoning_effort)
-        if resolved_effort is not None:
+        state = load_state()
+        resolved_provider = resolve_remembered_provider(settings, state, provider_name=provider, model=model)
+        if reasoning_effort is None:
+            resolved_effort = state.effort_for(resolved_provider)
+        elif (resolved_effort := normalize_reasoning_effort(reasoning_effort)) is not None:
             if not resolved_provider.supports_reasoning_effort:
                 raise ValueError(f"provider {resolved_provider.provider!r} does not support reasoning effort")
             if resolved_effort not in resolved_provider.reasoning_efforts:
@@ -175,6 +177,7 @@ def _bootstrap(
                     f"reasoning effort {resolved_effort!r} is not supported by model {resolved_provider.model!r}; "
                     + f"supported efforts: {supported}"
                 )
+        resolved_provider = replace(resolved_provider, reasoning_effort=resolved_effort)
         resolved_session = asyncio.run(
             resolve_session(
                 store=store,
@@ -197,8 +200,6 @@ def _bootstrap(
         session_id=resolved_session.session_id,
         max_turns=max_turns,
     )
-    if reasoning_effort is not None:
-        agent.reasoning_effort = resolved_effort
 
     return _BootstrapContext(
         store=store,

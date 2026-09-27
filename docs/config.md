@@ -24,11 +24,7 @@ file and adapts it for the UI.
 
 ```json
 {
-  "default": {
-    "provider": "anthropic",
-    "model": "claude-sonnet-5",
-    "compact_threshold": 0.8
-  },
+  "compact_threshold": 0.8,
   "permission": {
     "level": "safe",
     "mode": "ask"
@@ -61,9 +57,7 @@ file and adapts it for the UI.
 
 ### Fields
 
-- `default.provider` — references a key in `providers`, or a raw adapter id
-- `default.model` — model name used when no per-provider model is set
-- `default.compact_threshold` — fraction of context window that triggers compaction; `false` or `0` disables; range `[0, 1]`; default `0.8`
+- `compact_threshold` — fraction of context window that triggers compaction; `false` or `0` disables; range `[0, 1]`; default `0.8`
 - `permission` — CLI tool execution permissions. String shorthand (`"safe"`) sets the level and keeps the current/default mode; object form accepts `level` and `mode`
 - `permission.level` — how much the agent may run automatically: `readonly` · `safe` · `standard` · `yolo`; default `safe`
 - `permission.mode` — what to do outside the selected level: `ask` or `deny`; default `ask`. Non-interactive `mycode run` treats `ask` as `deny`
@@ -108,9 +102,10 @@ Loading config and building an agent do not require web keys. Selecting a web pr
 `resolve_provider(settings, provider_name=..., model=...)` returns a `ResolvedProvider`:
 
 1. If `provider_name` given: resolve it as a configured alias or raw provider id; failures raise.
-2. If no `provider_name`: try the configured default; failures fall through to step 3.
-3. Iterate configured providers with available authentication, then env-discoverable built-in providers.
-4. If nothing found: raise error listing checked env vars.
+2. Otherwise use the first available provider: configured providers in config order, then env-discoverable built-in providers.
+3. If none is available: raise an error listing the checked env vars.
+
+Without `model`, the provider's first configured model is used, else the adapter's first default model.
 
 For configured entries, availability is resolved in this order:
 
@@ -122,14 +117,24 @@ Auto-discovery is narrower: only providers with `auto_discoverable=True` and a b
 
 `ResolvedProvider.model_config` is the selected model's config override, or `None`.
 
+## Remembered Selection
+
+`~/.mycode/cli.json` stores the provider and model last chosen with TUI `/model`, and the effort chosen with `/effort` for each provider/model. `mycode` and `mycode run` start from them; `--provider`, `--model`, and `--effort` override them for one run and are not saved.
+
+When a remembered value is no longer valid:
+
+- provider unavailable: the first available provider (see Provider Resolution)
+- model no longer listed by the provider: the provider's first model
+- effort unsupported by the model: `auto`
+
 ## Reasoning Effort
 
 Controls how much thinking a model does.
 
-Available values come from the selected model's metadata or its `reasoning_efforts` override. TUI and Web prepend `auto`; models without values show no effort control. Without an explicit request or a frontend model-specific preference, effort is `auto`.
+Available values come from the selected model's metadata or its `reasoning_efforts` override. TUI and Web prepend `auto`; models without values show no effort control. Without an explicit request or a remembered choice for the model, effort is `auto`.
 
-- `mycode run --effort <level>` sets effort for one non-interactive run; omitted means `auto`
-- TUI `/effort` and the Web input control remember effort per provider/model without changing config; TUI preferences live in `~/.mycode/tui.json`
+- `mycode run --effort <level>` overrides effort for one run
+- TUI `/effort` and the Web input control remember effort per provider/model: the CLI in `~/.mycode/cli.json` (see Remembered Selection), the Web UI in `localStorage`
 - See `docs/providers.md` for per-adapter mapping details
 
 ## Tool Permissions

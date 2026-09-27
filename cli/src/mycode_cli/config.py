@@ -99,8 +99,6 @@ class WebConfig:
 @dataclass(frozen=True)
 class Settings:
     providers: dict[str, ProviderConfig]
-    default_provider: str | None
-    default_model: str | None
     port: int
     cwd: str
     project: str
@@ -305,10 +303,14 @@ def _clean_config_layer(data: Any) -> dict[str, Any]:
 
     out: dict[str, Any] = {}
 
-    if data.get("default") is not None:
-        default = _validate_default_config(data["default"])
-        if default:
-            out["default"] = default
+    compact_threshold = data.get("compact_threshold")
+    if compact_threshold is False:
+        out["compact_threshold"] = False
+    elif compact_threshold is not None:
+        parsed = None if isinstance(compact_threshold, bool) else parse_compact_threshold(compact_threshold)
+        if parsed is None:
+            raise ValueError("compact_threshold must be a number in [0, 1] or false")
+        out["compact_threshold"] = parsed
 
     if data.get("permission") is not None:
         out["permission"] = _validate_permission_config(data["permission"])
@@ -343,30 +345,6 @@ def _optional_config_string(raw: dict[str, Any], key: str, label: str) -> str | 
     if not isinstance(value, str):
         raise ValueError(f"{label} must be a string")
     return value.strip() or None
-
-
-def _validate_default_config(raw: Any) -> dict[str, Any]:
-    if not isinstance(raw, dict):
-        raise ValueError("default must be an object")
-
-    out: dict[str, Any] = {}
-    for key in ("provider", "model"):
-        value = _optional_config_string(raw, key, f"default.{key}")
-        if value:
-            out[key] = value
-
-    compact_threshold = raw.get("compact_threshold")
-    if compact_threshold is False:
-        out["compact_threshold"] = False
-    elif compact_threshold is not None:
-        if isinstance(compact_threshold, bool):
-            raise ValueError("default.compact_threshold must be a number in [0, 1] or false")
-        parsed = parse_compact_threshold(compact_threshold)
-        if parsed is None:
-            raise ValueError("default.compact_threshold must be a number in [0, 1] or false")
-        out["compact_threshold"] = parsed
-
-    return out
 
 
 def _validate_permission_config(raw: Any) -> PermissionLevel | dict[str, Any]:
@@ -498,8 +476,6 @@ def get_settings(cwd: str | None = None) -> Settings:
     resolved_project = str(resolve_project(resolved_cwd))
 
     raw_providers: dict[str, dict[str, Any]] = {}
-    default_provider: str | None = None
-    default_model: str | None = None
     compact_threshold: float | None = None
     permission = PermissionConfig()
     raw_web: dict[str, Any] = {}
@@ -534,13 +510,8 @@ def get_settings(cwd: str | None = None) -> Settings:
 
             raw_providers[name] = merged
 
-        default = data.get("default", {})
-        if "provider" in default:
-            default_provider = default["provider"]
-        if "model" in default:
-            default_model = default["model"]
-        if "compact_threshold" in default:
-            compact_threshold = float(default["compact_threshold"])
+        if "compact_threshold" in data:
+            compact_threshold = float(data["compact_threshold"])
 
         if "permission" in data:
             permission = parse_permission(data.get("permission"), permission)
@@ -561,8 +532,6 @@ def get_settings(cwd: str | None = None) -> Settings:
 
     return Settings(
         providers=_build_providers(raw_providers),
-        default_provider=default_provider,
-        default_model=default_model,
         compact_threshold=compact_threshold,
         permission=permission,
         web=_build_web_config(raw_web),
@@ -691,44 +660,35 @@ def resolve_provider(
     api_key: str | None = None,
     api_base: str | None = None,
 ) -> ResolvedProvider:
-    """Resolve provider, model, api_key, and api_base from settings and overrides."""
+    """Resolve provider, model, api_key, and api_base from settings and overrides.
 
-    selected_name = (provider_name or settings.default_provider or "").strip()
-    if selected_name:
-        try:
-            return _resolve_provider_runtime(
-                settings,
-                selected_name=selected_name,
-                model=model,
-                api_key=api_key,
-                api_base=api_base,
+    Without a provider name, the first available provider is used.
+    """
+
+    selected_name = (provider_name or "").strip()
+    if not selected_name:
+        refs = _available_provider_references(settings)
+        if not refs:
+            env_names = list(
+                dict.fromkeys(
+                    env_name
+                    for provider_id in list_env_discoverable_providers()
+                    for env_name in provider_env_api_key_names(provider_id)
+                )
             )
-        except ValueError:
-            # A caller-supplied provider_name must fail loudly rather than silently fall back.
-            if provider_name:
-                raise
+            checked = ", ".join(env_names) or "<api key env>"
+            raise ValueError(
+                "no available providers found; set one of the supported API key env vars "
+                + f"({checked}) or configure a provider in ~/.mycode/config.json or a project .mycode/config.json"
+            )
+        selected_name = refs[0]
 
-    refs = _available_provider_references(settings)
-    if refs:
-        return _resolve_provider_runtime(
-            settings,
-            selected_name=refs[0],
-            model=model,
-            api_key=api_key,
-            api_base=api_base,
-        )
-
-    env_names = list(
-        dict.fromkeys(
-            env_name
-            for provider_id in list_env_discoverable_providers()
-            for env_name in provider_env_api_key_names(provider_id)
-        )
-    )
-    checked = ", ".join(env_names) or "<api key env>"
-    raise ValueError(
-        "no available providers found; set one of the supported API key env vars "
-        + f"({checked}) or configure a provider in ~/.mycode/config.json or a project .mycode/config.json"
+    return _resolve_provider_runtime(
+        settings,
+        selected_name=selected_name,
+        model=model,
+        api_key=api_key,
+        api_base=api_base,
     )
 
 
@@ -754,40 +714,22 @@ def provider_models(settings: Settings, provider: ResolvedProvider) -> list[str]
 
 
 def _available_provider_references(settings: Settings) -> list[str]:
-    """Return usable provider names with the configured default first."""
+    """Return usable provider names: configured providers in order, then env-discovered built-ins."""
 
     available: list[str] = []
-    seen: set[str] = set()
-    configured_types_with_credentials: set[str] = set()
-
-    def add(name: str | None) -> None:
-        cleaned = (name or "").strip()
-        if not cleaned or cleaned in seen:
-            return
-
-        provider_config = settings.providers.get(cleaned)
-        provider_type = provider_config.type if provider_config else cleaned
-        if not is_supported_provider(provider_type):
-            return
-
-        if provider_config:
-            if not provider_is_available(provider_config):
-                return
-            configured_types_with_credentials.add(provider_type)
-        elif not provider_api_key_from_env(provider_type):
-            return
-
-        seen.add(cleaned)
-        available.append(cleaned)
-
-    add(settings.default_provider)
-
-    for name in settings.providers:
-        add(name)
+    configured_types: set[str] = set()
+    for name, config in settings.providers.items():
+        if is_supported_provider(config.type) and provider_is_available(config):
+            available.append(name)
+            configured_types.add(config.type)
 
     for provider_id in list_env_discoverable_providers():
-        if provider_id not in configured_types_with_credentials:
-            add(provider_id)
+        if (
+            provider_id not in configured_types
+            and provider_id not in settings.providers
+            and provider_api_key_from_env(provider_id)
+        ):
+            available.append(provider_id)
 
     return available
 
@@ -814,8 +756,6 @@ def _resolve_provider_runtime(
         resolved_model = requested_model
     elif provider_config and provider_config.models:
         resolved_model = next(iter(provider_config.models))
-    elif selected_name == settings.default_provider and (settings.default_model or "").strip():
-        resolved_model = str(settings.default_model).strip()
     else:
         defaults = provider_default_models(provider_type)
         if not defaults:

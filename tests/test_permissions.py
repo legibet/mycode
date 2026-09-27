@@ -47,8 +47,6 @@ def _ctx(name: str, tool_input: dict[str, object], *, cwd: Path | None = None) -
 def _settings(tmp_path: Path, *, permission: PermissionConfig | None = None) -> Settings:
     return Settings(
         providers={},
-        default_provider=None,
-        default_model=None,
         port=8000,
         cwd=str(tmp_path),
         project=str(tmp_path),

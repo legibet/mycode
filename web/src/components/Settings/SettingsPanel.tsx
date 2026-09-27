@@ -17,7 +17,6 @@ import type {
   GlobalProviderEntry,
   PermissionLevel,
   PermissionMode,
-  RemoteConfig,
   SettingsResponse,
   Theme,
   WebFetchProvider,
@@ -35,7 +34,6 @@ interface SettingsPanelProps {
   onClose: () => void;
   settings: SettingsResponse | null;
   loadError?: string | undefined;
-  remoteConfig: RemoteConfig | null;
   /** Notified after a successful save so callers can update cached settings. */
   onSettingsSaved?: ((settings: SettingsResponse) => void) | undefined;
   /** Project-level config files in effect, used for the override-warning banner. */
@@ -45,11 +43,6 @@ interface SettingsPanelProps {
 const FALLBACK_CONFIG_PATH = "~/.mycode/config.json";
 
 interface DraftState {
-  default_provider: string;
-  /** Carried opaquely from disk; the panel doesn't render it (provider runtime
-   * uses the provider's first listed model when it is unset), but PUT replaces
-   * the file wholesale so we pass it through while the provider is unchanged. */
-  default_model: string;
   compact_threshold: string; // form-friendly; '' means unset, 'disabled' for false
   permission_level: PermissionLevel;
   permission_mode: PermissionMode;
@@ -67,8 +60,6 @@ interface WebKeyDraft {
 }
 
 const INITIAL_DRAFT: DraftState = {
-  default_provider: "",
-  default_model: "",
   compact_threshold: "",
   permission_level: "safe",
   permission_mode: "ask",
@@ -129,10 +120,7 @@ function buildDraft(response: SettingsResponse): DraftState {
   const fallbackType = response.options.provider_types[0] ?? "";
   const draft: DraftState = { ...INITIAL_DRAFT };
 
-  draft.default_provider = config.default?.provider ?? "";
-  draft.default_model = config.default?.model ?? "";
-
-  const ct = config.default?.compact_threshold;
+  const ct = config.compact_threshold;
   if (ct === false) draft.compact_threshold = "disabled";
   else if (typeof ct === "number") draft.compact_threshold = String(ct);
 
@@ -178,26 +166,15 @@ function buildWebKeyDraft(entry: WebProviderEntry | undefined): WebKeyDraft {
   };
 }
 
-function buildPayload(
-  draft: DraftState,
-  defaultProvider: string,
-): GlobalConfig {
+function buildPayload(draft: DraftState): GlobalConfig {
   const config: GlobalConfig = {};
 
-  const defaultSection: NonNullable<GlobalConfig["default"]> = {};
-  if (defaultProvider.trim()) defaultSection.provider = defaultProvider.trim();
-  if (
-    draft.default_provider.trim() === defaultProvider.trim() &&
-    draft.default_model.trim()
-  )
-    defaultSection.model = draft.default_model.trim();
   if (draft.compact_threshold === "disabled") {
-    defaultSection.compact_threshold = false;
+    config.compact_threshold = false;
   } else if (draft.compact_threshold.trim()) {
     const num = Number(draft.compact_threshold);
-    if (Number.isFinite(num)) defaultSection.compact_threshold = num;
+    if (Number.isFinite(num)) config.compact_threshold = num;
   }
-  if (Object.keys(defaultSection).length) config.default = defaultSection;
 
   config.permission = {
     level: draft.permission_level,
@@ -295,7 +272,6 @@ export function SettingsPanel({
   onClose,
   settings,
   loadError,
-  remoteConfig,
   onSettingsSaved,
   projectConfigPaths,
 }: SettingsPanelProps) {
@@ -340,14 +316,6 @@ export function SettingsPanel({
     return duplicates;
   }, [draft.providers]);
 
-  const providerOptions = Object.keys(remoteConfig?.providers ?? {});
-  const configuredDefaultProvider = draft.default_provider.trim();
-  const runtimeDefaultProvider = remoteConfig?.default?.provider ?? "";
-  const defaultProvider = providerOptions.includes(configuredDefaultProvider)
-    ? configuredDefaultProvider
-    : providerOptions.includes(runtimeDefaultProvider)
-      ? runtimeDefaultProvider
-      : (providerOptions[0] ?? "");
   const hasInvalidProvider =
     duplicateNames.size > 0 ||
     draft.providers.some((p) => !p.name.trim() || !p.type);
@@ -409,7 +377,7 @@ export function SettingsPanel({
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          config: buildPayload(draft, defaultProvider),
+          config: buildPayload(draft),
         }),
       });
       if (!res.ok) {
@@ -502,31 +470,7 @@ export function SettingsPanel({
               </Field>
             </Section>
 
-            <Section title="Defaults">
-              {providerOptions.length === 0 ? (
-                <div className="rounded-md border border-dashed border-border/50 px-3.5 py-2.5 text-[12px] text-muted-foreground/70">
-                  No runnable providers are available.
-                </div>
-              ) : (
-                <Field label="Provider">
-                  <NativeSelect
-                    value={defaultProvider}
-                    onChange={(e) =>
-                      setDraft((prev) => ({
-                        ...prev,
-                        default_provider: e.target.value,
-                        default_model: "",
-                      }))
-                    }
-                  >
-                    {providerOptions.map((name) => (
-                      <option key={name} value={name}>
-                        {name}
-                      </option>
-                    ))}
-                  </NativeSelect>
-                </Field>
-              )}
+            <Section title="Context">
               <Field
                 label="Compact"
                 hint={

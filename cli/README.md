@@ -31,31 +31,25 @@ mycode run "explain how the session store works"
 
 ## Providers
 
-| Provider | id | Env var |
-| --- | --- | --- |
-| Anthropic | `anthropic` | `ANTHROPIC_API_KEY` |
-| OpenAI | `openai` | `OPENAI_API_KEY` |
-| Google Gemini | `google` | `GEMINI_API_KEY` |
-| Moonshot | `moonshotai` | `MOONSHOT_API_KEY` |
-| MiniMax | `minimax` | `MINIMAX_API_KEY` |
-| DeepSeek | `deepseek` | `DEEPSEEK_API_KEY` |
-| Z.AI | `zai` | `ZAI_API_KEY` |
-| OpenRouter | `openrouter` | `OPENROUTER_API_KEY` |
-| Alibaba Cloud | `alibaba` | `DASHSCOPE_API_KEY` |
-| xAI | `xai` | `XAI_API_KEY` |
-| OpenAI-compatible | `openai_chat` | - |
+| Provider          | id            | Env var              |
+| ----------------- | ------------- | -------------------- |
+| Anthropic         | `anthropic`   | `ANTHROPIC_API_KEY`  |
+| OpenAI            | `openai`      | `OPENAI_API_KEY`     |
+| Google Gemini     | `google`      | `GEMINI_API_KEY`     |
+| Moonshot          | `moonshotai`  | `MOONSHOT_API_KEY`   |
+| MiniMax           | `minimax`     | `MINIMAX_API_KEY`    |
+| DeepSeek          | `deepseek`    | `DEEPSEEK_API_KEY`   |
+| Z.AI              | `zai`         | `ZAI_API_KEY`        |
+| OpenRouter        | `openrouter`  | `OPENROUTER_API_KEY` |
+| Alibaba Cloud     | `alibaba`     | `DASHSCOPE_API_KEY`  |
+| xAI               | `xai`         | `XAI_API_KEY`        |
+| OpenAI-compatible | `openai_chat` | -                    |
 
 Run `/model` in the TUI to see available models.
 
 ## Configuration
 
 A config file is optional — API keys from the environment are usually enough. Create `~/.mycode/config.json` (global) or `.mycode/config.json` in a project to customize further.
-
-Set a default provider and model:
-
-```json
-{"default": {"provider": "anthropic", "model": "claude-sonnet-5"}}
-```
 
 Expose additional models on an existing provider, or register a custom endpoint such as a private or regional deployment:
 
@@ -91,15 +85,15 @@ The CLI assembles the system prompt from instructions files and discovered skill
 
 ## Terminal UI
 
-| Key | Action |
-| --- | --- |
-| Enter | Send the message; with a completion menu open, accept the highlighted entry |
-| Esc then Enter, or Alt+Enter | Insert a newline |
-| Esc | Interrupt the reply; close a selection list |
-| Ctrl+C | Interrupt the reply; otherwise clear the input |
-| Ctrl+D | Exit (empty input only) |
-| Ctrl+L | Clear the screen |
-| Up / Down | Move between lines; on the first or last line, browse input history |
+| Key                          | Action                                                                      |
+| ---------------------------- | --------------------------------------------------------------------------- |
+| Enter                        | Send the message; with a completion menu open, accept the highlighted entry |
+| Esc then Enter, or Alt+Enter | Insert a newline                                                            |
+| Esc                          | Interrupt the reply; close a selection list                                 |
+| Ctrl+C                       | Interrupt the reply; otherwise clear the input                              |
+| Ctrl+D                       | Exit (empty input only)                                                     |
+| Ctrl+L                       | Clear the screen                                                            |
+| Up / Down                    | Move between lines; on the first or last line, browse input history         |
 
 Messages typed while a reply runs are queued and sent in order after it finishes.
 
