@@ -85,6 +85,8 @@ PROMPT_STYLE = PromptStyle.from_dict(
 # Symbols
 # ---------------------------------------------------------------------------
 PROMPT_CHAR = "❯"
+# Unlike PROMPT_CHAR, so a chooser row never reads as a submitted input.
+CHOICE_MARKER = "›"
 THINKING_SYMBOL = "◇"
 TOOL_MARKER = "●"
 ERROR_MARKER = "✕"

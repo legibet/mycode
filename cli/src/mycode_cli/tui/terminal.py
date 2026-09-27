@@ -37,7 +37,7 @@ from prompt_toolkit.output.vt100 import Vt100_Output
 from rich.console import Console, RenderableType
 from rich.text import Text
 
-from .theme import ACCENT, ERROR, MARKDOWN_THEME, MUTED, PROMPT_CHAR, PROMPT_STYLE, WARNING
+from .theme import ACCENT, CHOICE_MARKER, ERROR, MARKDOWN_THEME, MUTED, PROMPT_CHAR, PROMPT_STYLE, WARNING
 
 # Detected once, before prompt_toolkit takes over stdout; None when stdout is not a terminal.
 _COLOR_SYSTEM = cast(Literal["standard", "256", "truecolor", "windows"] | None, Console().color_system)
@@ -421,7 +421,7 @@ class Terminal:
             return []
         rows = [
             Text(
-                f"{PROMPT_CHAR if index == choice.index else ' '} {label}",
+                f"{CHOICE_MARKER if index == choice.index else ' '} {label}",
                 style=ACCENT if index == choice.index else "",
                 no_wrap=True,
                 overflow="ellipsis",

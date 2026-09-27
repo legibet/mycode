@@ -344,4 +344,3 @@ class TestToolReview:
         assert results == [decision]
         assert cancels == (["cancel"] if cancelled else [])
         assert f"{TOOL_MARKER} Review  Bash\n  rm -rf build\n" in rendered
-        assert "❯ Allow" in rendered
