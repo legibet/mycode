@@ -240,6 +240,20 @@ class TestTurnRenderer:
         assert "/tmp/bash.log.]" in rendered
         assert "Command timed out after 1s" in rendered
 
+    async def test_failed_command_output_is_not_repeated_as_status(self, harness: TerminalHarness) -> None:
+        output = "error: could not compile `x`\n"
+        _, rendered = await _render_turn(
+            harness,
+            [
+                Event("tool_start", {"tool_call": {"id": "1", "name": "bash", "input": {"command": "cargo build"}}}),
+                Event("tool_output", {"tool_use_id": "1", "output": output}),
+                Event("tool_done", {"tool_use_id": "1", "output": output + "\n[exit code: 101]", "is_error": True}),
+            ],
+        )
+
+        assert "  error: could not compile `x`\n  [exit code: 101]\n" in rendered
+        assert rendered.count("could not compile") == 1
+
     async def test_consecutive_tools_stay_together_between_text(self, harness: TerminalHarness) -> None:
         _, rendered = await _render_turn(
             harness,

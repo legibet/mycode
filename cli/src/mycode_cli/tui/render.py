@@ -58,6 +58,9 @@ _BUILTIN_TOOLS: dict[str, tuple[str, str]] = {
     "websearch": ("WebSearch", "query"),
 }
 
+# Notices bash appends to its output as separate paragraphs (docs/tools.md).
+_BASH_NOTICES = ("[Output truncated:", "[Command timed out", "[exit code:", "error: cancelled")
+
 # CSI, OSC, and two-character escape sequences in tool output.
 _ANSI_ESCAPE = re.compile(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07\x1b]*(?:\x07|\x1b\\)|[@-_])")
 
@@ -89,6 +92,22 @@ def _display_line(line: str) -> str:
     """Return a tool output line as a terminal shows it: escapes removed, only the text after the last ``\\r``."""
 
     return _ANSI_ESCAPE.sub("", line).rstrip("\r").rsplit("\r", 1)[-1]
+
+
+def _result_status(output: str, *, is_error: bool) -> list[str]:
+    """Return the result lines shown under a finished tool: bash notices, or the error of a failed tool.
+
+    Lines of the command's own output are never picked; its last lines are shown already.
+    """
+
+    paragraphs = output.split("\n\n")
+    notices: list[str] = []
+    while paragraphs and paragraphs[-1].startswith(_BASH_NOTICES):
+        notices.insert(0, paragraphs.pop())
+    if notices or not is_error:
+        return notices
+    # Without notices, a failed tool's output is its error message.
+    return output.splitlines()[:1]
 
 
 def error_line(message: str) -> Text:
@@ -525,16 +544,14 @@ class TurnRenderer:
     ) -> None:
         """Print the finished tool: its header, last output lines, and result status."""
 
-        result_lines = output.splitlines()
-        status_prefixes = ("error:", "[Output truncated:", "[Command timed out", "[exit code:")
-        status_lines = [line for line in result_lines if line.startswith(status_prefixes)]
-        if is_error and not status_lines and result_lines:
-            status_lines = [result_lines[-1]]
         style = ERROR if is_error else MUTED
         self._print(
             _tool_header(self._tool_name, self._tool_args, self._terminal.width, failed=is_error, metadata=metadata),
             *self._tool_output(),
-            *(Text(f"  {_display_line(line)[:500]}", style=style) for line in status_lines[-2:]),
+            *(
+                Text(f"  {_display_line(line)[:500]}", style=style)
+                for line in _result_status(output, is_error=is_error)
+            ),
             joined=self._last_tool,
         )
         self._last_tool = True
@@ -605,18 +622,28 @@ class TurnRenderer:
         self._set_tail(self._spinner)
 
     def _show_tool(self) -> None:
+        # The terminal shows the last lines of a tall tail, so the output leaves room for the
+        # title and the blank line before it.
+        joined = self._last_tool
+        rows = self._terminal.tail_height - (1 if joined or not self._printed else 2)
         self._spinner.text = _tool_title(self._tool_name, self._tool_args, self._terminal.width - _SPINNER_CELLS)
-        self._set_tail(Group(self._spinner, *self._tool_output()), joined=self._last_tool)
+        self._set_tail(Group(self._spinner, *self._tool_output(rows)), joined=joined)
 
-    def _tool_output(self) -> list[Text]:
-        """The last output lines of the current tool, after a count of the lines left out."""
+    def _tool_output(self, rows: int = _TOOL_OUTPUT_MAX_LINES + 1) -> list[Text]:
+        """At most ``rows`` rows: the last output lines of the current tool, after a count of the lines left out."""
 
         lines = [*self._tool_lines, self._tool_line] if self._tool_line else [*self._tool_lines]
-        shown = lines[-_TOOL_OUTPUT_MAX_LINES:]
-        hidden = self._tool_line_count + bool(self._tool_line) - len(shown)
-        rows = [Text(f"  … +{hidden} lines", style=MUTED)] if hidden else []
-        rows += [Text(f"  {_display_line(line)}", style=MUTED, no_wrap=True, overflow="ellipsis") for line in shown]
-        return rows
+        total = self._tool_line_count + bool(self._tool_line)
+        keep = min(_TOOL_OUTPUT_MAX_LINES, rows)
+        if total > keep:
+            # One row goes to the count.
+            keep = min(keep, rows - 1)
+        shown = lines[-keep:] if keep else []
+        hidden = total - len(shown)
+        count = [Text(f"  … +{hidden} lines", style=MUTED)] if hidden else []
+        return count + [
+            Text(f"  {_display_line(line)}", style=MUTED, no_wrap=True, overflow="ellipsis") for line in shown
+        ]
 
     def _end_phase(self) -> None:
         self._end_reasoning()
