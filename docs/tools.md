@@ -27,13 +27,14 @@ Applies a list of `{oldText, newText}` replacements. All entries match against t
 
 ## bash
 
-Runs a shell command in the CLI workspace (`CliDeps.cwd`). stdout and stderr are combined; stdin is `/dev/null`. On POSIX the command runs in its own process group, and every kill below targets the group.
+Runs `bash -c <command>` in the CLI workspace (`CliDeps.cwd`), using the first `bash` on `PATH`. bash starts non-interactive and non-login, so the command sees the CLI process environment as-is; no profile or rc file is sourced. stdout and stderr are combined; stdin is `/dev/null`. On POSIX the command runs in its own process group, and every kill below targets the group.
 
 - **Streaming**: output is emitted as display deltas while the command runs. Delta boundaries do not imply line boundaries.
 - **Truncation**: the result is a bounded tail — at most 2000 lines and 50KB, whichever cuts first. When output exceeds either limit, the full raw bytes are written to `<tool_output_dir>/bash-<tool_call_id>.log` (see `docs/sessions.md`) and the result appends an `[Output truncated: ...]` notice citing that path.
 - **Timeout**: default 120s, overridden by the `timeout` argument. On expiry the process group is killed and the result is the captured tail plus `[Command timed out after <N>s]` with `is_error=true`.
 - **Cancellation**: bash handles task cancellation itself — it kills the process group, drains remaining output, and returns the captured tail plus `error: cancelled` with `is_error=true`.
 - **Exit code**: non-zero exit appends `[exit code: N]` and sets `is_error=true`. Empty output renders as `(empty)`.
+- **Missing bash**: if no `bash` is on `PATH`, the result is `error: bash not found on PATH` with `is_error=true`.
 
 ## webfetch
 

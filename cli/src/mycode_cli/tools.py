@@ -13,6 +13,7 @@ import codecs
 import locale
 import os
 import shlex
+import shutil
 import signal
 from base64 import b64encode
 from contextlib import suppress
@@ -638,11 +639,11 @@ def _kill_proc_tree(proc: asyncio.subprocess.Process) -> None:
 @tool(
     name="bash",
     description=(
-        "Run a shell command in the session working directory. "
+        "Run a bash command in the session working directory. "
         "Large output returns the tail and saves the full log to a file."
     ),
     parameters={
-        "command": "Shell command.",
+        "command": "Bash command.",
         "timeout": "Timeout in seconds. Defaults to 120.",
     },
     streams_output=True,
@@ -652,7 +653,7 @@ async def bash_tool(
     command: str,
     timeout: int | None = None,  # noqa: ASYNC109
 ) -> ToolExecutionResult:
-    """Run a shell command and return combined stdout/stderr text."""
+    """Run a command with ``bash -c`` and return combined stdout/stderr text."""
 
     timeout_seconds = timeout if timeout is not None and timeout > 0 else BASH_TIMEOUT_SECONDS
     proc: asyncio.subprocess.Process | None = None
@@ -678,8 +679,14 @@ async def bash_tool(
                 await drain_stdout()
                 await proc.wait()
 
+    bash = shutil.which("bash")
+    if bash is None:
+        return ToolExecutionResult(output="error: bash not found on PATH", is_error=True)
+
     try:
-        proc = await asyncio.create_subprocess_shell(
+        proc = await asyncio.create_subprocess_exec(
+            bash,
+            "-c",
             command,
             cwd=ctx.deps.cwd,
             stdin=asyncio.subprocess.DEVNULL,
