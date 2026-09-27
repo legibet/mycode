@@ -6,7 +6,6 @@ import asyncio
 import re
 import shlex
 from collections.abc import Iterable
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal, override
 from uuid import uuid4
@@ -31,19 +30,15 @@ from mycode.attachments import (
 )
 from mycode.compact import NothingToCompactError
 from mycode.messages import ConversationMessage, build_message, flatten_message_text, text_block
-from mycode.providers import (
-    list_env_discoverable_providers,
-    provider_api_key_from_env,
-    provider_default_models,
-)
 from mycode_cli.config import (
     ResolvedProvider,
     Settings,
     get_settings,
     normalize_reasoning_effort,
-    provider_is_available,
+    provider_models,
     resolve_mycode_home,
     resolve_provider,
+    resolve_provider_choices,
 )
 from mycode_cli.permissions import ToolReviewDecision, ToolReviewRequest, build_permission_hooks
 from mycode_cli.runtime import load_session_cost
@@ -72,7 +67,6 @@ _COMMANDS = (
     ("/new", "New session"),
     ("/resume", "Switch session"),
     ("/rewind", "Rewind to a previous message"),
-    ("/provider", "Switch provider"),
     ("/model", "Switch model"),
     ("/effort", "Set reasoning effort"),
     ("/q", "Quit"),
@@ -265,15 +259,6 @@ def history_file_path() -> str:
     return str(path)
 
 
-@dataclass(frozen=True)
-class ProviderOption:
-    """A provider option shown in the interactive provider switcher."""
-
-    name: str
-    provider: str
-    models: tuple[str, ...]
-
-
 def clone_agent(agent: Agent, *, store: SessionStore, session_id: str, cwd: str) -> Agent:
     """Keep the current runtime config while swapping session state.
 
@@ -300,52 +285,6 @@ def clone_agent(agent: Agent, *, store: SessionStore, session_id: str, cwd: str)
         hooks=agent.hooks,
         deps=CliDeps.for_session(cwd=cwd, data_dir=store.data_dir, session_id=session_id),
     )
-
-
-def list_provider_options(settings: Settings) -> list[ProviderOption]:
-    """Return configured providers plus env-discovered built-ins."""
-
-    options: list[ProviderOption] = []
-    configured_types: set[str] = set()
-
-    for name, config in settings.providers.items():
-        options.append(
-            ProviderOption(
-                name=name,
-                provider=config.type,
-                models=tuple(config.models),
-            )
-        )
-        if provider_is_available(config):
-            configured_types.add(config.type)
-
-    for provider_name in list_env_discoverable_providers():
-        if provider_name in configured_types or not provider_api_key_from_env(provider_name):
-            continue
-        options.append(
-            ProviderOption(
-                name=provider_name,
-                provider=provider_name,
-                models=provider_default_models(provider_name),
-            )
-        )
-
-    return options
-
-
-def get_provider_option(settings: Settings, *, provider_name: str) -> ProviderOption | None:
-    """Return the current selectable provider option."""
-
-    return next((option for option in list_provider_options(settings) if option.name == provider_name), None)
-
-
-def list_model_options(settings: Settings, *, provider_name: str, current_model: str) -> list[str]:
-    """Return the selectable model list for the current provider runtime."""
-
-    option = get_provider_option(settings, provider_name=provider_name)
-    provider = option.provider if option else provider_name
-    models = option.models if option else provider_default_models(provider)
-    return list(dict.fromkeys([current_model, *models]))
 
 
 def apply_resolved_provider(agent: Agent, resolved: ResolvedProvider) -> bool:
@@ -581,16 +520,8 @@ class TerminalChat:
                     return prefill
             case "/resume":
                 await self._resume_session()
-            case "/provider":
-                if argument:
-                    self._apply_provider_change(argument)
-                else:
-                    await self._switch_provider()
             case "/model":
-                if argument:
-                    self._apply_model_change(argument)
-                else:
-                    await self._switch_model()
+                await self._switch_model(argument)
             case "/effort":
                 if argument:
                     self._apply_effort_change(argument)
@@ -742,71 +673,54 @@ class TerminalChat:
         self._print_header(data["session"], mode="resumed", message_count=len(messages))
         self._print_history(messages)
 
-    async def _switch_provider(self) -> None:
-        """Prompt for a configured provider and apply it to the active agent."""
+    async def _switch_model(self, query: str) -> None:
+        """Pick a model from every available provider and apply it to the active agent.
 
-        options = list_provider_options(self.settings)
-        current = next((option for option in options if option.name == self.provider_name), None)
-
-        choices: list[tuple[str, str]] = []
-        for option in options:
-            models = "  ".join(option.models[:3])
-            if len(option.models) > 3:
-                models += f"  +{len(option.models) - 3}"
-            choices.append((option.name, f"{option.name}  {models}"))
-
-        selected = await self.terminal.choose(choices, default=current.name if current else None)
-        if selected is not None:
-            self._apply_provider_change(selected)
-
-    async def _switch_model(self) -> None:
-        """Prompt for a model supported by the current provider runtime."""
-
-        models = list_model_options(
-            self.settings,
-            provider_name=self.provider_name,
-            current_model=self.agent.model,
-        )
-        choices = [(m, m) for m in models]
-        selected = await self.terminal.choose(choices, default=self.agent.model)
-        if selected is not None:
-            self._apply_model_change(selected)
-
-    def _apply_provider_change(self, provider_name: str) -> None:
-        """Switch the active provider, keeping session history unchanged."""
+        A query naming a listed model exactly switches to it directly, preferring
+        the current provider; any other query opens the picker filtered by it.
+        """
 
         self.settings = get_settings(self.settings.cwd)
+        current = (self.provider_name, self.agent.model)
+        groups: list[tuple[str, list[str]]] = []
+        for provider in resolve_provider_choices(self.settings):
+            name = provider.provider_name or provider.provider
+            models = provider_models(self.settings, provider)
+            if name == self.provider_name and self.agent.model not in models:
+                models.append(self.agent.model)
+            groups.append((name, models))
+
+        matches = [(name, model) for name, models in groups for model in models if model == query]
+        if matches:
+            selected = current if current in matches else matches[0]
+        else:
+            options: list[tuple[tuple[str, str], Text] | str] = []
+            for name, models in groups:
+                options.append(name)
+                for model in models:
+                    label = Text(model)
+                    if (name, model) == current:
+                        label.append("  current", style=MUTED)
+                    options.append(((name, model), label))
+            selected = await self.terminal.choose(options, default=current, query=query)
+            if selected is None:
+                return
+
+        provider_name, model = selected
         try:
-            resolved = resolve_provider(self.settings, provider_name=provider_name)
+            resolved = resolve_provider(self.settings, provider_name=provider_name, model=model)
         except ValueError as exc:
             self.terminal.print(error_line(str(exc)))
             return
 
         changed = apply_resolved_provider(self.agent, resolved)
-        self.provider_name = resolved.provider_name or provider_name
+        self.provider_name = provider_name
         self.reasoning_efforts = resolved.reasoning_efforts
         self._restore_effort()
-        label = f"{self.agent.provider} / {self.agent.model}"
+        label = f"{provider_name} / {model}"
         if self.agent.reasoning_effort:
             label += f" [effort: {self.agent.reasoning_effort}]"
-        self._print_runtime_status("provider/model", label, changed=changed)
-
-    def _apply_model_change(self, model_name: str) -> None:
-        """Switch the active model for the current provider runtime."""
-
-        self.settings = get_settings(self.settings.cwd)
-        provider_name = self.provider_name
-        try:
-            resolved = resolve_provider(self.settings, provider_name=provider_name, model=model_name)
-        except ValueError as exc:
-            self.terminal.print(error_line(str(exc)))
-            return
-
-        changed = apply_resolved_provider(self.agent, resolved)
-        self.provider_name = resolved.provider_name or provider_name
-        self.reasoning_efforts = resolved.reasoning_efforts
-        self._restore_effort()
-        self._print_runtime_status("model", self.agent.model, changed=changed)
+        self._print_runtime_status("model", label, changed=changed)
 
     async def _switch_effort(self) -> None:
         """Prompt for a reasoning effort level."""

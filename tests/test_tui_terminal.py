@@ -210,6 +210,34 @@ async def test_choose_cuts_long_labels_to_one_row(harness: TerminalHarness) -> N
     assert "…" in rendered
 
 
+async def test_choose_skips_headings_and_filters_by_typing(harness: TerminalHarness) -> None:
+    terminal, pipe = harness.terminal, harness.pipe
+    results: list[str | None] = []
+    options = ["alpha", ("a1", "one"), ("a2", "two"), "beta", ("b1", "three")]
+
+    async def pick(keys: list[str], *, query: str = "") -> None:
+        async def send() -> None:
+            for key in keys:
+                await asyncio.sleep(0.05)
+                pipe.send_text(key)
+
+        task = asyncio.create_task(send())
+        results.append(await terminal.choose(options, default="a1", query=query))
+        await task
+
+    async def main() -> None:
+        await pick(["\x1b[B", "\x1b[B", "\r"])
+        await pick(["\r"], query="tw")
+        await pick(["beta", "\r"])
+        # Enter does nothing without a match; erasing the filter focuses the first option.
+        await pick(["zz", "\r", "\x7f\x7f", "\r"])
+
+    await terminal.run(main)
+
+    assert results == ["b1", "a2", "b1", "a1"]
+    assert "no matches" in harness.text()
+
+
 async def test_tail_shows_the_last_lines(harness: TerminalHarness) -> None:
     async def main() -> None:
         harness.terminal.set_tail(Text("\n".join(f"row {index}" for index in range(40))))

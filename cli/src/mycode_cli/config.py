@@ -744,6 +744,15 @@ def resolve_provider_choices(settings: Settings) -> list[ResolvedProvider]:
     return choices
 
 
+def provider_models(settings: Settings, provider: ResolvedProvider) -> list[str]:
+    """Return a resolved provider's selectable models: configured ones, else the adapter defaults."""
+
+    provider_config = settings.providers.get(provider.provider_name or "")
+    if provider_config and provider_config.models:
+        return list(provider_config.models)
+    return list(provider_default_models(provider.provider)) or [provider.model]
+
+
 def _available_provider_references(settings: Settings) -> list[str]:
     """Return usable provider names with the configured default first."""
 

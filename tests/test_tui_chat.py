@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import html
+import json
 import shlex
 from pathlib import Path
 from typing import Any, cast, override
@@ -16,8 +17,9 @@ from prompt_toolkit.input.defaults import create_pipe_input
 from prompt_toolkit.output import DummyOutput
 
 from mycode.agent import Agent
+from mycode.providers import list_env_discoverable_providers, provider_env_api_key_names
 from mycode.tools import ToolExecutor
-from mycode_cli.config import PermissionConfig, Settings, WebConfig
+from mycode_cli.config import PermissionConfig, Settings, WebConfig, get_settings
 from mycode_cli.permissions import ToolReviewRequest
 from mycode_cli.sessions import SessionStore
 from mycode_cli.tools import DEFAULT_TOOLS
@@ -118,9 +120,9 @@ async def _submit(tmp_path: Path, steps: list[str | bytes], *, completer: Comple
 
 class TestPromptInput:
     async def test_enter_submits_unique_slash_completion(self, tmp_path: Path) -> None:
-        result = await _submit(tmp_path, ["/p", "\t", "\r"], completer=_PromptCompleter())
+        result = await _submit(tmp_path, ["/m", "\t", "\r"], completer=_PromptCompleter())
 
-        assert result == "/provider"
+        assert result == "/model"
 
     async def test_enter_accepts_ambiguous_slash_completion_before_submit(self, tmp_path: Path) -> None:
         result = await _submit(tmp_path, ["/r", "\t", "\r", "\r"], completer=_PromptCompleter())
@@ -344,3 +346,66 @@ class TestToolReview:
         assert results == [decision]
         assert cancels == (["cancel"] if cancelled else [])
         assert f"{TOOL_MARKER} Review  Bash\n  rm -rf build\n" in rendered
+
+
+class TestModelSwitch:
+    @pytest.fixture
+    def chat(
+        self, harness: TerminalHarness, tmp_path: Path, cli_home: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> TerminalChat:
+        for provider in list_env_discoverable_providers():
+            for env_name in provider_env_api_key_names(provider):
+                monkeypatch.delenv(env_name, raising=False)
+        cli_home.mkdir(parents=True)
+        providers = {
+            "alpha": {
+                "type": "openai_chat",
+                "api_key": "k",
+                "base_url": "http://alpha",
+                "models": {"a1": {}, "a2": {}},
+            },
+            "beta": {"type": "openai_chat", "api_key": "k", "base_url": "http://beta", "models": {"b1": {}}},
+        }
+        (cli_home / "config.json").write_text(json.dumps({"providers": providers}))
+        store = SessionStore(data_dir=tmp_path / "sessions")
+        agent = Agent(model="a1", provider="openai_chat", session_dir=store.data_dir, session_id="s")
+        chat = TerminalChat(
+            agent=agent,
+            settings=get_settings(str(tmp_path)),
+            store=store,
+            session_id="s",
+            provider_name="alpha",
+        )
+        chat.terminal = harness.terminal
+        return chat
+
+    @pytest.mark.parametrize(
+        ("query", "keys", "expected"),
+        [
+            pytest.param("", ["\x1b[B", "\x1b[B", "\r"], ("beta", "b1", "http://beta"), id="every-provider"),
+            # Esc would cancel a picker, so the switch proves none opened.
+            pytest.param("a2", ["\x1b"], ("alpha", "a2", "http://alpha"), id="exact-name"),
+            pytest.param("bet", ["\r"], ("beta", "b1", "http://beta"), id="filtered-picker"),
+        ],
+    )
+    async def test_switch_model(
+        self,
+        chat: TerminalChat,
+        harness: TerminalHarness,
+        query: str,
+        keys: list[str],
+        expected: tuple[str, str, str],
+    ) -> None:
+        async def main() -> None:
+            async def send() -> None:
+                for key in keys:
+                    await asyncio.sleep(0.1)
+                    harness.pipe.send_text(key)
+
+            task = asyncio.create_task(send())
+            await chat._switch_model(query)
+            await task
+
+        await chat.terminal.run(main)
+
+        assert (chat.provider_name, chat.agent.model, chat.agent.api_base) == expected

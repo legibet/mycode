@@ -11,7 +11,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
-from collections.abc import Awaitable, Callable, Iterable
+from collections.abc import Awaitable, Callable, Iterable, Sequence
 from dataclasses import dataclass
 from io import StringIO
 from typing import Literal, cast, override
@@ -27,6 +27,7 @@ from prompt_toolkit.input import Input
 from prompt_toolkit.key_binding import ConditionalKeyBindings, KeyBindings, merge_key_bindings
 from prompt_toolkit.key_binding.defaults import load_key_bindings
 from prompt_toolkit.key_binding.key_processor import KeyPressEvent
+from prompt_toolkit.keys import Keys
 from prompt_toolkit.layout import ConditionalContainer, Float, FloatContainer, HSplit, Layout, Window
 from prompt_toolkit.layout.controls import BufferControl, FormattedTextControl
 from prompt_toolkit.layout.dimension import Dimension
@@ -75,11 +76,45 @@ def _render(renderables: Iterable[RenderableType], width: int, *, end: str = "\n
     return file.getvalue()
 
 
+@dataclass(frozen=True)
+class _Row:
+    label: Text
+    heading: bool
+    # Lowercase text the filter matches: the row's label after its heading.
+    search: str
+
+
 @dataclass
 class _Choice:
-    labels: list[str]
-    index: int
+    rows: list[_Row]
+    # The focused row, or None while the filter matches nothing.
+    index: int | None
     future: asyncio.Future[int | None]
+    query: str = ""
+
+    def visible(self) -> list[int]:
+        """Rows matching the filter; a heading shows while any of its rows does."""
+
+        query = self.query.lower()
+        visible: list[int] = []
+        heading: int | None = None
+        for index, row in enumerate(self.rows):
+            if row.heading:
+                heading = index
+            elif query in row.search:
+                if heading is not None and heading not in visible:
+                    visible.append(heading)
+                visible.append(index)
+        return visible
+
+    def selectable(self) -> list[int]:
+        return [index for index in self.visible() if not self.rows[index].heading]
+
+    def set_query(self, query: str) -> None:
+        self.query = query
+        selectable = self.selectable()
+        if self.index not in selectable:
+            self.index = selectable[0] if selectable else None
 
 
 class _LogHandler(logging.Handler):
@@ -339,14 +374,40 @@ class Terminal:
         self._tail = renderable
         self._app.invalidate()
 
-    async def choose[T](self, options: list[tuple[T, str]], *, default: T | None = None) -> T | None:
-        """Show an inline list of ``(value, label)`` options; return the chosen value or None on cancel."""
+    async def choose[T](
+        self,
+        options: Sequence[tuple[T, str | Text] | str],
+        *,
+        default: T | None = None,
+        query: str = "",
+    ) -> T | None:
+        """Show an inline, filterable list and return the chosen value, or None on cancel.
 
-        if not options:
+        Options are ``(value, label)`` pairs; a bare string is a heading that
+        groups the options after it. Typing filters the options by label and
+        heading, starting from ``query``.
+        """
+
+        rows: list[_Row] = []
+        values: list[T | None] = []
+        heading = ""
+        for option in options:
+            if isinstance(option, str):
+                heading = option
+                rows.append(_Row(Text(option, style=MUTED), heading=True, search=""))
+                values.append(None)
+            else:
+                value, label = option
+                label = Text(label) if isinstance(label, str) else label
+                rows.append(_Row(label, heading=False, search=f"{heading} {label.plain}".lower()))
+                values.append(value)
+        if all(row.heading for row in rows):
             return None
-        index = next((i for i, (value, _) in enumerate(options) if value == default), 0)
         future: asyncio.Future[int | None] = asyncio.get_running_loop().create_future()
-        self._choice = _Choice([label for _, label in options], index, future)
+        choice = _Choice(rows, None, future, query)
+        selectable = choice.selectable()
+        choice.index = next((i for i in selectable if values[i] == default), next(iter(selectable), None))
+        self._choice = choice
         self._app.layout.focus(self._chooser_window)
         self._app.invalidate()
         try:
@@ -355,7 +416,7 @@ class Terminal:
             self._choice = None
             self._app.layout.focus(self._input_window)
             self._app.invalidate()
-        return None if picked is None else options[picked][0]
+        return None if picked is None else values[picked]
 
     # -- Output ----------------------------------------------------------------
 
@@ -419,20 +480,29 @@ class Terminal:
         choice = self._choice
         if choice is None:
             return []
-        rows = [
-            Text(
-                f"{CHOICE_MARKER if index == choice.index else ' '} {label}",
-                style=ACCENT if index == choice.index else "",
-                no_wrap=True,
-                overflow="ellipsis",
-            )
-            for index, label in enumerate(choice.labels)
-        ]
+        visible = choice.visible()
+        rows: list[Text] = []
+        for index in visible:
+            row = choice.rows[index]
+            if row.heading:
+                text = row.label.copy()
+            else:
+                focused = index == choice.index
+                text = Text(f"{CHOICE_MARKER if focused else ' '} ", style=ACCENT if focused else "")
+                text.append_text(row.label)
+                if focused:
+                    text.stylize(ACCENT)
+            text.no_wrap = True
+            text.overflow = "ellipsis"
+            rows.append(text)
+        if not rows:
+            rows.append(Text("  no matches", style=MUTED))
+        focus = None if choice.index is None else visible.index(choice.index)
         fragments: StyleAndTextTuples = []
-        for index, line in enumerate(self._reserve(_render(rows, self.width).rstrip("\n").split("\n"))):
-            if index:
+        for position, line in enumerate(self._reserve(_render(rows, self.width).rstrip("\n").split("\n"))):
+            if position:
                 fragments.append(("", "\n"))
-            if index == choice.index:
+            if position == focus:
                 # Keeps the focused row scrolled into view.
                 fragments.append(("[SetCursorPosition]", ""))
             fragments.extend(to_formatted_text(ANSI(line)))
@@ -442,7 +512,10 @@ class Terminal:
         """The keys that work right now."""
 
         if self._choice is not None:
-            text = Text("↑↓ select · enter confirm · esc cancel", style=MUTED)
+            text = Text()
+            if self._choice.query:
+                text.append(f"{self._choice.query}  ")
+            text.append("type to filter · ↑↓ select · enter confirm · esc cancel", style=MUTED)
         else:
             text = Text("esc to interrupt", style=MUTED)
             if queued := self.queued():
@@ -511,8 +584,12 @@ class Terminal:
         kb = KeyBindings()
 
         def move(step: int) -> None:
-            if self._choice is not None:
-                self._choice.index = min(max(self._choice.index + step, 0), len(self._choice.labels) - 1)
+            choice = self._choice
+            if choice is None or choice.index is None:
+                return
+            selectable = choice.selectable()
+            position = min(max(selectable.index(choice.index) + step, 0), len(selectable) - 1)
+            choice.index = selectable[position]
 
         def pick(index: int | None) -> None:
             if self._choice is not None and not self._choice.future.done():
@@ -528,8 +605,18 @@ class Terminal:
 
         @kb.add("enter")
         def _select(_event: KeyPressEvent) -> None:
-            if self._choice is not None:
+            if self._choice is not None and self._choice.index is not None:
                 pick(self._choice.index)
+
+        @kb.add(Keys.Any)
+        def _type(event: KeyPressEvent) -> None:
+            if self._choice is not None and event.data.isprintable():
+                self._choice.set_query(self._choice.query + event.data)
+
+        @kb.add("backspace")
+        def _erase(_event: KeyPressEvent) -> None:
+            if self._choice is not None:
+                self._choice.set_query(self._choice.query[:-1])
 
         # Eager: nothing in the chooser continues an Esc sequence.
         @kb.add("escape", eager=True)

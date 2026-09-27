@@ -30,11 +30,11 @@ from mycode.messages import (
     image_block,
     text_block,
 )
-from mycode.providers import provider_default_models
 from mycode_cli.config import (
     ResolvedProvider,
     get_settings,
     normalize_reasoning_effort,
+    provider_models,
     resolve_configured_model_metadata,
     resolve_provider,
     resolve_provider_choices,
@@ -402,13 +402,7 @@ async def get_config(cwd: Annotated[str | None, Query()] = None) -> dict[str, An
     providers_info: dict[str, Any] = {}
     for provider in resolve_provider_choices(settings):
         provider_config = settings.providers.get(provider.provider_name or "")
-        models = (
-            list(provider_config.models)
-            if provider_config and provider_config.models
-            else list(provider_default_models(provider.provider))
-        )
-        if not models:
-            models = [provider.model]
+        models = provider_models(settings, provider)
 
         info: dict[str, Any] = {
             "name": provider.provider_name,

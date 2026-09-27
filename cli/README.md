@@ -105,7 +105,7 @@ Messages typed while a reply runs are queued and sent in order after it finishes
 
 `@path` attaches a file to the message: text files as snapshots, images and PDFs as image or document input. Pasted file paths become `@path` references.
 
-Slash commands: `/new` `/resume` `/rewind` `/provider` `/model` `/effort` `/clear` `/compact` `/q`. `exit` and `quit` also exit.
+Slash commands: `/new` `/resume` `/rewind` `/model` `/effort` `/clear` `/compact` `/q`. `exit` and `quit` also exit.
 
 ## CLI Reference
 
