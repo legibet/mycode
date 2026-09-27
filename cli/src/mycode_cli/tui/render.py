@@ -109,12 +109,10 @@ def format_local_timestamp(value: str, display_format: str) -> str:
         return value[:16].replace("T", " ")
 
 
-def compact_marker(width: int) -> Text:
+def compact_marker() -> Text:
     """Build the inline ``compacted`` divider used in stream and history views."""
 
-    label = " compacted "
-    bar = max(1, (max(width, len(label) + 4) - len(label)) // 2)
-    return Text(f"{'─' * bar}{label}{'─' * bar}", style=MUTED)
+    return Text("── compacted ──", style=MUTED)
 
 
 def user_echo(text: str) -> Text:
@@ -197,7 +195,7 @@ def _tool_title(name: str, args: dict[str, Any], width: int, *, suffix: Text | N
 def _tool_header(
     name: str, args: dict[str, Any], width: int, *, failed: bool, metadata: dict[str, Any] | None = None
 ) -> Text:
-    """Build the ``⏺ Name  preview  [suffix]`` line of a finished tool call; the suffix shows on success."""
+    """Build the ``● Name  preview  [suffix]`` line of a finished tool call; the suffix shows on success."""
 
     marker = Text(f"{TOOL_MARKER} ", style=ERROR if failed else SUCCESS, no_wrap=True, overflow="ellipsis")
     suffix = None if failed else _tool_suffix(name, args, metadata)
@@ -279,7 +277,7 @@ def history_preview(messages: list[ConversationMessage], *, width: int) -> list[
             elif kind == "text":
                 lines.append(MarkdownBlock(str(content)))
             elif kind == "compact":
-                lines.append(compact_marker(width))
+                lines.append(compact_marker())
             else:
                 name, args, result = content
                 metadata = result.get("metadata")
@@ -398,6 +396,8 @@ class TurnRenderer:
         self._spinner = Spinner("dots", style=MUTED)
         # Whether anything was printed this turn; blocks after the first get a blank line before them.
         self._printed = False
+        # Whether the last printed block is a tool; consecutive tools are not separated.
+        self._last_tool = False
         # Reasoning phase
         self._reasoning = ""
         self._thinking_start_time: float | None = None
@@ -535,7 +535,9 @@ class TurnRenderer:
             _tool_header(self._tool_name, self._tool_args, self._terminal.width, failed=is_error, metadata=metadata),
             *self._tool_output(),
             *(Text(f"  {_display_line(line)[:500]}", style=style) for line in status_lines[-2:]),
+            joined=self._last_tool,
         )
+        self._last_tool = True
         # Waiting for the next model response.
         self._show_spinner(Text())
 
@@ -548,7 +550,7 @@ class TurnRenderer:
         """Render an inline ``compacted`` divider during streaming."""
 
         self._end_phase()
-        self._print(compact_marker(self._terminal.width))
+        self._print(compact_marker())
         self._show_spinner(Text())
 
     def error(self, message: str) -> None:
@@ -580,21 +582,31 @@ class TurnRenderer:
         if session_cost is not None:
             parts.append(_format_cost(session_cost))
         if parts:
-            self._print(Text(f"  {self._model}  {' · '.join(parts)}", style=MUTED))
+            self._print(Text(" · ".join([self._model, *parts]), style=MUTED))
 
     # -- Internal helpers ----------------------------------------------------
 
-    def _print(self, *renderables: RenderableType) -> None:
+    def _print(self, *renderables: RenderableType, joined: bool = False) -> None:
+        """Print one block, after a blank line unless it is the first or ``joined`` to the previous one."""
+
+        if self._printed and not joined:
+            self._terminal.print()
         self._terminal.print(*renderables)
         self._printed = True
+        self._last_tool = False
+
+    def _set_tail(self, renderable: RenderableType, *, joined: bool = False) -> None:
+        """Show the next block in the tail, spaced as it will be once printed."""
+
+        self._terminal.set_tail(Group(Text(), renderable) if self._printed and not joined else renderable)
 
     def _show_spinner(self, text: Text) -> None:
         self._spinner.text = text
-        self._terminal.set_tail(self._spinner)
+        self._set_tail(self._spinner)
 
     def _show_tool(self) -> None:
         self._spinner.text = _tool_title(self._tool_name, self._tool_args, self._terminal.width - _SPINNER_CELLS)
-        self._terminal.set_tail(Group(self._spinner, *self._tool_output()))
+        self._set_tail(Group(self._spinner, *self._tool_output()), joined=self._last_tool)
 
     def _tool_output(self) -> list[Text]:
         """The last output lines of the current tool, after a count of the lines left out."""
@@ -648,13 +660,9 @@ class TurnRenderer:
         tail = self._stream.tail
         if not tail:
             self._show_spinner(Text())
-        elif self._printed and not self._stream.tail_continues:
-            self._terminal.set_tail(Group(Text(), MarkdownBlock(tail)))
         else:
-            self._terminal.set_tail(MarkdownBlock(tail))
+            self._set_tail(MarkdownBlock(tail), joined=self._stream.tail_continues)
 
     def _print_chunks(self, chunks: list[Chunk]) -> None:
         for chunk in chunks:
-            if self._printed and not chunk.continues:
-                self._terminal.print()
-            self._print(MarkdownBlock(chunk.source))
+            self._print(MarkdownBlock(chunk.source), joined=chunk.continues)

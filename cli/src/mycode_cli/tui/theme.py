@@ -86,5 +86,5 @@ PROMPT_STYLE = PromptStyle.from_dict(
 # ---------------------------------------------------------------------------
 PROMPT_CHAR = "❯"
 THINKING_SYMBOL = "◇"
-TOOL_MARKER = "⏺"
+TOOL_MARKER = "●"
 ERROR_MARKER = "✕"

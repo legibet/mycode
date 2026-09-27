@@ -240,10 +240,11 @@ class TestTurnRenderer:
         assert "/tmp/bash.log.]" in rendered
         assert "Command timed out after 1s" in rendered
 
-    async def test_buffered_tools_get_a_success_suffix(self, harness: TerminalHarness) -> None:
+    async def test_consecutive_tools_stay_together_between_text(self, harness: TerminalHarness) -> None:
         _, rendered = await _render_turn(
             harness,
             [
+                Event("text", {"delta": "Checking."}),
                 Event(
                     "tool_start",
                     {"tool_call": {"id": "1", "name": "read", "input": {"path": "a.py", "offset": 10, "limit": 5}}},
@@ -259,11 +260,11 @@ class TestTurnRenderer:
                         "metadata": {"added_lines": 3, "removed_lines": 1},
                     },
                 ),
+                Event("text", {"delta": "Done."}),
             ],
         )
 
-        assert f"{TOOL_MARKER} Read  a.py  :10-15\n" in rendered
-        assert f"{TOOL_MARKER} Edit  b.py  +3 −1\n" in rendered
+        assert f"Checking.\n\n{TOOL_MARKER} Read  a.py  :10-15\n{TOOL_MARKER} Edit  b.py  +3 −1\n\nDone.\n" in rendered
 
     async def test_finish_prints_context_and_session_cost(self, harness: TerminalHarness) -> None:
         _, rendered = await _render_turn(
@@ -274,7 +275,7 @@ class TestTurnRenderer:
             session_cost_base=0.40,
         )
 
-        assert "gpt-5.5  34,210 tokens (27%) · $0.42" in rendered
+        assert "gpt-5.5 · 34,210 tokens (27%) · $0.42" in rendered
 
     @pytest.mark.parametrize(
         ("session_cost_base", "turn_cost", "expected"),
@@ -308,7 +309,7 @@ class TestTurnRenderer:
         code, rendered = await _render_turn(harness, [Event("text", {"delta": "partial"}), Event("cancelled", {})])
 
         assert code == 0
-        assert "partial\ncancelled\n" in rendered
+        assert "partial\n\ncancelled\n" in rendered
         assert ERROR_MARKER not in rendered
 
     async def test_error_event_is_printed_and_fails_the_turn(self, harness: TerminalHarness) -> None:
@@ -331,4 +332,4 @@ class TestTurnRenderer:
         assert codes == [0]
         assert "first block\n" in rendered
         assert "second block\n" in rendered
-        assert "m  5 tokens" in rendered
+        assert "m · 5 tokens" in rendered

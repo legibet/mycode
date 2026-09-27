@@ -652,7 +652,7 @@ class TerminalChat:
             self.terminal.busy = False
             self.terminal.on_cancel = None
         await self.store.touch(self.session_id)
-        self.terminal.print(compact_marker(self.terminal.width))
+        self.terminal.print(compact_marker())
 
     def _start_new_session(self) -> None:
         """Start a fresh session while keeping the current runtime settings."""

@@ -205,7 +205,7 @@ async def test_choose_cuts_long_labels_to_one_row(harness: TerminalHarness) -> N
     await terminal.run(main)
 
     rendered = harness.text()
-    assert "> " + "y" * 77 in rendered
+    assert "❯ " + "y" * 77 in rendered
     assert "y" * 78 not in rendered
     assert "…" in rendered
 

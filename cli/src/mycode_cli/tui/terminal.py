@@ -187,7 +187,9 @@ class Terminal:
                     ),
                     filter=~choosing,
                 ),
-                ConditionalContainer(Window(FormattedTextControl(self._toolbar_text), height=1), filter=busy),
+                ConditionalContainer(
+                    Window(FormattedTextControl(self._toolbar_text), height=1), filter=busy | choosing
+                ),
             ]
         )
 
@@ -419,7 +421,7 @@ class Terminal:
             return []
         rows = [
             Text(
-                f"{'>' if index == choice.index else ' '} {label}",
+                f"{PROMPT_CHAR if index == choice.index else ' '} {label}",
                 style=ACCENT if index == choice.index else "",
                 no_wrap=True,
                 overflow="ellipsis",
@@ -437,9 +439,14 @@ class Terminal:
         return fragments
 
     def _toolbar_text(self) -> ANSI:
-        text = Text("esc to interrupt", style=MUTED)
-        if queued := self.queued():
-            text.append(f" · {queued} queued", style=MUTED)
+        """The keys that work right now."""
+
+        if self._choice is not None:
+            text = Text("↑↓ select · enter confirm · esc cancel", style=MUTED)
+        else:
+            text = Text("esc to interrupt", style=MUTED)
+            if queued := self.queued():
+                text.append(f" · {queued} queued", style=MUTED)
         return ANSI(_render([text], self.width, end=""))
 
     def _line_prefix(self, line_number: int, wrap_count: int) -> StyleAndTextTuples:
