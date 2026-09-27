@@ -54,14 +54,16 @@ from mycode_cli.workspace import CliDeps, resolve_path
 from .render import (
     TurnRenderer,
     compact_marker,
+    error_line,
     format_local_timestamp,
     header_lines,
     history_preview,
+    shorten,
     user_echo,
 )
 from .state import load_efforts, save_efforts
 from .terminal import Terminal
-from .theme import ERROR, ERROR_MARKER, MUTED, TOOL_MARKER, WARNING
+from .theme import MUTED, SUCCESS, TOOL_MARKER, WARNING
 
 _COMMANDS = (
     ("/clear", "Clear conversation"),
@@ -419,10 +421,7 @@ class TerminalChat:
         title.append(f"  {request.tool_name.capitalize()}")
         lines: list[Text] = [Text(), title]
         if request.preview:
-            preview = request.preview.replace("\n", " ")
-            if len(preview) > 120:
-                preview = preview[:119] + "…"
-            lines.append(Text(f"  {preview}", style=MUTED))
+            lines.append(Text(f"  {shorten(request.preview, self.terminal.width - 2)}", style=MUTED))
         self.terminal.print(*lines)
         selected = await self.terminal.choose([("allow", "Allow"), ("deny", "Deny")], default="allow")
         if selected == "allow":
@@ -550,7 +549,7 @@ class TerminalChat:
 
         # Non-slash exit aliases.
         if text in ("exit", "quit"):
-            self.terminal.print("[dim]bye[/dim]")
+            self.terminal.print(Text("bye", style=MUTED))
             return "exit"
 
         if not text.startswith("/"):
@@ -562,12 +561,12 @@ class TerminalChat:
 
         match command:
             case "/q":
-                self.terminal.print("[dim]bye[/dim]")
+                self.terminal.print(Text("bye", style=MUTED))
                 return "exit"
             case "/c" | "/clear":
                 await self.store.clear_session(self.session_id)
                 self.agent.clear()
-                self.terminal.print(f"[green]{TOOL_MARKER}[/green] [dim]cleared[/dim]")
+                self._print_done("cleared")
             case "/compact":
                 if argument:
                     # `/compact <text>` is not a command; send it as user text.
@@ -601,20 +600,29 @@ class TerminalChat:
 
         return True
 
+    def _print_done(self, action: str, value: str = "") -> None:
+        """Print a ``⏺ action value`` confirmation."""
+
+        text = Text(f"{TOOL_MARKER} ", style=SUCCESS)
+        text.append(action, style=MUTED)
+        if value:
+            text.append(f" {value}")
+        self.terminal.print(text)
+
     def _print_runtime_status(self, action: str, value: str, *, changed: bool) -> None:
         """Print the result of a runtime-only change."""
 
         if changed:
-            self.terminal.print(f"[green]{TOOL_MARKER}[/green] [dim]{action} →[/dim] {value}")
-            return
-        self.terminal.print(f"[green]{TOOL_MARKER}[/green] [dim]already using[/dim] {value}")
+            self._print_done(f"{action} →", value)
+        else:
+            self._print_done("already using", value)
 
     def _supports_effort_or_warn(self) -> bool:
         """Return whether the current model supports reasoning effort."""
 
         if self.agent.supports_reasoning_effort and self.reasoning_efforts:
             return True
-        self.terminal.print("[dim]current model does not support reasoning effort[/dim]")
+        self.terminal.print(Text("current model does not support reasoning effort", style=MUTED))
         return False
 
     async def _compact_session(self) -> None:
@@ -622,7 +630,7 @@ class TerminalChat:
 
         self.terminal.busy = True
         self.terminal.on_cancel = self.agent.cancel
-        self.terminal.set_tail(Spinner("dots", text=Text(" Compacting…", style=MUTED), style="dim"))
+        self.terminal.set_tail(Spinner("dots", text=Text("Compacting…", style=MUTED), style="dim"))
         try:
             await self.agent.acompact()
         except NothingToCompactError:
@@ -636,9 +644,7 @@ class TerminalChat:
             self.terminal.print(Text("cancelled", style=MUTED))
             return
         except Exception as exc:
-            text = Text(f"{ERROR_MARKER} ", style=ERROR)
-            text.append(str(exc), style=ERROR)
-            self.terminal.print(text)
+            self.terminal.print(error_line(str(exc)))
             return
         finally:
             self.terminal.set_tail(None)
@@ -664,7 +670,7 @@ class TerminalChat:
         """
         messages = self.agent.messages
         if not messages:
-            self.terminal.print("[dim]nothing to rewind[/dim]")
+            self.terminal.print(Text("nothing to rewind", style=MUTED))
             return None
 
         # Collect real user text turns, skipping tool-result-only and attachment
@@ -678,16 +684,13 @@ class TerminalChat:
                 user_turns[i] = text
 
         if not user_turns:
-            self.terminal.print("[dim]no user messages to rewind to[/dim]")
+            self.terminal.print(Text("no user messages to rewind to", style=MUTED))
             return None
 
         # Build selector options — most recent first.
         options: list[tuple[int, str]] = []
         for msg_index, text in reversed(list(user_turns.items())):
-            preview = text.replace("\n", " ")[:60]
-            if len(text) > 60:
-                preview += "..."
-            options.append((msg_index, preview))
+            options.append((msg_index, shorten(text, 60)))
 
         selected = await self.terminal.choose(options)
         if selected is None:
@@ -700,11 +703,11 @@ class TerminalChat:
         await self.store.touch(self.session_id)
         self.agent.messages = messages[:selected]
 
-        self.terminal.print(f"[green]{TOOL_MARKER}[/green] [dim]rewound[/dim]")
+        self._print_done("rewound")
         if self.agent.messages:
             self._print_history(self.agent.messages)
         else:
-            self.terminal.print("[dim]conversation is now empty[/dim]")
+            self.terminal.print(Text("conversation is now empty", style=MUTED))
 
         return original_text
 
@@ -714,12 +717,12 @@ class TerminalChat:
         sessions = await self.store.list_sessions(cwd=self.settings.cwd)
         sessions = [s for s in sessions if s.get("id") != self.session_id]
         if not sessions:
-            self.terminal.print("[dim]no other sessions in this workspace[/dim]")
+            self.terminal.print(Text("no other sessions in this workspace", style=MUTED))
             return
 
         options: list[tuple[dict[str, Any], str]] = []
         for s in sessions:
-            title = str(s.get("title") or "New chat")[:40]
+            title = shorten(str(s.get("title") or "New chat"), 40)
             ts = format_local_timestamp(str(s.get("updated_at") or ""), "%m-%d %H:%M")
             label = f"{title}  {ts}" if ts else title
             options.append((s, label))
@@ -731,7 +734,7 @@ class TerminalChat:
         self.session_id = str(session["id"])
         data = await self.store.load_session(self.session_id)
         if data is None:
-            self.terminal.print("[red]failed to load session[/red]")
+            self.terminal.print(error_line("failed to load session"))
             return
         messages = data["messages"]
         self.agent = clone_agent(self.agent, store=self.store, session_id=self.session_id, cwd=self.settings.cwd)
@@ -775,7 +778,7 @@ class TerminalChat:
         try:
             resolved = resolve_provider(self.settings, provider_name=provider_name)
         except ValueError as exc:
-            self.terminal.print(f"[red]{exc}[/red]")
+            self.terminal.print(error_line(str(exc)))
             return
 
         changed = apply_resolved_provider(self.agent, resolved)
@@ -795,7 +798,7 @@ class TerminalChat:
         try:
             resolved = resolve_provider(self.settings, provider_name=provider_name, model=model_name)
         except ValueError as exc:
-            self.terminal.print(f"[red]{exc}[/red]")
+            self.terminal.print(error_line(str(exc)))
             return
 
         changed = apply_resolved_provider(self.agent, resolved)
@@ -825,14 +828,14 @@ class TerminalChat:
         try:
             resolved = normalize_reasoning_effort(effort)
         except ValueError as exc:
-            self.terminal.print(f"[red]{exc}[/red]")
+            self.terminal.print(error_line(str(exc)))
             return
 
         if resolved is not None and resolved not in self.reasoning_efforts:
             supported = ", ".join(self.reasoning_efforts)
             message = f"reasoning effort {resolved!r} is not supported by model {self.agent.model!r}"
             message += f"; supported efforts: {supported}"
-            self.terminal.print(f"[red]{message}[/red]")
+            self.terminal.print(error_line(message))
             return
 
         changed = resolved != self.agent.reasoning_effort

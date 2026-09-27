@@ -29,6 +29,12 @@ async def test_print_before_run_writes_immediately(harness: TerminalHarness) -> 
     assert harness.text() == "hello\nworld\n"
 
 
+async def test_print_treats_strings_as_plain_text(harness: TerminalHarness) -> None:
+    harness.terminal.print("[red]model[/red] [effort: high]")
+
+    assert harness.text() == "[red]model[/red] [effort: high]\n"
+
+
 async def test_prints_during_run_keep_their_order(harness: TerminalHarness) -> None:
     harness.terminal.print("before")
 
@@ -182,6 +188,26 @@ async def test_choose_returns_none_on_esc_and_keeps_the_draft(harness: TerminalH
     await terminal.run(main)
 
     assert results == [None, "draft"]
+
+
+async def test_choose_cuts_long_labels_to_one_row(harness: TerminalHarness) -> None:
+    terminal, pipe = harness.terminal, harness.pipe
+
+    async def main() -> None:
+        async def keys() -> None:
+            await asyncio.sleep(0.1)
+            pipe.send_text("\x1b")
+
+        task = asyncio.create_task(keys())
+        await terminal.choose([("a", "y" * 200)])
+        await task
+
+    await terminal.run(main)
+
+    rendered = harness.text()
+    assert "> " + "y" * 77 in rendered
+    assert "y" * 78 not in rendered
+    assert "…" in rendered
 
 
 async def test_tail_shows_the_last_lines(harness: TerminalHarness) -> None:

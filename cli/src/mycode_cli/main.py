@@ -184,9 +184,9 @@ def _bootstrap(
             )
         )
     except ValueError as exc:
-        from .tui.render import console
+        from .tui.render import console, error_line
 
-        console.print(f"[red]{exc}[/red]")
+        console.print(error_line(str(exc)))
         raise SystemExit(1) from exc
 
     agent = build_agent(

@@ -160,6 +160,49 @@ class TestTurnRenderer:
         assert "    line 4\n    +3 lines\n" in rendered
         assert "line 5" not in rendered
 
+    async def test_tool_output_is_shown_as_a_terminal_would(self, harness: TerminalHarness) -> None:
+        output = "\x1b]8;;https://x.test\x1b\\link\x1b]8;;\x1b\\\n10%\r100%\n" + "x" * 200 + "\n"
+        _, rendered = await _render_turn(
+            harness,
+            [
+                Event(
+                    "tool_start",
+                    {"tool_call": {"id": "1", "name": "bash", "input": {"command": "make\n  && make test"}}},
+                ),
+                Event("tool_output", {"tool_use_id": "1", "output": output}),
+                Event("tool_done", {"tool_use_id": "1", "output": output, "is_error": False}),
+            ],
+        )
+
+        # One header line, escapes and overwritten progress removed, long lines cut to the width.
+        assert f"{TOOL_MARKER} Bash  make && make test\n    link\n    100%\n    {'x' * 75}…\n" in rendered
+
+    async def test_tool_header_fits_one_line_and_keeps_the_suffix(self, harness: TerminalHarness) -> None:
+        path = "src/" + "deep/" * 30 + "file.py"
+        _, rendered = await _render_turn(
+            harness,
+            [
+                Event("tool_start", {"tool_call": {"id": "1", "name": "bash", "input": {"command": "rg -n x " * 20}}}),
+                Event("tool_done", {"tool_use_id": "1", "output": "", "is_error": False}),
+                Event("tool_start", {"tool_call": {"id": "2", "name": "edit", "input": {"path": path}}}),
+                Event(
+                    "tool_done",
+                    {
+                        "tool_use_id": "2",
+                        "output": "ok",
+                        "is_error": False,
+                        "metadata": {"added_lines": 3, "removed_lines": 1},
+                    },
+                ),
+            ],
+        )
+
+        bash, edit = [line for line in rendered.splitlines() if line.startswith(TOOL_MARKER)]
+        assert bash.endswith("…")
+        # A path is cut at the front so the file name and the suffix stay visible.
+        assert edit.startswith(f"{TOOL_MARKER} Edit  …")
+        assert edit.endswith("deep/file.py  +3 −1")
+
     async def test_tool_done_shows_final_status_after_live_output(self, harness: TerminalHarness) -> None:
         code, rendered = await _render_turn(
             harness,

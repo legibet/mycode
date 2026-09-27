@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import asyncio
+import re
 import time
-from collections import deque
 from contextlib import aclosing
 from datetime import datetime
 from typing import Any
 
+from rich.cells import cell_len
 from rich.console import Console, Group, RenderableType
 from rich.spinner import Spinner
 from rich.table import Table
@@ -38,9 +39,13 @@ from .theme import (
 )
 
 # Console for output outside the interactive application (errors, session list).
-console = Console(highlight=False, theme=MARKDOWN_THEME)
+console = Console(highlight=False, markup=False, theme=MARKDOWN_THEME)
 
 _TOOL_OUTPUT_MAX_LINES = 5
+# The spinner frame and the space rich puts after it.
+_SPINNER_CELLS = 2
+# Reasoning text kept for the rolling one-line preview.
+_REASONING_KEEP_CHARS = 1000
 # Delay that coalesces streamed text deltas into one commit and redraw.
 _TEXT_TICK_SECONDS = 0.05
 
@@ -54,6 +59,9 @@ _TOOL_PREVIEW_KEY: dict[str, str] = {
     "websearch": "query",
 }
 
+# CSI, OSC, and two-character escape sequences in tool output.
+_ANSI_ESCAPE = re.compile(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07\x1b]*(?:\x07|\x1b\\)|[@-_])")
+
 
 # -- Static renderables ----------------------------------------------------------
 
@@ -65,10 +73,39 @@ def _tool_preview(name: str, args: dict[str, Any]) -> str:
         return ""
     key = _TOOL_PREVIEW_KEY.get(name.lower())
     raw = args.get(key) if key else next(iter(args.values()), "")
-    preview = str(raw or "")
-    if len(preview) > 60:
-        preview = preview[:60] + "…"
-    return preview
+    return " ".join(str(raw or "").split())
+
+
+def shorten(value: str, width: int) -> str:
+    """Collapse whitespace to single spaces and cut to ``width`` terminal cells with an ellipsis."""
+
+    text = Text(" ".join(value.split()))
+    text.truncate(width, overflow="ellipsis")
+    return text.plain
+
+
+def _last_cells(value: str, width: int) -> str:
+    """Return the end of ``value`` that fits ``width`` terminal cells, with a leading ellipsis when cut."""
+
+    if cell_len(value) <= width:
+        return value
+    start, cells = len(value), 1
+    while start and cells + cell_len(value[start - 1]) <= width:
+        start -= 1
+        cells += cell_len(value[start])
+    return "…" + value[start:]
+
+
+def _display_line(line: str) -> str:
+    """Return a tool output line as a terminal shows it: escapes removed, only the text after the last ``\\r``."""
+
+    return _ANSI_ESCAPE.sub("", line).rstrip("\r").rsplit("\r", 1)[-1]
+
+
+def error_line(message: str) -> Text:
+    """Build the ``✕ message`` error line."""
+
+    return Text(f"{ERROR_MARKER} {message}", style=ERROR)
 
 
 def format_local_timestamp(value: str, display_format: str) -> str:
@@ -144,19 +181,27 @@ def header_lines(
     return lines
 
 
-def _tool_header(name: str, args: dict[str, Any], *, suffix: Text | None = None) -> Text:
+def _tool_title(name: str, args: dict[str, Any], width: int, *, suffix: Text | None = None) -> Text:
+    """Build ``Name  preview  [suffix]`` on one line of ``width`` cells; only the preview is shortened."""
+
+    text = Text(name.capitalize(), style=TOOL_NAME)
+    tail = Text("  ").append_text(suffix) if suffix else Text()
+    room = width - text.cell_len - tail.cell_len - 2
+    preview = _tool_preview(name, args)
+    if room > 1 and preview:
+        # A path keeps its end, where the file name is.
+        is_path = _TOOL_PREVIEW_KEY.get(name.lower()) == "path"
+        text.append(f"  {_last_cells(preview, room) if is_path else shorten(preview, room)}", style=MUTED)
+    return text.append_text(tail)
+
+
+def _tool_header(
+    name: str, args: dict[str, Any], width: int, *, suffix: Text | None = None, failed: bool = False
+) -> Text:
     """Build the ``⏺ Name  preview  [suffix]`` tool header line."""
 
-    preview = _tool_preview(name, args)
-    text = Text()
-    text.append(f"{TOOL_MARKER} ", style=SUCCESS)
-    text.append(name.capitalize(), style=TOOL_NAME)
-    if preview:
-        text.append(f"  {preview}", style=MUTED)
-    if suffix:
-        text.append("  ")
-        text.append_text(suffix)
-    return text
+    marker = Text(f"{TOOL_MARKER} ", style=ERROR if failed else SUCCESS, no_wrap=True, overflow="ellipsis")
+    return marker.append_text(_tool_title(name, args, width - marker.cell_len, suffix=suffix))
 
 
 def _history_turns(messages: list[ConversationMessage], *, limit: int = 3) -> list[list[tuple[str, Any]]]:
@@ -229,15 +274,8 @@ def history_preview(messages: list[ConversationMessage], *, width: int) -> list[
                 lines.append(compact_marker(width))
             else:
                 name, args = content
-                lines.append(_tool_header(name, args if isinstance(args, dict) else {}))
+                lines.append(_tool_header(name, args if isinstance(args, dict) else {}, width))
     return lines
-
-
-def _shorten(value: str, *, limit: int) -> str:
-    text = " ".join((value or "").split())
-    if len(text) <= limit:
-        return text
-    return text[: limit - 1] + "…"
 
 
 def session_list_table(
@@ -269,10 +307,10 @@ def session_list_table(
             Text(str(index), style=MUTED),
             Text(session_id[:12], style=MUTED),
             Text(timestamp, style=MUTED),
-            Text(_shorten(str(session.get("title") or "New chat"), limit=title_limit)),
+            Text(shorten(str(session.get("title") or "New chat"), title_limit)),
         ]
         if include_cwd:
-            row.append(Text(_shorten(str(session.get("cwd") or ""), limit=cwd_limit), style=MUTED))
+            row.append(Text(shorten(str(session.get("cwd") or ""), cwd_limit), style=MUTED))
         table.add_row(*row)
 
     return [Text(f"{heading} ({len(sessions)})", style=MUTED), Text(), table]
@@ -345,8 +383,7 @@ class TurnRenderer:
         # Whether anything was printed this turn; blocks after the first get a blank line before them.
         self._printed = False
         # Reasoning phase
-        self._reasoning: deque[str] = deque(maxlen=30)
-        self._reasoning_count = 0
+        self._reasoning = ""
         self._thinking_start_time: float | None = None
         self._thinking_duration_ms: int | None = None
         # Text phase
@@ -429,17 +466,11 @@ class TurnRenderer:
         self._end_text()
         if self._thinking_start_time is None:
             self._thinking_start_time = time.monotonic()
-        self._reasoning.append(delta)
-        self._reasoning_count += 1
+        self._reasoning = (self._reasoning + delta)[-_REASONING_KEEP_CHARS:]
 
-        content = " ".join("".join(self._reasoning).split())
-        if not content:
-            self._show_spinner(Text(" thinking…", style=THINKING))
-            return
-        preview = content[-80:].strip()
-        if self._reasoning_count > 30 or len(content) > 80:
-            preview = "…" + preview
-        self._show_spinner(Text(f" {preview}", style=THINKING))
+        content = " ".join(self._reasoning.split())
+        preview = _last_cells(content, self._terminal.width - _SPINNER_CELLS) if content else "thinking…"
+        self._show_spinner(Text(preview, style=THINKING))
 
     def text(self, delta: str) -> None:
         """Handle one streamed text delta; commits happen on a short coalescing tick."""
@@ -462,12 +493,7 @@ class TurnRenderer:
 
         # The header is printed with the first output (bash) or the result (other
         # tools), so a permission review never leaves an orphan header above it.
-        label = Text()
-        label.append(f" {name.capitalize()}", style=TOOL_NAME)
-        preview = _tool_preview(name, args)
-        if preview:
-            label.append(f"  {preview}", style=MUTED)
-        self._show_spinner(label)
+        self._show_spinner(_tool_title(name, args, self._terminal.width - _SPINNER_CELLS))
 
     def tool_output(self, delta: str) -> None:
         """Append streamed tool output; only complete lines are printed."""
@@ -475,7 +501,7 @@ class TurnRenderer:
         if not delta:
             return
         if not self._tool_header_printed:
-            self._print(_tool_header(self._tool_name, self._tool_args))
+            self._print(_tool_header(self._tool_name, self._tool_args, self._terminal.width))
             self._tool_header_printed = True
             self._show_spinner(Text())
 
@@ -497,7 +523,9 @@ class TurnRenderer:
         if self._tool_name.lower() != "bash" and not is_error:
             suffix = _tool_suffix(self._tool_name, self._tool_args, metadata)
         if not self._tool_header_printed:
-            self._print(_tool_header(self._tool_name, self._tool_args, suffix=suffix))
+            self._print(
+                _tool_header(self._tool_name, self._tool_args, self._terminal.width, suffix=suffix, failed=is_error)
+            )
             self._tool_header_printed = True
 
         if self._tool_line:
@@ -515,7 +543,7 @@ class TurnRenderer:
             status_lines = [result_lines[-1]]
         style = ERROR if is_error else MUTED
         for line in status_lines[-2:]:
-            self._print(Text(f"    {line[:500]}", style=style))
+            self._print(Text(f"    {_display_line(line)[:500]}", style=style))
 
         # Waiting for the next model response.
         self._show_spinner(Text())
@@ -523,7 +551,7 @@ class TurnRenderer:
     def retry(self, *, attempt: object, max_attempts: object, reason: str) -> None:
         """Show the retry status in the tail until the next event replaces it."""
 
-        self._show_spinner(Text(f" retry {attempt}/{max_attempts} · {reason}", style=MUTED))
+        self._show_spinner(Text(f"retry {attempt}/{max_attempts} · {reason}", style=MUTED))
 
     def compact(self) -> None:
         """Render an inline ``compacted`` divider during streaming."""
@@ -536,9 +564,7 @@ class TurnRenderer:
         """Render a terminal-visible error message for the current turn."""
 
         self._end_phase()
-        text = Text(f"{ERROR_MARKER} ", style=ERROR)
-        text.append(message, style=ERROR)
-        self._print(text)
+        self._print(error_line(message))
 
     def cancel(self) -> None:
         """Render a cancellation marker."""
@@ -578,7 +604,7 @@ class TurnRenderer:
     def _print_tool_line(self, line: str) -> None:
         self._tool_line_count += 1
         if self._tool_line_count <= _TOOL_OUTPUT_MAX_LINES:
-            self._print(Text(f"    {line}", style=MUTED))
+            self._print(Text(f"    {_display_line(line)}", style=MUTED, no_wrap=True, overflow="ellipsis"))
 
     def _end_phase(self) -> None:
         self._end_reasoning()
@@ -587,15 +613,13 @@ class TurnRenderer:
     def _end_reasoning(self) -> None:
         """Collapse an active reasoning phase into a one-line summary."""
 
-        if not self._reasoning_count:
+        if self._thinking_start_time is None:
             return
         duration_ms = self._thinking_duration_ms
-        if duration_ms is None and self._thinking_start_time is not None:
+        if duration_ms is None:
             duration_ms = int((time.monotonic() - self._thinking_start_time) * 1000)
-        label = f" · {duration_ms / 1000:.1f}s" if duration_ms is not None else ""
-        self._print(Text(f"{THINKING_SYMBOL} thought{label}", style=THINKING))
-        self._reasoning.clear()
-        self._reasoning_count = 0
+        self._print(Text(f"{THINKING_SYMBOL} thought · {duration_ms / 1000:.1f}s", style=THINKING))
+        self._reasoning = ""
         self._thinking_start_time = None
         self._thinking_duration_ms = None
 

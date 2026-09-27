@@ -63,10 +63,15 @@ def _render(renderables: Iterable[RenderableType], width: int, *, end: str = "\n
         color_system=_COLOR_SYSTEM,
         width=width,
         highlight=False,
+        markup=False,
         theme=MARKDOWN_THEME,
     )
     for renderable in renderables:
-        console.print(renderable, end=end)
+        if isinstance(renderable, Text):
+            # Console.print joins Text into a new Text, which drops its no_wrap and overflow.
+            console.print(renderable, end=end, no_wrap=renderable.no_wrap, overflow=renderable.overflow)
+        else:
+            console.print(renderable, end=end)
     return file.getvalue()
 
 
@@ -298,8 +303,8 @@ class Terminal:
     def print(self, *renderables: RenderableType) -> None:
         """Queue renderables for the scrollback, each on its own line; no arguments prints a blank line.
 
-        Strings are rich markup, as in ``Console.print``. Writes happen in order,
-        immediately when the application is not running.
+        Strings are printed as plain text, never as markup. Writes happen in
+        order, immediately when the application is not running.
         """
 
         text = _render(renderables or ("",), self.width)
