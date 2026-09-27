@@ -37,7 +37,7 @@ from prompt_toolkit.output.vt100 import Vt100_Output
 from rich.console import Console, RenderableType
 from rich.text import Text
 
-from .theme import ACCENT, ERROR, MARKDOWN_THEME, MUTED, PROMPT_CHAR, SELECTED
+from .theme import ACCENT, ERROR, MARKDOWN_THEME, MUTED, PROMPT_CHAR, PROMPT_STYLE, WARNING
 
 # Detected once, before prompt_toolkit takes over stdout; None when stdout is not a terminal.
 _COLOR_SYSTEM = cast(Literal["standard", "256", "truecolor", "windows"] | None, Console().color_system)
@@ -95,7 +95,12 @@ class _LogHandler(logging.Handler):
         message = record.getMessage()
         if record.exc_info and record.exc_info[1] is not None:
             message = f"{message}: {record.exc_info[1]!r}"
-        style = ERROR if record.levelno >= logging.ERROR else MUTED
+        if record.levelno >= logging.ERROR:
+            style = ERROR
+        elif record.levelno >= logging.WARNING:
+            style = WARNING
+        else:
+            style = MUTED
         # Sync tools run in worker threads, so the print must be handed to the loop thread.
         self._loop.call_soon_threadsafe(
             self._terminal.print, Text(f"{record.levelname.lower()}: {message}", style=style)
@@ -205,6 +210,7 @@ class Terminal:
                     ConditionalKeyBindings(self._chooser_bindings(), filter=choosing),
                 ]
             ),
+            style=PROMPT_STYLE,
             full_screen=False,
             erase_when_done=True,
             input=input,
@@ -414,7 +420,7 @@ class Terminal:
         rows = [
             Text(
                 f"{'>' if index == choice.index else ' '} {label}",
-                style=SELECTED if index == choice.index else "",
+                style=ACCENT if index == choice.index else "",
                 no_wrap=True,
                 overflow="ellipsis",
             )

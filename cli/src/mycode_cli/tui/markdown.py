@@ -37,7 +37,7 @@ class _LeftHeading(_RichHeading):
 
 
 class _CleanCodeBlock(_RichCodeBlock):
-    """Code block that uses the terminal background instead of the theme background."""
+    """Code block highlighted in ANSI colors on the terminal background."""
 
     @override
     def __rich_console__(self, console: Console, options: ConsoleOptions) -> RenderResult:
@@ -45,7 +45,7 @@ class _CleanCodeBlock(_RichCodeBlock):
         yield Syntax(
             code,
             self.lexer_name,
-            theme=self.theme,
+            theme=CODE_THEME,
             word_wrap=True,
             padding=0,
             background_color="default",
@@ -91,7 +91,7 @@ class MarkdownBlock:
     with leading and trailing blank lines removed."""
 
     def __init__(self, source: str) -> None:
-        self._markdown = _LeftMarkdown(source, code_theme=CODE_THEME)
+        self._markdown = _LeftMarkdown(source)
 
     def __rich_console__(self, console: Console, options: ConsoleOptions) -> RenderResult:
         yield from _render_trimmed(self._markdown, console, options)

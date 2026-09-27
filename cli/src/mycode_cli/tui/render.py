@@ -28,8 +28,6 @@ from .theme import (
     MARKDOWN_THEME,
     MUTED,
     PROMPT_CHAR,
-    PROVIDER,
-    STATS,
     SUCCESS,
     THINKING,
     THINKING_SYMBOL,
@@ -157,7 +155,7 @@ def header_lines(
     line = Text()
     line.append("mycode", style=ACCENT)
     line.append(" · ", style=MUTED)
-    line.append(provider, style=PROVIDER)
+    line.append(provider)
     line.append(" / ", style=MUTED)
     line.append(model)
     if reasoning_effort:
@@ -170,7 +168,7 @@ def header_lines(
 
     if mode == "resumed":
         meta = Text()
-        meta.append("resumed", style=WARNING)
+        meta.append("resumed", style=MUTED)
         if title and title != "New chat":
             meta.append(" · ", style=MUTED)
             meta.append(title, style=MUTED)
@@ -336,8 +334,8 @@ def _tool_suffix(name: str, args: dict[str, Any], metadata: dict[str, Any] | Non
         added = (metadata or {}).get("added_lines")
         removed = (metadata or {}).get("removed_lines")
         if isinstance(added, int) and isinstance(removed, int):
-            parts.append(f"+{added}", style="green")
-            parts.append(f" −{removed}", style="red")
+            parts.append(f"+{added}", style=SUCCESS)
+            parts.append(f" −{removed}", style=ERROR)
     elif lower == "read":
         offset = args.get("offset")
         limit = args.get("limit")
@@ -379,7 +377,7 @@ class TurnRenderer:
         self._context_window = context_window
         self._session_cost_base = session_cost_base
         # One spinner for the whole turn keeps its animation continuous across phases.
-        self._spinner = Spinner("dots", style="dim")
+        self._spinner = Spinner("dots", style=MUTED)
         # Whether anything was printed this turn; blocks after the first get a blank line before them.
         self._printed = False
         # Reasoning phase
@@ -551,7 +549,7 @@ class TurnRenderer:
     def retry(self, *, attempt: object, max_attempts: object, reason: str) -> None:
         """Show the retry status in the tail until the next event replaces it."""
 
-        self._show_spinner(Text(f"retry {attempt}/{max_attempts} · {reason}", style=MUTED))
+        self._show_spinner(Text(f"retry {attempt}/{max_attempts} · {reason}", style=WARNING))
 
     def compact(self) -> None:
         """Render an inline ``compacted`` divider during streaming."""
@@ -589,7 +587,7 @@ class TurnRenderer:
         if session_cost is not None:
             parts.append(_format_cost(session_cost))
         if parts:
-            self._print(Text(f"  {self._model}  {' · '.join(parts)}", style=STATS))
+            self._print(Text(f"  {self._model}  {' · '.join(parts)}", style=MUTED))
 
     # -- Internal helpers ----------------------------------------------------
 

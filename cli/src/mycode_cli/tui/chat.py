@@ -630,7 +630,7 @@ class TerminalChat:
 
         self.terminal.busy = True
         self.terminal.on_cancel = self.agent.cancel
-        self.terminal.set_tail(Spinner("dots", text=Text("Compacting…", style=MUTED), style="dim"))
+        self.terminal.set_tail(Spinner("dots", text=Text("Compacting…", style=MUTED), style=MUTED))
         try:
             await self.agent.acompact()
         except NothingToCompactError:

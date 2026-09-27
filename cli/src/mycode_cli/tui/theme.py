@@ -1,115 +1,95 @@
 """Semantic color tokens and UI symbols for the terminal CLI.
 
-All colors use ANSI base-16 names so terminal themes (dark/light) remap them
-automatically.  Avoid hardcoded RGB or 256-color values.
+Every color is one of the six ANSI base hues, so the terminal palette picks the
+actual shade and one set of styles works on dark and light backgrounds. Colored
+text is never bold (many terminals render bold colors in their bright variant),
+and bright variants, black, white, and background colors are not used.
 """
 
 from __future__ import annotations
 
-import os
-import re
-import select
-import sys
-import termios
-import tty
-
+from prompt_toolkit.styles import Style as PromptStyle
+from pygments.token import Comment, Error, Generic, Keyword, Name, Number, Operator, String
 from rich.style import Style
+from rich.syntax import ANSISyntaxTheme
 from rich.theme import Theme
-
-
-def _query_terminal_bg_luminance() -> float | None:
-    """Query terminal background color via OSC 11 escape sequence.
-
-    Sends ESC]11;?BEL and reads back rgb:RRRR/GGGG/BBBB.
-    Returns perceived luminance in [0, 1], or None if detection fails.
-    Works on iTerm2, Kitty, Alacritty, WezTerm, macOS Terminal, and any
-    terminal that implements xterm's OSC color query protocol.
-    """
-    if not (sys.stdout.isatty() and sys.stdin.isatty()):
-        return None
-
-    fd = sys.stdin.fileno()
-    old = termios.tcgetattr(fd)
-    try:
-        tty.setraw(fd)
-        sys.stdout.write("\033]11;?\007")
-        sys.stdout.flush()
-
-        ready, _, _ = select.select([sys.stdin], [], [], 0.2)
-        if not ready:
-            return None
-
-        buf = ""
-        while len(buf) < 64:
-            ch = sys.stdin.read(1)
-            buf += ch
-            if ch == "\007" or buf.endswith("\033\\"):
-                break
-    except Exception:
-        return None
-    finally:
-        termios.tcsetattr(fd, termios.TCSADRAIN, old)
-
-    m = re.search(r"rgb:([0-9a-fA-F]+)/([0-9a-fA-F]+)/([0-9a-fA-F]+)", buf)
-    if not m:
-        return None
-
-    def _normalize_hex_component(value: str) -> float:
-        # Handles 1-, 2-, or 4-digit hex components
-        return int(value, 16) / (16 ** len(value) - 1)
-
-    r, g, b = (
-        _normalize_hex_component(m.group(1)),
-        _normalize_hex_component(m.group(2)),
-        _normalize_hex_component(m.group(3)),
-    )
-    return 0.2126 * r + 0.7152 * g + 0.0722 * b
-
-
-def _detect_terminal_theme() -> str:
-    """Return `light` or `dark`, with env override and safe fallback."""
-
-    override = os.environ.get("MYCODE_THEME", "").lower()
-    if override in ("light", "dark"):
-        return override
-
-    luminance = _query_terminal_bg_luminance()
-    if luminance is not None:
-        return "light" if luminance > 0.5 else "dark"
-
-    return "dark"
-
-
-# Detect the terminal theme once at import time so render code can stay cheap
-# and deterministic during interactive updates. If probing fails, default to
-# the dark palette because it is the safest choice across terminals.
-TERMINAL_THEME = _detect_terminal_theme()
-# friendly: neutral #f0f0f0 background, dark saturated syntax colors — good on light terminals.
-# monokai:  classic dark background, vivid colors — good on dark terminals.
-CODE_THEME = "friendly" if TERMINAL_THEME == "light" else "monokai"
 
 # ---------------------------------------------------------------------------
 # Color tokens
 # ---------------------------------------------------------------------------
-ACCENT = Style(color="blue", bold=True)
-MUTED = Style(dim=True)
+ACCENT = Style(color="blue")  # focus: prompt, selected row, brand
+MUTED = Style(dim=True)  # secondary: previews, tool output, stats, hints
+THINKING = Style(dim=True, italic=True)
 SUCCESS = Style(color="green")
 ERROR = Style(color="red")
-WARNING = Style(color="yellow")
-TOOL_NAME = Style(color="cyan")
-THINKING = Style(color="blue", dim=True)
-STATS = Style(dim=True)
-PROVIDER = Style(color="cyan")
-# Focused row of an inline chooser.
-SELECTED = Style(color="blue" if TERMINAL_THEME == "light" else "cyan", bold=True)
+WARNING = Style(color="yellow")  # needs attention: reviews, retries
+TOOL_NAME = Style(bold=True)
 
-# Rich theme for every console the TUI renders with. It overrides Rich's default
-# inline-code style ("bold cyan on black") to drop the hardcoded background
-# color that clashes with terminal themes.
+# Markdown styles for every console the TUI renders with; these replace rich's
+# defaults, which use backgrounds, bright colors, and magenta headings.
 MARKDOWN_THEME = Theme(
     {
-        "markdown.code": "bold blue" if TERMINAL_THEME == "light" else "bold cyan",
-        "markdown.code_block": "blue" if TERMINAL_THEME == "light" else "cyan",
+        "markdown.code": "cyan",
+        "markdown.code_block": "none",
+        "markdown.block_quote": "dim italic",
+        "markdown.list": "none",
+        "markdown.item.bullet": "dim",
+        "markdown.item.number": "dim",
+        "markdown.hr": "dim",
+        "markdown.h1": "bold",
+        "markdown.h2": "bold",
+        "markdown.h3": "bold",
+        "markdown.h4": "bold dim",
+        "markdown.h5": "bold dim",
+        "markdown.h6": "bold dim",
+        "markdown.link": "blue",
+        "markdown.link_url": "dim underline",
+        "markdown.table.border": "dim",
+        "markdown.table.header": "bold",
+        "markdown.kbd": "bold",
+    }
+)
+
+# Syntax highlighting for code blocks; tokens not listed use the default color.
+CODE_THEME = ANSISyntaxTheme(
+    {
+        Comment: MUTED,
+        Comment.Preproc: Style(color="cyan"),
+        Keyword: Style(color="blue"),
+        Keyword.Type: Style(color="cyan"),
+        Operator.Word: Style(color="magenta"),
+        Name.Builtin: Style(color="cyan"),
+        Name.Function: Style(color="green"),
+        Name.Class: Style(color="green"),
+        Name.Namespace: Style(color="cyan"),
+        Name.Exception: Style(color="cyan"),
+        Name.Decorator: Style(color="magenta"),
+        Name.Variable: Style(color="red"),
+        Name.Constant: Style(color="red"),
+        Name.Attribute: Style(color="cyan"),
+        Name.Tag: Style(color="blue"),
+        String: Style(color="yellow"),
+        Number: Style(color="blue"),
+        Generic.Inserted: Style(color="green"),
+        Generic.Deleted: Style(color="red"),
+        Generic.Heading: Style(bold=True),
+        Generic.Subheading: Style(color="magenta"),
+        Generic.Prompt: Style(bold=True),
+        Generic.Error: Style(color="red"),
+        Error: Style(color="red"),
+    }
+)
+
+# prompt_toolkit styles for the input area; these replace the gray backgrounds
+# of its default completion menu.
+PROMPT_STYLE = PromptStyle.from_dict(
+    {
+        "completion-menu": "bg:default fg:default",
+        "completion-menu.completion.current": "noreverse bg:default fg:ansiblue",
+        "completion-menu.meta.completion": "bg:default fg:default dim",
+        "completion-menu.meta.completion.current": "bg:default fg:default dim",
+        "scrollbar.background": "bg:default",
+        "scrollbar.button": "bg:default reverse",
     }
 )
 
