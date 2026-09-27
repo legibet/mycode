@@ -89,6 +89,24 @@ The CLI assembles the system prompt from instructions files and discovered skill
 - Skills are directories containing a `SKILL.md`. Scan roots, lowest to highest priority: `~/.agents/skills/`, `~/.mycode/skills/`, then `.agents/skills/` and `.mycode/skills/` from the project root down to the current directory. Later roots override earlier ones by skill name. `SKILL.md` needs YAML frontmatter with `name` and `description`.
 - A standalone `/<skill-name>` token in a message loads the matching skill, e.g. `Use /fastapi to review this route`. Names matching built-in slash commands are reserved.
 
+## Terminal UI
+
+| Key | Action |
+| --- | --- |
+| Enter | Send the message; with a completion menu open, accept the highlighted entry |
+| Esc then Enter, or Alt+Enter | Insert a newline |
+| Esc | Interrupt the reply; close a selection list |
+| Ctrl+C | Interrupt the reply; otherwise clear the input |
+| Ctrl+D | Exit (empty input only) |
+| Ctrl+L | Clear the screen |
+| Up / Down | Move between lines; on the first or last line, browse input history |
+
+Messages typed while a reply runs are queued and sent in order after it finishes.
+
+`@path` attaches a file to the message: text files as snapshots, images and PDFs as image or document input. Pasted file paths become `@path` references.
+
+Slash commands: `/new` `/resume` `/rewind` `/provider` `/model` `/effort` `/clear` `/compact` `/q`. `exit` and `quit` also exit.
+
 ## CLI Reference
 
 ```bash
@@ -101,10 +119,6 @@ mycode web                        start web server (default port 8000)
 mycode web --dev                  API only, no static files
 mycode session list               list saved sessions
 ```
-
-Interactive slash commands: `/new` `/resume` `/rewind` `/provider` `/model` `/effort` `/clear` `/compact` `/q`
-
-Inside the TUI, `@path` attaches a file to the message — text files go as snapshots, images and PDFs as structured input.
 
 ## License
 

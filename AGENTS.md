@@ -37,7 +37,7 @@ cli/src/mycode_cli/       # CLI + FastAPI web server
   config.py               # layered JSON config, config validation, provider resolution, paths
   permissions.py          # tool permission policy + before_tool hook
   system_prompt.py        # base prompt + AGENTS.md + skills discovery
-  tui/                    # interactive terminal chat (chat.py, render.py, theme.py)
+  tui/                    # interactive terminal chat (chat.py, terminal.py, render.py, markdown.py, theme.py)
   server/                 # FastAPI app, routers, run_manager, schemas; settings router validates config writes
 
 web/src/                  # React + Vite UI

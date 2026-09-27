@@ -14,6 +14,7 @@ import termios
 import tty
 
 from rich.style import Style
+from rich.theme import Theme
 
 
 def _query_terminal_bg_luminance() -> float | None:
@@ -99,6 +100,18 @@ TOOL_NAME = Style(color="cyan")
 THINKING = Style(color="blue", dim=True)
 STATS = Style(dim=True)
 PROVIDER = Style(color="cyan")
+# Focused row of an inline chooser.
+SELECTED = Style(color="blue" if TERMINAL_THEME == "light" else "cyan", bold=True)
+
+# Rich theme for every console the TUI renders with. It overrides Rich's default
+# inline-code style ("bold cyan on black") to drop the hardcoded background
+# color that clashes with terminal themes.
+MARKDOWN_THEME = Theme(
+    {
+        "markdown.code": "bold blue" if TERMINAL_THEME == "light" else "bold cyan",
+        "markdown.code_block": "blue" if TERMINAL_THEME == "light" else "cyan",
+    }
+)
 
 # ---------------------------------------------------------------------------
 # Symbols

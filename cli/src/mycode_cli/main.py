@@ -5,9 +5,9 @@ from __future__ import annotations
 import asyncio
 import os
 import sys
-from contextlib import aclosing, suppress
+from contextlib import aclosing
 from dataclasses import dataclass, replace
-from typing import TYPE_CHECKING, Annotated, Any, Literal
+from typing import Annotated, Any, Literal
 from uuid import uuid4
 
 import typer
@@ -28,9 +28,6 @@ from mycode_cli.permissions import PERMISSION_DENIED_BY_USER_OUTPUT, PERMISSION_
 from mycode_cli.sessions import SessionStore
 
 from .runtime import build_agent
-
-if TYPE_CHECKING:
-    from .tui.render import TerminalView
 
 app = typer.Typer(add_completion=False, pretty_exceptions_enable=False)
 session_app = typer.Typer(help="Session management")
@@ -140,7 +137,6 @@ async def run_noninteractive(agent: Agent, message: str, *, store: SessionStore,
 @dataclass
 class _BootstrapContext:
     store: SessionStore
-    view: TerminalView
     settings: Settings
     resolved_provider: ResolvedProvider
     resolved_session: ResolvedSession
@@ -159,14 +155,11 @@ def _bootstrap(
 ) -> _BootstrapContext:
     """Shared setup for the chat and run commands."""
 
-    from .tui.render import TerminalView
-
     if session and continue_last:
         raise typer.BadParameter("--session and --continue are mutually exclusive")
 
     cwd = os.path.abspath(os.getcwd())
     store = SessionStore(data_dir=resolve_sessions_dir())
-    view = TerminalView()
     try:
         settings = get_settings(cwd)
         if permission is not None:
@@ -191,7 +184,9 @@ def _bootstrap(
             )
         )
     except ValueError as exc:
-        view.console.print(f"[red]{exc}[/red]")
+        from .tui.render import console
+
+        console.print(f"[red]{exc}[/red]")
         raise SystemExit(1) from exc
 
     agent = build_agent(
@@ -207,7 +202,6 @@ def _bootstrap(
 
     return _BootstrapContext(
         store=store,
-        view=view,
         settings=settings,
         resolved_provider=resolved_provider,
         resolved_session=resolved_session,
@@ -266,22 +260,11 @@ def chat(
         session_id=setup.resolved_session.session_id,
         provider_name=setup.resolved_provider.provider_name,
         reasoning_efforts=setup.resolved_provider.reasoning_efforts,
-        view=setup.view,
-    )
-
-    setup.view.print_header(
-        provider=setup.resolved_provider.provider,
-        model=setup.resolved_provider.model,
         session=setup.resolved_session.session,
         mode=setup.resolved_session.mode,
-        message_count=len(setup.resolved_session.messages),
-        reasoning_effort=setup.agent.reasoning_effort,
+        messages=setup.resolved_session.messages,
     )
-    if setup.resolved_session.mode == "resumed":
-        setup.view.print_history_preview(setup.resolved_session.messages)
-
-    with suppress(KeyboardInterrupt):
-        asyncio.run(terminal_chat.run())
+    asyncio.run(terminal_chat.run())
 
 
 @app.command()
@@ -355,15 +338,15 @@ def session_list(
 ) -> None:
     """List saved sessions."""
 
-    from .tui.render import TerminalView
+    from .tui.render import console, session_list_table
 
     cwd = os.path.abspath(os.getcwd())
     store = SessionStore(data_dir=resolve_sessions_dir())
-    view = TerminalView()
 
     sessions = asyncio.run(store.list_sessions(cwd=None if all_workspaces else cwd))
     heading = "all sessions" if all_workspaces else f"sessions for {cwd}"
-    view.print_session_list(sessions, include_cwd=all_workspaces, heading=heading)
+    for renderable in session_list_table(sessions, include_cwd=all_workspaces, heading=heading):
+        console.print(renderable)
 
 
 def main() -> None:
