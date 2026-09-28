@@ -38,7 +38,7 @@ Tests live beside the code they cover. `src/test/setup.ts` contains the shared V
 
 - `rawMessages: ChatMessage[]` — canonical block messages (mirrors the JSONL timeline; includes `role: "compact"` markers)
 - `toolRuntimeById` — ephemeral tool runtime state (streaming output, pending flags, final result)
-- `sessionCost` — session cost from session load or the latest SSE `usage`; `null` is hidden
+- `sessionUsage` — session token and cost totals from session load or the latest SSE `usage`; `null` when unknown
 
 The render-ready list `messages: RenderMessage[]` (where `RenderMessage = ChatMessage | CompactMarkerMessage`) is derived via `useMemo(buildRenderMessages(rawMessages, toolRuntimeById))`. There is no second copy of state to keep in sync — every reducer transition produces a new `rawMessages` and/or `toolRuntimeById` reference and the projection is recomputed.
 
@@ -62,7 +62,13 @@ State is managed via `useReducer` with actions:
 - Automatic compaction bills its summary request to the turn and leaves the context occupancy unknown until the next request. Manual markers stand alone and add nothing to a turn.
 - `null` means unknown and is omitted by the UI. The Web never resolves model pricing.
 
-The composer shows `context % · session cost`; assistant footers show model and turn cost. `currentContext` uses the latest post-compact context. Mobile shows only the percentage.
+Usage stats (`components/Chat/StatsCard.tsx`):
+
+- The composer shows `context % · session cost`; each assistant footer shows `model · turn cost`. On mobile the composer drops the cost when a percentage is shown.
+- Either opens a card on hover or tap. `UsageGrid` lists Input (excluding cache), Cache read, Cache write, Output (including reasoning), and Total. A known cost adds a cost column: filled per row when the cost has a breakdown, always on Total.
+- The session card adds `Context` and `Cache hit` (cache read ÷ input, only when the provider reports caching) above the table.
+- `currentContext` is the latest context occupancy after the last compact marker.
+- The percentage turns `destructive` at 90% of the `compact_threshold` from `GET /api/config`, or of the window when auto-compact is off.
 
 Key design decisions:
 

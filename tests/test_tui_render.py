@@ -11,6 +11,7 @@ from conftest import TerminalHarness
 from rich.console import Console
 
 from mycode.agent import Event
+from mycode_cli.sessions import SessionTotals
 from mycode_cli.tui.render import TurnRenderer, history_preview
 from mycode_cli.tui.theme import ERROR_MARKER, THINKING_SYMBOL, TOOL_MARKER
 
@@ -104,9 +105,8 @@ async def _render_turn(
     context_window: int | None = None,
     session_cost_base: float | None = None,
 ) -> tuple[int, str]:
-    renderer = TurnRenderer(
-        harness.terminal, model=model, context_window=context_window, session_cost_base=session_cost_base
-    )
+    session_base = SessionTotals(cost={"total": session_cost_base}) if session_cost_base is not None else None
+    renderer = TurnRenderer(harness.terminal, model=model, context_window=context_window, session_base=session_base)
     code = await renderer.render(cast(Any, _EventAgent(events, delay=delay)), "hi")
     return code, harness.text()
 

@@ -46,6 +46,8 @@ export interface RemoteConfig {
   cwd_exists?: boolean;
   project?: string;
   config_paths?: string[];
+  /** Effective for this cwd; 0 disables automatic compaction. */
+  compact_threshold?: number;
   skills?: SkillInfo[];
   setup_error?: { message: string } | null;
 }
@@ -223,17 +225,21 @@ export interface MessageMeta {
   [key: string]: unknown;
 }
 
-/** Per-turn usage stats derived by buildRenderMessages() for one assistant bubble. */
-export interface TurnStats {
+/** Token counts and USD cost summed over one or more requests. */
+export interface UsageTotals {
   total_tokens?: number;
   input_tokens?: number;
   output_tokens?: number;
   cache_read_tokens?: number;
   cache_write_tokens?: number;
   reasoning_tokens?: number;
+  cost?: Cost;
+}
+
+/** Per-turn usage stats derived by buildRenderMessages() for one assistant bubble. */
+export interface TurnStats extends UsageTotals {
   context_tokens?: number;
   context_window?: number;
-  cost?: Cost;
   /** Opening user message to the latest record reported by a usage event. */
   duration_ms?: number;
 }
@@ -344,8 +350,9 @@ interface UsageEvent extends StreamEventBase {
   turn_cost?: Cost | null;
   /** Elapsed time from the turn's user message to the record this event follows. */
   turn_duration_ms?: number;
-  /** Pre-run session cost + turn cost, composed by the server. */
-  session_cost?: number | null;
+  /** Pre-run session totals + turn totals, composed by the server. */
+  session_usage?: Record<string, number>;
+  session_cost?: Cost;
 }
 
 export type StreamEvent =
@@ -376,7 +383,8 @@ export interface SessionsResponse {
 export interface SessionResponse {
   session: SessionSummary | null;
   messages: ChatMessage[];
-  session_cost?: number | null;
+  session_usage?: Record<string, number> | null;
+  session_cost?: Cost | null;
   active_run: RunInfo | null;
   pending_events: StreamEvent[];
 }

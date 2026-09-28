@@ -32,14 +32,20 @@ from mycode.compact import (
 )
 from mycode.hooks import Hooks, ToolHookContext
 from mycode.messages import (
-    USAGE_TOKEN_KEYS,
     ConversationMessage,
     build_message,
     flatten_message_text,
     tool_result_block,
     user_text_message,
 )
-from mycode.models import Cost, estimate_cost, infer_provider_from_model, resolve_model_metadata
+from mycode.models import (
+    Cost,
+    add_cost,
+    add_usage,
+    estimate_cost,
+    infer_provider_from_model,
+    resolve_model_metadata,
+)
 from mycode.providers import get_provider_adapter
 from mycode.providers.base import (
     DEFAULT_REQUEST_TIMEOUT,
@@ -242,49 +248,6 @@ class RunResult:
     error: str | None = None
     usage: dict[str, Any] | None = None
     cancelled: bool = False
-
-
-def _accumulate_usage(
-    turn_usage: dict[str, Any],
-    turn_cost: Cost | None,
-    usage: dict[str, Any],
-    request_cost: Cost | None,
-) -> Cost | None:
-    """Fold one provider request's usage into the turn accumulator.
-
-    Mutates ``turn_usage`` and returns the updated best-effort turn cost.
-    """
-
-    for key in USAGE_TOKEN_KEYS:
-        value = usage.get(key)
-        if value is None:
-            continue
-        turn_usage[key] = turn_usage.get(key, 0) + value
-    if request_cost is None:
-        return turn_cost
-    if turn_cost is None:
-        return request_cost
-
-    total = turn_cost["total"] + request_cost["total"]
-    has_details = all("input" in cost and "output" in cost for cost in (turn_cost, request_cost))
-    if not has_details:
-        return {"total": total}
-
-    result: Cost = {
-        "total": total,
-        "input": turn_cost.get("input", 0.0) + request_cost.get("input", 0.0),
-        "output": turn_cost.get("output", 0.0) + request_cost.get("output", 0.0),
-    }
-    cache_read = turn_cost.get("cache_read", 0.0) + request_cost.get("cache_read", 0.0)
-    cache_write = turn_cost.get("cache_write", 0.0) + request_cost.get("cache_write", 0.0)
-    reasoning = turn_cost.get("reasoning", 0.0) + request_cost.get("reasoning", 0.0)
-    if "cache_read" in turn_cost or "cache_read" in request_cost:
-        result["cache_read"] = cache_read
-    if "cache_write" in turn_cost or "cache_write" in request_cost:
-        result["cache_write"] = cache_write
-    if "reasoning" in turn_cost or "reasoning" in request_cost:
-        result["reasoning"] = reasoning
-    return result
 
 
 def _created_at(message: ConversationMessage) -> datetime | None:
@@ -883,7 +846,7 @@ class Agent:
     def _usage_event(
         self,
         context_tokens: int | None,
-        turn_usage: dict[str, Any],
+        turn_usage: dict[str, int],
         turn_cost: Cost | None,
         turn_duration_ms: int | None,
     ) -> Event:
@@ -999,7 +962,7 @@ class Agent:
 
         adapter = get_provider_adapter(self.provider)
 
-        turn_usage: dict[str, Any] = {}
+        turn_usage: dict[str, int] = {}
         turn_cost: Cost | None = None
         context_tokens: int | None = None
         turn_number = 0
@@ -1099,7 +1062,8 @@ class Agent:
             await self._commit(assistant_message, on_persist)
 
             context_tokens = request_usage.get("total_tokens")
-            turn_cost = _accumulate_usage(turn_usage, turn_cost, request_usage, request_cost)
+            turn_usage = add_usage(turn_usage, request_usage)
+            turn_cost = add_cost(turn_cost, request_cost)
             elapsed_ms = _turn_elapsed_ms(user_message, assistant_message)
             yield self._usage_event(context_tokens, turn_usage, turn_cost, elapsed_ms)
 
@@ -1161,7 +1125,8 @@ class Agent:
                     # Summary usage is billed, but does not describe the normal context size.
                     compact_usage = cast(dict[str, Any], (compact_marker.get("meta") or {}).get("usage") or {})
                     compact_cost = cast(Cost | None, (compact_marker.get("meta") or {}).get("cost"))
-                    turn_cost = _accumulate_usage(turn_usage, turn_cost, compact_usage, compact_cost)
+                    turn_usage = add_usage(turn_usage, compact_usage)
+                    turn_cost = add_cost(turn_cost, compact_cost)
                     elapsed_ms = _turn_elapsed_ms(user_message, compact_marker)
                     yield self._usage_event(context_tokens, turn_usage, turn_cost, elapsed_ms)
 

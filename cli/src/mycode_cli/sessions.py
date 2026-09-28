@@ -24,11 +24,13 @@ import json
 import os
 import shutil
 from collections.abc import Iterable
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TypedDict
+from typing import Any, TypedDict
 
 from mycode.messages import ConversationMessage
+from mycode.models import Cost, add_cost, add_usage
 from mycode.session import SessionStore as TimelineStore
 from mycode.session import apply_rewind
 
@@ -38,26 +40,37 @@ _META_KEYS = ("cwd", "title", "created_at", "updated_at")
 SessionMetaDict = dict[str, object]
 
 
+@dataclass(frozen=True)
+class SessionTotals:
+    """Token usage and USD cost summed over a session's billed requests."""
+
+    usage: dict[str, int] = field(default_factory=dict)
+    cost: Cost | None = None
+
+    def add(self, usage: dict[str, Any] | None, cost: Cost | None) -> SessionTotals:
+        return SessionTotals(add_usage(self.usage, usage or {}), add_cost(self.cost, cost))
+
+    def payload(self) -> dict[str, Any]:
+        """API fields; ``None`` means unknown."""
+
+        return {"session_usage": self.usage or None, "session_cost": self.cost}
+
+
 class SessionData(TypedDict):
     session: SessionMetaDict
     messages: list[ConversationMessage]
-    session_cost: float | None
+    totals: SessionTotals
 
 
-def sum_session_cost(messages: Iterable[ConversationMessage]) -> float | None:
-    """Sum known request costs, including compact markers and rewound turns."""
+def sum_session_totals(messages: Iterable[ConversationMessage]) -> SessionTotals:
+    """Sum billed requests, including compact markers and rewound turns."""
 
-    total: float | None = None
+    totals = SessionTotals()
     for message in messages:
-        if message.get("role") not in {"assistant", "compact"}:
-            continue
-        cost = (message.get("meta") or {}).get("cost")
-        if not isinstance(cost, dict):
-            continue
-        request_total = cost.get("total")
-        if isinstance(request_total, int | float):
-            total = (total if total is not None else 0.0) + float(request_total)
-    return total
+        if message.get("role") in {"assistant", "compact"}:
+            meta = message.get("meta") or {}
+            totals = totals.add(meta.get("usage"), meta.get("cost"))
+    return totals
 
 
 def _now() -> str:
@@ -214,7 +227,7 @@ class SessionStore(TimelineStore):
         return await asyncio.to_thread(load)
 
     async def load_session(self, session_id: str) -> SessionData | None:
-        """Load metadata, visible messages, and cost from one raw timeline read."""
+        """Load metadata, visible messages, and usage totals from one raw timeline read."""
 
         def load() -> SessionData | None:
             meta = self._read_meta(session_id)
@@ -224,7 +237,7 @@ class SessionStore(TimelineStore):
             return {
                 "session": self._summary(session_id, meta),
                 "messages": apply_rewind(raw),
-                "session_cost": sum_session_cost(raw),
+                "totals": sum_session_totals(raw),
             }
 
         return await asyncio.to_thread(load)

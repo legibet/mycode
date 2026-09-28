@@ -613,7 +613,7 @@ describe("useChat", () => {
           },
           { role: "user", content: [{ type: "text", text: "go" }] },
         ],
-        session_cost: 0.4,
+        session_cost: { total: 0.4 },
         active_run: {
           id: "run-2",
           session_id: "session-2",
@@ -629,7 +629,8 @@ describe("useChat", () => {
             context_window: 100_000,
             turn_usage: { input_tokens: 900, output_tokens: 100 },
             turn_cost: { input: 0.006, output: 0.004, total: 0.01 },
-            session_cost: 0.41,
+            session_usage: { input_tokens: 900, output_tokens: 100 },
+            session_cost: { total: 0.41 },
             seq: 2,
           },
           {
@@ -653,7 +654,7 @@ describe("useChat", () => {
       expect(result.current.messages).toHaveLength(4);
     });
 
-    expect(result.current.sessionCost).toBeNull();
+    expect(result.current.sessionUsage).toBeNull();
     expect(result.current.currentContext).toBeNull();
     expect(expectChat(result.current.messages[3]).stats).toEqual({
       input_tokens: 1_800,
@@ -1185,7 +1186,11 @@ describe("useChat", () => {
   }
 
   it("reloads the persisted marker and session cost after compaction", async () => {
-    let sessionState = { ...COMPACT_SESSION, session_cost: 0.4 };
+    let sessionState = {
+      ...COMPACT_SESSION,
+      session_usage: { input_tokens: 1_000, output_tokens: 100 },
+      session_cost: { total: 0.4 },
+    };
     const fetchMock = mockCompactSessionRoutes(
       {
         "/api/sessions/session-c/compact": createJsonResponse({
@@ -1204,7 +1209,8 @@ describe("useChat", () => {
               ...sessionState.messages,
               { role: "compact", content: [] },
             ],
-            session_cost: 0.41,
+            session_usage: { input_tokens: 1_200, output_tokens: 150 },
+            session_cost: { total: 0.41 },
           };
           return new Response(
             'data: {"seq":1,"type":"compact"}\n\ndata: [DONE]\n\n',
@@ -1219,7 +1225,11 @@ describe("useChat", () => {
     await waitFor(() => {
       expect(result.current.sessionLoading).toBe(false);
       expect(result.current.messages).toHaveLength(2);
-      expect(result.current.sessionCost).toBe(0.4);
+      expect(result.current.sessionUsage).toEqual({
+        input_tokens: 1_000,
+        output_tokens: 100,
+        cost: { total: 0.4 },
+      });
       expect(result.current.currentContext).toEqual({
         tokens: 80_000,
         window: 100_000,
@@ -1246,7 +1256,11 @@ describe("useChat", () => {
 
     const marker = result.current.messages[2];
     expect(marker && isCompactMarker(marker)).toBe(true);
-    expect(result.current.sessionCost).toBe(0.41);
+    expect(result.current.sessionUsage).toEqual({
+      input_tokens: 1_200,
+      output_tokens: 150,
+      cost: { total: 0.41 },
+    });
     expect(result.current.currentContext).toBeNull();
     expect(result.current.compactError).toBeNull();
 

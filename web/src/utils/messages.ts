@@ -16,6 +16,7 @@ import type {
   ToolRuntime,
   ToolUseBlock,
   TurnStats,
+  UsageTotals,
   WorkspaceFileReference,
 } from "../types";
 import { isCompactMarker } from "../types";
@@ -412,7 +413,7 @@ function createCompactMarker(sourceIndex: number): CompactMarkerMessage {
   };
 }
 
-const TURN_TOKEN_KEYS = [
+const USAGE_TOKEN_KEYS = [
   "total_tokens",
   "input_tokens",
   "output_tokens",
@@ -426,6 +427,23 @@ function readCost(value: unknown): Cost | undefined {
   return isObject(value) && typeof value["total"] === "number"
     ? (value as unknown as Cost)
     : undefined;
+}
+
+/** Session totals from the server's `session_usage` / `session_cost` pair. */
+export function readUsageTotals(
+  usage: unknown,
+  cost: unknown,
+): UsageTotals | null {
+  const totals: UsageTotals = {};
+  if (isObject(usage)) {
+    for (const key of USAGE_TOKEN_KEYS) {
+      const value = usage[key];
+      if (typeof value === "number") totals[key] = value;
+    }
+  }
+  const knownCost = readCost(cost);
+  if (knownCost) totals.cost = knownCost;
+  return Object.keys(totals).length > 0 ? totals : null;
 }
 
 function addCost(total: Cost | undefined, request: Cost | undefined) {
@@ -510,7 +528,7 @@ function foldTurnStats(
     if (typeof meta.context_tokens === "number") {
       stats.context_tokens = meta.context_tokens;
     }
-    for (const key of TURN_TOKEN_KEYS) {
+    for (const key of USAGE_TOKEN_KEYS) {
       const value = meta.turn_usage?.[key];
       if (value !== undefined) stats[key] = value;
     }
@@ -536,7 +554,7 @@ function foldTurnStats(
     if (typeof totalTokens === "number") {
       stats.context_tokens = totalTokens;
     }
-    for (const key of TURN_TOKEN_KEYS) {
+    for (const key of USAGE_TOKEN_KEYS) {
       const value = usage[key];
       if (typeof value === "number") stats[key] = (stats[key] ?? 0) + value;
     }

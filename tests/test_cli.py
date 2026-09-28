@@ -11,7 +11,7 @@ from mycode.agent import Event
 from mycode_cli.config import Settings
 from mycode_cli.main import app, resolve_session, run_noninteractive
 from mycode_cli.permissions import PERMISSION_DENIED_BY_USER_OUTPUT, PERMISSION_DENIED_OUTPUT
-from mycode_cli.runtime import load_session_cost
+from mycode_cli.runtime import load_session_totals
 from mycode_cli.sessions import SessionStore
 
 
@@ -167,7 +167,7 @@ class TestResolveSession:
             )
 
 
-class TestLoadSessionCost:
+class TestLoadSessionTotals:
     @pytest.mark.asyncio
     async def test_folds_the_raw_timeline_including_rewound_turns(self, tmp_path: Path) -> None:
         store = SessionStore(data_dir=tmp_path)
@@ -177,22 +177,34 @@ class TestLoadSessionCost:
             {
                 "role": "assistant",
                 "content": [],
-                "meta": {"provider": "p", "model": "m", "cost": {"input": 0.01, "total": 0.02}},
+                "meta": {
+                    "provider": "p",
+                    "model": "m",
+                    "usage": {"input_tokens": 100, "cache_read_tokens": 80, "output_tokens": 10},
+                    "cost": {"input": 0.01, "output": 0.01, "total": 0.02},
+                },
             },
             {
                 "role": "compact",
                 "content": [],
-                "meta": {"provider": "p", "model": "m", "cost": {"total": 0.005}},
+                "meta": {
+                    "provider": "p",
+                    "model": "m",
+                    "usage": {"input_tokens": 50, "output_tokens": 5},
+                    "cost": {"input": 0.003, "output": 0.002, "total": 0.005},
+                },
             },
         ]
         for record in records:
             await store.append_message("s1", record)
         await store.append_rewind("s1", 0)
 
-        assert await load_session_cost(store, "s1") == pytest.approx(0.025)
+        totals = await load_session_totals(store, "s1")
+        assert totals.usage == {"input_tokens": 150, "cache_read_tokens": 80, "output_tokens": 15}
+        assert totals.cost == pytest.approx({"input": 0.013, "output": 0.012, "total": 0.025})
 
     @pytest.mark.asyncio
-    async def test_skips_records_without_cost(self, tmp_path: Path) -> None:
+    async def test_skips_records_without_usage_or_cost(self, tmp_path: Path) -> None:
         store = SessionStore(data_dir=tmp_path)
         await store.create_session("s1", cwd="/tmp")
         await store.append_message(
@@ -206,7 +218,9 @@ class TestLoadSessionCost:
         # A cancelled stream without cost must not hide known session costs.
         await store.append_message("s1", {"role": "assistant", "content": [], "meta": {"provider": "p", "model": "m"}})
 
-        assert await load_session_cost(store, "s1") == pytest.approx(0.02)
+        totals = await load_session_totals(store, "s1")
+        assert totals.usage == {}
+        assert totals.cost == pytest.approx({"total": 0.02})
 
         await store.create_session("s2", cwd="/tmp")
         await store.append_message(
@@ -217,7 +231,9 @@ class TestLoadSessionCost:
                 "meta": {"provider": "unknown", "model": "unknown", "usage": {"input_tokens": 10, "output_tokens": 5}},
             },
         )
-        assert await load_session_cost(store, "s2") is None
+        totals = await load_session_totals(store, "s2")
+        assert totals.usage == {"input_tokens": 10, "output_tokens": 5}
+        assert totals.cost is None
 
 
 def test_cli_rejects_non_positive_max_turns() -> None:

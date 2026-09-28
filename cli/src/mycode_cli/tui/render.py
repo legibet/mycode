@@ -18,7 +18,7 @@ from rich.text import Text
 
 from mycode.agent import Agent, PersistCallback
 from mycode.messages import ConversationMessage, flatten_message_text
-from mycode_cli.runtime import sum_known_costs
+from mycode_cli.sessions import SessionTotals
 
 from .markdown import Chunk, MarkdownBlock, MarkdownStream
 from .terminal import Terminal
@@ -405,12 +405,12 @@ class TurnRenderer:
         *,
         model: str,
         context_window: int | None,
-        session_cost_base: float | None = None,
+        session_base: SessionTotals | None = None,
     ) -> None:
         self._terminal = terminal
         self._model = model
         self._context_window = context_window
-        self._session_cost_base = session_cost_base
+        self._session_base = session_base or SessionTotals()
         # One spinner for the whole turn keeps its animation continuous across phases.
         self._spinner = Spinner("dots", style=MUTED)
         # Whether anything was printed this turn; blocks after the first get a blank line before them.
@@ -593,11 +593,9 @@ class TurnRenderer:
             if self._context_window:
                 usage_text += f" ({round(context_tokens * 100 / self._context_window)}%)"
             parts.append(usage_text)
-        turn_cost = self._stats.get("turn_cost")
-        turn_total = turn_cost.get("total") if isinstance(turn_cost, dict) else None
-        session_cost = sum_known_costs(self._session_cost_base, turn_total)
+        session_cost = self._session_base.add(None, self._stats.get("turn_cost")).cost
         if session_cost is not None:
-            parts.append(_format_cost(session_cost))
+            parts.append(_format_cost(session_cost["total"]))
         if parts:
             self._print(Text(" · ".join([self._model, *parts]), style=MUTED))
 

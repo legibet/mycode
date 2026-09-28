@@ -175,12 +175,13 @@ Response:
   "cwd_exists": true,
   "project": "...",
   "config_paths": [...],
+  "compact_threshold": 0.8,
   "skills": [{"name": "fastapi", "description": "..."}],
   "setup_error": null
 }
 ```
 
-`reasoning_efforts` maps each model to its available effort values; an empty list means the model has no effort selector. `skills` lists the name and description used by slash completion. Skill paths and contents stay on the server. `image_input_models` lists models with image input. `pdf_input_models` lists models with PDF input. `default` is the first available provider and its first model. A provider setup error returns status `200`, an empty `providers` object, empty `default` fields, and `setup_error: {"message": "..."}`. A ready setup returns `setup_error: null`.
+`reasoning_efforts` maps each model to its available effort values; an empty list means the model has no effort selector. `skills` lists the name and description used by slash completion. Skill paths and contents stay on the server. `compact_threshold` is the effective automatic-compaction threshold for `cwd`; `0` means disabled. `image_input_models` lists models with image input. `pdf_input_models` lists models with PDF input. `default` is the first available provider and its first model. A provider setup error returns status `200`, an empty `providers` object, empty `default` fields, and `setup_error: {"message": "..."}`. A ready setup returns `setup_error: null`.
 
 ## Settings
 
@@ -301,7 +302,8 @@ Load session with full message history. If the session has an active run, overla
 {
   "session": {...},
   "messages": [...],
-  "session_cost": 0.42,
+  "session_usage": {"input_tokens": 1000000, "cache_read_tokens": 860000, "output_tokens": 40000, "total_tokens": 1040000},
+  "session_cost": {"input": 0.08, "cache_read": 0.05, "output": 0.26, "total": 0.39},
   "active_run": {...} | null,
   "pending_events": [...]
 }
@@ -309,9 +311,9 @@ Load session with full message history. If the session has an active run, overla
 
 `pending_events` contains the active run's buffered SSE events. The web UI reapplies them, then reconnects with `after=<last seq>`.
 
-For idle sessions, `messages` and `session_cost` come from one raw timeline read. Cost includes tool loops, compaction, and rewound turns; unpriced records are skipped. `null` means no cost is known.
+For idle sessions, `messages`, `session_usage`, and `session_cost` come from one raw timeline read. The totals sum every billed request — tool loops, compaction, and rewound turns — with the same rules as turn totals: missing token fields and unpriced records are skipped, and any total-only cost reduces `session_cost` to `{"total": ...}`. `null` means nothing is known.
 
-For active runs, history, pending events, and current cost come from one in-memory snapshot. Cost survives usage-event eviction and is updated by subsequent SSE usage events. Loading is serialized with run starts, clear, and delete.
+For active runs, history, pending events, and current totals come from one in-memory snapshot. The totals survive usage-event eviction and are updated by subsequent SSE usage events. Loading is serialized with run starts, clear, and delete.
 
 Assistant and compact messages return their persisted per-request `meta.usage` and `meta.cost` unchanged.
 
@@ -382,20 +384,20 @@ Response:
 
 **Do not change event names or payload shapes without updating server, CLI, and web UI.**
 
-| event                 | payload fields                                                                                                    |
-| --------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| `reasoning`           | `delta: str`                                                                                                      |
-| `reasoning_done`      | `duration_ms: int`                                                                                                |
-| `text`                | `delta: str`                                                                                                      |
-| `tool_start`          | `tool_call: {id, name, input}`                                                                                    |
-| `tool_output`         | `tool_use_id: str`, `output: str`                                                                                 |
-| `tool_done`           | `tool_use_id: str`, `output: str`, `is_error: bool`, `metadata?`, `content?`                                      |
-| `compact`             | `trigger: "auto" \| "manual"`                                                                                     |
-| `error`               | `message: str`                                                                                                    |
-| `cancelled`           | _empty payload_                                                                                                   |
-| `permission_request`  | `request_id: str`, `tool_use_id: str`, `tool_name: str`, `preview: str`                                           |
-| `permission_resolved` | `request_id: str`, `decision: "allow" \| "deny"`                                                                  |
-| `usage`               | `context_tokens?`, `context_window?`, `model?`, `turn_usage?`, `turn_cost?`, `turn_duration_ms?`, `session_cost?` |
+| event                 | payload fields                                                                                                                      |
+| --------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `reasoning`           | `delta: str`                                                                                                                        |
+| `reasoning_done`      | `duration_ms: int`                                                                                                                  |
+| `text`                | `delta: str`                                                                                                                        |
+| `tool_start`          | `tool_call: {id, name, input}`                                                                                                      |
+| `tool_output`         | `tool_use_id: str`, `output: str`                                                                                                   |
+| `tool_done`           | `tool_use_id: str`, `output: str`, `is_error: bool`, `metadata?`, `content?`                                                        |
+| `compact`             | `trigger: "auto" \| "manual"`                                                                                                       |
+| `error`               | `message: str`                                                                                                                      |
+| `cancelled`           | _empty payload_                                                                                                                     |
+| `permission_request`  | `request_id: str`, `tool_use_id: str`, `tool_name: str`, `preview: str`                                                             |
+| `permission_resolved` | `request_id: str`, `decision: "allow" \| "deny"`                                                                                    |
+| `usage`               | `context_tokens?`, `context_window?`, `model?`, `turn_usage?`, `turn_cost?`, `turn_duration_ms?`, `session_usage?`, `session_cost?` |
 
 `tool_output` is ordered, append-only display text. Clients do not insert separators between events. Under buffer pressure, `[live output omitted]` replaces one continuous middle segment. `tool_done.output` is the authoritative final result. Once a tool's `tool_done` is buffered, the server may drop that tool's earlier `tool_output` events — a consumer that has not read them yet skips straight to the `tool_done`.
 
@@ -405,7 +407,7 @@ Response:
 
 `permission_request` and `permission_resolved` bracket a wait inside the agent's `before_tool` hook. Clients respond via `POST /api/runs/{run_id}/decide`; `permission_resolved` lets reconnecting or second-tab clients dismiss the prompt.
 
-The server adds `model`, `context_window`, and `session_cost` to the SDK usage event described in docs/sdk.md. `context_tokens` is the latest normal request's context usage; `turn_usage`, `turn_cost`, and `turn_duration_ms` are cumulative snapshots for the turn. `session_cost` sums the known pre-run session and current turn totals. All costs are USD. SSE omits `None` fields; absence means the current snapshot is unavailable and clients must clear any previous value.
+The server adds `model`, `context_window`, `session_usage`, and `session_cost` to the SDK usage event described in docs/sdk.md. `context_tokens` is the latest normal request's context usage; `turn_usage`, `turn_cost`, and `turn_duration_ms` are cumulative snapshots for the turn. `session_usage` and `session_cost` add the current turn totals to the pre-run session totals. All costs are USD. SSE omits `None` fields; absence means the current snapshot is unavailable and clients must clear any previous value.
 
 Every event also carries `seq: int` for reconnect support. The web UI uses `after` to resume after a sequence number. The reconnect cache is bounded by event count and tool-output bytes; if older events were evicted, the first returned `seq` is greater than `after + 1`. The server does not synthesize or rewrite events to represent that gap.
 

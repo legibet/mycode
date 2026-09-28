@@ -21,7 +21,7 @@ from mycode.attachments import (
     detect_document_mime_type,
     detect_image_mime_type,
 )
-from mycode.compact import has_compactable_history
+from mycode.compact import DEFAULT_COMPACT_THRESHOLD, has_compactable_history
 from mycode.messages import (
     ConversationMessage,
     build_message,
@@ -40,7 +40,7 @@ from mycode_cli.config import (
     resolve_provider_choices,
 )
 from mycode_cli.permissions import ToolReviewDecision, ToolReviewRequest
-from mycode_cli.runtime import build_agent, load_session_cost
+from mycode_cli.runtime import build_agent, load_session_totals
 from mycode_cli.server.deps import RunManagerDep, StoreDep, resolve_workspace_cwd
 from mycode_cli.server.run_manager import ActiveRunError
 from mycode_cli.server.schemas import (
@@ -277,7 +277,7 @@ async def chat(chat: ChatRequest, store: StoreDep, runs: RunManagerDep) -> ChatR
                 user_message=user_message,
                 base_messages=agent.messages,
                 agent=agent,
-                session_cost_base=await load_session_cost(store, session_id),
+                session_base=await load_session_totals(store, session_id),
             )
         except ActiveRunError as exc:
             existing = await runs.get_run(exc.run_id)
@@ -374,7 +374,7 @@ async def compact_session(
                 session_id=session_id,
                 base_messages=agent.messages,
                 agent=agent,
-                session_cost_base=data["session_cost"],
+                session_base=data["totals"],
                 on_complete=store.touch,
             )
         except ActiveRunError as exc:
@@ -454,6 +454,10 @@ async def get_config(cwd: Annotated[str | None, Query()] = None) -> dict[str, An
         "cwd_exists": os.path.isdir(resolved_cwd),
         "project": settings.project,
         "config_paths": settings.config_paths,
+        # Effective for this cwd; 0 disables automatic compaction.
+        "compact_threshold": (
+            settings.compact_threshold if settings.compact_threshold is not None else DEFAULT_COMPACT_THRESHOLD
+        ),
         "skills": [{"name": skill.name, "description": skill.description} for skill in skills],
         "setup_error": setup_error,
     }

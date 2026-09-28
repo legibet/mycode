@@ -27,6 +27,7 @@ import type {
   LocalConfig,
   RemoteConfig,
   SkillInfo,
+  UsageTotals,
 } from "../../types";
 import { cn } from "../../utils/cn";
 import type { SlashCommand } from "../../utils/completion";
@@ -39,7 +40,7 @@ import {
 } from "../../utils/storage";
 import { Composer, type ComposerHandle } from "./Composer";
 import { EffortTrigger, ModelTrigger } from "./InputPills";
-import { StatsHover, StatsRow } from "./StatsCard";
+import { hasUsageRows, StatsPopover, StatsText, UsageGrid } from "./StatsCard";
 
 const EMPTY_SKILLS: SkillInfo[] = [];
 
@@ -127,9 +128,9 @@ interface InputAreaProps {
   onSlashCommand?: (name: SlashCommand["name"]) => void;
   disabledReason?: string | undefined;
   disabled?: boolean | undefined;
-  /** Session state cluster: context occupancy and cumulative cost estimate.
+  /** Session state cluster: context occupancy and cumulative usage/cost.
    * Unknown parts are hidden. */
-  sessionCost?: number | null;
+  sessionUsage?: UsageTotals | null;
   currentContext?: { tokens: number; window: number } | null;
 }
 
@@ -221,46 +222,66 @@ async function processFiles(
   };
 }
 
-/** Session state cluster: `27% · $0.42`, context detail on hover.
- * Mobile keeps only the context percentage — it warns of the approaching
- * auto-compact and always fits; the cost segment is desktop-only. */
+/** Session state cluster: `27% · $0.42`, context and session usage in a card.
+ * Mobile keeps only the context percentage; the card still has the cost. */
 function SessionStats({
   currentContext,
-  sessionCost,
+  sessionUsage,
+  compactThreshold,
 }: {
   currentContext: { tokens: number; window: number } | null;
-  sessionCost: number | null;
+  sessionUsage: UsageTotals | null;
+  compactThreshold: number | undefined;
 }) {
-  const pct = currentContext
-    ? `${Math.round((currentContext.tokens / currentContext.window) * 100)}%`
+  const percent = currentContext
+    ? Math.round((currentContext.tokens / currentContext.window) * 100)
     : null;
-  const cost = typeof sessionCost === "number" ? formatCost(sessionCost) : null;
-  if (!pct && !cost) return null;
+  const cost = sessionUsage?.cost ? formatCost(sessionUsage.cost.total) : null;
+  if (percent === null && !cost) return null;
 
+  // Warn shortly before auto-compact, or near the window when it is off.
+  const warn =
+    percent !== null && percent >= Math.round((compactThreshold || 1) * 90);
   const trigger = (
     <>
-      {pct}
+      {percent !== null && (
+        <span className={warn ? "text-destructive/70" : undefined}>
+          {percent}%
+        </span>
+      )}
       {cost && (
-        <span className={pct ? "max-md:hidden" : undefined}>
-          {pct ? ` · ${cost}` : cost}
+        <span className={percent !== null ? "max-md:hidden" : undefined}>
+          {percent !== null ? ` · ${cost}` : cost}
         </span>
       )}
     </>
   );
 
+  const summary: { label: string; value: string }[] = [];
+  if (currentContext) {
+    summary.push({
+      label: "Context",
+      value: `${currentContext.tokens.toLocaleString()} / ${currentContext.window.toLocaleString()}`,
+    });
+  }
+  // Share of all input served from cache; only when the provider reports caching.
+  const cacheRead = sessionUsage?.cache_read_tokens ?? 0;
+  const cacheWrite = sessionUsage?.cache_write_tokens ?? 0;
+  if (sessionUsage?.input_tokens && (cacheRead || cacheWrite)) {
+    summary.push({
+      label: "Cache hit",
+      value: `${Math.round((cacheRead / sessionUsage.input_tokens) * 100)}%`,
+    });
+  }
+
   return (
-    <span className={cn("mr-2 shrink-0", !pct && "max-md:hidden")}>
-      {currentContext ? (
-        <StatsHover trigger={trigger} align="right">
-          <StatsRow
-            label="Context"
-            value={`${currentContext.tokens.toLocaleString()} / ${currentContext.window.toLocaleString()}`}
-          />
-        </StatsHover>
+    <span className="mr-2 shrink-0">
+      {summary.length > 0 || hasUsageRows(sessionUsage) ? (
+        <StatsPopover trigger={trigger} align="end">
+          <UsageGrid summary={summary} usage={sessionUsage} />
+        </StatsPopover>
       ) : (
-        <span className="cursor-default text-xs tabular-nums text-muted-foreground/50">
-          {trigger}
-        </span>
+        <StatsText>{trigger}</StatsText>
       )}
     </span>
   );
@@ -281,7 +302,7 @@ export const InputArea = memo(function InputArea({
   onSlashCommand,
   disabledReason,
   disabled: disabledProp = false,
-  sessionCost = null,
+  sessionUsage = null,
   currentContext = null,
 }: InputAreaProps) {
   const composerRef = useRef<ComposerHandle | null>(null);
@@ -638,7 +659,8 @@ export const InputArea = memo(function InputArea({
 
           <SessionStats
             currentContext={currentContext}
-            sessionCost={sessionCost}
+            sessionUsage={sessionUsage}
+            compactThreshold={remoteConfig?.compact_threshold}
           />
 
           {loading ? (

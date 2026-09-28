@@ -8,7 +8,6 @@
 import { Check, Copy, FileText, Pencil } from "lucide-react";
 import {
   Component,
-  Fragment,
   type KeyboardEvent,
   memo,
   type ReactNode,
@@ -33,7 +32,7 @@ import { splitTurn } from "../../utils/messages";
 import { CompactMarker } from "./CompactMarker";
 import { MarkdownBlock } from "./MarkdownBlock";
 import { ReasoningBlock } from "./ReasoningBlock";
-import { StatsHover } from "./StatsCard";
+import { hasUsageRows, StatsPopover, StatsText, UsageGrid } from "./StatsCard";
 import { ToolCard } from "./ToolCard";
 import { WorkSection } from "./WorkSection";
 
@@ -230,7 +229,7 @@ const renderErrorFallback = (
   </div>
 );
 
-/** Per-turn footer: `model · $0.0164`, this turn's token breakdown on hover.
+/** Per-turn footer: `model · $0.0164`, this turn's token breakdown in a card.
  * Session-state numbers (context %, session total) live at the composer. */
 function TurnStatsFooter({
   model,
@@ -242,96 +241,12 @@ function TurnStatsFooter({
   const cost = stats?.cost ? formatCost(stats.cost.total) : null;
   const visible = [model, cost].filter(Boolean).join(" · ");
   if (!visible) return null;
-
-  const detailedCost =
-    stats?.cost?.input !== undefined && stats.cost.output !== undefined;
-  const tokenRows: { label: string; tokens: number; cost?: number }[] = [];
-  const pushRow = (
-    label: string,
-    tokens: number | undefined,
-    rowCost?: number,
-  ) => {
-    if (tokens === undefined) return;
-    const row: { label: string; tokens: number; cost?: number } = {
-      label,
-      tokens,
-    };
-    if (rowCost !== undefined) row.cost = rowCost;
-    tokenRows.push(row);
-  };
-  const inputTokens =
-    stats?.input_tokens !== undefined
-      ? stats.input_tokens -
-        (stats.cache_read_tokens ?? 0) -
-        (stats.cache_write_tokens ?? 0)
-      : undefined;
-  pushRow("Input", inputTokens, stats?.cost?.input);
-  if (stats?.cache_read_tokens) {
-    pushRow("Cache read", stats.cache_read_tokens, stats.cost?.cache_read);
-  }
-  if (stats?.cache_write_tokens) {
-    pushRow("Cache write", stats.cache_write_tokens, stats.cost?.cache_write);
-  }
-  pushRow(
-    "Output",
-    stats?.output_tokens,
-    stats?.cost
-      ? (stats.cost.output ?? 0) + (stats.cost.reasoning ?? 0)
-      : undefined,
-  );
-
-  const totalTokens =
-    stats?.total_tokens ??
-    (stats?.input_tokens !== undefined && stats.output_tokens !== undefined
-      ? stats.input_tokens + stats.output_tokens
-      : undefined);
-
-  if (tokenRows.length === 0 && totalTokens === undefined) {
-    return (
-      <span className="cursor-default text-xs tabular-nums text-muted-foreground/50">
-        {visible}
-      </span>
-    );
-  }
+  if (!hasUsageRows(stats)) return <StatsText>{visible}</StatsText>;
 
   return (
-    <StatsHover trigger={visible}>
-      <span
-        className={cn(
-          "grid items-baseline gap-x-5 gap-y-1",
-          detailedCost
-            ? "grid-cols-[max-content_max-content_max-content]"
-            : "grid-cols-[max-content_max-content]",
-        )}
-      >
-        {tokenRows.map((row) => (
-          <Fragment key={row.label}>
-            <span className="text-muted-foreground">{row.label}</span>
-            <span className="text-right tabular-nums">
-              {row.tokens.toLocaleString()}
-            </span>
-            {detailedCost ? (
-              <span className="text-right tabular-nums">
-                {formatCost(row.cost ?? 0)}
-              </span>
-            ) : null}
-          </Fragment>
-        ))}
-        {totalTokens !== undefined ? (
-          <span className="col-span-full mt-1 grid grid-cols-subgrid items-baseline border-t border-border/50 pt-1.5 font-medium">
-            <span>Total</span>
-            <span className="text-right tabular-nums">
-              {totalTokens.toLocaleString()}
-            </span>
-            {detailedCost ? (
-              <span className="text-right tabular-nums">
-                {formatCost(stats.cost?.total ?? 0)}
-              </span>
-            ) : null}
-          </span>
-        ) : null}
-      </span>
-    </StatsHover>
+    <StatsPopover trigger={visible}>
+      <UsageGrid usage={stats} />
+    </StatsPopover>
   );
 }
 

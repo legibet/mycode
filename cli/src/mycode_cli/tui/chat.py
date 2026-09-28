@@ -42,7 +42,7 @@ from mycode_cli.config import (
     resolve_provider_choices,
 )
 from mycode_cli.permissions import ToolReviewDecision, ToolReviewRequest, build_permission_hooks
-from mycode_cli.runtime import load_session_cost
+from mycode_cli.runtime import load_session_totals
 from mycode_cli.sessions import SessionStore
 from mycode_cli.state import load_state, save_state
 from mycode_cli.system_prompt import build_skill_snapshot_blocks, discover_slash_skills
@@ -407,12 +407,11 @@ class TerminalChat:
 
         # Fold the session JSONL fresh each turn: covers resume, /clear,
         # /new, /rewind, and manual /compact without tracking state.
-        session_cost = await load_session_cost(self.store, self.session_id)
         renderer = TurnRenderer(
             self.terminal,
             model=self.agent.model,
             context_window=self.agent.context_window,
-            session_cost_base=session_cost,
+            session_base=await load_session_totals(self.store, self.session_id),
         )
         user_message = self._build_user_message(user_input)
         await self.store.record_user_turn(self.session_id, cwd=self.settings.cwd, text=user_input)

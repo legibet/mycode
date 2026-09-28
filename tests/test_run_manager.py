@@ -16,6 +16,7 @@ from mycode.providers.base import ProviderStreamEvent
 from mycode_cli.config import PermissionConfig, Settings
 from mycode_cli.permissions import PERMISSION_DENIED_BY_USER_OUTPUT, ToolReviewRequest, build_permission_hooks
 from mycode_cli.server.run_manager import ActiveRunError, RunManager, RunState
+from mycode_cli.sessions import SessionTotals
 
 pytestmark = pytest.mark.asyncio
 
@@ -92,6 +93,10 @@ async def _wait_for_run_task(manager: RunManager, run_id: str) -> RunState:
     return state
 
 
+def _totals(cost: float | None, usage: dict[str, int] | None = None) -> SessionTotals:
+    return SessionTotals(usage=usage or {}, cost={"total": cost} if cost is not None else None)
+
+
 class UsageAgent(ChatOnlyAgent):
     def __init__(self, turn_cost: float | None) -> None:
         self.turn_cost = turn_cost
@@ -103,7 +108,11 @@ class UsageAgent(ChatOnlyAgent):
         del user_input
         yield Event(
             "usage",
-            {"context_tokens": 100, "turn_cost": {"total": self.turn_cost} if self.turn_cost is not None else None},
+            {
+                "context_tokens": 100,
+                "turn_usage": {"input_tokens": 100, "output_tokens": 10},
+                "turn_cost": {"total": self.turn_cost} if self.turn_cost is not None else None,
+            },
         )
 
 
@@ -116,7 +125,7 @@ class UsageAgent(ChatOnlyAgent):
         (None, None, None),
     ],
 )
-async def test_usage_events_compose_known_session_costs(
+async def test_usage_events_compose_known_session_totals(
     session_cost_base: float | None,
     turn_cost: float | None,
     expected: float | None,
@@ -128,14 +137,15 @@ async def test_usage_events_compose_known_session_costs(
         user_message={"role": "user", "content": [{"type": "text", "text": "hi"}]},
         base_messages=[],
         agent=UsageAgent(turn_cost),
-        session_cost_base=session_cost_base,
+        session_base=_totals(session_cost_base, usage={"input_tokens": 50}),
     )
     state = await _wait_for_run_task(manager, run["id"])
 
     usage_events = [event for event in state.events if event["type"] == "usage"]
-    expected_cost = pytest.approx(expected) if expected is not None else None
+    expected_cost = pytest.approx({"total": expected}) if expected is not None else None
+    assert usage_events[0]["session_usage"] == {"input_tokens": 150, "output_tokens": 10}
     assert usage_events[0]["session_cost"] == expected_cost
-    assert state.session_cost == expected_cost
+    assert state.session_totals.cost == expected_cost
     assert usage_events[0]["model"] == "test-model"
     assert usage_events[0]["context_window"] == 1_000
 
@@ -808,7 +818,7 @@ async def test_compact_run_snapshot_has_kind_and_no_user_message(session_cost_ba
         session_id="session-1",
         base_messages=base,
         agent=agent,
-        session_cost_base=session_cost_base,
+        session_base=_totals(session_cost_base),
         on_complete=on_complete,
     )
     assert run["kind"] == "compact"
@@ -819,7 +829,7 @@ async def test_compact_run_snapshot_has_kind_and_no_user_message(session_cost_ba
     assert snapshot["run"]["kind"] == "compact"
     assert snapshot["messages"] == base
     assert snapshot["pending_events"] == []
-    assert snapshot["session_cost"] == session_cost_base
+    assert snapshot["totals"] == _totals(session_cost_base)
 
     agent.release.set()
     state = await _wait_for_run_task(manager, run["id"])
@@ -827,7 +837,7 @@ async def test_compact_run_snapshot_has_kind_and_no_user_message(session_cost_ba
     assert agent.compacted is True
     assert state.status == "completed"
     assert state.events == [{"seq": 1, "type": "compact", "trigger": "manual"}]
-    assert state.session_cost == pytest.approx((session_cost_base or 0.0) + 0.1)
+    assert state.session_totals.cost == pytest.approx({"total": (session_cost_base or 0.0) + 0.1})
     assert completed == ["session-1"]
     assert not await manager.has_active_run("session-1")
 
@@ -848,13 +858,13 @@ async def test_compact_run_failure_emits_error_and_fails() -> None:
         session_id="session-1",
         base_messages=[],
         agent=FailingCompactAgent(),
-        session_cost_base=0.4,
+        session_base=_totals(0.4),
         on_complete=on_complete,
     )
     state = await _wait_for_run_task(manager, run["id"])
 
     assert state.status == "failed"
-    assert state.session_cost == 0.4
+    assert state.session_totals == _totals(0.4)
     assert state.error == "nothing to compact"
     assert state.events == [{"seq": 1, "type": "error", "message": "nothing to compact"}]
     assert completed == []
@@ -865,7 +875,7 @@ async def test_compact_run_cancellation_emits_cancelled_not_compact() -> None:
     manager = RunManager()
     agent = CompactAgent()
 
-    run = await manager.start_compact(session_id="session-1", base_messages=[], agent=agent, session_cost_base=0.4)
+    run = await manager.start_compact(session_id="session-1", base_messages=[], agent=agent, session_base=_totals(0.4))
     await asyncio.wait_for(agent.started.wait(), 2)
     cancelled = await manager.cancel_run(run["id"])
     assert cancelled is not None
@@ -876,7 +886,7 @@ async def test_compact_run_cancellation_emits_cancelled_not_compact() -> None:
     state = await _wait_for_run_task(manager, run["id"])
     assert agent.compacted is False
     assert state.events == [{"seq": 1, "type": "cancelled"}]
-    assert state.session_cost == 0.4
+    assert state.session_totals == _totals(0.4)
     assert state.error is None
     assert not await manager.has_active_run("session-1")
 

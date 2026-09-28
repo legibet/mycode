@@ -21,7 +21,7 @@ from mycode.messages import (
     tool_use_block,
     user_text_message,
 )
-from mycode.models import Cost, ModelMetadata, estimate_cost, resolve_model_metadata
+from mycode.models import Cost, ModelMetadata, add_cost, add_usage, estimate_cost, resolve_model_metadata
 from mycode.providers.base import ProviderError, StreamStartTimeoutError
 from mycode.session import SessionStore
 from mycode.tools import (
@@ -58,6 +58,8 @@ __all__ = [
     "ToolHookContext",
     "ToolSpec",
     "__version__",
+    "add_cost",
+    "add_usage",
     "assistant_message",
     "build_message",
     "build_usage",

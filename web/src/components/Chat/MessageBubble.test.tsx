@@ -6,7 +6,7 @@ import { MessageBubble } from "./MessageBubble";
 const blocks = [{ type: "text" as const, text: "Done" }];
 
 describe("turn stats card", () => {
-  it("separates cached input and hides the cost column without details", () => {
+  it("separates cached input and prices only the total without details", async () => {
     const { rerender } = render(
       // biome-ignore lint/a11y/useValidAriaRole: component prop is the message role
       <MessageBubble
@@ -29,7 +29,8 @@ describe("turn stats card", () => {
       />,
     );
 
-    const detailed = screen.getByRole("tooltip");
+    fireEvent.click(screen.getByText("deepseek-v4-flash · $0.0027"));
+    const detailed = await screen.findByRole("dialog");
     expect(detailed).toHaveTextContent("Input3,602$0.0005");
     expect(detailed).toHaveTextContent("Cache read346,624$0.0010");
     expect(detailed).toHaveTextContent("Output4,335$0.0012");
@@ -52,11 +53,14 @@ describe("turn stats card", () => {
       />,
     );
 
-    expect(screen.getByRole("tooltip")).not.toHaveTextContent("$");
+    // A total-only cost keeps the token rows and prices only the Total row.
+    const totalOnly = screen.getByRole("dialog");
+    expect(totalOnly).toHaveTextContent("Input3,602Cache read");
+    expect(totalOnly).toHaveTextContent("Total354,561$0.0027");
     expect(screen.getByText("deepseek-v4-flash · $0.0027")).toBeInTheDocument();
   });
 
-  it("distinguishes zero from a nonzero cost below display precision", () => {
+  it("distinguishes zero from a nonzero cost below display precision", async () => {
     render(
       // biome-ignore lint/a11y/useValidAriaRole: component prop is the message role
       <MessageBubble
@@ -73,7 +77,8 @@ describe("turn stats card", () => {
       />,
     );
 
-    expect(screen.getByRole("tooltip")).toHaveTextContent(
+    fireEvent.click(screen.getByText("m · <$0.0001"));
+    expect(await screen.findByRole("dialog")).toHaveTextContent(
       "Input1$0.0000Output1<$0.0001Total2<$0.0001",
     );
     expect(screen.getByText("m · <$0.0001")).toBeInTheDocument();

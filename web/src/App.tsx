@@ -176,7 +176,7 @@ function AppContent() {
   const {
     messages,
     messageSessionId,
-    sessionCost,
+    sessionUsage,
     currentContext,
     loading,
     runKind,
@@ -412,7 +412,7 @@ function AppContent() {
               onSlashCommand={handleSlashCommand}
               disabled={setupRequired}
               disabledReason={workspaceDisabledReason}
-              sessionCost={sessionCost}
+              sessionUsage={sessionUsage}
               currentContext={currentContext}
             />
           </div>

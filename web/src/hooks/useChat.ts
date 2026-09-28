@@ -30,6 +30,7 @@ import type {
   SessionsResponse,
   StreamEvent,
   ToolRuntime,
+  UsageTotals,
   WorkspaceFileReference,
 } from "../types";
 import { isCompactMarker } from "../types";
@@ -44,6 +45,7 @@ import {
   createUserMessage,
   createUserTextMessage,
   markTailAssistantStopped,
+  readUsageTotals,
   updateLatestAssistantMeta,
   updateLatestThinkingDuration,
 } from "../utils/messages";
@@ -64,9 +66,9 @@ interface ChatState {
   messageSessionId: string | null;
   rawMessages: ChatMessage[];
   toolRuntimeById: Record<string, ToolRuntime>;
-  /** Session cumulative cost estimate; null when unknown. Set on session
+  /** Session cumulative usage and cost; null when unknown. Set on session
    * load, updated live by SSE usage events. */
-  sessionCost: number | null;
+  sessionUsage: UsageTotals | null;
   /** Snapshot of rawMessages taken before the latest optimistic turn.
    * Used by 'rollback' to restore state when the request fails. */
   preTurnRawMessages: ChatMessage[] | null;
@@ -77,7 +79,7 @@ type ChatAction =
       type: "set_messages";
       messages: ChatMessage[];
       sessionId?: string | null;
-      sessionCost?: number | null;
+      sessionUsage?: UsageTotals | null;
       replayEvents?: StreamEvent[];
       expectedSessionId?: string | null;
     }
@@ -194,7 +196,7 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
         messageSessionId: action.sessionId ?? state.messageSessionId,
         rawMessages: action.messages,
         toolRuntimeById: {},
-        sessionCost: action.sessionCost ?? null,
+        sessionUsage: action.sessionUsage ?? null,
         preTurnRawMessages: null,
       };
 
@@ -249,7 +251,7 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
         rawMessages: snapshot,
         messageSessionId: state.messageSessionId,
         toolRuntimeById: {},
-        sessionCost: state.sessionCost,
+        sessionUsage: state.sessionUsage,
         preTurnRawMessages: null,
       };
     }
@@ -369,7 +371,10 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
           ...state,
           rawMessages,
           toolRuntimeById,
-          sessionCost: event.session_cost ?? null,
+          sessionUsage: readUsageTotals(
+            event.session_usage,
+            event.session_cost,
+          ),
         };
       } else if (event.type === "compact") {
         rawMessages = [
@@ -393,7 +398,7 @@ export function useChat(
     messageSessionId: null,
     rawMessages: [],
     toolRuntimeById: {},
-    sessionCost: null,
+    sessionUsage: null,
     preTurnRawMessages: null,
   });
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
@@ -719,7 +724,7 @@ export function useChat(
           type: "set_messages",
           messages: data.messages || [],
           sessionId: data.session?.id ?? sessionId,
-          sessionCost: data.session_cost ?? null,
+          sessionUsage: readUsageTotals(data.session_usage, data.session_cost),
           replayEvents,
           expectedSessionId: data.session?.id ?? sessionId,
         });
@@ -1305,7 +1310,7 @@ export function useChat(
   return {
     messages,
     messageSessionId: chatState.messageSessionId,
-    sessionCost: chatState.sessionCost,
+    sessionUsage: chatState.sessionUsage,
     currentContext,
     loading,
     runKind,

@@ -181,7 +181,7 @@ A `usage` event follows each successful provider request, including automatic co
 - `turn_duration_ms` is the difference in milliseconds between the opening user record's `meta.created_at` and the assistant or automatic compact record this event follows, clamped to zero. It is not persisted; reloading the same records gives the same value. Missing, invalid, or timezone-free stamps make it `None`.
 - Failed and cancelled requests without final usage do not emit an extra `usage` event, so an interrupted turn's last streamed `turn_duration_ms` stops at its last completed request.
 
-Each completed request persists token facts in `meta.usage` and its fixed USD cost in `meta.cost`; see docs/sessions.md. `estimate_cost(usage, pricing)` uses `ModelMetadata.pricing` from models.dev and applies long-context tiers per request. Missing cache/reasoning prices use base input/output prices. Missing required totals or prices and inconsistent token counts return `None`. OpenRouter's reported charge is persisted directly as `{"total": ...}`. Historical costs are never recomputed.
+Each completed request persists token facts in `meta.usage` and its fixed USD cost in `meta.cost`; see docs/sessions.md. `add_usage(total, usage)` and `add_cost(total, cost)` fold one request into a running total, as turn totals do; a total-only cost reduces the sum to total-only. `estimate_cost(usage, pricing)` uses `ModelMetadata.pricing` from models.dev and applies long-context tiers per request. Missing cache/reasoning prices use base input/output prices. Missing required totals or prices and inconsistent token counts return `None`. OpenRouter's reported charge is persisted directly as `{"total": ...}`. Historical costs are never recomputed.
 
 ## Sessions
 

@@ -110,7 +110,8 @@ class StreamEvent(BaseModel):
     turn_usage: dict[str, int] | None = None  # usage
     turn_cost: Cost | None = None  # usage
     turn_duration_ms: int | None = None  # usage
-    session_cost: float | None = None  # usage; composed by the run manager
+    session_usage: dict[str, int] | None = None  # usage; composed by the run manager
+    session_cost: Cost | None = None  # usage; composed by the run manager
 
 
 class DecideRequest(BaseModel):

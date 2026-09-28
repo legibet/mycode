@@ -15,8 +15,7 @@ from weakref import WeakValueDictionary
 from mycode.agent import Event
 from mycode.messages import ConversationMessage
 from mycode_cli.permissions import ToolReviewDecision
-from mycode_cli.runtime import sum_known_costs
-from mycode_cli.sessions import sum_session_cost
+from mycode_cli.sessions import SessionTotals, sum_session_totals
 
 RunStatus = Literal["running", "completed", "failed", "cancelled"]
 RunKind = Literal["chat", "compact"]
@@ -62,9 +61,9 @@ class RunState:
     agent: RunAgent
     kind: RunKind = "chat"
     user_message: ConversationMessage | None = None
-    # Fixed history cost, combined with cumulative turn costs on each update.
-    session_cost_base: float | None = None
-    session_cost: float | None = None
+    # Pre-run history totals, combined with the cumulative turn totals on each update.
+    session_base: SessionTotals = field(default_factory=SessionTotals)
+    session_totals: SessionTotals = field(default_factory=SessionTotals)
     on_complete: RunCompletionCallback | None = None
     status: RunStatus = "running"
     error: str | None = None
@@ -108,7 +107,7 @@ class RunManager:
         user_message: ConversationMessage,
         base_messages: list[ConversationMessage],
         agent: RunAgent,
-        session_cost_base: float | None = None,
+        session_base: SessionTotals | None = None,
     ) -> dict[str, Any]:
         return await self._start(
             session_id=session_id,
@@ -116,7 +115,7 @@ class RunManager:
             user_message=user_message,
             base_messages=base_messages,
             agent=agent,
-            session_cost_base=session_cost_base,
+            session_base=session_base,
         )
 
     async def start_compact(
@@ -125,7 +124,7 @@ class RunManager:
         session_id: str,
         base_messages: list[ConversationMessage],
         agent: RunAgent,
-        session_cost_base: float | None = None,
+        session_base: SessionTotals | None = None,
         on_complete: RunCompletionCallback | None = None,
     ) -> dict[str, Any]:
         return await self._start(
@@ -134,7 +133,7 @@ class RunManager:
             user_message=None,
             base_messages=base_messages,
             agent=agent,
-            session_cost_base=session_cost_base,
+            session_base=session_base,
             on_complete=on_complete,
         )
 
@@ -146,10 +145,11 @@ class RunManager:
         user_message: ConversationMessage | None,
         base_messages: list[ConversationMessage],
         agent: RunAgent,
-        session_cost_base: float | None = None,
+        session_base: SessionTotals | None = None,
         on_complete: RunCompletionCallback | None = None,
     ) -> dict[str, Any]:
         await self._prune_finished_runs()
+        session_base = session_base or SessionTotals()
 
         async with self._lock:
             existing = self._active_by_session.get(session_id)
@@ -161,8 +161,8 @@ class RunManager:
                 session_id=session_id,
                 kind=kind,
                 user_message=copy.deepcopy(user_message),
-                session_cost_base=session_cost_base,
-                session_cost=session_cost_base,
+                session_base=session_base,
+                session_totals=session_base,
                 base_messages=copy.deepcopy(base_messages),
                 agent=agent,
                 on_complete=on_complete,
@@ -196,7 +196,7 @@ class RunManager:
                 "run": state.info(),
                 "messages": messages,
                 "pending_events": list(state.events),
-                "session_cost": state.session_cost,
+                "totals": state.session_totals,
             }
 
     @asynccontextmanager
@@ -371,7 +371,7 @@ class RunManager:
                 if state.on_complete is not None:
                     await state.on_complete(state.session_id)
                 await self._append_event(
-                    state, Event("compact", {"trigger": "manual"}), compact_cost=sum_session_cost([marker])
+                    state, Event("compact", {"trigger": "manual"}), compact_totals=sum_session_totals([marker])
                 )
             else:
                 assert state.user_message is not None
@@ -405,23 +405,23 @@ class RunManager:
 
         await self._finish_run(state, status="completed")
 
-    async def _append_event(self, state: RunState, event: Event, *, compact_cost: float | None = None) -> None:
+    async def _append_event(
+        self, state: RunState, event: Event, *, compact_totals: SessionTotals | None = None
+    ) -> None:
         async with state.condition:
             if event.type == "usage":
-                turn_cost = event.data.get("turn_cost")
-                turn_total = turn_cost.get("total") if isinstance(turn_cost, dict) else None
-                state.session_cost = sum_known_costs(state.session_cost_base, turn_total)
+                state.session_totals = state.session_base.add(event.data.get("turn_usage"), event.data.get("turn_cost"))
                 event = Event(
                     "usage",
                     {
                         **event.data,
                         "context_window": state.agent.context_window,
                         "model": state.agent.model,
-                        "session_cost": state.session_cost,
+                        **state.session_totals.payload(),
                     },
                 )
-            elif event.type == "compact" and state.kind == "compact":
-                state.session_cost = sum_known_costs(state.session_cost_base, compact_cost)
+            elif event.type == "compact" and compact_totals is not None:
+                state.session_totals = state.session_base.add(compact_totals.usage, compact_totals.cost)
 
             if event.type == "tool_done":
                 tool_use_id = event.data.get("tool_use_id")

@@ -11,6 +11,7 @@ from fastapi import Path as PathParam
 from mycode.messages import ConversationMessage
 from mycode_cli.server.deps import RunManagerDep, StoreDep, resolve_workspace_cwd
 from mycode_cli.server.schemas import SessionCreateRequest, StatusResponse
+from mycode_cli.sessions import SessionTotals
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
 
@@ -62,7 +63,7 @@ async def load_session(
             return {
                 "session": await store.load_metadata(session_id),
                 "messages": _redact_document_data(active["messages"]),
-                "session_cost": active["session_cost"],
+                **active["totals"].payload(),
                 "active_run": active["run"],
                 "pending_events": active["pending_events"],
             }
@@ -70,12 +71,18 @@ async def load_session(
         data = await store.load_session(session_id)
 
     if data is None:
-        return {"session": None, "messages": [], "session_cost": None, "active_run": None, "pending_events": []}
+        return {
+            "session": None,
+            "messages": [],
+            **SessionTotals().payload(),
+            "active_run": None,
+            "pending_events": [],
+        }
 
     return {
         "session": data["session"],
         "messages": _redact_document_data(data["messages"]),
-        "session_cost": data["session_cost"],
+        **data["totals"].payload(),
         "active_run": None,
         "pending_events": [],
     }

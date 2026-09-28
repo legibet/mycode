@@ -219,7 +219,7 @@ def test_chat_reads_only_required_history_and_preserves_replay_and_cost(
     assert texts == (["kept", "answer"] if has_timeline and history != "rewind" else []) + ["follow-up"]
     usage = [event for event in events if event["type"] == "usage"]
     assert usage
-    assert usage[-1].get("session_cost") == (0.75 if has_timeline else None)
+    assert usage[-1].get("session_cost") == ({"total": 0.75} if has_timeline else None)
 
 
 @pytest.mark.parametrize(
@@ -496,6 +496,22 @@ def test_model_effort_request_override(
 # Compact API
 
 
+@pytest.mark.parametrize(("project_config", "expected"), [(None, 0.8), ({"compact_threshold": False}, 0.0)])
+def test_config_reports_effective_compact_threshold(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, project_config: dict[str, object] | None, expected: float
+) -> None:
+    monkeypatch.setenv("MYCODE_HOME", str(tmp_path / "home"))
+    project = tmp_path / "project"
+    (project / ".mycode").mkdir(parents=True)
+    if project_config is not None:
+        (project / ".mycode" / "config.json").write_text(json.dumps(project_config), encoding="utf-8")
+
+    with TestClient(create_api_app()) as client:
+        config = client.get("/api/config", params={"cwd": str(project)}).json()
+
+    assert config["compact_threshold"] == expected
+
+
 def _seed_session(store: SessionStore, session_id: str, cwd: str) -> None:
     async def seed() -> None:
         await store.create_session(session_id, cwd=cwd)
@@ -593,7 +609,7 @@ def test_compact_endpoint_conflicts_and_cancel_write_no_marker(
         # turn, and both compact and chat starts conflict.
         session = client.get("/api/sessions/s1").json()
         assert session["active_run"]["kind"] == "compact"
-        assert session["session_cost"] == 0.25
+        assert session["session_cost"] == {"total": 0.25}
         assert [message["role"] for message in session["messages"]] == ["user", "assistant"]
 
         conflict = client.post("/api/sessions/s1/compact", json={})
@@ -669,7 +685,8 @@ def test_session_load_returns_persisted_costs_from_one_read(tmp_path: Path, monk
     assert "cost" not in (user_message.get("meta") or {})
     assert priced["meta"]["cost"] == pytest.approx({"input": 0.01, "output": 0.01, "total": 0.02})
     assert "cost" not in unpriced["meta"]
-    assert payload["session_cost"] == pytest.approx(0.05)
+    assert payload["session_usage"] == {"input_tokens": 20, "output_tokens": 10}
+    assert payload["session_cost"] == pytest.approx({"total": 0.05})
 
 
 async def test_running_session_uses_snapshot_cost_after_usage_eviction_then_loads_final_history(
@@ -718,7 +735,7 @@ async def test_running_session_uses_snapshot_cost_after_usage_eviction_then_load
             session_id="s1",
             user_message={"role": "user", "content": [{"type": "text", "text": "question"}]},
             base_messages=data["messages"],
-            session_cost_base=0.25,
+            session_base=data["totals"],
             agent=StreamingAgent(),
         )
         await asyncio.wait_for(ready.wait(), 2)
@@ -737,7 +754,7 @@ async def test_running_session_uses_snapshot_cost_after_usage_eviction_then_load
         async with httpx2.AsyncClient(transport=httpx2.ASGITransport(app), base_url="http://test") as client:
             active = (await client.get("/api/sessions/s1")).json()
             assert reads == 0
-            assert active["session_cost"] == 0.75
+            assert active["session_cost"] == {"total": 0.75}
             assert active["active_run"]["id"] == run["id"]
             assert [event["type"] for event in active["pending_events"]] == ["text"]
             assert active["messages"][-1]["content"][0]["text"] == "question"
@@ -802,4 +819,5 @@ async def test_session_read_serializes_with_catalog_mutation(
             assert changed.status_code == 200
             after = (await client.get("/api/sessions/s1")).json()
             assert after["messages"] == []
+            assert after["session_usage"] is None
             assert after["session_cost"] is None

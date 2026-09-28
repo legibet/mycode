@@ -264,3 +264,45 @@ def estimate_cost(usage: dict[str, Any], pricing: dict[str, Any] | None) -> Cost
         cost["reasoning"] = reasoning * (reasoning_price or 0.0) / 1_000_000
         cost["total"] += cost["reasoning"]
     return cost
+
+
+def add_usage(total: dict[str, int], usage: dict[str, Any]) -> dict[str, int]:
+    """Return ``total`` plus one request's token counts; missing fields keep known totals."""
+
+    result = dict(total)
+    for key in USAGE_TOKEN_KEYS:
+        value = usage.get(key)
+        if value is not None:
+            result[key] = result.get(key, 0) + value
+    return result
+
+
+def add_cost(total: Cost | None, cost: Cost | None) -> Cost | None:
+    """Return ``total`` plus one request's cost.
+
+    The breakdown survives only while every summed cost carries one; a
+    total-only cost (e.g. OpenRouter's reported charge) reduces the sum to
+    ``{"total": ...}``.
+    """
+
+    if cost is None:
+        return total
+    if total is None:
+        return cost
+
+    summed = total["total"] + cost["total"]
+    if not all("input" in item and "output" in item for item in (total, cost)):
+        return {"total": summed}
+
+    result: Cost = {
+        "total": summed,
+        "input": total.get("input", 0.0) + cost.get("input", 0.0),
+        "output": total.get("output", 0.0) + cost.get("output", 0.0),
+    }
+    if "cache_read" in total or "cache_read" in cost:
+        result["cache_read"] = total.get("cache_read", 0.0) + cost.get("cache_read", 0.0)
+    if "cache_write" in total or "cache_write" in cost:
+        result["cache_write"] = total.get("cache_write", 0.0) + cost.get("cache_write", 0.0)
+    if "reasoning" in total or "reasoning" in cost:
+        result["reasoning"] = total.get("reasoning", 0.0) + cost.get("reasoning", 0.0)
+    return result
