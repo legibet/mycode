@@ -244,12 +244,17 @@ export interface TurnStats extends UsageTotals {
   duration_ms?: number;
 }
 
+/** How a turn ended before its final response: a user stop or an error. */
+export type Interruption = "cancelled" | "error";
+
 export interface ChatMessage {
   role: "user" | "assistant" | "system" | "compact";
   content: MessageBlock[];
   meta?: MessageMeta;
   /** Derived per-turn stats; only set on render assistant messages. */
   stats?: TurnStats;
+  /** Derived; set on a render assistant whose turn ended early. */
+  interruption?: Interruption;
   renderKey?: string;
   sourceIndex?: number;
 }

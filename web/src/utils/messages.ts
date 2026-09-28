@@ -6,6 +6,7 @@ import type {
   CompactMarkerMessage,
   Cost,
   DocumentBlock,
+  Interruption,
   MessageBlock,
   MessageMeta,
   RenderMessage,
@@ -335,11 +336,6 @@ export function markTailAssistantStopped(
   return next;
 }
 
-/** Whether a response ended early instead of completing. */
-export function isInterrupted(meta: MessageMeta | undefined): boolean {
-  return meta?.stop_reason === "error" || meta?.stop_reason === "cancelled";
-}
-
 /**
  * Split an assistant turn's blocks into its work, its answer (the trailing
  * text), and an automatic compaction after the answer, which folds with the
@@ -592,6 +588,7 @@ export function buildRenderMessages(
   let turnStartedAt: string | undefined;
   // Latest persisted record that the SDK reported a usage event for.
   let turnEndedAt: string | undefined;
+  let turnInterruption: Interruption | undefined;
 
   const commitTurn = () => {
     // A streamed duration wins: a reattached run's history ends before the
@@ -601,16 +598,20 @@ export function buildRenderMessages(
     if (durationMs !== undefined) {
       turnStats = { ...turnStats, duration_ms: durationMs };
     }
-    if (turnStats && turnOwnerIndex !== null) {
+    if ((turnStats || turnInterruption) && turnOwnerIndex !== null) {
       const owner = result[turnOwnerIndex];
       if (owner && !isCompactMarker(owner)) {
-        result[turnOwnerIndex] = { ...owner, stats: turnStats };
+        const next: ChatMessage = { ...owner };
+        if (turnStats) next.stats = turnStats;
+        if (turnInterruption) next.interruption = turnInterruption;
+        result[turnOwnerIndex] = next;
       }
     }
     turnStats = undefined;
     turnOwnerIndex = null;
     turnStartedAt = undefined;
     turnEndedAt = undefined;
+    turnInterruption = undefined;
   };
 
   const ensureAssistantRenderMessage = (sourceIndex: number) => {
@@ -690,6 +691,9 @@ export function buildRenderMessages(
 
       if (toolResults.length === 0) continue;
 
+      // A turn that ends on tool results never got its next response: it was
+      // stopped between rounds, or failed without a persisted record.
+      turnInterruption = "cancelled";
       const assistantMessage = ensureAssistantRenderMessage(sourceIndex);
       let assistantContent = [...getBlocks(assistantMessage)];
 
@@ -809,8 +813,13 @@ export function buildRenderMessages(
       delete merged.meta;
     }
     turnStats = foldTurnStats(turnStats, rawMeta);
+    const stopReason = rawMeta?.stop_reason;
+    turnInterruption =
+      stopReason === "cancelled" || stopReason === "error"
+        ? stopReason
+        : undefined;
     // A partial response persisted on error or cancel had no usage event.
-    if (rawMeta?.created_at && !isInterrupted(rawMeta)) {
+    if (rawMeta?.created_at && !turnInterruption) {
       turnEndedAt = rawMeta.created_at;
     }
     turnOwnerIndex = messageIndex;

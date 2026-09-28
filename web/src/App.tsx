@@ -181,6 +181,7 @@ function AppContent() {
     loading,
     runKind,
     compactError,
+    sendError,
     sessions,
     activeSession,
     pendingPermission,
@@ -383,6 +384,7 @@ function AppContent() {
             loading={setupRequired ? false : runKind === "chat"}
             compacting={!setupRequired && runKind === "compact"}
             compactError={setupRequired ? null : compactError}
+            sendError={setupRequired ? null : sendError}
             onRewindAndSend={
               workspaceMissing || setupRequired ? undefined : rewindAndSend
             }

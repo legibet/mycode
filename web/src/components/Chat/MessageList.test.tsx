@@ -62,6 +62,7 @@ describe("MessageList", () => {
       loading: false,
       compacting: false,
       compactError: null,
+      sendError: null,
     };
     const { container, rerender } = render(
       <MessageList {...props} messages={[]} />,
@@ -93,6 +94,7 @@ describe("MessageList", () => {
         loading={false}
         compacting={false}
         compactError={null}
+        sendError={null}
       />,
     );
     flushAnimationFrames();
@@ -123,6 +125,7 @@ describe("MessageList", () => {
       loading: true,
       compacting: false,
       compactError: null,
+      sendError: null,
     };
     const { container, rerender } = render(
       <MessageList {...props} messages={history} />,
@@ -161,29 +164,24 @@ describe("MessageList", () => {
     expect(scrollContainer.scrollTop).toBe(2_600);
   });
 
-  it("leaves a reader inside the work in place when the turn stops unfolded", () => {
+  it("leaves a reader inside the work in place when the turn ends unfolded", () => {
     scrollHeight = 2_000;
+    // Work without a tool call or compaction does not fold.
     const turn: RenderMessage = {
       role: "assistant",
       content: [
-        {
-          type: "tool_use",
-          id: "t1",
-          name: "read",
-          input: { path: "a.py" },
-          renderKey: "t1",
-        },
-        { type: "text", text: "Partial answer", renderKey: "answer" },
+        { type: "thinking", text: "Planning", renderKey: "thinking" },
+        { type: "text", text: "The answer", renderKey: "answer" },
       ],
       renderKey: "message-80",
       sourceIndex: 80,
-      meta: { stop_reason: "cancelled" },
     };
     const props = {
       sessionId: "s",
       messages: [...history, turn],
       compacting: false,
       compactError: null,
+      sendError: null,
     };
     const { container, rerender } = render(<MessageList {...props} loading />);
     flushAnimationFrames();
@@ -226,6 +224,7 @@ describe("MessageList", () => {
         loading={false}
         compacting={false}
         compactError={null}
+        sendError={null}
       />,
     );
     const button = screen.getByLabelText("Scroll to latest");

@@ -21,7 +21,6 @@ import {
 import type { RenderMessage } from "../../types";
 import { isCompactMarker } from "../../types";
 import { cn } from "../../utils/cn";
-import { isInterrupted } from "../../utils/messages";
 import { CompactMarker } from "./CompactMarker";
 import { MessageBubble } from "./MessageBubble";
 
@@ -39,6 +38,8 @@ interface MessageListProps {
   compacting: boolean;
   /** Last compact failure, shown as a quiet inline note at the tail. */
   compactError: string | null;
+  /** Last rejected send, shown as plain text at the tail. */
+  sendError: string | null;
   onRewindAndSend?:
     | ((rewindTo: number, input: string) => Promise<void>)
     | undefined;
@@ -51,6 +52,7 @@ export const MessageList = memo(function MessageList({
   loading,
   compacting,
   compactError,
+  sendError,
   onRewindAndSend,
   emptyStateFooter,
 }: MessageListProps) {
@@ -64,6 +66,7 @@ export const MessageList = memo(function MessageList({
       loading={loading}
       compacting={compacting}
       compactError={compactError}
+      sendError={sendError}
       onRewindAndSend={onRewindAndSend}
       emptyStateFooter={emptyStateFooter}
     />
@@ -199,6 +202,7 @@ function WindowedMessages({
   loading,
   compacting,
   compactError,
+  sendError,
   onRewindAndSend,
   emptyStateFooter,
 }: WindowedMessagesProps) {
@@ -236,7 +240,7 @@ function WindowedMessages({
           if (block.type !== "text" && block.type !== "thinking") return total;
           return total + (block.text?.length ?? 0);
         }, 0);
-  const outputVersion = `${messages.length}:${latestOutputBlockCount}:${latestOutputTextLength}:${compacting}:${compactError ?? ""}`;
+  const outputVersion = `${messages.length}:${latestOutputBlockCount}:${latestOutputTextLength}:${compacting}:${compactError ?? ""}:${sendError ?? ""}`;
 
   const isNearBottom = useCallback((el: HTMLElement) => {
     return el.scrollHeight - el.scrollTop - el.clientHeight < SCROLL_THRESHOLD;
@@ -417,7 +421,7 @@ function WindowedMessages({
                     isLoading={loading}
                     model={message.meta?.model}
                     stats={message.stats}
-                    interrupted={isInterrupted(message.meta)}
+                    interruption={message.interruption}
                     error={message.meta?.error}
                     onRewindAndSend={onRewindAndSend}
                   />
@@ -443,9 +447,17 @@ function WindowedMessages({
                 </span>
               </div>
             )}
-            {(messages.length > 0 || showPendingCompact || compactError) && (
-              <div className="h-4" />
+            {sendError && (
+              <div role="alert" className="chat-message-shell px-5 max-md:px-4">
+                <p className="break-words text-xs text-destructive/80">
+                  {sendError}
+                </p>
+              </div>
             )}
+            {(messages.length > 0 ||
+              showPendingCompact ||
+              compactError ||
+              sendError) && <div className="h-4" />}
           </div>
         </SettleAnchor>
       </div>

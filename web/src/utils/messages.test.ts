@@ -201,6 +201,64 @@ describe("run errors", () => {
   });
 });
 
+describe("turn interruption", () => {
+  const user = (text: string): ChatMessage => ({
+    role: "user",
+    content: [{ type: "text", text }],
+  });
+  const toolCall: ChatMessage = {
+    role: "assistant",
+    content: [{ type: "tool_use", id: "t1", name: "read", input: {} }],
+    meta: { stop_reason: "tool_use" },
+  };
+  const toolResult: ChatMessage = {
+    role: "user",
+    content: [
+      {
+        type: "tool_result",
+        tool_use_id: "t1",
+        output: "ok",
+        metadata: null,
+        is_error: false,
+      },
+    ],
+  };
+  const reply = (stop_reason: string): ChatMessage => ({
+    role: "assistant",
+    content: [{ type: "text", text: "reply" }],
+    meta: { stop_reason },
+  });
+  const interruptions = (messages: ChatMessage[]) =>
+    buildRenderMessages(messages)
+      .map(expectChat)
+      .filter((message) => message.role === "assistant")
+      .map((message) => message.interruption);
+
+  it("reads how each turn ended from its last record", () => {
+    expect(
+      interruptions([
+        user("done"),
+        toolCall,
+        toolResult,
+        reply("stop"),
+        user("partial"),
+        reply("cancelled"),
+        user("failed"),
+        toolCall,
+        toolResult,
+        reply("error"),
+      ]),
+    ).toEqual([undefined, "cancelled", "error"]);
+  });
+
+  it("treats a turn that ends on tool results as stopped", () => {
+    // A cancel between rounds persists no assistant record.
+    expect(
+      interruptions([user("go"), toolCall, toolResult, user("next")]),
+    ).toEqual(["cancelled"]);
+  });
+});
+
 describe("turn stats", () => {
   it("sums per-request usage and cost across a history tool loop", () => {
     const renderMessages = buildRenderMessages([

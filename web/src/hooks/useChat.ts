@@ -407,6 +407,8 @@ export function useChat(
   // derived so chat and compact runs share the busy/cancel plumbing.
   const [runKind, setRunKind] = useState<RunKind | null>(null);
   const [compactError, setCompactError] = useState<string | null>(null);
+  // A rejected send is a request failure, not the outcome of any turn.
+  const [sendError, setSendError] = useState<string | null>(null);
   const loading = runKind !== null;
   const [sessionLoading, setSessionLoading] = useState(false);
   const [pendingPermissions, setPendingPermissions] = useState<
@@ -491,6 +493,7 @@ export function useChat(
     activeRunRef.current = null;
     setRunKind(null);
     setCompactError(null);
+    setSendError(null);
     setPendingPermissions([]);
   }, []);
 
@@ -789,13 +792,7 @@ export function useChat(
             }
 
             setRunKind(null);
-            dispatch({
-              type: "apply_event",
-              event: {
-                type: "error",
-                message: getMessageFromDetail(detail, "Failed to start task"),
-              },
-            });
+            setSendError(getMessageFromDetail(detail, "Failed to start task"));
           }
           return false;
         }
@@ -823,10 +820,7 @@ export function useChat(
           pendingRequestTokenRef.current = 0;
           setRunKind(null);
           dispatch({ type: "rollback" });
-          dispatch({
-            type: "apply_event",
-            event: { type: "error", message: getErrorMessage(e) },
-          });
+          setSendError(getErrorMessage(e));
         }
         return false;
       }
@@ -859,6 +853,7 @@ export function useChat(
       });
       setRunKind("chat");
       setCompactError(null);
+      setSendError(null);
 
       const commonFields = {
         session_id: sessionId,
@@ -901,6 +896,7 @@ export function useChat(
       dispatch({ type: "rewind_and_start_turn", rewindTo, content });
       setRunKind("chat");
       setCompactError(null);
+      setSendError(null);
 
       await postChat(
         {
@@ -930,6 +926,7 @@ export function useChat(
 
     const sessionId = session.id;
     setCompactError(null);
+    setSendError(null);
     setRunKind("compact");
 
     try {
@@ -1315,6 +1312,7 @@ export function useChat(
     loading,
     runKind,
     compactError,
+    sendError,
     sessions,
     activeSession,
     sessionLoading,

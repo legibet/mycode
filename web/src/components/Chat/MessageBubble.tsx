@@ -21,6 +21,7 @@ import type {
   ChatMessage,
   DocumentBlock,
   ImageBlock,
+  Interruption,
   MessageBlock,
   TextBlock,
   TurnStats,
@@ -44,8 +45,8 @@ interface MessageBubbleProps {
   isLoading: boolean;
   model?: string | undefined;
   stats?: TurnStats | undefined;
-  /** The turn's last response ended on an error or cancel. */
-  interrupted?: boolean | undefined;
+  /** How the turn ended before its final response. */
+  interruption?: Interruption | undefined;
   /** The run error that ended the turn, shown as plain text. */
   error?: string | undefined;
   onRewindAndSend?:
@@ -189,7 +190,7 @@ function messageBubblePropsEqual(
     prev.sourceIndex !== next.sourceIndex ||
     prev.isStreaming !== next.isStreaming ||
     prev.model !== next.model ||
-    prev.interrupted !== next.interrupted ||
+    prev.interruption !== next.interruption ||
     prev.error !== next.error ||
     !turnStatsEqual(prev.stats, next.stats) ||
     prev.onRewindAndSend !== next.onRewindAndSend
@@ -273,7 +274,7 @@ export const MessageBubble = memo(function MessageBubble({
   isLoading,
   model,
   stats,
-  interrupted,
+  interruption,
   error,
   onRewindAndSend,
 }: MessageBubbleProps) {
@@ -287,12 +288,9 @@ export const MessageBubble = memo(function MessageBubble({
     () => splitTurn(blocks),
     [blocks],
   );
-  // The work folds once the turn completes with an answer; a stopped or
-  // failed turn stays flat.
+  // The work folds once the turn ends, however it ends.
   const folded =
     !isStreaming &&
-    !interrupted &&
-    answer.length > 0 &&
     [...work, ...afterAnswer].some(
       (block) => block.type === "tool_use" || block.type === "compact",
     );
@@ -573,12 +571,17 @@ export const MessageBubble = memo(function MessageBubble({
           <WorkSection
             blocks={work}
             folded={folded}
+            interruption={interruption}
             durationMs={stats?.duration_ms}
           >
             {(folded ? [...work, ...afterAnswer] : work).map(renderBlock)}
           </WorkSection>
         )}
         {(folded ? answer : [...answer, ...afterAnswer]).map(renderBlock)}
+        {/* A folded turn reports a stop in its summary row. */}
+        {interruption === "cancelled" && !isStreaming && !folded && (
+          <p className="text-xs text-muted-foreground">Stopped</p>
+        )}
         {error && (
           <p className="break-words text-xs text-destructive/80">{error}</p>
         )}

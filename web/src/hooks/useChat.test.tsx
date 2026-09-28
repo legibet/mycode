@@ -412,10 +412,10 @@ describe("useChat", () => {
     expect(restoredAnswer.content).toEqual([
       expect.objectContaining({ type: "text", text: "original answer" }),
     ]);
-    expect(restoredAnswer.meta).toMatchObject({
-      stop_reason: "error",
-      error: "rewind rejected",
-    });
+    // The rejection stays off the restored turn, which completed.
+    expect(restoredAnswer.meta).toBeUndefined();
+    expect(restoredAnswer.interruption).toBeUndefined();
+    expect(result.current.sendError).toBe("rewind rejected");
 
     const chatCall = fetchMock.mock.calls.find(([url]) => url === "/api/chat");
     expect(JSON.parse(String(chatCall?.[1]?.body))).toEqual({

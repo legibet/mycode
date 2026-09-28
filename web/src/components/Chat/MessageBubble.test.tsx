@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import type { MessageBlock } from "../../types";
+import type { Interruption, MessageBlock } from "../../types";
 import { MessageBubble } from "./MessageBubble";
 
 const blocks = [{ type: "text" as const, text: "Done" }];
@@ -104,15 +104,21 @@ describe("turn work folding", () => {
     { type: "text", text: "The answer", renderKey: "answer" },
   ];
 
-  function renderTurn(props: { isStreaming: boolean; interrupted?: boolean }) {
+  function renderTurn(props: {
+    isStreaming: boolean;
+    blocks?: MessageBlock[];
+    interruption?: Interruption;
+    error?: string;
+  }) {
     return (
       // biome-ignore lint/a11y/useValidAriaRole: component prop is the message role
       <MessageBubble
         role="assistant"
-        blocks={turn}
+        blocks={props.blocks ?? turn}
         isLoading={props.isStreaming}
         isStreaming={props.isStreaming}
-        interrupted={props.interrupted}
+        interruption={props.interruption}
+        error={props.error}
         stats={{ duration_ms: 23_000 }}
       />
     );
@@ -135,20 +141,83 @@ describe("turn work folding", () => {
     expect(tool).toHaveAttribute("aria-expanded", "true");
   });
 
-  it("shows a history turn's work when an error unfolds it", () => {
-    // A failed send appends its error to the previous, folded turn.
-    const { rerender } = render(renderTurn({ isStreaming: false }));
-    rerender(renderTurn({ isStreaming: false, interrupted: true }));
+  it("folds a stopped turn without an answer behind its status", () => {
+    render(
+      renderTurn({
+        isStreaming: false,
+        blocks: turn.slice(0, 1),
+        interruption: "cancelled",
+      }),
+    );
 
-    expect(screen.queryByText(/Worked/)).toBeNull();
-    expect(screen.getByRole("button", { name: /read/ })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Stopped · 1 read" }),
+    ).toHaveAttribute("aria-expanded", "false");
+    // The row carries the stop; no separate line repeats it.
+    expect(screen.getAllByText("Stopped")).toHaveLength(1);
   });
 
-  it("keeps a turn that ended on an error flat", () => {
-    render(renderTurn({ isStreaming: false, interrupted: true }));
+  it("folds a failed turn and keeps its error outside the fold", () => {
+    render(
+      renderTurn({
+        isStreaming: false,
+        interruption: "error",
+        error: "HTTP 500",
+      }),
+    );
 
-    expect(screen.queryByText(/Worked/)).toBeNull();
-    expect(screen.getByRole("button", { name: /read/ })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Failed · 1 read" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("HTTP 500")).toBeInTheDocument();
+  });
+
+  it("marks a stopped turn that has no work to fold", () => {
+    render(
+      renderTurn({
+        isStreaming: false,
+        blocks: turn.slice(1),
+        interruption: "cancelled",
+      }),
+    );
+
+    expect(screen.queryByRole("button", { name: /Stopped/ })).toBeNull();
+    expect(screen.getByText("Stopped")).toBeInTheDocument();
+  });
+
+  it("shows every tool kind and failures, with no cap", () => {
+    const tool = (id: string, name: string, isError = false): MessageBlock => ({
+      type: "tool_use",
+      id,
+      name,
+      input: {},
+      renderKey: id,
+      runtime: {
+        pending: false,
+        output: "",
+        finalOutput: isError ? "error: exit 1" : "ok",
+        metadata: null,
+        isError,
+      },
+    });
+    render(
+      renderTurn({
+        isStreaming: false,
+        blocks: [
+          tool("a", "edit"),
+          tool("b", "bash", true),
+          tool("c", "read"),
+          tool("d", "websearch"),
+          ...turn.slice(1),
+        ],
+      }),
+    );
+
+    expect(
+      screen.getByRole("button", {
+        name: "Worked for 23s · 1 edit · 1 command · 1 read · 1 search · 1 failed",
+      }),
+    ).toBeInTheDocument();
   });
 });
 
@@ -161,7 +230,7 @@ describe("run error row", () => {
         role="assistant"
         blocks={[{ type: "text", text: "Partial" }]}
         isLoading={false}
-        interrupted
+        interruption="error"
         error={error}
       />,
     );
