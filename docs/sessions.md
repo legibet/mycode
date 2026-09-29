@@ -52,9 +52,17 @@ Standard `user` or `assistant` message in the internal block format.
 
 `tool_result.content` may store `text` and `image` blocks.
 
+A user message delivered mid-turn by `Agent.steer()` carries `meta.steer=true` and `meta.input_ids`, the `meta.input_id` of each merged item in order, skipping items without one. It holds every merged item's content blocks in order:
+
+```json
+{"role": "user", "content": [{"type": "text", "text": "use sqlite"}, {"type": "text", "text": "and keep the tests"}], "meta": {"created_at": "...", "steer": true, "input_ids": ["c1", "c2"]}}
+```
+
+Tool results followed by a `meta.steer` user message mean the turn continued with the steer, not that it was stopped between rounds. Without a following steer, tool results as the last record of a turn mean it ended before its next request.
+
 `meta.created_at` (ISO-8601 UTC) records when the runtime committed the message, before `on_persist` and the store append. Every committed record carries it — user input, assistant responses, `tool_result` messages, and `compact` / `rewind` markers — with or without a configured store. A caller-supplied value is kept. Lines written before the field existed have none and are never backfilled.
 
-Turn timing is derived from `meta.created_at`. A turn starts at a user message that is not `tool_result`-only and continues until the next such message. Automatic compact markers belong to that turn; manual and untagged markers stand alone. Each `usage.turn_duration_ms` measures from the opening user record to the assistant or automatic compact record the event follows. Reloading those same records gives the same value; calculation rules are in docs/sdk.md.
+Turn timing is derived from `meta.created_at`. A turn starts at a user message that is not `tool_result`-only and continues until the next such message; a steer message therefore starts a new segment with its own usage and duration. Automatic compact markers belong to that turn; manual and untagged markers stand alone. Each `usage.turn_duration_ms` measures from the opening user record to the assistant or automatic compact record the event follows; a segment closed by a steer runs to the steer message's `meta.created_at`. Reloading those same records gives the same value; calculation rules are in docs/sdk.md.
 
 Interrupted turns may append partial assistant or tool-result records after the last `usage` event, so the last record's timestamp can exceed the streamed endpoint. `assistant.meta.stop_reason` describes one provider response, not the whole turn's outcome. Timestamp differences are wall-clock estimates, not runtime measurements of turn completion.
 
@@ -157,7 +165,7 @@ The visible list seen by UIs and used by rewind never contains these synthetic s
 
 Triggered by `POST /api/chat` with `rewind_to`:
 
-1. Server validates the target is a real user message
+1. Server validates the target is a real user message (a merged steer message counts as one)
 2. Server calls `append_rewind(session_id, rewind_to)` — appends a rewind marker to JSONL
 3. Agent auto-resumes; `apply_rewind()` produces the truncated visible history
 

@@ -126,6 +126,22 @@ def build_message(
     return _set_meta({"role": role, "content": blocks}, meta)
 
 
+def merge_user_messages(messages: list[ConversationMessage], *, steer: bool) -> ConversationMessage:
+    """Merge user messages into one, keeping each item's content blocks in order.
+
+    ``meta.input_ids`` lists each item's ``meta.input_id``; other item meta is
+    dropped. ``steer`` sets ``meta.steer`` for a message delivered mid-turn.
+    """
+
+    meta: dict[str, Any] = {"steer": True} if steer else {}
+    meta["input_ids"] = [
+        input_id for message in messages if (input_id := (message.get("meta") or {}).get("input_id")) is not None
+    ]
+    return build_message(
+        "user", [dict(block) for message in messages for block in message.get("content") or []], meta=meta
+    )
+
+
 USAGE_TOKEN_KEYS = (
     "total_tokens",
     "input_tokens",
@@ -200,7 +216,7 @@ def assistant_message(
 
 
 def flatten_message_text(message: ConversationMessage, *, include_thinking: bool = True) -> str:
-    """Flatten readable text while skipping synthetic attachment payload blocks."""
+    """Join readable text blocks as paragraphs, skipping synthetic attachment payload blocks."""
 
     parts: list[str] = []
     for block in message.get("content") or []:
@@ -216,4 +232,4 @@ def flatten_message_text(message: ConversationMessage, *, include_thinking: bool
             text = str(block.get("text") or "").strip()
             if text:
                 parts.append(text)
-    return " ".join(parts)
+    return "\n\n".join(parts)

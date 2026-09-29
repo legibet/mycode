@@ -70,7 +70,7 @@ Path attachments expand `~`; relative paths use the Python process's current wor
 
 ### `run()` synchronous wrapper
 
-`run()` consumes `achat()` via `asyncio.run`, concatenates `text` deltas into `RunResult.text`, captures the first error message in `RunResult.error`, and keeps the last `usage` payload in `RunResult.usage`. User cancellation sets `RunResult.cancelled=True` and leaves `error=None`. `RunResult.events` keeps the non-transient events, including final `tool_done` results; live `tool_output` deltas are omitted so synchronous runs do not retain complete command streams in memory.
+`run()` consumes `achat()` via `asyncio.run`, concatenates `text` deltas into `RunResult.text`, captures the first error message in `RunResult.error`, and keeps the last `usage` payload in `RunResult.usage`; after a steer that payload describes only the last segment. User cancellation sets `RunResult.cancelled=True` and leaves `error=None`. `RunResult.events` keeps the non-transient events, including final `tool_done` results; live `tool_output` deltas are omitted so synchronous runs do not retain complete command streams in memory.
 
 ```python
 result = agent.run("Hello")
@@ -96,6 +96,22 @@ async for _ in agent.achat("follow-up that references the earlier answer"):
 
 Run one chat or compact operation at a time per Agent. Starting another operation or calling `clear()` while one is active raises `RuntimeError` without changing history.
 
+### Steering a running chat
+
+```python
+async for event in agent.achat("Refactor the storage layer"):
+    if event.type == "tool_start" and user_typed_something:
+        agent.steer("use sqlite, not JSON files")
+```
+
+`agent.steer(message)` hands a user message to the running `achat()` for delivery at the next step boundary: after the current assistant message's tool results are committed and after any automatic compaction, before the next provider request. A running tool batch always finishes first. `message` is a `str` or a `ConversationMessage` with `role="user"`; an image or PDF the model does not support, or another role, raises `ValueError`.
+
+It returns `True` when the steer is pending and `False` when nothing accepts it: no chat is active, the active operation is a compact, a stop was requested, or the chat has already decided to finish. Call it from the event loop running `achat()`; it is not thread-safe.
+
+At the boundary all pending steers merge into one `user` message: each item's content blocks in order, with `meta.steer=True` and `meta.input_ids` listing each item's `meta.input_id` when it has one. Other item `meta` is dropped. The merged message is committed like any record, then a `user_message` event carries it, then the loop sends the next provider request. The chat continues even when the assistant's last message had no tool calls, so a steer sent while the final answer streams is answered in the same `achat()` call. The chat stops accepting steers in the same synchronous step that finds none pending, so an accepted steer is always delivered or still pending.
+
+`agent.pending_steers()` returns a copy of the undelivered steers; `agent.take_steers()` removes and returns them. Steers still pending when `achat()` ends are discarded; a caller that wants them back calls `take_steers()` before the iterator finishes, for example on `cancelled`.
+
 ### Model metadata
 
 `models.py` reads the bundled `models_catalog.json` catalog, which stores one official model list per supported provider (models.dev data via [basellm/llm-metadata](https://github.com/basellm/llm-metadata)). `lookup_model_metadata(provider_type=..., model=...)` looks up the official model name, first as supplied and then without its prefix, so routed ids such as OpenRouter's `owner/model` resolve to the official entry. A match supplies all metadata fields, including reasoning efforts and reference pricing — for routed providers the pricing is the official provider's, not the router's. An unmatched model returns `None`.
@@ -111,6 +127,8 @@ Run one chat or compact operation at a time per Agent. Starting another operatio
 ### Cancellation
 
 Call `agent.cancel()` from any task or thread, then continue consuming `achat()` until its terminal `cancelled` event. Repeated calls are safe; idle calls do nothing. The agent finishes cleanup before reporting the stop. Cleanup and persistence failures remain errors.
+
+After a stop request `steer()` returns `False` and pending steers are not delivered. A merged steer message whose commit has already started finishes it, and its `user_message` event is yielded before `cancelled`.
 
 Async tools and hooks must handle `asyncio.CancelledError` cooperatively. A tool may return its cleanup result; the runtime preserves its output, content, and metadata with `is_error=True`. Otherwise it reports `error: cancelled`. Cancelled tools skip `after_tool`, and no further tools run. Synchronous tools cannot be interrupted; `run()` may wait for their worker threads to finish.
 
@@ -149,14 +167,15 @@ Adapters raise `ProviderError` (`reason`, `retryable`, `status_code`, `retry_aft
 | `tool_output`    | `{"tool_use_id", "output"}`; delta from `streams_output=True` tools      |
 | `tool_done`      | `{"tool_use_id", "output", "is_error", "metadata"?, "content"?}`         |
 | `compact`        | `{"trigger": "auto"}`; emitted after an automatic compact marker is committed |
+| `user_message`   | `{"message"}`; a merged steer message, emitted after it is committed     |
 | `retry`          | fields under Timeouts and retries; emitted before each new attempt       |
-| `usage`          | see below; emitted after every provider request                          |
+| `usage`          | see below; emitted after every provider request and at a delivered steer |
 | `error`          | `{"message"}`; fatal for the turn, then the iterator stops               |
 | `cancelled`      | `{}`; user stop completed, then the iterator stops                       |
 
 ### Usage, cost, and turn duration
 
-A `usage` event follows each successful provider request, including automatic compaction. It reports the latest context occupancy plus the turn's cumulative usage, cost, and elapsed time:
+A `usage` event follows each successful provider request, including automatic compaction. It reports the latest context occupancy plus the turn's cumulative usage, cost, and elapsed time. A delivered steer starts a new segment of the turn: `turn_usage`, `turn_cost`, and `turn_duration_ms` restart from the merged steer message, so each `usage` event describes the current segment only. Before its `user_message`, a delivered steer emits one closing `usage` event for the segment it ends: same `context_tokens`, `turn_usage`, and `turn_cost`, with `turn_duration_ms` running to the merged steer message, so tool time after the last request is counted. `context_tokens` carries over.
 
 ```python
 {
@@ -178,7 +197,7 @@ A `usage` event follows each successful provider request, including automatic co
 - `turn_usage` sums each reported token field. Missing fields do not clear known totals.
 - `turn_cost.total` sums requests with known costs. Requests without cost are skipped; `turn_cost` is `None` only when no cost is known.
 - Detailed components are summed while every known request has them. If any known request reports only `total`, the cumulative cost contains only `total`.
-- `turn_duration_ms` is the difference in milliseconds between the opening user record's `meta.created_at` and the assistant or automatic compact record this event follows, clamped to zero. It is not persisted; reloading the same records gives the same value. Missing, invalid, or timezone-free stamps make it `None`.
+- `turn_duration_ms` is the difference in milliseconds between the opening user record's `meta.created_at` (the user input, or the latest merged steer message) and the assistant or automatic compact record this event follows (for a steer's closing event, the merged steer message), clamped to zero. It is not persisted; reloading the same records gives the same value. Missing, invalid, or timezone-free stamps make it `None`.
 - Failed and cancelled requests without final usage do not emit an extra `usage` event, so an interrupted turn's last streamed `turn_duration_ms` stops at its last completed request.
 
 Each completed request persists token facts in `meta.usage` and its fixed USD cost in `meta.cost`; see docs/sessions.md. `add_usage(total, usage)` and `add_cost(total, cost)` fold one request into a running total, as turn totals do; a total-only cost reduces the sum to total-only. `estimate_cost(usage, pricing)` uses `ModelMetadata.pricing` from models.dev and applies long-context tiers per request. Missing cache/reasoning prices use base input/output prices. Missing required totals or prices and inconsistent token counts return `None`. OpenRouter's reported charge is persisted directly as `{"total": ...}`. Historical costs are never recomputed.
@@ -219,7 +238,7 @@ Construct an `Agent` with the same `(session_dir, session_id)` to resume across 
 
 ### `on_persist`
 
-`achat(..., on_persist=coro)` and `run(..., on_persist=coro)` await `coro(message)` once per persisted message, **before** the internal store appends it. It fires for the user input, the assistant response, `tool_result` messages, and `compact` events alike, and works with or without `session_dir`. Use it as a custom persistence backend, or to stage related records alongside the SDK's own append (the CLI web server lands rewind markers this way).
+`achat(..., on_persist=coro)` and `run(..., on_persist=coro)` await `coro(message)` once per persisted message, **before** the internal store appends it. It fires for the user input, merged steer messages, the assistant response, `tool_result` messages, and `compact` events alike, and works with or without `session_dir`. Use it as a custom persistence backend, or to stage related records alongside the SDK's own append (the CLI web server lands rewind markers this way).
 
 Once a commit starts, the callback and SDK append finish before cancellation is reported, and the record still joins `agent.messages`. A committed record is never rolled back; a failed one propagates the error and stays out of `agent.messages`, so memory never runs ahead of the log.
 

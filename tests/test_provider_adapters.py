@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import json
+from collections.abc import Callable
 from dataclasses import replace
 from typing import Any, Literal
 from unittest.mock import AsyncMock, MagicMock
@@ -1989,6 +1990,43 @@ def test_thinking_duration_metadata_is_not_sent_to_providers() -> None:
 
     for payload in payloads:
         assert "duration_ms" not in json.dumps(payload)
+
+
+# A steer merged after a tool batch replays as a plain user message after the tool results.
+_STEER_HISTORY: list[dict[str, Any]] = [
+    {"role": "user", "content": [{"type": "text", "text": "build it"}]},
+    {
+        "role": "assistant",
+        "content": [{"type": "tool_use", "id": "call_1", "name": "read", "input": {"path": "x.py"}}],
+        "meta": {"stop_reason": "tool_use"},
+    },
+    {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "call_1", "output": "contents of x.py"}]},
+    {
+        "role": "user",
+        "content": [{"type": "text", "text": "use sqlite"}, {"type": "text", "text": "keep the tests"}],
+        "meta": {"steer": True, "input_ids": ["c1", "c2"]},
+    },
+    {"role": "assistant", "content": [{"type": "text", "text": "switching to sqlite"}]},
+]
+
+
+@pytest.mark.parametrize(
+    "build_payload",
+    [
+        lambda request: AnthropicAdapter()._build_request_payload(request),
+        lambda request: GoogleGeminiAdapter()._build_contents(request),
+        lambda request: OpenAIResponsesAdapter()._build_request_payload(request),
+        lambda request: OpenAIChatAdapter()._build_request_payload(request),
+    ],
+    ids=["anthropic", "gemini", "openai_responses", "openai_chat"],
+)
+def test_steer_replays_as_plain_user_text_after_tool_results(build_payload: Callable[[ProviderRequest], Any]) -> None:
+    payload = json.dumps(build_payload(request_obj(messages=_STEER_HISTORY)))
+
+    assert payload.index("contents of x.py") < payload.index("use sqlite") < payload.index("keep the tests")
+    assert payload.index("keep the tests") < payload.index("switching to sqlite")
+    assert "input_ids" not in payload
+    assert "steer" not in payload
 
 
 @pytest.mark.parametrize(

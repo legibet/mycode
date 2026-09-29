@@ -35,6 +35,7 @@ from mycode.messages import (
     ConversationMessage,
     build_message,
     flatten_message_text,
+    merge_user_messages,
     tool_result_block,
     user_text_message,
 )
@@ -98,6 +99,9 @@ class _RunState:
     loop: asyncio.AbstractEventLoop
     cancel_requested: bool = False
     active_task: asyncio.Future[Any] | None = None
+    # Only a chat run accepts steers, and only until it decides to finish.
+    accepting_steers: bool = False
+    steers: list[ConversationMessage] = field(default_factory=list)
 
     def cancel_active_task(self) -> None:
         task = self.active_task
@@ -420,6 +424,38 @@ class Agent:
             if self._active_run is run:
                 raise
 
+    def steer(self, message: str | ConversationMessage) -> bool:
+        """Queue a user message for the next step boundary of the running chat.
+
+        Call from the run's event loop. Returns ``False`` when no chat is
+        accepting steers: none is active, it is finishing, it is a compact
+        operation, or a stop was requested.
+        """
+
+        steer_message = user_text_message(message) if isinstance(message, str) else message
+        if (steer_message.get("role") or "user") != "user":
+            raise ValueError("steer message must be a user message")
+        self._check_input_support(steer_message)
+        run = self._active_run
+        if run is None or not run.accepting_steers or run.cancel_requested:
+            return False
+        run.steers.append(steer_message)
+        return True
+
+    def take_steers(self) -> list[ConversationMessage]:
+        """Remove and return the steers not yet delivered."""
+
+        run = self._active_run
+        if run is None:
+            return []
+        steers, run.steers = run.steers, []
+        return steers
+
+    def pending_steers(self) -> list[ConversationMessage]:
+        """Return the steers not yet delivered, leaving them pending."""
+
+        return list(self._active_run.steers) if self._active_run is not None else []
+
     def clear(self) -> None:
         """Drop the in-memory conversation history."""
 
@@ -438,6 +474,7 @@ class Agent:
 
         terminal: Event | None = None
         async with self._run_scope() as run:
+            run.accepting_steers = True
             try:
                 async with aclosing(self._achat(run, user_input, attachments, on_persist)) as stream:
                     async for event in stream:
@@ -914,6 +951,17 @@ class Agent:
             if not task.cancelled() and task.exception() is None:
                 self.messages.append(message)
 
+    def _check_input_support(self, message: ConversationMessage) -> None:
+        content_blocks = message.get("content") or []
+        for block_type, supported, label in (
+            ("image", self.supports_image_input, "image input"),
+            ("document", self.supports_pdf_input, "PDF input"),
+        ):
+            if not supported and any(
+                isinstance(block, dict) and block.get("type") == block_type for block in content_blocks
+            ):
+                raise ValueError(f"current model does not support {label}")
+
     # ------------------------------------------------------------------
     # Agent loop
     # ------------------------------------------------------------------
@@ -946,16 +994,11 @@ class Agent:
                 blocks = await asyncio.shield(task)
             user_message["content"].extend(blocks)
 
-        content_blocks = user_message.get("content") or []
-        for block_type, supported, label in (
-            ("image", self.supports_image_input, "image input"),
-            ("document", self.supports_pdf_input, "PDF input"),
-        ):
-            if not supported and any(
-                isinstance(block, dict) and block.get("type") == block_type for block in content_blocks
-            ):
-                yield Event("error", {"message": f"current model does not support {label}"})
-                return
+        try:
+            self._check_input_support(user_message)
+        except ValueError as exc:
+            yield Event("error", {"message": str(exc)})
+            return
 
         run.check_cancelled()
         await self._commit(user_message, on_persist)
@@ -1130,7 +1173,24 @@ class Agent:
                     elapsed_ms = _turn_elapsed_ms(user_message, compact_marker)
                     yield self._usage_event(context_tokens, turn_usage, turn_cost, elapsed_ms)
 
-            if not tool_calls:
+            run.check_cancelled()
+            # The take and closing the run to new steers share one synchronous
+            # stretch, so no steer is accepted after the final take and dropped.
+            steers, run.steers = run.steers, []
+            if steers:
+                # The closing segment lasts until the merged message; the
+                # merged message opens a new segment, so usage, cost and the
+                # duration anchor restart from it.
+                steer_message = merge_user_messages(steers, steer=True)
+                await self._commit(steer_message, on_persist)
+                elapsed_ms = _turn_elapsed_ms(user_message, steer_message)
+                yield self._usage_event(context_tokens, turn_usage, turn_cost, elapsed_ms)
+                user_message = steer_message
+                yield Event("user_message", {"message": user_message})
+                turn_usage = {}
+                turn_cost = None
+            elif not tool_calls:
+                run.accepting_steers = False
                 return
 
     async def _summarize(
