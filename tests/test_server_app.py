@@ -17,7 +17,7 @@ from conftest import FakeAgent
 from fastapi import Request
 from starlette.testclient import TestClient
 
-from mycode.agent import Event
+from mycode.agent import Event, PersistCallback
 from mycode.messages import ConversationMessage
 from mycode.models import ModelMetadata
 from mycode.providers.base import ProviderRequest, ProviderStreamEvent
@@ -835,7 +835,9 @@ async def test_running_session_uses_snapshot_cost_after_usage_eviction_then_load
             async def acompact(self) -> ConversationMessage:
                 raise NotImplementedError
 
-            async def achat(self, user_input: str | ConversationMessage) -> AsyncGenerator[Event, None]:
+            async def achat(
+                self, user_input: str | ConversationMessage, *, on_persist: PersistCallback | None = None
+            ) -> AsyncGenerator[Event, None]:
                 assert isinstance(user_input, dict)
                 await store.append_message("s1", user_input)
                 yield Event("usage", {"turn_cost": {"total": 0.5}})

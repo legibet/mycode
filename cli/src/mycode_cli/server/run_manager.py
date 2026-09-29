@@ -8,11 +8,12 @@ import time
 from collections.abc import AsyncGenerator, AsyncIterator, Awaitable, Callable
 from contextlib import aclosing, asynccontextmanager
 from dataclasses import dataclass, field
+from functools import partial
 from typing import Any, Literal, Protocol
 from uuid import uuid4
 from weakref import WeakValueDictionary
 
-from mycode.agent import Event
+from mycode.agent import Event, PersistCallback
 from mycode.messages import ConversationMessage, merge_user_messages
 from mycode_cli.permissions import ToolReviewDecision
 from mycode_cli.sessions import SessionTotals, sum_session_totals
@@ -52,7 +53,9 @@ class RunAgent(Protocol):
 
     def pending_steers(self) -> list[ConversationMessage]: ...
 
-    def achat(self, user_input: str | ConversationMessage) -> AsyncGenerator[Event, None]: ...
+    def achat(
+        self, user_input: str | ConversationMessage, *, on_persist: PersistCallback | None = None
+    ) -> AsyncGenerator[Event, None]: ...
 
     def acompact(self) -> Awaitable[ConversationMessage]: ...
 
@@ -73,6 +76,12 @@ class RunState:
     delivering: list[ConversationMessage] = field(default_factory=list)
     # Messages for the next turn of a chat run, each carrying ``meta.input_id``.
     queue: list[ConversationMessage] = field(default_factory=list)
+    # Messages the run committed, and how far snapshots return them as history:
+    # through the last committed user message, whose events end at
+    # ``history_seq``. The events after it rebuild the rest, as on the live stream.
+    committed: list[ConversationMessage] = field(default_factory=list)
+    history_len: int = 0
+    history_seq: int = 0
     # Pre-run history totals, combined with the cumulative turn totals on each update.
     session_base: SessionTotals = field(default_factory=SessionTotals)
     session_totals: SessionTotals = field(default_factory=SessionTotals)
@@ -253,13 +262,14 @@ class RunManager:
         async with state.condition:
             if state.status != "running":
                 return None
-            messages = copy.deepcopy(state.base_messages)
-            if state.user_message is not None:
-                messages.append(copy.deepcopy(state.user_message))
+            history = state.committed[: state.history_len]
+            if not history and state.user_message is not None:
+                # Not committed yet: the input still leads the turn.
+                history = [state.user_message]
             return {
                 "run": state.info(),
-                "messages": messages,
-                "pending_events": list(state.events),
+                "messages": copy.deepcopy(state.base_messages + history),
+                "pending_events": [event for event in state.events if event["seq"] > state.history_seq],
                 "pending": {
                     "steers": copy.deepcopy(state.agent.pending_steers()),
                     "queue": copy.deepcopy(state.delivering + state.queue),
@@ -444,8 +454,9 @@ class RunManager:
             else:
                 assert state.user_message is not None
                 message = state.user_message
+                on_persist = partial(self._record_commit, state)
                 while True:
-                    async with aclosing(state.agent.achat(message)) as stream:
+                    async with aclosing(state.agent.achat(message, on_persist=on_persist)) as stream:
                         async for event in stream:
                             # achat() commits its user message before its first
                             # event, so a queued turn is announced only once it
@@ -501,6 +512,15 @@ class RunManager:
 
         await self._finish_run(state, status="completed")
 
+    async def _record_commit(self, state: RunState, message: ConversationMessage) -> None:
+        async with state.condition:
+            state.committed.append(message)
+            # A steer or queued message enters history with its user_message
+            # event, which clients apply as the start of its segment.
+            if message.get("role") == "user" and "input_ids" not in (message.get("meta") or {}):
+                state.history_len = len(state.committed)
+                state.history_seq = state.next_seq - 1
+
     async def _append_event(
         self, state: RunState, event: Event, *, compact_totals: SessionTotals | None = None
     ) -> None:
@@ -508,6 +528,8 @@ class RunManager:
             if event.type == "user_message":
                 # A delivered steer or queued turn starts a new usage segment.
                 state.session_base = state.session_totals
+                state.history_len = len(state.committed)
+                state.history_seq = state.next_seq
             elif event.type == "usage":
                 state.session_totals = state.session_base.add(event.data.get("turn_usage"), event.data.get("turn_cost"))
                 event = Event(

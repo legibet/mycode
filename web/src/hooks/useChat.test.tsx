@@ -534,6 +534,40 @@ describe("useChat", () => {
     });
   });
 
+  it("resumes the stream after the snapshot's last_seq when no events are pending", async () => {
+    saveActiveSession("/workspace/a", "session-2");
+    const fetchMock = mockFetch({
+      "/api/sessions?cwd=": createJsonResponse({
+        sessions: [{ id: "session-2", title: "Running" }],
+      }),
+      "/api/sessions/session-2": createJsonResponse({
+        session: { id: "session-2", title: "Running" },
+        messages: [{ role: "user", content: [{ type: "text", text: "run" }] }],
+        active_run: {
+          id: "run-2",
+          session_id: "session-2",
+          kind: "chat",
+          status: "running",
+          last_seq: 7,
+        },
+        pending_events: [],
+      }),
+      "/api/runs/run-2/stream?after=7": new Response("data: [DONE]\n\n", {
+        status: 200,
+        headers: { "Content-Type": "text/event-stream" },
+      }),
+    });
+
+    const { result } = renderChatHook();
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(
+      fetchMock.mock.calls.some(
+        ([url]) => url === "/api/runs/run-2/stream?after=7",
+      ),
+    ).toBe(true);
+  });
+
   it("appends all tool output deltas without inserting separators", async () => {
     const largeDelta = "x".repeat(110 * 1024);
     globalThis.localStorage.setItem(

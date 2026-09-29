@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import gc
 from pathlib import Path
-from typing import override
+from typing import Any, override
 
 import pytest
 from conftest import FakeAgent
@@ -38,7 +38,7 @@ class BlockingAgent(ChatOnlyAgent):
         self.cancelled = True
         self.release.set()
 
-    async def achat(self, user_input):
+    async def achat(self, user_input, on_persist=None):
         text = user_input["content"][0]["text"] if isinstance(user_input, dict) else user_input
         yield Event("text", {"delta": f"reply:{text}"})
         await self.release.wait()
@@ -50,14 +50,14 @@ class SimpleAgent(ChatOnlyAgent):
     def cancel(self) -> None:
         return None
 
-    async def achat(self, user_input):
+    async def achat(self, user_input, on_persist=None):
         text = user_input["content"][0]["text"] if isinstance(user_input, dict) else user_input
         yield Event("text", {"delta": f"reply:{text}"})
 
 
 class RetryingAgent(SimpleAgent):
     @override
-    async def achat(self, user_input):
+    async def achat(self, user_input, on_persist=None):
         yield Event("retry", {"attempt": 2, "max_attempts": 3})
         async for event in super().achat(user_input):
             yield event
@@ -72,7 +72,7 @@ class ToolOutputAgent(ChatOnlyAgent):
     def cancel(self) -> None:
         self.release.set()
 
-    async def achat(self, user_input):
+    async def achat(self, user_input, on_persist=None):
         del user_input
         yield Event("tool_start", {"tool_call": {"id": "call-1", "name": "bash", "input": {}}})
         yield Event("tool_output", {"tool_use_id": "call-1", "output": "a" * 8})
@@ -102,7 +102,7 @@ class UsageAgent(ChatOnlyAgent):
     def cancel(self) -> None:
         return None
 
-    async def achat(self, user_input):
+    async def achat(self, user_input, on_persist=None):
         del user_input
         yield Event(
             "usage",
@@ -240,6 +240,91 @@ async def test_reconnect_buffer_reports_eviction_as_a_seq_gap(monkeypatch: pytes
     assert snapshot["pending_events"] == [{"seq": 3, "type": "tool_output", "tool_use_id": "call-1", "output": "b" * 8}]
 
     agent.release.set()
+    await _wait_for_run_task(manager, run["id"])
+
+
+class CommittingAgent(ChatOnlyAgent):
+    """Chat fake that commits through ``on_persist`` like the SDK: each message
+    before the events that follow it. It pauses after each of its two steps."""
+
+    def __init__(self) -> None:
+        self.paused = asyncio.Event()
+        self.resume = asyncio.Event()
+
+    def cancel(self) -> None:
+        return None
+
+    async def _pause(self) -> None:
+        self.paused.set()
+        await self.resume.wait()
+        self.resume.clear()
+
+    async def achat(self, user_input, on_persist=None):
+        assert on_persist is not None
+        await on_persist(user_input)
+        yield Event("text", {"delta": "a"})
+        await on_persist(ASSISTANT_WITH_TOOL)
+        yield Event("usage", {})
+        yield Event("tool_start", {"tool_call": {"id": "call-1", "name": "bash", "input": {}}})
+        yield Event("tool_done", {"tool_use_id": "call-1", "output": "ok", "is_error": False})
+        await on_persist(TOOL_RESULT)
+        yield Event("text", {"delta": "b"})
+        await self._pause()
+        await on_persist(STEER)
+        yield Event("usage", {})
+        yield Event("user_message", {"message": STEER})
+        yield Event("text", {"delta": "c"})
+        await self._pause()
+
+
+ASSISTANT_WITH_TOOL: ConversationMessage = {
+    "role": "assistant",
+    "content": [{"type": "text", "text": "a"}, {"type": "tool_use", "id": "call-1", "name": "bash", "input": {}}],
+}
+TOOL_RESULT: ConversationMessage = {
+    "role": "user",
+    "content": [{"type": "tool_result", "tool_use_id": "call-1", "output": "ok"}],
+}
+STEER: ConversationMessage = {
+    "role": "user",
+    "content": [{"type": "text", "text": "now"}],
+    "meta": {"steer": True, "input_ids": ["s1"]},
+}
+
+
+async def test_snapshot_history_ends_at_the_last_committed_user_message(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("mycode_cli.server.run_manager.RUN_EVENT_BUFFER_SIZE", 2)
+    manager = RunManager()
+    agent = CommittingAgent()
+    user_message: ConversationMessage = {"role": "user", "content": [{"type": "text", "text": "run"}]}
+    run = await manager.start_run(
+        cwd="/work",
+        session_id="session-1",
+        user_message=user_message,
+        base_messages=[{"role": "assistant", "content": [{"type": "text", "text": "Earlier"}]}],
+        agent=agent,
+    )
+
+    async def snapshot_at_pause() -> dict[str, Any]:
+        await asyncio.wait_for(agent.paused.wait(), 2)
+        agent.paused.clear()
+        snapshot = await manager.snapshot_session("session-1")
+        assert snapshot is not None
+        return snapshot
+
+    # The events of the first step are evicted; the history covers them, and
+    # only the events after the tool result replay onto it.
+    snapshot = await snapshot_at_pause()
+    assert snapshot["messages"][1:] == [user_message, ASSISTANT_WITH_TOOL, TOOL_RESULT]
+    assert snapshot["pending_events"] == [{"seq": 5, "type": "text", "delta": "b"}]
+    agent.resume.set()
+
+    # A steer joins the history with its announcement, which the client
+    # applies as the start of a segment, so the events replay from there.
+    snapshot = await snapshot_at_pause()
+    assert snapshot["messages"][4:] == [STEER]
+    assert snapshot["pending_events"] == [{"seq": 8, "type": "text", "delta": "c"}]
+    agent.resume.set()
     await _wait_for_run_task(manager, run["id"])
 
 
@@ -384,7 +469,7 @@ class CancelledAchatAgent(ChatOnlyAgent):
     def cancel(self) -> None:
         return None
 
-    async def achat(self, user_input):
+    async def achat(self, user_input, on_persist=None):
         del user_input
         yield Event("text", {"delta": "partial"})
         raise asyncio.CancelledError
@@ -421,7 +506,7 @@ class PersistFailAfterCancelAgent(ChatOnlyAgent):
     def cancel(self) -> None:
         self.release.set()
 
-    async def achat(self, user_input):
+    async def achat(self, user_input, on_persist=None):
         del user_input
         yield Event("text", {"delta": "partial"})
         self.started.set()
@@ -468,7 +553,7 @@ class ReviewAgent(ChatOnlyAgent):
     def cancel(self) -> None:
         self.cancelled = True
 
-    async def achat(self, user_input):
+    async def achat(self, user_input, on_persist=None):
         del user_input
         yield Event("text", {"delta": "before"})
         self.decision = await self.manager.request_decision(
@@ -634,7 +719,7 @@ class CleanupAgent(ChatOnlyAgent):
     def cancel(self) -> None:
         self.cancel_requested.set()
 
-    async def achat(self, user_input):
+    async def achat(self, user_input, on_persist=None):
         self.started.set()
         await self.cancel_requested.wait()
         self.cleaning_up.set()
@@ -805,7 +890,7 @@ class CompactAgent(FakeAgent):
         self.cancelled = True
         self.release.set()
 
-    async def achat(self, user_input):
+    async def achat(self, user_input, on_persist=None):
         del user_input
         raise NotImplementedError
         yield  # unreached; makes this an async generator
@@ -959,7 +1044,7 @@ class QueueAgent(ChatOnlyAgent):
     def pending_steers(self) -> list[ConversationMessage]:
         return list(self.steers)
 
-    async def achat(self, user_input):
+    async def achat(self, user_input, on_persist=None):
         self.inputs.append(user_input)
         if len(self.inputs) == 1:
             self.started.set()
@@ -1018,7 +1103,7 @@ async def test_message_queued_during_a_queued_turn_runs_as_a_third_turn() -> Non
             self.release_continuation = asyncio.Event()
 
         @override
-        async def achat(self, user_input):
+        async def achat(self, user_input, on_persist=None):
             async for event in super().achat(user_input):
                 yield event
             if len(self.inputs) == 2:
@@ -1052,7 +1137,7 @@ async def test_sdk_user_message_advances_the_session_base() -> None:
         def cancel(self) -> None:
             return None
 
-        async def achat(self, user_input):
+        async def achat(self, user_input, on_persist=None):
             yield Event("usage", {"turn_usage": {"input_tokens": 100}, "turn_cost": {"total": 0.01}})
             # The SDK closes the steered segment by repeating its totals.
             yield Event("usage", {"turn_usage": {"input_tokens": 100}, "turn_cost": {"total": 0.01}})
@@ -1114,7 +1199,7 @@ async def test_cancel_before_queue_continuation_drops_the_queue() -> None:
 async def test_failure_drops_the_queue() -> None:
     class FailingAgent(QueueAgent):
         @override
-        async def achat(self, user_input):
+        async def achat(self, user_input, on_persist=None):
             async for event in super().achat(user_input):
                 yield event
             yield Event("error", {"message": "provider failed"})
@@ -1140,7 +1225,7 @@ async def test_snapshot_lists_the_queue_until_its_turn_is_announced() -> None:
             self.release_continuation = asyncio.Event()
 
         @override
-        async def achat(self, user_input):
+        async def achat(self, user_input, on_persist=None):
             if self.inputs:
                 # The provider's first event can take a while after the commit.
                 self.continued.set()
@@ -1171,7 +1256,7 @@ async def test_snapshot_lists_the_queue_until_its_turn_is_announced() -> None:
 async def test_failed_commit_of_the_queued_turn_is_not_announced() -> None:
     class CommitFailingAgent(QueueAgent):
         @override
-        async def achat(self, user_input):
+        async def achat(self, user_input, on_persist=None):
             if self.inputs:
                 self.inputs.append(user_input)
                 # The real achat() fails this way when persisting its user message fails.

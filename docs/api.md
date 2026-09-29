@@ -382,7 +382,7 @@ Load session with full message history. If the session has an active run, overla
 }
 ```
 
-`pending_events` contains the active run's buffered SSE events. The web UI reapplies them, then reconnects with `after=<last seq>`.
+For an active chat run, `messages` ends with the run's last committed user message: the input, a `tool_result` message, or a delivered steer or queued message once its `user_message` event is buffered. `pending_events` holds the buffered SSE events after that point, which rebuild the rest of the turn exactly as the live stream did. The web UI reapplies them, then reconnects with `after=<last seq>`, or `after=<active_run.last_seq>` when nothing is pending.
 
 `pending` lists the active run's undelivered steers and queued messages, each a user message carrying `meta.input_id`, with document data redacted as in `messages`. Queued messages whose turn has started but is not yet announced by `user_message` are still listed, so a reconnect during that turn's first request shows them; the event then removes them. Idle sessions return empty lists.
 
@@ -483,7 +483,7 @@ Response:
 
 The server adds `model`, `context_window`, `session_usage`, and `session_cost` to the SDK usage event described in docs/sdk.md. `context_tokens` is the latest normal request's context usage; `turn_usage`, `turn_cost`, and `turn_duration_ms` are cumulative snapshots for the turn. `session_usage` and `session_cost` add the current turn totals to the pre-run session totals. All costs are USD. SSE omits `None` fields; absence means the current snapshot is unavailable and clients must clear any previous value.
 
-Every event also carries `seq: int` for reconnect support. The web UI uses `after` to resume after a sequence number. The reconnect cache is bounded by event count and tool-output bytes; if older events were evicted, the first returned `seq` is greater than `after + 1`. The server does not synthesize or rewrite events to represent that gap.
+Every event also carries `seq: int` for reconnect support. The web UI uses `after` to resume after a sequence number. The reconnect cache is bounded by event count and tool-output bytes; if older events were evicted, the first returned `seq` is greater than `after + 1`. The server does not synthesize or rewrite events to represent that gap. A session snapshot is unaffected by evictions before its history boundary, since the history covers those events; only the current step's events can be missing.
 
 ## Run Manager
 
@@ -498,7 +498,7 @@ Every event also carries `seq: int` for reconnect support. The web UI uses `afte
 - `cancel_run()` requests cancellation once and waits for completion; repeated requests and HTTP disconnection do not interrupt cleanup
 - `aclose()` cancels unfinished runs, awaits their cleanup, and releases cached state
 - Finished runs pruned after 300 seconds (`FINISHED_RUN_TTL_SECONDS`)
-- `snapshot_session()` returns reconnect data (base messages, buffered events, pending steers and queue, and current cost) for active runs
+- `snapshot_session()` returns reconnect data for active runs: the history through the run's last committed user message, the buffered events after it, pending steers and queue, and current cost. The run records its commits through `achat(on_persist=...)`; a steer or queued message joins the history at its `user_message` event, the point clients start its segment from
 - A chat run keeps a queue of messages. When `achat()` completes normally, the run takes the queue; if it is not empty and no stop was requested, it merges the items and calls `achat()` again on the same agent, until the queue is empty
 - `user_message` for the merged message is emitted at the first event of that call, since `achat()` commits its user message before yielding anything; a failed commit surfaces as `error` with no `user_message`
 - The final take and leaving the session's active slot happen together, so no enqueue is accepted and then dropped

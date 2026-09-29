@@ -940,7 +940,8 @@ export function useChat(
       activeRunRef.current = run;
 
       if (run?.id) {
-        const lastSeq = pendingEvents.at(-1)?.seq ?? 0;
+        // The history covers every event up to the run's last seq when none is pending.
+        const lastSeq = pendingEvents.at(-1)?.seq ?? run.last_seq;
         streamRun(run, data.session.id, lastSeq, replayStopped);
       } else {
         setRunKind(null);

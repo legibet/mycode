@@ -238,7 +238,7 @@ Construct an `Agent` with the same `(session_dir, session_id)` to resume across 
 
 ### `on_persist`
 
-`achat(..., on_persist=coro)` and `run(..., on_persist=coro)` await `coro(message)` once per persisted message, **before** the internal store appends it. It fires for the user input, merged steer messages, the assistant response, `tool_result` messages, and `compact` events alike, and works with or without `session_dir`. Use it as a custom persistence backend, or to stage related records alongside the SDK's own append (the CLI web server lands rewind markers this way).
+`achat(..., on_persist=coro)` and `run(..., on_persist=coro)` await `coro(message)` once per persisted message, **before** the internal store appends it. It fires for the user input, merged steer messages, the assistant response, `tool_result` messages, and `compact` events alike, and works with or without `session_dir`. Use it as a custom persistence backend, or to follow what the chat has committed (the CLI web server builds reconnect snapshots this way).
 
 Once a commit starts, the callback and SDK append finish before cancellation is reported, and the record still joins `agent.messages`. A committed record is never rolled back; a failed one propagates the error and stays out of `agent.messages`, so memory never runs ahead of the log.
 
