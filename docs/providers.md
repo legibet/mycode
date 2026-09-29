@@ -80,9 +80,9 @@ DeepSeek and Z.AI pin the legacy name via `max_tokens_field`. Generic `openai_ch
 - API: Anthropic Messages API
 - Base URL: `https://api.anthropic.com`
 - API key env: `ANTHROPIC_API_KEY`
-- Default models: `claude-opus-5-5`, `claude-sonnet-5`
+- Default models: `claude-opus-5-5`, `claude-sonnet-5-5`
 - `supports_reasoning_effort`: true
-- Default-on Claude 5 models and explicitly enabled thinking use adaptive summarized output; `none` disables thinking on models that support it (Opus 5.5 rejects it)
+- Default-on Claude 5 models and explicitly enabled thinking use adaptive summarized output; `none` sends `disabled` unchanged and models that reject it (Opus 5.5, Sonnet 5.5) surface the API error
 - Sends other explicit values unchanged through `output_config.effort`
 - Replays same-model native `thinking` and `redacted_thinking` unchanged; legacy signature-only blocks remain supported
 - Adds ephemeral `cache_control` to system prompt block and last user content block
