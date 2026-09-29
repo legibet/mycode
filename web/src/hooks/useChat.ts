@@ -559,6 +559,9 @@ export function useChat(
   const activeSessionRef = useRef(activeSession);
   const requestTokenRef = useRef(0);
   const pendingRequestTokenRef = useRef(0);
+  /** Token of a turn stopped while its `POST /api/chat` was in flight; the
+   * run it names is stopped as soon as the response arrives. */
+  const stoppedRequestTokenRef = useRef(0);
   const sessionRequestTokenRef = useRef(0);
   const streamAbortRef = useRef<AbortController | null>(null);
   const streamTokenRef = useRef(0);
@@ -952,6 +955,54 @@ export function useChat(
     loadSessionRef.current = loadSession;
   }, [loadSession]);
 
+  const cancel = useCallback(() => {
+    const runId = activeRunRef.current?.id;
+    if (!runId && pendingRequestTokenRef.current) {
+      // The run is unknown until POST /api/chat returns; it is stopped then.
+      stoppedRequestTokenRef.current = pendingRequestTokenRef.current;
+      return;
+    }
+    const sessionId = activeSessionRef.current.id;
+
+    streamTokenRef.current += 1;
+    streamAbortRef.current?.abort();
+    streamAbortRef.current = null;
+    activeRunRef.current = null;
+    setPendingPermissions([]);
+    // The aborted stream never sees its `cancelled`, so undelivered input
+    // goes back to the composer here. A steer committed just before the stop
+    // may not have reached this client yet: the reloaded history decides.
+    const items = takePending();
+
+    if (!runId) {
+      setRunKind(null);
+      restorePending(items);
+      return;
+    }
+
+    void (async () => {
+      await cancelRun(runId);
+      if (activeSessionRef.current.id !== sessionId) return;
+
+      const delivered = new Set<string>();
+      try {
+        const data = await loadSessionRef.current?.(sessionId);
+        for (const message of data?.messages ?? []) {
+          for (const id of message.meta?.input_ids ?? []) delivered.add(id);
+        }
+        fetchSessions();
+      } catch (error) {
+        console.error("Failed to reload session after cancel:", error);
+        if (activeSessionRef.current.id === sessionId) {
+          setRunKind(null);
+        }
+      }
+      // A session switched to during the reload keeps its own composer.
+      if (activeSessionRef.current.id !== sessionId) return;
+      restorePending(items.filter((item) => !delivered.has(item.id)));
+    })();
+  }, [cancelRun, fetchSessions, restorePending, takePending]);
+
   const postChat = useCallback(
     async (
       body: Record<string, unknown>,
@@ -1017,6 +1068,7 @@ export function useChat(
         // Refresh sidebar immediately so title + is_running are visible
         fetchSessions();
         streamRun(chatData.run, sessionId, 0);
+        if (stoppedRequestTokenRef.current === requestToken) cancel();
         return true;
       } catch (e) {
         if (
@@ -1033,6 +1085,7 @@ export function useChat(
       }
     },
     [
+      cancel,
       dispatch,
       fetchSessions,
       restorePending,
@@ -1389,50 +1442,6 @@ export function useChat(
       return false;
     }
   }, [config.model, config.provider, fetchSessions, loading, streamRun]);
-
-  const cancel = useCallback(() => {
-    const runId = activeRunRef.current?.id;
-    const sessionId = activeSessionRef.current.id;
-
-    streamTokenRef.current += 1;
-    pendingRequestTokenRef.current = 0;
-    streamAbortRef.current?.abort();
-    streamAbortRef.current = null;
-    activeRunRef.current = null;
-    setPendingPermissions([]);
-    // The aborted stream never sees its `cancelled`, so undelivered input
-    // goes back to the composer here. A steer committed just before the stop
-    // may not have reached this client yet: the reloaded history decides.
-    const items = takePending();
-
-    if (!runId) {
-      setRunKind(null);
-      restorePending(items);
-      return;
-    }
-
-    void (async () => {
-      await cancelRun(runId);
-      if (activeSessionRef.current.id !== sessionId) return;
-
-      const delivered = new Set<string>();
-      try {
-        const data = await loadSessionRef.current?.(sessionId);
-        for (const message of data?.messages ?? []) {
-          for (const id of message.meta?.input_ids ?? []) delivered.add(id);
-        }
-        fetchSessions();
-      } catch (error) {
-        console.error("Failed to reload session after cancel:", error);
-        if (activeSessionRef.current.id === sessionId) {
-          setRunKind(null);
-        }
-      }
-      // A session switched to during the reload keeps its own composer.
-      if (activeSessionRef.current.id !== sessionId) return;
-      restorePending(items.filter((item) => !delivered.has(item.id)));
-    })();
-  }, [cancelRun, fetchSessions, restorePending, takePending]);
 
   const decidePermission = useCallback(
     async (decision: "allow" | "deny") => {

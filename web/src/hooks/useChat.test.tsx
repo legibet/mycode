@@ -1585,6 +1585,65 @@ describe("useChat", () => {
     expect(result.current.messages).toHaveLength(2);
   });
 
+  it("stops the run named by a start request that was in flight at Stop", async () => {
+    saveActiveSession("/workspace/a", "session-1");
+    let respond!: () => void;
+    const idle = (messages: unknown[]) =>
+      createJsonResponse({
+        session: { id: "session-1", title: "Saved" },
+        messages,
+        active_run: null,
+        pending_events: [],
+      });
+    const session = vi
+      .fn()
+      .mockReturnValueOnce(idle([]))
+      .mockReturnValue(
+        idle([{ role: "user", content: [{ type: "text", text: "hi" }] }]),
+      );
+    const fetchMock = mockFetch({
+      "/api/sessions?cwd=": createJsonResponse({
+        sessions: [{ id: "session-1", title: "Saved" }],
+      }),
+      "/api/sessions/session-1": () => session(),
+      "/api/chat": () =>
+        new Promise<Response>((resolve) => {
+          respond = () =>
+            resolve(
+              createJsonResponse({
+                run: {
+                  id: "run-1",
+                  session_id: "session-1",
+                  kind: "chat",
+                  status: "running",
+                  last_seq: 0,
+                },
+                session: { id: "session-1", title: "Saved" },
+              }),
+            );
+        }),
+      "/api/runs/run-1/stream": () => new Promise<Response>(() => {}),
+      "/api/runs/run-1/cancel": createJsonResponse({ status: "ok" }),
+    });
+    const cancelled = () =>
+      fetchMock.mock.calls.some(([url]) => url === "/api/runs/run-1/cancel");
+    const { result } = renderChatHook();
+    await waitFor(() => expect(result.current.sessionLoading).toBe(false));
+
+    act(() => {
+      void result.current.send({ text: "hi", workspaceFiles: [] });
+    });
+    act(() => result.current.cancel());
+    // Nothing to stop yet: the turn stays busy until its run is known.
+    expect(result.current.loading).toBe(true);
+    expect(cancelled()).toBe(false);
+
+    await act(async () => respond());
+    await waitFor(() => expect(cancelled()).toBe(true));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.messages).toHaveLength(1);
+  });
+
   it("finishes a replayed compact cancellation and reloads idle history", async () => {
     const sessionResponse = vi
       .fn()
