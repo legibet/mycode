@@ -319,6 +319,30 @@ class TestTurnRenderer:
         else:
             assert f"${expected:.2f}" in rendered
 
+    async def test_user_message_closes_the_segment_and_echoes_the_steer(self, harness: TerminalHarness) -> None:
+        steer = {
+            "role": "user",
+            "content": [{"type": "text", "text": "use sqlite"}, {"type": "text", "text": "keep the tests"}],
+            "meta": {"steer": True},
+        }
+        _, rendered = await _render_turn(
+            harness,
+            [
+                Event("text", {"delta": "first segment"}),
+                Event("usage", {"context_tokens": 10, "turn_cost": {"total": 0.02}}),
+                Event("user_message", {"message": steer}),
+                Event("text", {"delta": "second segment"}),
+                Event("usage", {"context_tokens": 20, "turn_cost": {"total": 0.03}}),
+            ],
+            session_cost_base=0.40,
+        )
+
+        # Each segment ends with its stats line; the session cost counts every segment once.
+        assert (
+            "first segment\n\nm · 10 tokens · $0.42\n\n❯ use sqlite\n\n  keep the tests  steer\n\nsecond segment\n\nm · 20 tokens · $0.45\n"
+            in rendered
+        )
+
     async def test_cancelled_event_is_a_muted_stop_not_an_error(self, harness: TerminalHarness) -> None:
         code, rendered = await _render_turn(harness, [Event("text", {"delta": "partial"}), Event("cancelled", {})])
 

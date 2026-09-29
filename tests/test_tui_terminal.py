@@ -1,4 +1,4 @@
-"""Tests for the TUI terminal owner (input queue, cancel keys, chooser, scrollback output)."""
+"""Tests for the TUI terminal owner (input routing, cancel keys, chooser, scrollback output)."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from io import StringIO
 from pathlib import Path
 
 import pytest
-from conftest import TerminalHarness
+from conftest import ESC_WAIT, TerminalHarness
 from prompt_toolkit.completion import WordCompleter
 from prompt_toolkit.data_structures import Size
 from prompt_toolkit.input.defaults import create_pipe_input
@@ -18,9 +18,6 @@ from rich.text import Text
 from mycode_cli.tui import terminal as terminal_module
 from mycode_cli.tui.markdown import MarkdownBlock
 from mycode_cli.tui.terminal import Terminal
-
-# Esc waits for a possible Esc+Enter before it counts as a lone key.
-ESC_WAIT = 0.8
 
 
 async def test_print_before_run_writes_immediately(harness: TerminalHarness) -> None:
@@ -76,24 +73,66 @@ async def test_enter_submits_and_esc_enter_inserts_newline(harness: TerminalHarn
     assert results == ["first", "two\nlines"]
 
 
-async def test_enter_while_busy_queues_inputs_in_order(harness: TerminalHarness) -> None:
+async def test_enter_and_ctrl_q_while_busy_go_to_the_run(harness: TerminalHarness) -> None:
     terminal, pipe = harness.terminal, harness.pipe
-    results: list[str | int] = []
+    submitted: list[tuple[str, bool]] = []
+    results: list[str] = []
+
+    def on_submit(text: str, queue: bool) -> bool:
+        submitted.append((text, queue))
+        return text != "refused"
 
     async def main() -> None:
         terminal.busy = True
-        pipe.send_text("one\r")
-        pipe.send_text("two\r")
+        terminal.on_submit = on_submit
+        # Ctrl+Q is XON on a tty; prompt_toolkit's raw mode turns flow control off.
+        pipe.send_text("one\rtwo\x11refused\r")
         await asyncio.sleep(0.2)
-        results.append(terminal.queued())
         terminal.busy = False
+        terminal.on_submit = None
+        # A refused text stays in the input; idle, Ctrl+Q submits like Enter.
+        pipe.send_text(" kept\x11")
         results.append(await terminal.read())
-        results.append(await terminal.read())
-        results.append(terminal.queued())
 
     await terminal.run(main)
 
-    assert results == [2, "one", "two", 0]
+    assert submitted == [("one", False), ("two", True), ("refused", False)]
+    assert results == ["refused kept"]
+
+
+async def test_enter_while_busy_without_a_taker_keeps_the_input(harness: TerminalHarness) -> None:
+    terminal, pipe = harness.terminal, harness.pipe
+    results: list[str] = []
+
+    async def main() -> None:
+        terminal.busy = True
+        pipe.send_text("later\r")
+        await asyncio.sleep(0.2)
+        terminal.busy = False
+        pipe.send_text("\r")
+        results.append(await terminal.read())
+
+    await terminal.run(main)
+
+    assert results == ["later"]
+
+
+@pytest.mark.parametrize("keys", ["\x1b[1;3A", "\x1b\x1b[A"], ids=["csi", "esc-prefix"])
+async def test_alt_up_takes_back_while_busy(harness: TerminalHarness, keys: str) -> None:
+    terminal, pipe = harness.terminal, harness.pipe
+    calls: list[str] = []
+    terminal.on_take_back = lambda: calls.append("take back")
+    terminal.on_cancel = lambda: calls.append("cancel")
+
+    async def main() -> None:
+        terminal.busy = True
+        pipe.send_text(keys)
+        await asyncio.sleep(ESC_WAIT)
+        terminal.busy = False
+
+    await terminal.run(main)
+
+    assert calls == ["take back"]
 
 
 async def test_esc_cancels_only_while_busy(harness: TerminalHarness) -> None:
@@ -252,19 +291,22 @@ async def test_tail_shows_the_last_lines(harness: TerminalHarness) -> None:
     assert "row 0\r" not in rendered
 
 
-async def test_toolbar_shows_interrupt_hint_and_queue_while_busy(harness: TerminalHarness) -> None:
-    terminal, pipe = harness.terminal, harness.pipe
+async def test_toolbar_and_pending_lines_while_busy(harness: TerminalHarness) -> None:
+    terminal = harness.terminal
 
     async def main() -> None:
+        terminal.on_submit = lambda _text, _queue: True
+        terminal.set_pending([Text("steer use sqlite"), Text("queued run the tests")])
         terminal.busy = True
-        pipe.send_text("later\r")
-        await asyncio.sleep(0.3)
+        await asyncio.sleep(0.2)
         terminal.busy = False
-        await terminal.read()
 
     await terminal.run(main)
 
-    assert "esc to interrupt · 1 queued" in harness.text()
+    rendered = harness.text()
+    # Above the input.
+    assert "steer use sqlite\r\nqueued run the tests\r\n❯" in rendered
+    assert "esc to interrupt · ctrl+q queue · alt+↑ take back" in rendered
 
 
 async def test_commit_redraws_the_new_tail_in_the_same_write(harness: TerminalHarness) -> None:

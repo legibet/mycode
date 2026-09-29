@@ -30,7 +30,13 @@ from mycode.attachments import (
     unsupported_attachment_block,
 )
 from mycode.compact import NothingToCompactError
-from mycode.messages import ConversationMessage, build_message, flatten_message_text, text_block
+from mycode.messages import (
+    ConversationMessage,
+    build_message,
+    flatten_message_text,
+    merge_user_messages,
+    text_block,
+)
 from mycode_cli.config import (
     ResolvedProvider,
     Settings,
@@ -193,6 +199,21 @@ def resolve_slash_command(command: str) -> str | None:
     return matches[0] if len(matches) == 1 else None
 
 
+def _is_command(text: str) -> bool:
+    """Whether submitted text runs a built-in command instead of going to the model."""
+
+    if text in ("exit", "quit"):
+        return True
+    command, _, argument = text.partition(" ")
+    resolved = resolve_slash_command(command)
+    # `/compact <text>` is not a command; it is sent as user text.
+    return resolved is not None and not (resolved == "/compact" and argument.strip())
+
+
+def _input_id(message: ConversationMessage) -> str | None:
+    return (message.get("meta") or {}).get("input_id")
+
+
 def _matched_slash_command(text_before_cursor: str) -> tuple[str, str] | None:
     text = text_before_cursor.lstrip()
     if not text.startswith("/"):
@@ -349,6 +370,9 @@ class TerminalChat:
         self._session = session or {}
         self._mode: Literal["new", "resumed"] = mode
         self._messages = messages or []
+        # Input submitted during a turn: steers the agent holds, and the queue for the next turn.
+        self._steers: list[ConversationMessage] = []
+        self._queue: list[ConversationMessage] = []
         self.terminal = Terminal(
             history_path=history_file_path(),
             completer=_PromptCompleter(cwd=self.settings.cwd),
@@ -404,25 +428,111 @@ class TerminalChat:
             await self._run_turn(user_input)
 
     async def _run_turn(self, user_input: str) -> None:
-        """Send one user message and render the agent's turn; Esc or Ctrl+C cancels it."""
+        """Send one user message and render the agent's turn, then run the queue as the next turn.
 
-        # Fold the session JSONL fresh each turn: covers resume, /new,
-        # /rewind, and manual /compact without tracking state.
-        renderer = TurnRenderer(
+        While it runs, Enter steers the turn and Ctrl+Q queues. Esc or Ctrl+C
+        takes the pending input back and cancels; a stopped turn returns
+        whatever is still pending to the editor.
+        """
+
+        batch = [self._build_user_message(user_input)]
+        message = batch[0]
+        # The agent's history grows by the committed message before anything else.
+        history_before = len(self.agent.messages)
+        self.terminal.busy = True
+        self.terminal.on_cancel = self._interrupt
+        self.terminal.on_submit = self._submit_pending
+        self.terminal.on_take_back = self._take_back
+        try:
+            renderer = await self._turn_renderer()
+            await self.store.record_user_turn(self.session_id, cwd=self.settings.cwd, text=user_input)
+            while True:
+                await renderer.render(self.agent, message)
+                if renderer.stopped or not self._queue:
+                    return
+                # The queue stays where Esc and Alt+Up reach it while the next
+                # turn is prepared; it is taken only once the turn can start.
+                renderer = await self._turn_renderer()
+                text = "\n\n".join(flatten_message_text(item) for item in self._queue)
+                await self.store.record_user_turn(self.session_id, cwd=self.settings.cwd, text=text)
+                if not self._queue:
+                    return
+                batch, self._queue = self._queue, []
+                self._show_pending()
+                message = merge_user_messages(batch, steer=False)
+                history_before = len(self.agent.messages)
+                self.terminal.print(Text(), user_echo(text), Text())
+        finally:
+            self.terminal.busy = False
+            self.terminal.on_cancel = None
+            self.terminal.on_submit = None
+            self.terminal.on_take_back = None
+            # A message that never reached the session (its commit failed, or
+            # the stop came first) returns to the editor with the pending input.
+            if len(self.agent.messages) == history_before:
+                self._queue[:0] = batch
+            self._take_back()
+
+    async def _turn_renderer(self) -> TurnRenderer:
+        # Fold the session JSONL fresh each turn: covers resume, /new, /rewind,
+        # and manual /compact without tracking state.
+        return TurnRenderer(
             self.terminal,
             model=self.agent.model,
             context_window=self.agent.context_window,
             session_base=await load_session_totals(self.store, self.session_id),
+            on_user_message=self._steer_delivered,
         )
-        user_message = self._build_user_message(user_input)
-        await self.store.record_user_turn(self.session_id, cwd=self.settings.cwd, text=user_input)
-        self.terminal.busy = True
-        self.terminal.on_cancel = self.agent.cancel
-        try:
-            await renderer.render(self.agent, user_message)
-        finally:
-            self.terminal.busy = False
-            self.terminal.on_cancel = None
+
+    def _submit_pending(self, text: str, queue: bool) -> bool:
+        """Steer the running turn with submitted text, or queue it; refuse commands."""
+
+        text = text.strip()
+        if _is_command(text):
+            self.terminal.print(Text(), Text("commands are unavailable during a turn", style=MUTED))
+            return False
+        # Skills and `@path` attachments are read now, as the user sees them.
+        message = self._build_user_message(text)
+        message["meta"] = {"input_id": uuid4().hex}
+        # A refused steer means the turn is ending, so it waits for the next one.
+        if not queue and self.agent.steer(message):
+            self._steers.append(message)
+        else:
+            self._queue.append(message)
+        self._show_pending()
+        return True
+
+    def _steer_delivered(self, message: ConversationMessage) -> None:
+        """Drop the steers merged into a delivered message."""
+
+        delivered = set((message.get("meta") or {}).get("input_ids") or [])
+        self._steers = [steer for steer in self._steers if _input_id(steer) not in delivered]
+        self._show_pending()
+
+    def _take_back(self) -> None:
+        """Put pending steers, then queued items, back into the editor ahead of the draft."""
+
+        taken = {_input_id(steer) for steer in self.agent.take_steers()}
+        # While the turn runs, a steer the agent no longer holds is being delivered and stays.
+        delivering = [steer for steer in self._steers if _input_id(steer) not in taken] if self.terminal.busy else []
+        returned = [steer for steer in self._steers if steer not in delivering] + self._queue
+        self._steers, self._queue = delivering, []
+        self._show_pending()
+        if returned:
+            self.terminal.prepend_input("\n\n".join(flatten_message_text(item) for item in returned))
+
+    def _interrupt(self) -> None:
+        """Esc or Ctrl+C during a turn: take the pending input back, then cancel."""
+
+        self._take_back()
+        self.agent.cancel()
+
+    def _show_pending(self) -> None:
+        width = self.terminal.width
+        self.terminal.set_pending(
+            [Text(shorten(f"steer {flatten_message_text(item)}", width), style=MUTED) for item in self._steers]
+            + [Text(shorten(f"queued {flatten_message_text(item)}", width), style=MUTED) for item in self._queue]
+        )
 
     def _print_header(self, session: dict[str, Any], *, mode: str, message_count: int) -> None:
         self.terminal.print(
@@ -485,28 +595,20 @@ class TerminalChat:
         return build_message("user", blocks)
 
     async def _handle_command(self, text: str) -> str | bool:
-        """Handle a slash command. Returns "exit" to quit, True if consumed, False otherwise."""
+        """Handle a built-in command. Returns "exit" to quit, True if consumed, False otherwise."""
 
-        # Non-slash exit aliases.
-        if text in ("exit", "quit"):
-            self.terminal.print(Text("bye", style=MUTED))
-            return "exit"
-
-        if not text.startswith("/"):
+        if not _is_command(text):
             return False
 
         command, _, argument = text.partition(" ")
         argument = argument.strip()
-        command = resolve_slash_command(command) or command
 
-        match command:
-            case "/quit" | "/exit":
+        # `exit` and `quit` also work without the slash.
+        match resolve_slash_command(command) or command:
+            case "/quit" | "/exit" | "exit" | "quit":
                 self.terminal.print(Text("bye", style=MUTED))
                 return "exit"
             case "/compact":
-                if argument:
-                    # `/compact <text>` is not a command; send it as user text.
-                    return False
                 await self._compact_session()
             case "/new" | "/clear":
                 self._start_new_session()

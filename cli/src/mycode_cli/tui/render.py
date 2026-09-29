@@ -6,6 +6,7 @@ import asyncio
 import re
 import time
 from collections import deque
+from collections.abc import Callable
 from contextlib import aclosing
 from datetime import datetime
 from typing import Any
@@ -406,11 +407,14 @@ class TurnRenderer:
         model: str,
         context_window: int | None,
         session_base: SessionTotals | None = None,
+        on_user_message: Callable[[ConversationMessage], None] | None = None,
     ) -> None:
         self._terminal = terminal
         self._model = model
         self._context_window = context_window
+        # Session totals before the current segment; a delivered steer starts a new one.
         self._session_base = session_base or SessionTotals()
+        self._on_user_message = on_user_message
         # One spinner for the whole turn keeps its animation continuous across phases.
         self._spinner = Spinner("dots", style=MUTED)
         # Whether anything was printed this turn; blocks after the first get a blank line before them.
@@ -433,6 +437,8 @@ class TurnRenderer:
         self._tool_line_count = 0
         # Stats reported by the agent's `usage` event for the latest request.
         self._stats: dict[str, Any] = {}
+        # Whether the turn ended on a cancel or an error rather than completing.
+        self.stopped = False
 
     async def render(
         self,
@@ -481,6 +487,8 @@ class TurnRenderer:
                             self._stats = dict(event.data)
                         case "compact":
                             self.compact()
+                        case "user_message":
+                            self.user_message(event.data.get("message") or {})
                         case "cancelled":
                             self.cancel()
                             return 0
@@ -570,20 +578,35 @@ class TurnRenderer:
         self._print(compact_marker())
         self._show_spinner(Text())
 
+    def user_message(self, message: ConversationMessage) -> None:
+        """Close the segment a delivered steer ends and echo the steer; the turn goes on."""
+
+        self.finish()
+        echo = user_echo(flatten_message_text(message, include_thinking=False))
+        echo.append("  steer", style=MUTED)
+        self._print(echo)
+        self._session_base = self._session_base.add(self._stats.get("turn_usage"), self._stats.get("turn_cost"))
+        self._stats = {}
+        if self._on_user_message is not None:
+            self._on_user_message(message)
+        self._show_spinner(Text())
+
     def error(self, message: str) -> None:
         """Render a terminal-visible error message for the current turn."""
 
         self._end_phase()
         self._print(error_line(message))
+        self.stopped = True
 
     def cancel(self) -> None:
         """Render a cancellation marker."""
 
         self._end_phase()
         self._print(Text("cancelled", style=MUTED))
+        self.stopped = True
 
     def finish(self) -> None:
-        """Flush the current turn and print the post-turn stats line."""
+        """Flush the current segment and print its stats line."""
 
         self._end_phase()
         context_tokens = self._stats.get("context_tokens")

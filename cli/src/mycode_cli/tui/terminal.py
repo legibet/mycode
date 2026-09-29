@@ -2,8 +2,8 @@
 
 ``Terminal`` runs one persistent, non-fullscreen prompt_toolkit application.
 Finished output goes to the terminal scrollback above it; only the bottom area
-(tail, chooser, input, toolbar) is redrawn. Nothing else writes to the terminal
-while it runs.
+(tail, chooser, pending input, input, toolbar) is redrawn. Nothing else writes
+to the terminal while it runs.
 """
 
 from __future__ import annotations
@@ -155,10 +155,15 @@ class Terminal:
         output: Output | None = None,
     ) -> None:
         self.on_cancel: Callable[[], None] | None = None
+        # While busy, submitted text goes here with whether Ctrl+Q queued it; it returns whether it took the text.
+        self.on_submit: Callable[[str, bool], bool] | None = None
+        self.on_take_back: Callable[[], None] | None = None
         self._busy = False
         self._animation: asyncio.Task[None] | None = None
-        # Submitted inputs; None marks Ctrl+D.
+        # Inputs submitted while idle; None marks Ctrl+D.
         self._inputs: asyncio.Queue[str | None] = asyncio.Queue()
+        # One line per input a run holds for later, shown above the input.
+        self._pending_input: list[Text] = []
         self._tail: RenderableType | None = None
         # Rows the tail area keeps during a run, so the input never moves back up mid-run.
         self._tail_rows = 0
@@ -210,7 +215,16 @@ class Terminal:
                 ConditionalContainer(self._chooser_window, filter=choosing),
                 ConditionalContainer(
                     FloatContainer(
-                        HSplit([Window(height=1), self._input_window]),
+                        HSplit(
+                            [
+                                Window(height=1),
+                                ConditionalContainer(
+                                    Window(FormattedTextControl(self._pending_text), dont_extend_height=True),
+                                    filter=Condition(lambda: bool(self._pending_input)),
+                                ),
+                                self._input_window,
+                            ]
+                        ),
                         floats=[
                             Float(
                                 xcursor=True,
@@ -332,16 +346,23 @@ class Terminal:
             raise EOFError
         return text
 
-    def queued(self) -> int:
-        """Return the number of submitted inputs not yet returned by ``read``."""
-
-        return self._inputs.qsize()
-
     def set_input(self, text: str) -> None:
         """Replace the input buffer text, with the cursor at the end."""
 
         self._buffer.text = text
         self._buffer.cursor_position = len(text)
+
+    def prepend_input(self, text: str) -> None:
+        """Put text ahead of the input draft, a blank line between them, with the cursor at the end."""
+
+        draft = self._buffer.text
+        self.set_input(f"{text}\n\n{draft}" if draft.strip() else text)
+
+    def set_pending(self, lines: Sequence[Text]) -> None:
+        """Replace the pending lines shown above the input."""
+
+        self._pending_input = list(lines)
+        self._app.invalidate()
 
     def print(self, *renderables: RenderableType) -> None:
         """Queue renderables for the scrollback, each on its own line; no arguments prints a blank line.
@@ -518,9 +539,14 @@ class Terminal:
             text.append("type to filter · ↑↓ select · enter confirm · esc cancel", style=MUTED)
         else:
             text = Text("esc to interrupt", style=MUTED)
-            if queued := self.queued():
-                text.append(f" · {queued} queued", style=MUTED)
+            if self.on_submit is not None:
+                text.append(" · ctrl+q queue", style=MUTED)
+            if self._pending_input:
+                text.append(" · alt+↑ take back", style=MUTED)
         return ANSI(_render([text], self.width, end=""))
+
+    def _pending_text(self) -> ANSI:
+        return ANSI(_render(self._pending_input, self.width).rstrip("\n"))
 
     def _line_prefix(self, line_number: int, wrap_count: int) -> StyleAndTextTuples:
         if line_number == 0 and wrap_count == 0:
@@ -535,8 +561,17 @@ class Terminal:
     # -- Keys ------------------------------------------------------------------
 
     def _accept(self, buffer: Buffer) -> bool:
-        if buffer.text.strip():
-            self._inputs.put_nowait(buffer.text)
+        return self._submit(buffer.text, queue=False)
+
+    def _submit(self, text: str, *, queue: bool) -> bool:
+        """Hand submitted text to the run while busy, else to ``read``; return whether the input keeps it."""
+
+        if not text.strip():
+            return False
+        if self._busy:
+            # Without a taker (e.g. during /compact) the text stays in the input.
+            return self.on_submit is None or not self.on_submit(text, queue)
+        self._inputs.put_nowait(text)
         return False
 
     def _input_bindings(self) -> KeyBindings:
@@ -549,6 +584,13 @@ class Terminal:
         @kb.add("escape", "enter")
         def _newline(event: KeyPressEvent) -> None:
             event.current_buffer.insert_text("\n")
+
+        @kb.add("c-q")
+        def _queue(event: KeyPressEvent) -> None:
+            buffer = event.current_buffer
+            if not self._submit(buffer.text, queue=True):
+                buffer.append_to_history()
+                buffer.reset()
 
         @kb.add("c-d", filter=Condition(lambda: not self._buffer.text))
         def _eof(_event: KeyPressEvent) -> None:
@@ -568,6 +610,11 @@ class Terminal:
         def _cancel(_event: KeyPressEvent) -> None:
             if self.on_cancel is not None:
                 self.on_cancel()
+
+        @kb.add("escape", "up", filter=busy)
+        def _take_back(_event: KeyPressEvent) -> None:
+            if self.on_take_back is not None:
+                self.on_take_back()
 
         @kb.add("c-c")
         @kb.add("<sigint>")

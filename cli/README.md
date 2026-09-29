@@ -85,17 +85,19 @@ The CLI assembles the system prompt from instructions files and discovered skill
 
 ## Terminal UI
 
-| Key                          | Action                                                                      |
-| ---------------------------- | --------------------------------------------------------------------------- |
-| Enter                        | Send the message; with a completion menu open, accept the highlighted entry |
-| Esc then Enter, or Alt+Enter | Insert a newline                                                            |
-| Esc                          | Interrupt the reply; close a selection list                                 |
-| Ctrl+C                       | Interrupt the reply; otherwise clear the input                              |
-| Ctrl+D                       | Exit (empty input only)                                                     |
-| Ctrl+L                       | Clear the screen                                                            |
-| Up / Down                    | Move between lines; on the first or last line, browse input history         |
+| Key                          | Action                                                                                 |
+| ---------------------------- | -------------------------------------------------------------------------------------- |
+| Enter                        | Send the message (steer while a reply runs); with a completion menu open, accept it    |
+| Ctrl+Q                       | Queue the message for after the reply; otherwise send it                               |
+| Alt+Up                       | Take back pending steers and queued messages into the input                            |
+| Esc then Enter, or Alt+Enter | Insert a newline                                                                       |
+| Esc                          | Take back pending messages and interrupt the reply; close a selection list             |
+| Ctrl+C                       | Take back pending messages and interrupt the reply; otherwise clear the input          |
+| Ctrl+D                       | Exit (empty input only)                                                                |
+| Ctrl+L                       | Clear the screen                                                                       |
+| Up / Down                    | Move between lines; on the first or last line, browse input history                    |
 
-Messages typed while a reply runs are queued and sent in order after it finishes.
+While a reply runs, Enter steers it: the model sees the message at its next step, after the running tools finish. Ctrl+Q queues the message instead; queued messages are sent together as the next turn when the reply finishes. Pending messages show above the input. Commands are unavailable until the reply ends.
 
 `@path` attaches a file to the message: text files as snapshots, images and PDFs as image or document input. Pasted file paths become `@path` references.
 
