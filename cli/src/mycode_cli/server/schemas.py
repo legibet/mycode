@@ -47,19 +47,11 @@ class ChatInputBlock(BaseModel):
         return self
 
 
-class ChatRequest(BaseModel):
-    """Request body for /chat."""
+class UserInputRequest(BaseModel):
+    """User message fields shared by /chat, steer, and queue requests."""
 
-    session_id: str = "default"
     message: str | None = None
     input: list[ChatInputBlock] | None = None
-    provider: str | None = None  # provider id, or a configured provider alias
-    model: str | None = None
-    cwd: str | None = None
-    api_key: str | None = None
-    api_base: str | None = None
-    reasoning_effort: str | None = None
-    rewind_to: int | None = Field(default=None, description="Visible message index for rewind.")
 
     @model_validator(mode="after")
     def validate_shape(self) -> Self:
@@ -70,6 +62,25 @@ class ChatRequest(BaseModel):
         if not has_message and not has_input:
             raise ValueError("message or input is required")
         return self
+
+
+class ChatRequest(UserInputRequest):
+    """Request body for /chat."""
+
+    session_id: str = "default"
+    provider: str | None = None  # provider id, or a configured provider alias
+    model: str | None = None
+    cwd: str | None = None
+    api_key: str | None = None
+    api_base: str | None = None
+    reasoning_effort: str | None = None
+    rewind_to: int | None = Field(default=None, description="Visible message index for rewind.")
+
+
+class PendingInputRequest(UserInputRequest):
+    """Request body for /runs/{run_id}/steer and /sessions/{session_id}/queue."""
+
+    input_id: str = Field(min_length=1, description="Client-generated id, stored as meta.input_id.")
 
 
 class SessionCreateRequest(BaseModel):
@@ -98,7 +109,7 @@ class StreamEvent(BaseModel):
     output: str | None = None  # tool_output + tool_done
     metadata: dict[str, Any] | None = None  # tool_done
     is_error: bool | None = None  # tool_done
-    message: str | None = None  # error
+    message: str | dict[str, Any] | None = None  # error text, or the user_message record
     request_id: str | None = None  # permission_request + permission_resolved
     tool_name: str | None = None  # permission_request
     preview: str | None = None  # permission_request
@@ -152,8 +163,8 @@ class ChatResponse(BaseModel):
     session: dict[str, Any]
 
 
-class CompactResponse(BaseModel):
-    """Response for POST /sessions/{session_id}/compact."""
+class RunResponse(BaseModel):
+    """Response carrying one run: compact start, steer, queue, and queue removal."""
 
     run: RunInfo
 

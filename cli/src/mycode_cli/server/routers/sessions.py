@@ -81,6 +81,7 @@ async def load_session(
                 **active["totals"].payload(),
                 "active_run": active["run"],
                 "pending_events": active["pending_events"],
+                "pending": {kind: _redact_document_data(messages) for kind, messages in active["pending"].items()},
             }
 
         data = await store.load_session(session_id)
@@ -92,6 +93,7 @@ async def load_session(
             **SessionTotals().payload(),
             "active_run": None,
             "pending_events": [],
+            "pending": {"steers": [], "queue": []},
         }
 
     return {
@@ -100,6 +102,7 @@ async def load_session(
         **data["totals"].payload(),
         "active_run": None,
         "pending_events": [],
+        "pending": {"steers": [], "queue": []},
     }
 
 

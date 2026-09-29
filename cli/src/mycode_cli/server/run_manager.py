@@ -13,7 +13,7 @@ from uuid import uuid4
 from weakref import WeakValueDictionary
 
 from mycode.agent import Event
-from mycode.messages import ConversationMessage
+from mycode.messages import ConversationMessage, merge_user_messages
 from mycode_cli.permissions import ToolReviewDecision
 from mycode_cli.sessions import SessionTotals, sum_session_totals
 
@@ -43,8 +43,14 @@ class ActiveRunError(RuntimeError):
 class RunAgent(Protocol):
     model: str
     context_window: int
+    supports_image_input: bool
+    supports_pdf_input: bool
 
     def cancel(self) -> None: ...
+
+    def steer(self, message: ConversationMessage) -> bool: ...
+
+    def pending_steers(self) -> list[ConversationMessage]: ...
 
     def achat(self, user_input: str | ConversationMessage) -> AsyncGenerator[Event, None]: ...
 
@@ -57,10 +63,16 @@ class RunState:
 
     id: str
     session_id: str
+    cwd: str
     base_messages: list[ConversationMessage]
     agent: RunAgent
     kind: RunKind = "chat"
     user_message: ConversationMessage | None = None
+    # Queued messages the current turn continues from, until their merged
+    # message is announced; snapshots list them as still queued.
+    delivering: list[ConversationMessage] = field(default_factory=list)
+    # Messages for the next turn of a chat run, each carrying ``meta.input_id``.
+    queue: list[ConversationMessage] = field(default_factory=list)
     # Pre-run history totals, combined with the cumulative turn totals on each update.
     session_base: SessionTotals = field(default_factory=SessionTotals)
     session_totals: SessionTotals = field(default_factory=SessionTotals)
@@ -104,6 +116,7 @@ class RunManager:
         self,
         *,
         session_id: str,
+        cwd: str,
         user_message: ConversationMessage,
         base_messages: list[ConversationMessage],
         agent: RunAgent,
@@ -111,6 +124,7 @@ class RunManager:
     ) -> dict[str, Any]:
         return await self._start(
             session_id=session_id,
+            cwd=cwd,
             kind="chat",
             user_message=user_message,
             base_messages=base_messages,
@@ -122,6 +136,7 @@ class RunManager:
         self,
         *,
         session_id: str,
+        cwd: str,
         base_messages: list[ConversationMessage],
         agent: RunAgent,
         session_base: SessionTotals | None = None,
@@ -129,6 +144,7 @@ class RunManager:
     ) -> dict[str, Any]:
         return await self._start(
             session_id=session_id,
+            cwd=cwd,
             kind="compact",
             user_message=None,
             base_messages=base_messages,
@@ -141,6 +157,7 @@ class RunManager:
         self,
         *,
         session_id: str,
+        cwd: str,
         kind: RunKind,
         user_message: ConversationMessage | None,
         base_messages: list[ConversationMessage],
@@ -159,6 +176,7 @@ class RunManager:
             state = RunState(
                 id=uuid4().hex,
                 session_id=session_id,
+                cwd=cwd,
                 kind=kind,
                 user_message=copy.deepcopy(user_message),
                 session_base=session_base,
@@ -176,6 +194,52 @@ class RunManager:
         await self._prune_finished_runs()
         async with self._lock:
             return self._runs_by_id.get(run_id)
+
+    async def get_active_run(self, session_id: str) -> RunState | None:
+        async with self._lock:
+            return self._active_by_session.get(session_id)
+
+    async def enqueue(self, state: RunState, message: ConversationMessage) -> bool:
+        """Queue a message for the next turn of an active chat run."""
+
+        async with self._lock:
+            if (
+                state.kind != "chat"
+                or state.cancel_requested
+                or self._active_by_session.get(state.session_id) is not state
+            ):
+                return False
+            state.queue.append(copy.deepcopy(message))
+            return True
+
+    async def remove_queued(self, session_id: str, input_id: str) -> dict[str, Any] | None:
+        """Remove one pending queued message; returns the run, or ``None`` when it is not pending."""
+
+        async with self._lock:
+            state = self._active_by_session.get(session_id)
+            if state is None:
+                return None
+            for index, message in enumerate(state.queue):
+                if (message.get("meta") or {}).get("input_id") == input_id:
+                    del state.queue[index]
+                    return state.info()
+            return None
+
+    async def steer_queued(self, state: RunState, input_id: str) -> bool | None:
+        """Move one queued message to the run's steers.
+
+        Returns ``None`` when it is not pending, ``False`` when the run is not
+        accepting steers (the message stays queued).
+        """
+
+        async with self._lock:
+            for index, message in enumerate(state.queue):
+                if (message.get("meta") or {}).get("input_id") == input_id:
+                    if not state.agent.steer(message):
+                        return False
+                    del state.queue[index]
+                    return True
+            return None
 
     async def snapshot_session(self, session_id: str) -> dict[str, Any] | None:
         """Return a reconnect snapshot for the active session."""
@@ -196,6 +260,10 @@ class RunManager:
                 "run": state.info(),
                 "messages": messages,
                 "pending_events": list(state.events),
+                "pending": {
+                    "steers": copy.deepcopy(state.agent.pending_steers()),
+                    "queue": copy.deepcopy(state.delivering + state.queue),
+                },
                 "totals": state.session_totals,
             }
 
@@ -375,16 +443,44 @@ class RunManager:
                 )
             else:
                 assert state.user_message is not None
-                async with aclosing(state.agent.achat(state.user_message)) as stream:
-                    async for event in stream:
-                        if event.type == "retry":
-                            continue
-                        if event.type == "error":
-                            last_error = str(event.data.get("message") or "unknown error")
-                        elif event.type == "cancelled":
-                            cancelled = True
-                            continue
-                        await self._append_event(state, event)
+                message = state.user_message
+                while True:
+                    async with aclosing(state.agent.achat(message)) as stream:
+                        async for event in stream:
+                            # achat() commits its user message before its first
+                            # event, so a queued turn is announced only once it
+                            # is in the session; a failed commit reaches the
+                            # client as an error with nothing delivered.
+                            if state.delivering:
+                                await self._append_event(state, Event("user_message", {"message": message}))
+                                state.delivering = []
+                            if event.type == "retry":
+                                continue
+                            if event.type == "error":
+                                last_error = str(event.data.get("message") or "unknown error")
+                            elif event.type == "cancelled":
+                                cancelled = True
+                                continue
+                            await self._append_event(state, event)
+                    if last_error is not None or cancelled:
+                        break
+                    # Stop requests and enqueue() run on this loop, so they land
+                    # either before this hold or once the next achat() has its
+                    # run: a stop after the take still ends the queued turn.
+                    async with self._lock:
+                        queued, state.queue = state.queue, []
+                        # A stop drops the queue; the client restores its items.
+                        if state.cancel_requested:
+                            break
+                        if not queued:
+                            # Leaving the active map with the final take means
+                            # no later enqueue is accepted and then dropped.
+                            if self._active_by_session.get(state.session_id) is state:
+                                del self._active_by_session[state.session_id]
+                            break
+                        # The queued turn continues on the same agent and model.
+                        state.delivering = queued
+                        message = merge_user_messages(queued, steer=False)
         except asyncio.CancelledError:
             # Manual compaction and external task cancellation both end the run.
             cancelled = True
@@ -409,7 +505,10 @@ class RunManager:
         self, state: RunState, event: Event, *, compact_totals: SessionTotals | None = None
     ) -> None:
         async with state.condition:
-            if event.type == "usage":
+            if event.type == "user_message":
+                # A delivered steer or queued turn starts a new usage segment.
+                state.session_base = state.session_totals
+            elif event.type == "usage":
                 state.session_totals = state.session_base.add(event.data.get("turn_usage"), event.data.get("turn_cost"))
                 event = Event(
                     "usage",

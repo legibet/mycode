@@ -115,6 +115,54 @@ Request body (`DecideRequest`, `cli/src/mycode_cli/server/schemas.py`):
 
 Returns `{status: "ok"}` on success, `404` if the run or `request_id` is unknown.
 
+### `POST /api/runs/{run_id}/steer`
+
+Hand a user message to a running chat. The agent delivers it at the next step boundary: after the running tool batch and its results, before the next provider request. See [Steering a running chat](sdk.md#steering-a-running-chat).
+
+Request body (`PendingInputRequest`, `cli/src/mycode_cli/server/schemas.py`):
+
+```json
+{
+  "message": "use sqlite",
+  "input": null,
+  "input_id": "c1"
+}
+```
+
+- `message` / `input` — same rules as `/api/chat`, including skills and workspace attachments; paths resolve under the run's `cwd`
+- `input_id` — required, client-generated opaque string; stored as `meta.input_id` and listed in the delivered message's `meta.input_ids`
+
+Response (`RunResponse`): `{"run": {...}}` once the steer is pending.
+
+Error responses:
+
+- `404` — run not found
+- `400` — the run's model does not support an image or PDF in the message; same detail text as `/api/chat`
+- `409` — the run is not accepting steers: a compact run, a chat that is finishing, stopping, or finished; body is `{"detail": {"message": "...", "run": {...}}}`. The client can queue the message instead
+
+Pending steers merge into one user message with `meta.steer: true`, announced by a `user_message` event.
+
+### `POST /api/sessions/{session_id}/queue`
+
+Queue a user message for the next turn of the session's running chat. Same body and `400` rules as the steer endpoint, checked against the running agent. When the current turn ends normally, all queued messages merge into one user message (`meta.input_ids`, no `meta.steer`), a `user_message` event announces it, and the run continues on the same agent with the run's provider, model, and effort. The user turn is recorded in the session catalog at enqueue.
+
+Response (`RunResponse`): `{"run": {...}}`.
+
+- `409` — no chat run is active for the session (none, or a compact run); body is `{"detail": {"message": "..."}}`. The client sends the message normally with `/api/chat`
+
+Queued messages are held in memory only; a cancelled or failed run drops them.
+
+### `DELETE /api/sessions/{session_id}/queue/{input_id}`
+
+Remove a pending queued message. Returns `{"run": {...}}`, or `404` when the item is not pending (delivered, dropped, or no active run).
+
+### `POST /api/sessions/{session_id}/queue/{input_id}/steer`
+
+Move a pending queued message into the current turn as a steer, keeping the message as it was built at enqueue (skills, attachments, workspace files). Returns `{"run": {...}}`.
+
+- `404` — the item is not pending (delivered, dropped, or no active run)
+- `409` — the run is not accepting steers; the message stays queued. Body is `{"detail": {"message": "...", "run": {...}}}`
+
 ### `POST /api/sessions/{session_id}/compact`
 
 Start a compact run: ask the provider for a summary of the session and append one `compact` marker. No user or assistant turn is created. The run streams over the normal `GET /api/runs/{run_id}/stream` endpoint; success emits a single `compact` event with `trigger: "manual"` after the marker is persisted.
@@ -130,7 +178,7 @@ Request body (`CompactRequest`, `cli/src/mycode_cli/server/schemas.py`):
 
 Both fields are optional (config defaults apply). The working directory comes from the session metadata; the summary request carries no tools and no reasoning effort.
 
-Response (`CompactResponse`):
+Response (`RunResponse`):
 
 ```json
 {
@@ -329,11 +377,14 @@ Load session with full message history. If the session has an active run, overla
   "session_usage": {"input_tokens": 1000000, "cache_read_tokens": 860000, "output_tokens": 40000, "total_tokens": 1040000},
   "session_cost": {"input": 0.08, "cache_read": 0.05, "output": 0.26, "total": 0.39},
   "active_run": {...} | null,
-  "pending_events": [...]
+  "pending_events": [...],
+  "pending": {"steers": [...], "queue": [...]}
 }
 ```
 
 `pending_events` contains the active run's buffered SSE events. The web UI reapplies them, then reconnects with `after=<last seq>`.
+
+`pending` lists the active run's undelivered steers and queued messages, each a user message carrying `meta.input_id`, with document data redacted as in `messages`. Queued messages whose turn has started but is not yet announced by `user_message` are still listed, so a reconnect during that turn's first request shows them; the event then removes them. Idle sessions return empty lists.
 
 For idle sessions, `messages`, `session_usage`, and `session_cost` come from one raw timeline read. The totals sum every billed request — tool loops, compaction, and rewound turns — with the same rules as turn totals: missing token fields and unpriced records are skipped, and any total-only cost reduces `session_cost` to `{"total": ...}`. `null` means nothing is known.
 
@@ -413,6 +464,7 @@ Response:
 | `tool_output`         | `tool_use_id: str`, `output: str`                                                                                                   |
 | `tool_done`           | `tool_use_id: str`, `output: str`, `is_error: bool`, `metadata?`, `content?`                                                        |
 | `compact`             | `trigger: "auto" \| "manual"`                                                                                                       |
+| `user_message`        | `message: {role, content, meta}`                                                                                                    |
 | `error`               | `message: str`                                                                                                                      |
 | `cancelled`           | _empty payload_                                                                                                                     |
 | `permission_request`  | `request_id: str`, `tool_use_id: str`, `tool_name: str`, `preview: str`                                                             |
@@ -422,6 +474,8 @@ Response:
 `tool_output` is ordered, append-only display text. Clients do not insert separators between events. Under buffer pressure, `[live output omitted]` replaces one continuous middle segment. `tool_done.output` is the authoritative final result. Once a tool's `tool_done` is buffered, the server may drop that tool's earlier `tool_output` events — a consumer that has not read them yet skips straight to the `tool_done`.
 
 `compact.trigger` matches the persisted marker's `meta.trigger`: `auto` inside a chat run, where the marker belongs to the running turn, and `manual` for a compact run.
+
+`user_message` carries a user message delivered inside the run after it was committed: merged steers (`meta.steer: true`) or the merged queue that starts the next turn. `meta.input_ids` lists the `input_id` of each delivered item, so clients can drop them from their pending lists. It also starts a new usage segment: the server advances the session base to the current session totals, and later `usage` events add only the new segment's `turn_usage` and `turn_cost`.
 
 `cancelled` ends a user-stopped chat or compact run after cleanup. A cancelled in-flight tool emits `tool_done` with `is_error: true` and its cleanup output before `cancelled`.
 
@@ -444,4 +498,8 @@ Every event also carries `seq: int` for reconnect support. The web UI uses `afte
 - `cancel_run()` requests cancellation once and waits for completion; repeated requests and HTTP disconnection do not interrupt cleanup
 - `aclose()` cancels unfinished runs, awaits their cleanup, and releases cached state
 - Finished runs pruned after 300 seconds (`FINISHED_RUN_TTL_SECONDS`)
-- `snapshot_session()` returns reconnect data (base messages, buffered events, and current cost) for active runs
+- `snapshot_session()` returns reconnect data (base messages, buffered events, pending steers and queue, and current cost) for active runs
+- A chat run keeps a queue of messages. When `achat()` completes normally, the run takes the queue; if it is not empty and no stop was requested, it merges the items and calls `achat()` again on the same agent, until the queue is empty
+- `user_message` for the merged message is emitted at the first event of that call, since `achat()` commits its user message before yielding anything; a failed commit surfaces as `error` with no `user_message`
+- The final take and leaving the session's active slot happen together, so no enqueue is accepted and then dropped
+- A cancelled or failed run drops its queue; the SDK discards pending steers. The client still holds those items and restores them

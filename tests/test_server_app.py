@@ -5,12 +5,15 @@ from __future__ import annotations
 import asyncio
 import json
 from collections.abc import AsyncGenerator, AsyncIterator
+from contextlib import asynccontextmanager
+from dataclasses import dataclass
 from pathlib import Path
 from threading import Event as ThreadEvent
 from typing import cast, override
 
 import httpx2
 import pytest
+from conftest import FakeAgent
 from fastapi import Request
 from starlette.testclient import TestClient
 
@@ -21,7 +24,7 @@ from mycode.providers.base import ProviderRequest, ProviderStreamEvent
 from mycode.session import SessionStore as TimelineStore
 from mycode_cli.server.app import create_api_app, create_app
 from mycode_cli.server.deps import get_run_manager, get_store
-from mycode_cli.server.run_manager import RunManager
+from mycode_cli.server.run_manager import RunManager, RunState
 from mycode_cli.sessions import SessionStore
 
 
@@ -512,6 +515,126 @@ def test_config_reports_effective_compact_threshold(
     assert config["compact_threshold"] == expected
 
 
+@dataclass
+class _GatedRun:
+    """A chat run whose first provider request waits until finish()."""
+
+    client: httpx2.AsyncClient
+    store: SessionStore
+    state: RunState
+    release: asyncio.Event
+
+    async def finish(self) -> None:
+        assert self.state.task is not None
+        self.release.set()
+        await self.state.task
+
+
+@asynccontextmanager
+async def _gated_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> AsyncGenerator[_GatedRun]:
+    monkeypatch.setenv("MYCODE_HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    class GatedAdapter(_CaptureAdapter):
+        @override
+        async def stream_turn(self, request: ProviderRequest) -> AsyncIterator[ProviderStreamEvent]:
+            if not started.is_set():
+                started.set()
+                await release.wait()
+            async for event in super().stream_turn(request):
+                yield event
+
+    monkeypatch.setattr("mycode.agent.get_provider_adapter", lambda _provider: GatedAdapter())
+    app = create_api_app()
+    async with (
+        app.router.lifespan_context(app),
+        httpx2.AsyncClient(transport=httpx2.ASGITransport(app), base_url="http://test") as client,
+    ):
+        response = await client.post(
+            "/api/chat",
+            json={"session_id": "s1", "cwd": str(tmp_path), "provider": "anthropic", "message": "first"},
+        )
+        await asyncio.wait_for(started.wait(), 2)
+        state = await cast(RunManager, app.state.runs).get_run(response.json()["run"]["id"])
+        assert state is not None
+        yield _GatedRun(client, cast(SessionStore, app.state.store), state, release)
+
+
+async def test_steer_and_queue_endpoints_reject_bad_input_and_finished_runs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async with _gated_run(tmp_path, monkeypatch) as run:
+        client, state = run.client, run.state
+        missing = await client.post("/api/runs/missing/steer", json={"message": "x", "input_id": "s1"})
+        assert missing.status_code == 404
+        state.agent.supports_image_input = False
+        image = {"type": "image", "data": "abc", "mime_type": "image/png"}
+        rejected = await client.post(f"/api/runs/{state.id}/steer", json={"input": [image], "input_id": "s2"})
+        assert rejected.status_code == 400
+        assert rejected.json()["detail"] == "current model does not support image input"
+        rejected = await client.post("/api/sessions/s1/queue", json={"input": [image], "input_id": "q1"})
+        assert rejected.status_code == 400
+
+        await run.finish()
+        late = await client.post(f"/api/runs/{state.id}/steer", json={"message": "late", "input_id": "s3"})
+        assert late.status_code == 409
+        assert late.json()["detail"]["run"]["status"] == "completed"
+        idle = await client.post("/api/sessions/s1/queue", json={"message": "x", "input_id": "q2"})
+        assert idle.status_code == 409
+
+
+async def test_queue_endpoints_remove_and_move_pending_input(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    async with _gated_run(tmp_path, monkeypatch) as run:
+        client, run_id = run.client, run.state.id
+        steer = await client.post(f"/api/runs/{run_id}/steer", json={"message": "use sqlite", "input_id": "s1"})
+        assert steer.status_code == 200, steer.text
+        assert steer.json()["run"]["id"] == run_id
+        for input_id in ("q1", "q2", "q3"):
+            queued = await client.post("/api/sessions/s1/queue", json={"message": input_id, "input_id": input_id})
+            assert queued.status_code == 200, queued.text
+            assert queued.json()["run"]["id"] == run_id
+
+        assert (await client.delete("/api/sessions/s1/queue/q2")).status_code == 200
+        assert (await client.delete("/api/sessions/s1/queue/q2")).status_code == 404
+        moved = await client.post("/api/sessions/s1/queue/q3/steer")
+        assert moved.status_code == 200, moved.text
+        assert moved.json()["run"]["id"] == run_id
+        assert (await client.post("/api/sessions/s1/queue/q3/steer")).status_code == 404
+
+        pending = (await client.get("/api/sessions/s1")).json()["pending"]
+        assert [(item["content"][-1]["text"], item["meta"]) for item in pending["steers"]] == [
+            ("use sqlite", {"input_id": "s1"}),
+            ("q3", {"input_id": "q3"}),
+        ]
+        assert [item["meta"] for item in pending["queue"]] == [{"input_id": "q1"}]
+        await run.finish()
+
+
+async def test_steers_and_queue_are_delivered_and_persisted(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    async with _gated_run(tmp_path, monkeypatch) as run:
+        client, state = run.client, run.state
+        await client.post(f"/api/runs/{state.id}/steer", json={"message": "use sqlite", "input_id": "s1"})
+        await client.post("/api/sessions/s1/queue", json={"message": "q2", "input_id": "q2"})
+        await client.post("/api/sessions/s1/queue/q2/steer")
+        await client.post("/api/sessions/s1/queue", json={"message": "q1", "input_id": "q1"})
+        await run.finish()
+
+    delivered = [event["message"] for event in state.events if event["type"] == "user_message"]
+    assert [
+        (message["content"][-1]["text"], message["meta"].get("steer"), message["meta"]["input_ids"])
+        for message in delivered
+    ] == [
+        ("q2", True, ["s1", "q2"]),
+        ("q1", None, ["q1"]),
+    ]
+    persisted = [message for message in run.store.load_raw_messages_sync("s1") if message.get("role") == "user"]
+    assert [message["meta"].get("input_ids") for message in persisted] == [None, ["s1", "q2"], ["q1"]]
+    assert persisted[1]["meta"]["steer"] is True
+    assert state.status == "completed"
+
+
 def _seed_session(store: SessionStore, session_id: str, cwd: str) -> None:
     async def seed() -> None:
         await store.create_session(session_id, cwd=cwd)
@@ -705,10 +828,7 @@ async def test_running_session_uses_snapshot_cost_after_usage_eviction_then_load
         ready = asyncio.Event()
         release = asyncio.Event()
 
-        class StreamingAgent:
-            model = "test-model"
-            context_window = 1000
-
+        class StreamingAgent(FakeAgent):
             def cancel(self) -> None:
                 release.set()
 
@@ -732,6 +852,7 @@ async def test_running_session_uses_snapshot_cost_after_usage_eviction_then_load
                 )
 
         run = await runs.start_run(
+            cwd="/work",
             session_id="s1",
             user_message={"role": "user", "content": [{"type": "text", "text": "question"}]},
             base_messages=data["messages"],

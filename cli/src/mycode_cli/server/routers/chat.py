@@ -30,6 +30,7 @@ from mycode.messages import (
     image_block,
     text_block,
 )
+from mycode.models import ModelMetadata
 from mycode_cli.config import (
     ResolvedProvider,
     get_settings,
@@ -42,17 +43,19 @@ from mycode_cli.config import (
 from mycode_cli.permissions import ToolReviewDecision, ToolReviewRequest
 from mycode_cli.runtime import build_agent, load_session_totals
 from mycode_cli.server.deps import RunManagerDep, StoreDep, resolve_workspace_cwd
-from mycode_cli.server.run_manager import ActiveRunError
+from mycode_cli.server.run_manager import ActiveRunError, RunAgent
 from mycode_cli.server.schemas import (
     CancelRunResponse,
     ChatRequest,
     ChatResponse,
     CompactRequest,
-    CompactResponse,
     DecideRequest,
+    PendingInputRequest,
     RunInfo,
+    RunResponse,
     StatusResponse,
     StreamEvent,
+    UserInputRequest,
 )
 from mycode_cli.system_prompt import build_skill_snapshot_blocks, discover_slash_skills
 from mycode_cli.workspace import resolve_path
@@ -86,7 +89,7 @@ def _read_workspace_text_attachment(rel_path: str, *, name: str | None, cwd: str
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
-async def _build_user_message(chat: ChatRequest, cwd: str) -> ConversationMessage:
+async def _build_user_message(chat: UserInputRequest, cwd: str) -> ConversationMessage:
     if not chat.input:
         text = str(chat.message or "").strip()
         snapshots = await asyncio.to_thread(build_skill_snapshot_blocks, text, cwd)
@@ -143,6 +146,14 @@ async def _build_user_message(chat: ChatRequest, cwd: str) -> ConversationMessag
     return build_message("user", blocks)
 
 
+def _check_input_support(message: ConversationMessage, model: ModelMetadata | RunAgent) -> None:
+    content_types = {b.get("type") for b in (message.get("content") or []) if isinstance(b, dict)}
+    if "image" in content_types and not model.supports_image_input:
+        raise HTTPException(status_code=400, detail="current model does not support image input")
+    if "document" in content_types and not model.supports_pdf_input:
+        raise HTTPException(status_code=400, detail="current model does not support PDF input")
+
+
 def _validate_rewind_request(
     *,
     session: dict[str, Any] | None,
@@ -192,11 +203,7 @@ async def chat(chat: ChatRequest, store: StoreDep, runs: RunManagerDep) -> ChatR
         model=resolved.model,
         model_config=model_config,
     )
-    content_types = {b.get("type") for b in (user_message.get("content") or []) if isinstance(b, dict)}
-    if "image" in content_types and not model_meta.supports_image_input:
-        raise HTTPException(status_code=400, detail="current model does not support image input")
-    if "document" in content_types and not model_meta.supports_pdf_input:
-        raise HTTPException(status_code=400, detail="current model does not support PDF input")
+    _check_input_support(user_message, model_meta)
 
     reasoning_effort = resolved.reasoning_effort
     if "reasoning_effort" in chat.model_fields_set:
@@ -274,6 +281,7 @@ async def chat(chat: ChatRequest, store: StoreDep, runs: RunManagerDep) -> ChatR
         try:
             run = await runs.start_run(
                 session_id=session_id,
+                cwd=cwd,
                 user_message=user_message,
                 base_messages=agent.messages,
                 agent=agent,
@@ -339,7 +347,7 @@ async def compact_session(
     body: CompactRequest,
     store: StoreDep,
     runs: RunManagerDep,
-) -> CompactResponse:
+) -> RunResponse:
     """Start a compact run: summarize the session and append one compact marker."""
 
     async with runs.session_operation(session_id):
@@ -372,6 +380,7 @@ async def compact_session(
         try:
             run = await runs.start_compact(
                 session_id=session_id,
+                cwd=cwd,
                 base_messages=agent.messages,
                 agent=agent,
                 session_base=data["totals"],
@@ -384,7 +393,86 @@ async def compact_session(
                 detail["run"] = existing.info()
             raise HTTPException(status_code=409, detail=detail) from exc
 
-    return CompactResponse(run=RunInfo.model_validate(run))
+    return RunResponse(run=RunInfo.model_validate(run))
+
+
+@router.post("/runs/{run_id}/steer")
+async def steer_run(
+    run_id: Annotated[str, PathParam(min_length=1)], body: PendingInputRequest, runs: RunManagerDep
+) -> RunResponse:
+    """Hand a user message to the running chat for its next step boundary."""
+
+    state = await runs.get_run(run_id)
+    if state is None:
+        raise HTTPException(status_code=404, detail="run not found")
+    message = await _build_user_message(body, state.cwd)
+    message["meta"] = {"input_id": body.input_id}
+    _check_input_support(message, state.agent)
+    if not state.agent.steer(message):
+        raise HTTPException(
+            status_code=409,
+            detail={"message": "run is not accepting steers", "run": state.info()},
+        )
+    return RunResponse(run=RunInfo.model_validate(state.info()))
+
+
+@router.post("/sessions/{session_id}/queue")
+async def queue_message(
+    session_id: Annotated[str, PathParam(min_length=1)],
+    body: PendingInputRequest,
+    store: StoreDep,
+    runs: RunManagerDep,
+) -> RunResponse:
+    """Queue a user message as the next turn of the session's running chat."""
+
+    state = await runs.get_active_run(session_id)
+    if state is None:
+        raise HTTPException(status_code=409, detail={"message": "session has no running chat to queue on"})
+    message = await _build_user_message(body, state.cwd)
+    message["meta"] = {"input_id": body.input_id}
+    _check_input_support(message, state.agent)
+    if not await runs.enqueue(state, message):
+        raise HTTPException(status_code=409, detail={"message": "session has no running chat to queue on"})
+    await store.record_user_turn(
+        session_id,
+        cwd=state.cwd,
+        text=flatten_message_text(message, include_thinking=False),
+    )
+    return RunResponse(run=RunInfo.model_validate(state.info()))
+
+
+@router.delete("/sessions/{session_id}/queue/{input_id}")
+async def remove_queued_message(
+    session_id: Annotated[str, PathParam(min_length=1)],
+    input_id: Annotated[str, PathParam(min_length=1)],
+    runs: RunManagerDep,
+) -> RunResponse:
+    """Remove a queued message that has not been delivered."""
+
+    run = await runs.remove_queued(session_id, input_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="queued message not found")
+    return RunResponse(run=RunInfo.model_validate(run))
+
+
+@router.post("/sessions/{session_id}/queue/{input_id}/steer")
+async def steer_queued_message(
+    session_id: Annotated[str, PathParam(min_length=1)],
+    input_id: Annotated[str, PathParam(min_length=1)],
+    runs: RunManagerDep,
+) -> RunResponse:
+    """Move a queued message into the current turn, keeping it as built."""
+
+    state = await runs.get_active_run(session_id)
+    moved = None if state is None else await runs.steer_queued(state, input_id)
+    if state is None or moved is None:
+        raise HTTPException(status_code=404, detail="queued message not found")
+    if not moved:
+        raise HTTPException(
+            status_code=409,
+            detail={"message": "run is not accepting steers", "run": state.info()},
+        )
+    return RunResponse(run=RunInfo.model_validate(state.info()))
 
 
 @router.get("/config")

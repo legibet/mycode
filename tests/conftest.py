@@ -1,4 +1,4 @@
-"""Shared fixtures for the TUI tests."""
+"""Shared fixtures and fakes for the tests."""
 
 from __future__ import annotations
 
@@ -15,9 +15,27 @@ from prompt_toolkit.input import PipeInput
 from prompt_toolkit.input.defaults import create_pipe_input
 from prompt_toolkit.output.vt100 import Vt100_Output
 
+from mycode.messages import ConversationMessage
 from mycode_cli.tui.terminal import Terminal
 
 _ANSI = re.compile(r"\x1b(\[[0-?]*[ -/]*[@-~]|\][^\x07]*\x07|[=>])")
+# Esc waits for a possible Esc+Enter before it counts as a lone key.
+ESC_WAIT = 0.8
+
+
+class FakeAgent:
+    """Base for run manager fakes: model facts, and no steers accepted."""
+
+    model = "test-model"
+    context_window = 1_000
+    supports_image_input = True
+    supports_pdf_input = True
+
+    def steer(self, message: ConversationMessage) -> bool:
+        return False
+
+    def pending_steers(self) -> list[ConversationMessage]:
+        return []
 
 
 @dataclass
