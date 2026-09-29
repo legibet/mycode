@@ -204,6 +204,107 @@ describe("MessageList", () => {
     expect(scrollContainer.scrollTop).toBe(500);
   });
 
+  it("holds a reader below the work when a steer folds it mid-run", () => {
+    scrollHeight = 2_000;
+    const segment: RenderMessage = {
+      role: "assistant",
+      content: [
+        {
+          type: "tool_use",
+          id: "t1",
+          name: "read",
+          input: {},
+          runtime: {
+            pending: false,
+            output: "",
+            finalOutput: "ok",
+            metadata: null,
+            isError: false,
+          },
+          renderKey: "t1",
+        },
+        { type: "text", text: "Reading done", renderKey: "answer" },
+      ],
+      renderKey: "message-80",
+      sourceIndex: 80,
+    };
+    const props = {
+      sessionId: "s",
+      loading: true,
+      compacting: false,
+      compactError: null,
+      sendError: null,
+    };
+    const { container, rerender } = render(
+      <MessageList {...props} messages={[...history, segment]} />,
+    );
+    flushAnimationFrames();
+    const scrollContainer = container.firstElementChild
+      ?.firstElementChild as HTMLElement;
+    fireEvent.scroll(scrollContainer);
+    scrollContainer.scrollTop = 1_000;
+    fireEvent.scroll(scrollContainer);
+    // The work ends above the reader; folding shortens it by 600px.
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(
+      function (this: HTMLElement) {
+        const work = this.getAttribute("data-work");
+        if (work === "open") return new DOMRect(0, -1_300, 0, 1_200);
+        if (work === "folded") return new DOMRect(0, -1_300, 0, 600);
+        return new DOMRect();
+      },
+    );
+
+    rerender(
+      <MessageList
+        {...props}
+        messages={[
+          ...history,
+          segment,
+          {
+            role: "user",
+            content: [{ type: "text", text: "use sqlite", renderKey: "s:0" }],
+            renderKey: "message-81",
+            sourceIndex: 81,
+          },
+          {
+            role: "assistant",
+            content: [],
+            renderKey: "message-82",
+            sourceIndex: 82,
+          },
+        ]}
+      />,
+    );
+
+    expect(scrollContainer.scrollTop).toBe(400);
+  });
+
+  it("shows pending steers at the tail until they are delivered", () => {
+    render(
+      <MessageList
+        sessionId="s"
+        messages={history.slice(0, 2)}
+        loading
+        compacting={false}
+        compactError={null}
+        sendError={null}
+        pendingSteers={[
+          {
+            id: "c1",
+            submission: { text: "use sqlite", workspaceFiles: [] },
+            attachments: [],
+            input: [],
+          },
+        ]}
+      />,
+    );
+
+    expect(screen.getByText("use sqlite")).toBeInTheDocument();
+    expect(
+      screen.getByText("Waiting for the current step…"),
+    ).toBeInTheDocument();
+  });
+
   it("shows the jump to the latest when content grows below the reader", () => {
     let resize = () => {};
     vi.stubGlobal(

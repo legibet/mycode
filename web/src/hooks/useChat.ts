@@ -8,7 +8,6 @@ import {
   useCallback,
   useEffect,
   useMemo,
-  useReducer,
   useRef,
   useState,
 } from "react";
@@ -21,6 +20,9 @@ import type {
   ComposerSubmission,
   LocalConfig,
   MessageMeta,
+  PendingInput,
+  PendingInputs,
+  PendingMessage,
   PermissionRequest,
   RemoteConfig,
   RunInfo,
@@ -72,7 +74,21 @@ interface ChatState {
   /** Snapshot of rawMessages taken before the latest optimistic turn.
    * Used by 'rollback' to restore state when the request fails. */
   preTurnRawMessages: ChatMessage[] | null;
+  /** Steers and queued messages handed to the running chat and not yet
+   * delivered by a `user_message` event. */
+  pending: PendingInputs;
 }
+
+const NO_PENDING: PendingInputs = { steers: [], queue: [] };
+
+const INITIAL_CHAT_STATE: ChatState = {
+  messageSessionId: null,
+  rawMessages: [],
+  toolRuntimeById: {},
+  sessionUsage: null,
+  preTurnRawMessages: null,
+  pending: NO_PENDING,
+};
 
 type ChatAction =
   | {
@@ -82,6 +98,7 @@ type ChatAction =
       sessionUsage?: UsageTotals | null;
       replayEvents?: StreamEvent[];
       expectedSessionId?: string | null;
+      pending?: PendingInputs;
     }
   | {
       type: "start_turn";
@@ -91,7 +108,11 @@ type ChatAction =
     }
   | { type: "rewind_and_start_turn"; rewindTo: number; content: string }
   | { type: "apply_event"; event: StreamEvent }
-  | { type: "rollback" };
+  | { type: "rollback" }
+  | { type: "add_pending"; list: keyof PendingInputs; item: PendingInput }
+  | { type: "move_pending"; id: string; to: keyof PendingInputs }
+  | { type: "remove_pending"; id: string }
+  | { type: "clear_pending" };
 
 function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "Unknown error";
@@ -182,6 +203,73 @@ function dedupeWorkspaceFiles(
   });
 }
 
+/** Request input blocks for a submission, the shape /api/chat takes. */
+function buildInputBlocks(
+  content: string,
+  workspaceFiles: WorkspaceFileReference[],
+  attachments: AttachedFile[],
+): Record<string, unknown>[] {
+  return [
+    ...(content ? [{ type: "text", text: content }] : []),
+    ...workspaceFiles.map(workspaceRefToInputBlock),
+    ...attachments.map(attachmentToInputBlock),
+  ];
+}
+
+function createPendingInput(
+  submission: ComposerSubmission,
+  attachments: AttachedFile[] = [],
+): PendingInput | null {
+  const text = submission.text.trim();
+  const workspaceFiles = submission.workspaceFiles;
+  if (!text && !workspaceFiles.length && !attachments.length) return null;
+  return {
+    id: randomId(),
+    submission: { text, workspaceFiles },
+    attachments,
+    input: buildInputBlocks(
+      text,
+      dedupeWorkspaceFiles(workspaceFiles),
+      attachments,
+    ),
+  };
+}
+
+/** A pending message from a session snapshot. Only its typed text survives:
+ * skills expand again on resend, but the attachments the server built are
+ * not the composer's uploads and references, so the item is partial. */
+function pendingFromMessage(message: PendingMessage): PendingInput {
+  const texts: string[] = [];
+  let partial = false;
+  for (const block of message.content) {
+    const meta = block.meta ?? {};
+    // biome-ignore lint/complexity/useLiteralKeys: index signature requires bracket access
+    if (meta["skill_snapshot"]) continue;
+    // biome-ignore lint/complexity/useLiteralKeys: index signature requires bracket access
+    if (block.type !== "text" || meta["attachment"]) partial = true;
+    else if (block.text) texts.push(block.text);
+  }
+  const text = texts.join("\n\n");
+  return {
+    id: message.meta.input_id,
+    submission: { text, workspaceFiles: [] },
+    attachments: [],
+    input: text ? [{ type: "text", text }] : [],
+    ...(partial ? { partial } : {}),
+  };
+}
+
+function withoutPending(
+  pending: PendingInputs,
+  ids: ReadonlySet<string>,
+): PendingInputs {
+  const keep = (item: PendingInput) => !ids.has(item.id);
+  return {
+    steers: pending.steers.filter(keep),
+    queue: pending.queue.filter(keep),
+  };
+}
+
 function chatReducer(state: ChatState, action: ChatAction): ChatState {
   switch (action.type) {
     case "set_messages": {
@@ -198,6 +286,7 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
         toolRuntimeById: {},
         sessionUsage: action.sessionUsage ?? null,
         preTurnRawMessages: null,
+        pending: action.pending ?? NO_PENDING,
       };
 
       for (const event of action.replayEvents || []) {
@@ -248,13 +337,42 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
       const snapshot = state.preTurnRawMessages;
       if (!snapshot) return state;
       return {
+        ...state,
         rawMessages: snapshot,
-        messageSessionId: state.messageSessionId,
         toolRuntimeById: {},
-        sessionUsage: state.sessionUsage,
         preTurnRawMessages: null,
       };
     }
+
+    case "add_pending": {
+      const { list, item } = action;
+      return {
+        ...state,
+        pending: { ...state.pending, [list]: [...state.pending[list], item] },
+      };
+    }
+
+    case "move_pending": {
+      const { id, to } = action;
+      const item = [...state.pending.steers, ...state.pending.queue].find(
+        (pending) => pending.id === id,
+      );
+      if (!item) return state;
+      const pending = withoutPending(state.pending, new Set([id]));
+      return {
+        ...state,
+        pending: { ...pending, [to]: [...pending[to], item] },
+      };
+    }
+
+    case "remove_pending":
+      return {
+        ...state,
+        pending: withoutPending(state.pending, new Set([action.id])),
+      };
+
+    case "clear_pending":
+      return { ...state, pending: NO_PENDING };
 
     case "apply_event": {
       const { event } = action;
@@ -381,6 +499,22 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
           ...rawMessages,
           { role: "compact", content: [], meta: { trigger: event.trigger } },
         ];
+      } else if (event.type === "user_message") {
+        // A delivered steer or queued turn opens a new segment, the same
+        // shape start_turn creates; later usage events patch its assistant.
+        return {
+          ...state,
+          rawMessages: [
+            ...rawMessages,
+            event.message,
+            createAssistantMessage([]),
+          ],
+          toolRuntimeById,
+          pending: withoutPending(
+            state.pending,
+            new Set(event.message.meta?.input_ids ?? []),
+          ),
+        };
       }
 
       return { ...state, rawMessages, toolRuntimeById };
@@ -390,17 +524,23 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
   }
 }
 
+/**
+ * @param onRestore Receives pending items that go back into the composer:
+ *   after a stop or failure, or when their fallback send is rejected.
+ */
 export function useChat(
   config: LocalConfig,
   remoteConfig?: RemoteConfig | null,
+  onRestore?: (items: PendingInput[]) => void,
 ) {
-  const [chatState, dispatch] = useReducer(chatReducer, {
-    messageSessionId: null,
-    rawMessages: [],
-    toolRuntimeById: {},
-    sessionUsage: null,
-    preTurnRawMessages: null,
-  });
+  const [chatState, setChatState] = useState(INITIAL_CHAT_STATE);
+  // The reducer runs eagerly into this ref so async request and stream code
+  // reads the current pending list, not the one from the last render.
+  const chatStateRef = useRef(chatState);
+  const dispatch = useCallback((action: ChatAction) => {
+    chatStateRef.current = chatReducer(chatStateRef.current, action);
+    setChatState(chatStateRef.current);
+  }, []);
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [activeSession, setActiveSession] = useState(createDraftSession);
   // Kind of the run this client is following; null when idle. `loading` is
@@ -423,6 +563,11 @@ export function useChat(
   const streamAbortRef = useRef<AbortController | null>(null);
   const streamTokenRef = useRef(0);
   const activeRunRef = useRef<RunInfo | null>(null);
+  const onRestoreRef = useRef(onRestore);
+  const sendPendingRef = useRef<((items: PendingInput[]) => void) | null>(null);
+  /** Steer and queue requests in flight. A stream end waits for them before
+   * deciding what is still pending. */
+  const inflightRef = useRef(new Set<Promise<void>>());
   const loadSessionRef = useRef<
     | ((
         sessionId: string,
@@ -430,6 +575,37 @@ export function useChat(
       ) => Promise<SessionResponse | null>)
     | null
   >(null);
+
+  useEffect(() => {
+    onRestoreRef.current = onRestore;
+  }, [onRestore]);
+
+  /** Remove and return every pending item, steers first. */
+  const takePending = useCallback((): PendingInput[] => {
+    const { steers, queue } = chatStateRef.current.pending;
+    if (steers.length || queue.length) dispatch({ type: "clear_pending" });
+    return [...steers, ...queue];
+  }, [dispatch]);
+
+  const isPending = useCallback((id: string) => {
+    const { steers, queue } = chatStateRef.current.pending;
+    return [...steers, ...queue].some((item) => item.id === id);
+  }, []);
+
+  const restorePending = useCallback((items: PendingInput[]) => {
+    if (items.length) onRestoreRef.current?.(items);
+  }, []);
+
+  /** A steer or queue request failed: the item goes back to the composer. */
+  const failPending = useCallback(
+    (item: PendingInput, message: string) => {
+      if (!isPending(item.id)) return;
+      dispatch({ type: "remove_pending", id: item.id });
+      restorePending([item]);
+      setSendError(message);
+    },
+    [dispatch, isPending, restorePending],
+  );
 
   const setActiveSessionSnapshot = useCallback((session: SessionSummary) => {
     activeSessionRef.current = session;
@@ -498,9 +674,18 @@ export function useChat(
   }, []);
 
   const streamRun = useCallback(
-    async (run: RunInfo, sessionId: string, after = 0): Promise<void> => {
+    async (
+      run: RunInfo,
+      sessionId: string,
+      after = 0,
+      interrupted = false,
+    ): Promise<void> => {
       const runId = run?.id;
       if (!runId) return;
+      // Stopped or failed runs return pending input to the composer; a run
+      // that ended normally sends it as the next turn.
+      let stopped = interrupted;
+      let sawDone = false;
 
       streamTokenRef.current += 1;
       const token = streamTokenRef.current;
@@ -511,14 +696,13 @@ export function useChat(
       activeRunRef.current = run;
       const kind = run.kind;
       setRunKind(kind);
+      // Whether this stream still drives the UI: no newer stream, same session.
+      const isCurrent = () =>
+        streamTokenRef.current === token &&
+        activeSessionRef.current.id === sessionId;
 
       const recoverSession = async () => {
-        if (
-          streamTokenRef.current !== token ||
-          activeSessionRef.current.id !== sessionId
-        ) {
-          return true;
-        }
+        if (!isCurrent()) return true;
 
         const reload = loadSessionRef.current;
         if (!reload) {
@@ -545,7 +729,6 @@ export function useChat(
         const reader = res.body.getReader();
         const decoder = new TextDecoder();
         let buffer = "";
-        let sawDone = false;
 
         while (true) {
           const { done, value } = await reader.read();
@@ -565,12 +748,7 @@ export function useChat(
 
             try {
               const event = JSON.parse(data) as StreamEvent;
-              if (
-                streamTokenRef.current !== token ||
-                activeSessionRef.current.id !== sessionId
-              ) {
-                continue;
-              }
+              if (!isCurrent()) continue;
               if (event.type === "permission_request") {
                 const next: PermissionRequest = {
                   request_id: event.request_id,
@@ -594,6 +772,9 @@ export function useChat(
               }
               if (event.type === "cancelled") {
                 setPendingPermissions([]);
+              }
+              if (event.type === "cancelled" || event.type === "error") {
+                stopped = true;
               }
               if (kind === "compact") {
                 // A compact run only surfaces its marker or failure here. The
@@ -626,13 +807,10 @@ export function useChat(
       } catch (e) {
         if (!(e instanceof Error) || e.name !== "AbortError") {
           const recovered = await recoverSession();
-          if (
-            !recovered &&
-            streamTokenRef.current === token &&
-            activeSessionRef.current.id === sessionId
-          ) {
+          if (!recovered && isCurrent()) {
             const message =
               "Stream disconnected. Reload the session to resume.";
+            stopped = true;
             if (kind === "compact") {
               setCompactError(message);
             } else {
@@ -649,14 +827,26 @@ export function useChat(
           activeRunRef.current = null;
 
           if (activeSessionRef.current.id === sessionId) {
-            setRunKind(null);
+            if (kind === "chat" && (sawDone || stopped)) {
+              // The run stays busy until its pending input is settled, so a
+              // send cannot race the leftovers' own request.
+              await Promise.all(inflightRef.current);
+              if (isCurrent()) {
+                setRunKind(null);
+                const items = takePending();
+                if (stopped) restorePending(items);
+                else if (items.length) sendPendingRef.current?.(items);
+              }
+            } else {
+              setRunKind(null);
+            }
           }
 
           fetchSessions();
         }
       }
     },
-    [fetchSessions],
+    [fetchSessions, restorePending, takePending, dispatch],
   );
 
   const loadSession = useCallback(
@@ -693,6 +883,7 @@ export function useChat(
         ? data.pending_events
         : [];
       const isCompactRun = run?.kind === "compact";
+      let replayStopped = false;
       const replayedPermissions = new Map<string, PermissionRequest>();
       const replayEvents: StreamEvent[] = [];
       for (const event of pendingEvents) {
@@ -712,6 +903,9 @@ export function useChat(
         if (event?.type === "cancelled") {
           replayedPermissions.clear();
         }
+        if (event?.type === "cancelled" || event?.type === "error") {
+          replayStopped = true;
+        }
         if (isCompactRun) {
           // Same routing as the live stream: only the marker reaches history.
           if (event?.type === "compact") replayEvents.push(event);
@@ -730,6 +924,10 @@ export function useChat(
           sessionUsage: readUsageTotals(data.session_usage, data.session_cost),
           replayEvents,
           expectedSessionId: data.session?.id ?? sessionId,
+          pending: {
+            steers: (data.pending?.steers ?? []).map(pendingFromMessage),
+            queue: (data.pending?.queue ?? []).map(pendingFromMessage),
+          },
         });
       });
       if (replayedPermissions.size) {
@@ -740,14 +938,14 @@ export function useChat(
 
       if (run?.id) {
         const lastSeq = pendingEvents.at(-1)?.seq ?? 0;
-        streamRun(run, data.session.id, lastSeq);
+        streamRun(run, data.session.id, lastSeq, replayStopped);
       } else {
         setRunKind(null);
       }
 
       return data;
     },
-    [config.cwd, setActiveSessionSnapshot, streamRun],
+    [config.cwd, dispatch, setActiveSessionSnapshot, streamRun],
   );
 
   useEffect(() => {
@@ -760,6 +958,9 @@ export function useChat(
       sessionId: string,
       requestCwd: string,
       requestToken: number,
+      // Pending items this request sends; a rejection returns them to the
+      // composer instead of attaching to another run.
+      pendingItems: PendingInput[] = [],
     ): Promise<boolean> => {
       try {
         const res = await fetch("/api/chat", {
@@ -786,11 +987,16 @@ export function useChat(
 
             const detail = getErrorDetail(data);
             const existingRun = getRunFromDetail(detail);
-            if (res.status === 409 && existingRun?.id) {
+            if (
+              res.status === 409 &&
+              existingRun?.id &&
+              pendingItems.length === 0
+            ) {
               streamRun(existingRun, sessionId, existingRun.last_seq || 0);
               return false;
             }
 
+            restorePending(pendingItems);
             setRunKind(null);
             setSendError(getMessageFromDetail(detail, "Failed to start task"));
           }
@@ -820,100 +1026,315 @@ export function useChat(
           pendingRequestTokenRef.current = 0;
           setRunKind(null);
           dispatch({ type: "rollback" });
+          restorePending(pendingItems);
           setSendError(getErrorMessage(e));
         }
         return false;
       }
     },
-    [fetchSessions, setActiveSessionSnapshot, streamRun],
+    [
+      dispatch,
+      fetchSessions,
+      restorePending,
+      setActiveSessionSnapshot,
+      streamRun,
+    ],
   );
 
-  const send = useCallback(
-    async (submission: ComposerSubmission, attachments?: AttachedFile[]) => {
-      const content = submission.text.trim();
-      const workspaceFiles = dedupeWorkspaceFiles(submission.workspaceFiles);
-      if (
-        (!content && !attachments?.length && !workspaceFiles.length) ||
-        loading
-      )
-        return false;
-
-      const sessionId = activeSession.id;
+  /** Optimistic turn plus `POST /api/chat` with the current model settings. */
+  const startTurn = useCallback(
+    (
+      turn: Extract<
+        ChatAction,
+        { type: "start_turn" | "rewind_and_start_turn" }
+      >,
+      request:
+        | { message: string; rewind_to?: number }
+        | { input: Record<string, unknown>[] },
+      pendingItems?: PendingInput[],
+    ) => {
+      const sessionId = activeSessionRef.current.id;
       const requestCwd = config.cwd;
       const requestToken = requestTokenRef.current + 1;
 
       requestTokenRef.current = requestToken;
       pendingRequestTokenRef.current = requestToken;
 
-      dispatch({
-        type: "start_turn",
-        content,
-        ...(attachments?.length ? { attachments } : {}),
-        ...(workspaceFiles.length ? { workspaceFiles } : {}),
-      });
+      dispatch(turn);
       setRunKind("chat");
       setCompactError(null);
       setSendError(null);
 
-      const commonFields = {
-        session_id: sessionId,
-        provider: config.provider || undefined,
-        model: config.model || undefined,
-        cwd: config.cwd,
-        reasoning_effort: getReasoningEffortOverride(config, remoteConfig),
-      };
+      return postChat(
+        {
+          session_id: sessionId,
+          provider: config.provider || undefined,
+          model: config.model || undefined,
+          cwd: config.cwd,
+          reasoning_effort: getReasoningEffortOverride(config, remoteConfig),
+          ...request,
+        },
+        sessionId,
+        requestCwd,
+        requestToken,
+        pendingItems,
+      );
+    },
+    [config, dispatch, postChat, remoteConfig],
+  );
+
+  const send = useCallback(
+    async (
+      submission: ComposerSubmission,
+      attachments: AttachedFile[] = [],
+    ) => {
+      const content = submission.text.trim();
+      const workspaceFiles = dedupeWorkspaceFiles(submission.workspaceFiles);
+      if (
+        (!content && !attachments.length && !workspaceFiles.length) ||
+        loading
+      )
+        return false;
 
       // Use structured `input` blocks when any attachment is present.
-      const body =
-        attachments?.length || workspaceFiles.length
-          ? {
-              ...commonFields,
-              input: [
-                ...(content ? [{ type: "text", text: content }] : []),
-                ...workspaceFiles.map(workspaceRefToInputBlock),
-                ...(attachments ?? []).map(attachmentToInputBlock),
-              ],
-            }
-          : { ...commonFields, message: content };
-
-      return postChat(body, sessionId, requestCwd, requestToken);
+      const request =
+        attachments.length || workspaceFiles.length
+          ? { input: buildInputBlocks(content, workspaceFiles, attachments) }
+          : { message: content };
+      return startTurn(
+        {
+          type: "start_turn",
+          content,
+          ...(attachments.length ? { attachments } : {}),
+          ...(workspaceFiles.length ? { workspaceFiles } : {}),
+        },
+        request,
+      );
     },
-    [activeSession.id, config, loading, postChat, remoteConfig],
+    [loading, startTurn],
+  );
+
+  /** Send pending items left when a run ended normally as one new turn. */
+  const sendPending = useCallback(
+    (items: PendingInput[]) => {
+      const attachments = items.flatMap((item) => item.attachments);
+      const workspaceFiles = dedupeWorkspaceFiles(
+        items.flatMap((item) => item.submission.workspaceFiles),
+      );
+      void startTurn(
+        {
+          type: "start_turn",
+          content: items
+            .map((item) => item.submission.text)
+            .filter(Boolean)
+            .join("\n\n"),
+          ...(attachments.length ? { attachments } : {}),
+          ...(workspaceFiles.length ? { workspaceFiles } : {}),
+        },
+        { input: items.flatMap((item) => item.input) },
+        items,
+      );
+    },
+    [startTurn],
+  );
+
+  useEffect(() => {
+    sendPendingRef.current = sendPending;
+  }, [sendPending]);
+
+  const postPendingInput = useCallback(
+    (url: string, item: PendingInput) =>
+      fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ input: item.input, input_id: item.id }),
+      }),
+    [],
+  );
+
+  const deleteQueued = useCallback(
+    (sessionId: string, id: string) =>
+      fetch(
+        `/api/sessions/${encodeURIComponent(sessionId)}/queue/${encodeURIComponent(id)}`,
+        { method: "DELETE" },
+      ),
+    [],
+  );
+
+  const track = useCallback((request: Promise<void>) => {
+    inflightRef.current.add(request);
+    void request.finally(() => inflightRef.current.delete(request));
+  }, []);
+
+  // Each await below re-checks that the item is still pending: a stop, a
+  // stream end, a delivery, or a session switch takes it out, and whoever
+  // took it owns it from then on.
+  const deliverQueued = useCallback(
+    async (item: PendingInput) => {
+      const sessionId = activeSessionRef.current.id;
+      try {
+        const res = await postPendingInput(
+          `/api/sessions/${encodeURIComponent(sessionId)}/queue`,
+          item,
+        );
+        if (res.ok) {
+          // Removed while the request was in flight: take it off the server too.
+          if (!isPending(item.id) && activeSessionRef.current.id === sessionId)
+            void deleteQueued(sessionId, item.id);
+          return;
+        }
+        if (!isPending(item.id)) return;
+        // 409: no chat to queue on. The item stays local and goes out when
+        // the stream ends.
+        if (res.status === 409) return;
+        const data = (await res.json()) as ChatErrorResponse;
+        failPending(
+          item,
+          getMessageFromDetail(getErrorDetail(data), "Failed to queue"),
+        );
+      } catch (e) {
+        failPending(item, getErrorMessage(e));
+      }
+    },
+    [deleteQueued, failPending, isPending, postPendingInput],
+  );
+
+  const deliverSteer = useCallback(
+    async (runId: string, item: PendingInput) => {
+      try {
+        const res = await postPendingInput(
+          `/api/runs/${encodeURIComponent(runId)}/steer`,
+          item,
+        );
+        if (!isPending(item.id) || res.ok) return;
+        if (res.status === 409) {
+          // The turn is ending: the item becomes the next turn instead.
+          dispatch({ type: "move_pending", id: item.id, to: "queue" });
+          await deliverQueued(item);
+          return;
+        }
+        const data = (await res.json()) as ChatErrorResponse;
+        failPending(
+          item,
+          getMessageFromDetail(getErrorDetail(data), "Failed to steer"),
+        );
+      } catch (e) {
+        failPending(item, getErrorMessage(e));
+      }
+    },
+    [deliverQueued, dispatch, failPending, isPending, postPendingInput],
+  );
+
+  /** Hand a message to the running chat: as a steer for its next step
+   * boundary, or queued as its next turn. */
+  const handOff = useCallback(
+    (
+      list: keyof PendingInputs,
+      submission: ComposerSubmission,
+      attachments?: AttachedFile[],
+    ) => {
+      const run = activeRunRef.current;
+      const item = createPendingInput(submission, attachments);
+      if (run?.kind !== "chat" || !item) return false;
+      dispatch({ type: "add_pending", list, item });
+      setSendError(null);
+      track(
+        list === "steers" ? deliverSteer(run.id, item) : deliverQueued(item),
+      );
+      return true;
+    },
+    [deliverQueued, deliverSteer, dispatch, track],
+  );
+
+  const steer = useCallback(
+    (submission: ComposerSubmission, attachments?: AttachedFile[]) =>
+      handOff("steers", submission, attachments),
+    [handOff],
+  );
+
+  const queue = useCallback(
+    (submission: ComposerSubmission, attachments?: AttachedFile[]) =>
+      handOff("queue", submission, attachments),
+    [handOff],
+  );
+
+  const removeQueued = useCallback(
+    async (id: string) => {
+      try {
+        const res = await deleteQueued(activeSessionRef.current.id, id);
+        // 404: delivered, or never reached the server queue.
+        if (res.ok || res.status === 404) {
+          dispatch({ type: "remove_pending", id });
+        } else {
+          setSendError(`Failed to remove queued message (${res.status})`);
+        }
+      } catch (e) {
+        setSendError(getErrorMessage(e));
+      }
+    },
+    [deleteQueued, dispatch],
+  );
+
+  /** Take a queued message back for the composer; null when it is already
+   * on its way (delivered, or waiting to be sent when the run ends). */
+  const takeBackQueued = useCallback(
+    async (id: string): Promise<PendingInput | null> => {
+      const item = chatStateRef.current.pending.queue.find(
+        (queued) => queued.id === id,
+      );
+      if (!item) return null;
+      try {
+        const res = await deleteQueued(activeSessionRef.current.id, id);
+        if (!res.ok || !isPending(id)) return null;
+        dispatch({ type: "remove_pending", id });
+        return item;
+      } catch (e) {
+        setSendError(getErrorMessage(e));
+        return null;
+      }
+    },
+    [deleteQueued, dispatch, isPending],
+  );
+
+  /** Move a queued message to the current turn. The server moves the message
+   * it built, so a reloaded item keeps its attachments. */
+  const steerQueued = useCallback(
+    (id: string) => {
+      const sessionId = activeSessionRef.current.id;
+      track(
+        (async () => {
+          try {
+            const res = await fetch(
+              `/api/sessions/${encodeURIComponent(sessionId)}/queue/${encodeURIComponent(id)}/steer`,
+              { method: "POST" },
+            );
+            if (!isPending(id)) return;
+            if (res.ok) {
+              dispatch({ type: "move_pending", id, to: "steers" });
+            } else if (res.status !== 404 && res.status !== 409) {
+              // 404: already on its way. 409: the turn is ending, so the item
+              // stays queued and becomes the next turn.
+              setSendError(`Failed to steer queued message (${res.status})`);
+            }
+          } catch (e) {
+            setSendError(getErrorMessage(e));
+          }
+        })(),
+      );
+    },
+    [dispatch, isPending, track],
   );
 
   const rewindAndSend = useCallback(
     async (rewindTo: number, input: string) => {
       const content = input.trim();
       if (!content || loading) return;
-
-      const sessionId = activeSession.id;
-      const requestCwd = config.cwd;
-      const requestToken = requestTokenRef.current + 1;
-
-      requestTokenRef.current = requestToken;
-      pendingRequestTokenRef.current = requestToken;
-
-      dispatch({ type: "rewind_and_start_turn", rewindTo, content });
-      setRunKind("chat");
-      setCompactError(null);
-      setSendError(null);
-
-      await postChat(
-        {
-          session_id: sessionId,
-          message: content,
-          rewind_to: rewindTo,
-          provider: config.provider || undefined,
-          model: config.model || undefined,
-          cwd: config.cwd,
-          reasoning_effort: getReasoningEffortOverride(config, remoteConfig),
-        },
-        sessionId,
-        requestCwd,
-        requestToken,
+      await startTurn(
+        { type: "rewind_and_start_turn", rewindTo, content },
+        { message: content, rewind_to: rewindTo },
       );
     },
-    [activeSession.id, config, loading, postChat, remoteConfig],
+    [loading, startTurn],
   );
 
   const compactSession = useCallback(async () => {
@@ -979,9 +1400,14 @@ export function useChat(
     streamAbortRef.current = null;
     activeRunRef.current = null;
     setPendingPermissions([]);
+    // The aborted stream never sees its `cancelled`, so undelivered input
+    // goes back to the composer here. A steer committed just before the stop
+    // may not have reached this client yet: the reloaded history decides.
+    const items = takePending();
 
     if (!runId) {
       setRunKind(null);
+      restorePending(items);
       return;
     }
 
@@ -989,8 +1415,12 @@ export function useChat(
       await cancelRun(runId);
       if (activeSessionRef.current.id !== sessionId) return;
 
+      const delivered = new Set<string>();
       try {
-        await loadSessionRef.current?.(sessionId);
+        const data = await loadSessionRef.current?.(sessionId);
+        for (const message of data?.messages ?? []) {
+          for (const id of message.meta?.input_ids ?? []) delivered.add(id);
+        }
         fetchSessions();
       } catch (error) {
         console.error("Failed to reload session after cancel:", error);
@@ -998,8 +1428,11 @@ export function useChat(
           setRunKind(null);
         }
       }
+      // A session switched to during the reload keeps its own composer.
+      if (activeSessionRef.current.id !== sessionId) return;
+      restorePending(items.filter((item) => !delivered.has(item.id)));
     })();
-  }, [cancelRun, fetchSessions]);
+  }, [cancelRun, fetchSessions, restorePending, takePending]);
 
   const decidePermission = useCallback(
     async (decision: "allow" | "deny") => {
@@ -1043,7 +1476,13 @@ export function useChat(
     dispatch({ type: "set_messages", messages: [], sessionId: session.id });
     // Refresh from server to get accurate is_running, then prepend the new draft
     fetchSessions();
-  }, [fetchSessions, sessionLoading, setActiveSessionSnapshot, stopStreaming]);
+  }, [
+    fetchSessions,
+    sessionLoading,
+    setActiveSessionSnapshot,
+    stopStreaming,
+    dispatch,
+  ]);
 
   const selectSession = useCallback(
     async (sessionId: string) => {
@@ -1092,6 +1531,7 @@ export function useChat(
       setActiveSessionSnapshot,
       sessions,
       stopStreaming,
+      dispatch,
     ],
   );
 
@@ -1168,6 +1608,7 @@ export function useChat(
       sessions,
       setActiveSessionSnapshot,
       stopStreaming,
+      dispatch,
     ],
   );
 
@@ -1249,7 +1690,7 @@ export function useChat(
         if (isStillCurrent()) setSessionLoading(false);
       }
     })();
-  }, [config.cwd, setActiveSessionSnapshot, stopStreaming]);
+  }, [config.cwd, setActiveSessionSnapshot, stopStreaming, dispatch]);
 
   useEffect(() => {
     return () => {
@@ -1294,7 +1735,13 @@ export function useChat(
     activeSession,
     sessionLoading,
     pendingPermission: pendingPermissions[0] ?? null,
+    pending: chatState.pending,
     send,
+    steer,
+    queue,
+    removeQueued,
+    steerQueued,
+    takeBackQueued,
     rewindAndSend,
     compactSession,
     cancel,

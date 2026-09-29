@@ -37,23 +37,25 @@ Tests live beside the code they cover. `src/test/setup.ts` contains the shared V
 
 ## Message State Model
 
-`useChat.ts` keeps three pieces of reducer state:
+`useChat.ts` keeps four pieces of reducer state:
 
 - `rawMessages: ChatMessage[]` — canonical block messages (mirrors the JSONL timeline; includes `role: "compact"` markers)
 - `toolRuntimeById` — ephemeral tool runtime state (streaming output, pending flags, final result)
 - `sessionUsage` — session token and cost totals from session load or the latest SSE `usage`; `null` when unknown
+- `pending: {steers, queue}` — messages handed to the running chat and not yet delivered. Each `PendingInput` has a client-generated `id` (sent as `input_id`), the composer submission and uploads for restoring it, and the request `input` blocks. Loading a session sets it from the snapshot's `pending` (id from `meta.input_id`, typed text only; an item whose message carries attachment blocks is `partial`, since the composer cannot rebuild what the server built); a session switch clears it
 
 The render-ready list `messages: RenderMessage[]` (where `RenderMessage = ChatMessage | CompactMarkerMessage`) is derived via `useMemo(buildRenderMessages(rawMessages, toolRuntimeById))`. There is no second copy of state to keep in sync — every reducer transition produces a new `rawMessages` and/or `toolRuntimeById` reference and the projection is recomputed.
 
 `CompactMarkerMessage` (`{kind: "compact-marker", sourceIndex, renderKey}`) carries no content of its own — it just tells `MessageList` to render `CompactMarker` instead of `MessageBubble`. Use the `isCompactMarker(msg)` type guard from `types.ts` to narrow when iterating. Only manual and untagged compact markers become `CompactMarkerMessage`s; an automatic one (`meta.trigger: "auto"`) belongs to its turn and becomes a render-only `{type: "compact"}` block in that turn's bubble.
 
-State is managed via `useReducer` with actions:
+The reducer runs eagerly into a ref that mirrors React state, so request and stream code reads the current pending list rather than the last render's. Actions:
 
 - `set_messages` — load session history from server
 - `start_turn` — optimistic user message + empty assistant
 - `rewind_and_start_turn` — rewind + optimistic new turn
-- `apply_event` — apply one SSE event to `rawMessages` / `toolRuntimeById`
+- `apply_event` — apply one SSE event to `rawMessages` / `toolRuntimeById`; `user_message` appends the message plus an empty assistant, the shape `start_turn` creates, and drops the pending items listed in `meta.input_ids`
 - `rollback` — restore the snapshot taken before an optimistic turn
+- `add_pending` / `move_pending` / `remove_pending` / `clear_pending` — edit the pending lists
 
 `buildRenderMessages()` in `utils/messages.ts` is the single projection used by both initial load and live streaming. A turn runs from a real user message to the next one and renders as one assistant bubble: tool results visually attach to their `tool_use`, the assistant messages of a tool loop merge, and automatic compaction stays inside the turn. A live `compact` SSE event appends a `{role: "compact", meta: {trigger}}` entry to `rawMessages`, which the next render projects the same way as the persisted marker.
 
@@ -61,9 +63,10 @@ State is managed via `useReducer` with actions:
 
 - History sums persisted per-request `usage` and `cost`. Missing costs are skipped; any total-only request downgrades the turn cost to total-only.
 - Streaming uses the latest cumulative `turn_usage`, `turn_cost`, and `turn_duration_ms` without summing prior events. Missing fields clear stale values.
-- History `duration_ms` runs from the opening user message's `meta.created_at` to that of the turn's last completed assistant or automatic compact marker, the records the SDK sends `usage` for. Partial responses (`stop_reason` `error` / `cancelled`) are skipped, so a reload matches the streamed value. A streamed `turn_duration_ms` wins over timestamps: a reattached run's history ends before the records still streaming.
+- History `duration_ms` runs from the opening user message's `meta.created_at` to that of the turn's last completed assistant or automatic compact marker, the records the SDK sends `usage` for. A segment followed by a `meta.steer` user message runs to that message's `created_at`, matching the SDK's closing `usage` event. Partial responses (`stop_reason` `error` / `cancelled`) are skipped, so a reload matches the streamed value. A streamed `turn_duration_ms` wins over timestamps: a reattached run's history ends before the records still streaming.
 - Automatic compaction bills its summary request to the turn and leaves the context occupancy unknown until the next request. Manual markers stand alone and add nothing to a turn.
 - `null` means unknown and is omitted by the UI. The Web never resolves model pricing.
+- A delivered steer starts a new turn in the projection. Its `user_message` appends a fresh assistant, and `usage` events patch the latest assistant with cumulative values, so the new segment's stats come only from the events after it. Reconnect replay rebuilds the same shape from the snapshot's history and `pending_events` without summing anything twice.
 
 Usage stats (`components/Chat/StatsCard.tsx`):
 
@@ -93,7 +96,7 @@ Turn work folding (`WorkSection.tsx`, `splitTurn()` in `utils/messages.ts`):
 - `splitTurn()` splits an assistant turn into its work, its answer (the trailing text), and an automatic compaction after the answer.
 - While the turn runs, `WorkSection` renders the work open with no summary row, so a first tool call inserts nothing. It holds the work from the first block on, so folding never remounts the work or the answer.
 - A finished turn folds when its work has a tool call or automatic compaction, whether it completed, stopped or failed. Otherwise it stays flat.
-- `buildRenderMessages()` sets the bubble's `interruption` from the turn's last record: a response with `stop_reason` `cancelled` or `error` gives that value; tool results with no response after them give `cancelled`, since the SDK persists nothing for a stop between rounds. Live `error` and `cancelled` events mark the tail assistant the way the SDK marks the partial it persists. An error before any assistant record is live only, so after a reload that turn reads as `cancelled`.
+- `buildRenderMessages()` sets the bubble's `interruption` from the turn's last record: a response with `stop_reason` `cancelled` or `error` gives that value; tool results with no response after them give `cancelled`, since the SDK persists nothing for a stop between rounds, unless the next message is a `meta.steer` user message: then the turn continued with the steer, `interruption` stays unset, and its summary row reads like a finished turn. A steer message renders as an ordinary user bubble. Live `error` and `cancelled` events mark the tail assistant the way the SDK marks the partial it persists. An error before any assistant record is live only, so after a reload that turn reads as `cancelled`.
 - Folding fades in one summary row, `Worked for 23s · 2 edits · 1 command · 5 reads · 1 failed`, and collapses the body, including a compaction after the answer, with the same grid-rows and opacity transition as `ReasoningBlock`. A history turn mounts its work the first time it opens and keeps it.
 - An interrupted turn's row leads with `Stopped` (muted) or `Failed` (`text-destructive`) instead of a duration, which would run only to the last completed response. The error line stays below the fold. A stopped turn with nothing to fold ends with a muted `Stopped` line.
 - Tools are counted by name, side effects first; `failed` counts error results except the SDK's `error: cancelled`. The counts show whole or not at all: `SummaryRow` measures the full row against its space with a `ResizeObserver` and drops them when it would not fit on one line. `aria-label` always carries the full summary.
@@ -101,7 +104,7 @@ Turn work folding (`WorkSection.tsx`, `splitTurn()` in `utils/messages.ts`):
 
 `MessageList` renders long histories as a tail window: initial session load renders the latest messages and scrolls to the bottom before paint. Scrolling near the top prepends older messages in batches and preserves the current viewport by restoring the previous distance from the bottom. Auto-scroll follows incoming message updates only while the user is already near the bottom; local height changes such as expanding tools do not trigger it. Following stops when the user scrolls up away from the bottom and resumes near it. Away from the bottom, including after content grows without a scroll, a round arrow button fades in; clicking it follows again and smooth-scrolls to the latest output.
 
-The fold commits with the end of streaming, so `SettleAnchor` reads the reader's position in `getSnapshotBeforeUpdate` and, if the work folded, holds it until the fold's transitions end:
+The fold commits when the streaming assistant stops streaming: at the end of the run, or mid-run when a `user_message` appends a new segment while `loading` stays true. `SettleAnchor` takes the streaming assistant's render key, reads the reader's position in `getSnapshotBeforeUpdate` when that key changes from a value, and, if the work folded, holds it until the fold's transitions end:
 
 - reading below the work: the work's bottom edge, and so the answer, stays put;
 - reading inside the work: the summary row moves to the top edge;
@@ -115,6 +118,24 @@ Any scroll input (wheel, touch, pointer, key) ends the hold. Manual toggles need
 `useChat.ts` follows the `docs/api.md` contract: `POST /api/chat` returns `{run, session}`; `GET /api/runs/{run_id}/stream` feeds each `data:` line into the reducer as a `StreamEvent`; `data: [DONE]` ends the stream. On disconnect the UI reloads via `GET /api/sessions/{id}`; a 409 on send attaches to the existing run's stream.
 
 A live `compact` SSE event is consumed by the reducer at the position it arrives — the marker lands between whatever just streamed and whatever streams next, mirroring where the agent emitted it (e.g. between two tool calls of the same turn). The server has already persisted the `compact` JSONL record at the same point with the same `trigger`, so a later session reload renders the same result without any extra round-trip.
+
+Steer and queue (`POST /api/runs/{id}/steer`, `POST /api/sessions/{id}/queue`, `DELETE /api/sessions/{id}/queue/{input_id}` in `docs/api.md`):
+
+- `steer()` adds the item to `pending.steers` and posts it to the active chat run. A `409` moves it to the queue and calls the queue path.
+- `queue()` adds the item to `pending.queue` and posts it. A `409` keeps it in the local queue only; if the stream has already ended it is sent at once.
+- Any other failure, including a network error, takes the item out, restores it to the composer, and sets `sendError`. A network error is never read as a rejection.
+- Each step of that chain first checks the item is still pending. A stop, a stream end, a delivery or a session switch takes items out, and from then on the taker owns them, so a late `409` after Stop never queues or sends anything.
+- `removeQueued()` deletes the item and drops it locally on `200` or `404`. `takeBackQueued()` deletes it and returns it for the composer, or `null` on `404` (delivered, or waiting to be sent when the run ends). `steerQueued()` posts `/api/sessions/{id}/queue/{input_id}/steer`: the server moves the message it built, so a reloaded item keeps its attachments. `200` moves the item to `pending.steers`; `404` and `409` leave it alone, since the item is on its way or becomes the next turn.
+- A queue request answered `200` after the item was removed locally deletes it from the server again, so Remove during the request does not leave a message behind.
+- Steer, queue and move requests in flight are tracked in `inflightRef`. A stream end waits for them before deciding what is still pending, so a request the old run rejected joins the leftovers instead of racing the next `/api/chat`. The run stays `loading` until then, so a manual send cannot race the leftovers' own request either.
+
+When a chat stream ends, the pending lists are emptied in one step:
+
+- `[DONE]` with no `cancelled` or `error` before it: every item still pending, steers then queue, goes out as one `/api/chat` request with their `input` blocks concatenated. This covers an item submitted as the run finished; the server leaves the session slot before `[DONE]`. If that send is rejected, even with `409`, the items go back to the composer and `sendError` is set.
+- `cancelled`, `error` (live or in replayed `pending_events`), or a disconnect that cannot be recovered: every item goes back to the composer, steers then queue, blank-line separated, ahead of the current draft; uploads go back into the attachment list ahead of the current ones. Stop aborts the stream before its `cancelled` arrives, so `cancel()` takes the items itself and restores them once the session reloads, skipping any whose id the reloaded history lists in `meta.input_ids`: a steer committed just before the stop that this client had not yet seen. A session switched to during that reload keeps its own composer; the items are dropped.
+- A disconnect that reloads the session takes the snapshot's `pending` instead. Items the server never accepted are lost there.
+
+`useChat` hands restored items to its `onRestore` callback; `App` puts the text into the composer through `InputArea`'s `prepend` handle, which rebuilds `@path` pills from the submission's references.
 
 `permission_request` opens the approval prompt and `permission_resolved` clears it. `cancelled` clears pending permissions and tool activity without adding an error message.
 
@@ -135,11 +156,15 @@ Manual compaction (`/compact`):
 
 Composer and attachments:
 
+- While a chat run is active the composer stays enabled; during a compact run nothing can be sent. Enter steers the running turn; `⌘/Ctrl+Enter` or `⌘/Ctrl`+click on the send button queues the message for the next turn. Idle, both send normally. `App.handleSubmit()` routes to `send`, `steer` or `queue`.
+- One button sits in the send slot: with text, workspace refs or uploads it is the send arrow, whose `title` while running names both deliveries (`Steer · Enter, queue · ⌘Enter`); with an empty composer while running it is Stop.
+- Pending steers render at the tail of `MessageList` as hollow user bubbles (`MessageBubble` `pending`: hairline outline, no fill, 80% text) with the sidebar's breathing accent dot on their left, until their `user_message` replaces them with the real, filled bubble. The state is in the bubble itself; `title` and visually hidden text say `Waiting for the current step…`.
+- Queued messages are a card behind the composer (`mx-4`, top corners rounded, `bg-muted`, hairline shadow, `-mb-3` so the composer covers its bottom edge), one row per item in order: a `CornerDownRight` glyph, the first line of the text with the full text in `title`, an attachment count after a paperclip when there are any, and always-visible muted actions: `Steer` (icon and label), Edit and Remove (icons). No enter or leave motion; nothing renders when the queue is empty. Edit puts the message back into an empty composer; with content in it, the toolbar notice reads `Clear the composer to edit`. A `partial` item has no Edit, since taking it back would drop the attachments the server holds.
 - Esc while a run is active cancels it, the same path as the composer's stop button. The handler lives in `App.tsx` and yields when the event is already `defaultPrevented` (permission prompt denies, completion menu closes, message edit closes), when an IME composition is active, or when a `[role=dialog]` (settings sheet) is in the event path.
 - ⌘K (macOS) / Ctrl+K opens `SessionSearch`, also reachable from the search button beside `+` in the sidebar. The handler lives in `App.tsx` because the mobile sidebar is unmounted while its drawer is closed; it yields like the Esc handler (`defaultPrevented`, IME composition, `[role=dialog]` in the path). Results come from `GET /api/sessions/search`.
 - `Composer` (Lexical) is the single source of truth for message text + inline `@` refs; submit hands `useChat.send` a `ComposerSubmission = { text, workspaceFiles }` and `useChat` builds the `input` blocks (workspace refs deduped by `kind + path`, uploads appended).
 - `WorkspaceFileNode` pills serialize as `@path` inside the message text; the file content travels separately as a `path` input block — both must stay consistent with the CLI `@file` behavior.
-- Built-in slash commands match a whole-input token while the composer is idle with an empty upload list. Skills from `GET /api/config` complete as editable `/<skill-name>` text at any standalone slash token. The backend expands exact discovered names; other slash tokens are submitted as text.
+- Built-in slash commands match a whole-input token while the composer is idle with an empty upload list. Skill and `@` completion also work while a run is active, so a `/skill` token can be steered. Skills from `GET /api/config` complete as editable `/<skill-name>` text at any standalone slash token. The backend expands exact discovered names; other slash tokens are submitted as text.
 - Skill snapshot text blocks (`meta.skill_snapshot=true`) remain in `rawMessages` for provider replay. `buildRenderMessages()` gives history, copy, and edit the original user text.
 - ArrowUp recalls previously sent prompts only from an empty composer (or while already recalling); ArrowDown walks forward and past the newest entry clears the editor, and any edit leaves recall. `InputArea` stores accepted prompt texts per workspace (`mycode_prompt_history`, keyed by `cwd`, capped at 30, consecutive duplicates skipped); pills come back as plain `@path` text, and an open completion menu keeps the arrow keys.
 - `@` completion uses `GET /api/workspaces/files`. Refs the model can't ingest block submit with a hint — never silently drop a pill (it would break the sentence).

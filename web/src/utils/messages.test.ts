@@ -257,6 +257,44 @@ describe("turn interruption", () => {
       interruptions([user("go"), toolCall, toolResult, user("next")]),
     ).toEqual(["cancelled"]);
   });
+
+  it("reads tool results followed by a steer as a continued turn", () => {
+    const at = (seconds: number) =>
+      new Date(Date.UTC(2026, 0, 1, 0, 0, seconds)).toISOString();
+    const steer: ChatMessage = {
+      ...user("use sqlite"),
+      meta: { created_at: at(14), steer: true, input_ids: ["c1"] },
+    };
+    const rendered = buildRenderMessages([
+      { ...user("go"), meta: { created_at: at(0) } },
+      {
+        ...toolCall,
+        meta: {
+          ...toolCall.meta,
+          created_at: at(2),
+          usage: { total_tokens: 100, input_tokens: 90, output_tokens: 10 },
+        },
+      },
+      toolResult,
+      steer,
+      reply("stop"),
+    ]).map(expectChat);
+
+    expect(rendered.map((message) => message.role)).toEqual([
+      "user",
+      "assistant",
+      "user",
+      "assistant",
+    ]);
+    // The segment before the steer reads like a finished turn and runs to
+    // the steer message, so the tool time after its last request counts.
+    expect(rendered[1]?.interruption).toBeUndefined();
+    expect(rendered[1]?.stats?.duration_ms).toBe(14000);
+    expect(rendered[2]?.content).toMatchObject([
+      { type: "text", text: "use sqlite" },
+    ]);
+    expect(rendered[3]?.interruption).toBeUndefined();
+  });
 });
 
 describe("turn stats", () => {

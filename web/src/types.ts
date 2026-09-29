@@ -193,6 +193,30 @@ export interface ComposerSubmission {
   workspaceFiles: WorkspaceFileReference[];
 }
 
+/**
+ * A message handed to a running chat: a steer for its next step boundary or
+ * a queued message for its next turn. Holds the composer submission and
+ * uploads so it can go back into the composer, and the request input blocks.
+ */
+export interface PendingInput {
+  /** Client-generated; sent as `input_id` and echoed in `meta.input_ids`. */
+  id: string;
+  submission: ComposerSubmission;
+  attachments: AttachedFile[];
+  input: Record<string, unknown>[];
+  /** Reloaded from a snapshot without the attachments the server holds, so
+   * the composer cannot rebuild it. */
+  partial?: boolean;
+}
+
+export interface PendingInputs {
+  steers: PendingInput[];
+  queue: PendingInput[];
+}
+
+/** An undelivered message in a session snapshot; the server sets its id. */
+export type PendingMessage = ChatMessage & { meta: { input_id: string } };
+
 export interface Cost {
   total: number;
   input?: number;
@@ -213,6 +237,12 @@ export interface MessageMeta {
   /** Compact markers only: what started the compaction. */
   trigger?: "auto" | "manual";
   context_window?: number;
+  /** User messages delivered inside a run: set on merged steers. */
+  steer?: boolean;
+  /** User messages delivered inside a run: the merged items' input ids. */
+  input_ids?: string[];
+  /** Pending messages from a session snapshot: the item's client id. */
+  input_id?: string;
   /** Per-request token counts persisted by the SDK (history path). */
   usage?: Record<string, number>;
   /** Per-request cost persisted by the SDK (history path). */
@@ -330,6 +360,13 @@ interface CompactEvent extends StreamEventBase {
   trigger: "auto" | "manual";
 }
 
+interface UserMessageEvent extends StreamEventBase {
+  type: "user_message";
+  /** Merged steers (`meta.steer`) or the merged queue; `meta.input_ids`
+   * lists the delivered items. */
+  message: ChatMessage;
+}
+
 interface PermissionRequestEvent extends StreamEventBase {
   type: "permission_request";
   request_id: string;
@@ -370,6 +407,7 @@ export type StreamEvent =
   | ErrorEvent
   | CancelledEvent
   | CompactEvent
+  | UserMessageEvent
   | PermissionRequestEvent
   | PermissionResolvedEvent
   | UsageEvent;
@@ -402,6 +440,8 @@ export interface SessionResponse {
   session_cost?: Cost | null;
   active_run: RunInfo | null;
   pending_events: StreamEvent[];
+  /** The active run's undelivered steers and queued messages. */
+  pending?: { steers: PendingMessage[]; queue: PendingMessage[] };
 }
 
 export interface ChatResponse {

@@ -21,6 +21,7 @@ import {
   $createTextNode,
   $getRoot,
   $getSelection,
+  $isElementNode,
   $isRangeSelection,
   $isTextNode,
   COMMAND_PRIORITY_HIGH,
@@ -29,6 +30,7 @@ import {
   KEY_ENTER_COMMAND,
   KEY_ESCAPE_COMMAND,
   KEY_TAB_COMMAND,
+  type LexicalNode,
   PASTE_COMMAND,
 } from "lexical";
 import {
@@ -42,7 +44,11 @@ import {
   useState,
 } from "react";
 import { useWorkspaceFiles } from "../../hooks/useWorkspaceFiles";
-import type { ComposerSubmission, SkillInfo } from "../../types";
+import type {
+  ComposerSubmission,
+  SkillInfo,
+  WorkspaceFileReference,
+} from "../../types";
 import { cn } from "../../utils/cn";
 import {
   type AtQuery,
@@ -69,13 +75,16 @@ const MENU_ID = "composer-completion-menu";
 const HISTORY_RECALL_TAG = "prompt-history-recall";
 
 export interface ComposerHandle {
-  submit: () => void;
+  submit: (toQueue: boolean) => void;
+  /** Put submissions back ahead of the draft, blank-line separated. */
+  prepend: (submissions: ComposerSubmission[]) => void;
 }
 
 interface ComposerProps {
   ref?: Ref<ComposerHandle>;
   disabled: boolean;
   placeholder: string;
+  /** A run is active; built-in slash commands are idle-only. */
   loading: boolean;
   cwd: string;
   supportsImages: boolean;
@@ -84,8 +93,12 @@ interface ComposerProps {
   hasUploads: boolean;
   /** Previously sent prompts for this workspace, oldest first. */
   history: string[];
-  /** Return false to reject the submission (composer keeps its content). */
-  onSubmit: (submission: ComposerSubmission) => Promise<boolean>;
+  /** Return false to reject the submission (composer keeps its content).
+   * `toQueue` is set by ⌘/Ctrl+Enter. */
+  onSubmit: (
+    submission: ComposerSubmission,
+    toQueue: boolean,
+  ) => Promise<boolean>;
   onSlashCommand?: ((name: SlashCommand["name"]) => void) | undefined;
   onPasteFiles: (files: File[]) => void;
   onHasContentChange: (hasContent: boolean) => void;
@@ -202,6 +215,61 @@ function $setPlainText(text: string): void {
   paragraph.selectEnd();
 }
 
+/** Text with its `@path` pills rebuilt from the references it was sent with. */
+function $submissionNodes({
+  text,
+  workspaceFiles,
+}: ComposerSubmission): LexicalNode[] {
+  const nodes: LexicalNode[] = [];
+  text.split("\n").forEach((line, index) => {
+    if (index > 0) nodes.push($createLineBreakNode());
+    let rest = line;
+    while (rest) {
+      // The earliest pill; the longer path wins where two start together.
+      let pill: { index: number; ref: WorkspaceFileReference } | null = null;
+      for (const ref of workspaceFiles) {
+        const at = rest.indexOf(`@${ref.path}`);
+        if (at < 0) continue;
+        if (
+          !pill ||
+          at < pill.index ||
+          (at === pill.index && ref.path.length > pill.ref.path.length)
+        ) {
+          pill = { index: at, ref };
+        }
+      }
+      if (!pill) {
+        nodes.push($createTextNode(rest));
+        break;
+      }
+      if (pill.index > 0)
+        nodes.push($createTextNode(rest.slice(0, pill.index)));
+      nodes.push($createWorkspaceFileNode(pill.ref));
+      rest = rest.slice(pill.index + pill.ref.path.length + 1);
+    }
+  });
+  return nodes;
+}
+
+function $prependSubmissions(submissions: ComposerSubmission[]): void {
+  const nodes: LexicalNode[] = [];
+  const blankLine = () => [$createLineBreakNode(), $createLineBreakNode()];
+  for (const submission of submissions) {
+    if (!submission.text) continue;
+    if (nodes.length) nodes.push(...blankLine());
+    nodes.push(...$submissionNodes(submission));
+  }
+  if (!nodes.length) return;
+  const root = $getRoot();
+  if (root.getTextContent()) nodes.push(...blankLine());
+  const first = root.getFirstChild();
+  if ($isElementNode(first)) {
+    first.splice(0, 0, nodes);
+  } else {
+    root.append($createParagraphNode().append(...nodes));
+  }
+}
+
 function ComposerInner({
   disabled,
   placeholder,
@@ -274,15 +342,12 @@ function ComposerInner({
 
   const skillCandidates = useMemo(() => {
     const query = context.skillQuery;
-    if (loading || disabled || !query) return [];
+    if (disabled || !query) return [];
     return skills.filter((skill) => skill.name.startsWith(query.prefix));
-  }, [context.skillQuery, disabled, loading, skills]);
+  }, [context.skillQuery, disabled, skills]);
 
   const atQuery =
-    loading ||
-    disabled ||
-    slashCandidates.length > 0 ||
-    skillCandidates.length > 0
+    disabled || slashCandidates.length > 0 || skillCandidates.length > 0
       ? null
       : context.atQuery;
   const workspaceFiles = useWorkspaceFiles(
@@ -355,12 +420,12 @@ function ComposerInner({
     dismissedFor !== context.rootText;
   const menuIndex = Math.min(activeIndex, Math.max(menuItems.length - 1, 0));
 
-  const submit = async () => {
+  const submit = async (toQueue: boolean) => {
     if (submittingRef.current) return;
     const submission = editor.getEditorState().read($buildSubmission);
     submittingRef.current = true;
     try {
-      if (!(await onSubmit(submission))) return;
+      if (!(await onSubmit(submission, toQueue))) return;
       editor.update(() => {
         $getRoot().clear();
       });
@@ -498,7 +563,7 @@ function ComposerInner({
           }
           if (event?.shiftKey) return false;
           event?.preventDefault();
-          void state.submit();
+          void state.submit(Boolean(event?.metaKey || event?.ctrlKey));
           return true;
         },
         COMMAND_PRIORITY_HIGH,
@@ -518,7 +583,11 @@ function ComposerInner({
     );
   }, [editor, onPasteFiles]);
 
-  useImperativeHandle(handleRef, () => ({ submit: () => void submit() }));
+  useImperativeHandle(handleRef, () => ({
+    submit: (toQueue) => void submit(toQueue),
+    prepend: (submissions) =>
+      editor.update(() => $prependSubmissions(submissions)),
+  }));
 
   return (
     <>

@@ -78,13 +78,18 @@ describe("Composer", () => {
     await user.click(await screen.findByRole("option", { name: /main\.ts/ }));
 
     expect(editor).toHaveTextContent("review @src/main.ts");
-    composerRef.current?.submit();
+    composerRef.current?.submit(false);
 
     await waitFor(() => expect(onSubmit).toHaveBeenCalledOnce());
-    expect(onSubmit).toHaveBeenCalledWith({
-      text: "review @src/main.ts ",
-      workspaceFiles: [{ path: "src/main.ts", name: "main.ts", kind: "text" }],
-    });
+    expect(onSubmit).toHaveBeenCalledWith(
+      {
+        text: "review @src/main.ts ",
+        workspaceFiles: [
+          { path: "src/main.ts", name: "main.ts", kind: "text" },
+        ],
+      },
+      false,
+    );
 
     await act(async () => resolveSubmission?.(false));
 
@@ -120,12 +125,15 @@ describe("Composer", () => {
     await user.click(await screen.findByRole("option", { name: /\/ui/ }));
     await user.paste("for this page");
 
-    composerRef.current?.submit();
+    composerRef.current?.submit(false);
     await waitFor(() => expect(onSubmit).toHaveBeenCalledOnce());
-    expect(onSubmit).toHaveBeenCalledWith({
-      text: "Please use /ui for this page",
-      workspaceFiles: [],
-    });
+    expect(onSubmit).toHaveBeenCalledWith(
+      {
+        text: "Please use /ui for this page",
+        workspaceFiles: [],
+      },
+      false,
+    );
   });
 
   it("walks prompt history with arrow keys from an empty editor", async () => {
@@ -150,12 +158,15 @@ describe("Composer", () => {
 
     // Recalled multi-line text submits with its line break intact.
     await user.keyboard("{ArrowUp}");
-    composerRef.current?.submit();
+    composerRef.current?.submit(false);
     await waitFor(() =>
-      expect(onSubmit).toHaveBeenCalledWith({
-        text: "second\nline",
-        workspaceFiles: [],
-      }),
+      expect(onSubmit).toHaveBeenCalledWith(
+        {
+          text: "second\nline",
+          workspaceFiles: [],
+        },
+        false,
+      ),
     );
   });
 
@@ -168,5 +179,91 @@ describe("Composer", () => {
     await user.keyboard("{ArrowUp}");
     expect(editor).toHaveTextContent("draft");
     expect(editor).not.toHaveTextContent("first prompt");
+  });
+
+  it("reports Mod+Enter and submits built-in commands as text while running", async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn().mockResolvedValue(true);
+    render(
+      <Composer
+        disabled={false}
+        placeholder="Message…"
+        loading
+        cwd="/workspace"
+        supportsImages
+        supportsDocuments
+        skills={[]}
+        hasUploads={false}
+        history={[]}
+        onSubmit={onSubmit}
+        onSlashCommand={() => {}}
+        onPasteFiles={() => {}}
+        onHasContentChange={() => {}}
+      />,
+    );
+    const editor = screen.getByRole("textbox");
+    await user.click(editor);
+
+    await user.paste("use sqlite");
+    await user.keyboard("{Enter}");
+    await waitFor(() =>
+      expect(onSubmit).toHaveBeenLastCalledWith(
+        { text: "use sqlite", workspaceFiles: [] },
+        false,
+      ),
+    );
+
+    await user.paste("then add tests");
+    await user.keyboard("{Control>}{Enter}{/Control}");
+    await waitFor(() =>
+      expect(onSubmit).toHaveBeenLastCalledWith(
+        { text: "then add tests", workspaceFiles: [] },
+        true,
+      ),
+    );
+
+    // Built-in slash commands stay idle-only: Enter submits the text.
+    await user.paste("/new");
+    expect(screen.queryByRole("listbox")).toBeNull();
+    await user.keyboard("{Enter}");
+    await waitFor(() =>
+      expect(onSubmit).toHaveBeenLastCalledWith(
+        { text: "/new", workspaceFiles: [] },
+        false,
+      ),
+    );
+  });
+
+  it("puts submissions back ahead of the draft with their pills", async () => {
+    const user = userEvent.setup();
+    const { editor, composerRef, onSubmit } = renderWithHistory([]);
+    await user.click(editor);
+    await user.paste("draft");
+
+    act(() =>
+      composerRef.current?.prepend([
+        {
+          text: "read @src/a.ts",
+          workspaceFiles: [{ path: "src/a.ts", name: "a.ts", kind: "text" }],
+        },
+        { text: "and this", workspaceFiles: [] },
+      ]),
+    );
+    await waitFor(() =>
+      expect(editor.querySelector("[data-workspace-file]")).toHaveTextContent(
+        "@src/a.ts",
+      ),
+    );
+
+    composerRef.current?.submit(false);
+    await waitFor(() =>
+      expect(onSubmit).toHaveBeenCalledWith(
+        {
+          text: "read @src/a.ts\n\nand this\n\ndraft",
+          workspaceFiles: [{ path: "src/a.ts", name: "a.ts", kind: "text" }],
+        },
+        false,
+      ),
+    );
   });
 });

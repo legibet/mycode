@@ -6,18 +6,24 @@
 
 import {
   ArrowUp,
+  ArrowUpToLine,
   CircleAlert,
+  CornerDownRight,
   FileText,
   Paperclip,
+  Pencil,
   Square,
+  Trash2,
   X,
 } from "lucide-react";
 import {
   type ChangeEvent,
   type DragEvent,
   memo,
+  type Ref,
   useCallback,
   useEffect,
+  useImperativeHandle,
   useRef,
   useState,
 } from "react";
@@ -25,6 +31,7 @@ import type {
   AttachedFile,
   ComposerSubmission,
   LocalConfig,
+  PendingInput,
   RemoteConfig,
   SkillInfo,
   UsageTotals,
@@ -33,6 +40,7 @@ import { cn } from "../../utils/cn";
 import type { SlashCommand } from "../../utils/completion";
 import { formatCost } from "../../utils/format";
 import { randomId } from "../../utils/id";
+import { isMac } from "../../utils/platform";
 import {
   addPromptHistory,
   loadPromptHistory,
@@ -43,6 +51,9 @@ import { EffortTrigger, ModelTrigger } from "./InputPills";
 import { hasUsageRows, StatsPopover, StatsText, UsageGrid } from "./StatsCard";
 
 const EMPTY_SKILLS: SkillInfo[] = [];
+
+const QUEUED_ACTION_CLASS =
+  "flex h-6 items-center justify-center rounded-md hover:bg-background/70 hover:text-foreground active:scale-95 transition-[color,background-color,scale] duration-150";
 
 // File pickers only understand MIME types and extensions, so keep the text
 // allowlist explicit here.
@@ -113,10 +124,29 @@ const TEXT_FILE_ACCEPT = [
   ".pnpmrc",
 ].join(",");
 
+export interface InputAreaHandle {
+  /** Put submissions back ahead of the draft. */
+  prepend: (submissions: ComposerSubmission[]) => void;
+}
+
 interface InputAreaProps {
+  ref?: Ref<InputAreaHandle>;
+  /** A run is active: an empty composer offers Stop. */
   loading: boolean;
-  onSubmit: (submission: ComposerSubmission) => Promise<boolean>;
+  /** A compact run is active: nothing can be sent. */
+  compacting?: boolean;
+  /** `toQueue` is set by ⌘/Ctrl+Enter or ⌘/Ctrl+click. */
+  onSubmit: (
+    submission: ComposerSubmission,
+    toQueue: boolean,
+  ) => Promise<boolean>;
   onCancel: () => void;
+  /** Messages queued for the running chat's next turn. */
+  queued?: PendingInput[];
+  onSteerQueued?: (id: string) => void;
+  /** Called only while the composer is empty. */
+  onEditQueued?: (id: string) => void;
+  onRemoveQueued?: (id: string) => void;
   supportsImages?: boolean;
   supportsDocuments?: boolean;
   files?: AttachedFile[];
@@ -135,7 +165,8 @@ interface InputAreaProps {
 }
 
 interface InputNotice {
-  kind: "image" | "document" | "mixed";
+  /** `edit`: a queued message cannot go back into a composer with content. */
+  kind: "image" | "document" | "mixed" | "edit";
   blocking: boolean;
 }
 
@@ -288,9 +319,15 @@ function SessionStats({
 }
 
 export const InputArea = memo(function InputArea({
+  ref,
   loading,
+  compacting = false,
   onSubmit,
   onCancel,
+  queued = [],
+  onSteerQueued,
+  onEditQueued,
+  onRemoveQueued,
   supportsImages = false,
   supportsDocuments = false,
   files = [],
@@ -317,6 +354,10 @@ export const InputArea = memo(function InputArea({
   );
 
   const disabled = disabledProp || Boolean(disabledReason);
+
+  useImperativeHandle(ref, () => ({
+    prepend: (submissions) => composerRef.current?.prepend(submissions),
+  }));
   const hasImageUpload = files.some((file) => file.kind === "image");
   const hasDocumentUpload = files.some((file) => file.kind === "document");
 
@@ -348,8 +389,11 @@ export const InputArea = memo(function InputArea({
 
   // Composer calls this on Enter; the send button routes through the same path.
   const handleSubmission = useCallback(
-    async (submission: ComposerSubmission): Promise<boolean> => {
-      if (loading || disabled) return false;
+    async (
+      submission: ComposerSubmission,
+      toQueue: boolean,
+    ): Promise<boolean> => {
+      if (disabled || compacting) return false;
       if (
         !submission.text.trim() &&
         submission.workspaceFiles.length === 0 &&
@@ -378,7 +422,7 @@ export const InputArea = memo(function InputArea({
         return false;
       }
       showInputNotice(null);
-      const accepted = await onSubmit(submission);
+      const accepted = await onSubmit(submission, toQueue);
       if (accepted) {
         const next = addPromptHistory(promptHistory, submission.text);
         if (next !== promptHistory) {
@@ -391,7 +435,7 @@ export const InputArea = memo(function InputArea({
     [
       config.cwd,
       promptHistory,
-      loading,
+      compacting,
       disabled,
       files.length,
       hasImageUpload,
@@ -493,18 +537,27 @@ export const InputArea = memo(function InputArea({
   };
 
   const hasInput = hasContent || files.length > 0;
-  const noticeLabel =
-    inputNotice?.kind === "mixed"
-      ? "Attachments"
-      : inputNotice?.kind === "image"
-        ? "Image"
-        : "PDF";
-  const compactNoticeText = inputNotice ? `${noticeLabel} unsupported` : "";
-  const noticeText = inputNotice?.blocking
-    ? inputNotice.kind === "mixed"
-      ? "Remove attachments or switch model"
-      : `Remove ${inputNotice.kind === "image" ? "image" : "PDF"} or switch model`
-    : compactNoticeText;
+  const canSend = hasInput && !disabled && !compacting;
+
+  const handleEditQueued = (id: string) => {
+    if (hasInput) {
+      showInputNotice({ kind: "edit", blocking: false }, 2500);
+      return;
+    }
+    onEditQueued?.(id);
+  };
+
+  // Full and compact wording per notice; a non-blocking notice uses the compact one.
+  const [fullNoticeText, compactNoticeText] = !inputNotice
+    ? ["", ""]
+    : inputNotice.kind === "edit"
+      ? ["Clear the composer to edit", "Clear the composer to edit"]
+      : inputNotice.kind === "mixed"
+        ? ["Remove attachments or switch model", "Attachments unsupported"]
+        : inputNotice.kind === "image"
+          ? ["Remove image or switch model", "Image unsupported"]
+          : ["Remove PDF or switch model", "PDF unsupported"];
+  const noticeText = inputNotice?.blocking ? fullNoticeText : compactNoticeText;
   const accept = [
     TEXT_FILE_ACCEPT,
     supportsImages ? "image/*" : null,
@@ -515,6 +568,75 @@ export const InputArea = memo(function InputArea({
 
   return (
     <div className="mx-auto max-w-4xl max-md:max-w-none px-5 max-md:px-3 max-md:pb-2">
+      {queued.length > 0 && (
+        // The next turn: a card behind the composer, showing above its top edge.
+        <ul
+          aria-label="Queued messages"
+          className="mx-4 -mb-3 divide-y divide-border/40 rounded-t-lg bg-muted pb-3 shadow-hairline"
+        >
+          {queued.map((item) => {
+            const attachmentCount =
+              item.attachments.length + item.submission.workspaceFiles.length;
+            return (
+              <li
+                key={item.id}
+                className="flex items-center gap-2.5 px-3.5 py-2 text-sm leading-5"
+              >
+                <CornerDownRight
+                  aria-hidden="true"
+                  className="size-3.5 shrink-0 text-muted-foreground/70"
+                />
+                <span
+                  className="min-w-0 flex-1 truncate text-foreground"
+                  title={item.submission.text}
+                >
+                  {item.submission.text.split("\n", 1)[0]}
+                </span>
+                {attachmentCount > 0 && (
+                  <span
+                    className="flex shrink-0 items-center gap-0.5 text-xs text-muted-foreground"
+                    title={`${attachmentCount} attachment${attachmentCount === 1 ? "" : "s"}`}
+                  >
+                    <Paperclip className="size-3" />
+                    {attachmentCount}
+                  </span>
+                )}
+                <span className="flex shrink-0 items-center gap-0.5 text-muted-foreground">
+                  <button
+                    type="button"
+                    title="Steer the current turn"
+                    onClick={() => onSteerQueued?.(item.id)}
+                    className={cn(QUEUED_ACTION_CLASS, "gap-1 px-1.5 text-xs")}
+                  >
+                    <ArrowUpToLine className="size-3.5" />
+                    Steer
+                  </button>
+                  {!item.partial && (
+                    <button
+                      type="button"
+                      aria-label="Edit"
+                      title="Edit"
+                      onClick={() => handleEditQueued(item.id)}
+                      className={cn(QUEUED_ACTION_CLASS, "w-6")}
+                    >
+                      <Pencil className="size-3.5" />
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    aria-label="Remove"
+                    title="Remove"
+                    onClick={() => onRemoveQueued?.(item.id)}
+                    className={cn(QUEUED_ACTION_CLASS, "w-6")}
+                  >
+                    <Trash2 className="size-3.5" />
+                  </button>
+                </span>
+              </li>
+            );
+          })}
+        </ul>
+      )}
       {/* biome-ignore lint/a11y/noStaticElementInteractions: drag-and-drop drop target */}
       <div
         role="presentation"
@@ -603,11 +725,11 @@ export const InputArea = memo(function InputArea({
           <button
             type="button"
             aria-label="Attach file"
-            disabled={loading || disabled}
+            disabled={disabled || compacting}
             onClick={() => fileInputRef.current?.click()}
             className={cn(
               "size-7 flex items-center justify-center rounded-md transition-colors shrink-0",
-              loading || disabled
+              disabled || compacting
                 ? "text-muted-foreground/20"
                 : "text-muted-foreground/60 hover:text-foreground hover:bg-muted/70",
             )}
@@ -663,7 +785,7 @@ export const InputArea = memo(function InputArea({
             compactThreshold={remoteConfig?.compact_threshold}
           />
 
-          {loading ? (
+          {loading && !canSend ? (
             <button
               type="button"
               aria-label="Stop generating"
@@ -677,15 +799,21 @@ export const InputArea = memo(function InputArea({
             <button
               type="button"
               aria-label="Send message"
-              onClick={() => composerRef.current?.submit()}
-              disabled={!hasInput || disabled}
+              onClick={(e) =>
+                composerRef.current?.submit(e.metaKey || e.ctrlKey)
+              }
+              disabled={!canSend}
               className={cn(
                 "size-7 flex items-center justify-center rounded-md transition-[color,background-color,filter,scale] duration-150 shrink-0",
-                hasInput && !disabled
+                canSend
                   ? "bg-accent text-accent-foreground hover:brightness-105 hover:saturate-[.9] active:scale-95"
                   : "text-muted-foreground/30 bg-muted/40",
               )}
-              title="Send"
+              title={
+                loading
+                  ? `Steer · Enter, queue · ${isMac ? "⌘" : "Ctrl+"}Enter`
+                  : "Send"
+              }
             >
               <ArrowUp className="size-3.5" strokeWidth={2.5} />
             </button>

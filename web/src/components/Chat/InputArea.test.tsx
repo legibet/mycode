@@ -133,4 +133,108 @@ describe("InputArea", () => {
       "Total1,040,000$0.39",
     );
   });
+
+  const runningProps = {
+    loading: true,
+    onCancel: () => {},
+    config: {
+      provider: "anthropic",
+      model: "m",
+      cwd: "/workspace",
+      reasoningEfforts: {},
+    },
+    remoteConfig: null,
+    onUpdateConfig: () => {},
+  };
+
+  it("offers Stop while running with an empty composer and sends with content", async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn().mockResolvedValue(true);
+    render(<InputArea {...runningProps} onSubmit={onSubmit} />);
+
+    expect(
+      screen.getByRole("button", { name: "Stop generating" }),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Send message" })).toBeNull();
+
+    await user.click(screen.getByRole("textbox"));
+    await user.paste("use sqlite");
+    const send = screen.getByRole("button", { name: "Send message" });
+
+    await user.keyboard("{Control>}");
+    await user.click(send);
+    await user.keyboard("{/Control}");
+    await waitFor(() =>
+      expect(onSubmit).toHaveBeenCalledWith(
+        { text: "use sqlite", workspaceFiles: [] },
+        true,
+      ),
+    );
+    expect(
+      await screen.findByRole("button", { name: "Stop generating" }),
+    ).toBeInTheDocument();
+  });
+
+  it("lists queued messages and edits one only from an empty composer", async () => {
+    const user = userEvent.setup();
+    const onEditQueued = vi.fn();
+    const onSteerQueued = vi.fn();
+    const { rerender } = render(
+      <InputArea
+        {...runningProps}
+        onSubmit={vi.fn()}
+        queued={[
+          {
+            id: "q1",
+            submission: {
+              text: "then add tests\nand docs",
+              workspaceFiles: [],
+            },
+            attachments: [
+              { id: "f1", kind: "text", name: "notes.md", text: "notes" },
+            ],
+            input: [],
+          },
+        ]}
+        onEditQueued={onEditQueued}
+        onSteerQueued={onSteerQueued}
+      />,
+    );
+
+    const list = screen.getByRole("list", { name: "Queued messages" });
+    expect(list).toHaveTextContent("then add tests");
+    expect(list).not.toHaveTextContent("and docs");
+    expect(screen.getByTitle("1 attachment")).toHaveTextContent("1");
+
+    await user.click(screen.getByRole("button", { name: "Steer" }));
+    expect(onSteerQueued).toHaveBeenCalledWith("q1");
+
+    await user.click(screen.getByRole("button", { name: "Edit" }));
+    expect(onEditQueued).toHaveBeenCalledWith("q1");
+
+    await user.click(screen.getByRole("textbox"));
+    await user.paste("draft");
+    await user.click(screen.getByRole("button", { name: "Edit" }));
+    expect(onEditQueued).toHaveBeenCalledOnce();
+    expect(screen.getByText("Clear the composer to edit")).toBeInTheDocument();
+
+    // A partial item cannot come back whole, so it offers no Edit.
+    rerender(
+      <InputArea
+        {...runningProps}
+        onSubmit={vi.fn()}
+        queued={[
+          {
+            id: "q2",
+            submission: { text: "reloaded with a file", workspaceFiles: [] },
+            attachments: [],
+            input: [],
+            partial: true,
+          },
+        ]}
+      />,
+    );
+    expect(screen.queryByRole("button", { name: "Edit" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Remove" })).toBeInTheDocument();
+  });
 });

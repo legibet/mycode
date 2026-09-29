@@ -18,9 +18,10 @@ import {
   useRef,
   useState,
 } from "react";
-import type { RenderMessage } from "../../types";
+import type { PendingInput, RenderMessage } from "../../types";
 import { isCompactMarker } from "../../types";
 import { cn } from "../../utils/cn";
+import { createUserMessage } from "../../utils/messages";
 import { CompactMarker } from "./CompactMarker";
 import { MessageBubble } from "./MessageBubble";
 
@@ -40,6 +41,8 @@ interface MessageListProps {
   compactError: string | null;
   /** Last rejected send, shown as plain text at the tail. */
   sendError: string | null;
+  /** Steers waiting for the running turn's next step boundary. */
+  pendingSteers?: PendingInput[];
   onRewindAndSend?:
     | ((rewindTo: number, input: string) => Promise<void>)
     | undefined;
@@ -53,6 +56,7 @@ export const MessageList = memo(function MessageList({
   compacting,
   compactError,
   sendError,
+  pendingSteers = [],
   onRewindAndSend,
   emptyStateFooter,
 }: MessageListProps) {
@@ -67,13 +71,17 @@ export const MessageList = memo(function MessageList({
       compacting={compacting}
       compactError={compactError}
       sendError={sendError}
+      pendingSteers={pendingSteers}
       onRewindAndSend={onRewindAndSend}
       emptyStateFooter={emptyStateFooter}
     />
   );
 });
 
-type WindowedMessagesProps = Omit<MessageListProps, "sessionId">;
+type WindowedMessagesProps = Omit<
+  MessageListProps,
+  "sessionId" | "pendingSteers"
+> & { pendingSteers: PendingInput[] };
 
 function getInitialStartIndex(messageCount: number): number {
   return Math.max(0, messageCount - INITIAL_MESSAGE_COUNT);
@@ -95,7 +103,7 @@ interface PrependSnapshot {
 }
 
 interface SettleSnapshot {
-  /** Work of the turn that just stopped streaming. */
+  /** Work of the turn segment that just stopped streaming. */
   work: HTMLElement;
   /**
    * The work edge to hold, at an offset from the container's top: the bottom
@@ -107,7 +115,8 @@ interface SettleSnapshot {
 }
 
 interface SettleAnchorProps {
-  loading: boolean;
+  /** Render key of the streaming assistant; null when none streams. */
+  streamingKey: string | null;
   containerRef: RefObject<HTMLDivElement | null>;
   followOutputRef: RefObject<boolean>;
   children: ReactNode;
@@ -115,17 +124,24 @@ interface SettleAnchorProps {
 
 /**
  * Keeps the reader in place while a just-finished turn folds its work. The
- * fold commits with the end of streaming, so the reader's position has to be
- * read before React updates the DOM, which only getSnapshotBeforeUpdate can
- * do. The pin is re-applied on each resize until the fold's transitions end
- * or the user scrolls.
+ * fold commits with the end of streaming, or mid-run when a delivered steer
+ * starts a new segment and the previous assistant stops streaming, so the
+ * reader's position has to be read before React updates the DOM, which only
+ * getSnapshotBeforeUpdate can do. The pin is re-applied on each resize until
+ * the fold's transitions end or the user scrolls.
  */
 class SettleAnchor extends Component<SettleAnchorProps> {
   private stopSettle: (() => void) | null = null;
 
   getSnapshotBeforeUpdate(prevProps: SettleAnchorProps): SettleSnapshot | null {
     const el = this.props.containerRef.current;
-    if (!el || !prevProps.loading || this.props.loading) return null;
+    if (
+      !el ||
+      prevProps.streamingKey === null ||
+      prevProps.streamingKey === this.props.streamingKey
+    ) {
+      return null;
+    }
     const work = el.querySelector<HTMLElement>("[data-streaming] [data-work]");
     if (!work) return null;
     const readerTop = el.getBoundingClientRect().top;
@@ -203,6 +219,7 @@ function WindowedMessages({
   compacting,
   compactError,
   sendError,
+  pendingSteers,
   onRewindAndSend,
   emptyStateFooter,
 }: WindowedMessagesProps) {
@@ -227,6 +244,29 @@ function WindowedMessages({
     [effectiveStartIndex, messages],
   );
   const latestMessage = messages.at(-1);
+  const streamingKey =
+    loading &&
+    latestMessage &&
+    !isCompactMarker(latestMessage) &&
+    latestMessage.role === "assistant"
+      ? latestMessage.renderKey || `msg-${messages.length - 1}`
+      : null;
+  const pendingSteerMessages = useMemo(
+    () =>
+      pendingSteers.map((item) => ({
+        id: item.id,
+        role: "user" as const,
+        blocks: createUserMessage(
+          item.submission.text,
+          item.attachments,
+          item.submission.workspaceFiles,
+        ).content.map((block, index) => ({
+          ...block,
+          renderKey: `${item.id}:${index}`,
+        })),
+      })),
+    [pendingSteers],
+  );
   const showPendingCompact =
     compacting && (!latestMessage || !isCompactMarker(latestMessage));
   const latestOutputBlockCount =
@@ -240,7 +280,7 @@ function WindowedMessages({
           if (block.type !== "text" && block.type !== "thinking") return total;
           return total + (block.text?.length ?? 0);
         }, 0);
-  const outputVersion = `${messages.length}:${latestOutputBlockCount}:${latestOutputTextLength}:${compacting}:${compactError ?? ""}:${sendError ?? ""}`;
+  const outputVersion = `${messages.length}:${latestOutputBlockCount}:${latestOutputTextLength}:${pendingSteers.length}:${compacting}:${compactError ?? ""}:${sendError ?? ""}`;
 
   const isNearBottom = useCallback((el: HTMLElement) => {
     return el.scrollHeight - el.scrollTop - el.clientHeight < SCROLL_THRESHOLD;
@@ -366,7 +406,7 @@ function WindowedMessages({
         className="min-h-0 flex-1 overflow-y-auto pb-4 pt-6 [overflow-anchor:none] scrollbar-gutter-both"
       >
         <SettleAnchor
-          loading={loading}
+          streamingKey={streamingKey}
           containerRef={containerRef}
           followOutputRef={followOutputRef}
         >
@@ -434,6 +474,15 @@ function WindowedMessages({
                 <CompactMarker pending />
               </div>
             )}
+            {pendingSteerMessages.map(({ id, role, blocks }) => (
+              <MessageBubble
+                key={id}
+                role={role}
+                blocks={blocks}
+                isLoading={false}
+                pending
+              />
+            ))}
             {!compacting && compactError && (
               <div
                 role="status"
@@ -455,6 +504,7 @@ function WindowedMessages({
               </div>
             )}
             {(messages.length > 0 ||
+              pendingSteers.length > 0 ||
               showPendingCompact ||
               compactError ||
               sendError) && <div className="h-4" />}

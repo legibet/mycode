@@ -675,8 +675,16 @@ export function buildRenderMessages(
       }
 
       if (userBlocks.length > 0) {
+        const userMeta = message?.meta as MessageMeta | undefined;
+        if (userMeta?.steer) {
+          // Tool results followed by a steer mean the turn continued with it,
+          // not that it stopped between rounds. The segment the steer closes
+          // runs to the steer message, as the SDK's closing usage event does.
+          if (turnInterruption === "cancelled") turnInterruption = undefined;
+          if (userMeta.created_at) turnEndedAt = userMeta.created_at;
+        }
         commitTurn();
-        turnStartedAt = (message?.meta as MessageMeta | undefined)?.created_at;
+        turnStartedAt = userMeta?.created_at;
         const userMsg: ChatMessage = {
           role: "user",
           content: userBlocks,

@@ -16,7 +16,7 @@ import useSWR from "swr";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
-import { InputArea } from "./components/Chat/InputArea";
+import { InputArea, type InputAreaHandle } from "./components/Chat/InputArea";
 import { MessageList } from "./components/Chat/MessageList";
 import { PermissionPrompt } from "./components/Chat/PermissionPrompt";
 import { Layout } from "./components/Layout";
@@ -30,6 +30,7 @@ import type {
   AttachedFile,
   ComposerSubmission,
   LocalConfig,
+  PendingInput,
   RemoteConfig,
   SettingsResponse,
 } from "./types";
@@ -177,6 +178,21 @@ function AppContent() {
     [localConfig, remoteConfig],
   );
 
+  // Undelivered steers and queued messages come back ahead of the draft.
+  const inputAreaRef = useRef<InputAreaHandle>(null);
+  const restoreToComposer = useCallback((items: PendingInput[]) => {
+    inputAreaRef.current?.prepend(items.map((item) => item.submission));
+    // Image previews were revoked when the uploads left the composer.
+    const restored = items
+      .flatMap((item) => item.attachments)
+      .map((file) =>
+        file.kind === "image"
+          ? { ...file, preview: `data:${file.mime_type};base64,${file.data}` }
+          : file,
+      );
+    if (restored.length) setAttachments((prev) => [...restored, ...prev]);
+  }, []);
+
   const {
     messages,
     messageSessionId,
@@ -189,7 +205,13 @@ function AppContent() {
     sessions,
     activeSession,
     pendingPermission,
+    pending,
     send,
+    steer,
+    queue,
+    removeQueued,
+    steerQueued,
+    takeBackQueued,
     rewindAndSend,
     compactSession,
     cancel,
@@ -197,7 +219,7 @@ function AppContent() {
     createSession,
     selectSession,
     deleteSession,
-  } = useChat(config, remoteConfig);
+  } = useChat(config, remoteConfig, restoreToComposer);
 
   // Esc is the keyboard twin of the composer's stop button. Controls that
   // own Esc (permission prompt, completion menu, message edit) preventDefault
@@ -267,17 +289,24 @@ function AppContent() {
     setAttachments([]);
   }, []);
 
+  // While a chat runs, Enter steers it and Mod+Enter queues the next turn.
   const handleSubmit = useCallback(
-    async (submission: ComposerSubmission) => {
-      const accepted = await send(
-        submission,
-        attachments.length ? attachments : undefined,
-      );
+    async (submission: ComposerSubmission, toQueue: boolean) => {
+      const deliver = runKind !== "chat" ? send : toQueue ? queue : steer;
+      const accepted = await deliver(submission, attachments);
       if (!accepted) return false;
       clearAttachments();
       return true;
     },
-    [attachments, clearAttachments, send],
+    [attachments, clearAttachments, queue, runKind, send, steer],
+  );
+
+  const handleEditQueued = useCallback(
+    async (id: string) => {
+      const item = await takeBackQueued(id);
+      if (item) restoreToComposer([item]);
+    },
+    [restoreToComposer, takeBackQueued],
   );
 
   const handleAttachFiles = useCallback((newFiles: AttachedFile[]) => {
@@ -412,6 +441,7 @@ function AppContent() {
             compacting={!setupRequired && runKind === "compact"}
             compactError={setupRequired ? null : compactError}
             sendError={setupRequired ? null : sendError}
+            pendingSteers={pending.steers}
             onRewindAndSend={
               workspaceMissing || setupRequired ? undefined : rewindAndSend
             }
@@ -427,9 +457,15 @@ function AppContent() {
             )}
             <InputArea
               key={config.cwd}
+              ref={inputAreaRef}
               loading={loading}
+              compacting={runKind === "compact"}
               onSubmit={handleSubmit}
               onCancel={cancel}
+              queued={pending.queue}
+              onSteerQueued={steerQueued}
+              onEditQueued={handleEditQueued}
+              onRemoveQueued={removeQueued}
               supportsImages={supportsImageInput}
               supportsDocuments={supportsPdfInput}
               files={attachments}

@@ -47,6 +47,7 @@ function createJsonResponse(data: unknown, status = 200): Response {
 function renderChatHook(
   overrides?: Partial<Parameters<typeof useChat>[0]>,
   remoteConfig?: Parameters<typeof useChat>[1],
+  onRestore?: Parameters<typeof useChat>[2],
 ) {
   return renderHook(() =>
     useChat(
@@ -58,6 +59,7 @@ function renderChatHook(
         ...overrides,
       },
       remoteConfig,
+      onRestore,
     ),
   );
 }
@@ -1617,5 +1619,508 @@ describe("useChat", () => {
     });
     expect(result.current.compactError).toBeNull();
     expect(result.current.messages).toHaveLength(2);
+  });
+});
+
+describe("useChat pending input", () => {
+  const RUN = {
+    id: "run-2",
+    session_id: "session-2",
+    kind: "chat" as const,
+    status: "running",
+    last_seq: 0,
+  };
+  const pendingMessage = (text: string, inputId: string) => ({
+    role: "user",
+    content: [{ type: "text", text }],
+    meta: { input_id: inputId },
+  });
+
+  /** A running session whose stream stays open until the test closes it. */
+  function mockRunningSession(
+    routes: Record<string, MockResponse>,
+    {
+      pending = { steers: [], queue: [] },
+      reloaded = () => [],
+    }: {
+      pending?: { steers: unknown[]; queue: unknown[] };
+      /** Messages the idle reload shows after the run ended. */
+      reloaded?: () => unknown[];
+    } = {},
+  ) {
+    globalThis.localStorage = createLocalStorage();
+    saveActiveSession("/workspace/a", "session-2");
+    const encoder = new TextEncoder();
+    let controller!: ReadableStreamDefaultController<Uint8Array>;
+    const stream = new ReadableStream<Uint8Array>({
+      start(c) {
+        controller = c;
+      },
+    });
+    const running = {
+      session: { id: "session-2", title: "Running" },
+      messages: [{ role: "user", content: [{ type: "text", text: "run" }] }],
+      active_run: RUN,
+      pending_events: [],
+      pending,
+    };
+    const session = vi
+      .fn()
+      .mockReturnValueOnce(createJsonResponse(running))
+      .mockImplementation(() =>
+        createJsonResponse({
+          ...running,
+          messages: [...running.messages, ...reloaded()],
+          active_run: null,
+          pending: { steers: [], queue: [] },
+        }),
+      );
+    const fetchMock = mockFetch({
+      "/api/sessions?cwd=": createJsonResponse({
+        sessions: [{ id: "session-2", title: "Running" }],
+      }),
+      ...routes,
+      "/api/sessions/session-2": () => session(),
+      "/api/runs/run-2/stream": new Response(stream, {
+        status: 200,
+        headers: { "Content-Type": "text/event-stream" },
+      }),
+    });
+    const emit = (...lines: string[]) =>
+      controller.enqueue(
+        encoder.encode(lines.map((line) => `data: ${line}\n\n`).join("")),
+      );
+    const end = (...lines: string[]) => {
+      emit(...lines, "[DONE]");
+      controller.close();
+    };
+    return { fetchMock, emit, end, session };
+  }
+
+  const calls = (fetchMock: ReturnType<typeof mockFetch>, url: string) =>
+    fetchMock.mock.calls.filter(([callUrl]) => String(callUrl) === url);
+
+  it("starts a new segment on user_message and drops the delivered items", async () => {
+    const { emit, end } = mockRunningSession(
+      {},
+      {
+        pending: {
+          steers: [pendingMessage("use sqlite", "c1")],
+          queue: [
+            {
+              ...pendingMessage("then tests", "c2"),
+              content: [
+                { type: "text", text: "then tests" },
+                {
+                  type: "text",
+                  text: '<file name="a.md">\nnotes\n</file>',
+                  meta: { attachment: true, path: "a.md" },
+                },
+              ],
+            },
+          ],
+        },
+      },
+    );
+    const { result } = renderChatHook();
+    await waitFor(() => expect(result.current.loading).toBe(true));
+    expect(result.current.pending.steers.map((item) => item.id)).toEqual([
+      "c1",
+    ]);
+    expect(result.current.pending.steers[0]?.partial).toBeUndefined();
+    // The server holds the attachment; the composer can only get the text back.
+    expect(result.current.pending.queue).toMatchObject([
+      { id: "c2", submission: { text: "then tests" }, partial: true },
+    ]);
+
+    emit(
+      JSON.stringify({
+        seq: 1,
+        type: "tool_start",
+        tool_call: { id: "t1", name: "read", input: {} },
+      }),
+      JSON.stringify({
+        seq: 2,
+        type: "tool_done",
+        tool_use_id: "t1",
+        output: "ok",
+      }),
+      JSON.stringify({
+        seq: 3,
+        type: "usage",
+        turn_usage: { total_tokens: 100 },
+        turn_duration_ms: 4000,
+      }),
+      JSON.stringify({
+        seq: 4,
+        type: "user_message",
+        message: {
+          role: "user",
+          content: [{ type: "text", text: "use sqlite" }],
+          meta: { steer: true, input_ids: ["c1"] },
+        },
+      }),
+      JSON.stringify({
+        seq: 5,
+        type: "usage",
+        turn_usage: { total_tokens: 30 },
+      }),
+    );
+
+    await waitFor(() => expect(result.current.messages).toHaveLength(4));
+    expect(result.current.loading).toBe(true);
+    expect(result.current.pending.steers).toEqual([]);
+    expect(result.current.pending.queue.map((item) => item.id)).toEqual(["c2"]);
+    const [, segment, steer, next] = result.current.messages.map(expectChat);
+    expect(segment?.interruption).toBeUndefined();
+    expect(segment?.stats).toMatchObject({
+      total_tokens: 100,
+      duration_ms: 4000,
+    });
+    expect(steer?.role).toBe("user");
+    expect(next?.stats?.total_tokens).toBe(30);
+
+    end(JSON.stringify({ seq: 6, type: "cancelled" }));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+  });
+
+  it("falls back from steer to the queue and sends leftovers when the run ends", async () => {
+    const chatResponse = vi.fn(() =>
+      createJsonResponse({
+        run: { ...RUN, id: "run-3" },
+        session: { id: "session-2", title: "Running" },
+      }),
+    );
+    const { fetchMock, end } = mockRunningSession({
+      "/api/runs/run-2/steer": createJsonResponse(
+        { detail: { message: "run is not accepting steers" } },
+        409,
+      ),
+      "/api/sessions/session-2/queue": createJsonResponse(
+        { detail: { message: "session has no running chat to queue on" } },
+        409,
+      ),
+      "/api/chat": chatResponse,
+      "/api/runs/run-3/stream": new Response("data: [DONE]\n\n", {
+        status: 200,
+      }),
+    });
+    const { result } = renderChatHook();
+    await waitFor(() => expect(result.current.loading).toBe(true));
+
+    await act(async () => {
+      expect(result.current.steer({ text: "first", workspaceFiles: [] })).toBe(
+        true,
+      );
+    });
+    await waitFor(() =>
+      expect(calls(fetchMock, "/api/sessions/session-2/queue")).toHaveLength(1),
+    );
+    await act(async () => {
+      result.current.queue({
+        text: "second @a.ts",
+        workspaceFiles: [{ path: "a.ts", name: "a.ts", kind: "text" }],
+      });
+    });
+    await waitFor(() =>
+      expect(calls(fetchMock, "/api/sessions/session-2/queue")).toHaveLength(2),
+    );
+    // Both 409s leave the items in the local queue until the stream ends.
+    expect(result.current.pending.steers).toEqual([]);
+    expect(
+      result.current.pending.queue.map((item) => item.submission.text),
+    ).toEqual(["first", "second @a.ts"]);
+    expect(chatResponse).not.toHaveBeenCalled();
+
+    end();
+
+    await waitFor(() => expect(chatResponse).toHaveBeenCalledOnce());
+    const body = JSON.parse(
+      String(calls(fetchMock, "/api/chat")[0]?.[1]?.body),
+    );
+    expect(body.session_id).toBe("session-2");
+    expect(body.input).toEqual([
+      { type: "text", text: "first" },
+      { type: "text", text: "second @a.ts" },
+      { type: "text", path: "a.ts", name: "a.ts", is_attachment: true },
+    ]);
+    expect(result.current.pending).toEqual({ steers: [], queue: [] });
+    const user = expectChat(result.current.messages.at(-2));
+    expect(user.content[0]).toMatchObject({ text: "first\n\nsecond @a.ts" });
+  });
+
+  it("restores pending input steers first when the run is cancelled", async () => {
+    const onRestore = vi.fn();
+    const { fetchMock, end } = mockRunningSession(
+      {},
+      {
+        pending: {
+          steers: [pendingMessage("use sqlite", "c1")],
+          queue: [pendingMessage("then tests", "c2")],
+        },
+      },
+    );
+    const { result } = renderChatHook(undefined, undefined, onRestore);
+    await waitFor(() => expect(result.current.pending.queue).toHaveLength(1));
+
+    end(JSON.stringify({ seq: 1, type: "cancelled" }));
+
+    await waitFor(() => expect(onRestore).toHaveBeenCalledOnce());
+    expect(
+      onRestore.mock.calls[0]?.[0].map(
+        (item: { id: string; submission: { text: string } }) => [
+          item.id,
+          item.submission.text,
+        ],
+      ),
+    ).toEqual([
+      ["c1", "use sqlite"],
+      ["c2", "then tests"],
+    ]);
+    expect(result.current.pending).toEqual({ steers: [], queue: [] });
+    expect(calls(fetchMock, "/api/chat")).toHaveLength(0);
+  });
+
+  it("restores a steer on Stop and ignores its late 409", async () => {
+    const onRestore = vi.fn();
+    let rejectSteer!: () => void;
+    const { fetchMock } = mockRunningSession({
+      "/api/runs/run-2/steer": () =>
+        new Promise<Response>((resolve) => {
+          rejectSteer = () =>
+            resolve(
+              createJsonResponse(
+                { detail: { message: "run is not accepting steers" } },
+                409,
+              ),
+            );
+        }),
+      "/api/runs/run-2/cancel": createJsonResponse({ status: "ok" }),
+    });
+    const { result } = renderChatHook(undefined, undefined, onRestore);
+    await waitFor(() => expect(result.current.loading).toBe(true));
+
+    await act(async () => {
+      result.current.steer({ text: "late", workspaceFiles: [] });
+    });
+    expect(result.current.pending.steers).toHaveLength(1);
+
+    act(() => result.current.cancel());
+    expect(result.current.pending.steers).toEqual([]);
+    await waitFor(() => expect(onRestore).toHaveBeenCalledOnce());
+    expect(onRestore.mock.calls[0]?.[0][0].submission.text).toBe("late");
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    await act(async () => rejectSteer());
+    expect(onRestore).toHaveBeenCalledOnce();
+    expect(calls(fetchMock, "/api/sessions/session-2/queue")).toHaveLength(0);
+    expect(calls(fetchMock, "/api/chat")).toHaveLength(0);
+  });
+
+  it("keeps a steer on Stop that the reloaded history shows delivered", async () => {
+    const onRestore = vi.fn();
+    let steerId = "";
+    mockRunningSession(
+      {
+        "/api/runs/run-2/steer": createJsonResponse({ run: RUN }),
+        "/api/runs/run-2/cancel": createJsonResponse({ status: "ok" }),
+      },
+      {
+        reloaded: () => [
+          {
+            role: "user",
+            content: [{ type: "text", text: "landed" }],
+            meta: { steer: true, input_ids: [steerId] },
+          },
+        ],
+      },
+    );
+    const { result } = renderChatHook(undefined, undefined, onRestore);
+    await waitFor(() => expect(result.current.loading).toBe(true));
+
+    await act(async () => {
+      result.current.steer({ text: "landed", workspaceFiles: [] });
+      result.current.steer({ text: "not yet", workspaceFiles: [] });
+    });
+    steerId = result.current.pending.steers[0]?.id ?? "";
+    expect(steerId).not.toBe("");
+
+    act(() => result.current.cancel());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    await waitFor(() => expect(onRestore).toHaveBeenCalledOnce());
+    expect(
+      onRestore.mock.calls[0]?.[0].map(
+        (item: { submission: { text: string } }) => item.submission.text,
+      ),
+    ).toEqual(["not yet"]);
+    expect(
+      result.current.messages.map((message) => expectChat(message).role),
+    ).toEqual(["user", "user"]);
+  });
+
+  it("moves a queued item into the current turn with one request", async () => {
+    const { fetchMock, end } = mockRunningSession(
+      {
+        "/api/sessions/session-2/queue/q1/steer": createJsonResponse({
+          run: RUN,
+        }),
+        "/api/sessions/session-2/queue/q2/steer": createJsonResponse(
+          { detail: { message: "run is not accepting steers" } },
+          409,
+        ),
+      },
+      {
+        pending: {
+          steers: [],
+          queue: [pendingMessage("one", "q1"), pendingMessage("two", "q2")],
+        },
+      },
+    );
+    const { result } = renderChatHook();
+    await waitFor(() => expect(result.current.pending.queue).toHaveLength(2));
+
+    await act(async () => {
+      result.current.steerQueued("q1");
+      result.current.steerQueued("q2");
+    });
+    await waitFor(() =>
+      expect(result.current.pending.steers.map((item) => item.id)).toEqual([
+        "q1",
+      ]),
+    );
+    expect(result.current.pending.queue.map((item) => item.id)).toEqual(["q2"]);
+    expect(calls(fetchMock, "/api/runs/run-2/steer")).toHaveLength(0);
+    expect(
+      fetchMock.mock.calls.filter(([, init]) => init?.method === "DELETE"),
+    ).toHaveLength(0);
+
+    end(JSON.stringify({ seq: 1, type: "cancelled" }));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+  });
+
+  it("deletes a queued item the server accepted after it was removed", async () => {
+    let acceptQueue!: () => void;
+    const { fetchMock, end } = mockRunningSession({
+      "/api/sessions/session-2/queue": (init) =>
+        init?.method === "DELETE"
+          ? createJsonResponse({ detail: "queued message not found" }, 404)
+          : new Promise<Response>((resolve) => {
+              acceptQueue = () => resolve(createJsonResponse({ run: RUN }));
+            }),
+    });
+    const { result } = renderChatHook();
+    await waitFor(() => expect(result.current.loading).toBe(true));
+    await act(async () => {
+      result.current.queue({ text: "gone", workspaceFiles: [] });
+    });
+    const id = result.current.pending.queue[0]?.id ?? "";
+
+    await act(async () => {
+      await result.current.removeQueued(id);
+    });
+    expect(result.current.pending.queue).toEqual([]);
+    const deletes = () =>
+      fetchMock.mock.calls.filter(([, init]) => init?.method === "DELETE");
+    expect(deletes()).toHaveLength(1);
+
+    await act(async () => acceptQueue());
+    await waitFor(() => expect(deletes()).toHaveLength(2));
+    expect(String(deletes()[1]?.[0])).toBe(
+      `/api/sessions/session-2/queue/${id}`,
+    );
+
+    end();
+    await waitFor(() => expect(result.current.loading).toBe(false));
+  });
+
+  it("stays busy until a queue request in flight settles, then sends leftovers", async () => {
+    let rejectQueue!: () => void;
+    const chatResponse = vi.fn(() =>
+      createJsonResponse({
+        run: { ...RUN, id: "run-3" },
+        session: { id: "session-2", title: "Running" },
+      }),
+    );
+    const { end } = mockRunningSession({
+      "/api/sessions/session-2/queue": () =>
+        new Promise<Response>((resolve) => {
+          rejectQueue = () =>
+            resolve(
+              createJsonResponse(
+                { detail: { message: "session has no running chat" } },
+                409,
+              ),
+            );
+        }),
+      "/api/chat": chatResponse,
+      "/api/runs/run-3/stream": new Response("data: [DONE]\n\n", {
+        status: 200,
+      }),
+    });
+    const { result } = renderChatHook();
+    await waitFor(() => expect(result.current.loading).toBe(true));
+    await act(async () => {
+      result.current.queue({ text: "late", workspaceFiles: [] });
+    });
+
+    end();
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(chatResponse).not.toHaveBeenCalled();
+    expect(result.current.pending.queue).toHaveLength(1);
+    // A send now would race the leftovers' own request.
+    expect(result.current.loading).toBe(true);
+    expect(
+      await result.current.send({ text: "manual", workspaceFiles: [] }),
+    ).toBe(false);
+
+    await act(async () => rejectQueue());
+    await waitFor(() => expect(chatResponse).toHaveBeenCalledOnce());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+  });
+
+  it("drops the pending input when the session changes during the reload after Stop", async () => {
+    const onRestore = vi.fn();
+    let finishReload!: () => void;
+    const { session } = mockRunningSession({
+      "/api/runs/run-2/steer": createJsonResponse({ run: RUN }),
+      "/api/runs/run-2/cancel": createJsonResponse({ status: "ok" }),
+      "/api/sessions/session-1": createJsonResponse({
+        session: { id: "session-1", title: "Other" },
+        messages: [],
+        active_run: null,
+        pending_events: [],
+      }),
+    });
+    const { result } = renderChatHook(undefined, undefined, onRestore);
+    await waitFor(() => expect(result.current.loading).toBe(true));
+    await act(async () => {
+      result.current.steer({ text: "late", workspaceFiles: [] });
+    });
+    session.mockImplementationOnce(
+      () =>
+        new Promise<Response>((resolve) => {
+          finishReload = () =>
+            resolve(
+              createJsonResponse({
+                session: { id: "session-2", title: "Running" },
+                messages: [],
+                active_run: null,
+                pending_events: [],
+              }),
+            );
+        }),
+    );
+
+    act(() => result.current.cancel());
+    await waitFor(() => expect(session).toHaveBeenCalledTimes(2));
+    await act(async () => {
+      await result.current.selectSession("session-1");
+    });
+    await act(async () => finishReload());
+
+    expect(result.current.activeSession.id).toBe("session-1");
+    expect(onRestore).not.toHaveBeenCalled();
   });
 });

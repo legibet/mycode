@@ -49,6 +49,8 @@ interface MessageBubbleProps {
   interruption?: Interruption | undefined;
   /** The run error that ended the turn, shown as plain text. */
   error?: string | undefined;
+  /** A steer handed to the running turn and not yet delivered. */
+  pending?: boolean | undefined;
   onRewindAndSend?:
     | ((rewindTo: number, input: string) => Promise<void>)
     | undefined;
@@ -276,6 +278,7 @@ export const MessageBubble = memo(function MessageBubble({
   stats,
   interruption,
   error,
+  pending = false,
   onRewindAndSend,
 }: MessageBubbleProps) {
   const isUser = role === "user";
@@ -503,8 +506,28 @@ export const MessageBubble = memo(function MessageBubble({
             </div>
           )}
           {textContent && (
-            <div className="rounded-lg bg-muted px-3.5 py-2 text-sm leading-relaxed text-foreground whitespace-pre-wrap wrap-anywhere">
-              {textContent}
+            <div className="flex max-w-full items-center gap-2">
+              {pending && (
+                // The sidebar's running dot: the message is waiting for the step.
+                <span
+                  aria-hidden="true"
+                  className="size-1.5 shrink-0 rounded-full bg-accent animate-breathing"
+                />
+              )}
+              <div
+                title={pending ? "Waiting for the current step" : undefined}
+                className={cn(
+                  "min-w-0 rounded-lg px-3.5 py-2 text-sm leading-relaxed whitespace-pre-wrap wrap-anywhere",
+                  pending
+                    ? "shadow-hairline text-foreground/80"
+                    : "bg-muted text-foreground",
+                )}
+              >
+                {textContent}
+                {pending && (
+                  <span className="sr-only">Waiting for the current step…</span>
+                )}
+              </div>
             </div>
           )}
         </div>
