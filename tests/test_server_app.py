@@ -821,3 +821,31 @@ async def test_session_read_serializes_with_catalog_mutation(
             assert after["messages"] == []
             assert after["session_usage"] is None
             assert after["session_cost"] is None
+
+
+def test_session_search_endpoint_reports_running_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    store = SessionStore(data_dir=tmp_path / "sessions")
+
+    async def seed() -> None:
+        await store.create_session("s1", cwd=str(tmp_path))
+        await store.append_message("s1", {"role": "user", "content": [{"type": "text", "text": "find the Needle"}]})
+
+    asyncio.run(seed())
+    runs = RunManager()
+
+    async def has_active_run(session_id: str) -> bool:
+        return session_id == "s1"
+
+    monkeypatch.setattr(runs, "has_active_run", has_active_run)
+    app = create_api_app()
+    app.dependency_overrides[get_store] = lambda: store
+    app.dependency_overrides[get_run_manager] = lambda: runs
+
+    with TestClient(app) as client:
+        response = client.get("/api/sessions/search", params={"q": "needle"})
+        assert client.get("/api/sessions/search").status_code == 422
+
+    [result] = response.json()["results"]
+    assert result["session"]["id"] == "s1"
+    assert result["session"]["is_running"] is True
+    assert result["snippet"] == {"before": "find the ", "match": "Needle", "after": ""}

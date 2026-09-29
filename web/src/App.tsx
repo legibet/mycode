@@ -21,6 +21,7 @@ import { MessageList } from "./components/Chat/MessageList";
 import { PermissionPrompt } from "./components/Chat/PermissionPrompt";
 import { Layout } from "./components/Layout";
 import { MobileHeader } from "./components/MobileHeader";
+import { SessionSearch } from "./components/SessionSearch";
 import { SettingsPanel } from "./components/Settings/SettingsPanel";
 import { Sidebar } from "./components/Sidebar";
 import { ThemeProvider } from "./components/ThemeProvider";
@@ -33,6 +34,7 @@ import type {
   SettingsResponse,
 } from "./types";
 import { normalizeConfigWithRemoteDefaults } from "./utils/config";
+import { isMac } from "./utils/platform";
 import {
   getMaxSidebarWidth,
   SIDEBAR_DEFAULT_WIDTH,
@@ -104,6 +106,7 @@ function AppContent() {
   // User's preferred sidebar width — only changes on explicit drag/reset.
   const [sidebarWidth, setSidebarWidth] = useState(loadSidebarWidth);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
   const maxSidebarWidth = useSyncExternalStore(
     subscribeToWindowResize,
     getMaxSidebarWidth,
@@ -216,6 +219,33 @@ function AppContent() {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [loading, cancel]);
+
+  // Cmd+K / Ctrl+K opens session search. It lives here rather than in
+  // Sidebar because the mobile sidebar is unmounted while its drawer is closed.
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.isComposing) return;
+      if (event.key.toLowerCase() !== "k") return;
+      if (!(isMac ? event.metaKey : event.ctrlKey)) return;
+      if (event.altKey || event.shiftKey) return;
+      if (
+        event
+          .composedPath()
+          .some((el) => el instanceof Element && el.matches("[role=dialog]"))
+      ) {
+        return;
+      }
+      event.preventDefault();
+      setSearchOpen(true);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
+
+  const handleOpenSearch = useCallback(() => {
+    setSidebarOpen(false);
+    setSearchOpen(true);
+  }, []);
 
   const handleConfigUpdate = useCallback(
     (newConfig: LocalConfig) => {
@@ -332,6 +362,7 @@ function AppContent() {
     activeSession,
     onSelectSession: handleSelectSession,
     onCreateSession: handleCreateSession,
+    onOpenSearch: handleOpenSearch,
     onDeleteSession: handleDeleteSession,
     config,
     remoteConfig,
@@ -420,6 +451,14 @@ function AppContent() {
           </div>
         </main>
       </div>
+
+      <SessionSearch
+        open={searchOpen}
+        onClose={() => setSearchOpen(false)}
+        cwd={config.cwd}
+        activeSessionId={activeSession?.id}
+        onSelect={handleSelectSession}
+      />
 
       <SettingsPanel
         key={settingsPanelKey(settingsOpen, settingsResponse)}

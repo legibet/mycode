@@ -22,6 +22,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 import shutil
 from collections.abc import Iterable
 from dataclasses import dataclass, field
@@ -29,7 +30,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, TypedDict
 
-from mycode.messages import ConversationMessage
+from mycode.messages import ConversationMessage, flatten_message_text
 from mycode.models import Cost, add_cost, add_usage
 from mycode.session import SessionStore as TimelineStore
 from mycode.session import apply_rewind
@@ -60,6 +61,17 @@ class SessionData(TypedDict):
     session: SessionMetaDict
     messages: list[ConversationMessage]
     totals: SessionTotals
+
+
+class SessionSnippet(TypedDict):
+    before: str
+    match: str
+    after: str
+
+
+class SessionSearchHit(TypedDict):
+    session: SessionMetaDict
+    snippet: SessionSnippet | None
 
 
 def sum_session_totals(messages: Iterable[ConversationMessage]) -> SessionTotals:
@@ -241,3 +253,42 @@ class SessionStore(TimelineStore):
             }
 
         return await asyncio.to_thread(load)
+
+    async def search_sessions(self, query: str, *, cwd: str | None = None, limit: int = 50) -> list[SessionSearchHit]:
+        """Find sessions whose title or visible user/assistant text contains
+        ``query`` (case-insensitive), newest first.
+
+        The snippet comes from the first body match in timeline order, on
+        whitespace-collapsed text; it is ``None`` when only the title matched.
+        """
+
+        needle = " ".join(query.split())
+        if not needle:
+            return []
+        pattern = re.compile(re.escape(needle), re.IGNORECASE)
+        sessions = await self.list_sessions(cwd=cwd)
+
+        def scan() -> list[SessionSearchHit]:
+            hits: list[SessionSearchHit] = []
+            for session in sessions:
+                snippet: SessionSnippet | None = None
+                for message in self.load_messages_sync(str(session["id"])):
+                    if message.get("role") not in {"user", "assistant"}:
+                        continue
+                    text = " ".join(flatten_message_text(message, include_thinking=False).split())
+                    if found := pattern.search(text):
+                        start, end = found.span()
+                        snippet = {
+                            "before": text[max(0, start - 60) : start],
+                            "match": found.group(),
+                            "after": text[end : end + 80],
+                        }
+                        break
+                if snippet is None and not pattern.search(str(session.get("title") or "")):
+                    continue
+                hits.append({"session": session, "snippet": snippet})
+                if len(hits) >= limit:
+                    break
+            return hits
+
+        return await asyncio.to_thread(scan)

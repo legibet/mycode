@@ -385,6 +385,16 @@ export interface SessionsResponse {
   sessions?: SessionSummary[];
 }
 
+export interface SessionSearchHit {
+  session: SessionSummary;
+  /** Text around the first message match; null when only the title matched. */
+  snippet: { before: string; match: string; after: string } | null;
+}
+
+export interface SessionSearchResponse {
+  results: SessionSearchHit[];
+}
+
 export interface SessionResponse {
   session: SessionSummary | null;
   messages: ChatMessage[];

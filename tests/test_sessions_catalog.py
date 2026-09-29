@@ -108,3 +108,67 @@ async def test_delete_session_removes_the_whole_directory(store: SessionStore) -
     await store.delete_session("s1")
 
     assert not store.session_dir("s1").exists()
+
+
+# Search
+
+
+def _text(role: str, text: str) -> dict[str, object]:
+    return {"role": role, "content": [{"type": "text", "text": text}]}
+
+
+async def test_search_matches_title_without_snippet(store: SessionStore) -> None:
+    await store.record_user_turn("s1", cwd="/tmp", text="Refactor the Parser")
+    await store.append_message("s1", _text("user", "unrelated body"))
+
+    hits = await store.search_sessions("parser")
+
+    assert [hit["session"]["id"] for hit in hits] == ["s1"]
+    assert hits[0]["snippet"] is None
+
+
+async def test_search_body_snippet_keeps_original_casing_and_collapses_whitespace(store: SessionStore) -> None:
+    await store.create_session("s1", cwd="/tmp")
+    await store.append_message("s1", _text("user", "first question"))
+    before = "x" * 70
+    await store.append_message("s1", _text("assistant", f"{before}\n\n  the  TokenBucket\nclass " + "y" * 100))
+    await store.append_message("s1", _text("user", "tokenbucket again"))
+
+    hits = await store.search_sessions("tokenbucket")
+
+    assert len(hits) == 1
+    assert hits[0]["snippet"] == {
+        "before": ("x" * 70 + " the ")[-60:],
+        "match": "TokenBucket",
+        "after": (" class " + "y" * 100)[:80],
+    }
+
+
+async def test_search_skips_rewound_turns_and_skill_snapshots(store: SessionStore) -> None:
+    await store.create_session("s1", cwd="/tmp")
+    await store.append_message("s1", _text("user", "kept"))
+    await store.append_message("s1", _text("user", "rewound needle"))
+    await store.append_rewind("s1", 1)
+    await store.append_message(
+        "s1",
+        {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": "skill needle", "meta": {"skill_snapshot": True}},
+                {"type": "text", "text": "visible"},
+            ],
+        },
+    )
+
+    assert await store.search_sessions("needle") == []
+    assert len(await store.search_sessions("VISIBLE")) == 1
+
+
+async def test_search_applies_cwd_filter_limit_and_blank_query(store: SessionStore, tmp_path: Path) -> None:
+    project = str(tmp_path / "a")
+    for session_id, cwd in [("a1", project), ("a2", project), ("b1", str(tmp_path / "b"))]:
+        await store.record_user_turn(session_id, cwd=cwd, text="shared topic")
+
+    assert {hit["session"]["id"] for hit in await store.search_sessions("topic", cwd=project)} == {"a1", "a2"}
+    assert len(await store.search_sessions("topic", limit=2)) == 2
+    assert await store.search_sessions("   \n") == []

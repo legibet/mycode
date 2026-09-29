@@ -51,6 +51,21 @@ async def list_sessions(
     return {"sessions": sessions}
 
 
+@router.get("/search")
+async def search_sessions(
+    store: StoreDep,
+    runs: RunManagerDep,
+    q: Annotated[str, Query(min_length=1)],
+    cwd: Annotated[str | None, Query()] = None,
+    limit: Annotated[int, Query(ge=1)] = 50,
+) -> dict[str, Any]:
+    results = await store.search_sessions(q, cwd=cwd, limit=limit)
+    for result in results:
+        session = result["session"]
+        session["is_running"] = await runs.has_active_run(str(session["id"]))
+    return {"results": results}
+
+
 @router.get("/{session_id}")
 async def load_session(
     session_id: Annotated[str, PathParam(min_length=1)], store: StoreDep, runs: RunManagerDep

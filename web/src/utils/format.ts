@@ -19,3 +19,17 @@ export function prettifyPath(path: string): string {
   const home = path.match(/^(\/Users\/[^/]+|\/home\/[^/]+)(.*)$/);
   return home ? `~${home[2] ?? ""}` : path;
 }
+
+export function parseDate(value: string | undefined): Date | null {
+  if (!value) return null;
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+/** Short locale date without year: `Sep 28`. */
+export function formatShortDate(date: Date): string {
+  return date.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+  });
+}

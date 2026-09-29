@@ -2,17 +2,24 @@
  * Sidebar — brand, workspace, session history, settings.
  *
  * Top: mycode wordmark on its own line.
- * Below: workspace block (basename + full path, both clickable) with a
- *   `+` new-chat button to the right.
+ * Below: workspace block (basename + full path, both clickable) with
+ *   search and `+` new-chat buttons to the right.
  * Sessions grouped by time bucket. Active session marked by a left accent bar.
  * Footer: single gear icon opening the settings panel (theme + global config).
  */
 
-import { Plus, Settings as SettingsIcon, Terminal, Trash2 } from "lucide-react";
+import {
+  Plus,
+  Search,
+  Settings as SettingsIcon,
+  Terminal,
+  Trash2,
+} from "lucide-react";
 import { type CSSProperties, memo, useMemo, useRef, useState } from "react";
 import type { LocalConfig, RemoteConfig, SessionSummary } from "../types";
 import { cn } from "../utils/cn";
-import { prettifyPath } from "../utils/format";
+import { formatShortDate, parseDate, prettifyPath } from "../utils/format";
+import { isMac } from "../utils/platform";
 import {
   clampSidebarWidth,
   getMaxSidebarWidth,
@@ -58,20 +65,13 @@ function bucketOf(date: Date, now: Date): Bucket {
   return "older";
 }
 
-function parseDate(value: string | undefined): Date | null {
-  if (!value) return null;
-  const d = new Date(value);
-  return Number.isNaN(d.getTime()) ? null : d;
-}
-
-function formatOlder(date: Date): string {
-  return date.toLocaleDateString(undefined, {
-    month: "short",
-    day: "numeric",
-  });
-}
-
 // ─── component ──────────────────────────────────────────────────────────────
+
+const headerButtonClass = cn(
+  "size-6 flex items-center justify-center rounded-sm",
+  "text-muted-foreground hover:text-foreground hover:bg-muted/60 active:scale-95 transition-[color,background-color,scale] duration-150",
+  "focus-visible:outline-none focus-visible:bg-muted/60",
+);
 
 interface SidebarProps {
   className?: string;
@@ -79,6 +79,7 @@ interface SidebarProps {
   activeSession: SessionSummary | null;
   onSelectSession: (id: string) => void;
   onCreateSession: () => void;
+  onOpenSearch: () => void;
   onDeleteSession: (id: string) => Promise<void>;
   config: LocalConfig;
   remoteConfig: RemoteConfig | null;
@@ -181,6 +182,7 @@ export const Sidebar = memo(function Sidebar({
   activeSession,
   onSelectSession,
   onCreateSession,
+  onOpenSearch,
   onDeleteSession,
   config,
   remoteConfig,
@@ -272,19 +274,26 @@ export const Sidebar = memo(function Sidebar({
               </span>
             )}
           </button>
-          <button
-            type="button"
-            onClick={onCreateSession}
-            aria-label="New chat"
-            title="New chat"
-            className={cn(
-              "shrink-0 size-6 mt-0.5 flex items-center justify-center rounded-sm",
-              "text-muted-foreground hover:text-foreground hover:bg-muted/60 active:scale-95 transition-[color,background-color,scale] duration-150",
-              "focus-visible:outline-none focus-visible:bg-muted/60",
-            )}
-          >
-            <Plus className="size-3.5" />
-          </button>
+          <div className="shrink-0 flex items-center gap-0.5 mt-0.5">
+            <button
+              type="button"
+              onClick={onOpenSearch}
+              aria-label="Search chats"
+              title={`Search chats (${isMac ? "⌘K" : "Ctrl+K"})`}
+              className={headerButtonClass}
+            >
+              <Search className="size-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={onCreateSession}
+              aria-label="New chat"
+              title="New chat"
+              className={headerButtonClass}
+            >
+              <Plus className="size-3.5" />
+            </button>
+          </div>
         </div>
       </div>
 
@@ -354,7 +363,7 @@ export const Sidebar = memo(function Sidebar({
                       )}
                       {showOlderDate && !isRunning && (
                         <span className="shrink-0 text-[10px] font-mono text-muted-foreground/45">
-                          {formatOlder(date)}
+                          {formatShortDate(date)}
                         </span>
                       )}
                     </button>

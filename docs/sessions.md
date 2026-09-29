@@ -191,6 +191,7 @@ CLI `SessionStore` (`cli/src/mycode_cli/sessions.py`) extends the SDK store with
 - `load_metadata(session_id)` — load catalog metadata without reading the timeline
 - `load_session(session_id)` — load catalog metadata, visible messages, and cumulative cost from one raw timeline read
 - `list_sessions(*, cwd=None)` / `latest_session(...)` — scan and sort the catalog
+- `search_sessions(query, *, cwd=None, limit=50)` — case-insensitive substring search over catalog titles and visible user/assistant text, returning each hit with a one-line snippet of the first body match
 - `clear_session(session_id)` — clear the timeline, reset the title, and update activity time
 - `delete_session(session_id)` — remove catalog, timeline, and tool output together
 

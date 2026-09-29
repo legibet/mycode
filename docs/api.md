@@ -276,6 +276,30 @@ List sessions. Optional `cwd` filters by workspace. Each session includes `is_ru
 
 Response: `{sessions: [...]}`
 
+### `GET /api/sessions/search?q=...&cwd=...&limit=...`
+
+Search sessions by title and visible conversation text. `q` is required and non-empty (`422` otherwise); `cwd` filters by workspace like the list endpoint; `limit` (default `50`, minimum `1`) caps the number of results.
+
+Response:
+
+```json
+{
+  "results": [
+    {
+      "session": {"id": "...", "cwd": "...", "title": "...", "created_at": "...", "updated_at": "...", "is_running": false},
+      "snippet": {"before": "text before the match", "match": "Matched Text", "after": "text after the match"}
+    }
+  ]
+}
+```
+
+Matching rules:
+
+- Case-insensitive substring match of `q` against the session title and the visible text of `user` and `assistant` messages. Thinking blocks, tool results, attachment payloads, skill snapshots, and rewound turns are not searched.
+- Runs of whitespace (including newlines) in both `q` and message text collapse to a single space before matching; a whitespace-only `q` returns `{results: []}`.
+- `snippet` comes from the first body match in timeline order: up to 60 characters before and 80 after, with `match` in its original casing. No ellipses are added. `snippet` is `null` when only the title matched.
+- Results are ordered by `updated_at` descending, like the list endpoint.
+
 ### `POST /api/sessions`
 
 Create a new session.
