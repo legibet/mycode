@@ -63,14 +63,15 @@ from .terminal import Terminal
 from .theme import MUTED, SUCCESS, TOOL_MARKER, WARNING
 
 _COMMANDS = (
-    ("/clear", "Clear conversation"),
     ("/compact", "Compact conversation context"),
     ("/new", "New session"),
+    ("/clear", "New session"),
     ("/resume", "Switch session"),
     ("/rewind", "Rewind to a previous message"),
     ("/model", "Switch model"),
     ("/effort", "Set reasoning effort"),
-    ("/q", "Quit"),
+    ("/quit", "Quit"),
+    ("/exit", "Quit"),
 )
 _SLASH_COMMANDS = tuple(command for command, _ in _COMMANDS)
 # Only treat `@path` as a reference when it starts a standalone token.
@@ -405,8 +406,8 @@ class TerminalChat:
     async def _run_turn(self, user_input: str) -> None:
         """Send one user message and render the agent's turn; Esc or Ctrl+C cancels it."""
 
-        # Fold the session JSONL fresh each turn: covers resume, /clear,
-        # /new, /rewind, and manual /compact without tracking state.
+        # Fold the session JSONL fresh each turn: covers resume, /new,
+        # /rewind, and manual /compact without tracking state.
         renderer = TurnRenderer(
             self.terminal,
             model=self.agent.model,
@@ -499,19 +500,15 @@ class TerminalChat:
         command = resolve_slash_command(command) or command
 
         match command:
-            case "/q":
+            case "/quit" | "/exit":
                 self.terminal.print(Text("bye", style=MUTED))
                 return "exit"
-            case "/c" | "/clear":
-                await self.store.clear_session(self.session_id)
-                self.agent.clear()
-                self._print_done("cleared")
             case "/compact":
                 if argument:
                     # `/compact <text>` is not a command; send it as user text.
                     return False
                 await self._compact_session()
-            case "/new":
+            case "/new" | "/clear":
                 self._start_new_session()
             case "/rewind":
                 prefill = await self._rewind()

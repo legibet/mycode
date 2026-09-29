@@ -42,14 +42,6 @@ async def test_session_lifecycle_preserves_metadata_and_messages(store: SessionS
     assert loaded["messages"] == messages
     assert loaded["session"]["title"] == "How do I write a Python function?"
 
-    await store.clear_session("s1")
-
-    cleared = await store.load_session("s1")
-    assert cleared is not None
-    assert cleared["messages"] == []
-    assert cleared["session"]["cwd"] == "/home/user/project"
-    assert cleared["session"]["title"] == "New chat"
-
     await store.delete_session("s1")
     assert await store.load_session("s1") is None
     assert await store.list_sessions() == []

@@ -230,12 +230,8 @@ function ComposerInner({
   const submittingRef = useRef(false);
   // Position in `history` while recalling prompts; null when not navigating.
   const historyIndexRef = useRef<number | null>(null);
-  // Both remember the root text they were set for, so any edit invalidates them.
+  // Remembers the root text it was set for, so any edit invalidates it.
   const [dismissedFor, setDismissedFor] = useState<string | null>(null);
-  const [confirmingFor, setConfirmingFor] = useState<{
-    command: SlashCommand;
-    rootText: string;
-  } | null>(null);
 
   useEffect(() => {
     editor.setEditable(!disabled);
@@ -282,17 +278,11 @@ function ComposerInner({
     return skills.filter((skill) => skill.name.startsWith(query.prefix));
   }, [context.skillQuery, disabled, loading, skills]);
 
-  const confirming =
-    confirmingFor !== null && confirmingFor.rootText === context.rootText
-      ? confirmingFor.command
-      : null;
-
   const atQuery =
     loading ||
     disabled ||
     slashCandidates.length > 0 ||
-    skillCandidates.length > 0 ||
-    confirming
+    skillCandidates.length > 0
       ? null
       : context.atQuery;
   const workspaceFiles = useWorkspaceFiles(
@@ -306,17 +296,6 @@ function ComposerInner({
     menuItems: CompletionItem[];
     menuFooter?: string;
   } => {
-    if (confirming) {
-      return {
-        menuItems: [
-          {
-            id: `${confirming.name}-confirm`,
-            label: confirming.name,
-            hint: "Enter again to confirm · Esc to cancel",
-          },
-        ],
-      };
-    }
     if (slashCandidates.length > 0 || skillCandidates.length > 0) {
       return {
         menuItems: [
@@ -363,7 +342,6 @@ function ComposerInner({
     }
     return { menuItems: [] };
   }, [
-    confirming,
     slashCandidates,
     skillCandidates,
     atQuery,
@@ -392,29 +370,8 @@ function ComposerInner({
   };
 
   const selectMenuItem = (index: number) => {
-    if (confirming) {
-      onSlashCommand?.(confirming.name);
-      setConfirmingFor(null);
-      editor.update(() => {
-        $getRoot().clear();
-      });
-      return;
-    }
     const command = slashCandidates[index];
     if (command) {
-      if (command.confirm) {
-        // Normalize a partial token ("/c") to the full name for the confirm row.
-        editor.update(() => {
-          const root = $getRoot();
-          root.clear();
-          const paragraph = $createParagraphNode();
-          paragraph.append($createTextNode(command.name));
-          root.append(paragraph);
-          paragraph.selectEnd();
-        });
-        setConfirmingFor({ command, rootText: command.name });
-        return;
-      }
       onSlashCommand?.(command.name);
       editor.update(() => {
         $getRoot().clear();
@@ -525,7 +482,6 @@ function ComposerInner({
           if (!state.menuOpen) return false;
           event?.preventDefault();
           setDismissedFor(state.rootText);
-          setConfirmingFor(null);
           return true;
         },
         COMMAND_PRIORITY_HIGH,

@@ -31,7 +31,17 @@ _NAME_RE = re.compile(r"^[a-zA-Z0-9_-]+$")
 _NAME_MAX_LEN = 64
 _DESCRIPTION_MAX_LEN = 1024  # Agent Skills spec limit
 _SKILLS_PROMPT_WARN_CHARS = 16_000  # ~4k tokens; the catalog is always loaded into the system prompt
-_BUILTIN_SLASH_NAMES = ("clear", "compact", "new", "resume", "rewind", "provider", "model", "effort", "q")
+_BUILTIN_SLASH_NAMES = (
+    "compact",
+    "new",
+    "clear",
+    "resume",
+    "rewind",
+    "model",
+    "effort",
+    "quit",
+    "exit",
+)
 _RESERVED_SLASH_NAMES = frozenset(name[:length] for name in _BUILTIN_SLASH_NAMES for length in range(1, len(name) + 1))
 
 _BASE_PROMPT = """\

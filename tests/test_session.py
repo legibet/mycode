@@ -30,10 +30,6 @@ async def test_append_creates_session_and_replays_messages(store: SessionStore) 
     assert store.session_exists("s1")
     assert await store.load_messages("s1") == messages
 
-    await store.clear_messages("s1")
-    assert await store.load_messages("s1") == []
-    assert store.session_exists("s1")
-
 
 async def test_load_raw_messages_keeps_rewound_tails(store: SessionStore) -> None:
     assert await store.load_raw_messages("s1") == []

@@ -337,7 +337,7 @@ Load session with full message history. If the session has an active run, overla
 
 For idle sessions, `messages`, `session_usage`, and `session_cost` come from one raw timeline read. The totals sum every billed request — tool loops, compaction, and rewound turns — with the same rules as turn totals: missing token fields and unpriced records are skipped, and any total-only cost reduces `session_cost` to `{"total": ...}`. `null` means nothing is known.
 
-For active runs, history, pending events, and current totals come from one in-memory snapshot. The totals survive usage-event eviction and are updated by subsequent SSE usage events. Loading is serialized with run starts, clear, and delete.
+For active runs, history, pending events, and current totals come from one in-memory snapshot. The totals survive usage-event eviction and are updated by subsequent SSE usage events. Loading is serialized with run starts and delete.
 
 Assistant and compact messages return their persisted per-request `meta.usage` and `meta.cost` unchanged.
 
@@ -346,10 +346,6 @@ Assistant and compact messages return their persisted per-request `meta.usage` a
 ### `DELETE /api/sessions/{id}`
 
 Delete session. Returns `409` if session has a running task.
-
-### `POST /api/sessions/{id}/clear`
-
-Clear message history (keeps meta). Returns `409` if session has a running task.
 
 ## Workspaces
 

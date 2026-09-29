@@ -31,7 +31,7 @@ The SDK timeline appears on the first persisted message. The CLI normally create
 - `title` — first readable user text, flattened and truncated to 48 characters; `"New chat"` until then
 - `created_at` / `updated_at` — CLI catalog timestamps
 
-`updated_at` tracks user-visible session changes: a user turn, rewind, clear, or successful manual compact. Provider/tool messages within a turn do not update the catalog separately. Clearing a session also resets its title to `"New chat"`.
+`updated_at` tracks user-visible session changes: a user turn, rewind, or successful manual compact. Provider/tool messages within a turn do not update the catalog separately.
 
 The CLI lists sessions by scanning valid `meta.json` files, optionally filters by `cwd`, and sorts by `updated_at` descending. Per-turn provider/model state remains on each `ConversationMessage.meta`.
 
@@ -181,7 +181,6 @@ SDK `SessionStore` (`mycode/src/mycode/session.py`) manages only the timeline:
 - `load_raw_messages(session_id)` — raw append-only JSONL, including rewound tails and markers; returns `[]` when absent
 - `append_message(session_id, message)` — append one line, creating the session directory lazily
 - `append_rewind(session_id, rewind_to)` — append a rewind marker
-- `clear_messages(session_id)` — truncate an existing timeline
 
 CLI `SessionStore` (`cli/src/mycode_cli/sessions.py`) extends the SDK store with catalog and application lifecycle operations:
 
@@ -192,7 +191,6 @@ CLI `SessionStore` (`cli/src/mycode_cli/sessions.py`) extends the SDK store with
 - `load_session(session_id)` — load catalog metadata, visible messages, and cumulative cost from one raw timeline read
 - `list_sessions(*, cwd=None)` / `latest_session(...)` — scan and sort the catalog
 - `search_sessions(query, *, cwd=None, limit=50)` — case-insensitive substring search over catalog titles and visible user/assistant text, returning each hit with a one-line snippet of the first body match
-- `clear_session(session_id)` — clear the timeline, reset the title, and update activity time
 - `delete_session(session_id)` — remove catalog, timeline, and tool output together
 
 All file I/O is offloaded to `asyncio.to_thread()`.

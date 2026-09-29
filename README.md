@@ -51,7 +51,7 @@ mycode web --dev                  API only, no static files
 mycode session list               list saved sessions
 ```
 
-Interactive slash commands: `/new` `/resume` `/rewind` `/model` `/effort` `/clear` `/compact` `/q`
+Interactive slash commands: `/new` (alias `/clear`) `/resume` `/rewind` `/model` `/effort` `/compact` `/quit` (alias `/exit`)
 
 Inside the TUI, `@path` attaches a file to the message and a standalone `/<skill-name>` token loads a discovered skill.
 

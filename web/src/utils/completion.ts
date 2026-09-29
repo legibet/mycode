@@ -3,13 +3,11 @@
 export interface SlashCommand {
   name: "/new" | "/clear" | "/compact";
   description: string;
-  /** Require a second Enter on a confirm row before executing. */
-  confirm?: boolean;
 }
 
 export const SLASH_COMMANDS: readonly SlashCommand[] = [
   { name: "/new", description: "New session" },
-  { name: "/clear", description: "Clear conversation", confirm: true },
+  { name: "/clear", description: "New session" },
   { name: "/compact", description: "Compact conversation context" },
 ];
 

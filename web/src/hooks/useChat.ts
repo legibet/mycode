@@ -1171,29 +1171,6 @@ export function useChat(
     ],
   );
 
-  const clearSession = useCallback(async () => {
-    if (loading || sessionLoading) return;
-
-    const session = activeSessionRef.current;
-    if (session.isDraft) return;
-
-    try {
-      const res = await fetch(
-        `/api/sessions/${encodeURIComponent(session.id)}/clear`,
-        { method: "POST" },
-      );
-      if (!res.ok) throw new Error(`Clear failed with status ${res.status}`);
-    } catch (e) {
-      console.error("Failed to clear session:", e);
-      return;
-    }
-
-    if (activeSessionRef.current.id === session.id) {
-      dispatch({ type: "set_messages", messages: [], sessionId: session.id });
-    }
-    fetchSessions();
-  }, [loading, sessionLoading, fetchSessions]);
-
   // Single source of init: first mount and any cwd change reset state and
   // reload the workspace's sessions. `loadSession` is read through
   // `loadSessionRef` so this effect doesn't need to re-fire when its identity
@@ -1325,6 +1302,5 @@ export function useChat(
     createSession,
     selectSession,
     deleteSession,
-    clearSession,
   };
 }

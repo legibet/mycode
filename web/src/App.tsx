@@ -33,6 +33,7 @@ import type {
   RemoteConfig,
   SettingsResponse,
 } from "./types";
+import type { SlashCommand } from "./utils/completion";
 import { normalizeConfigWithRemoteDefaults } from "./utils/config";
 import { isMac } from "./utils/platform";
 import {
@@ -196,7 +197,6 @@ function AppContent() {
     createSession,
     selectSession,
     deleteSession,
-    clearSession,
   } = useChat(config, remoteConfig);
 
   // Esc is the keyboard twin of the composer's stop button. Controls that
@@ -343,18 +343,14 @@ function AppContent() {
   );
 
   const handleSlashCommand = useCallback(
-    (name: "/new" | "/clear" | "/compact") => {
-      if (name === "/new") {
-        handleCreateSession();
-        return;
-      }
+    (name: SlashCommand["name"]) => {
       if (name === "/compact") {
         void compactSession();
         return;
       }
-      void clearSession();
+      handleCreateSession();
     },
-    [handleCreateSession, clearSession, compactSession],
+    [handleCreateSession, compactSession],
   );
 
   const sidebarProps = {

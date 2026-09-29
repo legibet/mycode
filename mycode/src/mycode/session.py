@@ -137,13 +137,3 @@ class SessionStore:
         """Append a rewind marker to the session JSONL."""
 
         await self.append_message(session_id, build_rewind_event(rewind_to))
-
-    async def clear_messages(self, session_id: str) -> None:
-        """Drop the session's timeline; a no-op when nothing is on disk."""
-
-        def clear() -> None:
-            path = self.messages_path(session_id)
-            if path.exists():
-                path.write_text("", encoding="utf-8")
-
-        await asyncio.to_thread(clear)

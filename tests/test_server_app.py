@@ -768,10 +768,7 @@ async def test_running_session_uses_snapshot_cost_after_usage_eviction_then_load
             assert finished["messages"][-1]["content"][0]["text"] == "answer"
 
 
-@pytest.mark.parametrize("operation", ["clear", "delete"])
-async def test_session_read_serializes_with_catalog_mutation(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, operation: str
-) -> None:
+async def test_session_read_serializes_with_delete(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("MYCODE_HOME", str(tmp_path / "home"))
     app = create_api_app()
     async with app.router.lifespan_context(app):
@@ -781,40 +778,38 @@ async def test_session_read_serializes_with_catalog_mutation(
         await store.append_message("s1", {"role": "user", "content": [{"type": "text", "text": "original"}]})
         reading = asyncio.Event()
         release_read = asyncio.Event()
-        mutation_requested = asyncio.Event()
-        mutation_started = asyncio.Event()
+        delete_requested = asyncio.Event()
+        delete_started = asyncio.Event()
         original_load = store.load_session
-        original_mutation = store.clear_session if operation == "clear" else store.delete_session
+        original_delete = store.delete_session
 
         async def load(session_id: str):
             reading.set()
             await release_read.wait()
             return await original_load(session_id)
 
-        async def mutate(session_id: str) -> None:
-            mutation_started.set()
-            await original_mutation(session_id)
+        async def delete(session_id: str) -> None:
+            delete_started.set()
+            await original_delete(session_id)
 
         async def manager(request: Request) -> RunManager:
             if request.method != "GET":
-                mutation_requested.set()
+                delete_requested.set()
             return runs
 
         monkeypatch.setattr(store, "load_session", load)
-        monkeypatch.setattr(store, f"{operation}_session", mutate)
+        monkeypatch.setattr(store, "delete_session", delete)
         app.dependency_overrides[get_run_manager] = manager
         async with httpx2.AsyncClient(transport=httpx2.ASGITransport(app), base_url="http://test") as client:
             read = asyncio.create_task(client.get("/api/sessions/s1"))
             await asyncio.wait_for(reading.wait(), 2)
-            mutation = asyncio.create_task(
-                client.post("/api/sessions/s1/clear") if operation == "clear" else client.delete("/api/sessions/s1")
-            )
+            deleting = asyncio.create_task(client.delete("/api/sessions/s1"))
             try:
-                await asyncio.wait_for(mutation_requested.wait(), 2)
-                assert not mutation_started.is_set()
+                await asyncio.wait_for(delete_requested.wait(), 2)
+                assert not delete_started.is_set()
             finally:
                 release_read.set()
-                before, changed = await asyncio.gather(read, mutation)
+                before, changed = await asyncio.gather(read, deleting)
             assert before.json()["messages"][0]["content"][0]["text"] == "original"
             assert changed.status_code == 200
             after = (await client.get("/api/sessions/s1")).json()

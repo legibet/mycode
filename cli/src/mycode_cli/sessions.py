@@ -14,7 +14,7 @@ On disk:
     tool-output/     # scratch area for large tool outputs
 
 ``updated_at`` tracks user-visible session changes (new user turn, rewind,
-clear, manual compact), not every persisted message.
+manual compact), not every persisted message.
 """
 
 from __future__ import annotations
@@ -178,21 +178,6 @@ class SessionStore(TimelineStore):
             self._write_meta(session_id, meta)
 
         await asyncio.to_thread(bump)
-
-    async def clear_session(self, session_id: str) -> None:
-        """Drop all messages and reset the catalog to the "new chat" state."""
-
-        await self.clear_messages(session_id)
-
-        def reset() -> None:
-            meta = self._read_meta(session_id)
-            if meta is None:
-                return
-            meta["title"] = DEFAULT_SESSION_TITLE
-            meta["updated_at"] = _now()
-            self._write_meta(session_id, meta)
-
-        await asyncio.to_thread(reset)
 
     async def delete_session(self, session_id: str) -> None:
         """Delete the whole session directory: catalog, timeline, tool output."""
