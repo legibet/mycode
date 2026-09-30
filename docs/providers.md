@@ -35,6 +35,8 @@ class ProviderAdapter(ABC):
 
 `ProviderRequest` carries: provider, model, session_id, messages, system, tools, max_tokens, api_key, api_base, reasoning_effort, legacy_max_tokens, supports_image_input, supports_pdf_input, request_timeout.
 
+Model-specific reasoning efforts are listed in the model catalog (see `docs/sdk.md`). Adapters map explicit values to provider request fields; the provider validates support.
+
 ## Timeouts, Retries, and Errors
 
 Retries are owned by the Agent runtime, so provider SDK retries are disabled: openai and anthropic clients are constructed with `max_retries=0`, gemini with an explicit `HttpRetryOptions(attempts=1)` (google-genai defaults to no retries, but flips to multiple attempts once `retry_options` is set at all).
@@ -82,7 +84,7 @@ DeepSeek and Z.AI pin the legacy name via `max_tokens_field`. Generic `openai_ch
 - API key env: `ANTHROPIC_API_KEY`
 - Default models: `claude-opus-5-5`, `claude-sonnet-5-5`
 - `supports_reasoning_effort`: true
-- Default-on Claude 5 models and explicitly enabled thinking use adaptive summarized output; `none` sends `disabled` unchanged and models that reject it (Opus 5.5, Sonnet 5.5) surface the API error
+- Enabled thinking uses adaptive summarized output; `none` sends `disabled`
 - Sends other explicit values unchanged through `output_config.effort`
 - Replays same-model native `thinking` and `redacted_thinking` unchanged; legacy signature-only blocks remain supported
 - Adds ephemeral `cache_control` to system prompt block and last user content block
@@ -109,7 +111,7 @@ DeepSeek and Z.AI pin the legacy name via `max_tokens_field`. Generic `openai_ch
 - API key env: `MINIMAX_API_KEY`
 - Default models: `MiniMax-M3`
 - `supports_reasoning_effort`: false
-- `MiniMax-M3` uses adaptive thinking by default; MiniMax Anthropic endpoint does not support effort depth
+- MiniMax Anthropic endpoint does not support effort depth
 - Replays native thinking blocks unchanged across tool loops
 - Shares Anthropic-like ephemeral cache markers and tool call ID projection
 - Same image format as `anthropic`
@@ -150,9 +152,8 @@ DeepSeek and Z.AI pin the legacy name via `max_tokens_field`. Generic `openai_ch
 - API: OpenAI Responses API
 - Base URL: `https://api.openai.com/v1`
 - API key env: `OPENAI_API_KEY`
-- Default models: `gpt-6-astra`, `gpt-6-sol`, `gpt-6-luna`
+- Default models: `gpt-6-astra`, `gpt-6.1-sol`, `gpt-6-luna`
 - `supports_reasoning_effort`: true (sent through `reasoning.effort`)
-- OpenAI recommends Responses API for reasoning/tool-calling/multi-turn use cases; GPT-6 Astra requires Responses for tool calling and does not support `none` effort. GPT-6 Sol and Luna default to `medium` effort
 - Runs stateless: `store=false`, `include=["reasoning.encrypted_content"]`
 - Requests `reasoning.summary=auto` unless effort is `none`; streams `response.reasoning_summary_text.delta` as canonical thinking and does not surface raw `response.reasoning_text.delta`
 - Final reasoning items use `summary` text for the canonical thinking block and retain full native output items for replay
