@@ -28,7 +28,7 @@ from prompt_toolkit.key_binding import ConditionalKeyBindings, KeyBindings, merg
 from prompt_toolkit.key_binding.defaults import load_key_bindings
 from prompt_toolkit.key_binding.key_processor import KeyPressEvent
 from prompt_toolkit.keys import Keys
-from prompt_toolkit.layout import ConditionalContainer, Float, FloatContainer, HSplit, Layout, Window
+from prompt_toolkit.layout import ConditionalContainer, Float, FloatContainer, HSplit, Layout, ScrollOffsets, Window
 from prompt_toolkit.layout.controls import BufferControl, FormattedTextControl
 from prompt_toolkit.layout.dimension import Dimension
 from prompt_toolkit.layout.menus import CompletionsMenu
@@ -198,6 +198,8 @@ class Terminal:
             height=lambda: Dimension(max=self.tail_height),
             dont_extend_height=True,
             always_hide_cursor=True,
+            # Keeps the heading above a group's first row in view when scrolling up.
+            scroll_offsets=ScrollOffsets(top=1),
         )
 
         busy = Condition(lambda: self._busy)
