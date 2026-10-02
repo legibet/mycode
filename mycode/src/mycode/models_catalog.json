@@ -2923,6 +2923,17 @@
       "supports_image_input": false,
       "supports_pdf_input": false
     },
+    "north-small-translate-09-2026": {
+      "context_window": 32768,
+      "cost": {
+        "input": 0,
+        "output": 0
+      },
+      "max_output_tokens": 16000,
+      "reasoning_efforts": null,
+      "supports_image_input": false,
+      "supports_pdf_input": false
+    },
     "o1": {
       "context_window": 200000,
       "cost": {
@@ -3946,6 +3957,34 @@
         "output": 0
       },
       "max_output_tokens": 1536,
+      "reasoning_efforts": null,
+      "supports_image_input": false,
+      "supports_pdf_input": false
+    },
+    "tiny-aya-earth": {
+      "context_window": 8000,
+      "max_output_tokens": 8000,
+      "reasoning_efforts": null,
+      "supports_image_input": false,
+      "supports_pdf_input": false
+    },
+    "tiny-aya-fire": {
+      "context_window": 8000,
+      "max_output_tokens": 8000,
+      "reasoning_efforts": null,
+      "supports_image_input": false,
+      "supports_pdf_input": false
+    },
+    "tiny-aya-global": {
+      "context_window": 8000,
+      "max_output_tokens": 8000,
+      "reasoning_efforts": null,
+      "supports_image_input": false,
+      "supports_pdf_input": false
+    },
+    "tiny-aya-water": {
+      "context_window": 8000,
+      "max_output_tokens": 8000,
       "reasoning_efforts": null,
       "supports_image_input": false,
       "supports_pdf_input": false
