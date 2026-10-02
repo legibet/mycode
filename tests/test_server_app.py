@@ -333,9 +333,10 @@ def test_chat_bounds_text_attachments_and_saves_large_uploads(tmp_path: Path, mo
     adapter = _CaptureAdapter()
     monkeypatch.setattr("mycode.agent.get_provider_adapter", lambda _provider: adapter)
     store = SessionStore(data_dir=tmp_path / "sessions")
+    runs = RunManager()
     app = create_api_app()
     app.dependency_overrides[get_store] = lambda: store
-    app.dependency_overrides[get_run_manager] = lambda: RunManager()
+    app.dependency_overrides[get_run_manager] = lambda: runs
     (tmp_path / "big.txt").write_text("".join(f"row {i}\n" for i in range(10_000)), encoding="utf-8")
     # One long line: smaller than the byte cap, but still not shown whole.
     upload = "{" + "x" * 5000 + "}"
