@@ -96,8 +96,13 @@ def derive_title(text: str) -> str:
     return title or DEFAULT_SESSION_TITLE
 
 
+@dataclass
 class SessionStore(TimelineStore):
     """Session catalog and timeline façade used by the TUI and web server."""
+
+    # Search cache derived from ``messages.jsonl``: session_id -> ((mtime_ns, size),
+    # whitespace-collapsed text of each visible user/assistant message).
+    _search_texts: dict[str, tuple[tuple[int, int], list[str]]] = field(default_factory=dict, init=False, repr=False)
 
     # ------------------------------------------------------------------
     # Catalog I/O
@@ -182,6 +187,7 @@ class SessionStore(TimelineStore):
     async def delete_session(self, session_id: str) -> None:
         """Delete the whole session directory: catalog, timeline, tool output."""
 
+        self._search_texts.pop(session_id, None)
         await asyncio.to_thread(shutil.rmtree, self.session_dir(session_id), True)
 
     # ------------------------------------------------------------------
@@ -239,6 +245,27 @@ class SessionStore(TimelineStore):
 
         return await asyncio.to_thread(load)
 
+    def _searchable_texts(self, session_id: str) -> list[str]:
+        """Visible user/assistant text per message, cached until the timeline file changes."""
+
+        try:
+            stat = self.messages_path(session_id).stat()
+        except FileNotFoundError:
+            return []
+        key = (stat.st_mtime_ns, stat.st_size)
+        cached = self._search_texts.get(session_id)
+        if cached is not None and cached[0] == key:
+            return cached[1]
+        # The key was taken before the read: a concurrent append leaves a stale
+        # key behind, so the next search re-reads the file.
+        texts = [
+            " ".join(flatten_message_text(message, include_thinking=False).split())
+            for message in self.load_messages_sync(session_id)
+            if message.get("role") in {"user", "assistant"}
+        ]
+        self._search_texts[session_id] = (key, texts)
+        return texts
+
     async def search_sessions(self, query: str, *, cwd: str | None = None, limit: int = 50) -> list[SessionSearchHit]:
         """Find sessions whose title or visible user/assistant text contains
         ``query`` (case-insensitive), newest first.
@@ -257,10 +284,7 @@ class SessionStore(TimelineStore):
             hits: list[SessionSearchHit] = []
             for session in sessions:
                 snippet: SessionSnippet | None = None
-                for message in self.load_messages_sync(str(session["id"])):
-                    if message.get("role") not in {"user", "assistant"}:
-                        continue
-                    text = " ".join(flatten_message_text(message, include_thinking=False).split())
+                for text in self._searchable_texts(str(session["id"])):
                     if found := pattern.search(text):
                         start, end = found.span()
                         snippet = {

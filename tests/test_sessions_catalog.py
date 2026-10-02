@@ -164,3 +164,16 @@ async def test_search_applies_cwd_filter_limit_and_blank_query(store: SessionSto
     assert {hit["session"]["id"] for hit in await store.search_sessions("topic", cwd=project)} == {"a1", "a2"}
     assert len(await store.search_sessions("topic", limit=2)) == 2
     assert await store.search_sessions("   \n") == []
+
+
+async def test_search_reflects_appends_and_rewinds_after_earlier_search(store: SessionStore) -> None:
+    await store.create_session("s1", cwd="/tmp")
+    await store.append_message("s1", _text("user", "alpha"))
+    assert await store.search_sessions("beta") == []
+
+    await store.append_message("s1", _text("assistant", "beta"))
+    assert len(await store.search_sessions("beta")) == 1
+
+    await store.append_rewind("s1", 1)
+    assert await store.search_sessions("beta") == []
+    assert len(await store.search_sessions("alpha")) == 1
