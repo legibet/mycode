@@ -9,8 +9,10 @@ The CLI always registers `read`, `write`, `edit`, `bash`, and `webfetch`. It reg
 Reads a UTF-8 text file or a supported image.
 
 - `offset` is a 1-indexed starting line; `limit` caps returned lines (default 2000). An offset beyond the end of the file is an error.
-- When more lines remain, the output ends with `[Showing lines A-B. Use offset=N to continue.]`.
+- Output is also capped at 50KB of UTF-8, whatever `limit` is.
+- When more lines remain, the output ends with `[Showing lines A-B of <path>. Use read with offset=N to continue.]`.
 - Lines longer than 2000 chars are shortened with `... [line truncated]`; a trailing notice cites the first shortened line and gives byte-range bash commands for inspecting it.
+- `@path` text attachments use the same window and notices.
 - Image files return a text summary plus an image block. If the model does not accept image input, the call is an error.
 
 ## write

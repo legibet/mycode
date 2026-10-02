@@ -173,9 +173,9 @@ Rewind indices refer to the visible history, which now includes pre-compact turn
 
 ## tool-output/ Logs
 
-The CLI creates `CliDeps(cwd, tool_output_dir)` for each agent and passes it through `Agent(deps=...)`. Bash writes output exceeding its 2000-line or 50KB display limit as raw combined stdout/stderr to `<tool_output_dir>/bash-<tool_call_id>.log`; webfetch uses the same directory for truncated converted content. Tool results cite the saved path.
+The CLI creates `CliDeps(cwd, tool_output_dir)` for each agent and passes it through `Agent(deps=...)`. Bash writes output exceeding its 2000-line or 50KB display limit as raw combined stdout/stderr to `<tool_output_dir>/bash-<tool_call_id>.log`; webfetch uses the same directory for truncated converted content. Tool results cite the saved path. The web server saves an uploaded text attachment larger than one `read` window as `<tool_output_dir>/upload-<id>`, and the attachment cites it.
 
-The CLI sets `tool_output_dir` to `<data_dir>/<session_id>/tool-output/`. The tools create it only when output spills. The SDK has no output-directory policy.
+The CLI sets `tool_output_dir` to `<data_dir>/<session_id>/tool-output/`. It is created only when something spills. The SDK has no output-directory policy.
 
 Cancelled bash calls persist the captured final tail plus `error: cancelled`; truncated results also cite the raw log. Live `tool_output` events are not session data.
 

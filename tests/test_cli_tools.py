@@ -11,7 +11,7 @@ from threading import Barrier, Lock, local
 import pytest
 
 from mycode.tools import ToolContext, ToolExecutor
-from mycode_cli.tools import DEFAULT_TOOLS, READ_MAX_LINE_CHARS, _atomic_write_text
+from mycode_cli.tools import DEFAULT_MAX_BYTES, DEFAULT_TOOLS, READ_MAX_LINE_CHARS, _atomic_write_text
 from mycode_cli.workspace import CliDeps
 
 _PNG_1X1 = base64.b64decode(
@@ -157,7 +157,30 @@ class TestRead:
             (Path(tmpdir) / "large.txt").write_text("\n".join(lines))
 
             result = _ctx(tmpdir).call("read", {"path": "large.txt"})
-            assert "[Showing lines 1-2000. Use offset=2001 to continue.]" in result.output
+            assert (
+                f"[Showing lines 1-2000 of {Path(tmpdir).resolve() / 'large.txt'}. Use read with offset=2001 to continue.]"
+                in result.output
+            )
+
+    def test_read_caps_bytes_regardless_of_limit(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            (Path(tmpdir) / "wide.txt").write_text(("y" * 1000 + "\n") * 200)
+
+            result = _ctx(tmpdir).call("read", {"path": "wide.txt", "limit": 10_000})
+
+            content, _, notice = result.output.rpartition("\n\n")
+            assert len(content.encode()) <= DEFAULT_MAX_BYTES
+            assert "Use read with offset=" in notice
+
+    def test_read_stops_at_window_without_scanning_next_line(self):
+        # Invalid UTF-8 deep inside line 2 is only reached if the full window still scans the next line.
+        with tempfile.TemporaryDirectory() as tmpdir:
+            (Path(tmpdir) / "mixed.txt").write_bytes(b"ok\n" + b"x" * 1_000_000 + b"\xff\n")
+
+            result = _ctx(tmpdir).call("read", {"path": "mixed.txt", "limit": 1})
+
+            assert result.is_error is False
+            assert result.output.startswith("ok\n\n[Showing lines 1-1 of ")
 
     def test_read_shortens_long_line_and_adds_slice_hint(self):
         with tempfile.TemporaryDirectory() as tmpdir:

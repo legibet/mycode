@@ -52,6 +52,7 @@ from mycode_cli.runtime import load_session_totals
 from mycode_cli.sessions import SessionStore
 from mycode_cli.state import load_state, save_state
 from mycode_cli.system_prompt import build_skill_snapshot_blocks, discover_slash_skills
+from mycode_cli.tools import read_text_window
 from mycode_cli.workspace import CliDeps, resolve_path
 
 from .render import (
@@ -584,13 +585,16 @@ class TerminalChat:
                     unsupported_attachment_block(name=path_text, mime_type=pdf, kind="document", path=path_text)
                 )
                 continue
-            # Text snippets keep the resolved path as the visible name; image/PDF default to the basename.
-            # A non-UTF-8 binary raises ValueError inside build_attachment_blocks and is skipped.
-            name = None if img or pdf else path_text
-            try:
-                blocks.extend(build_attachment_blocks([Attachment.path(path_text, name=name)]))
-            except ValueError:
+            if img or pdf:
+                blocks.extend(build_attachment_blocks([Attachment.path(path)]))
                 continue
+            # Text keeps the resolved path as its visible name; a non-UTF-8 binary is skipped.
+            try:
+                with path.open(encoding="utf-8") as file:
+                    window = read_text_window(file)
+            except UnicodeDecodeError:
+                continue
+            blocks.extend(build_attachment_blocks([Attachment.text(window.render(path), name=path_text)]))
 
         return build_message("user", blocks)
 

@@ -20,7 +20,7 @@ from contextlib import suppress
 from dataclasses import dataclass
 from difflib import SequenceMatcher, unified_diff
 from pathlib import Path
-from typing import BinaryIO
+from typing import BinaryIO, TextIO
 from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -37,6 +37,7 @@ from mycode_cli.workspace import CliDeps, resolve_path
 DEFAULT_MAX_LINES = 2000
 DEFAULT_MAX_BYTES = 50 * 1024
 READ_MAX_LINE_CHARS = 2000
+_READ_SKIP_CHUNK_CHARS = 64 * 1024
 BASH_TIMEOUT_SECONDS = 120
 _BASH_READ_CHUNK_SIZE = 64 * 1024
 
@@ -44,6 +45,110 @@ _BASH_READ_CHUNK_SIZE = 64 * 1024
 # ---------------------------------------------------------------------------
 # read
 # ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class TextWindow:
+    """One bounded read of a text file: the lines that fit and what was left out."""
+
+    text: str
+    start_line: int
+    # Lines consumed from the top of the file, skipped ones included.
+    lines_read: int
+    # First line not shown because a line or byte limit was reached.
+    next_offset: int | None
+    first_shortened_line: int | None
+    shortened_lines: int
+
+    @property
+    def partial(self) -> bool:
+        """Whether part of the file from ``start_line`` on is not in ``text``."""
+
+        return self.next_offset is not None or self.shortened_lines > 0
+
+    def render(self, path: Path) -> str:
+        """Return ``text`` followed by notices telling the model how to read what was left out of ``path``."""
+
+        parts = [self.text] if self.text else []
+        if self.next_offset is not None:
+            parts.append(
+                f"[Showing lines {self.start_line}-{self.next_offset - 1} of {path}. "
+                + f"Use read with offset={self.next_offset} to continue.]"
+            )
+        if self.first_shortened_line is not None:
+            quoted = shlex.quote(str(path))
+            line = self.first_shortened_line
+            prefix = f"[Line {line} was shortened to {READ_MAX_LINE_CHARS} chars."
+            if self.shortened_lines > 1:
+                prefix = (
+                    f"[{self.shortened_lines} lines were shortened to {READ_MAX_LINE_CHARS} chars. "
+                    f"First shortened line: {line}."
+                )
+            parts.append(
+                f"{prefix}\n"
+                + "Use bash to inspect it in bytes:\n"
+                + f"sed -n '{line}p' {quoted} | head -c 2000\n"
+                + f"sed -n '{line}p' {quoted} | tail -c +2001 | head -c 2000]"
+            )
+        return "\n\n".join(parts)
+
+
+def read_text_window(file: TextIO, *, offset: int = 1, limit: int = DEFAULT_MAX_LINES) -> TextWindow:
+    """Read up to ``limit`` lines from 1-indexed ``offset``, capped at ``DEFAULT_MAX_BYTES`` of UTF-8.
+
+    At most ``READ_MAX_LINE_CHARS + 1`` chars of a line are held at once; longer
+    lines are shortened. Reading stops once the window is full, without
+    scanning the line that did not fit.
+    """
+
+    lines: list[str] = []
+    size = 0
+    lines_read = 0
+    next_offset: int | None = None
+    first_shortened_line: int | None = None
+    shortened_lines = 0
+    while True:
+        if len(lines) >= limit:
+            # Probe one char instead of reading a possibly huge next line.
+            if file.read(1):
+                next_offset = lines_read + 1
+            break
+        head = file.readline(READ_MAX_LINE_CHARS + 1)
+        if not head:
+            break
+        lines_read += 1
+        shortened = not head.endswith("\n") and len(head) > READ_MAX_LINE_CHARS
+        if lines_read < offset:
+            if shortened:
+                _skip_line(file)
+            continue
+        line = head[:READ_MAX_LINE_CHARS] + " ... [line truncated]" if shortened else head.rstrip("\r\n")
+        line_bytes = len(line.encode("utf-8")) + 1
+        # A shortened line is at most a few KB, so the first line always fits.
+        if size + line_bytes > DEFAULT_MAX_BYTES:
+            next_offset = lines_read
+            break
+        if shortened:
+            _skip_line(file)
+            first_shortened_line = first_shortened_line or lines_read
+            shortened_lines += 1
+        lines.append(line)
+        size += line_bytes
+    return TextWindow(
+        text="\n".join(lines),
+        start_line=offset,
+        lines_read=lines_read,
+        next_offset=next_offset,
+        first_shortened_line=first_shortened_line,
+        shortened_lines=shortened_lines,
+    )
+
+
+def _skip_line(file: TextIO) -> None:
+    """Consume the rest of the current line in bounded chunks."""
+
+    while (rest := file.readline(_READ_SKIP_CHUNK_CHARS)) and not rest.endswith("\n"):
+        pass
 
 
 @tool(
@@ -94,28 +199,9 @@ def read_tool(
 
     start_line = offset if offset is not None and offset > 0 else 1
     line_limit = limit if limit is not None and limit > 0 else DEFAULT_MAX_LINES
-    lines: list[str] = []
-    total_lines = 0
-    next_offset: int | None = None
-    first_shortened_line: int | None = None
-    shortened_lines = 0
-
     try:
         with file_path.open("r", encoding="utf-8") as f:
-            for total_lines, raw_line in enumerate(f, start=1):
-                if total_lines < start_line:
-                    continue
-                if len(lines) >= line_limit:
-                    next_offset = total_lines
-                    break
-
-                line = raw_line.rstrip("\r\n")
-                if len(line) > READ_MAX_LINE_CHARS:
-                    if first_shortened_line is None:
-                        first_shortened_line = total_lines
-                    shortened_lines += 1
-                    line = line[:READ_MAX_LINE_CHARS] + " ... [line truncated]"
-                lines.append(line)
+            window = read_text_window(f, offset=start_line, limit=line_limit)
     except FileNotFoundError:
         return ToolExecutionResult(output=f"error: file not found: {path}", is_error=True)
     except IsADirectoryError:
@@ -125,37 +211,13 @@ def read_tool(
     except Exception as exc:
         return ToolExecutionResult(output=f"error: failed to read file: {exc}", is_error=True)
 
-    if total_lines < start_line and not (total_lines == 0 and start_line == 1):
+    if window.lines_read < start_line and not (window.lines_read == 0 and start_line == 1):
         return ToolExecutionResult(
-            output=f"error: offset {offset} beyond end of file ({total_lines} lines)",
+            output=f"error: offset {offset} beyond end of file ({window.lines_read} lines)",
             is_error=True,
         )
 
-    parts: list[str] = []
-    content = "\n".join(lines)
-    if content:
-        parts.append(content)
-
-    if next_offset is not None:
-        parts.append(f"[Showing lines {start_line}-{next_offset - 1}. Use offset={next_offset} to continue.]")
-
-    if first_shortened_line is not None:
-        quoted = shlex.quote(str(file_path))
-        prefix = f"[Line {first_shortened_line} was shortened to {READ_MAX_LINE_CHARS} chars."
-        if shortened_lines > 1:
-            prefix = (
-                f"[{shortened_lines} lines were shortened to {READ_MAX_LINE_CHARS} chars. "
-                f"First shortened line: {first_shortened_line}."
-            )
-        parts.append(
-            f"{prefix}\n"
-            + "Use bash to inspect it in bytes:\n"
-            + f"sed -n '{first_shortened_line}p' {quoted} | head -c 2000\n"
-            + f"sed -n '{first_shortened_line}p' {quoted} | tail -c +2001 | head -c 2000]"
-        )
-
-    joined = "\n\n".join(parts) if parts else ""
-    return ToolExecutionResult(output=joined)
+    return ToolExecutionResult(output=window.render(file_path))
 
 
 # ---------------------------------------------------------------------------

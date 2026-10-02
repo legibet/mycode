@@ -327,6 +327,48 @@ def test_chat_skill_reference_reaches_provider_and_keeps_visible_title(
     assert session["session"]["title"] == prompt
 
 
+def test_chat_bounds_text_attachments_and_saves_large_uploads(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    monkeypatch.setenv("MYCODE_HOME", str(tmp_path / "home"))
+    adapter = _CaptureAdapter()
+    monkeypatch.setattr("mycode.agent.get_provider_adapter", lambda _provider: adapter)
+    store = SessionStore(data_dir=tmp_path / "sessions")
+    app = create_api_app()
+    app.dependency_overrides[get_store] = lambda: store
+    app.dependency_overrides[get_run_manager] = lambda: RunManager()
+    (tmp_path / "big.txt").write_text("".join(f"row {i}\n" for i in range(10_000)), encoding="utf-8")
+    # One long line: smaller than the byte cap, but still not shown whole.
+    upload = "{" + "x" * 5000 + "}"
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/chat",
+            json={
+                "session_id": "s1",
+                "cwd": str(tmp_path),
+                "provider": "anthropic",
+                "model": "claude-sonnet-4-6",
+                "input": [
+                    {"type": "text", "text": "check"},
+                    {"type": "text", "path": "big.txt", "name": "big.txt", "is_attachment": True},
+                    {"type": "text", "text": upload, "name": "data.json", "is_attachment": True},
+                    {"type": "text", "text": "hello", "name": "small.txt", "is_attachment": True},
+                ],
+            },
+        )
+        assert response.status_code == 200, response.text
+        with client.stream("GET", f"/api/runs/{response.json()['run']['id']}/stream") as stream:
+            list(stream.iter_lines())
+
+    assert adapter.messages is not None
+    workspace_file, uploaded, small = (block["text"] for block in adapter.messages[0]["content"][1:])
+    assert f"of {tmp_path / 'big.txt'}. Use read with offset=2001 to continue." in workspace_file
+    [saved] = (tmp_path / "sessions" / "s1" / "tool-output").iterdir()
+    assert saved.read_text(encoding="utf-8") == upload
+    assert str(saved) in uploaded
+    assert small == '<file name="small.txt">\nhello\n</file>'
+
+
 @pytest.mark.parametrize(
     ("opt_in", "effort", "expected_status"),
     [(True, "low", 200), (False, "low", 400), (True, "high", 400)],
@@ -583,6 +625,16 @@ async def test_steer_and_queue_endpoints_reject_bad_input_and_finished_runs(
         assert late.json()["detail"]["run"]["status"] == "completed"
         idle = await client.post("/api/sessions/s1/queue", json={"message": "x", "input_id": "q2"})
         assert idle.status_code == 409
+
+
+async def test_refused_steer_leaves_no_saved_upload(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    async with _gated_run(tmp_path, monkeypatch) as run:
+        await run.finish()
+        upload = {"type": "text", "text": "row\n" * 10_000, "name": "rows.txt", "is_attachment": True}
+        late = await run.client.post(f"/api/runs/{run.state.id}/steer", json={"input": [upload], "input_id": "s1"})
+
+        assert late.status_code == 409
+        assert not any((run.store.data_dir / "s1" / "tool-output").glob("upload-*"))
 
 
 async def test_queue_endpoints_remove_and_move_pending_input(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

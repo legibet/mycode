@@ -68,6 +68,8 @@ An unknown path, directory, unsupported binary, or missing or unsupported `media
 
 Path attachments expand `~`; relative paths use the Python process's current working directory. An embedding application that owns a workspace should resolve its paths before passing them to the SDK.
 
+Text attachments are inlined in full, with no size limit; an application that accepts large files bounds them itself, as the CLI does for `@path`.
+
 ### `run()` synchronous wrapper
 
 `run()` consumes `achat()` via `asyncio.run`, concatenates `text` deltas into `RunResult.text`, captures the first error message in `RunResult.error`, and keeps the last `usage` payload in `RunResult.usage`; after a steer that payload describes only the last segment. User cancellation sets `RunResult.cancelled=True` and leaves `error=None`. `RunResult.events` keeps the non-transient events, including final `tool_done` results; live `tool_output` deltas are omitted so synchronous runs do not retain complete command streams in memory.

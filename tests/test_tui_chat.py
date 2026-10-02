@@ -267,6 +267,17 @@ class TestAttachments:
         assert message["content"][2]["type"] == "text"
         assert 'kind="document">Current model does not support PDF input.' in message["content"][2]["text"]
 
+    def test_large_text_attachment_holds_first_read_window(self, tmp_path: Path, cli_home: Path) -> None:
+        log_file = tmp_path / "huge.log"
+        log_file.write_text("".join(f"log line {i}\n" for i in range(10_000)), encoding="utf-8")
+
+        message = _chat(_AttachmentAgent(), tmp_path)._build_user_message(f"check @{log_file}")
+
+        text = message["content"][1]["text"]
+        assert "log line 1999\n" in text
+        assert "log line 2000\n" not in text
+        assert f"of {log_file}. Use read with offset=2001 to continue." in text
+
     def test_skips_binary_attachment_that_is_not_image_or_pdf(self, tmp_path: Path, cli_home: Path) -> None:
         binary_file = tmp_path / "blob.bin"
         binary_file.write_bytes(b"\x00\x01\x02\xff\xfe")

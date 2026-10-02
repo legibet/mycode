@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import io
 import json
 import os
 from base64 import b64encode
@@ -10,6 +11,7 @@ from collections.abc import AsyncIterator
 from dataclasses import replace
 from pathlib import Path
 from typing import Annotated, Any, cast
+from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi import Path as PathParam
@@ -58,7 +60,8 @@ from mycode_cli.server.schemas import (
     UserInputRequest,
 )
 from mycode_cli.system_prompt import build_skill_snapshot_blocks, discover_slash_skills
-from mycode_cli.workspace import resolve_path
+from mycode_cli.tools import read_text_window
+from mycode_cli.workspace import CliDeps, resolve_path
 
 router = APIRouter()
 
@@ -72,7 +75,7 @@ def _resolve_workspace_attachment_path(rel_path: str, *, cwd: str) -> Path:
 
 
 def _read_workspace_text_attachment(rel_path: str, *, name: str | None, cwd: str) -> list[dict[str, Any]]:
-    """Read a workspace text file selected via the @ menu into a `<file>` block.
+    """Read a workspace text file selected via the @ menu into a `<file>` block, bounded like ``read``.
 
     Re-validates the path at send time: it must resolve inside ``cwd`` (guards
     against a symlink swapped in after selection), be a regular file, and be
@@ -84,16 +87,40 @@ def _read_workspace_text_attachment(rel_path: str, *, name: str | None, cwd: str
     if detect_image_mime_type(path) or detect_document_mime_type(path):
         raise HTTPException(status_code=400, detail=f"not a text file: {rel_path}")
     try:
-        return build_attachment_blocks([Attachment.path(path, name=name or rel_path)])
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        with path.open(encoding="utf-8") as file:
+            window = read_text_window(file)
+    except UnicodeDecodeError as exc:
+        raise HTTPException(status_code=400, detail=f"not UTF-8 text: {rel_path}") from exc
+    return build_attachment_blocks([Attachment.text(window.render(path), name=name or rel_path)])
 
 
-async def _build_user_message(chat: UserInputRequest, cwd: str) -> ConversationMessage:
+def _write_uploads(uploads: dict[Path, str]) -> None:
+    for path, text in uploads.items():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+
+
+def _remove_uploads(uploads: dict[Path, str]) -> None:
+    """Undo ``_write_uploads`` for a message the run refused."""
+
+    for path in uploads:
+        path.unlink(missing_ok=True)
+
+
+async def _build_user_message(chat: UserInputRequest, deps: CliDeps) -> tuple[ConversationMessage, dict[Path, str]]:
+    """Build the user message and the uploads to save before it is sent.
+
+    A text upload that does not fit one read window is shown truncated, and its
+    full text is returned for ``tool_output_dir`` so the model can read the rest.
+    The caller writes it once the request has passed validation.
+    """
+
+    cwd = str(deps.cwd)
+    uploads: dict[Path, str] = {}
     if not chat.input:
         text = str(chat.message or "").strip()
         snapshots = await asyncio.to_thread(build_skill_snapshot_blocks, text, cwd)
-        return build_message("user", [*snapshots, text_block(text)])
+        return build_message("user", [*snapshots, text_block(text)]), uploads
 
     blocks: list[dict[str, Any]] = []
     visible_text: list[str] = []
@@ -106,7 +133,12 @@ async def _build_user_message(chat: UserInputRequest, cwd: str) -> ConversationM
                 continue
             text = block.text or ""
             if block.is_attachment:
-                blocks.extend(build_attachment_blocks([Attachment.text(text, name=str(block.name or "attached-file"))]))
+                name = str(block.name or "attached-file")
+                window = read_text_window(io.StringIO(text, newline=None))
+                upload_path = deps.tool_output_dir / f"upload-{uuid4().hex}"
+                if window.partial:
+                    uploads[upload_path] = text
+                blocks.extend(build_attachment_blocks([Attachment.text(window.render(upload_path), name=name)]))
             elif text:
                 visible_text.append(text)
                 blocks.append(text_block(text))
@@ -143,7 +175,7 @@ async def _build_user_message(chat: UserInputRequest, cwd: str) -> ConversationM
         raise HTTPException(status_code=400, detail="input must include at least one non-empty block")
     snapshots = await asyncio.to_thread(build_skill_snapshot_blocks, "\n".join(visible_text), cwd)
     blocks[:0] = snapshots
-    return build_message("user", blocks)
+    return build_message("user", blocks), uploads
 
 
 def _check_input_support(message: ConversationMessage, model: ModelMetadata | RunAgent) -> None:
@@ -193,7 +225,9 @@ async def chat(chat: ChatRequest, store: StoreDep, runs: RunManagerDep) -> ChatR
         api_base=chat.api_base,
     )
     session_id = chat.session_id or "default"
-    user_message = await _build_user_message(chat, cwd)
+    user_message, uploads = await _build_user_message(
+        chat, CliDeps.for_session(cwd=cwd, data_dir=store.data_dir, session_id=session_id)
+    )
 
     # Capability check before any disk mutation — a failed check must not
     # leave an empty session on disk or land a premature rewind marker.
@@ -248,9 +282,10 @@ async def chat(chat: ChatRequest, store: StoreDep, runs: RunManagerDep) -> ChatR
             existing_messages = data["messages"] if data else []
             _validate_rewind_request(session=session, messages=existing_messages, rewind_to=chat.rewind_to)
 
-        # All validation passed. Land the rewind marker (if any) and register
-        # the user turn in the catalog: first turn creates the entry and sets
-        # the title, later turns bump updated_at.
+        # All validation passed. Save uploads, land the rewind marker (if any)
+        # and register the user turn in the catalog: first turn creates the
+        # entry and sets the title, later turns bump updated_at.
+        await asyncio.to_thread(_write_uploads, uploads)
         if chat.rewind_to is not None:
             await store.append_rewind(session_id, chat.rewind_to)
         session = await store.record_user_turn(
@@ -398,17 +433,22 @@ async def compact_session(
 
 @router.post("/runs/{run_id}/steer")
 async def steer_run(
-    run_id: Annotated[str, PathParam(min_length=1)], body: PendingInputRequest, runs: RunManagerDep
+    run_id: Annotated[str, PathParam(min_length=1)], body: PendingInputRequest, store: StoreDep, runs: RunManagerDep
 ) -> RunResponse:
     """Hand a user message to the running chat for its next step boundary."""
 
     state = await runs.get_run(run_id)
     if state is None:
         raise HTTPException(status_code=404, detail="run not found")
-    message = await _build_user_message(body, state.cwd)
+    message, uploads = await _build_user_message(
+        body, CliDeps.for_session(cwd=state.cwd, data_dir=store.data_dir, session_id=state.session_id)
+    )
     message["meta"] = {"input_id": body.input_id}
     _check_input_support(message, state.agent)
+    # Uploads are on disk before the model can see the message; a refusal removes them.
+    await asyncio.to_thread(_write_uploads, uploads)
     if not state.agent.steer(message):
+        await asyncio.to_thread(_remove_uploads, uploads)
         raise HTTPException(
             status_code=409,
             detail={"message": "run is not accepting steers", "run": state.info()},
@@ -428,10 +468,14 @@ async def queue_message(
     state = await runs.get_active_run(session_id)
     if state is None:
         raise HTTPException(status_code=409, detail={"message": "session has no running chat to queue on"})
-    message = await _build_user_message(body, state.cwd)
+    message, uploads = await _build_user_message(
+        body, CliDeps.for_session(cwd=state.cwd, data_dir=store.data_dir, session_id=session_id)
+    )
     message["meta"] = {"input_id": body.input_id}
     _check_input_support(message, state.agent)
+    await asyncio.to_thread(_write_uploads, uploads)
     if not await runs.enqueue(state, message):
+        await asyncio.to_thread(_remove_uploads, uploads)
         raise HTTPException(status_code=409, detail={"message": "session has no running chat to queue on"})
     await store.record_user_turn(
         session_id,
