@@ -13,6 +13,7 @@ import {
 } from "react";
 import type {
   AttachedFile,
+  BackgroundJobInfo,
   ChatErrorResponse,
   ChatMessage,
   ChatResponse,
@@ -27,6 +28,7 @@ import type {
   RemoteConfig,
   RunInfo,
   RunKind,
+  ServerEvent,
   SessionResponse,
   SessionSummary,
   SessionsResponse,
@@ -35,7 +37,7 @@ import type {
   UsageTotals,
   WorkspaceFileReference,
 } from "../types";
-import { isCompactMarker } from "../types";
+import { isChatMessage, isCompactMarker } from "../types";
 import { getReasoningEffortOverride } from "../utils/config";
 import { randomId } from "../utils/id";
 import {
@@ -46,6 +48,7 @@ import {
   createAssistantMessage,
   createUserMessage,
   createUserTextMessage,
+  isJobBlock,
   markTailAssistantStopped,
   readUsageTotals,
   updateLatestAssistantMeta,
@@ -77,6 +80,8 @@ interface ChatState {
   /** Steers and queued messages handed to the running chat and not yet
    * delivered by a `user_message` event. */
   pending: PendingInputs;
+  /** Background commands running in this session, from the snapshot and the job events. */
+  jobs: BackgroundJobInfo[];
 }
 
 const NO_PENDING: PendingInputs = { steers: [], queue: [] };
@@ -88,6 +93,7 @@ const INITIAL_CHAT_STATE: ChatState = {
   sessionUsage: null,
   preTurnRawMessages: null,
   pending: NO_PENDING,
+  jobs: [],
 };
 
 type ChatAction =
@@ -99,6 +105,7 @@ type ChatAction =
       replayEvents?: StreamEvent[];
       expectedSessionId?: string | null;
       pending?: PendingInputs;
+      jobs?: BackgroundJobInfo[];
     }
   | {
       type: "start_turn";
@@ -107,8 +114,11 @@ type ChatAction =
       workspaceFiles?: WorkspaceFileReference[];
     }
   | { type: "rewind_and_start_turn"; rewindTo: number; content: string }
+  | { type: "accept_turn"; message: ChatMessage }
   | { type: "apply_event"; event: StreamEvent }
   | { type: "rollback" }
+  | { type: "job_started"; job: BackgroundJobInfo }
+  | { type: "job_finished"; toolUseId: string }
   | { type: "add_pending"; list: keyof PendingInputs; item: PendingInput }
   | { type: "move_pending"; id: string; to: keyof PendingInputs }
   | { type: "remove_pending"; id: string }
@@ -287,6 +297,7 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
         sessionUsage: action.sessionUsage ?? null,
         preTurnRawMessages: null,
         pending: action.pending ?? NO_PENDING,
+        jobs: action.jobs ?? [],
       };
 
       for (const event of action.replayEvents || []) {
@@ -332,6 +343,36 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
         preTurnRawMessages: state.rawMessages,
       };
     }
+
+    case "accept_turn": {
+      // The server's copy of the sent message carries the background results
+      // that waited for it; the client's own rendering of the input stays.
+      const results = action.message.content.filter(isJobBlock);
+      const index = state.rawMessages.findLastIndex((m) => m.role === "user");
+      const message = state.rawMessages[index];
+      if (!results.length || !message) return state;
+      return {
+        ...state,
+        rawMessages: state.rawMessages.with(index, {
+          ...message,
+          content: [...results, ...message.content],
+        }),
+      };
+    }
+
+    case "job_started": {
+      const { job } = action;
+      if (state.jobs.some((item) => item.tool_use_id === job.tool_use_id)) {
+        return state;
+      }
+      return { ...state, jobs: [...state.jobs, job] };
+    }
+
+    case "job_finished":
+      return {
+        ...state,
+        jobs: state.jobs.filter((job) => job.tool_use_id !== action.toolUseId),
+      };
 
     case "rollback": {
       const snapshot = state.preTurnRawMessages;
@@ -578,6 +619,13 @@ export function useChat(
       ) => Promise<SessionResponse | null>)
     | null
   >(null);
+  /** Set when the shown session must be reloaded once this client is quiet:
+   * a run started there while a stream or a send was in flight, or the event
+   * stream reconnected. Holds the run id, or `"*"` for a reconnect. */
+  const resyncRef = useRef<string | null>(null);
+  /** Whether a `POST .../compact` of this client is in flight; its run is
+   * announced before the response names it. */
+  const compactRequestRef = useRef(false);
 
   useEffect(() => {
     onRestoreRef.current = onRestore;
@@ -693,6 +741,8 @@ export function useChat(
       streamTokenRef.current += 1;
       const token = streamTokenRef.current;
       streamAbortRef.current?.abort();
+      // The run this client was told about is the one it now follows.
+      if (resyncRef.current === runId) resyncRef.current = null;
 
       const controller = new AbortController();
       streamAbortRef.current = controller;
@@ -846,6 +896,19 @@ export function useChat(
           }
 
           fetchSessions();
+          if (
+            resyncRef.current &&
+            !streamAbortRef.current &&
+            !pendingRequestTokenRef.current &&
+            !compactRequestRef.current &&
+            activeSessionRef.current.id === sessionId
+          ) {
+            // A run this client did not start began while this stream ran.
+            resyncRef.current = null;
+            void loadSessionRef.current?.(sessionId).catch((error) => {
+              console.error("Failed to sync session:", error);
+            });
+          }
         }
       }
     },
@@ -876,6 +939,7 @@ export function useChat(
       const data = (await res.json()) as SessionResponse;
       if (!isStillCurrent()) return null;
       if (!data.session) return null;
+      resyncRef.current = null;
 
       setActiveSessionSnapshot(data.session);
       saveActiveSession(requestCwd, data.session.id);
@@ -931,6 +995,7 @@ export function useChat(
             steers: (data.pending?.steers ?? []).map(pendingFromMessage),
             queue: (data.pending?.queue ?? []).map(pendingFromMessage),
           },
+          jobs: data.jobs ?? [],
         });
       });
       if (replayedPermissions.size) {
@@ -1059,6 +1124,7 @@ export function useChat(
         if (!isCurrentRequest) return false;
 
         const chatData = data as ChatResponse;
+        dispatch({ type: "accept_turn", message: chatData.message });
 
         // Update active session from backend response (has real title, id, etc.)
         if (chatData.session) {
@@ -1403,6 +1469,7 @@ export function useChat(
     setCompactError(null);
     setSendError(null);
     setRunKind("compact");
+    compactRequestRef.current = true;
 
     try {
       const res = await fetch(
@@ -1441,6 +1508,8 @@ export function useChat(
         setCompactError(getErrorMessage(e));
       }
       return false;
+    } finally {
+      compactRequestRef.current = false;
     }
   }, [config.model, config.provider, fetchSessions, loading, streamRun]);
 
@@ -1708,9 +1777,89 @@ export function useChat(
     };
   }, [stopStreaming]);
 
+  // Runs this client did not start, such as a session woken by a finished
+  // background command, are announced on `/api/events`. The shown session is
+  // reloaded to attach to them: at once when idle, otherwise when the current
+  // stream ends. There is no replay, so a reconnect reloads as well.
+  useEffect(() => {
+    if (typeof EventSource === "undefined") return;
+    const source = new EventSource("/api/events");
+    let connected = false;
+
+    const sync = (runId: string) => {
+      const session = activeSessionRef.current;
+      if (session.isDraft) return;
+      if (
+        streamAbortRef.current ||
+        pendingRequestTokenRef.current ||
+        compactRequestRef.current
+      ) {
+        resyncRef.current = runId;
+        return;
+      }
+      void loadSessionRef.current?.(session.id).catch((error) => {
+        console.error("Failed to sync session:", error);
+      });
+    };
+
+    source.onopen = () => {
+      // The initial load covers the first connection; later opens are reconnects.
+      if (connected) sync("*");
+      connected = true;
+    };
+    source.onmessage = (message: MessageEvent<string>) => {
+      let event: ServerEvent;
+      try {
+        event = JSON.parse(message.data) as ServerEvent;
+      } catch {
+        return;
+      }
+      fetchSessions();
+      if (event.session_id !== activeSessionRef.current.id) return;
+      if (event.type === "job_started") {
+        dispatch({ type: "job_started", job: event.job });
+      } else if (event.type === "job_finished") {
+        dispatch({ type: "job_finished", toolUseId: event.job.tool_use_id });
+      } else if (
+        event.type === "run_started" &&
+        event.run.id !== activeRunRef.current?.id
+      ) {
+        sync(event.run.id);
+      }
+    };
+    return () => source.close();
+  }, [dispatch, fetchSessions]);
+
+  /** Kill a running background command. Its result still reaches the model;
+   * the job leaves the list with the `job_finished` event. */
+  const stopJob = useCallback(async (toolUseId: string) => {
+    const sessionId = activeSessionRef.current.id;
+    try {
+      const res = await fetch(
+        `/api/sessions/${encodeURIComponent(sessionId)}/jobs/${encodeURIComponent(toolUseId)}`,
+        { method: "DELETE" },
+      );
+      // 404: already finished.
+      if (!res.ok && res.status !== 404) {
+        setSendError(`Failed to stop background command (${res.status})`);
+      }
+    } catch (e) {
+      setSendError(getErrorMessage(e));
+    }
+  }, []);
+
+  const runningJobIds = useMemo(
+    () => new Set(chatState.jobs.map((job) => job.tool_use_id)),
+    [chatState.jobs],
+  );
   const messages = useMemo(
-    () => buildRenderMessages(chatState.rawMessages, chatState.toolRuntimeById),
-    [chatState.rawMessages, chatState.toolRuntimeById],
+    () =>
+      buildRenderMessages(
+        chatState.rawMessages,
+        chatState.toolRuntimeById,
+        runningJobIds,
+      ),
+    [chatState.rawMessages, chatState.toolRuntimeById, runningJobIds],
   );
 
   // Current context occupancy from the latest turn with usage. A compact
@@ -1719,6 +1868,7 @@ export function useChat(
     for (let i = messages.length - 1; i >= 0; i--) {
       const message = messages[i];
       if (!message || isCompactMarker(message)) break;
+      if (!isChatMessage(message)) continue;
       const stats = message.role === "assistant" ? message.stats : undefined;
       if (!stats) continue;
       if (
@@ -1746,6 +1896,8 @@ export function useChat(
     sessionLoading,
     pendingPermission: pendingPermissions[0] ?? null,
     pending: chatState.pending,
+    jobs: chatState.jobs,
+    stopJob,
     send,
     steer,
     queue,

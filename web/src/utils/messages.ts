@@ -7,6 +7,7 @@ import type {
   Cost,
   DocumentBlock,
   Interruption,
+  JobResult,
   MessageBlock,
   MessageMeta,
   RenderMessage,
@@ -20,7 +21,7 @@ import type {
   UsageTotals,
   WorkspaceFileReference,
 } from "../types";
-import { isCompactMarker } from "../types";
+import { isChatMessage } from "../types";
 
 interface ToolCall {
   id?: string;
@@ -560,6 +561,61 @@ function foldTurnStats(
   return stats;
 }
 
+interface JobMeta {
+  tool_use_id?: unknown;
+  label?: unknown;
+  exit_code?: unknown;
+}
+
+/** A background job notification: a text block whose `meta.job` names the command (`docs/sessions.md`). */
+export function isJobBlock(
+  block: MessageBlock,
+): block is TextBlock & { meta: Record<string, unknown> } {
+  // biome-ignore lint/complexity/useLiteralKeys: index signature requires bracket access
+  return block.type === "text" && Boolean(block.meta?.["job"]);
+}
+
+/** Read a background job notification. */
+function jobResult(block: TextBlock): JobResult {
+  // biome-ignore lint/complexity/useLiteralKeys: index signature requires bracket access
+  const job = (block.meta?.["job"] ?? {}) as JobMeta;
+  return {
+    tool_use_id: String(job.tool_use_id ?? ""),
+    label: String(job.label ?? ""),
+    exit_code: typeof job.exit_code === "number" ? job.exit_code : 0,
+    // The text is the header lines, a blank line, then the bounded output.
+    output: block.text.split("\n\n").slice(1).join("\n\n"),
+  };
+}
+
+/** What the projection knows about the job a bash call started. */
+type JobStatus = { running: true } | { exit_code: number };
+
+// The start card's metadata with its job's status, built once per metadata
+// object and status: MessageBubble compares metadata by identity.
+const metadataWithStatus = new WeakMap<
+  object,
+  Map<string, Record<string, unknown>>
+>();
+
+/** Mark the bash call that started a background job with the job's status. */
+function withJobStatus(block: ToolUseBlock, status: JobStatus): ToolUseBlock {
+  const runtime = block.runtime;
+  if (!runtime?.metadata) return block;
+  const key = "running" in status ? "running" : `exit:${status.exit_code}`;
+  let variants = metadataWithStatus.get(runtime.metadata);
+  if (!variants) {
+    variants = new Map();
+    metadataWithStatus.set(runtime.metadata, variants);
+  }
+  let metadata = variants.get(key);
+  if (!metadata) {
+    metadata = { ...runtime.metadata, ...status };
+    variants.set(key, metadata);
+  }
+  return { ...block, runtime: { ...runtime, metadata } };
+}
+
 function createRenderAssistantMessage(sourceIndex: number): ChatMessage {
   return {
     role: "assistant",
@@ -575,11 +631,15 @@ function createRenderAssistantMessage(sourceIndex: number): ChatMessage {
 export function buildRenderMessages(
   messages: ChatMessage[],
   toolRuntimeById: Record<string, ToolRuntime> = {},
+  /** The `tool_use` ids of background jobs still running in the session. */
+  runningJobs: ReadonlySet<string> = new Set(),
 ): RenderMessage[] {
   if (!Array.isArray(messages)) return [];
 
   const result: RenderMessage[] = [];
   const toolIndex = new Map<string, ToolIndexEntry>();
+  // Exit codes of finished background jobs, by the tool_use that started them.
+  const jobExits = new Map<string, number>();
   let currentAssistant: ChatMessage | null = null;
   // A turn runs from a real user message to the next one and renders as one
   // assistant bubble, which owns the turn's stats.
@@ -600,7 +660,7 @@ export function buildRenderMessages(
     }
     if ((turnStats || turnInterruption) && turnOwnerIndex !== null) {
       const owner = result[turnOwnerIndex];
-      if (owner && !isCompactMarker(owner)) {
+      if (owner && isChatMessage(owner)) {
         const next: ChatMessage = { ...owner };
         if (turnStats) next.stats = turnStats;
         if (turnInterruption) next.interruption = turnInterruption;
@@ -655,10 +715,17 @@ export function buildRenderMessages(
     if (role === "user") {
       const userBlocks: MessageBlock[] = [];
       const toolResults: ToolResultBlock[] = [];
+      const jobs: JobResult[] = [];
 
       for (const [blockIndex, block] of blocks.entries()) {
         // biome-ignore lint/complexity/useLiteralKeys: index signature requires bracket access
         if (block?.type === "text" && block.meta?.["skill_snapshot"]) {
+          continue;
+        }
+        if (isJobBlock(block)) {
+          const job = jobResult(block);
+          jobs.push(job);
+          jobExits.set(job.tool_use_id, job.exit_code);
           continue;
         }
         if (
@@ -674,7 +741,7 @@ export function buildRenderMessages(
         }
       }
 
-      if (userBlocks.length > 0) {
+      if (userBlocks.length > 0 || jobs.length > 0) {
         const userMeta = message?.meta as MessageMeta | undefined;
         if (userMeta?.steer) {
           // Tool results followed by a steer mean the turn continued with it,
@@ -685,16 +752,31 @@ export function buildRenderMessages(
         }
         commitTurn();
         turnStartedAt = userMeta?.created_at;
-        const userMsg: ChatMessage = {
-          role: "user",
-          content: userBlocks,
-          renderKey: `user:${sourceIndex}`,
-          sourceIndex,
-        };
-        if (isObject(message?.meta))
-          userMsg.meta = { ...(message.meta as MessageMeta) };
-        result.push(userMsg);
         currentAssistant = null;
+        if (jobs.length > 0) {
+          // Background results open the turn as the event that caused it:
+          // alone for a wake, or ahead of the user's bubble when they rode
+          // along with it. They are not the reply's work, so it never folds
+          // over them.
+          result.push({
+            kind: "job-marker",
+            jobs,
+            sourceIndex,
+            renderKey: `jobs:${sourceIndex}`,
+          });
+        }
+        if (userBlocks.length > 0) {
+          const userMsg: ChatMessage = {
+            role: "user",
+            content: userBlocks,
+            renderKey: `user:${sourceIndex}`,
+            sourceIndex,
+          };
+          if (isObject(message?.meta))
+            userMsg.meta = { ...(message.meta as MessageMeta) };
+          result.push(userMsg);
+          currentAssistant = null;
+        }
       }
 
       if (toolResults.length === 0) continue;
@@ -714,7 +796,7 @@ export function buildRenderMessages(
           // Tool result for a tool_use we already projected — splice the
           // runtime/result back onto that tool_use block.
           const target = result[entry.messageIndex];
-          if (target && !isCompactMarker(target)) {
+          if (target && isChatMessage(target)) {
             const targetContent = [...getBlocks(target)];
             const targetBlock = targetContent[entry.blockIndex];
             if (targetBlock?.type === "tool_use") {
@@ -836,13 +918,33 @@ export function buildRenderMessages(
   }
 
   commitTurn();
-  return result.filter((message, index) => {
-    if (isCompactMarker(message)) return true;
-    // An error with no output still renders its message.
-    return (
-      (Array.isArray(message.content) && message.content.length > 0) ||
-      Boolean(message.meta?.error) ||
-      (index === result.length - 1 && message.role === "assistant")
-    );
-  });
+  return result
+    .filter((message, index) => {
+      if (!isChatMessage(message)) return true;
+      // An error with no output still renders its message.
+      return (
+        (Array.isArray(message.content) && message.content.length > 0) ||
+        Boolean(message.meta?.error) ||
+        (index === result.length - 1 && message.role === "assistant")
+      );
+    })
+    .map((message) => {
+      if (!isChatMessage(message)) return message;
+      if (jobExits.size === 0 && runningJobs.size === 0) return message;
+      let marked = false;
+      const content = message.content.map((block) => {
+        if (block.type !== "tool_use") return block;
+        const exitCode = jobExits.get(block.id);
+        const status: JobStatus | null =
+          exitCode !== undefined
+            ? { exit_code: exitCode }
+            : runningJobs.has(block.id)
+              ? { running: true }
+              : null;
+        if (!status) return block;
+        marked = true;
+        return withJobStatus(block, status);
+      });
+      return marked ? { ...message, content } : message;
+    });
 }

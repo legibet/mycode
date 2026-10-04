@@ -63,6 +63,23 @@ export interface SessionSummary {
 
 export type RunKind = "chat" | "compact";
 
+/** A running background command, as `GET /api/sessions/{id}` and `/api/events` describe it. */
+export interface BackgroundJobInfo {
+  tool_use_id: string;
+  label: string;
+  pid: number;
+  started_at: string;
+}
+
+/** One event of `GET /api/events`: a run or a background command started or ended. */
+export type ServerEvent =
+  | { type: "run_started" | "run_finished"; session_id: string; run: RunInfo }
+  | {
+      type: "job_started" | "job_finished";
+      session_id: string;
+      job: BackgroundJobInfo;
+    };
+
 export interface RunInfo {
   id: string;
   session_id: string;
@@ -295,7 +312,31 @@ export interface CompactMarkerMessage {
   renderKey: string;
 }
 
-export type RenderMessage = ChatMessage | CompactMarkerMessage;
+/** A finished background command, read from a `meta.job` text block. */
+export interface JobResult {
+  tool_use_id: string;
+  label: string;
+  exit_code: number;
+  /** The bounded output tail, without the notification's header lines. */
+  output: string;
+}
+
+/** The background results that opened a turn, in the user bubble's place. */
+export interface JobMarkerMessage {
+  kind: "job-marker";
+  jobs: JobResult[];
+  sourceIndex: number;
+  renderKey: string;
+}
+
+export type RenderMessage =
+  | ChatMessage
+  | CompactMarkerMessage
+  | JobMarkerMessage;
+
+export function isChatMessage(message: RenderMessage): message is ChatMessage {
+  return "role" in message;
+}
 
 export function isCompactMarker(
   message: RenderMessage,
@@ -442,11 +483,16 @@ export interface SessionResponse {
   pending_events: StreamEvent[];
   /** The active run's undelivered steers and queued messages. */
   pending?: { steers: PendingMessage[]; queue: PendingMessage[] };
+  /** Background commands still running in this session. */
+  jobs?: BackgroundJobInfo[];
 }
 
 export interface ChatResponse {
   run: RunInfo;
   session: SessionSummary;
+  /** The sent message as the run received it: results of background
+   * commands that waited for it ride ahead of its own blocks. */
+  message: ChatMessage;
 }
 
 export interface CompactResponse {

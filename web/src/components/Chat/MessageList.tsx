@@ -19,10 +19,11 @@ import {
   useState,
 } from "react";
 import type { PendingInput, RenderMessage } from "../../types";
-import { isCompactMarker } from "../../types";
+import { isChatMessage, isCompactMarker } from "../../types";
 import { cn } from "../../utils/cn";
 import { createUserMessage } from "../../utils/messages";
 import { CompactMarker } from "./CompactMarker";
+import { JobMarker } from "./JobMarker";
 import { MessageBubble } from "./MessageBubble";
 
 const SCROLL_THRESHOLD = 120;
@@ -244,12 +245,11 @@ function WindowedMessages({
     [effectiveStartIndex, messages],
   );
   const latestMessage = messages.at(-1);
+  const latestChat =
+    latestMessage && isChatMessage(latestMessage) ? latestMessage : null;
   const streamingKey =
-    loading &&
-    latestMessage &&
-    !isCompactMarker(latestMessage) &&
-    latestMessage.role === "assistant"
-      ? latestMessage.renderKey || `msg-${messages.length - 1}`
+    loading && latestChat?.role === "assistant"
+      ? latestChat.renderKey || `msg-${messages.length - 1}`
       : null;
   const pendingSteerMessages = useMemo(
     () =>
@@ -269,17 +269,12 @@ function WindowedMessages({
   );
   const showPendingCompact =
     compacting && (!latestMessage || !isCompactMarker(latestMessage));
-  const latestOutputBlockCount =
-    !latestMessage || isCompactMarker(latestMessage)
-      ? 0
-      : latestMessage.content.length;
+  const latestOutputBlockCount = latestChat?.content.length ?? 0;
   const latestOutputTextLength =
-    !latestMessage || isCompactMarker(latestMessage)
-      ? 0
-      : latestMessage.content.reduce((total, block) => {
-          if (block.type !== "text" && block.type !== "thinking") return total;
-          return total + (block.text?.length ?? 0);
-        }, 0);
+    latestChat?.content.reduce((total, block) => {
+      if (block.type !== "text" && block.type !== "thinking") return total;
+      return total + (block.text?.length ?? 0);
+    }, 0) ?? 0;
   const outputVersion = `${messages.length}:${latestOutputBlockCount}:${latestOutputTextLength}:${pendingSteers.length}:${compacting}:${compactError ?? ""}:${sendError ?? ""}`;
 
   const isNearBottom = useCallback((el: HTMLElement) => {
@@ -428,23 +423,25 @@ function WindowedMessages({
             {visibleMessages.map((message, visibleIndex) => {
               const index = effectiveStartIndex + visibleIndex;
               const renderKey = message.renderKey || `msg-${index}`;
-              const isStreamingMessage =
-                loading &&
-                index === messages.length - 1 &&
-                !isCompactMarker(message) &&
-                message.role === "assistant";
-
-              if (isCompactMarker(message)) {
+              if (!isChatMessage(message)) {
                 return (
                   <div
                     key={renderKey}
                     className="chat-message-shell"
                     data-layout-optimized={layoutOptimized}
                   >
-                    <CompactMarker />
+                    {isCompactMarker(message) ? (
+                      <CompactMarker />
+                    ) : (
+                      <JobMarker jobs={message.jobs} />
+                    )}
                   </div>
                 );
               }
+              const isStreamingMessage =
+                loading &&
+                index === messages.length - 1 &&
+                message.role === "assistant";
 
               return (
                 <div

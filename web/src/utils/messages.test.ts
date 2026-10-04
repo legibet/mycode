@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { ChatMessage, RenderMessage } from "../types";
-import { isCompactMarker } from "../types";
+import { isChatMessage, isCompactMarker } from "../types";
 import {
   buildRenderMessages,
   createUserMessage,
@@ -11,8 +11,8 @@ import {
 } from "./messages";
 
 function expectChat(message: RenderMessage | undefined): ChatMessage {
-  if (!message || isCompactMarker(message)) {
-    throw new Error("expected a ChatMessage, got compact marker or undefined");
+  if (!message || !isChatMessage(message)) {
+    throw new Error("expected a ChatMessage, got a marker or undefined");
   }
   return message;
 }
@@ -130,6 +130,212 @@ describe("messages", () => {
     const content = expectChat(renderMessages[0]).content;
     expect(content).toHaveLength(1);
     expect(content[0]).toMatchObject({ type: "text", text: "Use /ui here" });
+  });
+
+  it("opens a wake turn with a job marker and marks the call that started the job", () => {
+    const renderMessages = buildRenderMessages([
+      { role: "user", content: [{ type: "text", text: "run tests later" }] },
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool_use",
+            id: "call-1",
+            name: "bash",
+            input: { command: "pytest", background: true },
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool_result",
+            tool_use_id: "call-1",
+            output: "Started in background (pid 42): pytest\nLog: /tmp/job.log",
+            metadata: { background: true, pid: 42, log: "/tmp/job.log" },
+            is_error: false,
+          },
+        ],
+      },
+      { role: "assistant", content: [{ type: "text", text: "started" }] },
+      {
+        role: "user",
+        content: [
+          {
+            type: "text",
+            text: "Background bash finished (pid 42, exit code 1): pytest\nLog: /tmp/job.log\n\nFAILED test_a\n\n1 failed",
+            meta: {
+              job: {
+                tool_use_id: "call-1",
+                name: "bash",
+                label: "pytest",
+                exit_code: 1,
+              },
+            },
+          },
+        ],
+      },
+      { role: "assistant", content: [{ type: "text", text: "test_a fails" }] },
+    ]);
+
+    expect(renderMessages).toHaveLength(4);
+    const [, launch, marker, reply] = renderMessages;
+    expect(marker).toEqual({
+      kind: "job-marker",
+      sourceIndex: 4,
+      renderKey: "jobs:4",
+      jobs: [
+        {
+          tool_use_id: "call-1",
+          label: "pytest",
+          exit_code: 1,
+          output: "FAILED test_a\n\n1 failed",
+        },
+      ],
+    });
+    // The wake reply is its own bubble with no work: nothing to fold.
+    expect(expectChat(reply).content).toEqual([
+      expect.objectContaining({ type: "text", text: "test_a fails" }),
+    ]);
+    const start = expectChat(launch).content[0];
+    if (start?.type !== "tool_use") throw new Error("expected the start card");
+    expect(start.runtime?.metadata).toEqual({
+      background: true,
+      pid: 42,
+      log: "/tmp/job.log",
+      exit_code: 1,
+    });
+    expect(start.runtime?.isError).toBe(false);
+  });
+
+  const backgroundStart: ChatMessage[] = [
+    { role: "user", content: [{ type: "text", text: "run tests later" }] },
+    {
+      role: "assistant",
+      content: [
+        {
+          type: "tool_use",
+          id: "call-1",
+          name: "bash",
+          input: { command: "pytest", background: true },
+        },
+      ],
+    },
+    {
+      role: "user",
+      content: [
+        {
+          type: "tool_result",
+          tool_use_id: "call-1",
+          output: "Started in background (pid 42): pytest\nLog: /tmp/job.log",
+          metadata: { background: true, pid: 42, log: "/tmp/job.log" },
+          is_error: false,
+        },
+      ],
+    },
+    { role: "assistant", content: [{ type: "text", text: "started" }] },
+  ];
+  const startCard = (rendered: RenderMessage[]) => {
+    const block = expectChat(rendered[1]).content[0];
+    if (block?.type !== "tool_use") throw new Error("expected the start card");
+    return block;
+  };
+
+  it("marks the call of a still running background job as running", () => {
+    const running = new Set(["call-1"]);
+    const first = startCard(buildRenderMessages(backgroundStart, {}, running));
+    const again = startCard(buildRenderMessages(backgroundStart, {}, running));
+
+    expect(first.runtime?.metadata).toEqual({
+      background: true,
+      pid: 42,
+      log: "/tmp/job.log",
+      running: true,
+    });
+    expect(again.runtime?.metadata).toBe(first.runtime?.metadata);
+    expect(
+      startCard(buildRenderMessages(backgroundStart)).runtime?.metadata,
+    ).not.toHaveProperty("running");
+  });
+
+  it("prefers the job's result over a stale running entry", () => {
+    const finished: ChatMessage[] = [
+      ...backgroundStart,
+      {
+        role: "user",
+        content: [
+          {
+            type: "text",
+            text: "Background bash finished (pid 42, exit code -15): pytest\nLog: /tmp/job.log\n\n",
+            meta: {
+              job: {
+                tool_use_id: "call-1",
+                name: "bash",
+                label: "pytest",
+                exit_code: -15,
+              },
+            },
+          },
+        ],
+      },
+    ];
+
+    const start = startCard(
+      buildRenderMessages(finished, {}, new Set(["call-1"])),
+    );
+
+    expect(start.runtime?.metadata).toEqual({
+      background: true,
+      pid: 42,
+      log: "/tmp/job.log",
+      exit_code: -15,
+    });
+  });
+
+  it("puts the job marker ahead of a steer's user bubble", () => {
+    const renderMessages = buildRenderMessages([
+      { role: "user", content: [{ type: "text", text: "build it" }] },
+      { role: "assistant", content: [{ type: "text", text: "working" }] },
+      {
+        role: "user",
+        content: [
+          {
+            type: "text",
+            text: "Background bash finished (pid 7, exit code 0): make\nLog: /tmp/make.log\n\nok",
+            meta: {
+              job: {
+                tool_use_id: "call-2",
+                name: "bash",
+                label: "make",
+                exit_code: 0,
+              },
+            },
+          },
+          { type: "text", text: "also lint" },
+        ],
+        meta: { steer: true, input_ids: ["in-1"] },
+      },
+      { role: "assistant", content: [{ type: "text", text: "linting" }] },
+    ]);
+
+    expect(renderMessages).toHaveLength(5);
+    const [, , marker] = renderMessages;
+    const [, , , user, reply] = renderMessages.map((m) =>
+      isChatMessage(m) ? m : null,
+    );
+    expect(marker).toMatchObject({
+      kind: "job-marker",
+      jobs: [
+        { tool_use_id: "call-2", label: "make", exit_code: 0, output: "ok" },
+      ],
+    });
+    expect(user?.role).toBe("user");
+    expect(user?.content).toMatchObject([{ type: "text", text: "also lint" }]);
+    expect(user?.content).toHaveLength(1);
+    expect(user?.meta?.steer).toBe(true);
+    expect(reply?.role).toBe("assistant");
+    expect(reply?.content).toMatchObject([{ type: "text", text: "linting" }]);
   });
 
   it("wraps text attachments like CLI file references", () => {

@@ -237,4 +237,39 @@ describe("InputArea", () => {
     expect(screen.queryByRole("button", { name: "Edit" })).toBeNull();
     expect(screen.getByRole("button", { name: "Remove" })).toBeInTheDocument();
   });
+
+  it("lists background commands with a Stop for each", async () => {
+    const user = userEvent.setup();
+    const onStopJob = vi.fn();
+    render(
+      <InputArea
+        {...runningProps}
+        loading={false}
+        onSubmit={vi.fn()}
+        jobs={[
+          {
+            tool_use_id: "call-1",
+            label: "pytest -x",
+            pid: 7,
+            started_at: new Date().toISOString(),
+          },
+        ]}
+        onStopJob={onStopJob}
+      />,
+    );
+
+    const list = screen.getByRole("list", { name: "Background commands" });
+    expect(list).toHaveTextContent("pytest -x");
+    await user.click(screen.getByRole("button", { name: "Stop" }));
+    expect(onStopJob).toHaveBeenCalledWith("call-1");
+  });
+
+  it("shows no card when nothing is running or queued", () => {
+    render(<InputArea {...runningProps} onSubmit={vi.fn()} jobs={[]} />);
+
+    expect(
+      screen.queryByRole("list", { name: "Background commands" }),
+    ).toBeNull();
+    expect(screen.queryByRole("list", { name: "Queued messages" })).toBeNull();
+  });
 });

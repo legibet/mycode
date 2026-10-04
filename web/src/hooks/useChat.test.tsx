@@ -1,13 +1,13 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ChatMessage, RenderMessage } from "../types";
-import { isCompactMarker } from "../types";
+import { isChatMessage, isCompactMarker } from "../types";
 import { loadActiveSession, saveActiveSession } from "../utils/storage";
 import { useChat } from "./useChat";
 
 function expectChat(message: RenderMessage | undefined): ChatMessage {
-  if (!message || isCompactMarker(message)) {
-    throw new Error("expected a ChatMessage, got compact marker or undefined");
+  if (!message || !isChatMessage(message)) {
+    throw new Error("expected a ChatMessage, got a marker or undefined");
   }
   return message;
 }
@@ -86,6 +86,12 @@ function mockFetch(routes: Record<string, MockResponse>) {
   return fetchMock;
 }
 
+/** What the server hands back for a sent message that carried nothing extra. */
+const acceptedMessage = {
+  role: "user",
+  content: [{ type: "text", text: "hello" }],
+};
+
 describe("useChat", () => {
   beforeEach(() => {
     globalThis.localStorage = createLocalStorage();
@@ -122,6 +128,7 @@ describe("useChat", () => {
           last_seq: 0,
         },
         session: { id: "draft-auto", title: "Draft" },
+        message: acceptedMessage,
       }),
       "/api/runs/run-auto/stream?after=0": new Response("data: [DONE]\n\n", {
         status: 200,
@@ -171,6 +178,7 @@ describe("useChat", () => {
           last_seq: 0,
         },
         session: { id: "draft-1", title: "Draft" },
+        message: acceptedMessage,
       }),
       "/api/runs/run-1/stream?after=0": new Response("data: [DONE]\n\n", {
         status: 200,
@@ -222,6 +230,7 @@ describe("useChat", () => {
           last_seq: 0,
         },
         session: { id: "draft-1", title: "Draft" },
+        message: acceptedMessage,
       }),
       "/api/runs/run-1/stream?after=0": new Response("data: [DONE]\n\n", {
         status: 200,
@@ -272,6 +281,7 @@ describe("useChat", () => {
           last_seq: 0,
         },
         session: { id: "draft-1", title: "Draft" },
+        message: acceptedMessage,
       }),
       "/api/runs/run-1/stream?after=0": new Response("data: [DONE]\n\n", {
         status: 200,
@@ -309,7 +319,7 @@ describe("useChat", () => {
     await waitFor(() => {
       const userMessage = result.current.messages.find(
         (message): message is ChatMessage =>
-          !isCompactMarker(message) && message.role === "user",
+          isChatMessage(message) && message.role === "user",
       );
       expect(userMessage?.content[1]).toEqual({
         type: "document",
@@ -1653,6 +1663,7 @@ describe("useChat", () => {
                   last_seq: 0,
                 },
                 session: { id: "session-1", title: "Saved" },
+                message: acceptedMessage,
               }),
             );
         }),
@@ -2132,6 +2143,7 @@ describe("useChat pending input", () => {
       createJsonResponse({
         run: { ...RUN, id: "run-3" },
         session: { id: "session-2", title: "Running" },
+        message: acceptedMessage,
       }),
     );
     const { end } = mockRunningSession({
@@ -2215,5 +2227,405 @@ describe("useChat pending input", () => {
 
     expect(result.current.activeSession.id).toBe("session-1");
     expect(onRestore).not.toHaveBeenCalled();
+  });
+});
+
+describe("useChat server events", () => {
+  class FakeEventSource {
+    static instances: FakeEventSource[] = [];
+    onopen: ((event: Event) => void) | null = null;
+    onmessage: ((event: MessageEvent<string>) => void) | null = null;
+    onerror: ((event: Event) => void) | null = null;
+    close = vi.fn();
+    constructor(readonly url: string) {
+      FakeEventSource.instances.push(this);
+    }
+    emit(event: unknown) {
+      act(() => {
+        this.onmessage?.({ data: JSON.stringify(event) } as MessageEvent);
+      });
+    }
+  }
+
+  const runInfo = (id: string, last_seq = 0) => ({
+    id,
+    session_id: "session-1",
+    kind: "chat" as const,
+    status: "running",
+    last_seq,
+  });
+  const idleSession = {
+    session: { id: "session-1", title: "Saved" },
+    messages: [
+      { role: "user", content: [{ type: "text", text: "hi" }] },
+      { role: "assistant", content: [{ type: "text", text: "hello" }] },
+    ],
+    active_run: null,
+    pending_events: [],
+    pending: { steers: [], queue: [] },
+  };
+  const sseResponse = (body: BodyInit) =>
+    new Response(body, {
+      status: 200,
+      headers: { "Content-Type": "text/event-stream" },
+    });
+
+  /** An SSE body that stays open until `end()` sends `[DONE]`. */
+  function openStream() {
+    let controller!: ReadableStreamDefaultController<Uint8Array>;
+    const stream = new ReadableStream<Uint8Array>({
+      start(c) {
+        controller = c;
+      },
+    });
+    const end = () => {
+      controller.enqueue(new TextEncoder().encode("data: [DONE]\n\n"));
+      controller.close();
+    };
+    return { stream, end };
+  }
+
+  const calls = (fetchMock: ReturnType<typeof mockFetch>, url: string) =>
+    fetchMock.mock.calls.filter(([callUrl]) => String(callUrl) === url).length;
+  const SESSION_URL = "/api/sessions/session-1";
+  const LIST_URL = "/api/sessions?cwd=%2Fworkspace%2Fa";
+
+  /** Render the hook on saved `session-1`; `session` answers each GET of it. */
+  async function renderWithSession(
+    session: () => Response,
+    routes: Record<string, MockResponse> = {},
+  ) {
+    globalThis.localStorage = createLocalStorage();
+    saveActiveSession("/workspace/a", "session-1");
+    const fetchMock = mockFetch({
+      "/api/sessions?cwd=": createJsonResponse({
+        sessions: [{ id: "session-1", title: "Saved" }],
+      }),
+      [SESSION_URL]: () => session(),
+      ...routes,
+    });
+    const hook = renderChatHook();
+    await waitFor(() => {
+      expect(hook.result.current.sessionLoading).toBe(false);
+      expect(calls(fetchMock, SESSION_URL)).toBe(1);
+    });
+    const source = FakeEventSource.instances.at(-1);
+    if (!source) throw new Error("no EventSource opened");
+    return { ...hook, fetchMock, source };
+  }
+
+  beforeEach(() => {
+    FakeEventSource.instances = [];
+    vi.stubGlobal("EventSource", FakeEventSource);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("opens /api/events on mount and closes it on unmount", async () => {
+    const { source, unmount } = await renderWithSession(() =>
+      createJsonResponse(idleSession),
+    );
+
+    expect(source.url).toBe("/api/events");
+    expect(source.close).not.toHaveBeenCalled();
+    unmount();
+    expect(source.close).toHaveBeenCalledTimes(1);
+  });
+
+  it("reloads an idle session when a run starts there and shows its job marker", async () => {
+    const wake = {
+      ...idleSession,
+      messages: [
+        ...idleSession.messages,
+        {
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: "Background bash finished (pid 3, exit code 0): sleep 1\nLog: /tmp/a.log\n\ndone",
+              meta: {
+                job: {
+                  tool_use_id: "call-1",
+                  name: "bash",
+                  label: "sleep 1",
+                  exit_code: 0,
+                },
+              },
+            },
+          ],
+        },
+      ],
+      active_run: runInfo("run-bg", 2),
+    };
+    const session = vi
+      .fn()
+      .mockReturnValueOnce(createJsonResponse(idleSession))
+      .mockReturnValue(createJsonResponse(wake));
+    const { stream, end } = openStream();
+    const { result, fetchMock, source } = await renderWithSession(session, {
+      "/api/runs/run-bg/stream": sseResponse(stream),
+    });
+    const listCalls = calls(fetchMock, LIST_URL);
+
+    source.emit({
+      type: "run_started",
+      session_id: "session-1",
+      run: runInfo("run-bg"),
+    });
+
+    await waitFor(() => {
+      expect(result.current.loading).toBe(true);
+      expect(calls(fetchMock, "/api/runs/run-bg/stream?after=2")).toBe(1);
+    });
+    expect(calls(fetchMock, SESSION_URL)).toBe(2);
+    expect(calls(fetchMock, LIST_URL)).toBeGreaterThan(listCalls);
+    expect(result.current.messages.at(-1)).toMatchObject({
+      kind: "job-marker",
+      jobs: [{ label: "sleep 1", exit_code: 0, output: "done" }],
+    });
+
+    end();
+    await waitFor(() => expect(result.current.loading).toBe(false));
+  });
+
+  it("defers the reload until this client's stream ends", async () => {
+    const session = vi
+      .fn()
+      .mockReturnValueOnce(
+        createJsonResponse({ ...idleSession, active_run: runInfo("run-1") }),
+      )
+      .mockReturnValue(createJsonResponse(idleSession));
+    const { stream, end } = openStream();
+    const { result, fetchMock, source } = await renderWithSession(session, {
+      "/api/runs/run-1/stream": sseResponse(stream),
+    });
+    await waitFor(() => expect(result.current.loading).toBe(true));
+
+    source.emit({
+      type: "run_started",
+      session_id: "session-1",
+      run: runInfo("run-2"),
+    });
+    await act(async () => {});
+    expect(calls(fetchMock, SESSION_URL)).toBe(1);
+
+    end();
+    await waitFor(() => expect(calls(fetchMock, SESSION_URL)).toBe(2));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+  });
+
+  it("does not reload for the run its own send is starting", async () => {
+    let resolvePost!: () => void;
+    const posted = new Promise<void>((resolve) => {
+      resolvePost = resolve;
+    });
+    const { result, fetchMock, source } = await renderWithSession(
+      () => createJsonResponse(idleSession),
+      {
+        "/api/chat": async () => {
+          await posted;
+          return createJsonResponse({
+            run: runInfo("run-new"),
+            session: { id: "session-1", title: "Saved" },
+            message: acceptedMessage,
+          });
+        },
+        "/api/runs/run-new/stream": sseResponse("data: [DONE]\n\n"),
+      },
+    );
+
+    let sent!: Promise<boolean>;
+    act(() => {
+      sent = result.current.send({ text: "go", workspaceFiles: [] });
+    });
+    source.emit({
+      type: "run_started",
+      session_id: "session-1",
+      run: runInfo("run-new"),
+    });
+    resolvePost();
+    await act(async () => {
+      await sent;
+    });
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    await act(async () => {});
+    expect(calls(fetchMock, "/api/runs/run-new/stream?after=0")).toBe(1);
+    expect(calls(fetchMock, SESSION_URL)).toBe(1);
+  });
+
+  const jobInfo = (tool_use_id: string, label = "sleep 30") => ({
+    tool_use_id,
+    label,
+    pid: 7,
+    started_at: "2026-01-01T00:00:00+00:00",
+  });
+
+  it("keeps the shown session's running jobs from the snapshot and job events", async () => {
+    const { result, source } = await renderWithSession(() =>
+      createJsonResponse({ ...idleSession, jobs: [jobInfo("call-1")] }),
+    );
+    expect(result.current.jobs).toEqual([jobInfo("call-1")]);
+
+    source.emit({
+      type: "job_started",
+      session_id: "session-1",
+      job: jobInfo("call-2", "make"),
+    });
+    source.emit({
+      type: "job_started",
+      session_id: "session-other",
+      job: jobInfo("call-3"),
+    });
+    expect(result.current.jobs).toEqual([
+      jobInfo("call-1"),
+      jobInfo("call-2", "make"),
+    ]);
+
+    source.emit({
+      type: "job_finished",
+      session_id: "session-other",
+      job: jobInfo("call-2", "make"),
+    });
+    source.emit({
+      type: "job_finished",
+      session_id: "session-1",
+      job: jobInfo("call-1"),
+    });
+    expect(result.current.jobs).toEqual([jobInfo("call-2", "make")]);
+  });
+
+  it("stops a job with a DELETE and treats an already finished one as done", async () => {
+    const session = (init?: RequestInit) =>
+      init?.method === "DELETE"
+        ? createJsonResponse({ detail: "background job not found" }, 404)
+        : createJsonResponse({ ...idleSession, jobs: [jobInfo("call-1")] });
+    const { result, fetchMock } = await renderWithSession(() => session(), {
+      [SESSION_URL]: session,
+    });
+
+    await act(async () => {
+      await result.current.stopJob("call-1");
+    });
+
+    expect(
+      fetchMock.mock.calls.filter(([, init]) => init?.method === "DELETE"),
+    ).toEqual([[`${SESSION_URL}/jobs/call-1`, { method: "DELETE" }]]);
+    expect(result.current.sendError).toBeNull();
+  });
+
+  it("shows the results the server attached to the sent message", async () => {
+    const { stream } = openStream();
+    const { result } = await renderWithSession(
+      () => createJsonResponse(idleSession),
+      {
+        "/api/chat": createJsonResponse({
+          run: runInfo("run-2"),
+          session: { id: "session-1", title: "Saved" },
+          message: {
+            role: "user",
+            content: [
+              {
+                type: "text",
+                text: "Background bash finished (pid 3, exit code 0): sleep 1\nLog: /tmp/a.log\n\ndone",
+                meta: {
+                  job: {
+                    tool_use_id: "call-1",
+                    name: "bash",
+                    label: "sleep 1",
+                    exit_code: 0,
+                  },
+                },
+              },
+              { type: "text", text: "what happened?" },
+            ],
+          },
+        }),
+        "/api/runs/run-2/stream?after=0": sseResponse(stream),
+      },
+    );
+
+    await act(async () => {
+      await result.current.send({ text: "what happened?", workspaceFiles: [] });
+    });
+
+    expect(result.current.messages.slice(2, 4)).toMatchObject([
+      { kind: "job-marker", jobs: [{ label: "sleep 1", exit_code: 0 }] },
+      { role: "user", content: [{ type: "text", text: "what happened?" }] },
+    ]);
+  });
+
+  it("drops the running jobs with the session when the workspace changes", async () => {
+    globalThis.localStorage = createLocalStorage();
+    saveActiveSession("/workspace/a", "session-1");
+    mockFetch({
+      "/api/sessions?cwd=%2Fworkspace%2Fb": createJsonResponse({
+        sessions: [],
+      }),
+      "/api/sessions?cwd=": createJsonResponse({
+        sessions: [{ id: "session-1", title: "Saved" }],
+      }),
+      [SESSION_URL]: createJsonResponse({
+        ...idleSession,
+        jobs: [jobInfo("call-1")],
+      }),
+    });
+    const hook = renderHook(
+      (cwd: string) =>
+        useChat({ provider: "", model: "", cwd, reasoningEfforts: {} }),
+      { initialProps: "/workspace/a" },
+    );
+    await waitFor(() =>
+      expect(hook.result.current.jobs).toEqual([jobInfo("call-1")]),
+    );
+
+    hook.rerender("/workspace/b");
+
+    await waitFor(() =>
+      expect(hook.result.current.activeSession.isDraft).toBe(true),
+    );
+    expect(hook.result.current.jobs).toEqual([]);
+  });
+
+  it("only refreshes the list for another session and never syncs a draft", async () => {
+    const { result, fetchMock, source } = await renderWithSession(() =>
+      createJsonResponse(idleSession),
+    );
+    const listCalls = calls(fetchMock, LIST_URL);
+
+    source.emit({
+      type: "run_started",
+      session_id: "session-other",
+      run: { ...runInfo("run-x"), session_id: "session-other" },
+    });
+    await waitFor(() =>
+      expect(calls(fetchMock, LIST_URL)).toBeGreaterThan(listCalls),
+    );
+    expect(calls(fetchMock, SESSION_URL)).toBe(1);
+
+    act(() => {
+      result.current.createSession();
+    });
+    await waitFor(() =>
+      expect(result.current.activeSession.isDraft).toBe(true),
+    );
+    const draftId = result.current.activeSession.id;
+    source.emit({
+      type: "run_started",
+      session_id: draftId,
+      run: { ...runInfo("run-y"), session_id: draftId },
+    });
+    act(() => {
+      source.onopen?.(new Event("open"));
+      source.onopen?.(new Event("open"));
+    });
+    await act(async () => {});
+    expect(
+      fetchMock.mock.calls.filter(([url]) =>
+        String(url).startsWith("/api/sessions/"),
+      ),
+    ).toHaveLength(1);
   });
 });

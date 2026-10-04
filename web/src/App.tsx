@@ -206,6 +206,8 @@ function AppContent() {
     activeSession,
     pendingPermission,
     pending,
+    jobs,
+    stopJob,
     send,
     steer,
     queue,
@@ -466,6 +468,8 @@ function AppContent() {
               onSteerQueued={steerQueued}
               onEditQueued={handleEditQueued}
               onRemoveQueued={removeQueued}
+              jobs={jobs}
+              onStopJob={stopJob}
               supportsImages={supportsImageInput}
               supportsDocuments={supportsPdfInput}
               files={attachments}

@@ -13,6 +13,7 @@ import {
   Paperclip,
   Pencil,
   Square,
+  Terminal,
   Trash2,
   X,
 } from "lucide-react";
@@ -29,6 +30,7 @@ import {
 } from "react";
 import type {
   AttachedFile,
+  BackgroundJobInfo,
   ComposerSubmission,
   LocalConfig,
   PendingInput,
@@ -38,7 +40,7 @@ import type {
 } from "../../types";
 import { cn } from "../../utils/cn";
 import type { SlashCommand } from "../../utils/completion";
-import { formatCost } from "../../utils/format";
+import { formatCost, formatDuration } from "../../utils/format";
 import { randomId } from "../../utils/id";
 import { isMac } from "../../utils/platform";
 import {
@@ -147,6 +149,9 @@ interface InputAreaProps {
   /** Called only while the composer is empty. */
   onEditQueued?: (id: string) => void;
   onRemoveQueued?: (id: string) => void;
+  /** Background commands running in the session. */
+  jobs?: BackgroundJobInfo[];
+  onStopJob?: (toolUseId: string) => void;
   supportsImages?: boolean;
   supportsDocuments?: boolean;
   files?: AttachedFile[];
@@ -328,6 +333,8 @@ export const InputArea = memo(function InputArea({
   onSteerQueued,
   onEditQueued,
   onRemoveQueued,
+  jobs = [],
+  onStopJob,
   supportsImages = false,
   supportsDocuments = false,
   files = [],
@@ -352,6 +359,14 @@ export const InputArea = memo(function InputArea({
   const [promptHistory, setPromptHistory] = useState(() =>
     loadPromptHistory(config.cwd),
   );
+  // Running times tick once a second while any background command runs.
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (jobs.length === 0) return;
+    setNow(Date.now());
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [jobs.length]);
 
   const disabled = disabledProp || Boolean(disabledReason);
 
@@ -568,74 +583,127 @@ export const InputArea = memo(function InputArea({
 
   return (
     <div className="mx-auto max-w-4xl max-md:max-w-none px-5 max-md:px-3 max-md:pb-2">
-      {queued.length > 0 && (
-        // The next turn: a card behind the composer, showing above its top edge.
-        <ul
-          aria-label="Queued messages"
-          className="mx-4 -mb-3 divide-y divide-border/40 rounded-t-lg bg-muted pb-3 shadow-hairline"
-        >
-          {queued.map((item) => {
-            const attachmentCount =
-              item.attachments.length + item.submission.workspaceFiles.length;
-            return (
-              <li
-                key={item.id}
-                className="flex items-center gap-2.5 px-3.5 py-2 text-sm leading-5"
-              >
-                <CornerDownRight
-                  aria-hidden="true"
-                  className="size-3.5 shrink-0 text-muted-foreground/70"
-                />
-                <span
-                  className="min-w-0 flex-1 truncate text-foreground"
-                  title={item.submission.text}
-                >
-                  {item.submission.text.split("\n", 1)[0]}
+      {(jobs.length > 0 || queued.length > 0) && (
+        // What the session has in flight besides the composer: background
+        // commands, then the next turn. One card behind the composer, showing
+        // above its top edge.
+        <div className="mx-4 -mb-3 divide-y divide-border/40 rounded-t-lg bg-card pb-3 shadow-hairline">
+          {jobs.length > 0 && (
+            <div className="pt-2">
+              <div className="flex items-center gap-1.5 px-3.5 pb-0.5 text-[11px] leading-4 text-muted-foreground">
+                <Terminal aria-hidden="true" className="size-3" />
+                Background
+                <span className="tabular-nums text-muted-foreground/60">
+                  {jobs.length}
                 </span>
-                {attachmentCount > 0 && (
-                  <span
-                    className="flex shrink-0 items-center gap-0.5 text-xs text-muted-foreground"
-                    title={`${attachmentCount} attachment${attachmentCount === 1 ? "" : "s"}`}
+              </div>
+              <ul aria-label="Background commands">
+                {jobs.map((job) => (
+                  <li
+                    key={job.tool_use_id}
+                    className="flex items-center gap-2.5 px-3.5 py-1"
                   >
-                    <Paperclip className="size-3" />
-                    {attachmentCount}
-                  </span>
-                )}
-                <span className="flex shrink-0 items-center gap-0.5 text-muted-foreground">
-                  <button
-                    type="button"
-                    title="Steer the current turn"
-                    onClick={() => onSteerQueued?.(item.id)}
-                    className={cn(QUEUED_ACTION_CLASS, "gap-1 px-1.5 text-xs")}
-                  >
-                    <ArrowUpToLine className="size-3.5" />
-                    Steer
-                  </button>
-                  {!item.partial && (
+                    <span
+                      className="min-w-0 flex-1 truncate font-mono text-xs text-foreground/75"
+                      title={job.label}
+                    >
+                      {job.label}
+                    </span>
+                    <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+                      {formatDuration(
+                        Math.max(0, now - Date.parse(job.started_at)),
+                      )}
+                    </span>
                     <button
                       type="button"
-                      aria-label="Edit"
-                      title="Edit"
-                      onClick={() => handleEditQueued(item.id)}
-                      className={cn(QUEUED_ACTION_CLASS, "w-6")}
+                      title="Stop the command"
+                      onClick={() => onStopJob?.(job.tool_use_id)}
+                      className={cn(
+                        QUEUED_ACTION_CLASS,
+                        "gap-1 px-1.5 text-xs text-muted-foreground",
+                      )}
                     >
-                      <Pencil className="size-3.5" />
+                      <Square className="size-3 fill-current" />
+                      Stop
                     </button>
-                  )}
-                  <button
-                    type="button"
-                    aria-label="Remove"
-                    title="Remove"
-                    onClick={() => onRemoveQueued?.(item.id)}
-                    className={cn(QUEUED_ACTION_CLASS, "w-6")}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {queued.length > 0 && (
+            <ul
+              aria-label="Queued messages"
+              className="divide-y divide-border/40"
+            >
+              {queued.map((item) => {
+                const attachmentCount =
+                  item.attachments.length +
+                  item.submission.workspaceFiles.length;
+                return (
+                  <li
+                    key={item.id}
+                    className="flex items-center gap-2.5 px-3.5 py-2 text-sm leading-5"
                   >
-                    <Trash2 className="size-3.5" />
-                  </button>
-                </span>
-              </li>
-            );
-          })}
-        </ul>
+                    <CornerDownRight
+                      aria-hidden="true"
+                      className="size-3.5 shrink-0 text-muted-foreground/70"
+                    />
+                    <span
+                      className="min-w-0 flex-1 truncate text-foreground"
+                      title={item.submission.text}
+                    >
+                      {item.submission.text.split("\n", 1)[0]}
+                    </span>
+                    {attachmentCount > 0 && (
+                      <span
+                        className="flex shrink-0 items-center gap-0.5 text-xs text-muted-foreground"
+                        title={`${attachmentCount} attachment${attachmentCount === 1 ? "" : "s"}`}
+                      >
+                        <Paperclip className="size-3" />
+                        {attachmentCount}
+                      </span>
+                    )}
+                    <span className="flex shrink-0 items-center gap-0.5 text-muted-foreground">
+                      <button
+                        type="button"
+                        title="Steer the current turn"
+                        onClick={() => onSteerQueued?.(item.id)}
+                        className={cn(
+                          QUEUED_ACTION_CLASS,
+                          "gap-1 px-1.5 text-xs",
+                        )}
+                      >
+                        <ArrowUpToLine className="size-3.5" />
+                        Steer
+                      </button>
+                      {!item.partial && (
+                        <button
+                          type="button"
+                          aria-label="Edit"
+                          title="Edit"
+                          onClick={() => handleEditQueued(item.id)}
+                          className={cn(QUEUED_ACTION_CLASS, "w-6")}
+                        >
+                          <Pencil className="size-3.5" />
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        aria-label="Remove"
+                        title="Remove"
+                        onClick={() => onRemoveQueued?.(item.id)}
+                        className={cn(QUEUED_ACTION_CLASS, "w-6")}
+                      >
+                        <Trash2 className="size-3.5" />
+                      </button>
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
       )}
       {/* biome-ignore lint/a11y/noStaticElementInteractions: drag-and-drop drop target */}
       <div

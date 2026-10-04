@@ -26,6 +26,12 @@ type Meta = Record<string, unknown> | null | undefined;
 interface BashArgs {
   command?: unknown;
 }
+interface BashMeta {
+  background?: unknown;
+  /** The started job's state, added by the projection: running, or its exit code. */
+  running?: unknown;
+  exit_code?: unknown;
+}
 interface PathArgs {
   path?: unknown;
 }
@@ -184,6 +190,34 @@ function getWriteHint(args: Args): string {
   return `${content.split("\n").length} lines`;
 }
 
+/**
+ * A status beside a mono preview. Sans type on a muted fill keeps it apart
+ * from the command text, which the muted mono suffixes blend into.
+ */
+export function StatusPill({
+  tone = "muted",
+  pulse = false,
+  children,
+}: {
+  tone?: "muted" | "error";
+  pulse?: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <span
+      className={cn(
+        "shrink-0 rounded px-1.5 py-px text-[11px] leading-4 tabular-nums",
+        tone === "error"
+          ? "bg-destructive/10 text-destructive"
+          : "bg-muted text-muted-foreground",
+        pulse && "animate-thinking",
+      )}
+    >
+      {children}
+    </span>
+  );
+}
+
 function CollapsedSuffix({
   name,
   args,
@@ -201,6 +235,24 @@ function CollapsedSuffix({
         <span className="text-diff-added">+{stats.added}</span>
         <span className="text-diff-removed ml-1">−{stats.removed}</span>
       </span>
+    );
+  }
+
+  if (name === "bash") {
+    const meta = metadata as BashMeta | null | undefined;
+    if (meta?.background !== true) return null;
+    const exitCode = asNumber(meta.exit_code);
+    return (
+      <StatusPill
+        tone={exitCode ? "error" : "muted"}
+        pulse={meta.running === true}
+      >
+        {exitCode != null
+          ? `background · exit ${exitCode}`
+          : meta.running === true
+            ? "background · running"
+            : "background"}
+      </StatusPill>
     );
   }
 
@@ -234,7 +286,7 @@ function CollapsedSuffix({
 // Expanded body components — one per tool type
 // ---------------------------------------------------------------------------
 
-function BashBody({ args, display }: { args: Args; display: string }) {
+export function BashBody({ args, display }: { args: Args; display: string }) {
   const command = asString((args as BashArgs | undefined)?.command);
 
   return (
