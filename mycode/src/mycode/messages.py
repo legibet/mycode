@@ -216,7 +216,11 @@ def assistant_message(
 
 
 def flatten_message_text(message: ConversationMessage, *, include_thinking: bool = True) -> str:
-    """Join readable text blocks as paragraphs, skipping synthetic attachment payload blocks."""
+    """Join readable text blocks as paragraphs, skipping synthetic payload blocks.
+
+    Attachment payloads, skill snapshots, and background job notifications
+    (`meta.job`) are provider-facing content, not user text.
+    """
 
     parts: list[str] = []
     for block in message.get("content") or []:
@@ -224,8 +228,7 @@ def flatten_message_text(message: ConversationMessage, *, include_thinking: bool
             continue
         raw_meta = block.get("meta")
         meta = raw_meta if isinstance(raw_meta, dict) else {}
-        # Local payload blocks should not become session titles or history labels.
-        if meta.get("attachment") or meta.get("skill_snapshot"):
+        if meta.get("attachment") or meta.get("skill_snapshot") or meta.get("job"):
             continue
         btype = block.get("type")
         if btype == "text" or (include_thinking and btype == "thinking"):
