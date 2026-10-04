@@ -9,6 +9,7 @@ import os
 from base64 import b64encode
 from collections.abc import AsyncIterator
 from dataclasses import replace
+from functools import partial
 from pathlib import Path
 from typing import Annotated, Any, cast
 from uuid import uuid4
@@ -33,8 +34,10 @@ from mycode.messages import (
     text_block,
 )
 from mycode.models import ModelMetadata
+from mycode_cli.background import BackgroundJobs
 from mycode_cli.config import (
     ResolvedProvider,
+    Settings,
     get_settings,
     normalize_reasoning_effort,
     provider_models,
@@ -42,10 +45,10 @@ from mycode_cli.config import (
     resolve_provider,
     resolve_provider_choices,
 )
-from mycode_cli.permissions import ToolReviewDecision, ToolReviewRequest
+from mycode_cli.permissions import ToolReviewCallback, ToolReviewDecision, ToolReviewRequest
 from mycode_cli.runtime import build_agent, load_session_totals
 from mycode_cli.server.deps import RunManagerDep, StoreDep, resolve_workspace_cwd
-from mycode_cli.server.run_manager import ActiveRunError, RunAgent
+from mycode_cli.server.run_manager import ActiveRunError, RunAgent, RunManager
 from mycode_cli.server.schemas import (
     CancelRunResponse,
     ChatRequest,
@@ -59,6 +62,7 @@ from mycode_cli.server.schemas import (
     StreamEvent,
     UserInputRequest,
 )
+from mycode_cli.sessions import SessionStore
 from mycode_cli.system_prompt import build_skill_snapshot_blocks, discover_slash_skills
 from mycode_cli.tools import read_text_window
 from mycode_cli.workspace import CliDeps, resolve_path
@@ -206,7 +210,10 @@ def _validate_rewind_request(
     blocks = raw_blocks if isinstance(raw_blocks, list) else []
     has_user_content = any(
         isinstance(block, dict)
-        and ((block.get("type") == "text" and block.get("text")) or block.get("type") in {"image", "document"})
+        and (
+            (block.get("type") == "text" and block.get("text") and "job" not in (block.get("meta") or {}))
+            or block.get("type") in {"image", "document"}
+        )
         for block in blocks
     )
     if target.get("role") != "user" or not has_user_content:
@@ -225,6 +232,7 @@ async def chat(chat: ChatRequest, store: StoreDep, runs: RunManagerDep) -> ChatR
         api_base=chat.api_base,
     )
     session_id = chat.session_id or "default"
+    jobs = runs.jobs_for(session_id)
     user_message, uploads = await _build_user_message(
         chat, CliDeps.for_session(cwd=cwd, data_dir=store.data_dir, session_id=session_id)
     )
@@ -287,6 +295,8 @@ async def chat(chat: ChatRequest, store: StoreDep, runs: RunManagerDep) -> ChatR
         # entry and sets the title, later turns bump updated_at.
         await asyncio.to_thread(_write_uploads, uploads)
         if chat.rewind_to is not None:
+            # A result for a tool call that is no longer in the history would confuse the model.
+            await jobs.close()
             await store.append_rewind(session_id, chat.rewind_to)
         session = await store.record_user_turn(
             session_id,
@@ -311,8 +321,26 @@ async def chat(chat: ChatRequest, store: StoreDep, runs: RunManagerDep) -> ChatR
             resolved_provider=request_provider,
             session_id=session_id,
             review=review,
+            jobs=jobs,
+        )
+        # A wake reuses this request's configuration until the next request replaces it.
+        jobs.deliver = partial(
+            _deliver_job_results,
+            runs=runs,
+            store=store,
+            jobs=jobs,
+            session_id=session_id,
+            cwd=cwd,
+            settings=settings,
+            resolved_provider=request_provider,
+            review=review,
         )
 
+        session_base = await load_session_totals(store, session_id)
+        # The user's message ends a Stop and carries the results that waited
+        # for it. Taken last: a run that fails to start leaves nothing in flight.
+        jobs.suspended = False
+        user_message["content"] = [*jobs.take_pending(), *user_message["content"]]
         try:
             run = await runs.start_run(
                 session_id=session_id,
@@ -320,7 +348,7 @@ async def chat(chat: ChatRequest, store: StoreDep, runs: RunManagerDep) -> ChatR
                 user_message=user_message,
                 base_messages=agent.messages,
                 agent=agent,
-                session_base=await load_session_totals(store, session_id),
+                session_base=session_base,
             )
         except ActiveRunError as exc:
             existing = await runs.get_run(exc.run_id)
@@ -329,7 +357,88 @@ async def chat(chat: ChatRequest, store: StoreDep, runs: RunManagerDep) -> ChatR
                 detail["run"] = existing.info()
             raise HTTPException(status_code=409, detail=detail) from exc
 
-    return ChatResponse(run=RunInfo.model_validate(run), session=session)
+    return ChatResponse(run=RunInfo.model_validate(run), session=session, message=user_message)
+
+
+async def _deliver_job_results(
+    *,
+    runs: RunManager,
+    store: SessionStore,
+    jobs: BackgroundJobs,
+    session_id: str,
+    cwd: str,
+    settings: Settings,
+    resolved_provider: ResolvedProvider,
+    review: ToolReviewCallback,
+) -> None:
+    """Hand the session's finished background results to a run.
+
+    A running chat takes them as a steer, or as its next turn when it is
+    finishing. An idle session wakes with a turn made of the results, unless a
+    Stop suspended wakes. A compact run or a closing chat run takes nothing;
+    the run manager calls again when that run ends.
+    """
+
+    async with runs.session_operation(session_id):
+        state = await runs.get_active_run(session_id)
+        if state is None:
+            if jobs.suspended or not jobs.deliverable():
+                return
+            # A wake that cannot start holds the next one, like one that never committed.
+            try:
+                agent = await asyncio.to_thread(
+                    build_agent,
+                    store=store,
+                    cwd=cwd,
+                    settings=settings,
+                    resolved_provider=resolved_provider,
+                    session_id=session_id,
+                    review=review,
+                    jobs=jobs,
+                )
+                await store.touch(session_id)
+                session_base = await load_session_totals(store, session_id)
+            except Exception:
+                jobs.suspended = True
+                raise
+            await runs.start_run(
+                session_id=session_id,
+                cwd=cwd,
+                user_message=build_message("user", jobs.take_pending()),
+                base_messages=agent.messages,
+                agent=agent,
+                session_base=session_base,
+                wake=True,
+            )
+        elif state.kind == "chat":
+            blocks = jobs.take_pending()
+            if blocks:
+                message = build_message("user", blocks)
+                if not state.agent.steer(message):
+                    # Refused by both: the blocks stay in flight until this run's reconcile.
+                    await runs.enqueue(state, message)
+
+
+@router.get("/events")
+async def stream_server_events(req: Request, runs: RunManagerDep) -> StreamingResponse:
+    """Announce run starts and ends across sessions; no replay, clients resync on connect."""
+
+    async def events() -> AsyncIterator[str]:
+        async with runs.subscribe() as queue:
+            while not await req.is_disconnected():
+                try:
+                    async with asyncio.timeout(15):
+                        payload = await queue.get()
+                except TimeoutError:
+                    yield ": ping\n\n"
+                    continue
+                yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
+    return StreamingResponse(
+        events(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @router.get("/runs/{run_id}/stream")

@@ -117,7 +117,8 @@ def classify_tool(
 
     if name == "bash":
         command = str(ctx.tool_input.get("command") or "").strip()
-        return PermissionCheck(_classify_bash(command), command)
+        preview = f"{command} (background)" if ctx.tool_input.get("background") else command
+        return PermissionCheck(_classify_bash(command), preview)
 
     if name == "webfetch":
         url = str(ctx.tool_input.get("url") or "").strip()

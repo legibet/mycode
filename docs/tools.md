@@ -38,6 +38,26 @@ Runs `bash -c <command>` in the CLI workspace (`CliDeps.cwd`), using the first `
 - **Exit code**: non-zero exit appends `[exit code: N]` and sets `is_error=true`. Empty output renders as `(empty)`.
 - **Missing bash**: if no `bash` is on `PATH`, the result is `error: bash not found on PATH` with `is_error=true`.
 
+### Background commands
+
+`background=true` starts the command and returns at once. Use it for long commands the model does not need to wait for; `timeout` is ignored.
+
+- **Start result**: `is_error=false`, metadata `{"background": true, "pid": <pid>, "log": "<path>"}`, and this text:
+
+  ```text
+  Started in background (pid 12345): pytest -q
+  Log: <tool_output_dir>/bash-<tool_call_id>.log
+  ```
+
+  The tool description tells the model not to poll and to end its turn when nothing else is left; the result text itself carries only facts, since both UIs show it.
+
+- **Log file**: opened before the call returns and flushed after every chunk, so `read` on it shows live output. Reads inside `tool_output_dir` need no approval.
+- **Notification**: when the command exits, the host delivers a text block carrying `meta.job` (`docs/sessions.md`) to the model: a header `Background bash finished (pid <pid>, exit code <N>): <command>` and `Log: <path>`, then the bounded tail in the foreground format. A process ended by a signal reports the negative return code. The header carries the exit code, so no `[exit code: N]` trailer follows. When the output cannot be captured (such as a log file that cannot be written), the notification still arrives, with `error: <reason>` after whatever output was captured.
+- **Delivery**: the result is steered into the running turn, becomes the next turn when the running turn is finishing, or wakes the idle session as a new turn. Stop (TUI Esc, web Stop) or a permission `Deny` suspends wakes until the user's next message, which then carries the result ahead of its text. The result waits in the session's job registry until a run has committed it, so an interrupted or failed run never loses it, and it is never delivered twice.
+- **Lifecycle**: `/rewind`, `rewind_to`, `/new`, a completed `/resume`, session delete, and server shutdown kill the session's background commands and drop undelivered results. The web UI's Stop (`DELETE /api/sessions/{id}/jobs/{tool_use_id}`) and a `kill <pid>` through a normal `bash` call end one command early; its result is still delivered, with the signal's negative exit code. No command survives the process.
+- **Permission**: classified from the command text as usual; the review preview ends with ` (background)`.
+- **Hosts without delivery**: `mycode run` ends with the turn, so it returns `error: background commands are not available in this mode` with `is_error=true` and spawns nothing.
+
 ## webfetch
 
 Reads one HTTP or HTTPS URL using the implementation selected by `web.fetch`: local HTTP, Tavily Extract, or Exa Contents. HTML is returned as Markdown; Markdown, text, JSON, and XML are returned as text. Images, PDFs, and other binary MIME types return `error: unsupported content type: <mime>`.

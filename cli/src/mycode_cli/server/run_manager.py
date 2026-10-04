@@ -15,6 +15,7 @@ from weakref import WeakValueDictionary
 
 from mycode.agent import Event, PersistCallback
 from mycode.messages import ConversationMessage, merge_user_messages
+from mycode_cli.background import BackgroundJobs, is_job_message
 from mycode_cli.permissions import ToolReviewDecision
 from mycode_cli.sessions import SessionTotals, sum_session_totals
 
@@ -47,6 +48,8 @@ class RunAgent(Protocol):
     supports_image_input: bool
     supports_pdf_input: bool
 
+    messages: list[ConversationMessage]
+
     def cancel(self) -> None: ...
 
     def steer(self, message: ConversationMessage) -> bool: ...
@@ -71,6 +74,8 @@ class RunState:
     agent: RunAgent
     kind: RunKind = "chat"
     user_message: ConversationMessage | None = None
+    # Started by the session's job registry to deliver background results.
+    wake: bool = False
     # Queued messages the current turn continues from, until their merged
     # message is announced; snapshots list them as still queued.
     delivering: list[ConversationMessage] = field(default_factory=list)
@@ -120,6 +125,56 @@ class RunManager:
         self._active_by_session: dict[str, RunState] = {}
         self._runs_by_id: dict[str, RunState] = {}
         self._session_locks: WeakValueDictionary[str, asyncio.Lock] = WeakValueDictionary()
+        self._jobs: dict[str, BackgroundJobs] = {}
+        self._subscribers: set[asyncio.Queue[dict[str, Any]]] = set()
+
+    def jobs_for(self, session_id: str) -> BackgroundJobs:
+        """Return the session's background job registry, creating it on first use."""
+
+        jobs = self._jobs.get(session_id)
+        if jobs is None:
+            jobs = self._jobs[session_id] = BackgroundJobs()
+            jobs.on_change = lambda event_type, job: self._broadcast(
+                {"type": event_type, "session_id": session_id, "job": job.info()}
+            )
+        return jobs
+
+    def live_jobs(self, session_id: str) -> list[dict[str, Any]]:
+        """Describe the session's running background jobs for clients."""
+
+        jobs = self._jobs.get(session_id)
+        return [job.info() for job in jobs.jobs] if jobs is not None else []
+
+    def kill_job(self, session_id: str, tool_use_id: str) -> bool:
+        """Kill one running background job; ``False`` when the session has no such job."""
+
+        jobs = self._jobs.get(session_id)
+        return jobs is not None and jobs.kill(tool_use_id)
+
+    async def close_jobs(self, session_id: str) -> None:
+        """Kill the session's background jobs and forget its registry."""
+
+        jobs = self._jobs.pop(session_id, None)
+        if jobs is not None:
+            await jobs.close()
+
+    @asynccontextmanager
+    async def subscribe(self) -> AsyncGenerator[asyncio.Queue[dict[str, Any]]]:
+        """Receive run and background job lifecycle events for every session."""
+
+        queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
+        self._subscribers.add(queue)
+        try:
+            yield queue
+        finally:
+            self._subscribers.discard(queue)
+
+    def _publish(self, event_type: str, state: RunState) -> None:
+        self._broadcast({"type": event_type, "session_id": state.session_id, "run": state.info()})
+
+    def _broadcast(self, payload: dict[str, Any]) -> None:
+        for queue in self._subscribers:
+            queue.put_nowait(payload)
 
     async def start_run(
         self,
@@ -130,6 +185,7 @@ class RunManager:
         base_messages: list[ConversationMessage],
         agent: RunAgent,
         session_base: SessionTotals | None = None,
+        wake: bool = False,
     ) -> dict[str, Any]:
         return await self._start(
             session_id=session_id,
@@ -139,6 +195,7 @@ class RunManager:
             base_messages=base_messages,
             agent=agent,
             session_base=session_base,
+            wake=wake,
         )
 
     async def start_compact(
@@ -173,6 +230,7 @@ class RunManager:
         agent: RunAgent,
         session_base: SessionTotals | None = None,
         on_complete: RunCompletionCallback | None = None,
+        wake: bool = False,
     ) -> dict[str, Any]:
         await self._prune_finished_runs()
         session_base = session_base or SessionTotals()
@@ -193,10 +251,12 @@ class RunManager:
                 base_messages=copy.deepcopy(base_messages),
                 agent=agent,
                 on_complete=on_complete,
+                wake=wake,
             )
             state.task = asyncio.create_task(self._run(state), name=f"mycode-run-{state.id}")
             self._active_by_session[session_id] = state
             self._runs_by_id[state.id] = state
+            self._publish("run_started", state)
             return state.info()
 
     async def get_run(self, run_id: str) -> RunState | None:
@@ -270,9 +330,10 @@ class RunManager:
                 "run": state.info(),
                 "messages": copy.deepcopy(state.base_messages + history),
                 "pending_events": [event for event in state.events if event["seq"] > state.history_seq],
+                # Job notifications are not user input; the client never restores them.
                 "pending": {
-                    "steers": copy.deepcopy(state.agent.pending_steers()),
-                    "queue": copy.deepcopy(state.delivering + state.queue),
+                    "steers": copy.deepcopy([m for m in state.agent.pending_steers() if not is_job_message(m)]),
+                    "queue": copy.deepcopy([m for m in state.delivering + state.queue if not is_job_message(m)]),
                 },
                 "totals": state.session_totals,
             }
@@ -346,6 +407,9 @@ class RunManager:
     async def aclose(self) -> None:
         """Cancel and await owned runs after the application stops handling requests."""
 
+        # No wake may start while the runs wind down.
+        for jobs in self._jobs.values():
+            jobs.suspended = True
         async with self._lock:
             tasks = []
             for state in self._runs_by_id.values():
@@ -353,6 +417,8 @@ class RunManager:
                     self._request_cancel(state)
                     tasks.append(state.task)
         await asyncio.gather(*tasks)
+        await asyncio.gather(*(jobs.close() for jobs in self._jobs.values()))
+        self._jobs.clear()
         self._runs_by_id.clear()
         self._active_by_session.clear()
         self._session_locks.clear()
@@ -485,9 +551,10 @@ class RunManager:
                             break
                         if not queued:
                             # Leaving the active map with the final take means
-                            # no later enqueue is accepted and then dropped.
-                            if self._active_by_session.get(state.session_id) is state:
-                                del self._active_by_session[state.session_id]
+                            # no later enqueue is accepted and then dropped;
+                            # settling the job registry in the same step means
+                            # this run never releases results a wake has taken.
+                            self._release_session(state, status="completed")
                             break
                         # The queued turn continues on the same agent and model.
                         state.delivering = queued
@@ -574,9 +641,35 @@ class RunManager:
             state.condition.notify_all()
 
         async with self._lock:
-            current = self._active_by_session.get(state.session_id)
-            if current is state:
-                self._active_by_session.pop(state.session_id, None)
+            self._release_session(state, status=status)
+            self._publish("run_finished", state)
+
+        jobs = self._jobs.get(state.session_id)
+        if jobs is not None:
+            # The run is over, so the registry decides again what to do with its pending results.
+            await jobs.deliver_pending()
+
+    def _release_session(self, state: RunState, *, status: RunStatus) -> None:
+        """Free the session's active slot and settle its job registry in the same step.
+
+        Called under ``self._lock``. Once the slot is free, a wake can start
+        and take the pending results, so this run's results are settled first:
+        ``agent.messages`` holds only committed records, so the blocks found
+        there are delivered and the rest return to pending. A user stop, or a
+        wake whose own message never committed, holds the next wake until the
+        user's next message.
+        """
+
+        if self._active_by_session.get(state.session_id) is not state:
+            return
+        del self._active_by_session[state.session_id]
+        jobs = self._jobs.get(state.session_id)
+        if jobs is None:
+            return
+        jobs.reconcile(state.agent.messages)
+        committed_any = len(state.agent.messages) > len(state.base_messages)
+        if status == "cancelled" or (state.wake and not committed_any):
+            jobs.suspended = True
 
     async def _prune_finished_runs(self) -> None:
         """Drop finished runs after the reconnect window."""

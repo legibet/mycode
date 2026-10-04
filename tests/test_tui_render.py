@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 from io import StringIO
 from typing import Any, cast
 
@@ -11,8 +12,9 @@ from conftest import TerminalHarness
 from rich.console import Console
 
 from mycode.agent import Event
+from mycode.messages import ContentBlock, ConversationMessage, text_block
 from mycode_cli.sessions import SessionTotals
-from mycode_cli.tui.render import TurnRenderer, history_preview
+from mycode_cli.tui.render import TurnRenderer, history_preview, job_lines
 from mycode_cli.tui.theme import ERROR_MARKER, THINKING_SYMBOL, TOOL_MARKER
 
 
@@ -371,3 +373,83 @@ class TestTurnRenderer:
         assert "first block\n" in rendered
         assert "second block\n" in rendered
         assert "m · 5 tokens" in rendered
+
+
+def _job_block(output: str, *, exit_code: int = 1) -> ContentBlock:
+    return text_block(
+        f"Background bash finished (pid 1, exit code {exit_code}): pytest -q\nLog: /x.log\n\n{output}",
+        meta={"job": {"tool_use_id": "toolu_1", "name": "bash", "label": "pytest -q", "exit_code": exit_code}},
+    )
+
+
+def _plain(renderables: list[Any]) -> str:
+    output = StringIO()
+    console = Console(file=output, force_terminal=False, color_system=None, width=80)
+    for renderable in renderables:
+        console.print(renderable)
+    return re.sub(r" +\n", "\n", output.getvalue())
+
+
+def _job_card(exit_code: int) -> str:
+    return f"{TOOL_MARKER} Background finished  pytest -q  exit {exit_code}"
+
+
+class TestJobLines:
+    def test_failed_job_shows_the_output_tail_and_notices_under_an_exit_header(self) -> None:
+        output = "\n".join(f"line {index}" for index in range(8)) + "\n\n[Output truncated: see /x.log]"
+
+        rendered = _plain(job_lines(_job_block(output, exit_code=2), 80))
+
+        assert rendered == (
+            f"{_job_card(2)}\n  … +3 lines\n  line 3\n  line 4\n  line 5\n  line 6\n  line 7\n"
+            "  [Output truncated: see /x.log]\n"
+        )
+
+    def test_successful_job_with_empty_output_is_only_the_header(self) -> None:
+        assert _plain(job_lines(_job_block("(empty)", exit_code=0), 80)) == f"{_job_card(0)}\n"
+
+    def test_long_label_is_shortened_to_keep_the_exit_code_on_the_line(self) -> None:
+        block = _job_block("(empty)", exit_code=0)
+        block["meta"]["job"]["label"] = "x" * 100
+
+        [header] = job_lines(block, 60)
+
+        assert header.cell_len <= 60
+        assert header.plain.endswith("…  exit 0")
+
+
+def test_history_preview_shows_background_results_as_tool_cards() -> None:
+    job = _job_block("line a")
+    messages: list[ConversationMessage] = [
+        {"role": "user", "content": [{"type": "text", "text": "run the tests"}]},
+        {"role": "assistant", "content": [{"type": "text", "text": "started"}]},
+        {"role": "user", "content": [job]},
+        {"role": "assistant", "content": [{"type": "text", "text": "tests failed"}]},
+        {"role": "user", "content": [job, {"type": "text", "text": "fix it"}], "meta": {"steer": True}},
+    ]
+
+    rendered = _plain(history_preview(messages, width=80))
+
+    # The wake message is only the card; the steered one is the card, then the user's text.
+    assert f"started\n\n{_job_card(1)}\n  line a\ntests failed\n\n" in rendered
+    assert rendered.endswith(f"tests failed\n\n{_job_card(1)}\n  line a\n❯ fix it\n")
+    assert rendered.count("❯") == 2
+
+
+async def test_user_message_with_only_job_blocks_prints_the_card_without_a_steer_echo(
+    harness: TerminalHarness,
+) -> None:
+    delivered: list[ConversationMessage] = []
+    message: ConversationMessage = {"role": "user", "content": [_job_block("line a")], "meta": {"steer": True}}
+    renderer = TurnRenderer(harness.terminal, model="m", context_window=None, on_user_message=delivered.append)
+
+    await renderer.render(
+        cast(Any, _EventAgent([Event("text", {"delta": "working"}), Event("user_message", {"message": message})])),
+        "hi",
+    )
+
+    rendered = harness.text()
+    assert f"{_job_card(1)}\n  line a\n" in rendered
+    assert "steer" not in rendered
+    assert "❯" not in rendered
+    assert delivered == [message]

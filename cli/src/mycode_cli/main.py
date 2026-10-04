@@ -15,6 +15,7 @@ import typer
 from mycode.agent import Agent
 from mycode.messages import ConversationMessage
 from mycode_cli import __version__
+from mycode_cli.background import BackgroundJobs
 from mycode_cli.config import (
     ResolvedProvider,
     Settings,
@@ -152,6 +153,7 @@ def _bootstrap(
     max_turns: int | None,
     permission: str | None,
     reasoning_effort: str | None = None,
+    jobs: BackgroundJobs | None = None,
 ) -> _BootstrapContext:
     """Shared setup for the chat and run commands."""
 
@@ -199,6 +201,7 @@ def _bootstrap(
         resolved_provider=resolved_provider,
         session_id=resolved_session.session_id,
         max_turns=max_turns,
+        jobs=jobs,
     )
 
     return _BootstrapContext(
@@ -245,6 +248,8 @@ def chat(
 
     from .tui.chat import TerminalChat
 
+    # Background commands outlive turns; the interactive chat delivers their results.
+    jobs = BackgroundJobs()
     setup = _bootstrap(
         provider=provider,
         model=model,
@@ -252,6 +257,7 @@ def chat(
         continue_last=continue_last,
         max_turns=max_turns,
         permission=permission,
+        jobs=jobs,
     )
 
     terminal_chat = TerminalChat(
@@ -259,6 +265,7 @@ def chat(
         settings=setup.settings,
         store=setup.store,
         session_id=setup.resolved_session.session_id,
+        jobs=jobs,
         provider_name=setup.resolved_provider.provider_name,
         reasoning_efforts=setup.resolved_provider.reasoning_efforts,
         session=setup.resolved_session.session,

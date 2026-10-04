@@ -10,10 +10,11 @@ from typing import Any, override
 import pytest
 from conftest import FakeAgent
 
-from mycode import Agent, tool
+from mycode import Agent, ContentBlock, build_message, text_block, tool
 from mycode.agent import Event
 from mycode.messages import ConversationMessage
 from mycode.providers.base import ProviderStreamEvent
+from mycode_cli.background import BackgroundJob, BackgroundJobs
 from mycode_cli.config import PermissionConfig, Settings
 from mycode_cli.permissions import PERMISSION_DENIED_BY_USER_OUTPUT, ToolReviewRequest, build_permission_hooks
 from mycode_cli.server.run_manager import ActiveRunError, RunManager, RunState
@@ -1335,3 +1336,262 @@ async def test_compact_run_refuses_enqueue() -> None:
     agent.release.set()
     await _wait_for_run_task(manager, run["id"])
     assert state.queue == []
+
+
+# Background job results
+
+
+def _job_block(tool_use_id: str) -> ContentBlock:
+    return text_block("done", meta={"job": {"tool_use_id": tool_use_id, "name": "bash", "label": "x", "exit_code": 0}})
+
+
+class JobRunAgent(SimpleAgent):
+    """Chat fake with preset committed messages that can end with an error event."""
+
+    def __init__(self, messages: list[ConversationMessage], *, error: str | None = None) -> None:
+        self.messages = messages
+        self.error = error
+
+    @override
+    async def achat(self, user_input, on_persist=None):
+        if self.error is not None:
+            yield Event("error", {"message": self.error})
+            return
+        yield Event("text", {"delta": "reply"})
+
+
+def _record_deliveries(jobs: BackgroundJobs) -> list[tuple[list[ContentBlock], set[str], bool]]:
+    """Install a deliver callback that records the registry state at each call."""
+
+    calls: list[tuple[list[ContentBlock], set[str], bool]] = []
+
+    async def deliver() -> None:
+        calls.append((list(jobs.pending), set(jobs.in_flight), jobs.suspended))
+
+    jobs.deliver = deliver
+    return calls
+
+
+async def test_run_end_drops_committed_job_results_and_redelivers_the_rest() -> None:
+    manager = RunManager()
+    jobs = manager.jobs_for("s1")
+    calls = _record_deliveries(jobs)
+    committed, missed = _job_block("toolu_a"), _job_block("toolu_b")
+    jobs.pending = [committed, missed]
+    assert jobs.take_pending() == [committed, missed]
+
+    run = await manager.start_run(
+        cwd="/work",
+        session_id="s1",
+        user_message=build_message("user", [committed]),
+        base_messages=[],
+        agent=JobRunAgent([build_message("user", [committed])]),
+    )
+    await _wait_for_run_task(manager, run["id"])
+
+    assert calls == [([missed], set(), False)]
+    assert jobs.pending == [missed]
+
+
+async def test_cancelled_run_suspends_wakes_and_still_offers_pending_results() -> None:
+    manager = RunManager()
+    jobs = manager.jobs_for("s1")
+    calls = _record_deliveries(jobs)
+    agent = BlockingAgent()
+    run = await manager.start_run(
+        cwd="/work",
+        session_id="s1",
+        user_message={"role": "user", "content": [{"type": "text", "text": "go"}]},
+        base_messages=[],
+        agent=agent,
+    )
+    block = _job_block("toolu_a")
+    jobs.pending.append(block)
+
+    await manager.cancel_run(run["id"])
+
+    assert calls == [([block], set(), True)]
+    assert jobs.suspended is True
+
+
+async def test_a_wake_started_as_the_run_ends_keeps_its_results(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A job finishing between the run's final take and its finish wakes the session at once.
+
+    The ending run must not release the results that wake took, or the next
+    delivery would steer them into the wake a second time. The window is
+    opened here by a finish that yields to the loop first.
+    """
+
+    manager = RunManager()
+    jobs = manager.jobs_for("s1")
+    block = _job_block("toolu_a")
+    wake_agent = JobRunAgent([])
+    wakes: list[dict[str, Any]] = []
+    steered: list[ContentBlock] = []
+
+    async def deliver() -> None:
+        if await manager.get_active_run("s1") is None:
+            message = build_message("user", jobs.take_pending())
+            wake_agent.messages.append(message)
+            wakes.append(
+                await manager.start_run(
+                    cwd="/work", session_id="s1", user_message=message, base_messages=[], agent=wake_agent, wake=True
+                )
+            )
+        else:
+            steered.extend(jobs.take_pending())
+
+    jobs.deliver = deliver
+    finish_run = manager._finish_run
+
+    async def finish_run_after_a_job(state: RunState, **kwargs: Any) -> None:
+        if not state.wake:
+            await jobs.notify(block)
+        await finish_run(state, **kwargs)
+
+    monkeypatch.setattr(manager, "_finish_run", finish_run_after_a_job)
+    run = await manager.start_run(
+        cwd="/work",
+        session_id="s1",
+        user_message={"role": "user", "content": [{"type": "text", "text": "go"}]},
+        base_messages=[],
+        agent=SimpleAgent(),
+    )
+    await _wait_for_run_task(manager, run["id"])
+    [wake_run] = wakes
+    wake = await _wait_for_run_task(manager, wake_run["id"])
+
+    assert (wake.wake, wake.status, wake.user_message) == (True, "completed", build_message("user", [block]))
+    assert steered == []
+    assert (jobs.pending, jobs.in_flight, jobs.suspended) == ([], set(), False)
+
+
+@pytest.mark.parametrize("committed", [False, True])
+async def test_failed_wake_suspends_only_when_its_message_never_committed(committed: bool) -> None:
+    manager = RunManager()
+    jobs = manager.jobs_for("s1")
+    calls = _record_deliveries(jobs)
+    block = _job_block("toolu_a")
+    jobs.pending.append(block)
+    message = build_message("user", jobs.take_pending())
+
+    run = await manager.start_run(
+        cwd="/work",
+        session_id="s1",
+        user_message=message,
+        base_messages=[],
+        agent=JobRunAgent([message] if committed else [], error="provider down"),
+        wake=True,
+    )
+    state = await _wait_for_run_task(manager, run["id"])
+
+    assert state.status == "failed"
+    if committed:
+        # The result reached the session; the failure is not a reason to send it again.
+        assert (jobs.pending, jobs.suspended, calls) == ([], False, [])
+    else:
+        assert (jobs.pending, jobs.in_flight, jobs.suspended) == ([block], set(), True)
+        assert calls == [([block], set(), True)]
+
+
+async def test_subscribers_see_run_start_and_finish() -> None:
+    manager = RunManager()
+    async with manager.subscribe() as events:
+        run = await manager.start_run(
+            cwd="/work",
+            session_id="s1",
+            user_message={"role": "user", "content": [{"type": "text", "text": "hi"}]},
+            base_messages=[],
+            agent=SimpleAgent(),
+        )
+        await _wait_for_run_task(manager, run["id"])
+
+        started, finished = events.get_nowait(), events.get_nowait()
+        assert events.empty()
+
+    assert started == {"type": "run_started", "session_id": "s1", "run": run}
+    assert finished["type"] == "run_finished"
+    assert finished["session_id"] == "s1"
+    assert (finished["run"]["id"], finished["run"]["status"]) == (run["id"], "completed")
+
+
+async def test_live_jobs_of_an_unknown_session_is_empty_and_creates_no_registry() -> None:
+    manager = RunManager()
+
+    assert manager.live_jobs("s1") == []
+    assert manager.kill_job("s1", "toolu_a") is False
+    assert manager._jobs == {}
+
+
+async def test_subscribers_see_job_start_and_finish() -> None:
+    manager = RunManager()
+    release = asyncio.Event()
+
+    async def run_until_killed() -> None:
+        await release.wait()
+
+    job_task = asyncio.create_task(run_until_killed())
+    job = BackgroundJob(tool_use_id="toolu_a", label="sleep", pid=1, started_at="", task=job_task, kill=release.set)
+
+    async with manager.subscribe() as events:
+        manager.jobs_for("s1").add(job)
+        assert manager.live_jobs("s1") == [job.info()]
+        assert manager.kill_job("s1", "toolu_a") is True
+        await job_task
+        await asyncio.sleep(0)
+
+        published = [events.get_nowait() for _ in range(events.qsize())]
+
+    assert published == [
+        {"type": "job_started", "session_id": "s1", "job": job.info()},
+        {"type": "job_finished", "session_id": "s1", "job": job.info()},
+    ]
+    assert manager.live_jobs("s1") == []
+
+
+async def test_close_kills_jobs_without_waking_the_session() -> None:
+    manager = RunManager()
+    jobs = manager.jobs_for("s1")
+    calls = _record_deliveries(jobs)
+
+    async def run_forever() -> None:
+        await asyncio.Event().wait()
+
+    job_task = asyncio.create_task(run_forever())
+    jobs.add(
+        BackgroundJob(tool_use_id="toolu_a", label="sleep", pid=1, started_at="", task=job_task, kill=lambda: None)
+    )
+    await manager.start_run(
+        cwd="/work",
+        session_id="s1",
+        user_message={"role": "user", "content": [{"type": "text", "text": "go"}]},
+        base_messages=[],
+        agent=BlockingAgent(),
+    )
+    jobs.pending.append(_job_block("toolu_b"))
+
+    await manager.aclose()
+
+    # The ending run offered its pending result only with wakes already held.
+    assert [suspended for _, _, suspended in calls] == [True]
+    assert job_task.cancelled()
+    assert jobs.pending == []
+
+
+async def test_snapshot_never_lists_job_results_as_pending_input() -> None:
+    manager = RunManager()
+    agent = QueueAgent()
+    state = await _start_queue_run(manager, agent)
+    job_message = build_message("user", [_job_block("toolu_a")])
+    assert agent.steer(_input("use sqlite", "s1"))
+    assert agent.steer(job_message)
+    assert await manager.enqueue(state, _input("later", "q1"))
+    assert await manager.enqueue(state, build_message("user", [_job_block("toolu_b")]))
+
+    snapshot = await manager.snapshot_session("session-1")
+
+    assert snapshot is not None
+    assert [message["meta"] for message in snapshot["pending"]["steers"]] == [{"input_id": "s1"}]
+    assert [message["meta"] for message in snapshot["pending"]["queue"]] == [{"input_id": "q1"}]
+    agent.release.set()
+    await _wait_for_run_task(manager, state.id)

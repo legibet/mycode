@@ -74,6 +74,7 @@ async def load_session(
 
     async with runs.session_operation(session_id):
         active = await runs.snapshot_session(session_id)
+        jobs = runs.live_jobs(session_id)
         if active:
             return {
                 "session": await store.load_metadata(session_id),
@@ -82,6 +83,7 @@ async def load_session(
                 "active_run": active["run"],
                 "pending_events": active["pending_events"],
                 "pending": {kind: _redact_document_data(messages) for kind, messages in active["pending"].items()},
+                "jobs": jobs,
             }
 
         data = await store.load_session(session_id)
@@ -94,6 +96,7 @@ async def load_session(
             "active_run": None,
             "pending_events": [],
             "pending": {"steers": [], "queue": []},
+            "jobs": jobs,
         }
 
     return {
@@ -103,7 +106,21 @@ async def load_session(
         "active_run": None,
         "pending_events": [],
         "pending": {"steers": [], "queue": []},
+        "jobs": jobs,
     }
+
+
+@router.delete("/{session_id}/jobs/{tool_use_id}")
+async def stop_job(
+    session_id: Annotated[str, PathParam(min_length=1)],
+    tool_use_id: Annotated[str, PathParam(min_length=1)],
+    runs: RunManagerDep,
+) -> StatusResponse:
+    """Kill a running background command; its result still reaches the model, with the signal's exit code."""
+
+    if not runs.kill_job(session_id, tool_use_id):
+        raise HTTPException(status_code=404, detail="background job not found")
+    return StatusResponse(status="ok")
 
 
 @router.delete("/{session_id}")
@@ -113,5 +130,6 @@ async def delete_session(
     async with runs.session_operation(session_id):
         if await runs.has_active_run(session_id):
             raise HTTPException(status_code=409, detail="session has a running task")
+        await runs.close_jobs(session_id)
         await store.delete_session(session_id)
     return StatusResponse(status="ok")

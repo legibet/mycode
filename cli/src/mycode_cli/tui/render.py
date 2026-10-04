@@ -222,6 +222,47 @@ def _tool_header(
     return marker.append_text(_tool_title(name, args, width - marker.cell_len, suffix=suffix))
 
 
+def _job_blocks(message: ConversationMessage) -> list[dict[str, Any]]:
+    """Return the background job notification blocks of a user message."""
+
+    content = message.get("content")
+    if not isinstance(content, list):
+        return []
+    return [block for block in content if isinstance(block, dict) and (block.get("meta") or {}).get("job")]
+
+
+def job_lines(block: dict[str, Any], width: int) -> list[Text]:
+    """Render a finished background command: ``● Background finished  label  exit N``, then the output tail.
+
+    The header names the event rather than the tool, so it does not read as a second ``Bash`` call.
+    """
+
+    job = block.get("meta", {}).get("job") or {}
+    exit_code = job.get("exit_code") or 0
+    marker = Text(f"{TOOL_MARKER} ", style=ERROR if exit_code else SUCCESS, no_wrap=True, overflow="ellipsis")
+    title = Text("Background finished", style=TOOL_NAME)
+    tail = Text(f"  exit {exit_code}", style=ERROR if exit_code else MUTED)
+    room = width - marker.cell_len - title.cell_len - tail.cell_len - 2
+    label = str(job.get("label") or "")
+    if room > 1 and label:
+        title.append(f"  {shorten(label, room)}", style=MUTED)
+    lines = [marker.append_text(title).append_text(tail)]
+
+    # The text is the header, a blank line, the output tail, then any bash notices.
+    _, _, body = str(block.get("text") or "").partition("\n\n")
+    paragraphs = body.split("\n\n")
+    notices: list[str] = []
+    while paragraphs and paragraphs[-1].startswith(_BASH_NOTICES):
+        notices.insert(0, paragraphs.pop())
+    output = [line for line in "\n\n".join(paragraphs).split("\n") if line.strip() and line != "(empty)"]
+    if len(output) > _TOOL_OUTPUT_MAX_LINES:
+        lines.append(Text(f"  … +{len(output) - _TOOL_OUTPUT_MAX_LINES} lines", style=MUTED))
+        output = output[-_TOOL_OUTPUT_MAX_LINES:]
+    lines.extend(Text(f"  {_display_line(line)[:500]}", style=MUTED) for line in output)
+    lines.extend(Text(f"  {_display_line(notice)[:500]}", style=MUTED) for notice in notices)
+    return lines
+
+
 def _history_turns(messages: list[ConversationMessage], *, limit: int = 3) -> list[list[tuple[str, Any]]]:
     """Return the last few readable conversation turns for resumed sessions."""
 
@@ -244,12 +285,15 @@ def _history_turns(messages: list[ConversationMessage], *, limit: int = 3) -> li
 
         if role == "user":
             # Use the shared flattener so attached file payload blocks stay out
-            # of the readable history preview.
+            # of the readable history preview; background results print as tools.
+            parts = [("job", block) for block in _job_blocks(message)]
             text = flatten_message_text(message, include_thinking=False)
             if not isinstance(content, list):
                 text = text or str(content or "").strip()
             if text:
-                turns.append([("user", text)])
+                parts.append(("user", text))
+            if parts:
+                turns.append(parts)
             continue
 
         if role != "assistant":
@@ -294,6 +338,8 @@ def history_preview(messages: list[ConversationMessage], *, width: int) -> list[
         for kind, content in turn:
             if kind == "user":
                 lines.append(user_echo(str(content)))
+            elif kind == "job":
+                lines.extend(job_lines(content, width))
             elif kind == "text":
                 lines.append(MarkdownBlock(str(content)))
             elif kind == "compact":
@@ -386,6 +432,8 @@ def _tool_suffix(name: str, args: dict[str, Any], metadata: dict[str, Any] | Non
         if isinstance(content, str):
             lines = content.count("\n") + 1
             parts.append(f"({lines} lines)", style=MUTED)
+    elif name == "bash" and (metadata or {}).get("background"):
+        parts.append("background", style=MUTED)
 
     return parts if parts.plain else None
 
@@ -579,12 +627,20 @@ class TurnRenderer:
         self._show_spinner(Text())
 
     def user_message(self, message: ConversationMessage) -> None:
-        """Close the segment a delivered steer ends and echo the steer; the turn goes on."""
+        """Close the segment a delivered steer ends and show the steer; the turn goes on.
+
+        Background results print like finished tools; the user's text, when
+        there is any, is echoed with a ``steer`` tag.
+        """
 
         self.finish()
-        echo = user_echo(flatten_message_text(message, include_thinking=False))
-        echo.append("  steer", style=MUTED)
-        self._print(echo)
+        for block in _job_blocks(message):
+            self._print(*job_lines(block, self._terminal.width), joined=self._last_tool)
+            self._last_tool = True
+        if text := flatten_message_text(message, include_thinking=False):
+            echo = user_echo(text)
+            echo.append("  steer", style=MUTED)
+            self._print(echo)
         self._session_base = self._session_base.add(self._stats.get("turn_usage"), self._stats.get("turn_cost"))
         self._stats = {}
         if self._on_user_message is not None:

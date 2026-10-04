@@ -99,6 +99,8 @@ The CLI assembles the system prompt from instructions files and discovered skill
 
 While a reply runs, Enter steers it: the model sees the message at its next step, after the running tools finish. Ctrl+Q queues the message instead; queued messages are sent together as the next turn when the reply finishes. Pending messages show above the input. Commands are unavailable until the reply ends.
 
+A `bash` call with `background=true` keeps running after the reply ends (`docs/tools.md`). Its result is steered into the running reply, or wakes the idle session as a new turn, printed as a `Background finished` card with the command, its exit code, and the output tail. Esc, Ctrl+C, or denying a tool call holds wakes until the next message, which then carries the waiting results. `/new`, `/rewind`, a completed `/resume`, and exit stop the session's background commands.
+
 `@path` attaches a file to the message: text files as snapshots, images and PDFs as image or document input. Pasted file paths become `@path` references.
 
 Slash commands: `/new` (alias `/clear`) `/resume` `/rewind` `/model` `/effort` `/compact` `/quit` (alias `/exit`). `exit` and `quit` also exit.

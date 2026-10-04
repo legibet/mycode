@@ -31,6 +31,8 @@ class FakeAgent:
     supports_image_input = True
     supports_pdf_input = True
 
+    messages: list[ConversationMessage] = []
+
     def steer(self, message: ConversationMessage) -> bool:
         return False
 

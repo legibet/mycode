@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from mycode.agent import Agent
+from mycode_cli.background import BackgroundJobs
 from mycode_cli.config import ResolvedProvider, Settings
 from mycode_cli.permissions import ToolReviewCallback, build_permission_hooks
 from mycode_cli.sessions import SessionStore, SessionTotals, sum_session_totals
@@ -31,6 +32,7 @@ def build_agent(
     session_id: str,
     max_turns: int | None = None,
     review: ToolReviewCallback | None = None,
+    jobs: BackgroundJobs | None = None,
 ) -> Agent:
     """Build an agent from the resolved provider, honoring model config overrides.
 
@@ -59,5 +61,5 @@ def build_agent(
         system=build_system_prompt(cwd, settings),
         tools=[*DEFAULT_TOOLS, *build_web_tools(settings.web)],
         hooks=hooks,
-        deps=CliDeps.for_session(cwd=cwd, data_dir=store.data_dir, session_id=session_id),
+        deps=CliDeps.for_session(cwd=cwd, data_dir=store.data_dir, session_id=session_id, jobs=jobs),
     )

@@ -37,7 +37,7 @@ Exactly one of `message` or `input` is required.
 
 - `provider` — provider id or configured alias name
 - `reasoning_effort` — request-level effort; omit the field, or send `null`/`"auto"`, to leave effort unspecified
-- `rewind_to` — visible message index to rewind to before sending the new message; target must be a real user message
+- `rewind_to` — visible message index to rewind to before sending the new message; target must be a real user message (a wake message made of background job notifications is not one). The rewind kills the session's background commands and drops their undelivered results before the marker lands
 - A standalone `/<skill-name>` token adds the matching skill for `cwd`. The message prepends a hidden snapshot containing the frontmatter-free skill body, source path, and base directory, then keeps the original user text. Other slash tokens are sent as text.
 
 Structured `input` uses `ChatInputBlock`:
@@ -70,11 +70,12 @@ Response:
 ```json
 {
   "run": { "id": "...", "session_id": "...", "kind": "chat", "status": "running", "last_seq": 0 },
-  "session": { "id": "...", "title": "...", ... }
+  "session": { "id": "...", "title": "...", ... },
+  "message": { "role": "user", "content": [...], "meta": {...} }
 }
 ```
 
-`run.kind` is `"chat"` for `/api/chat` runs and `"compact"` for `/api/sessions/{id}/compact` runs.
+`run.kind` is `"chat"` for `/api/chat` runs and `"compact"` for `/api/sessions/{id}/compact` runs. `message` is the user message as the run received it; the first message of a run has no `user_message` event, so this is where a client learns what else it carried.
 
 Error responses:
 
@@ -84,6 +85,21 @@ Error responses:
 - `400` — missing or invalid `cwd`; body is `{"detail": "Working directory does not exist: ..."}`
 - `409` — session already has a running task; body is `{"detail": {"message": "...", "run": {...}}}`
 - `500` — provider resolution errors currently bubble up as internal server error in this route
+
+A user message ends a Stop: wakes held by a cancelled run are allowed again, and the results of background commands waiting in the session are prepended to the message as job notification blocks (`docs/sessions.md`, `docs/tools.md`), ahead of skill snapshots and attachments. The response `message` shows them. The results are taken right before the run starts, so a request that fails earlier leaves them for the next one. The request's provider, model, effort and `cwd` become the configuration of this session's later wake runs.
+
+### `GET /api/events`
+
+A long-lived SSE stream of run and background command lifecycle events across every session, for a client that must notice runs it did not start: a background command finishing in an idle session wakes it with a new run. Each event is one `data:` line of JSON; a `: ping` comment is sent every 15 seconds while nothing happens. There is no `seq` and no replay: a client syncs the session it shows when it connects or reconnects, then follows the events.
+
+| event          | payload                                                      |
+| -------------- | ------------------------------------------------------------ |
+| `run_started`  | `{"type": "run_started", "session_id": str, "run": {...}}`   |
+| `run_finished` | `{"type": "run_finished", "session_id": str, "run": {...}}`  |
+| `job_started`  | `{"type": "job_started", "session_id": str, "job": {...}}`   |
+| `job_finished` | `{"type": "job_finished", "session_id": str, "job": {...}}`  |
+
+`run` is the same payload as `active_run` and the run SSE contract is unchanged. A wake run is an ordinary chat run whose user message holds only job notification blocks. `job` is `{"tool_use_id", "label", "pid", "started_at"}`, the same shape as the session snapshot's `jobs`. `job_finished` is sent once the job's result has been handed over, so the wake run it triggers is announced before it; a job killed by `rewind_to`, delete or shutdown is announced the same way.
 
 ### `GET /api/runs/{run_id}/stream?after=0`
 
@@ -379,13 +395,16 @@ Load session with full message history. If the session has an active run, overla
   "session_cost": {"input": 0.08, "cache_read": 0.05, "output": 0.26, "total": 0.39},
   "active_run": {...} | null,
   "pending_events": [...],
-  "pending": {"steers": [...], "queue": [...]}
+  "pending": {"steers": [...], "queue": [...]},
+  "jobs": [{"tool_use_id": "toolu_x", "label": "pytest -q", "pid": 12345, "started_at": "..."}]
 }
 ```
 
 For an active chat run, `messages` ends with the run's last committed user message: the input, a `tool_result` message, or a delivered steer or queued message once its `user_message` event is buffered. `pending_events` holds the buffered SSE events after that point, which rebuild the rest of the turn exactly as the live stream did. The web UI reapplies them, then reconnects with `after=<last seq>`, or `after=<active_run.last_seq>` when nothing is pending.
 
-`pending` lists the active run's undelivered steers and queued messages, each a user message carrying `meta.input_id`, with document data redacted as in `messages`. Queued messages whose turn has started but is not yet announced by `user_message` are still listed, so a reconnect during that turn's first request shows them; the event then removes them. Idle sessions return empty lists.
+`pending` lists the active run's undelivered steers and queued messages, each a user message carrying `meta.input_id`, with document data redacted as in `messages`. Queued messages whose turn has started but is not yet announced by `user_message` are still listed, so a reconnect during that turn's first request shows them; the event then removes them. Background job notifications waiting as steers or queue items are not listed: they are not user input and the client never restores them. Idle sessions return empty lists.
+
+`jobs` lists the background commands still running in the session, idle or not: `label` is the shortened command shown in headers, `started_at` an ISO timestamp. `GET /api/events` keeps the list current.
 
 For idle sessions, `messages`, `session_usage`, and `session_cost` come from one raw timeline read. The totals sum every billed request — tool loops, compaction, and rewound turns — with the same rules as turn totals: missing token fields and unpriced records are skipped, and any total-only cost reduces `session_cost` to `{"total": ...}`. `null` means nothing is known.
 
@@ -397,7 +416,11 @@ Assistant and compact messages return their persisted per-request `meta.usage` a
 
 ### `DELETE /api/sessions/{id}`
 
-Delete session. Returns `409` if session has a running task.
+Delete session. Returns `409` if session has a running task. Kills the session's background commands first.
+
+### `DELETE /api/sessions/{id}/jobs/{tool_use_id}`
+
+Kill one running background command. Its result is still delivered to the model like any other completion, with the signal's exit code (`docs/tools.md`), and `job_finished` follows. Returns `404` when the session has no such running job.
 
 ## Workspaces
 
@@ -504,3 +527,8 @@ Every event also carries `seq: int` for reconnect support. The web UI uses `afte
 - `user_message` for the merged message is emitted at the first event of that call, since `achat()` commits its user message before yielding anything; a failed commit surfaces as `error` with no `user_message`
 - The final take and leaving the session's active slot happen together, so no enqueue is accepted and then dropped
 - A cancelled or failed run drops its queue; the SDK discards pending steers. The client still holds those items and restores them
+- `jobs_for(session_id)` returns the session's `BackgroundJobs` registry (`cli/src/mycode_cli/background.py`). It outlives runs: the agent is rebuilt per request, the registry is not. A finished background command appends its notification block to the registry and calls the deliver callback the last `POST /api/chat` installed. Under the session operation, the callback steers the block into an active chat run, queues it when the run refuses steers, starts a wake run (`RunState.wake`) when the session is idle and not suspended, and does nothing during a compact run or while a chat run is closing. The results are taken right before the run starts; a wake whose preparation fails sets `suspended` and leaves nothing in flight
+- A run frees the session's active slot and reconciles the registry in the same step (`_release_session`), at the chat loop's final take or when the run finishes, because a free slot lets a wake start and take the pending results. The reconcile checks `agent.messages`, the committed records: blocks found there are dropped, the rest return to pending. A cancelled run, or a wake run that committed nothing, sets `suspended`, which holds wakes until the next `POST /api/chat`; a result that arrived during a wake and missed it is not a reason to suspend. Once the run has finished, anything still pending is offered again through `deliver_pending`, which logs a failing callback and keeps the blocks, so a completion during a compact run is delivered when the compact ends
+- Every run's start and end is published to `GET /api/events` subscribers as `run_started` and `run_finished`; the registry's `on_change` publishes `job_started` and `job_finished` the same way
+- `live_jobs(session_id)` describes the running jobs for the session snapshot; `kill_job(session_id, tool_use_id)` kills one and leaves its drain task to deliver the result
+- `close_jobs(session_id)` kills the session's background commands; `aclose()` suspends every registry, cancels the runs, then closes every registry

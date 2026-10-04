@@ -70,6 +70,14 @@ Each matching `/<skill-name>` token prepends a text block with `meta.skill_snaps
 
 Snapshots stay in the session timeline across compaction, but a snapshot before the last `compact` marker reaches providers only through the summary; its `location` lets the model re-read the skill file.
 
+A background job notification (`docs/tools.md`) is a text block with `meta.job`:
+
+```json
+{"type": "text", "text": "Background bash finished (pid 12345, exit code 1): pytest -q\nLog: …\n\n…", "meta": {"job": {"tool_use_id": "toolu_x", "name": "bash", "label": "pytest -q", "exit_code": 1}}}
+```
+
+`tool_use_id` names the `tool_use` block that started the job, `label` is the shortened command, `exit_code` the process return code. Job blocks appear in three `user` message shapes: a wake message holding only job blocks (no `meta.steer`, no `meta.input_ids`), a steer message mixing job blocks with the user's steer items (`meta.input_ids` lists the user items only), or at the front of a normal user turn. Providers replay them as plain text. `flatten_message_text` skips them, as it skips attachments and skill snapshots, so titles, history echoes, and queue previews never show command output; a wake message is therefore not a rewind target.
+
 `assistant.meta.usage` holds canonical facts for one provider request. A missing key means the provider did not report it.
 
 | field                | semantics                                                              |

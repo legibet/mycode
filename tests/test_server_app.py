@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 import asyncio
+import copy
 import json
+import shlex
 from collections.abc import AsyncGenerator, AsyncIterator
 from contextlib import asynccontextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 from threading import Event as ThreadEvent
-from typing import cast, override
+from typing import Any, cast, override
 
 import httpx2
 import pytest
@@ -18,10 +21,12 @@ from fastapi import Request
 from starlette.testclient import TestClient
 
 from mycode.agent import Event, PersistCallback
-from mycode.messages import ConversationMessage
+from mycode.messages import ConversationMessage, build_message, text_block
 from mycode.models import ModelMetadata
 from mycode.providers.base import ProviderRequest, ProviderStreamEvent
 from mycode.session import SessionStore as TimelineStore
+from mycode_cli.background import BackgroundJobs
+from mycode_cli.runtime import load_session_totals
 from mycode_cli.server.app import create_api_app, create_app
 from mycode_cli.server.deps import get_run_manager, get_store
 from mycode_cli.server.run_manager import RunManager, RunState
@@ -1020,3 +1025,467 @@ def test_session_search_endpoint_reports_running_state(tmp_path: Path, monkeypat
     assert result["session"]["id"] == "s1"
     assert result["session"]["is_running"] is True
     assert result["snippet"] == {"before": "find the ", "match": "Needle", "after": ""}
+
+
+# Background job results
+
+
+def _background_call(tool_use_id: str, gate: Path) -> ConversationMessage:
+    """An assistant turn starting a background command that exits 2 once ``gate`` exists."""
+
+    command = f"while [ ! -e {shlex.quote(str(gate))} ]; do sleep 0.02; done; echo finished; exit 2"
+    return {
+        "role": "assistant",
+        "content": [
+            {"type": "tool_use", "id": tool_use_id, "name": "bash", "input": {"command": command, "background": True}}
+        ],
+        "meta": {"stop_reason": "tool_use"},
+    }
+
+
+def _reply(text: str) -> ConversationMessage:
+    return {"role": "assistant", "content": [{"type": "text", "text": text}]}
+
+
+def _job_ids(message: ConversationMessage) -> list[str | None]:
+    return [((block.get("meta") or {}).get("job") or {}).get("tool_use_id") for block in message.get("content") or []]
+
+
+class _ScriptedAdapter:
+    """Answers each provider request with the next reply; request ``hold`` waits for ``release``."""
+
+    supports_reasoning_effort = False
+
+    def __init__(self, *replies: ConversationMessage, hold: int | None = None) -> None:
+        self.replies = replies
+        self.requests: list[list[ConversationMessage]] = []
+        self.hold = hold
+        self.held = asyncio.Event()
+        self.release = asyncio.Event()
+
+    async def stream_turn(self, request: ProviderRequest) -> AsyncIterator[ProviderStreamEvent]:
+        index = len(self.requests)
+        self.requests.append(copy.deepcopy(list(request.messages)))
+        if index == self.hold:
+            self.held.set()
+            await self.release.wait()
+        yield ProviderStreamEvent("message_done", {"message": copy.deepcopy(self.replies[index])})
+
+
+@dataclass
+class _JobApp:
+    client: httpx2.AsyncClient
+    runs: RunManager
+    store: SessionStore
+    cwd: Path
+    last_chat: dict[str, Any] = field(default_factory=dict)
+
+    @property
+    def jobs(self) -> BackgroundJobs:
+        return self.runs.jobs_for("s1")
+
+    async def chat(self, message: str, **extra: object) -> RunState:
+        payload = {"session_id": "s1", "cwd": str(self.cwd), "provider": "anthropic", "message": message, **extra}
+        response = await self.client.post("/api/chat", json=payload)
+        assert response.status_code == 200, response.text
+        self.last_chat = response.json()
+        state = await self.runs.get_run(self.last_chat["run"]["id"])
+        assert state is not None
+        return state
+
+    async def wait(self, state: RunState) -> None:
+        assert state.task is not None
+        await state.task
+
+    async def finish_job(self, gate: Path, tool_use_id: str = "toolu_bg") -> None:
+        """Let a live job exit and wait until its result was handed to the registry."""
+
+        [job] = [job for job in self.jobs.jobs if job.tool_use_id == tool_use_id]
+        gate.touch()
+        await asyncio.wait_for(job.task, 5)
+
+    async def next_event(self, events: asyncio.Queue[dict[str, Any]], event_type: str) -> dict[str, Any]:
+        """Drain ``events`` up to and including the next one of ``event_type``."""
+
+        while (event := await asyncio.wait_for(events.get(), 5))["type"] != event_type:
+            pass
+        return event
+
+
+@asynccontextmanager
+async def _job_app(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, adapter: object) -> AsyncGenerator[_JobApp]:
+    home = tmp_path / "home"
+    home.mkdir()
+    # Background commands here are compound shell commands.
+    (home / "config.json").write_text(json.dumps({"permission": "yolo"}), encoding="utf-8")
+    monkeypatch.setenv("MYCODE_HOME", str(home))
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    monkeypatch.setattr("mycode.agent.get_provider_adapter", lambda _provider: adapter)
+    app = create_api_app()
+    async with (
+        app.router.lifespan_context(app),
+        httpx2.AsyncClient(transport=httpx2.ASGITransport(app), base_url="http://test") as client,
+    ):
+        yield _JobApp(client, cast(RunManager, app.state.runs), cast(SessionStore, app.state.store), tmp_path)
+
+
+async def test_result_after_the_turn_wakes_the_session(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    gate = tmp_path / "gate"
+    adapter = _ScriptedAdapter(_background_call("toolu_bg", gate), _reply("started"), _reply("saw it"))
+    async with _job_app(tmp_path, monkeypatch, adapter) as app, app.runs.subscribe() as events:
+        first = await app.chat("build in the background")
+        await app.wait(first)
+        await app.finish_job(gate)
+
+        published = [events.get_nowait() for _ in range(events.qsize())]
+        # Jobs are announced beside runs. A job ends once its result is handed over, so the
+        # wake it triggers is announced first.
+        wake_id = published[-2]["run"]["id"]
+        assert [
+            (event["type"], event.get("run", {}).get("id", event.get("job", {}).get("tool_use_id")))
+            for event in published
+        ] == [
+            ("run_started", first.id),
+            ("job_started", "toolu_bg"),
+            ("run_finished", first.id),
+            ("run_started", wake_id),
+            ("job_finished", "toolu_bg"),
+        ]
+        wake = await app.runs.get_run(wake_id)
+        assert wake is not None
+        await app.wait(wake)
+        session = (await app.client.get("/api/sessions/s1")).json()
+        assert app.jobs.pending == []
+
+    assert wake.wake is True
+    assert wake.status == "completed"
+    assert len(adapter.requests) == 3
+    wake_input = adapter.requests[2][-1]
+    assert wake_input["role"] == "user"
+    assert _job_ids(wake_input) == ["toolu_bg"]
+    persisted = [m for m in app.store.load_raw_messages_sync("s1") if _job_ids(m) == ["toolu_bg"]]
+    assert [m["content"][0]["meta"]["job"]["exit_code"] for m in persisted] == [2]
+    assert session["active_run"] is None
+    assert [_job_ids(m) for m in session["messages"]].count(["toolu_bg"]) == 1
+
+
+async def test_result_during_the_turn_arrives_as_a_steer(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    gate = tmp_path / "gate"
+    adapter = _ScriptedAdapter(_background_call("toolu_bg", gate), _reply("working"), _reply("noted"), hold=1)
+    async with _job_app(tmp_path, monkeypatch, adapter) as app:
+        run = await app.chat("build in the background")
+        await asyncio.wait_for(adapter.held.wait(), 5)
+        await app.finish_job(gate)
+        pending = (await app.client.get("/api/sessions/s1")).json()["pending"]
+        adapter.release.set()
+        await app.wait(run)
+        assert await app.runs.get_active_run("s1") is None
+        assert app.jobs.pending == []
+
+    # Not restorable user input while it waits for the step boundary.
+    assert pending == {"steers": [], "queue": []}
+    assert run.status == "completed"
+    assert len(adapter.requests) == 3
+    [steer] = [m for m in app.store.load_raw_messages_sync("s1") if _job_ids(m) == ["toolu_bg"]]
+    assert steer["meta"]["steer"] is True
+    assert steer["meta"]["input_ids"] == []
+    assert adapter.requests[2][-1]["content"] == steer["content"]
+
+
+async def test_stop_holds_the_result_for_the_next_message(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    gate = tmp_path / "gate"
+    adapter = _ScriptedAdapter(_background_call("toolu_bg", gate), _reply("unused"), _reply("both seen"), hold=1)
+    async with _job_app(tmp_path, monkeypatch, adapter) as app:
+        first = await app.chat("build in the background")
+        await asyncio.wait_for(adapter.held.wait(), 5)
+        cancelled = await app.client.post(f"/api/runs/{first.id}/cancel")
+        assert cancelled.json()["run"]["status"] == "cancelled"
+        await app.finish_job(gate)
+
+        idle = (await app.client.get("/api/sessions/s1")).json()
+        assert idle["active_run"] is None
+        assert app.jobs.suspended is True
+        assert _job_ids(build_message("user", app.jobs.pending)) == ["toolu_bg"]
+
+        second = await app.chat("what happened?")
+        assert app.jobs.suspended is False
+        await app.wait(second)
+        assert app.jobs.pending == []
+
+    # The client learns from the response that its message carried the result.
+    assert _job_ids(app.last_chat["message"]) == ["toolu_bg", None]
+    user_turn = app.store.load_raw_messages_sync("s1")[-2]
+    assert _job_ids(user_turn) == ["toolu_bg", None]
+    assert user_turn["content"][1]["text"] == "what happened?"
+    assert len(adapter.requests) == 3
+
+
+async def test_a_wake_that_cannot_start_holds_the_result_for_the_next_message(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    gate = tmp_path / "gate"
+    adapter = _ScriptedAdapter(_background_call("toolu_bg", gate), _reply("started"), _reply("seen"))
+
+    # The last step before the run starts; failing it exercises the whole preparation.
+    async def failing_totals(*_: object) -> None:
+        raise OSError("disk gone")
+
+    async with _job_app(tmp_path, monkeypatch, adapter) as app:
+        await app.wait(await app.chat("build in the background"))
+        monkeypatch.setattr("mycode_cli.server.routers.chat.load_session_totals", failing_totals)
+        await app.finish_job(gate)
+        assert await app.runs.get_active_run("s1") is None
+        assert app.jobs.suspended is True
+        assert app.jobs.in_flight == set()
+        assert _job_ids(build_message("user", app.jobs.pending)) == ["toolu_bg"]
+
+        monkeypatch.setattr("mycode_cli.server.routers.chat.load_session_totals", load_session_totals)
+        await app.wait(await app.chat("what happened?"))
+        assert app.jobs.pending == []
+
+    assert _job_ids(app.last_chat["message"]) == ["toolu_bg", None]
+    assert len(adapter.requests) == 3
+
+
+async def test_a_wake_leaves_a_result_that_arrived_during_it_to_the_next_wake(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    gate_a, gate_b = tmp_path / "a", tmp_path / "b"
+    adapter = _ScriptedAdapter(
+        _background_call("toolu_a", gate_a),
+        _background_call("toolu_b", gate_b),
+        _reply("both started"),
+        _reply("saw a"),
+        _reply("saw b"),
+        hold=3,
+    )
+    async with _job_app(tmp_path, monkeypatch, adapter) as app, app.runs.subscribe() as events:
+        await app.wait(await app.chat("build two things"))
+        await app.finish_job(gate_a, "toolu_a")
+        await asyncio.wait_for(adapter.held.wait(), 5)
+        wake_a = await app.runs.get_active_run("s1")
+        assert wake_a is not None
+        assert wake_a.wake is True
+        # B finishes while the wake runs, but its delivery waits for the session lock.
+        async with app.runs.session_operation("s1"):
+            gate_b.touch()
+            async with asyncio.timeout(5):
+                while "toolu_b" not in _job_ids(build_message("user", app.jobs.pending)):  # noqa: ASYNC110
+                    await asyncio.sleep(0.02)
+            adapter.release.set()
+            while (await app.next_event(events, "run_finished"))["run"]["id"] != wake_a.id:
+                pass
+            assert app.jobs.suspended is False
+        wake_b = await app.runs.get_run((await app.next_event(events, "run_started"))["run"]["id"])
+        assert wake_b is not None
+        await app.wait(wake_b)
+        assert app.jobs.pending == []
+
+    assert wake_b.wake is True
+    assert [_job_ids(request[-1]) for request in adapter.requests[3:]] == [["toolu_a"], ["toolu_b"]]
+
+
+async def test_rewind_and_delete_kill_live_jobs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    gate = tmp_path / "never"
+    adapter = _ScriptedAdapter(
+        _background_call("toolu_a", gate),
+        _reply("started a"),
+        _background_call("toolu_b", gate),
+        _reply("started b"),
+    )
+    async with _job_app(tmp_path, monkeypatch, adapter) as app:
+        first = await app.chat("start a")
+        await app.wait(first)
+        [job_a] = app.jobs.jobs
+
+        second = await app.chat("start b instead", rewind_to=0)
+        assert job_a.task.cancelled()
+        assert app.jobs.pending == []
+        await app.wait(second)
+        [job_b] = app.jobs.jobs
+
+        deleted = await app.client.delete("/api/sessions/s1")
+        assert deleted.status_code == 200, deleted.text
+        assert job_b.task.cancelled()
+
+
+async def test_snapshot_lists_running_jobs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    gate = tmp_path / "gate"
+    adapter = _ScriptedAdapter(_background_call("toolu_bg", gate), _reply("started"), _reply("saw it"))
+    async with _job_app(tmp_path, monkeypatch, adapter) as app:
+        await app.wait(await app.chat("build in the background"))
+        [job] = app.jobs.jobs
+        running = (await app.client.get("/api/sessions/s1")).json()["jobs"]
+
+        await app.finish_job(gate)
+        wake = await app.runs.get_active_run("s1")
+        assert wake is not None
+        await app.wait(wake)
+        idle = (await app.client.get("/api/sessions/s1")).json()["jobs"]
+
+    [info] = running
+    assert (info["tool_use_id"], info["label"], info["pid"]) == ("toolu_bg", job.label, job.pid)
+    assert datetime.fromisoformat(info["started_at"]).tzinfo is not None
+    assert idle == []
+
+
+async def test_stopping_a_job_still_delivers_its_result(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    gate = tmp_path / "never"
+    adapter = _ScriptedAdapter(_background_call("toolu_bg", gate), _reply("started"), _reply("it was killed"))
+    async with _job_app(tmp_path, monkeypatch, adapter) as app:
+        await app.wait(await app.chat("build in the background"))
+        [job] = app.jobs.jobs
+
+        stopped = await app.client.delete("/api/sessions/s1/jobs/toolu_bg")
+        assert stopped.status_code == 200, stopped.text
+        assert stopped.json() == {"status": "ok"}
+        await asyncio.wait_for(job.task, 5)
+        wake = await app.runs.get_active_run("s1")
+        assert wake is not None
+        await app.wait(wake)
+
+        again = await app.client.delete("/api/sessions/s1/jobs/toolu_bg")
+        unknown_job = await app.client.delete("/api/sessions/s1/jobs/toolu_missing")
+        unknown_session = await app.client.delete("/api/sessions/nope/jobs/toolu_bg")
+
+    assert wake.wake is True
+    assert wake.status == "completed"
+    [persisted] = [m for m in app.store.load_raw_messages_sync("s1") if _job_ids(m) == ["toolu_bg"]]
+    assert persisted["content"][0]["meta"]["job"]["exit_code"] < 0
+    for response in (again, unknown_job, unknown_session):
+        assert response.status_code == 404
+        assert response.json()["detail"] == "background job not found"
+
+
+async def test_events_stream_announces_run_start_and_finish(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("MYCODE_HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    monkeypatch.setattr("mycode.agent.get_provider_adapter", lambda _provider: _CaptureAdapter())
+    app = create_api_app()
+    async with app.router.lifespan_context(app):
+        runs = cast(RunManager, app.state.runs)
+        subscribed = asyncio.Event()
+        subscribe = runs.subscribe
+
+        @asynccontextmanager
+        async def observed_subscribe() -> AsyncGenerator[asyncio.Queue[dict[str, object]]]:
+            async with subscribe() as queue:
+                subscribed.set()
+                yield queue
+
+        monkeypatch.setattr(runs, "subscribe", observed_subscribe)
+        # Both ASGI test clients buffer whole responses; drive the endless stream directly.
+        disconnect = asyncio.Event()
+        requested = False
+        body: asyncio.Queue[bytes] = asyncio.Queue()
+        headers: list[tuple[bytes, bytes]] = []
+
+        async def receive() -> dict[str, object]:
+            nonlocal requested
+            if not requested:
+                requested = True
+                return {"type": "http.request", "body": b"", "more_body": False}
+            await disconnect.wait()
+            return {"type": "http.disconnect"}
+
+        async def send(message: dict[str, object]) -> None:
+            if message["type"] == "http.response.start":
+                headers.extend(cast(list[tuple[bytes, bytes]], message["headers"]))
+            elif message["type"] == "http.response.body":
+                body.put_nowait(cast(bytes, message.get("body", b"")))
+
+        scope = {
+            "type": "http",
+            "asgi": {"version": "3.0"},
+            "http_version": "1.1",
+            "method": "GET",
+            "scheme": "http",
+            "path": "/api/events",
+            "raw_path": b"/api/events",
+            "root_path": "",
+            "query_string": b"",
+            "headers": [(b"host", b"test")],
+            "client": ("127.0.0.1", 1),
+            "server": ("test", 80),
+            "state": {},
+        }
+        stream = asyncio.create_task(app(scope, receive, send))  # pyright: ignore[reportArgumentType]
+        await asyncio.wait_for(subscribed.wait(), 5)
+
+        async with httpx2.AsyncClient(transport=httpx2.ASGITransport(app), base_url="http://test") as client:
+            response = await client.post(
+                "/api/chat",
+                json={"session_id": "s1", "cwd": str(tmp_path), "provider": "anthropic", "message": "hi"},
+            )
+        run_id = response.json()["run"]["id"]
+
+        text = ""
+        events: list[dict[str, object]] = []
+        while len(events) < 2:
+            text += (await asyncio.wait_for(body.get(), 5)).decode()
+            *frames, text = text.split("\n\n")
+            events += [json.loads(frame.removeprefix("data: ")) for frame in frames]
+        disconnect.set()
+        await asyncio.wait_for(stream, 5)
+
+    assert (b"content-type", b"text/event-stream; charset=utf-8") in headers
+    assert [(event["type"], event["session_id"]) for event in events] == [("run_started", "s1"), ("run_finished", "s1")]
+    started, finished = (cast(dict[str, object], event["run"]) for event in events)
+    assert (started["id"], started["status"], started["kind"]) == (run_id, "running", "chat")
+    assert (finished["id"], finished["status"]) == (run_id, "completed")
+    assert "seq" not in events[0]
+
+
+async def test_result_arriving_while_a_request_holds_the_session_is_delivered_once(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async with _job_app(tmp_path, monkeypatch, _ScriptedAdapter(_reply("ok"))) as app:
+        # A first request installs this session's delivery.
+        await app.wait(await app.chat("hi"))
+        block = text_block(
+            "done", meta={"job": {"tool_use_id": "toolu_x", "name": "bash", "label": "x", "exit_code": 0}}
+        )
+
+        async with app.runs.subscribe() as events, app.runs.session_operation("s1"):
+            notifying = asyncio.create_task(app.jobs.notify(block))
+            await asyncio.sleep(0)
+            # What POST /api/chat does under the lock: the result rides on the user's message.
+            assert app.jobs.take_pending() == [block]
+        await asyncio.wait_for(notifying, 5)
+
+        assert app.jobs.pending == [block]
+        assert app.jobs.in_flight == {"toolu_x"}
+        assert events.empty()
+        assert await app.runs.get_active_run("s1") is None
+
+
+async def test_wake_whose_message_fails_to_commit_suspends_and_keeps_the_result(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    gate = tmp_path / "gate"
+    adapter = _ScriptedAdapter(_background_call("toolu_bg", gate), _reply("started"), _reply("unused"))
+    append = TimelineStore.append_message
+
+    async def failing_append(self: TimelineStore, session_id: str, message: ConversationMessage) -> None:
+        if _job_ids(message) == ["toolu_bg"]:
+            raise OSError("disk full")
+        await append(self, session_id, message)
+
+    async with _job_app(tmp_path, monkeypatch, adapter) as app, app.runs.subscribe() as events:
+        await app.wait(await app.chat("build in the background"))
+        monkeypatch.setattr(TimelineStore, "append_message", failing_append)
+        await app.finish_job(gate)
+
+        published = [events.get_nowait() for _ in range(events.qsize())]
+        [wake_started] = [event for event in published[2:] if event["type"] == "run_started"]
+        wake = await app.runs.get_run(wake_started["run"]["id"])
+        assert wake is not None
+        await app.wait(wake)
+        later = [events.get_nowait() for _ in range(events.qsize())]
+        assert app.jobs.suspended is True
+        assert _job_ids(build_message("user", app.jobs.pending)) == ["toolu_bg"]
+        assert app.jobs.in_flight == set()
+
+    assert wake.status == "failed"
+    assert [event["type"] for event in later] == ["run_finished"]
+    assert len(adapter.requests) == 2

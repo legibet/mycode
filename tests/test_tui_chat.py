@@ -7,7 +7,7 @@ import base64
 import html
 import json
 import shlex
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from pathlib import Path
 from typing import Any, cast, override
 
@@ -18,10 +18,11 @@ from prompt_toolkit.input.defaults import create_pipe_input
 from prompt_toolkit.output import DummyOutput
 
 from mycode.agent import Agent, Event
-from mycode.messages import ConversationMessage, merge_user_messages
+from mycode.messages import ContentBlock, ConversationMessage, build_message, merge_user_messages, text_block
 from mycode.providers import list_env_discoverable_providers, provider_env_api_key_names
 from mycode.providers.base import ProviderStreamEvent
 from mycode.tools import ToolExecutor
+from mycode_cli.background import BackgroundJob, BackgroundJobs
 from mycode_cli.config import PermissionConfig, Settings, WebConfig, get_settings
 from mycode_cli.permissions import ToolReviewRequest
 from mycode_cli.runtime import load_session_totals
@@ -55,6 +56,7 @@ def _chat(agent: object, tmp_path: Path, harness: TerminalHarness | None = None)
         settings=settings_for(str(tmp_path)),
         store=SessionStore(data_dir=tmp_path / "sessions"),
         session_id="s",
+        jobs=BackgroundJobs(),
     )
     if harness is not None:
         chat.terminal = harness.terminal
@@ -89,10 +91,11 @@ def test_clone_agent_keeps_configured_tools_and_uses_the_new_session_directory(t
         tools=build_web_tools(WebConfig(search="tavily")),
     )
 
-    cloned = clone_agent(agent, store=store, session_id="new", cwd=str(tmp_path))
+    jobs = BackgroundJobs()
+    cloned = clone_agent(agent, store=store, session_id="new", cwd=str(tmp_path), jobs=jobs)
 
     assert cloned.tools.specs == agent.tools.specs
-    assert cloned.deps == CliDeps.for_session(cwd=tmp_path, data_dir=store.data_dir, session_id="new")
+    assert cloned.deps == CliDeps.for_session(cwd=tmp_path, data_dir=store.data_dir, session_id="new", jobs=jobs)
 
 
 @pytest.fixture
@@ -333,6 +336,8 @@ class TestToolReview:
         rendered = harness.text()
         assert results == [decision]
         assert cancels == (["cancel"] if cancelled else [])
+        # A denial stops the turn, so it holds background wakes like Esc does.
+        assert chat.jobs.suspended is cancelled
         assert f"{TOOL_MARKER} Review  Bash\n  rm -rf build\n" in rendered
 
 
@@ -340,6 +345,7 @@ class _TurnAgent(_AttachmentAgent):
     """Fake agent whose first turn waits for ``finish`` or a cancel, then delivers pending steers."""
 
     context_window = None
+    reasoning_effort = None
 
     def __init__(self, *, accepting: bool = True, fail_commit: bool = False) -> None:
         super().__init__()
@@ -712,6 +718,7 @@ class TestModelSwitch:
             settings=get_settings(str(tmp_path)),
             store=store,
             session_id="s",
+            jobs=BackgroundJobs(),
             provider_name="alpha",
         )
         chat.terminal = harness.terminal
@@ -747,3 +754,216 @@ class TestModelSwitch:
         await chat.terminal.run(main)
 
         assert (chat.provider_name, chat.agent.model, chat.agent.api_base) == expected
+
+
+def _job_block(tool_use_id: str = "toolu_1") -> ContentBlock:
+    return text_block(
+        "Background bash finished (pid 1, exit code 1): pytest -q\nLog: /x.log\n\nline a\nline b",
+        meta={"job": {"tool_use_id": tool_use_id, "name": "bash", "label": "pytest -q", "exit_code": 1}},
+    )
+
+
+async def _until(condition: Callable[[], bool]) -> None:
+    async with asyncio.timeout(3):
+        while not condition():  # noqa: ASYNC110
+            await asyncio.sleep(0.02)
+
+
+class TestBackgroundJobs:
+    """A finished background job steers the running turn, or wakes the idle loop with its own turn."""
+
+    CARD = f"{TOOL_MARKER} Background finished  pytest -q  exit 1"
+
+    async def test_result_during_a_turn_is_delivered_as_a_steer(
+        self, harness: TerminalHarness, tmp_path: Path, cli_home: Path
+    ) -> None:
+        agent = _TurnAgent()
+        chat = _chat(agent, tmp_path, harness)
+        block = _job_block()
+
+        async def main() -> None:
+            turn = asyncio.create_task(chat._run_turn("first"))
+            await asyncio.sleep(0.1)
+            await chat.jobs.notify(block)
+            agent.finish.set()
+            await turn
+
+        await harness.terminal.run(main)
+
+        [steer] = _steered(agent)
+        assert steer["content"] == [block]
+        assert steer["meta"]["input_ids"] == []
+        assert len(agent.turns) == 1
+        assert (chat.jobs.pending, chat._steers) == ([], [])
+        rendered = harness.text()
+        assert f"{self.CARD}\n  line a\n  line b\n" in rendered
+        # No user echo or steer tag: the job text stays out of the echo.
+        assert "steer" not in rendered
+        assert "Background bash finished" not in rendered
+
+    async def test_refused_steer_leaves_the_result_for_a_wake_turn(
+        self, harness: TerminalHarness, tmp_path: Path, cli_home: Path
+    ) -> None:
+        agent = _TurnAgent(accepting=False)
+        chat = _chat(agent, tmp_path, harness)
+        block = _job_block()
+        after_turn: list[tuple[int, list[ContentBlock], bool]] = []
+
+        async def main() -> None:
+            turn = asyncio.create_task(chat._run_turn("first"))
+            await asyncio.sleep(0.1)
+            await chat.jobs.notify(block)
+            agent.finish.set()
+            await turn
+            after_turn.append((len(agent.turns), list(chat.jobs.pending), chat._wake.is_set()))
+            loop = asyncio.create_task(chat._main())
+            await _until(lambda: len(agent.turns) == 2 and not chat.terminal.busy)
+            harness.pipe.send_text("\x04")
+            await loop
+
+        await harness.terminal.run(main)
+
+        assert after_turn == [(1, [block], True)]
+        assert agent.turns[1] == build_message("user", [block])
+        assert chat._queue == []
+        assert chat.jobs.pending == []
+        assert harness.text().count(self.CARD) == 1
+
+    async def test_refused_steer_rides_with_the_queued_turn(
+        self, harness: TerminalHarness, tmp_path: Path, cli_home: Path
+    ) -> None:
+        agent = _TurnAgent(accepting=False)
+        chat = _chat(agent, tmp_path, harness)
+        block = _job_block()
+
+        async def main() -> None:
+            turn = asyncio.create_task(chat._run_turn("first"))
+            await asyncio.sleep(0.1)
+            harness.pipe.send_text("two\x11")
+            await asyncio.sleep(0.1)
+            await chat.jobs.notify(block)
+            agent.finish.set()
+            await turn
+
+        await harness.terminal.run(main)
+
+        assert len(agent.turns) == 2
+        assert agent.turns[1]["content"] == [block, {"type": "text", "text": "two"}]
+        assert (chat.jobs.pending, chat._queue) == ([], [])
+        rendered = harness.text()
+        assert rendered.count(self.CARD) == 1
+        assert rendered.index(self.CARD) < rendered.index("❯ two")
+
+    async def test_idle_result_wakes_the_session_without_input(
+        self, harness: TerminalHarness, tmp_path: Path, cli_home: Path
+    ) -> None:
+        # An idle agent refuses steers, as the real one does.
+        agent = _TurnAgent(accepting=False)
+        agent.finish.set()
+        chat = _chat(agent, tmp_path, harness)
+        block = _job_block()
+
+        async def main() -> None:
+            loop = asyncio.create_task(chat._main())
+            await asyncio.sleep(0.2)
+            await chat.jobs.notify(block)
+            await _until(lambda: len(agent.turns) == 1 and not chat.terminal.busy)
+            harness.pipe.send_text("\x04")
+            await loop
+
+        await harness.terminal.run(main)
+
+        assert agent.turns == [build_message("user", [block])]
+        assert chat.jobs.pending == []
+        rendered = harness.text()
+        assert rendered.count(self.CARD) == 1
+        assert "answer 1" in rendered
+
+    async def test_esc_holds_wakes_until_the_next_user_message(
+        self, harness: TerminalHarness, tmp_path: Path, cli_home: Path
+    ) -> None:
+        agent = _TurnAgent(accepting=False)
+        chat = _chat(agent, tmp_path, harness)
+        block = _job_block()
+        after_stop: list[tuple[bool, list[ContentBlock]]] = []
+
+        async def main() -> None:
+            turn = asyncio.create_task(chat._run_turn("first"))
+            await asyncio.sleep(0.1)
+            await chat.jobs.notify(block)
+            harness.pipe.send_text("\x1b")
+            await turn
+            after_stop.append((chat.jobs.suspended, list(chat.jobs.pending)))
+            loop = asyncio.create_task(chat._main())
+            await asyncio.sleep(0.3)
+            assert len(agent.turns) == 1
+            harness.pipe.send_text("next\r")
+            await _until(lambda: len(agent.turns) == 2 and not chat.terminal.busy)
+            harness.pipe.send_text("\x04")
+            await loop
+
+        await harness.terminal.run(main)
+
+        assert after_stop == [(True, [block])]
+        assert agent.turns[1]["content"] == [block, {"type": "text", "text": "next"}]
+        assert chat.jobs.suspended is False
+        assert chat.jobs.pending == []
+
+    async def test_a_wake_whose_commit_fails_suspends_and_keeps_the_result(
+        self, harness: TerminalHarness, tmp_path: Path, cli_home: Path
+    ) -> None:
+        agent = _TurnAgent(fail_commit=True)
+        agent.finish.set()
+        chat = _chat(agent, tmp_path, harness)
+        block = _job_block()
+        read: list[str] = []
+
+        async def main() -> None:
+            await chat._run_turn("first")
+            chat.jobs.pending.append(block)
+            harness.terminal.set_input("draft")
+            with pytest.raises(OSError, match="disk full"):
+                await chat._run_turn(None)
+            harness.pipe.send_text("\r")
+            read.append(await harness.terminal.read())
+
+        await harness.terminal.run(main)
+
+        assert agent.turns[1] == build_message("user", [block])
+        assert chat.jobs.suspended is True
+        assert chat.jobs.pending == [block]
+        assert chat._queue == []
+        assert read == ["draft"]
+
+    async def test_new_session_stops_live_jobs(self, harness: TerminalHarness, tmp_path: Path, cli_home: Path) -> None:
+        store = SessionStore(data_dir=tmp_path / "sessions")
+        agent = Agent(model="claude-sonnet-4-6", provider="anthropic", session_dir=store.data_dir, session_id="s")
+        old_jobs = BackgroundJobs()
+        chat = TerminalChat(
+            agent=agent, settings=settings_for(str(tmp_path)), store=store, session_id="s", jobs=old_jobs
+        )
+        chat.terminal = harness.terminal
+        tasks: list[asyncio.Task[None]] = []
+
+        async def run_forever() -> None:
+            await asyncio.Event().wait()
+
+        async def main() -> None:
+            task = asyncio.create_task(run_forever())
+            tasks.append(task)
+            old_jobs.add(
+                BackgroundJob(
+                    tool_use_id="toolu_1", label="sleep 100", pid=1, started_at="", task=task, kill=lambda: None
+                )
+            )
+            await chat._start_new_session()
+
+        await harness.terminal.run(main)
+
+        assert tasks[0].cancelled()
+        assert f"{TOOL_MARKER} stopped 1 background job\n" in harness.text()
+        assert chat.jobs is not old_jobs
+        assert (chat.jobs.jobs, chat.jobs.pending) == ([], [])
+        assert chat.jobs.deliver == chat._deliver_jobs
+        assert chat.session_id != "s"
+        assert cast(CliDeps, chat.agent.deps).jobs is chat.jobs

@@ -18,7 +18,9 @@ import signal
 from base64 import b64encode
 from contextlib import suppress
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from difflib import SequenceMatcher, unified_diff
+from functools import partial
 from pathlib import Path
 from typing import BinaryIO, TextIO
 from uuid import uuid4
@@ -28,6 +30,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from mycode.attachments import detect_image_mime_type
 from mycode.messages import image_block, text_block
 from mycode.tools import ToolContext, ToolExecutionResult, ToolSpec, tool
+from mycode_cli.background import BackgroundJob, BackgroundJobs
 from mycode_cli.workspace import CliDeps, resolve_path
 
 # ---------------------------------------------------------------------------
@@ -572,9 +575,10 @@ class _BashOutputAccumulator:
         if self.log_file is None:
             self.raw_chunks.append(chunk)
             if self._needs_full_log():
-                self._open_log()
+                self.open_log()
         else:
             self.log_file.write(chunk)
+            self.log_file.flush()
         return text
 
     def finish(self) -> str:
@@ -585,7 +589,7 @@ class _BashOutputAccumulator:
         text = self.decoder.decode(b"", final=True)
         self._append_text(text)
         if self.log_file is None and self._needs_full_log():
-            self._open_log()
+            self.open_log()
         return text
 
     def snapshot(self) -> _BashOutputSnapshot:
@@ -652,11 +656,14 @@ class _BashOutputAccumulator:
             or self.completed_lines + int(self.has_open_line) > DEFAULT_MAX_LINES
         )
 
-    def _open_log(self) -> None:
+    def open_log(self) -> None:
+        """Start writing raw output to the log file, beginning with what was captured so far."""
+
         self.tool_output_dir.mkdir(parents=True, exist_ok=True)
         self.log_file = self.log_path.open("wb")
         for chunk in self.raw_chunks:
             self.log_file.write(chunk)
+        self.log_file.flush()
         self.raw_chunks = []
 
 
@@ -702,11 +709,19 @@ def _kill_proc_tree(proc: asyncio.subprocess.Process) -> None:
     name="bash",
     description=(
         "Run a bash command in the session working directory. "
-        "Large output returns the tail and saves the full log to a file."
+        "Large output returns the tail and saves the full log to a file. "
+        "With background=true the command keeps running after this call returns; its result "
+        "is delivered to you when it exits, even after your turn ends."
     ),
     parameters={
         "command": "Bash command.",
-        "timeout": "Timeout in seconds. Defaults to 120.",
+        "timeout": "Timeout in seconds. Defaults to 120. Ignored for background commands.",
+        "background": (
+            "Run the command in the background and return at once. Use it for long commands "
+            "you do not need to wait for (test suites, builds, servers). You receive the result "
+            "when the command exits: do not poll, and end your turn if nothing else is left to do. "
+            "Read the log file for interim output."
+        ),
     },
     streams_output=True,
 )
@@ -714,37 +729,20 @@ async def bash_tool(
     ctx: ToolContext[CliDeps],
     command: str,
     timeout: int | None = None,  # noqa: ASYNC109
+    background: bool = False,
 ) -> ToolExecutionResult:
     """Run a command with ``bash -c`` and return combined stdout/stderr text."""
 
-    timeout_seconds = timeout if timeout is not None and timeout > 0 else BASH_TIMEOUT_SECONDS
-    proc: asyncio.subprocess.Process | None = None
-    log_path = ctx.deps.tool_output_dir / f"bash-{ctx.tool_call_id or 'call'}.log"
-    output = _BashOutputAccumulator(ctx.deps.tool_output_dir, log_path)
-
-    def emit_output(text: str) -> None:
-        if text and ctx.emit is not None:
-            ctx.emit(text)
-
-    async def drain_stdout() -> None:
-        assert proc is not None
-        assert proc.stdout is not None
-        while chunk := await proc.stdout.read(_BASH_READ_CHUNK_SIZE):
-            emit_output(output.append(chunk))
-
-    async def terminate_and_drain() -> None:
-        if proc is None:
-            return
-        _kill_proc_tree(proc)
-        with suppress(TimeoutError):
-            async with asyncio.timeout(1):
-                await drain_stdout()
-                await proc.wait()
-
+    jobs = ctx.deps.jobs
+    if background and jobs is None:
+        return ToolExecutionResult(output="error: background commands are not available in this mode", is_error=True)
     bash = shutil.which("bash")
     if bash is None:
         return ToolExecutionResult(output="error: bash not found on PATH", is_error=True)
 
+    tool_use_id = ctx.tool_call_id or "call"
+    log_path = ctx.deps.tool_output_dir / f"bash-{tool_use_id}.log"
+    output = _BashOutputAccumulator(ctx.deps.tool_output_dir, log_path)
     try:
         proc = await asyncio.create_subprocess_exec(
             bash,
@@ -757,7 +755,67 @@ async def bash_tool(
             limit=_BASH_READ_CHUNK_SIZE,
             start_new_session=os.name == "posix",
         )
+    except Exception as exc:
+        return ToolExecutionResult(output=f"error: {exc}", is_error=True)
 
+    if not background:
+        timeout_seconds = timeout if timeout is not None and timeout > 0 else BASH_TIMEOUT_SECONDS
+        return await _run_foreground(ctx, proc, output, timeout_seconds)
+
+    assert jobs is not None
+    try:
+        output.open_log()
+    except OSError as exc:
+        _kill_proc_tree(proc)
+        return ToolExecutionResult(output=f"error: {exc}", is_error=True)
+    label = _command_label(command)
+    task = asyncio.create_task(_finish_background(jobs, proc, output, tool_use_id=tool_use_id, label=label))
+    jobs.add(
+        BackgroundJob(
+            tool_use_id=tool_use_id,
+            label=label,
+            pid=proc.pid,
+            started_at=datetime.now(UTC).isoformat(),
+            task=task,
+            kill=partial(_kill_proc_tree, proc),
+        )
+    )
+    return ToolExecutionResult(
+        output=f"Started in background (pid {proc.pid}): {label}\nLog: {log_path}",
+        metadata={"background": True, "pid": proc.pid, "log": str(log_path)},
+    )
+
+
+def _command_label(command: str) -> str:
+    """One line naming the command in headers; the full text stays in the tool call."""
+
+    label = " ".join(command.split())
+    return label if len(label) <= 80 else label[:79] + "…"
+
+
+async def _run_foreground(
+    ctx: ToolContext[CliDeps],
+    proc: asyncio.subprocess.Process,
+    output: _BashOutputAccumulator,
+    timeout_seconds: int,
+) -> ToolExecutionResult:
+    def emit_output(text: str) -> None:
+        if text and ctx.emit is not None:
+            ctx.emit(text)
+
+    async def drain_stdout() -> None:
+        assert proc.stdout is not None
+        while chunk := await proc.stdout.read(_BASH_READ_CHUNK_SIZE):
+            emit_output(output.append(chunk))
+
+    async def terminate_and_drain() -> None:
+        _kill_proc_tree(proc)
+        with suppress(TimeoutError):
+            async with asyncio.timeout(1):
+                await drain_stdout()
+                await proc.wait()
+
+    try:
         try:
             async with asyncio.timeout(timeout_seconds):
                 await drain_stdout()
@@ -791,11 +849,55 @@ async def bash_tool(
         return ToolExecutionResult(output=f"error: {exc}", is_error=True)
     finally:
         output.close()
-        if proc is not None:
-            if proc.returncode is None:
-                _kill_proc_tree(proc)
-            with suppress(asyncio.CancelledError, Exception):
+        if proc.returncode is None:
+            _kill_proc_tree(proc)
+        with suppress(asyncio.CancelledError, Exception):
+            await proc.wait()
+
+
+async def _finish_background(
+    jobs: BackgroundJobs,
+    proc: asyncio.subprocess.Process,
+    output: _BashOutputAccumulator,
+    *,
+    tool_use_id: str,
+    label: str,
+) -> None:
+    """Drain a background command to its log, then hand its result to the registry.
+
+    A failure to capture the output (such as a log file that cannot be
+    written) still ends in a notification, carrying the error after whatever
+    output was captured.
+    """
+
+    error: str | None = None
+    try:
+        assert proc.stdout is not None
+        while chunk := await proc.stdout.read(_BASH_READ_CHUNK_SIZE):
+            output.append(chunk)
+        output.finish()
+        await proc.wait()
+    except Exception as exc:
+        error = f"error: {exc}"
+    finally:
+        if proc.returncode is None:
+            _kill_proc_tree(proc)
+            with suppress(Exception):
                 await proc.wait()
+        snapshot = output.snapshot()
+        output.close()
+
+    exit_code = proc.returncode or 0
+    header = f"Background bash finished (pid {proc.pid}, exit code {exit_code}): {label}\nLog: {output.log_path}"
+    body = _format_bash_output(snapshot)
+    if error is not None:
+        body = f"{body}\n\n{error}"
+    await jobs.notify(
+        text_block(
+            f"{header}\n\n{body}",
+            meta={"job": {"tool_use_id": tool_use_id, "name": "bash", "label": label, "exit_code": exit_code}},
+        )
+    )
 
 
 DEFAULT_TOOLS: list[ToolSpec] = [read_tool, write_tool, edit_tool, bash_tool]

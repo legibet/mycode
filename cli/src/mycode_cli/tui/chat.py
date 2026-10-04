@@ -6,6 +6,7 @@ import asyncio
 import re
 import shlex
 from collections.abc import Iterable
+from contextlib import suppress
 from dataclasses import replace
 from pathlib import Path
 from typing import Any, Literal, override
@@ -37,6 +38,7 @@ from mycode.messages import (
     merge_user_messages,
     text_block,
 )
+from mycode_cli.background import BackgroundJobs
 from mycode_cli.config import (
     ResolvedProvider,
     Settings,
@@ -62,6 +64,7 @@ from .render import (
     format_local_timestamp,
     header_lines,
     history_preview,
+    job_lines,
     shorten,
     tool_label,
     user_echo,
@@ -283,7 +286,7 @@ def history_file_path() -> str:
     return str(path)
 
 
-def clone_agent(agent: Agent, *, store: SessionStore, session_id: str, cwd: str) -> Agent:
+def clone_agent(agent: Agent, *, store: SessionStore, session_id: str, cwd: str, jobs: BackgroundJobs) -> Agent:
     """Keep the current runtime config while swapping session state.
 
     History auto-loads from disk when ``session_id`` exists under the store.
@@ -307,7 +310,7 @@ def clone_agent(agent: Agent, *, store: SessionStore, session_id: str, cwd: str)
         system=agent.system,
         tools=agent.tools.specs,
         hooks=agent.hooks,
-        deps=CliDeps.for_session(cwd=cwd, data_dir=store.data_dir, session_id=session_id),
+        deps=CliDeps.for_session(cwd=cwd, data_dir=store.data_dir, session_id=session_id, jobs=jobs),
     )
 
 
@@ -355,6 +358,7 @@ class TerminalChat:
         settings: Settings,
         store: SessionStore,
         session_id: str,
+        jobs: BackgroundJobs,
         provider_name: str | None = None,
         reasoning_efforts: tuple[str, ...] = (),
         session: dict[str, Any] | None = None,
@@ -374,6 +378,10 @@ class TerminalChat:
         # Input submitted during a turn: steers the agent holds, and the queue for the next turn.
         self._steers: list[ConversationMessage] = []
         self._queue: list[ConversationMessage] = []
+        # The session's background jobs; a finished one wakes the idle loop through ``_wake``.
+        self.jobs = jobs
+        self.jobs.deliver = self._deliver_jobs
+        self._wake = asyncio.Event()
         self.terminal = Terminal(
             history_path=history_file_path(),
             completer=_PromptCompleter(cwd=self.settings.cwd),
@@ -392,13 +400,18 @@ class TerminalChat:
         selected = await self.terminal.choose([("allow", "Allow"), ("deny", "Deny")], default="allow")
         if selected == "allow":
             return "allow"
+        # A denial stops the turn like Esc does, and holds background wakes with it.
+        self.jobs.suspended = True
         self.agent.cancel()
         return "deny"
 
     async def run(self) -> None:
         """Run the interactive chat until the user exits the terminal UI."""
 
-        await self.terminal.run(self._main)
+        try:
+            await self.terminal.run(self._main)
+        finally:
+            await self.jobs.close()
 
     async def _main(self) -> None:
         self._print_header(self._session, mode=self._mode, message_count=len(self._messages))
@@ -406,8 +419,13 @@ class TerminalChat:
             self._print_history(self._messages)
 
         while True:
+            if self.jobs.pending and not self.jobs.suspended:
+                self.terminal.print()
+                await self._run_turn(None)
+                continue
+            self._wake.clear()
             try:
-                user_input = (await self.terminal.read()).strip()
+                user_input = await self._read_or_wake()
             except EOFError:
                 self.terminal.print(Text(), Text("bye", style=MUTED))
                 return
@@ -428,16 +446,49 @@ class TerminalChat:
             self.terminal.print()
             await self._run_turn(user_input)
 
-    async def _run_turn(self, user_input: str) -> None:
+    async def _read_or_wake(self) -> str | None:
+        """Wait for submitted input, or for a background result to wake the session (``None``)."""
+
+        read = asyncio.ensure_future(self.terminal.read())
+        wake = asyncio.ensure_future(self._wake.wait())
+        done, _ = await asyncio.wait({read, wake}, return_when=asyncio.FIRST_COMPLETED)
+        # Input wins a tie; a cancelled read leaves the submission in the terminal's queue.
+        for task in (read, wake):
+            if task not in done:
+                task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await task
+        return read.result().strip() if read in done else None
+
+    async def _deliver_jobs(self) -> None:
+        """Steer finished background results into the running turn, or wake the idle loop."""
+
+        blocks = self.jobs.deliverable()
+        if blocks and self.agent.steer(build_message("user", blocks)):
+            self.jobs.take_pending()
+            return
+        # Idle, compacting, or a turn that is finishing: the loop delivers
+        # them once it is back at the top.
+        self._wake.set()
+
+    async def _run_turn(self, user_input: str | None) -> None:
         """Send one user message and render the agent's turn, then run the queue as the next turn.
 
-        While it runs, Enter steers the turn and Ctrl+Q queues. Esc or Ctrl+C
-        takes the pending input back and cancels; a stopped turn returns
-        whatever is still pending to the editor.
+        ``None`` is a wake: the message holds only the finished background
+        results. A user message carries them ahead of its own blocks and ends
+        a Stop. While the turn runs, Enter steers it and Ctrl+Q queues. Esc or
+        Ctrl+C takes the pending input back and cancels; a stopped turn
+        returns whatever is still pending to the editor.
         """
 
-        batch = [self._build_user_message(user_input)]
-        message = batch[0]
+        if user_input is None:
+            message = build_message("user", [])
+        else:
+            self.jobs.suspended = False
+            message = self._build_user_message(user_input)
+        self._attach_results(message)
+        wake_message = message if user_input is None else None
+        batch = [message]
         # The agent's history grows by the committed message before anything else.
         history_before = len(self.agent.messages)
         self.terminal.busy = True
@@ -446,7 +497,10 @@ class TerminalChat:
         self.terminal.on_take_back = self._take_back
         try:
             renderer = await self._turn_renderer()
-            await self.store.record_user_turn(self.session_id, cwd=self.settings.cwd, text=user_input)
+            if user_input is None:
+                await self.store.touch(self.session_id)
+            else:
+                await self.store.record_user_turn(self.session_id, cwd=self.settings.cwd, text=user_input)
             while True:
                 await renderer.render(self.agent, message)
                 if renderer.stopped or not self._queue:
@@ -462,7 +516,9 @@ class TerminalChat:
                 self._show_pending()
                 message = merge_user_messages(batch, steer=False)
                 history_before = len(self.agent.messages)
-                self.terminal.print(Text(), user_echo(text), Text())
+                self.terminal.print(Text())
+                self._attach_results(message)
+                self.terminal.print(user_echo(text), Text())
         finally:
             self.terminal.busy = False
             self.terminal.on_cancel = None
@@ -470,9 +526,24 @@ class TerminalChat:
             self.terminal.on_take_back = None
             # A message that never reached the session (its commit failed, or
             # the stop came first) returns to the editor with the pending input.
+            # A wake that never committed holds further wakes instead: its
+            # results wait for the user's next message rather than retrying.
             if len(self.agent.messages) == history_before:
-                self._queue[:0] = batch
+                if message is wake_message:
+                    self.jobs.suspended = True
+                else:
+                    self._queue[:0] = batch
             self._take_back()
+            # The results this turn committed are done; the rest are free for the next delivery.
+            self.jobs.reconcile(self.agent.messages)
+
+    def _attach_results(self, message: ConversationMessage) -> None:
+        """Put the finished background results ahead of ``message`` and print them."""
+
+        blocks = self.jobs.take_pending()
+        message["content"] = [*blocks, *message["content"]]
+        for block in blocks:
+            self.terminal.print(*job_lines(block, self.terminal.width))
 
     async def _turn_renderer(self) -> TurnRenderer:
         # Fold the session JSONL fresh each turn: covers resume, /new, /rewind,
@@ -523,8 +594,12 @@ class TerminalChat:
             self.terminal.prepend_input("\n\n".join(flatten_message_text(item) for item in returned))
 
     def _interrupt(self) -> None:
-        """Esc or Ctrl+C during a turn: take the pending input back, then cancel."""
+        """Esc or Ctrl+C during a turn: take the pending input back, then cancel.
 
+        A stop also holds background wakes until the next user message.
+        """
+
+        self.jobs.suspended = True
         self._take_back()
         self.agent.cancel()
 
@@ -615,7 +690,7 @@ class TerminalChat:
             case "/compact":
                 await self._compact_session()
             case "/new" | "/clear":
-                self._start_new_session()
+                await self._start_new_session()
             case "/rewind":
                 prefill = await self._rewind()
                 if prefill:
@@ -687,12 +762,25 @@ class TerminalChat:
         await self.store.touch(self.session_id)
         self.terminal.print(compact_marker())
 
-    def _start_new_session(self) -> None:
+    async def _start_new_session(self) -> None:
         """Start a fresh session while keeping the current runtime settings."""
 
-        self.session_id = uuid4().hex
-        self.agent = clone_agent(self.agent, store=self.store, session_id=self.session_id, cwd=self.settings.cwd)
+        await self._leave_session(uuid4().hex)
         self._print_header({"id": self.session_id, "title": "New chat"}, mode="new", message_count=0)
+
+    async def _leave_session(self, session_id: str) -> None:
+        """Stop the session's background jobs and move the agent to ``session_id``."""
+
+        count = len(self.jobs.jobs)
+        await self.jobs.close()
+        if count:
+            self._print_done("stopped", f"{count} background job{'s' if count > 1 else ''}")
+        self.session_id = session_id
+        self.jobs = BackgroundJobs()
+        self.jobs.deliver = self._deliver_jobs
+        self.agent = clone_agent(
+            self.agent, store=self.store, session_id=session_id, cwd=self.settings.cwd, jobs=self.jobs
+        )
 
     async def _rewind(self) -> str | None:
         """Rewind the conversation to a chosen user message.
@@ -732,6 +820,8 @@ class TerminalChat:
 
         original_text = user_turns[selected]
 
+        # A result for a call that is no longer in the history would confuse the model.
+        await self.jobs.close()
         # Persist the rewind event and truncate in-memory messages.
         await self.store.append_rewind(self.session_id, selected)
         await self.store.touch(self.session_id)
@@ -765,13 +855,13 @@ class TerminalChat:
         if session is None:
             return
 
-        self.session_id = str(session["id"])
-        data = await self.store.load_session(self.session_id)
+        session_id = str(session["id"])
+        data = await self.store.load_session(session_id)
         if data is None:
             self.terminal.print(error_line("failed to load session"))
             return
         messages = data["messages"]
-        self.agent = clone_agent(self.agent, store=self.store, session_id=self.session_id, cwd=self.settings.cwd)
+        await self._leave_session(session_id)
         self._print_header(data["session"], mode="resumed", message_count=len(messages))
         self._print_history(messages)
 

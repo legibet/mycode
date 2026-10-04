@@ -161,6 +161,9 @@ class ChatResponse(BaseModel):
 
     run: RunInfo
     session: dict[str, Any]
+    # The user message as the run received it: finished background results
+    # that waited for this message ride ahead of its own blocks.
+    message: dict[str, Any]
 
 
 class RunResponse(BaseModel):

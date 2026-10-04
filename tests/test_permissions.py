@@ -210,6 +210,14 @@ def test_classifies_dangerous_or_compound_bash_as_yolo(command: str, tmp_path: P
     assert check.tier == "yolo"
 
 
+def test_background_bash_keeps_its_level_and_marks_the_preview(tmp_path: Path) -> None:
+    check = classify_tool(
+        _ctx("bash", {"command": "pytest -q", "background": True}, cwd=tmp_path), project=str(tmp_path), skill_roots=[]
+    )
+    assert check.tier == "standard"
+    assert check.preview == "pytest -q (background)"
+
+
 @pytest.mark.asyncio
 async def test_permission_hook_denies_without_interactive_review_without_cancelling(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
