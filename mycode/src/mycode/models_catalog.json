@@ -40,7 +40,7 @@
     "MiniMax-M2.5-highspeed": {
       "context_window": 204800,
       "cost": {
-        "cache_read": 0.06,
+        "cache_read": 0.03,
         "cache_write": 0.375,
         "input": 0.6,
         "output": 2.4
@@ -103,21 +103,7 @@
       "supports_image_input": false,
       "supports_pdf_input": false
     },
-    "c4ai-aya-expanse-8b": {
-      "context_window": 8000,
-      "max_output_tokens": 4000,
-      "reasoning_efforts": null,
-      "supports_image_input": false,
-      "supports_pdf_input": false
-    },
     "c4ai-aya-vision-32b": {
-      "context_window": 16000,
-      "max_output_tokens": 4000,
-      "reasoning_efforts": null,
-      "supports_image_input": true,
-      "supports_pdf_input": false
-    },
-    "c4ai-aya-vision-8b": {
       "context_window": 16000,
       "max_output_tokens": 4000,
       "reasoning_efforts": null,
@@ -192,6 +178,34 @@
       },
       "max_output_tokens": 64000,
       "reasoning_efforts": [],
+      "supports_image_input": true,
+      "supports_pdf_input": true
+    },
+    "claude-haiku-5-5": {
+      "context_window": 1000000,
+      "cost": {
+        "cache_read": 0.01,
+        "cache_write": 0.125,
+        "input": 0.1,
+        "output": 0.5,
+        "tiers": [
+          {
+            "cache_read": 0.05,
+            "cache_write": 0.625,
+            "input": 0.5,
+            "output": 2.5,
+            "size": 100000
+          }
+        ]
+      },
+      "max_output_tokens": 128000,
+      "reasoning_efforts": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": true
     },
@@ -324,7 +338,7 @@
       "supports_pdf_input": true
     },
     "claude-sonnet-4-5": {
-      "context_window": 1000000,
+      "context_window": 200000,
       "cost": {
         "cache_read": 0.3,
         "cache_write": 3.75,
@@ -337,7 +351,7 @@
       "supports_pdf_input": true
     },
     "claude-sonnet-4-5-20250929": {
-      "context_window": 1000000,
+      "context_window": 200000,
       "cost": {
         "cache_read": 0.3,
         "cache_write": 3.75,
@@ -389,7 +403,7 @@
     "claude-sonnet-5-5": {
       "context_window": 1000000,
       "cost": {
-        "cache_read": 0.2,
+        "cache_read": 0.1,
         "cache_write": 2.5,
         "input": 2,
         "output": 10
@@ -404,6 +418,18 @@
       ],
       "supports_image_input": true,
       "supports_pdf_input": true
+    },
+    "codestral-2508": {
+      "context_window": 256000,
+      "cost": {
+        "cache_read": 0.03,
+        "input": 0.3,
+        "output": 0.9
+      },
+      "max_output_tokens": 8192,
+      "reasoning_efforts": null,
+      "supports_image_input": false,
+      "supports_pdf_input": false
     },
     "codestral-latest": {
       "context_window": 256000,
@@ -1306,6 +1332,22 @@
       },
       "max_output_tokens": 131072,
       "reasoning_efforts": [],
+      "supports_image_input": false,
+      "supports_pdf_input": false
+    },
+    "glm-5-2": {
+      "context_window": 1048576,
+      "cost": {
+        "cache_read": 0.14,
+        "input": 1.4,
+        "output": 4.4
+      },
+      "max_output_tokens": 131072,
+      "reasoning_efforts": [
+        "none",
+        "high",
+        "max"
+      ],
       "supports_image_input": false,
       "supports_pdf_input": false
     },
@@ -2394,6 +2436,13 @@
       "supports_image_input": true,
       "supports_pdf_input": true
     },
+    "grok-imagine-video-1.5-lite": {
+      "context_window": 1024,
+      "max_output_tokens": 0,
+      "reasoning_efforts": null,
+      "supports_image_input": true,
+      "supports_pdf_input": true
+    },
     "hy3": {
       "context_window": 256000,
       "cost": {
@@ -2482,6 +2531,7 @@
       "context_window": 1048576,
       "cost": {
         "cache_read": 0.3,
+        "cache_write": 3,
         "input": 3,
         "output": 15
       },
@@ -2502,6 +2552,20 @@
       },
       "max_output_tokens": 256000,
       "reasoning_efforts": null,
+      "supports_image_input": true,
+      "supports_pdf_input": false
+    },
+    "labs-leanstral-1-5-1": {
+      "context_window": 262144,
+      "cost": {
+        "input": 0,
+        "output": 0
+      },
+      "max_output_tokens": 128000,
+      "reasoning_efforts": [
+        "none",
+        "high"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": false
     },
@@ -2528,14 +2592,17 @@
       "supports_pdf_input": false
     },
     "magistral-medium-latest": {
-      "context_window": 128000,
+      "context_window": 262144,
       "cost": {
         "input": 2,
         "output": 5
       },
       "max_output_tokens": 16384,
-      "reasoning_efforts": [],
-      "supports_image_input": false,
+      "reasoning_efforts": [
+        "none",
+        "high"
+      ],
+      "supports_image_input": true,
       "supports_pdf_input": false
     },
     "mimo-v2-flash": {
@@ -2646,26 +2713,62 @@
       "supports_image_input": true,
       "supports_pdf_input": false
     },
+    "ministral-14b-2512": {
+      "context_window": 262144,
+      "cost": {
+        "cache_read": 0.02,
+        "input": 0.2,
+        "output": 0.2
+      },
+      "max_output_tokens": 262144,
+      "reasoning_efforts": null,
+      "supports_image_input": true,
+      "supports_pdf_input": false
+    },
+    "ministral-3b-2512": {
+      "context_window": 131072,
+      "cost": {
+        "cache_read": 0.01,
+        "input": 0.1,
+        "output": 0.1
+      },
+      "max_output_tokens": 262144,
+      "reasoning_efforts": null,
+      "supports_image_input": true,
+      "supports_pdf_input": false
+    },
     "ministral-3b-latest": {
-      "context_window": 128000,
+      "context_window": 131072,
       "cost": {
         "input": 0.04,
         "output": 0.04
       },
       "max_output_tokens": 128000,
       "reasoning_efforts": null,
-      "supports_image_input": false,
+      "supports_image_input": true,
+      "supports_pdf_input": false
+    },
+    "ministral-8b-2512": {
+      "context_window": 262144,
+      "cost": {
+        "cache_read": 0.015,
+        "input": 0.15,
+        "output": 0.15
+      },
+      "max_output_tokens": 262144,
+      "reasoning_efforts": null,
+      "supports_image_input": true,
       "supports_pdf_input": false
     },
     "ministral-8b-latest": {
-      "context_window": 128000,
+      "context_window": 262144,
       "cost": {
         "input": 0.1,
         "output": 0.1
       },
       "max_output_tokens": 128000,
       "reasoning_efforts": null,
-      "supports_image_input": false,
+      "supports_image_input": true,
       "supports_pdf_input": false
     },
     "mistral-embed": {
@@ -2699,6 +2802,21 @@
       },
       "max_output_tokens": 262144,
       "reasoning_efforts": null,
+      "supports_image_input": true,
+      "supports_pdf_input": false
+    },
+    "mistral-large-4": {
+      "context_window": 1048576,
+      "cost": {
+        "cache_read": 0.07,
+        "input": 0.68,
+        "output": 2.09
+      },
+      "max_output_tokens": 262144,
+      "reasoning_efforts": [
+        "none",
+        "high"
+      ],
       "supports_image_input": true,
       "supports_pdf_input": false
     },
@@ -2789,7 +2907,7 @@
       "supports_pdf_input": false
     },
     "mistral-small-2603": {
-      "context_window": 256000,
+      "context_window": 262144,
       "cost": {
         "cache_read": 0.015,
         "input": 0.15,
@@ -2804,7 +2922,7 @@
       "supports_pdf_input": false
     },
     "mistral-small-latest": {
-      "context_window": 256000,
+      "context_window": 262144,
       "cost": {
         "cache_read": 0.015,
         "input": 0.15,
@@ -3220,8 +3338,8 @@
     "qwen-vl-ocr": {
       "context_window": 34096,
       "cost": {
-        "input": 0.72,
-        "output": 0.72
+        "input": 0.07,
+        "output": 0.16
       },
       "max_output_tokens": 4096,
       "reasoning_efforts": null,
@@ -4024,8 +4142,19 @@
       "supports_image_input": false,
       "supports_pdf_input": false
     },
+    "voxtral-small-2507": {
+      "context_window": 32768,
+      "cost": {
+        "input": 0.1,
+        "output": 0.4
+      },
+      "max_output_tokens": 32000,
+      "reasoning_efforts": null,
+      "supports_image_input": false,
+      "supports_pdf_input": false
+    },
     "voxtral-small-latest": {
-      "context_window": 32000,
+      "context_window": 32768,
       "cost": {
         "input": 0.1,
         "output": 0.3
@@ -4036,7 +4165,7 @@
       "supports_pdf_input": false
     },
     "zai-glm-5-2": {
-      "context_window": 1000000,
+      "context_window": 1048576,
       "cost": {
         "cache_read": 0.14,
         "input": 1.4,
@@ -4052,7 +4181,7 @@
       "supports_pdf_input": false
     },
     "zai-glm-5-3": {
-      "context_window": 1000000,
+      "context_window": 1048576,
       "cost": {
         "cache_read": 0.14,
         "input": 1.4,
