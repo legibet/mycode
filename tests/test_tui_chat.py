@@ -313,6 +313,8 @@ class TestToolReview:
         cancels: list[str] = []
 
         class _ReviewAgent(_AttachmentAgent):
+            context_window = None
+
             @override
             def cancel(self) -> None:
                 cancels.append("cancel")
@@ -327,8 +329,11 @@ class TestToolReview:
                     harness.pipe.send_text(key)
 
             task = asyncio.create_task(drive_input())
+            renderer = await chat._turn_renderer()
+            renderer.tool_start("call-1", "bash", {"command": "rm -rf build"})
             request = ToolReviewRequest("call-1", "bash", "rm -rf build", PermissionConfig())
             results.append(await chat._review_tool_call(request))
+            renderer.tool_done("call-1", "", is_error=False)
             await task
 
         await chat.terminal.run(main)
@@ -338,7 +343,8 @@ class TestToolReview:
         assert cancels == (["cancel"] if cancelled else [])
         # A denial stops the turn, so it holds background wakes like Esc does.
         assert chat.jobs.suspended is cancelled
-        assert f"{TOOL_MARKER} Review  Bash\n  rm -rf build\n" in rendered
+        # The decided review is a block of the turn, apart from the tool block after it.
+        assert f"{TOOL_MARKER} Review  Bash\n  rm -rf build\n\n{TOOL_MARKER} Bash  rm -rf build\n" in rendered
 
 
 class _TurnAgent(_AttachmentAgent):

@@ -651,6 +651,11 @@ class TurnRenderer:
             # Waiting for the next model response.
             self._show_spinner(Text())
 
+    def print_block(self, *renderables: RenderableType) -> None:
+        """Print a block from outside the event stream, such as a decided tool review."""
+
+        self._print(*renderables)
+
     def retry(self, *, attempt: object, max_attempts: object, reason: str) -> None:
         """Show the retry status in the tail until the next event replaces it."""
 

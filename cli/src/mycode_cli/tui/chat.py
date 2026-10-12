@@ -382,6 +382,8 @@ class TerminalChat:
         self.jobs = jobs
         self.jobs.deliver = self._deliver_jobs
         self._wake = asyncio.Event()
+        # The running turn's renderer; tool reviews print through it.
+        self._renderer: TurnRenderer | None = None
         self.terminal = Terminal(
             history_path=history_file_path(),
             completer=_PromptCompleter(cwd=self.settings.cwd),
@@ -393,14 +395,16 @@ class TerminalChat:
         title = Text()
         title.append(f"{TOOL_MARKER} Review", style=WARNING)
         title.append(f"  {tool_label(request.tool_name)}")
-        lines: list[Text] = [Text(), title]
+        lines: list[Text] = [title]
         if request.preview:
             lines.append(Text(f"  {shorten(request.preview, self.terminal.width - 2)}", style=MUTED))
         # The request stays with the options while they are open, so a parallel
         # tool finishing meanwhile cannot print between them; once decided, it
-        # goes to the scrollback.
-        selected = await self.terminal.choose([("allow", "Allow"), ("deny", "Deny")], default="allow", title=lines)
-        self.terminal.print(*lines)
+        # goes to the scrollback as a block of the turn.
+        options = [("allow", "Allow"), ("deny", "Deny")]
+        selected = await self.terminal.choose(options, default="allow", title=[Text(), *lines])
+        assert self._renderer is not None, "tool reviews run inside a turn"
+        self._renderer.print_block(*lines)
         if selected == "allow":
             return "allow"
         # A denial stops the turn like Esc does, and holds background wakes with it.
@@ -551,13 +555,14 @@ class TerminalChat:
     async def _turn_renderer(self) -> TurnRenderer:
         # Fold the session JSONL fresh each turn: covers resume, /new, /rewind,
         # and manual /compact without tracking state.
-        return TurnRenderer(
+        self._renderer = TurnRenderer(
             self.terminal,
             model=self.agent.model,
             context_window=self.agent.context_window,
             session_base=await load_session_totals(self.store, self.session_id),
             on_user_message=self._steer_delivered,
         )
+        return self._renderer
 
     def _submit_pending(self, text: str, queue: bool) -> bool:
         """Steer the running turn with submitted text, or queue it; refuse commands."""
