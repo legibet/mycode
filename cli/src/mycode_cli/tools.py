@@ -164,6 +164,7 @@ def _skip_line(file: TextIO) -> None:
         "offset": "1-indexed starting line. Defaults to 1.",
         "limit": "Maximum number of lines to return. Defaults to 2000.",
     },
+    parallel_safe=True,
 )
 def read_tool(
     ctx: ToolContext[CliDeps],

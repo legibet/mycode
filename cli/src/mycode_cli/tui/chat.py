@@ -396,8 +396,11 @@ class TerminalChat:
         lines: list[Text] = [Text(), title]
         if request.preview:
             lines.append(Text(f"  {shorten(request.preview, self.terminal.width - 2)}", style=MUTED))
+        # The request stays with the options while they are open, so a parallel
+        # tool finishing meanwhile cannot print between them; once decided, it
+        # goes to the scrollback.
+        selected = await self.terminal.choose([("allow", "Allow"), ("deny", "Deny")], default="allow", title=lines)
         self.terminal.print(*lines)
-        selected = await self.terminal.choose([("allow", "Allow"), ("deny", "Deny")], default="allow")
         if selected == "allow":
             return "allow"
         # A denial stops the turn like Esc does, and holds background wakes with it.

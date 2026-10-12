@@ -495,6 +495,8 @@ Response:
 | `permission_resolved` | `request_id: str`, `decision: "allow" \| "deny"`                                                                                    |
 | `usage`               | `context_tokens?`, `context_window?`, `model?`, `turn_usage?`, `turn_cost?`, `turn_duration_ms?`, `session_usage?`, `session_cost?` |
 
+Parallel-safe tool calls run concurrently (`docs/sdk.md`, Parallel calls). Their `tool_start` events come in call order and their later events interleave, so clients match `tool_output` and `tool_done` by `tool_use_id`. Permission requests come one at a time.
+
 `tool_output` is ordered, append-only display text. Clients do not insert separators between events. Under buffer pressure, `[live output omitted]` replaces one continuous middle segment. `tool_done.output` is the authoritative final result. Once a tool's `tool_done` is buffered, the server may drop that tool's earlier `tool_output` events — a consumer that has not read them yet skips straight to the `tool_done`.
 
 `compact.trigger` matches the persisted marker's `meta.trigger`: `auto` inside a chat run, where the marker belongs to the running turn, and `manual` for a compact run.

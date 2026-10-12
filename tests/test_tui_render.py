@@ -282,6 +282,19 @@ class TestTurnRenderer:
 
         assert f"Checking.\n\n{TOOL_MARKER} Read  a.py  :10-15\n{TOOL_MARKER} Edit  b.py  +3 −1\n\nDone.\n" in rendered
 
+    async def test_parallel_tools_print_in_the_order_they_finish(self, harness: TerminalHarness) -> None:
+        _, rendered = await _render_turn(
+            harness,
+            [
+                Event("tool_start", {"tool_call": {"id": "1", "name": "webfetch", "input": {"url": "https://a.test"}}}),
+                Event("tool_start", {"tool_call": {"id": "2", "name": "read", "input": {"path": "b.py"}}}),
+                Event("tool_done", {"tool_use_id": "2", "output": "x", "is_error": False}),
+                Event("tool_done", {"tool_use_id": "1", "output": "error: timed out", "is_error": True}),
+            ],
+        )
+
+        assert f"{TOOL_MARKER} Read  b.py\n{TOOL_MARKER} WebFetch  https://a.test\n  error: timed out\n" in rendered
+
     async def test_finish_prints_context_and_session_cost(self, harness: TerminalHarness) -> None:
         _, rendered = await _render_turn(
             harness,

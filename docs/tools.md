@@ -2,7 +2,7 @@
 
 Sources: `cli/src/mycode_cli/tools.py`, `cli/src/mycode_cli/web_tools.py`, `cli/src/mycode_cli/permissions.py`
 
-The CLI always registers `read`, `write`, `edit`, `bash`, and `webfetch`. It registers `websearch` when `web.search` selects a provider. They are ordinary `ToolSpec` values on the SDK tool runtime; streaming, cancellation, and hook behavior follow the contract in `docs/sdk.md`. The output text formats below are a cross-component contract: the TUI and web UI render them directly.
+The CLI always registers `read`, `write`, `edit`, `bash`, and `webfetch`. It registers `websearch` when `web.search` selects a provider. They are ordinary `ToolSpec` values on the SDK tool runtime; streaming, cancellation, and hook behavior follow the contract in `docs/sdk.md`. `read`, `webfetch`, and `websearch` are parallel-safe, so consecutive calls to them run concurrently; `write`, `edit`, and `bash` run one at a time. The output text formats below are a cross-component contract: the TUI and web UI render them directly.
 
 ## read
 

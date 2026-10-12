@@ -63,6 +63,7 @@ def build_web_tools(web: WebConfig) -> list[ToolSpec]:
                 f"Whole-call timeout in seconds. Defaults to {DEFAULT_TIMEOUT_SECONDS}; maximum {MAX_TIMEOUT_SECONDS}."
             ),
         },
+        parallel_safe=True,
     )
     async def webfetch(
         ctx: ToolContext[CliDeps],
@@ -88,6 +89,7 @@ def build_web_tools(web: WebConfig) -> list[ToolSpec]:
             "exclude_domains": "Exclude results from these domains.",
             "search_depth": "Use deep only when a normal search is insufficient.",
         },
+        parallel_safe=True,
     )
     async def websearch(
         query: str,

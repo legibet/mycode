@@ -8,6 +8,7 @@ import time
 from collections import deque
 from collections.abc import Callable
 from contextlib import aclosing
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
@@ -441,6 +442,40 @@ def _tool_suffix(name: str, args: dict[str, Any], metadata: dict[str, Any] | Non
 # -- Turn renderer ---------------------------------------------------------------
 
 
+@dataclass
+class _RunningTool:
+    """A tool call in the tail: its last complete output lines, the unfinished line, and the complete line count."""
+
+    name: str
+    args: dict[str, Any]
+    lines: deque[str] = field(default_factory=lambda: deque(maxlen=_TOOL_OUTPUT_MAX_LINES))
+    line: str = ""
+    line_count: int = 0
+
+    def feed(self, delta: str) -> None:
+        *complete, self.line = (self.line + delta).split("\n")
+        self.lines.extend(complete)
+        self.line_count += len(complete)
+
+    def output(self, rows: int = _TOOL_OUTPUT_MAX_LINES + 1) -> list[Text]:
+        """At most ``rows`` rows: the last output lines, after a count of the lines left out."""
+
+        if rows <= 0:
+            return []
+        lines = [*self.lines, self.line] if self.line else [*self.lines]
+        total = self.line_count + bool(self.line)
+        keep = min(_TOOL_OUTPUT_MAX_LINES, rows)
+        if total > keep:
+            # One row goes to the count.
+            keep = min(keep, rows - 1)
+        shown = lines[-keep:] if keep else []
+        hidden = total - len(shown)
+        count = [Text(f"  … +{hidden} lines", style=MUTED)] if hidden else []
+        return count + [
+            Text(f"  {_display_line(line)}", style=MUTED, no_wrap=True, overflow="ellipsis") for line in shown
+        ]
+
+
 class TurnRenderer:
     """Render one assistant turn from agent events: reasoning, markdown text, tools, and stats.
 
@@ -477,12 +512,8 @@ class TurnRenderer:
         self._stream = MarkdownStream()
         self._text_active = False
         self._tick: asyncio.Task[None] | None = None
-        # Tool phase: the last complete output lines, the unfinished line, and the complete line count.
-        self._tool_name = ""
-        self._tool_args: dict[str, Any] = {}
-        self._tool_lines: deque[str] = deque(maxlen=_TOOL_OUTPUT_MAX_LINES)
-        self._tool_line = ""
-        self._tool_line_count = 0
+        # Tool phase: the running tools by call id, in call order.
+        self._tools: dict[str, _RunningTool] = {}
         # Stats reported by the agent's `usage` event for the latest request.
         self._stats: dict[str, Any] = {}
         # Whether the turn ended on a cancel or an error rather than completing.
@@ -514,15 +545,19 @@ class TurnRenderer:
                             self.text(event.data.get("delta", ""))
                         case "tool_start":
                             tool_call = event.data.get("tool_call") or {}
-                            self.tool_start(tool_call.get("name", ""), tool_call.get("input") or {})
+                            self.tool_start(
+                                tool_call.get("id", ""), tool_call.get("name", ""), tool_call.get("input") or {}
+                            )
                         case "tool_output":
-                            self.tool_output(event.data.get("output", ""))
+                            self.tool_output(event.data.get("tool_use_id", ""), event.data.get("output", ""))
                         case "tool_done":
                             output = str(event.data.get("output") or "")
                             is_error = bool(event.data.get("is_error"))
                             raw_meta = event.data.get("metadata")
                             metadata = raw_meta if isinstance(raw_meta, dict) else None
-                            self.tool_done(output, is_error=is_error, metadata=metadata)
+                            self.tool_done(
+                                event.data.get("tool_use_id", ""), output, is_error=is_error, metadata=metadata
+                            )
                             if is_error:
                                 exit_code = 1
                         case "retry":
@@ -572,38 +607,37 @@ class TurnRenderer:
         if self._tick is None:
             self._tick = asyncio.get_running_loop().create_task(self._text_tick())
 
-    def tool_start(self, name: str, args: dict[str, Any]) -> None:
+    def tool_start(self, tool_id: str, name: str, args: dict[str, Any]) -> None:
         """Show a running tool in the tail; it reaches the scrollback once it finishes."""
 
         self._end_phase()
-        self._tool_name = name
-        self._tool_args = args
-        self._tool_lines.clear()
-        self._tool_line = ""
-        self._tool_line_count = 0
-        self._show_tool()
+        self._tools[tool_id] = _RunningTool(name, args)
+        self._show_tools()
 
-    def tool_output(self, delta: str) -> None:
-        """Append streamed tool output to the running tool."""
+    def tool_output(self, tool_id: str, delta: str) -> None:
+        """Append streamed tool output to its running tool."""
 
-        *complete, self._tool_line = (self._tool_line + delta).split("\n")
-        self._tool_lines.extend(complete)
-        self._tool_line_count += len(complete)
-        self._show_tool()
+        self._tools[tool_id].feed(delta)
+        self._show_tools()
 
     def tool_done(
         self,
+        tool_id: str,
         output: str,
         *,
         is_error: bool,
         metadata: dict[str, Any] | None = None,
     ) -> None:
-        """Print the finished tool: its header, last output lines, and result status."""
+        """Print the finished tool: its header, last output lines, and result status.
 
+        Parallel tools print in the order they finish; the others stay in the tail.
+        """
+
+        tool = self._tools.pop(tool_id)
         style = ERROR if is_error else MUTED
         self._print(
-            _tool_header(self._tool_name, self._tool_args, self._terminal.width, failed=is_error, metadata=metadata),
-            *self._tool_output(),
+            _tool_header(tool.name, tool.args, self._terminal.width, failed=is_error, metadata=metadata),
+            *tool.output(),
             *(
                 Text(f"  {_display_line(line)[:500]}", style=style)
                 for line in _result_status(output, is_error=is_error)
@@ -611,8 +645,11 @@ class TurnRenderer:
             joined=self._last_tool,
         )
         self._last_tool = True
-        # Waiting for the next model response.
-        self._show_spinner(Text())
+        if self._tools:
+            self._show_tools()
+        else:
+            # Waiting for the next model response.
+            self._show_spinner(Text())
 
     def retry(self, *, attempt: object, max_attempts: object, reason: str) -> None:
         """Show the retry status in the tail until the next event replaces it."""
@@ -698,29 +735,33 @@ class TurnRenderer:
         self._spinner.text = text
         self._set_tail(self._spinner)
 
-    def _show_tool(self) -> None:
-        # The terminal shows the last lines of a tall tail, so the output leaves room for the
-        # title and the blank line before it.
+    def _show_tools(self) -> None:
+        """Show the running tools in call order: every title first, then output in the rows left.
+
+        The terminal shows the last lines of a tall tail, so the rows leave room for the blank
+        line before it; titles that still do not fit collapse into a count.
+        """
+
         joined = self._last_tool
-        rows = self._terminal.tail_height - (1 if joined or not self._printed else 2)
-        self._spinner.text = _tool_title(self._tool_name, self._tool_args, self._terminal.width - _SPINNER_CELLS)
-        self._set_tail(Group(self._spinner, *self._tool_output(rows)), joined=joined)
-
-    def _tool_output(self, rows: int = _TOOL_OUTPUT_MAX_LINES + 1) -> list[Text]:
-        """At most ``rows`` rows: the last output lines of the current tool, after a count of the lines left out."""
-
-        lines = [*self._tool_lines, self._tool_line] if self._tool_line else [*self._tool_lines]
-        total = self._tool_line_count + bool(self._tool_line)
-        keep = min(_TOOL_OUTPUT_MAX_LINES, rows)
-        if total > keep:
-            # One row goes to the count.
-            keep = min(keep, rows - 1)
-        shown = lines[-keep:] if keep else []
-        hidden = total - len(shown)
-        count = [Text(f"  … +{hidden} lines", style=MUTED)] if hidden else []
-        return count + [
-            Text(f"  {_display_line(line)}", style=MUTED, no_wrap=True, overflow="ellipsis") for line in shown
-        ]
+        rows = self._terminal.tail_height - (0 if joined or not self._printed else 1)
+        tools = list(self._tools.values())
+        hidden = 0
+        if len(tools) > rows:
+            hidden = len(tools) - (rows - 1)
+            tools = tools[: rows - 1]
+        output_rows = rows - len(tools) - bool(hidden)
+        renderables: list[RenderableType] = []
+        for tool in tools:
+            title = _tool_title(tool.name, tool.args, self._terminal.width - _SPINNER_CELLS)
+            spinner = Spinner("dots", text=title, style=MUTED)
+            # The turn spinner's start time keeps every tool spinner in step with it.
+            spinner.start_time = self._spinner.start_time
+            output = tool.output(output_rows)
+            output_rows -= len(output)
+            renderables += [spinner, *output]
+        if hidden:
+            renderables.append(Text(f"  … +{hidden} running", style=MUTED))
+        self._set_tail(Group(*renderables), joined=joined)
 
     def _end_phase(self) -> None:
         self._end_reasoning()

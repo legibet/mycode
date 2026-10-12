@@ -91,6 +91,8 @@ class _Choice:
     index: int | None
     future: asyncio.Future[int | None]
     query: str = ""
+    # Lines above the list that the filter never hides.
+    title: Sequence[Text] = ()
 
     def visible(self) -> list[int]:
         """Rows matching the filter; a heading shows while any of its rows does."""
@@ -403,12 +405,14 @@ class Terminal:
         *,
         default: T | None = None,
         query: str = "",
+        title: Sequence[Text] = (),
     ) -> T | None:
         """Show an inline, filterable list and return the chosen value, or None on cancel.
 
         Options are ``(value, label)`` pairs; a bare string is a heading that
         groups the options after it. Typing filters the options by label and
-        heading, starting from ``query``.
+        heading, starting from ``query``. ``title`` lines show above the list
+        while it is open.
         """
 
         rows: list[_Row] = []
@@ -427,7 +431,7 @@ class Terminal:
         if all(row.heading for row in rows):
             return None
         future: asyncio.Future[int | None] = asyncio.get_running_loop().create_future()
-        choice = _Choice(rows, None, future, query)
+        choice = _Choice(rows, None, future, query, title)
         selectable = choice.selectable()
         choice.index = next((i for i in selectable if values[i] == default), next(iter(selectable), None))
         self._choice = choice
@@ -504,7 +508,7 @@ class Terminal:
         if choice is None:
             return []
         visible = choice.visible()
-        rows: list[Text] = []
+        rows = [line.copy() for line in choice.title]
         for index in visible:
             row = choice.rows[index]
             if row.heading:
@@ -515,12 +519,14 @@ class Terminal:
                 text.append_text(row.label)
                 if focused:
                     text.stylize(ACCENT)
+            rows.append(text)
+        if len(rows) == len(choice.title):
+            rows.append(Text("  no matches", style=MUTED))
+        # One row per line keeps the focus position right at any width.
+        for text in rows:
             text.no_wrap = True
             text.overflow = "ellipsis"
-            rows.append(text)
-        if not rows:
-            rows.append(Text("  no matches", style=MUTED))
-        focus = None if choice.index is None else visible.index(choice.index)
+        focus = None if choice.index is None else len(choice.title) + visible.index(choice.index)
         fragments: StyleAndTextTuples = []
         for position, line in enumerate(self._reserve(_render(rows, self.width).rstrip("\n").split("\n"))):
             if position:
