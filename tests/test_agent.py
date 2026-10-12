@@ -16,10 +16,12 @@ from mycode import (
     Agent,
     ConversationMessage,
     Event,
+    Hooks,
     RunResult,
     SessionStore,
     ToolContext,
     ToolExecutionResult,
+    ToolHookContext,
     ToolSpec,
     text_block,
     tool,
@@ -1019,6 +1021,184 @@ class TestAgentCancel:
                 release.set()
                 assert (await task)[-1] == Event("cancelled")
         assert SessionStore(data_dir=tmp_path).load_messages_sync(agent.session_id) == agent.messages
+
+
+def _tool_calls(*calls: tuple[str, dict[str, object]]) -> list[ProviderStreamEvent]:
+    blocks: list[dict[str, object]] = [
+        {"type": "tool_use", "id": f"call-{index}", "name": name, "input": tool_input}
+        for index, (name, tool_input) in enumerate(calls)
+    ]
+    return _assistant_turn(*blocks)
+
+
+def _tool_events(events: list[Event]) -> list[tuple[str, str]]:
+    return [
+        (event.type, event.data["tool_call"]["id"] if event.type == "tool_start" else event.data["tool_use_id"])
+        for event in events
+        if event.type in {"tool_start", "tool_done"}
+    ]
+
+
+def _persisted_results(agent: Agent) -> list[tuple[str, str]]:
+    message = next(m for m in reversed(agent.messages) if any(b.get("type") == "tool_result" for b in m["content"]))
+    return [(block["tool_use_id"], block["output"]) for block in message["content"]]
+
+
+class TestParallelTools:
+    async def test_parallel_safe_calls_overlap_and_other_calls_run_alone(self, tmp_path: Path) -> None:
+        log: list[str] = []
+        fast_done = asyncio.Event()
+
+        @tool(parallel_safe=True)
+        async def slow() -> str:
+            """Finish only after the fast call has finished."""
+            log.append("slow start")
+            await fast_done.wait()
+            log.append("slow end")
+            return "slow"
+
+        @tool(parallel_safe=True)
+        async def fast() -> str:
+            """Finish at once."""
+            log.append("fast")
+            fast_done.set()
+            return "fast"
+
+        @tool
+        async def serial() -> str:
+            """Run alone."""
+            log.append("serial")
+            return "serial"
+
+        agent = _new_agent(tmp_path, tools=[slow, fast, serial])
+        adapter = _FakeProviderAdapter(
+            [_tool_calls(("slow", {}), ("fast", {}), ("serial", {}), ("fast", {})), _text_turn()]
+        )
+        with patch("mycode.agent.get_provider_adapter", return_value=adapter):
+            async with asyncio.timeout(2):
+                events = await _collect_events(agent.achat("go"))
+
+        assert log == ["slow start", "fast", "slow end", "serial", "fast"]
+        assert _tool_events(events) == [
+            ("tool_start", "call-0"),
+            ("tool_start", "call-1"),
+            ("tool_done", "call-1"),
+            ("tool_done", "call-0"),
+            ("tool_start", "call-2"),
+            ("tool_done", "call-2"),
+            ("tool_start", "call-3"),
+            ("tool_done", "call-3"),
+        ]
+        # Results keep the call order, not the finishing order.
+        assert _persisted_results(agent) == [
+            ("call-0", "slow"),
+            ("call-1", "fast"),
+            ("call-2", "serial"),
+            ("call-3", "fast"),
+        ]
+
+    async def test_before_tool_hooks_take_turns_while_calls_overlap(self, tmp_path: Path) -> None:
+        log: list[str] = []
+        started: set[str] = set()
+        all_started = asyncio.Event()
+
+        @tool(parallel_safe=True)
+        async def probe(name: str) -> str:
+            """Finish once every probe has started."""
+            started.add(name)
+            if len(started) == 2:
+                all_started.set()
+            await all_started.wait()
+            return name
+
+        hooks = Hooks()
+
+        @hooks.before_tool
+        async def review(ctx: ToolHookContext[None]) -> None:
+            log.append(f"review {ctx.tool_input['name']}")
+            await asyncio.sleep(0.01)
+            log.append(f"reviewed {ctx.tool_input['name']}")
+
+        agent = _new_agent(tmp_path, tools=[probe], hooks=hooks)
+        adapter = _FakeProviderAdapter([_tool_calls(("probe", {"name": "a"}), ("probe", {"name": "b"})), _text_turn()])
+        with patch("mycode.agent.get_provider_adapter", return_value=adapter):
+            async with asyncio.timeout(2):
+                await _collect_events(agent.achat("go"))
+
+        assert log == ["review a", "reviewed a", "review b", "reviewed b"]
+        assert _persisted_results(agent) == [("call-0", "a"), ("call-1", "b")]
+
+    async def test_a_hook_stop_cancels_running_and_waiting_calls(self, tmp_path: Path) -> None:
+        running = asyncio.Event()
+        reviewed: list[str] = []
+
+        @tool(parallel_safe=True)
+        async def work(name: str) -> str:
+            """Run until cancelled."""
+            running.set()
+            await asyncio.Event().wait()
+            return name
+
+        hooks = Hooks()
+        agent = _new_agent(tmp_path, tools=[work], hooks=hooks)
+
+        @hooks.before_tool
+        async def review(ctx: ToolHookContext[None]) -> ToolExecutionResult | None:
+            name = str(ctx.tool_input["name"])
+            reviewed.append(name)
+            if name != "b":
+                return None
+            # Denied while "a" runs and "c" waits for its review.
+            await running.wait()
+            agent.cancel()
+            return ToolExecutionResult(output="error: denied", is_error=True)
+
+        adapter = _FakeProviderAdapter(
+            [_tool_calls(("work", {"name": "a"}), ("work", {"name": "b"}), ("work", {"name": "c"}))]
+        )
+        with patch("mycode.agent.get_provider_adapter", return_value=adapter):
+            async with asyncio.timeout(2):
+                events = await _collect_events(agent.achat("go"))
+
+        assert reviewed == ["a", "b"]
+        assert events[-1] == Event("cancelled")
+        assert _persisted_results(agent) == [
+            ("call-0", "error: cancelled"),
+            ("call-1", "error: denied"),
+            ("call-2", "error: cancelled"),
+        ]
+
+    async def test_a_runtime_failure_stops_the_other_calls_at_once(self, tmp_path: Path) -> None:
+        # A BaseException passes the tool error handling, as a fault in the runtime itself would.
+        class RuntimeFault(BaseException):
+            pass
+
+        sibling_cancelled = asyncio.Event()
+
+        @tool(parallel_safe=True)
+        async def blocked() -> str:
+            """Wait until cancelled."""
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                sibling_cancelled.set()
+                raise
+            return ""
+
+        @tool(parallel_safe=True)
+        async def fault() -> str:
+            """Fail outside the tool error contract."""
+            await asyncio.sleep(0)
+            raise RuntimeFault
+
+        agent = _new_agent(tmp_path, tools=[blocked, fault])
+        adapter = _FakeProviderAdapter([_tool_calls(("blocked", {}), ("fault", {}))])
+        with patch("mycode.agent.get_provider_adapter", return_value=adapter):
+            async with asyncio.timeout(2):
+                with pytest.raises(RuntimeFault):
+                    await _collect_events(agent.achat("go"))
+
+        assert sibling_cancelled.is_set()
 
 
 class TestTurnUsage:

@@ -70,6 +70,9 @@ class ToolSpec:
     runner: ToolRunner
     # Streaming tools push incremental output through ToolContext.emit.
     streams_output: bool = False
+    # Consecutive calls of parallel-safe tools run concurrently, so such a tool
+    # must be safe to overlap with any other parallel-safe call.
+    parallel_safe: bool = False
 
     @property
     def is_async(self) -> bool:
@@ -172,6 +175,7 @@ def tool(
     description: str | None = None,
     parameters: Mapping[str, str] | None = None,
     streams_output: bool = False,
+    parallel_safe: bool = False,
 ) -> ToolSpec: ...
 
 
@@ -183,6 +187,7 @@ def tool(
     description: str | None = None,
     parameters: Mapping[str, str] | None = None,
     streams_output: bool = False,
+    parallel_safe: bool = False,
 ) -> Callable[[FunctionType], ToolSpec]: ...
 
 
@@ -193,6 +198,7 @@ def tool(
     description: str | None = None,
     parameters: Mapping[str, str] | None = None,
     streams_output: bool = False,
+    parallel_safe: bool = False,
 ) -> ToolSpec | Callable[[FunctionType], ToolSpec]:
     """Wrap a sync or async Python function as a :class:`ToolSpec`."""
 
@@ -302,6 +308,7 @@ def tool(
             input_schema=input_schema,
             runner=runner,
             streams_output=streams_output,
+            parallel_safe=parallel_safe,
         )
 
     if function is None:

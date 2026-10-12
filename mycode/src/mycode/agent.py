@@ -98,17 +98,21 @@ async def _finish_task[T](task: asyncio.Future[T]) -> T:
 class _RunState:
     loop: asyncio.AbstractEventLoop
     cancel_requested: bool = False
-    active_task: asyncio.Future[Any] | None = None
+    # Interruptible tasks; parallel tool calls own one each.
+    tasks: set[asyncio.Future[Any]] = field(default_factory=set)
+    # before_tool hooks never overlap, so reviews of parallel calls come one at a time.
+    before_tool_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     # Only a chat run accepts steers, and only until it decides to finish.
     accepting_steers: bool = False
     steers: list[ConversationMessage] = field(default_factory=list)
 
-    def cancel_active_task(self) -> None:
-        task = self.active_task
-        self.active_task = None
-        if task is None or task.done():
+    def cancel_task(self, task: asyncio.Future[Any]) -> None:
+        if task not in self.tasks:
             return
-        # Clearing the reference protects cleanup even if the tool calls uncancel().
+        # Releasing the task first protects its cleanup even if the tool calls uncancel().
+        self.tasks.remove(task)
+        if task.done():
+            return
         if not isinstance(task, asyncio.Task) or not task.cancelling():
             task.cancel()
 
@@ -116,8 +120,9 @@ class _RunState:
         if not self.cancel_requested:
             self.cancel_requested = True
             # A hook requesting the stop itself must be able to finish its refusal.
-            if self.active_task is not asyncio.current_task():
-                self.cancel_active_task()
+            current = asyncio.current_task()
+            for task in [task for task in self.tasks if task is not current]:
+                self.cancel_task(task)
 
     def check_cancelled(self) -> None:
         if self.cancel_requested:
@@ -131,9 +136,9 @@ class _RunState:
         assert caller is not None
         cancelling = caller.cancelling()
         task = asyncio.ensure_future(awaitable)
-        self.active_task = task
+        self.tasks.add(task)
         if self.cancel_requested:
-            self.cancel_active_task()
+            self.cancel_task(task)
         try:
             yield task
         except asyncio.CancelledError:
@@ -159,7 +164,7 @@ class _RunState:
         finally:
             try:
                 if not task.done():
-                    self.cancel_active_task()
+                    self.cancel_task(task)
                     (outcome,) = await _finish_task(asyncio.gather(task, return_exceptions=True))
                 else:
                     outcome = None if task.cancelled() else task.exception()
@@ -168,7 +173,7 @@ class _RunState:
                 ):
                     raise outcome
             finally:
-                self.active_task = None
+                self.tasks.discard(task)
 
 
 class _ToolOutputBuffer:
@@ -572,6 +577,73 @@ class Agent:
     # Tool execution
     # ------------------------------------------------------------------
 
+    def _tool_groups(self, tool_calls: list[dict[str, Any]]) -> list[list[dict[str, Any]]]:
+        """Split tool calls into runs of consecutive parallel-safe calls; any other call stands alone."""
+
+        groups: list[list[dict[str, Any]]] = []
+        previous_safe = False
+        for tool_call in tool_calls:
+            spec = self.tools.get(str(tool_call.get("name") or ""))
+            safe = spec is not None and spec.parallel_safe
+            if safe and previous_safe:
+                groups[-1].append(tool_call)
+            else:
+                groups.append([tool_call])
+            previous_safe = safe
+        return groups
+
+    async def _run_tool_group(
+        self, run: _RunState, tool_calls: list[dict[str, Any]], stop_reason: str
+    ) -> AsyncGenerator[Event, None]:
+        """Run tool calls concurrently and yield their events as they arrive.
+
+        Each call has at most one event waiting for the consumer, so a slow
+        consumer still bounds live output in the call's own buffer.
+        """
+
+        queue: asyncio.Queue[tuple[Event, asyncio.Future[None]] | BaseException | None] = asyncio.Queue()
+
+        async def pump(tool_call: dict[str, Any]) -> None:
+            try:
+                async with aclosing(self._run_tool_call(run, tool_call, stop_reason)) as events:
+                    async for event in events:
+                        delivered: asyncio.Future[None] = run.loop.create_future()
+                        queue.put_nowait((event, delivered))
+                        await delivered
+            except BaseException as exc:
+                queue.put_nowait(exc)
+                raise
+            queue.put_nowait(None)
+
+        pumps = [asyncio.create_task(pump(tool_call)) for tool_call in tool_calls]
+        surfaced: BaseException | None = None
+        try:
+            for _ in pumps:
+                while (item := await queue.get()) is not None:
+                    if isinstance(item, BaseException):
+                        # Tool failures arrive as tool_done results; this one
+                        # broke the run itself, so the siblings stop with it.
+                        surfaced = item
+                        raise item
+                    event, delivered = item
+                    yield event
+                    # Cancelling a waiting pump cancels its future too.
+                    if not delivered.done():
+                        delivered.set_result(None)
+        finally:
+            for task in pumps:
+                task.cancel()
+            outcomes = await _finish_task(asyncio.gather(*pumps, return_exceptions=True))
+            # A failure in a sibling's cleanup still propagates, as it would
+            # from a serial call; the cancellations sent above do not.
+            for outcome in outcomes:
+                if (
+                    isinstance(outcome, BaseException)
+                    and outcome is not surfaced
+                    and not isinstance(outcome, asyncio.CancelledError)
+                ):
+                    raise outcome
+
     async def _run_tool_call(
         self, run: _RunState, tool_use: dict[str, Any], stop_reason: str
     ) -> AsyncGenerator[Event, None]:
@@ -660,19 +732,15 @@ class Agent:
         """One execution policy for hooks and both streaming and non-streaming tools."""
 
         try:
-            result = await self.hooks.run_before_tool(hook_ctx, check_cancelled=run.check_cancelled)
+            async with run.before_tool_lock:
+                result = await self.hooks.run_before_tool(hook_ctx, check_cancelled=run.check_cancelled)
         except Exception as exc:
             return ToolExecutionResult(output=f"error: tool hook failed: {exc}", is_error=True)
-        # run.cancel() leaves active_task set when the stop is requested from
-        # inside this task, so the intact slot means a hook stopped its own
-        # call and its refusal result survives. An outside stop cancels this
-        # task and discards whatever the hooks returned.
-        if (
-            run.cancel_requested
-            and result is not None
-            and result.is_error
-            and run.active_task is asyncio.current_task()
-        ):
+        # run.cancel() keeps this task owned when the stop is requested from
+        # inside it, so ownership means a hook stopped its own call and its
+        # refusal result survives. An outside stop cancels this task and
+        # discards whatever the hooks returned.
+        if run.cancel_requested and result is not None and result.is_error and asyncio.current_task() in run.tasks:
             return result
         run.check_cancelled()
 
@@ -1120,10 +1188,10 @@ class Agent:
                 if isinstance(block, dict) and block.get("type") == "tool_use"
             ]
             if tool_calls:
-                tool_results: list[dict[str, Any]] = []
-                for tool_call in tool_calls:
+                results_by_id: dict[str, dict[str, Any]] = {}
+                for group in self._tool_groups(tool_calls):
                     run.check_cancelled()
-                    async with aclosing(self._run_tool_call(run, tool_call, stop_reason)) as events:
+                    async with aclosing(self._run_tool_group(run, group, stop_reason)) as events:
                         async for event in events:
                             yield event
 
@@ -1131,21 +1199,25 @@ class Agent:
                                 continue
 
                             data = event.data
-                            tool_results.append(
-                                tool_result_block(
-                                    tool_use_id=data["tool_use_id"],
-                                    output=data["output"],
-                                    metadata=data.get("metadata"),
-                                    is_error=data["is_error"],
-                                    content=data.get("content"),
-                                )
+                            results_by_id[data["tool_use_id"]] = tool_result_block(
+                                tool_use_id=data["tool_use_id"],
+                                output=data["output"],
+                                metadata=data.get("metadata"),
+                                is_error=data["is_error"],
+                                content=data.get("content"),
                             )
 
                     if run.cancel_requested:
-                        # Skip remaining tool calls; the results collected so
-                        # far are still persisted below.
+                        # Skip remaining groups; the results collected so far
+                        # are still persisted below.
                         break
 
+                # Results keep the call order whatever order the calls finished in.
+                tool_results = [
+                    results_by_id[tool_id]
+                    for tool_call in tool_calls
+                    if (tool_id := str(tool_call.get("id") or "")) in results_by_id
+                ]
                 tool_result_message = build_message("user", tool_results)
                 await self._commit(tool_result_message, on_persist)
 

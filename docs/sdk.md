@@ -276,6 +276,15 @@ Tools are opted in via `tools=[...]`; nothing is registered by default. A `strea
 
 A tool call is rejected before hooks and execution when the assistant turn has `stop_reason="length"`, the tool block has `meta.invalid_input=true`, or the provider finish reason is `unknown`. The runtime still emits `tool_start` and an error `tool_done`, persists that as a `tool_result`, and sends it in the next provider request. An `invalid_input` rejection includes the tool name, `meta.parse_error`, and the original text from `meta.raw_arguments`. A canonical `error` response is persisted with `meta.error` and ends the turn with an `error` event. `@tool` schema validation prevents invalid arguments from reaching the user function.
 
+### Parallel calls
+
+`parallel_safe=True` on a `ToolSpec` or `@tool` declares that the tool can run at the same time as any other parallel-safe call. Consecutive parallel-safe calls in one assistant message run concurrently, with no concurrency limit; any other call runs alone, after the calls before it finish.
+
+- `tool_start` events come in call order. Later events of different calls interleave, so consumers match them by `tool_use_id`. Each call's own events stay in order, ending with its `tool_done`.
+- Results are persisted in call order, whatever order the calls finish in.
+- `before_tool` hooks of different calls never overlap and run in call order, so reviews come one at a time. A call starts as soon as its own hooks pass, so it may run while a later call is in review, and `after_tool` hooks of different calls may overlap.
+- A tool error is that call's own result and does not affect the other calls. A user stop cancels every running call, and later calls do not start.
+
 ### `@tool`
 
 `@tool` wraps a sync or `async def` function as a `ToolSpec`. Parameters are validated with Pydantic and exported as the provider JSON schema.
