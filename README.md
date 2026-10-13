@@ -76,7 +76,7 @@ Or start both together:
 just dev
 ```
 
-Other useful shortcuts: `just check` · `just test` · `just fmt`
+Other useful shortcuts: `just check` · `just test` · `just ci` · `just fmt`
 
 Build distributable artifacts:
 

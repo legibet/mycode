@@ -31,46 +31,22 @@ web-dev:
   set -euo pipefail
 
   cleanup() {
-    if [ -n "${backend_pid:-}" ]; then
-      kill "$backend_pid" 2>/dev/null || true
-    fi
-    if [ -n "${frontend_pid:-}" ]; then
-      kill "$frontend_pid" 2>/dev/null || true
-    fi
+    kill "${backend_pid:-}" "${frontend_pid:-}" 2>/dev/null || true
+    wait
   }
-
-  stop() {
-    exit 0
-  }
-
   trap cleanup EXIT
-  trap stop INT TERM
+  trap 'exit 0' INT TERM
 
-  echo "Starting backend on http://localhost:8000"
   uv run mycode web --dev &
   backend_pid=$!
-
-  echo "Starting frontend on http://localhost:5173"
   pnpm --dir web dev &
   frontend_pid=$!
 
-  exit_code=0
-  while :; do
-    if ! kill -0 "$backend_pid" 2>/dev/null; then
-      wait "$backend_pid" || exit_code=$?
-      break
-    fi
-    if ! kill -0 "$frontend_pid" 2>/dev/null; then
-      wait "$frontend_pid" || exit_code=$?
-      break
-    fi
-    sleep 1
-  done
-
-  exit "$exit_code"
+  wait -n
 
 py-check:
   uv run ruff check .
+  uv run ruff format --check .
   uv run basedpyright
 
 web-check:
@@ -86,6 +62,8 @@ web-test:
   pnpm --dir web test
 
 test: py-test web-test
+
+ci: check test
 
 fmt:
   uv run ruff check --fix .
