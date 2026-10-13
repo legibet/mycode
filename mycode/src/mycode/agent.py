@@ -17,7 +17,7 @@ from contextlib import aclosing, asynccontextmanager
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, Literal, cast
 from uuid import uuid4
 
 from mycode.attachments import AttachmentLike, build_attachment_blocks
@@ -32,6 +32,7 @@ from mycode.compact import (
 )
 from mycode.hooks import Hooks, ToolHookContext
 from mycode.messages import (
+    ContentBlock,
     ConversationMessage,
     build_message,
     flatten_message_text,
@@ -232,13 +233,11 @@ class Agent:
 
         Call from the run's event loop. Returns ``False`` when no chat is
         accepting steers: none is active, it is finishing, it is a compact
-        operation, or a stop was requested.
+        operation, or a stop was requested. Raises ``ValueError`` for another
+        role or for image/PDF input the model does not support.
         """
 
-        steer_message = user_text_message(message) if isinstance(message, str) else message
-        if (steer_message.get("role") or "user") != "user":
-            raise ValueError("steer message must be a user message")
-        self._check_input_support(steer_message)
+        steer_message = self._user_message(message)
         run = self._active_run
         if run is None or not run.accepting_steers or run.cancel_requested:
             return False
@@ -281,14 +280,12 @@ class Agent:
             try:
                 async with aclosing(self._achat(run, user_input, attachments, on_persist)) as stream:
                     async for event in stream:
-                        if event.type == "error":
-                            terminal = event
-                            break
                         yield event
-                if terminal is None:
-                    run.check_cancelled()
+                run.check_cancelled()
             except _RunCancelled:
                 terminal = Event("cancelled")
+            except _TurnFailed as exc:
+                terminal = Event("error", {"message": str(exc)})
         if terminal is not None:
             yield terminal
 
@@ -372,16 +369,339 @@ class Agent:
             self._active_run = None
 
     # ------------------------------------------------------------------
+    # Agent loop
+    # ------------------------------------------------------------------
+
+    async def _achat(
+        self,
+        run: _RunState,
+        user_input: str | ConversationMessage,
+        attachments: Sequence[AttachmentLike],
+        on_persist: PersistCallback | None,
+    ) -> AsyncGenerator[Event, None]:
+        """Run one user turn; raising ``_TurnFailed`` ends it with an ``error`` event."""
+
+        attachment_blocks: list[ContentBlock] = []
+        if attachments:
+            async with run.task(asyncio.to_thread(build_attachment_blocks, attachments)) as task:
+                attachment_blocks = await asyncio.shield(task)
+        try:
+            user_message = self._user_message(user_input, attachment_blocks)
+        except ValueError as exc:
+            raise _TurnFailed(str(exc)) from None
+        run.check_cancelled()
+        await self._commit(user_message, on_persist)
+
+        adapter = get_provider_adapter(self.provider)
+        segment = _TurnSegment(user_message)
+        context_tokens: int | None = None
+        steps = 0
+        while True:
+            run.check_cancelled()
+            if self.max_turns is not None and steps >= self.max_turns:
+                raise _TurnFailed("max_turns reached")
+            steps += 1
+
+            response = _StreamedResponse()
+            async with aclosing(self._stream_response(run, adapter, response, on_persist)) as events:
+                async for event in events:
+                    yield event
+            assistant_message = response.message
+            if assistant_message is None:
+                raise _TurnFailed("provider produced no assistant message")
+
+            response.stamp_thinking(assistant_message["content"])
+            self._finalize_request_message(assistant_message)
+            meta = assistant_message["meta"]
+            stop_reason = meta.get("stop_reason")
+            if stop_reason == "error":
+                meta["error"] = "provider returned an error response"
+            await self._commit(assistant_message, on_persist)
+
+            context_tokens = (meta.get("usage") or {}).get("total_tokens")
+            segment.add(assistant_message)
+            yield segment.usage_event(context_tokens, assistant_message)
+            if stop_reason == "error":
+                raise _TurnFailed(meta["error"])
+
+            tool_calls = [block for block in assistant_message["content"] if block["type"] == "tool_use"]
+            if tool_calls:
+                async with aclosing(self._run_tool_calls(run, tool_calls, stop_reason, on_persist)) as events:
+                    async for event in events:
+                        yield event
+
+            run.check_cancelled()
+            if should_compact(context_tokens, self.context_window, self.compact_threshold):
+                compact_marker = await self._auto_compact(run, adapter, on_persist)
+                if compact_marker is not None:
+                    yield Event("compact", {"trigger": "auto"})
+                    # Summary usage is billed, but does not describe the normal context size.
+                    segment.add(compact_marker)
+                    yield segment.usage_event(context_tokens, compact_marker)
+
+            run.check_cancelled()
+            # The take and closing the run to new steers share one synchronous
+            # stretch, so no steer is accepted after the final take and dropped.
+            steers, run.steers = run.steers, []
+            if steers:
+                # The merged message closes the current segment and opens the
+                # next, so usage, cost and the duration anchor restart from it.
+                steer_message = merge_user_messages(steers, steer=True)
+                await self._commit(steer_message, on_persist)
+                yield segment.usage_event(context_tokens, steer_message)
+                yield Event("user_message", {"message": steer_message})
+                segment = _TurnSegment(steer_message)
+            elif not tool_calls:
+                run.accepting_steers = False
+                return
+
+    async def _stream_response(
+        self,
+        run: _RunState,
+        adapter: ProviderAdapter,
+        response: _StreamedResponse,
+        on_persist: PersistCallback | None,
+    ) -> AsyncGenerator[Event, None]:
+        """Stream one provider response into ``response``.
+
+        If the stream breaks off after visible output, that output is committed
+        as a partial assistant message so the log matches what was shown; its
+        ``stop_reason`` keeps it out of provider replay.
+        """
+
+        stream = self._stream_provider_turn(run, adapter, self._build_request(reasoning_effort=self.reasoning_effort))
+        try:
+            async for provider_event in stream:
+                run.check_cancelled()
+                match provider_event.type:
+                    case "retry":
+                        yield Event("retry", dict(provider_event.data))
+                    case "thinking_delta":
+                        text = provider_event.data["text"]
+                        response.add("thinking", text)
+                        yield Event("reasoning", {"delta": text})
+                    case "text_delta":
+                        if (done := response.end_thinking()) is not None:
+                            yield done
+                        text = provider_event.data["text"]
+                        response.add("text", text)
+                        yield Event("text", {"delta": text})
+                    case "message_done":
+                        if (done := response.end_thinking()) is not None:
+                            yield done
+                        response.message = provider_event.data["message"]
+        except (_RunCancelled, asyncio.CancelledError, GeneratorExit, Exception) as exc:
+            failed = isinstance(exc, Exception)
+            if failed:
+                logger.exception("Provider request failed")
+            if response.parts:
+                response.end_thinking()
+                partial = self._partial_assistant_message(response, error=str(exc) if failed else None)
+                await self._commit(partial, on_persist)
+            if failed:
+                raise _TurnFailed(str(exc)) from exc
+            raise
+        finally:
+            # Closing errors must propagate; the generator may already be
+            # unwinding and cannot yield another event.
+            await stream.aclose()
+
+    async def _auto_compact(
+        self,
+        run: _RunState,
+        adapter: ProviderAdapter,
+        on_persist: PersistCallback | None,
+    ) -> ConversationMessage | None:
+        """Compact past history; on failure log it and return ``None``."""
+
+        try:
+            marker = await self._summarize(run, adapter, trigger="auto")
+        except Exception:
+            if run.cancel_requested:
+                raise
+            # Compaction must not block the current answer; the full
+            # transcript is still available for the next turn.
+            logger.warning("Context compaction failed, continuing without compaction", exc_info=True)
+            return None
+        await self._commit(marker, on_persist)
+        return marker
+
+    async def _summarize(
+        self,
+        run: _RunState,
+        adapter: ProviderAdapter,
+        *,
+        trigger: CompactTrigger,
+    ) -> ConversationMessage:
+        """Build a compact marker; callers own persistence and its failures."""
+
+        if not has_compactable_history(self.messages):
+            raise NothingToCompactError("nothing to compact")
+
+        request = self._build_request(
+            tools=[],
+            max_tokens=min(self.max_tokens, 8192),
+            append_messages=[user_text_message(COMPACT_SUMMARY_PROMPT)],
+        )
+
+        summary_message: ConversationMessage | None = None
+        async with aclosing(self._stream_provider_turn(run, adapter, request)) as stream:
+            async for provider_event in stream:
+                if provider_event.type == "message_done":
+                    summary_message = provider_event.data["message"]
+
+        if summary_message is None:
+            raise ValueError("compaction produced no response")
+
+        summary_text = flatten_message_text(summary_message, include_thinking=False)
+        if not summary_text:
+            raise ValueError("compaction produced empty summary")
+
+        run.check_cancelled()
+
+        self._finalize_request_message(summary_message)
+        return build_compact_event(
+            summary_text,
+            trigger=trigger,
+            provider=self.provider,
+            model=self.model,
+            context_window=self.context_window,
+            usage=summary_message["meta"].get("usage"),
+            cost=summary_message["meta"].get("cost"),
+        )
+
+    def _finalize_request_message(self, message: ConversationMessage) -> None:
+        """Attach the context window and, unless the provider reported one, the estimated cost."""
+
+        meta = message.setdefault("meta", {})
+        meta["context_window"] = self.context_window
+        if "cost" not in meta and (cost := estimate_cost(meta.get("usage") or {}, self.model_pricing)) is not None:
+            meta["cost"] = cost
+
+    def _partial_assistant_message(self, response: _StreamedResponse, *, error: str | None) -> ConversationMessage:
+        """Build the assistant message committed for a stream that broke off."""
+
+        meta: dict[str, Any] = {
+            "provider": self.provider,
+            "model": self.model,
+            "context_window": self.context_window,
+            "stop_reason": "cancelled" if error is None else "error",
+        }
+        if error is not None:
+            meta["error"] = error
+        return build_message("assistant", response.partial_content(), meta=meta)
+
+    async def _commit(
+        self,
+        message: ConversationMessage,
+        on_persist: PersistCallback | None,
+    ) -> None:
+        """Commit one message to the timeline: stamp, persist, publish.
+
+        ``meta.created_at`` is stamped here unless the caller supplied one.
+        ``on_persist`` runs before the session store. The message joins
+        ``self.messages`` only once its commit succeeded, so memory never runs
+        ahead of the log.
+        """
+
+        meta = message.setdefault("meta", {})
+        meta.setdefault("created_at", datetime.now(UTC).isoformat())
+
+        if on_persist is None and self._store is None:
+            self.messages.append(message)
+            return
+
+        async def persist() -> None:
+            if on_persist is not None:
+                await on_persist(message)
+            if self._store is not None:
+                await self._store.append_message(self.session_id, message)
+
+        # The task lets the commit survive cancellation: once persistence has
+        # started, it runs to completion before cancellation is reported.
+        task = asyncio.create_task(persist())
+        try:
+            await _finish_task(task)
+        finally:
+            # exception() raises on a cancelled task, so that is checked first.
+            if not task.cancelled() and task.exception() is None:
+                self.messages.append(message)
+
+    def _user_message(
+        self,
+        user_input: str | ConversationMessage,
+        attachment_blocks: Sequence[ContentBlock] = (),
+    ) -> ConversationMessage:
+        """Build a new user message from the input plus attachment blocks.
+
+        Raises ``ValueError`` for another role or for image/PDF input the model
+        does not support.
+        """
+
+        if isinstance(user_input, str):
+            message = user_text_message(user_input)
+        elif user_input.get("role", "user") != "user":
+            raise ValueError("user input must be a user message")
+        else:
+            content = [dict(block) for block in user_input["content"]]
+            message = build_message("user", content, meta=user_input.get("meta"))
+        message["content"].extend(attachment_blocks)
+
+        for block_type, supported, label in (
+            ("image", self.supports_image_input, "image input"),
+            ("document", self.supports_pdf_input, "PDF input"),
+        ):
+            if not supported and any(block["type"] == block_type for block in message["content"]):
+                raise ValueError(f"current model does not support {label}")
+        return message
+
+    # ------------------------------------------------------------------
     # Tool execution
     # ------------------------------------------------------------------
 
-    def _tool_groups(self, tool_calls: list[dict[str, Any]]) -> list[list[dict[str, Any]]]:
+    async def _run_tool_calls(
+        self,
+        run: _RunState,
+        tool_calls: list[ContentBlock],
+        stop_reason: str | None,
+        on_persist: PersistCallback | None,
+    ) -> AsyncGenerator[Event, None]:
+        """Run one response's tool calls and commit their results in call order."""
+
+        results: dict[str, ToolExecutionResult] = {}
+        for group in self._tool_groups(tool_calls):
+            run.check_cancelled()
+            async with aclosing(self._run_tool_group(run, group, stop_reason, results)) as events:
+                async for event in events:
+                    yield event
+            if run.cancel_requested:
+                # Skip remaining groups; the results collected so far are
+                # still persisted below.
+                break
+
+        # Results keep the call order whatever order the calls finished in.
+        blocks: list[ContentBlock] = []
+        for tool_call in tool_calls:
+            result = results.get(tool_call["id"])
+            if result is not None:
+                blocks.append(
+                    tool_result_block(
+                        tool_use_id=tool_call["id"],
+                        output=result.output,
+                        metadata=result.metadata,
+                        is_error=result.is_error,
+                        content=result.content,
+                    )
+                )
+        await self._commit(build_message("user", blocks), on_persist)
+
+    def _tool_groups(self, tool_calls: list[ContentBlock]) -> list[list[ContentBlock]]:
         """Split tool calls into runs of consecutive parallel-safe calls; any other call stands alone."""
 
-        groups: list[list[dict[str, Any]]] = []
+        groups: list[list[ContentBlock]] = []
         previous_safe = False
         for tool_call in tool_calls:
-            spec = self.tools.get(str(tool_call.get("name") or ""))
+            spec = self.tools.get(tool_call["name"])
             safe = spec is not None and spec.parallel_safe
             if safe and previous_safe:
                 groups[-1].append(tool_call)
@@ -391,7 +711,11 @@ class Agent:
         return groups
 
     async def _run_tool_group(
-        self, run: _RunState, tool_calls: list[dict[str, Any]], stop_reason: str
+        self,
+        run: _RunState,
+        tool_calls: list[ContentBlock],
+        stop_reason: str | None,
+        results: dict[str, ToolExecutionResult],
     ) -> AsyncGenerator[Event, None]:
         """Run tool calls concurrently and yield their events as they arrive.
 
@@ -401,9 +725,9 @@ class Agent:
 
         queue: asyncio.Queue[tuple[Event, asyncio.Future[None]] | BaseException | None] = asyncio.Queue()
 
-        async def pump(tool_call: dict[str, Any]) -> None:
+        async def pump(tool_call: ContentBlock) -> None:
             try:
-                async with aclosing(self._run_tool_call(run, tool_call, stop_reason)) as events:
+                async with aclosing(self._run_tool_call(run, tool_call, stop_reason, results)) as events:
                     async for event in events:
                         delivered: asyncio.Future[None] = run.loop.create_future()
                         queue.put_nowait((event, delivered))
@@ -443,81 +767,56 @@ class Agent:
                     raise outcome
 
     async def _run_tool_call(
-        self, run: _RunState, tool_use: dict[str, Any], stop_reason: str
+        self,
+        run: _RunState,
+        tool_use: ContentBlock,
+        stop_reason: str | None,
+        results: dict[str, ToolExecutionResult],
     ) -> AsyncGenerator[Event, None]:
-        """Run one tool call and emit the standard tool events."""
+        """Run one tool call, emit its events, and record its result in ``results``."""
 
-        tool_id = str(tool_use.get("id") or "")
-        name = str(tool_use.get("name") or "")
-        raw_args = tool_use.get("input")
-        args = raw_args if isinstance(raw_args, dict) else {}
-
+        tool_id, name, args = tool_use["id"], tool_use["name"], tool_use["input"]
         # Surface the tool to the UI before running hooks so the call is
         # always visible — even when a hook is awaiting a permission decision.
         yield Event("tool_start", {"tool_call": {"id": tool_id, "name": name, "input": args}})
 
-        block_meta = tool_use.get("meta") or {}
-        if stop_reason == "length":
-            yield self._error_done(
-                tool_id, "error: tool call was truncated by the output token limit and was not executed"
-            )
-            return
-        if block_meta.get("invalid_input") is True:
-            yield self._error_done(
-                tool_id,
-                "\n".join(
-                    [
-                        f"error: invalid arguments for {tool_use.get('name')} and the call was not executed.",
-                        f"parse error: {block_meta.get('parse_error')}",
-                        f"raw arguments: {block_meta.get('raw_arguments')}",
-                    ]
-                ),
-            )
-            return
-        if stop_reason not in {"stop", "tool_use"}:
-            yield self._error_done(
-                tool_id, "error: provider response did not complete the tool call and it was not executed"
-            )
-            return
-        if run.cancel_requested:
-            yield self._error_done(tool_id, "error: cancelled")
-            return
-
         spec = self.tools.get(name)
-        if spec is None:
-            yield self._error_done(tool_id, f"error: unknown tool: {name}")
-            return
-
-        hook_ctx = ToolHookContext(
-            session_id=self.session_id,
-            deps=self.deps,
-            provider=self.provider,
-            model=self.model,
-            tool_call_id=tool_id,
-            tool_name=name,
-            tool_input=args,
-            tool=spec,
-        )
-        output_buffer = _ToolOutputBuffer(run.loop) if spec.streams_output else None
-        ctx = ToolContext(
-            executor=self.tools,
-            deps=self.deps,
-            supports_image_input=self.supports_image_input,
-            tool_call_id=tool_id,
-            emit=output_buffer.append if output_buffer else None,
-        )
-        try:
-            async with run.task(self._execute_tool(run, hook_ctx, ctx, args)) as task:
-                if output_buffer is not None:
-                    # The done callback wakes the consumer even when the tool
-                    # task is cancelled before its coroutine starts.
-                    task.add_done_callback(lambda _task: output_buffer.finish())
-                    while (output := await output_buffer.get()) is not None:
-                        if output and not run.cancel_requested:
-                            yield Event("tool_output", {"tool_use_id": tool_id, "output": output})
-                result = await asyncio.shield(task)
-        except _RunCancelled:
-            result = ToolExecutionResult(output="error: cancelled", is_error=True)
+        if (error := _tool_call_error(run, tool_use, stop_reason)) is not None:
+            result = ToolExecutionResult(output=error, is_error=True)
+        elif spec is None:
+            result = ToolExecutionResult(output=f"error: unknown tool: {name}", is_error=True)
+        else:
+            hook_ctx = ToolHookContext(
+                session_id=self.session_id,
+                deps=self.deps,
+                provider=self.provider,
+                model=self.model,
+                tool_call_id=tool_id,
+                tool_name=name,
+                tool_input=args,
+                tool=spec,
+            )
+            output_buffer = _ToolOutputBuffer(run.loop) if spec.streams_output else None
+            ctx = ToolContext(
+                executor=self.tools,
+                deps=self.deps,
+                supports_image_input=self.supports_image_input,
+                tool_call_id=tool_id,
+                emit=output_buffer.append if output_buffer else None,
+            )
+            try:
+                async with run.task(self._execute_tool(run, hook_ctx, ctx, args)) as task:
+                    if output_buffer is not None:
+                        # The done callback wakes the consumer even when the tool
+                        # task is cancelled before its coroutine starts.
+                        task.add_done_callback(lambda _task: output_buffer.finish())
+                        while (output := await output_buffer.get()) is not None:
+                            if output and not run.cancel_requested:
+                                yield Event("tool_output", {"tool_use_id": tool_id, "output": output})
+                    result = await asyncio.shield(task)
+            except _RunCancelled:
+                result = ToolExecutionResult(output="error: cancelled", is_error=True)
+        results[tool_id] = result
         yield self._tool_done_event(tool_id, result)
 
     async def _execute_tool(
@@ -573,11 +872,6 @@ class Agent:
         if result.content:
             data["content"] = result.content
         return Event("tool_done", data)
-
-    def _error_done(self, tool_id: str, message: str) -> Event:
-        """Build a tool_done event carrying an error result."""
-
-        return self._tool_done_event(tool_id, ToolExecutionResult(output=message, is_error=True))
 
     # ------------------------------------------------------------------
     # Provider streaming
@@ -707,408 +1001,6 @@ class Agent:
             request_timeout=self.request_timeout,
         )
 
-    @staticmethod
-    def _elapsed_ms(start: float) -> int:
-        return max(0, int((time.monotonic() - start) * 1000))
-
-    @staticmethod
-    def _stamp_thinking_duration(content: list[Any], duration_ms: int) -> None:
-        """Merge duration_ms onto the last thinking block in content, if any."""
-
-        for block in reversed(content):
-            if not isinstance(block, dict) or block.get("type") != "thinking":
-                continue
-            raw_meta = block.get("meta")
-            meta = raw_meta if isinstance(raw_meta, dict) else {}
-            block["meta"] = {**meta, "duration_ms": duration_ms}
-            return
-
-    def _partial_assistant_message(
-        self,
-        partial_blocks: list[tuple[str, list[str]]],
-        duration_ms: int | None,
-        *,
-        stop_reason: str,
-        error: str | None = None,
-    ) -> ConversationMessage:
-        """Build the assistant message persisted for an interrupted stream."""
-
-        partial_content = [{"type": block_type, "text": "".join(parts)} for block_type, parts in partial_blocks]
-        if duration_ms is not None:
-            self._stamp_thinking_duration(partial_content, duration_ms)
-        meta: dict[str, Any] = {
-            "provider": self.provider,
-            "model": self.model,
-            "context_window": self.context_window,
-            "stop_reason": stop_reason,
-        }
-        if error is not None:
-            meta["error"] = error
-        return build_message("assistant", partial_content, meta=meta)
-
-    def _usage_event(
-        self,
-        context_tokens: int | None,
-        turn_usage: dict[str, int],
-        turn_cost: Cost | None,
-        turn_duration_ms: int | None,
-    ) -> Event:
-        """Build a usage event: the turn's cumulative totals + the context metric."""
-
-        return Event(
-            "usage",
-            {
-                "context_tokens": context_tokens,
-                "turn_usage": dict(turn_usage),
-                "turn_cost": dict(turn_cost) if turn_cost is not None else None,
-                "turn_duration_ms": turn_duration_ms,
-            },
-        )
-
-    def _finalize_request_message(self, message: ConversationMessage) -> tuple[dict[str, Any], Cost | None]:
-        """Attach stable request metadata before the message is persisted."""
-
-        meta = cast(dict[str, Any], message.setdefault("meta", {}))
-        meta["context_window"] = self.context_window
-        usage = cast(dict[str, Any], meta.get("usage") or {})
-        provider_cost = meta.get("cost")
-        cost = (
-            cast(Cost, cast(object, provider_cost))
-            if isinstance(provider_cost, dict)
-            else estimate_cost(usage, self.model_pricing)
-        )
-        if cost is not None:
-            meta["cost"] = dict(cost)
-        return usage, cost
-
-    async def _commit(
-        self,
-        message: ConversationMessage,
-        on_persist: PersistCallback | None,
-    ) -> None:
-        """Commit one message to the timeline: stamp, persist, publish.
-
-        ``meta.created_at`` is stamped here unless the caller supplied one.
-        ``on_persist`` runs before the session store. The message joins
-        ``self.messages`` only once its commit succeeded, so memory never runs
-        ahead of the log.
-        """
-
-        meta = cast(dict[str, Any], message.setdefault("meta", {}))
-        meta.setdefault("created_at", datetime.now(UTC).isoformat())
-
-        if on_persist is None and self._store is None:
-            self.messages.append(message)
-            return
-
-        async def persist() -> None:
-            if on_persist is not None:
-                await on_persist(message)
-            if self._store is not None:
-                await self._store.append_message(self.session_id, message)
-
-        # The task lets the commit survive cancellation: once persistence has
-        # started, it runs to completion before cancellation is reported.
-        task = asyncio.create_task(persist())
-        try:
-            await _finish_task(task)
-        finally:
-            # exception() raises on a cancelled task, so that is checked first.
-            if not task.cancelled() and task.exception() is None:
-                self.messages.append(message)
-
-    def _check_input_support(self, message: ConversationMessage) -> None:
-        content_blocks = message.get("content") or []
-        for block_type, supported, label in (
-            ("image", self.supports_image_input, "image input"),
-            ("document", self.supports_pdf_input, "PDF input"),
-        ):
-            if not supported and any(
-                isinstance(block, dict) and block.get("type") == block_type for block in content_blocks
-            ):
-                raise ValueError(f"current model does not support {label}")
-
-    # ------------------------------------------------------------------
-    # Agent loop
-    # ------------------------------------------------------------------
-
-    async def _achat(
-        self,
-        run: _RunState,
-        user_input: str | ConversationMessage,
-        attachments: Sequence[AttachmentLike],
-        on_persist: PersistCallback | None,
-    ) -> AsyncGenerator[Event, None]:
-
-        user_message: ConversationMessage
-        if isinstance(user_input, str):
-            user_message = user_text_message(user_input)
-        else:
-            if (user_input.get("role") or "user") != "user":
-                yield Event("error", {"message": "user input must be a user message"})
-                return
-            user_message = {
-                "role": "user",
-                "content": [dict(b) for b in user_input.get("content") or [] if isinstance(b, dict)],
-            }
-            raw_meta = user_input.get("meta")
-            if isinstance(raw_meta, dict):
-                user_message["meta"] = {str(k): v for k, v in raw_meta.items()}
-
-        if attachments:
-            async with run.task(asyncio.to_thread(build_attachment_blocks, attachments)) as task:
-                blocks = await asyncio.shield(task)
-            user_message["content"].extend(blocks)
-
-        try:
-            self._check_input_support(user_message)
-        except ValueError as exc:
-            yield Event("error", {"message": str(exc)})
-            return
-
-        run.check_cancelled()
-        await self._commit(user_message, on_persist)
-
-        adapter = get_provider_adapter(self.provider)
-
-        turn_usage: dict[str, int] = {}
-        turn_cost: Cost | None = None
-        context_tokens: int | None = None
-        turn_number = 0
-        while True:
-            run.check_cancelled()
-            if self.max_turns is not None and turn_number >= self.max_turns:
-                yield Event("error", {"message": "max_turns reached"})
-                return
-            turn_number += 1
-            assistant_message: ConversationMessage | None = None
-            partial_blocks: list[tuple[str, list[str]]] = []
-            thinking_started_at: float | None = None
-            thinking_duration_ms: int | None = None
-            request = self._build_request(reasoning_effort=self.reasoning_effort)
-
-            stream = self._stream_provider_turn(run, adapter, request)
-            try:
-                async for provider_event in stream:
-                    run.check_cancelled()
-                    if provider_event.type == "retry":
-                        yield Event("retry", dict(provider_event.data))
-                        continue
-
-                    if provider_event.type in {"thinking_delta", "text_delta"}:
-                        delta_text = str(provider_event.data.get("text") or "")
-                        if not delta_text:
-                            continue
-
-                        is_thinking = provider_event.type == "thinking_delta"
-                        if is_thinking:
-                            if thinking_started_at is None:
-                                thinking_started_at = time.monotonic()
-                        elif thinking_started_at is not None and thinking_duration_ms is None:
-                            thinking_duration_ms = self._elapsed_ms(thinking_started_at)
-                            yield Event("reasoning_done", {"duration_ms": thinking_duration_ms})
-
-                        block_type = "thinking" if is_thinking else "text"
-                        if partial_blocks and partial_blocks[-1][0] == block_type:
-                            partial_blocks[-1][1].append(delta_text)
-                        else:
-                            partial_blocks.append((block_type, [delta_text]))
-                        yield Event("reasoning" if is_thinking else "text", {"delta": delta_text})
-                        continue
-
-                    if provider_event.type != "message_done":
-                        continue
-
-                    if thinking_started_at is not None and thinking_duration_ms is None:
-                        thinking_duration_ms = self._elapsed_ms(thinking_started_at)
-                        yield Event("reasoning_done", {"duration_ms": thinking_duration_ms})
-
-                    message = provider_event.data.get("message")
-                    if isinstance(message, dict):
-                        assistant_message = message
-
-            except (_RunCancelled, asyncio.CancelledError, GeneratorExit, Exception) as exc:
-                cancelled = isinstance(exc, (_RunCancelled, asyncio.CancelledError, GeneratorExit))
-                if not cancelled:
-                    logger.exception("Provider request failed")
-                if partial_blocks:
-                    # Persist what was already streamed so the JSONL matches the
-                    # visible turn; the stop_reason keeps this partial message
-                    # out of provider replay.
-                    if thinking_started_at is not None and thinking_duration_ms is None:
-                        thinking_duration_ms = self._elapsed_ms(thinking_started_at)
-                    partial_message = self._partial_assistant_message(
-                        partial_blocks,
-                        thinking_duration_ms,
-                        stop_reason="cancelled" if cancelled else "error",
-                        error=None if cancelled else str(exc),
-                    )
-                    await self._commit(partial_message, on_persist)
-                if cancelled:
-                    raise
-                yield Event("error", {"message": str(exc)})
-                return
-            finally:
-                # Closing errors must propagate; the generator may already be
-                # unwinding and cannot yield another event.
-                await stream.aclose()
-
-            if not assistant_message:
-                yield Event("error", {"message": "provider produced no assistant message"})
-                return
-
-            if thinking_duration_ms is not None:
-                self._stamp_thinking_duration(assistant_message.get("content") or [], thinking_duration_ms)
-
-            request_usage, request_cost = self._finalize_request_message(assistant_message)
-
-            # _finalize_request_message guarantees a meta dict.
-            assistant_meta = cast(dict[str, Any], assistant_message["meta"])
-            stop_reason = str(assistant_meta.get("stop_reason") or "")
-            if stop_reason == "error":
-                assistant_meta["error"] = "provider returned an error response"
-
-            await self._commit(assistant_message, on_persist)
-
-            context_tokens = request_usage.get("total_tokens")
-            turn_usage = add_usage(turn_usage, request_usage)
-            turn_cost = add_cost(turn_cost, request_cost)
-            elapsed_ms = _turn_elapsed_ms(user_message, assistant_message)
-            yield self._usage_event(context_tokens, turn_usage, turn_cost, elapsed_ms)
-
-            if stop_reason == "error":
-                yield Event("error", {"message": assistant_meta["error"]})
-                return
-
-            tool_calls = [
-                block
-                for block in assistant_message.get("content") or []
-                if isinstance(block, dict) and block.get("type") == "tool_use"
-            ]
-            if tool_calls:
-                results_by_id: dict[str, dict[str, Any]] = {}
-                for group in self._tool_groups(tool_calls):
-                    run.check_cancelled()
-                    async with aclosing(self._run_tool_group(run, group, stop_reason)) as events:
-                        async for event in events:
-                            yield event
-
-                            if event.type != "tool_done":
-                                continue
-
-                            data = event.data
-                            results_by_id[data["tool_use_id"]] = tool_result_block(
-                                tool_use_id=data["tool_use_id"],
-                                output=data["output"],
-                                metadata=data.get("metadata"),
-                                is_error=data["is_error"],
-                                content=data.get("content"),
-                            )
-
-                    if run.cancel_requested:
-                        # Skip remaining groups; the results collected so far
-                        # are still persisted below.
-                        break
-
-                # Results keep the call order whatever order the calls finished in.
-                tool_results = [
-                    results_by_id[tool_id]
-                    for tool_call in tool_calls
-                    if (tool_id := str(tool_call.get("id") or "")) in results_by_id
-                ]
-                tool_result_message = build_message("user", tool_results)
-                await self._commit(tool_result_message, on_persist)
-
-            run.check_cancelled()
-            if should_compact(context_tokens, self.context_window, self.compact_threshold):
-                try:
-                    compact_marker = await self._summarize(run, adapter, trigger="auto")
-                except Exception:
-                    if run.cancel_requested:
-                        raise
-                    # Compaction must not block the current answer; the full
-                    # transcript is still available for the next turn.
-                    logger.warning(
-                        "Context compaction failed, continuing without compaction",
-                        exc_info=True,
-                    )
-                else:
-                    await self._commit(compact_marker, on_persist)
-                    yield Event("compact", {"trigger": "auto"})
-                    # Summary usage is billed, but does not describe the normal context size.
-                    compact_usage = cast(dict[str, Any], (compact_marker.get("meta") or {}).get("usage") or {})
-                    compact_cost = cast(Cost | None, (compact_marker.get("meta") or {}).get("cost"))
-                    turn_usage = add_usage(turn_usage, compact_usage)
-                    turn_cost = add_cost(turn_cost, compact_cost)
-                    elapsed_ms = _turn_elapsed_ms(user_message, compact_marker)
-                    yield self._usage_event(context_tokens, turn_usage, turn_cost, elapsed_ms)
-
-            run.check_cancelled()
-            # The take and closing the run to new steers share one synchronous
-            # stretch, so no steer is accepted after the final take and dropped.
-            steers, run.steers = run.steers, []
-            if steers:
-                # The closing segment lasts until the merged message; the
-                # merged message opens a new segment, so usage, cost and the
-                # duration anchor restart from it.
-                steer_message = merge_user_messages(steers, steer=True)
-                await self._commit(steer_message, on_persist)
-                elapsed_ms = _turn_elapsed_ms(user_message, steer_message)
-                yield self._usage_event(context_tokens, turn_usage, turn_cost, elapsed_ms)
-                user_message = steer_message
-                yield Event("user_message", {"message": user_message})
-                turn_usage = {}
-                turn_cost = None
-            elif not tool_calls:
-                run.accepting_steers = False
-                return
-
-    async def _summarize(
-        self,
-        run: _RunState,
-        adapter: ProviderAdapter,
-        *,
-        trigger: CompactTrigger,
-    ) -> ConversationMessage:
-        """Build a compact marker; callers own persistence and its failures."""
-
-        if not has_compactable_history(self.messages):
-            raise NothingToCompactError("nothing to compact")
-
-        request = self._build_request(
-            tools=[],
-            max_tokens=min(self.max_tokens, 8192),
-            append_messages=[user_text_message(COMPACT_SUMMARY_PROMPT)],
-        )
-
-        summary_message: ConversationMessage | None = None
-        async with aclosing(self._stream_provider_turn(run, adapter, request)) as stream:
-            async for provider_event in stream:
-                if provider_event.type == "message_done":
-                    msg = provider_event.data.get("message")
-                    if isinstance(msg, dict):
-                        summary_message = msg
-
-        if not summary_message:
-            raise ValueError("compaction produced no response")
-
-        summary_text = flatten_message_text(summary_message, include_thinking=False)
-        if not summary_text:
-            raise ValueError("compaction produced empty summary")
-
-        run.check_cancelled()
-
-        summary_usage, summary_cost = self._finalize_request_message(summary_message)
-        return build_compact_event(
-            summary_text,
-            trigger=trigger,
-            provider=self.provider,
-            model=self.model,
-            context_window=self.context_window,
-            usage=summary_usage,
-            cost=summary_cost,
-        )
-
 
 # ------------------------------------------------------------------
 # Run control
@@ -1117,6 +1009,10 @@ class Agent:
 
 class _RunCancelled(BaseException):
     """A user stop request, distinct from cancellation of the caller's task."""
+
+
+class _TurnFailed(Exception):
+    """Ends the running chat turn with an ``error`` event carrying this message."""
 
 
 async def _finish_task[T](task: asyncio.Future[T]) -> T:
@@ -1219,8 +1115,29 @@ class _RunState:
 
 
 # ------------------------------------------------------------------
-# Live tool output
+# Tool calls
 # ------------------------------------------------------------------
+
+
+def _tool_call_error(run: _RunState, tool_use: ContentBlock, stop_reason: str | None) -> str | None:
+    """Return the error output for a tool call that must not run, else ``None``."""
+
+    meta = tool_use.get("meta") or {}
+    if stop_reason == "length":
+        return "error: tool call was truncated by the output token limit and was not executed"
+    if meta.get("invalid_input") is True:
+        return "\n".join(
+            [
+                f"error: invalid arguments for {tool_use['name']} and the call was not executed.",
+                f"parse error: {meta.get('parse_error')}",
+                f"raw arguments: {meta.get('raw_arguments')}",
+            ]
+        )
+    if stop_reason not in {"stop", "tool_use"}:
+        return "error: provider response did not complete the tool call and it was not executed"
+    if run.cancel_requested:
+        return "error: cancelled"
+    return None
 
 
 _LIVE_OUTPUT_OMISSION = "[live output omitted]"
@@ -1294,8 +1211,78 @@ class _ToolOutputBuffer:
 
 
 # ------------------------------------------------------------------
-# Turn timing
+# Turn state
 # ------------------------------------------------------------------
+
+
+@dataclass
+class _StreamedResponse:
+    """One provider response as it streams: visible output so far and thinking time."""
+
+    # Consecutive deltas of one block type, kept to persist an interrupted stream.
+    parts: list[tuple[Literal["thinking", "text"], list[str]]] = field(default_factory=list)
+    message: ConversationMessage | None = None
+    thinking_started_at: float | None = None
+    thinking_ms: int | None = None
+
+    def add(self, block_type: Literal["thinking", "text"], text: str) -> None:
+        if block_type == "thinking" and self.thinking_started_at is None:
+            self.thinking_started_at = time.monotonic()
+        if self.parts and self.parts[-1][0] == block_type:
+            self.parts[-1][1].append(text)
+        else:
+            self.parts.append((block_type, [text]))
+
+    def end_thinking(self) -> Event | None:
+        """Settle the thinking duration once; return its ``reasoning_done`` event."""
+
+        if self.thinking_started_at is None or self.thinking_ms is not None:
+            return None
+        self.thinking_ms = max(0, int((time.monotonic() - self.thinking_started_at) * 1000))
+        return Event("reasoning_done", {"duration_ms": self.thinking_ms})
+
+    def stamp_thinking(self, content: list[ContentBlock]) -> None:
+        """Record the thinking duration on the last thinking block of ``content``."""
+
+        if self.thinking_ms is None:
+            return
+        for block in reversed(content):
+            if block["type"] == "thinking":
+                block["meta"] = {**block.get("meta", {}), "duration_ms": self.thinking_ms}
+                return
+
+    def partial_content(self) -> list[ContentBlock]:
+        content: list[ContentBlock] = [{"type": block_type, "text": "".join(texts)} for block_type, texts in self.parts]
+        self.stamp_thinking(content)
+        return content
+
+
+@dataclass
+class _TurnSegment:
+    """Usage, cost and elapsed time since the user record that opened this part of the turn."""
+
+    start: ConversationMessage
+    usage: dict[str, int] = field(default_factory=dict)
+    cost: Cost | None = None
+
+    def add(self, record: ConversationMessage) -> None:
+        """Count one committed request record: an assistant message or a compact marker."""
+
+        self.usage = add_usage(self.usage, record["meta"].get("usage") or {})
+        self.cost = add_cost(self.cost, record["meta"].get("cost"))
+
+    def usage_event(self, context_tokens: int | None, record: ConversationMessage) -> Event:
+        """Report the segment so far, timed up to the committed ``record``."""
+
+        return Event(
+            "usage",
+            {
+                "context_tokens": context_tokens,
+                "turn_usage": dict(self.usage),
+                "turn_cost": dict(self.cost) if self.cost is not None else None,
+                "turn_duration_ms": _turn_elapsed_ms(self.start, record),
+            },
+        )
 
 
 def _created_at(message: ConversationMessage) -> datetime | None:

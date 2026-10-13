@@ -767,7 +767,7 @@ async def test_shutdown_preserves_tool_cleanup_after_cancel_request_is_interrupt
     manager = RunManager()
     agent = Agent(provider="anthropic", model="test-model", api_key="test-key", tools=[wait_tool])
     run = await manager.start_run(
-        cwd="/work", session_id="s1", user_message={"role": "user"}, base_messages=[], agent=agent
+        cwd="/work", session_id="s1", user_message={"role": "user", "content": []}, base_messages=[], agent=agent
     )
     await asyncio.wait_for(started.wait(), 2)
     request = asyncio.create_task(manager.cancel_run(run["id"]))

@@ -664,8 +664,8 @@ def test_xai_persists_reported_cost_and_falls_back_to_estimate(ticks: int | None
         assert message["meta"]["cost"] == {"total": ticks / 10_000_000_000}
 
     agent = Agent(provider="xai", model="grok-4.6", api_key="unused")
-    _, cost = agent._finalize_request_message(message)
-    assert cost is not None
+    agent._finalize_request_message(message)
+    cost = message["meta"]["cost"]
     assert cost["total"] == pytest.approx(ticks / 10_000_000_000 if ticks is not None else 0.000984)
     if ticks is not None:
         assert cost == {"total": ticks / 10_000_000_000}
