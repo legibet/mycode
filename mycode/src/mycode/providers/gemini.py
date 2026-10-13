@@ -16,8 +16,6 @@ from mycode.providers.base import (
     ProviderRequest,
     ProviderStreamEvent,
     get_native_meta,
-    load_document_block_payload,
-    load_image_block_payload,
     normalize_provider_error,
 )
 from mycode.usage import build_usage
@@ -197,96 +195,63 @@ class GoogleGeminiAdapter(ProviderAdapter):
         tool_names: dict[str, str] = {}
 
         for message in self.prepare_messages(request):
-            role = str(message.get("role") or "")
-            blocks = [block for block in message.get("content") or [] if isinstance(block, dict)]
-
-            if role == "assistant":
-                parts: list[dict[str, Any]] = []
+            parts: list[dict[str, Any]] = []
+            if message["role"] == "assistant":
                 needs_dummy_signature = True
-
-                for block in blocks:
-                    if block.get("type") == "tool_use":
-                        tool_id = str(block.get("id") or "")
-                        tool_name = str(block.get("name") or "")
-                        if tool_id and tool_name:
-                            tool_names[tool_id] = tool_name
+                for block in message["content"]:
+                    if block["type"] == "tool_use":
+                        tool_names[block["id"]] = block["name"]
 
                     native_part = get_native_meta(block).get("part")
-                    if isinstance(native_part, dict):
+                    if native_part is not None:
                         parts.append(dict(native_part))
                         if native_part.get("function_call") and native_part.get("thought_signature"):
                             needs_dummy_signature = False
                         continue
 
-                    block_type = block.get("type")
-                    if block_type == "thinking":
-                        parts.append({"text": str(block.get("text") or ""), "thought": True})
-                        continue
-
-                    if block_type == "text":
-                        parts.append({"text": str(block.get("text") or "")})
-                        continue
-
-                    if block_type != "tool_use":
-                        continue
-
-                    part: dict[str, Any] = {
-                        "function_call": {
-                            "id": block.get("id") or "",
-                            "name": block.get("name") or "",
-                            "args": block.get("input") if isinstance(block.get("input"), dict) else {},
-                        }
-                    }
-                    # Gemini 3 validates the first function call in each step of
-                    # the current turn. Cross-provider replay has no real thought
-                    # signature, so we attach the documented dummy signature once.
-                    if needs_dummy_signature:
-                        part["thought_signature"] = _DUMMY_THOUGHT_SIGNATURE
-                        needs_dummy_signature = False
-                    parts.append(part)
+                    match block["type"]:
+                        case "thinking":
+                            parts.append({"text": block["text"], "thought": True})
+                        case "text":
+                            parts.append({"text": block["text"]})
+                        case "tool_use":
+                            part: dict[str, Any] = {
+                                "function_call": {"id": block["id"], "name": block["name"], "args": block["input"]}
+                            }
+                            # Gemini 3 validates the first function call in each step of
+                            # the current turn. Cross-provider replay has no real thought
+                            # signature, so we attach the documented dummy signature once.
+                            if needs_dummy_signature:
+                                part["thought_signature"] = _DUMMY_THOUGHT_SIGNATURE
+                                needs_dummy_signature = False
+                            parts.append(part)
 
                 if parts:
                     contents.append({"role": "model", "parts": parts})
                 continue
 
-            if role != "user":
-                continue
-
-            parts = []
-            for block in blocks:
-                block_type = block.get("type")
-                if block_type == "text":
-                    parts.append({"text": str(block.get("text") or "")})
-                    continue
-
-                if block_type == "image":
-                    mime_type, data = load_image_block_payload(block)
-                    parts.append({"inline_data": {"mime_type": mime_type, "data": data}})
-                    continue
-                if block_type == "document":
-                    mime_type, data, _name = load_document_block_payload(block)
-                    parts.append({"inline_data": {"mime_type": mime_type, "data": data}})
-                    continue
-
-                if block_type != "tool_result":
-                    continue
-
-                tool_id = str(block.get("tool_use_id") or "")
-                response: dict[str, Any] = {"result": str(block.get("output") or "")}
-                if block.get("is_error"):
-                    response["is_error"] = True
-
-                # Gemini requires the exact id and name from the matching
-                # function_call in the previous model turn.
-                parts.append(
-                    {
-                        "function_response": {
-                            "id": tool_id,
-                            "name": tool_names.get(tool_id, ""),
-                            "response": response,
-                        }
-                    }
-                )
+            for block in message["content"]:
+                match block["type"]:
+                    case "text":
+                        parts.append({"text": block["text"]})
+                    case "image" | "document":
+                        parts.append({"inline_data": {"mime_type": block["mime_type"], "data": block["data"]}})
+                    case "tool_result":
+                        response: dict[str, Any] = {"result": block["output"]}
+                        if block["is_error"]:
+                            response["is_error"] = True
+                        # Gemini requires the exact id and name from the matching
+                        # function_call in the previous model turn.
+                        tool_id = block["tool_use_id"]
+                        parts.append(
+                            {
+                                "function_response": {
+                                    "id": tool_id,
+                                    "name": tool_names.get(tool_id, ""),
+                                    "response": response,
+                                }
+                            }
+                        )
 
             if parts:
                 contents.append({"role": "user", "parts": parts})
@@ -302,9 +267,9 @@ class GoogleGeminiAdapter(ProviderAdapter):
                 types.Tool(
                     function_declarations=[
                         types.FunctionDeclaration(
-                            name=str(tool.get("name") or ""),
-                            description=str(tool.get("description") or ""),
-                            parameters_json_schema=tool.get("input_schema") or {"type": "object", "properties": {}},
+                            name=tool["name"],
+                            description=tool["description"],
+                            parameters_json_schema=tool["input_schema"],
                         )
                         for tool in request.tools
                     ]
@@ -361,18 +326,17 @@ class GoogleGeminiAdapter(ProviderAdapter):
         # Gemini may stream one logical thought/text across many chunks.
         # Merge only when the block kind matches and we are not combining
         # distinct thought signatures.
-        if blocks and blocks[-1].get("type") == block_type:
-            last_part = get_native_meta(blocks[-1]).get("part")
-            if isinstance(last_part, dict):
-                last_signature = last_part.get("thought_signature")
-                current_signature = native_part.get("thought_signature")
-                if not (last_signature and current_signature and last_signature != current_signature):
-                    merged_text = f"{blocks[-1].get('text') or ''}{text}"
-                    blocks[-1]["text"] = merged_text
-                    last_part["text"] = merged_text
-                    if current_signature and not last_signature:
-                        last_part["thought_signature"] = current_signature
-                    return event
+        if blocks and blocks[-1]["type"] == block_type:
+            last_part = get_native_meta(blocks[-1])["part"]
+            last_signature = last_part.get("thought_signature")
+            current_signature = native_part.get("thought_signature")
+            if not (last_signature and current_signature and last_signature != current_signature):
+                merged_text = blocks[-1]["text"] + text
+                blocks[-1]["text"] = merged_text
+                last_part["text"] = merged_text
+                if current_signature and not last_signature:
+                    last_part["thought_signature"] = current_signature
+                return event
 
         part_meta = {"native": {"part": native_part}}
         blocks.append(

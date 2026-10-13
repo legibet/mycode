@@ -10,6 +10,7 @@ from typing import Any, override
 import httpx2
 
 from mycode.messages import (
+    ContentBlock,
     ConversationMessage,
     assistant_message,
     text_block,
@@ -23,8 +24,6 @@ from mycode.providers.base import (
     ProviderStreamEvent,
     dump_model,
     get_native_meta,
-    load_document_block_payload,
-    load_image_block_payload,
     native_block_meta,
     normalize_provider_error,
     parse_tool_call_input,
@@ -219,109 +218,52 @@ class OpenAIChatAdapter(ProviderAdapter):
     def _serialize_tool(self, tool: dict[str, Any]) -> dict[str, Any]:
         return {
             "type": "function",
-            "function": {
-                "name": tool.get("name") or "",
-                "description": tool.get("description") or "",
-                "parameters": tool.get("input_schema") or {"type": "object", "properties": {}},
-            },
+            "function": {"name": tool["name"], "description": tool["description"], "parameters": tool["input_schema"]},
         }
 
     def _serialize_message(self, message: ConversationMessage) -> list[dict[str, Any]]:
         """Convert one canonical message into Chat Completions wire messages."""
 
-        role = str(message.get("role") or "user")
-        blocks = [block for block in message.get("content") or [] if isinstance(block, dict)]
+        blocks = message["content"]
+        texts = [block["text"] for block in blocks if block["type"] == "text" and block["text"]]
 
-        if role == "user":
+        if message["role"] == "user":
             payload_messages: list[dict[str, Any]] = []
-            has_media = any(block.get("type") in {"image", "document"} for block in blocks)
             user_content: str | list[dict[str, Any]]
-            if has_media:
-                media_parts: list[dict[str, Any]] = []
-                for block in blocks:
-                    block_type = block.get("type")
-                    if block_type == "text":
-                        text = str(block.get("text") or "")
-                        if text:
-                            media_parts.append({"type": "text", "text": text})
-                    elif block_type == "image":
-                        mime_type, data = load_image_block_payload(block)
-                        media_parts.append(
-                            {
-                                "type": "image_url",
-                                "image_url": {"url": f"data:{mime_type};base64,{data}"},
-                            }
-                        )
-                    elif block_type == "document":
-                        mime_type, data, name = load_document_block_payload(block)
-                        media_parts.append(
-                            {
-                                "type": "file",
-                                "file": {
-                                    "filename": name or "document.pdf",
-                                    "file_data": f"data:{mime_type};base64,{data}",
-                                },
-                            }
-                        )
-                user_content = media_parts
+            if any(block["type"] in {"image", "document"} for block in blocks):
+                user_content = [part for block in blocks if (part := _media_content_part(block)) is not None]
             else:
-                user_content = "\n".join(
-                    str(block.get("text") or "")
-                    for block in blocks
-                    if block.get("type") == "text" and block.get("text")
-                )
-
+                user_content = "\n".join(texts)
             if user_content:
                 payload_messages.append({"role": "user", "content": user_content})
 
-            for block in blocks:
-                if block.get("type") != "tool_result":
-                    continue
-                payload_messages.append(
-                    {
-                        "role": "tool",
-                        "tool_call_id": block.get("tool_use_id") or "",
-                        "content": str(block.get("output") or ""),
-                    }
-                )
+            payload_messages.extend(
+                {"role": "tool", "tool_call_id": block["tool_use_id"], "content": block["output"]}
+                for block in blocks
+                if block["type"] == "tool_result"
+            )
             return payload_messages
 
-        if role != "assistant":
-            return []
+        payload: dict[str, Any] = {"role": "assistant", "content": "\n".join(texts)}
 
-        text_parts = [
-            str(block.get("text") or "") for block in blocks if block.get("type") == "text" and block.get("text")
-        ]
-        thinking_blocks = [block for block in blocks if block.get("type") == "thinking"]
-        tool_use_blocks = [block for block in blocks if block.get("type") == "tool_use"]
-
-        payload: dict[str, Any] = {
-            "role": "assistant",
-            "content": "\n".join(text_parts),
-        }
-
+        tool_use_blocks = [block for block in blocks if block["type"] == "tool_use"]
         if tool_use_blocks:
             payload["tool_calls"] = [
                 {
-                    "id": block.get("id") or "",
+                    "id": block["id"],
                     "type": "function",
-                    "function": {
-                        "name": block.get("name") or "",
-                        "arguments": json.dumps(
-                            block.get("input") if isinstance(block.get("input"), dict) else {},
-                            ensure_ascii=False,
-                        ),
-                    },
+                    "function": {"name": block["name"], "arguments": json.dumps(block["input"], ensure_ascii=False)},
                 }
                 for block in tool_use_blocks
             ]
 
+        thinking_blocks = [block for block in blocks if block["type"] == "thinking"]
         if thinking_blocks:
             payload.update(self._serialize_reasoning(thinking_blocks))
 
         return [payload]
 
-    def _serialize_reasoning(self, thinking_blocks: list[dict[str, Any]]) -> dict[str, Any]:
+    def _serialize_reasoning(self, thinking_blocks: list[ContentBlock]) -> dict[str, Any]:
         """Replay canonical thinking through the provider's reasoning field.
 
         When the source provider did not record a native field name, default to
@@ -329,9 +271,9 @@ class OpenAIChatAdapter(ProviderAdapter):
         OpenAI-compatible thinking providers we support.
         """
 
-        thinking_text = "\n".join(str(block.get("text") or "") for block in thinking_blocks if block.get("text"))
+        thinking_text = _join_thinking(thinking_blocks)
         native_meta = get_native_meta(thinking_blocks[0])
-        reasoning_field = str(native_meta.get("reasoning_field") or "")
+        reasoning_field = native_meta.get("reasoning_field")
         if reasoning_field == "reasoning_details":
             return {"reasoning_details": native_meta.get("reasoning_details") or []}
         if reasoning_field == "reasoning":
@@ -477,20 +419,18 @@ class OpenRouterAdapter(OpenAIChatAdapter):
 
     @override
     def _can_replay_native_history(self, message: ConversationMessage, request: ProviderRequest) -> bool:
-        raw_meta = message.get("meta")
-        return bool(isinstance(raw_meta, dict) and raw_meta.get("provider") == self.provider_id)
+        return message.get("meta", {}).get("provider") == self.provider_id
 
     @override
-    def _project_incompatible_thinking(self, block: dict[str, Any]) -> dict[str, Any] | None:
-        text = str(block.get("text") or "")
-        return thinking_block(text) if text else None
+    def _project_incompatible_thinking(self, block: ContentBlock) -> ContentBlock | None:
+        return thinking_block(block["text"]) if block["text"] else None
 
     @override
-    def _serialize_reasoning(self, thinking_blocks: list[dict[str, Any]]) -> dict[str, Any]:
+    def _serialize_reasoning(self, thinking_blocks: list[ContentBlock]) -> dict[str, Any]:
         if get_native_meta(thinking_blocks[0]):
             return super()._serialize_reasoning(thinking_blocks)
 
-        thinking_text = "\n".join(str(block.get("text") or "") for block in thinking_blocks if block.get("text"))
+        thinking_text = _join_thinking(thinking_blocks)
         return {"reasoning": thinking_text} if thinking_text else {}
 
     @override
@@ -498,3 +438,26 @@ class OpenRouterAdapter(OpenAIChatAdapter):
         if request.reasoning_effort:
             return {"extra_body": {"reasoning": {"effort": request.reasoning_effort}}}
         return {}
+
+
+def _join_thinking(thinking_blocks: list[ContentBlock]) -> str:
+    return "\n".join(block["text"] for block in thinking_blocks if block["text"])
+
+
+def _media_content_part(block: ContentBlock) -> dict[str, Any] | None:
+    """Return the content part for a text, image, or PDF block of a media user message."""
+
+    match block["type"]:
+        case "text" if block["text"]:
+            return {"type": "text", "text": block["text"]}
+        case "image":
+            return {"type": "image_url", "image_url": {"url": f"data:{block['mime_type']};base64,{block['data']}"}}
+        case "document":
+            return {
+                "type": "file",
+                "file": {
+                    "filename": block.get("name") or "document.pdf",
+                    "file_data": f"data:{block['mime_type']};base64,{block['data']}",
+                },
+            }
+    return None

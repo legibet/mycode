@@ -135,11 +135,9 @@ def merge_user_messages(messages: list[ConversationMessage], *, steer: bool) -> 
 
     meta: dict[str, Any] = {"steer": True} if steer else {}
     meta["input_ids"] = [
-        input_id for message in messages if (input_id := (message.get("meta") or {}).get("input_id")) is not None
+        input_id for message in messages if (input_id := message.get("meta", {}).get("input_id")) is not None
     ]
-    return build_message(
-        "user", [dict(block) for message in messages for block in message.get("content") or []], meta=meta
-    )
+    return build_message("user", [dict(block) for message in messages for block in message["content"]], meta=meta)
 
 
 def assistant_message(
@@ -183,16 +181,11 @@ def flatten_message_text(message: ConversationMessage, *, include_thinking: bool
     """
 
     parts: list[str] = []
-    for block in message.get("content") or []:
-        if not isinstance(block, dict):
-            continue
-        raw_meta = block.get("meta")
-        meta = raw_meta if isinstance(raw_meta, dict) else {}
+    for block in message["content"]:
+        meta = block.get("meta", {})
         if meta.get("attachment") or meta.get("skill_snapshot") or meta.get("job"):
             continue
-        btype = block.get("type")
-        if btype == "text" or (include_thinking and btype == "thinking"):
-            text = str(block.get("text") or "").strip()
-            if text:
-                parts.append(text)
+        readable = block["type"] == "text" or (include_thinking and block["type"] == "thinking")
+        if readable and (text := block["text"].strip()):
+            parts.append(text)
     return "\n\n".join(parts)

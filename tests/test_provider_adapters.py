@@ -377,6 +377,7 @@ def test_responses_replay_native_output_items_for_tool_results() -> None:
                         "type": "tool_result",
                         "tool_use_id": "call_1",
                         "output": "file contents",
+                        "is_error": False,
                     }
                 ],
             },
@@ -425,6 +426,7 @@ def test_openai_responses_serializes_tool_result_images(tmp_path) -> None:
                                 "mime_type": "image/png",
                             },
                         ],
+                        "is_error": False,
                     }
                 ],
             },
@@ -488,7 +490,9 @@ async def test_openai_responses_replays_foreign_thinking_as_assistant_text(
                     },
                     {
                         "role": "user",
-                        "content": [{"type": "tool_result", "tool_use_id": "call_1", "output": "42"}],
+                        "content": [
+                            {"type": "tool_result", "tool_use_id": "call_1", "output": "42", "is_error": False}
+                        ],
                     },
                 ],
             )
@@ -1202,7 +1206,9 @@ async def test_google_gemini_replays_foreign_thinking_as_plain_model_text(
                     },
                     {
                         "role": "user",
-                        "content": [{"type": "tool_result", "tool_use_id": "call_1", "output": "42"}],
+                        "content": [
+                            {"type": "tool_result", "tool_use_id": "call_1", "output": "42", "is_error": False}
+                        ],
                     },
                 ],
             )
@@ -1268,7 +1274,9 @@ async def test_google_gemini_replaces_native_signatures_after_model_switch(
                     },
                     {
                         "role": "user",
-                        "content": [{"type": "tool_result", "tool_use_id": "call_1", "output": "done"}],
+                        "content": [
+                            {"type": "tool_result", "tool_use_id": "call_1", "output": "done", "is_error": False}
+                        ],
                     },
                 ],
             )
@@ -1331,6 +1339,7 @@ def test_google_gemini_replays_native_parts_for_same_provider_history() -> None:
                         "type": "tool_result",
                         "tool_use_id": "call_1",
                         "output": "file contents",
+                        "is_error": False,
                     }
                 ],
             },
@@ -1440,16 +1449,19 @@ def test_google_gemini_build_request_config_uses_supported_tool_settings() -> No
                             "type": "tool_result",
                             "tool_use_id": "call_1",
                             "output": "first",
+                            "is_error": False,
                         },
                         {
                             "type": "tool_result",
                             "tool_use_id": "call_1",
                             "output": "duplicate",
+                            "is_error": False,
                         },
                         {
                             "type": "tool_result",
                             "tool_use_id": "call_2",
                             "output": "orphan",
+                            "is_error": False,
                         },
                     ],
                 },
@@ -1470,6 +1482,7 @@ def test_google_gemini_build_request_config_uses_supported_tool_settings() -> No
                             "type": "tool_result",
                             "tool_use_id": "call_1",
                             "output": "first",
+                            "is_error": False,
                         }
                     ],
                 },
@@ -1486,6 +1499,7 @@ def test_google_gemini_build_request_config_uses_supported_tool_settings() -> No
                             "type": "tool_result",
                             "tool_use_id": "missing",
                             "output": "orphan",
+                            "is_error": False,
                         }
                     ],
                 },
@@ -1537,6 +1551,7 @@ def test_provider_prepare_messages_filters_history_images_when_disabled() -> Non
                             {"type": "text", "text": "Read image file [image/png]"},
                             {"type": "image", "data": "abc", "mime_type": "image/png"},
                         ],
+                        "is_error": False,
                     },
                 ],
             },
@@ -1562,6 +1577,7 @@ def test_provider_prepare_messages_filters_history_images_when_disabled() -> Non
                     "tool_use_id": "call_1",
                     "output": "Read image file [image/png]",
                     "content": [{"type": "text", "text": "Read image file [image/png]"}],
+                    "is_error": False,
                 },
             ],
         },
@@ -1646,11 +1662,13 @@ def test_anthropic_prepare_messages_normalizes_tool_ids() -> None:
                         "type": "tool_result",
                         "tool_use_id": "a/b",
                         "output": "done a",
+                        "is_error": False,
                     },
                     {
                         "type": "tool_result",
                         "tool_use_id": "a|b",
                         "output": "done b",
+                        "is_error": False,
                     },
                 ],
             },
@@ -1681,11 +1699,13 @@ def test_anthropic_prepare_messages_normalizes_tool_ids() -> None:
                     "type": "tool_result",
                     "tool_use_id": first_tool_id,
                     "output": "done a",
+                    "is_error": False,
                 },
                 {
                     "type": "tool_result",
                     "tool_use_id": second_tool_id,
                     "output": "done b",
+                    "is_error": False,
                 },
             ],
         },
@@ -2012,7 +2032,10 @@ _STEER_HISTORY: list[dict[str, Any]] = [
         "content": [{"type": "tool_use", "id": "call_1", "name": "read", "input": {"path": "x.py"}}],
         "meta": {"stop_reason": "tool_use"},
     },
-    {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "call_1", "output": "contents of x.py"}]},
+    {
+        "role": "user",
+        "content": [{"type": "tool_result", "tool_use_id": "call_1", "output": "contents of x.py", "is_error": False}],
+    },
     {
         "role": "user",
         "content": [{"type": "text", "text": "use sqlite"}, {"type": "text", "text": "keep the tests"}],
@@ -2183,6 +2206,7 @@ def test_anthropic_serializes_image_tool_result_content(tmp_path) -> None:
                                     "mime_type": "image/png",
                                 },
                             ],
+                            "is_error": False,
                         }
                     ],
                 },
@@ -2275,7 +2299,9 @@ async def test_anthropic_preserves_native_thinking_blocks_across_tool_turns(
                     stored_message,
                     {
                         "role": "user",
-                        "content": [{"type": "tool_result", "tool_use_id": "call_1", "output": "done"}],
+                        "content": [
+                            {"type": "tool_result", "tool_use_id": "call_1", "output": "done", "is_error": False}
+                        ],
                     },
                 ],
             )
@@ -2365,7 +2391,9 @@ async def test_anthropic_like_targets_replay_foreign_thinking_as_assistant_text(
                     },
                     {
                         "role": "user",
-                        "content": [{"type": "tool_result", "tool_use_id": "call_1", "output": "done"}],
+                        "content": [
+                            {"type": "tool_result", "tool_use_id": "call_1", "output": "done", "is_error": False}
+                        ],
                     },
                 ],
             )
@@ -2427,7 +2455,9 @@ async def test_anthropic_does_not_reuse_thinking_signature_after_model_switch(
                     },
                     {
                         "role": "user",
-                        "content": [{"type": "tool_result", "tool_use_id": "call_1", "output": "done"}],
+                        "content": [
+                            {"type": "tool_result", "tool_use_id": "call_1", "output": "done", "is_error": False}
+                        ],
                     },
                 ],
             )
@@ -2485,7 +2515,9 @@ async def test_moonshot_replays_native_unsigned_thinking(
                     stored_message,
                     {
                         "role": "user",
-                        "content": [{"type": "tool_result", "tool_use_id": "call_1", "output": "done"}],
+                        "content": [
+                            {"type": "tool_result", "tool_use_id": "call_1", "output": "done", "is_error": False}
+                        ],
                     },
                 ],
             )

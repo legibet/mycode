@@ -80,9 +80,9 @@ def has_compactable_history(messages: list[ConversationMessage]) -> bool:
     """True when at least one non-empty user/assistant message follows the latest compact marker."""
 
     for message in reversed(messages):
-        if message.get("role") == "compact":
+        if message["role"] == "compact":
             return False
-        if message.get("role") in ("user", "assistant") and message.get("content"):
+        if message["role"] in ("user", "assistant") and message["content"]:
             return True
     return False
 
@@ -121,24 +121,19 @@ def apply_compact_replay(
     """
 
     for i in range(len(messages) - 1, -1, -1):
-        if messages[i].get("role") == "compact":
+        if messages[i]["role"] == "compact":
             last_compact = i
             break
     else:
         return messages
 
-    summary_text = ""
-    for block in messages[last_compact].get("content") or []:
-        if isinstance(block, dict) and block.get("type") == "text":
-            summary_text = str(block.get("text") or "")
-            break
-
     tail = messages[last_compact + 1 :]
     # No tail or assistant-led tail = mid-loop; resume directly. A user-led
     # tail needs an "Acknowledged." assistant turn to keep role alternation.
-    continue_now = not tail or tail[0].get("role") == "assistant"
+    continue_now = not tail or tail[0]["role"] == "assistant"
 
-    parts = [CONTINUATION_HEADER, summary_text]
+    # build_compact_event stores the summary as the marker's one text block.
+    parts = [CONTINUATION_HEADER, messages[last_compact]["content"][0]["text"]]
     if transcript_path:
         parts.append(TRANSCRIPT_HINT.format(path=transcript_path))
     if continue_now:

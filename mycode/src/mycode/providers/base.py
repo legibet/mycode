@@ -18,7 +18,7 @@ import httpx2
 
 from mycode.attachments import unsupported_attachment_block
 from mycode.compact import apply_compact_replay
-from mycode.messages import ConversationMessage, build_message, text_block, tool_result_block
+from mycode.messages import ContentBlock, ConversationMessage, build_message, text_block, tool_result_block
 
 DEFAULT_REQUEST_TIMEOUT = 300.0
 
@@ -145,15 +145,10 @@ def dump_model(value: Any) -> Any:
     return value
 
 
-def get_native_meta(block: dict[str, Any]) -> dict[str, Any]:
-    """Return block.meta.native as a dict, or {} if absent."""
+def get_native_meta(block: ContentBlock) -> dict[str, Any]:
+    """Return ``block.meta.native``, or {} if absent."""
 
-    raw_meta = block.get("meta")
-    if isinstance(raw_meta, dict):
-        candidate = raw_meta.get("native")
-        if isinstance(candidate, dict):
-            return candidate
-    return {}
+    return block.get("meta", {}).get("native", {})
 
 
 def native_block_meta(native: dict[str, Any]) -> dict[str, Any] | None:
@@ -163,19 +158,12 @@ def native_block_meta(native: dict[str, Any]) -> dict[str, Any] | None:
 
 
 def _without_native_meta(value: dict[str, Any]) -> dict[str, Any]:
-    """Copy a canonical value without provider-specific replay metadata."""
+    """Copy a canonical message or block without provider-specific replay metadata."""
 
-    result = dict(value)
-    raw_meta = result.get("meta")
-    if not isinstance(raw_meta, dict) or "native" not in raw_meta:
-        return result
-
-    meta = dict(raw_meta)
-    meta.pop("native")
+    result = value.copy()
+    meta = {key: item for key, item in result.pop("meta", {}).items() if key != "native"}
     if meta:
         result["meta"] = meta
-    else:
-        result.pop("meta")
     return result
 
 
@@ -245,13 +233,11 @@ class ProviderAdapter(ABC):
         used_tool_call_ids: set[str] = set()
 
         for message in repaired_messages:
-            portable_replay = message.get("role") == "assistant" and not self._can_replay_native_history(
-                message, request
-            )
-            projected_blocks: list[dict[str, Any]] = []
+            portable_replay = message["role"] == "assistant" and not self._can_replay_native_history(message, request)
+            projected_blocks: list[ContentBlock] = []
             for block in message["content"]:
                 if portable_replay:
-                    if block.get("type") == "thinking":
+                    if block["type"] == "thinking":
                         projected_thinking = self._project_incompatible_thinking(block)
                         if projected_thinking is None:
                             continue
@@ -259,17 +245,14 @@ class ProviderAdapter(ABC):
                     else:
                         block = _without_native_meta(block)
 
-                if block.get("type") == "tool_use":
-                    tool_use_id = str(block.get("id") or "")
-                    if tool_use_id and tool_use_id not in tool_id_map:
+                if block["type"] == "tool_use":
+                    tool_use_id = block["id"]
+                    if tool_use_id not in tool_id_map:
                         tool_id_map[tool_use_id] = self.project_tool_call_id(tool_use_id, used_tool_call_ids)
                         used_tool_call_ids.add(tool_id_map[tool_use_id])
-                    if tool_use_id:
-                        block["id"] = tool_id_map[tool_use_id]
-                elif block.get("type") == "tool_result":
-                    tool_use_id = str(block.get("tool_use_id") or "")
-                    if tool_use_id in tool_id_map:
-                        block["tool_use_id"] = tool_id_map[tool_use_id]
+                    block["id"] = tool_id_map[tool_use_id]
+                elif block["type"] == "tool_result" and block["tool_use_id"] in tool_id_map:
+                    block["tool_use_id"] = tool_id_map[block["tool_use_id"]]
 
                 projected_blocks.append(block)
 
@@ -283,18 +266,13 @@ class ProviderAdapter(ABC):
     def _can_replay_native_history(self, message: ConversationMessage, request: ProviderRequest) -> bool:
         """Return whether provider-native history is valid for the target model."""
 
-        raw_meta = message.get("meta")
-        return bool(
-            isinstance(raw_meta, dict)
-            and raw_meta.get("provider") == self.provider_id
-            and raw_meta.get("model") == request.model
-        )
+        meta = message.get("meta", {})
+        return meta.get("provider") == self.provider_id and meta.get("model") == request.model
 
-    def _project_incompatible_thinking(self, block: dict[str, Any]) -> dict[str, Any] | None:
+    def _project_incompatible_thinking(self, block: ContentBlock) -> ContentBlock | None:
         """Keep readable thinking without replaying incompatible native state."""
 
-        text = str(block.get("text") or "")
-        return text_block(text) if text else None
+        return text_block(block["text"]) if block["text"] else None
 
     def project_tool_call_id(self, tool_call_id: str, used_tool_call_ids: set[str]) -> str:
         """Project one canonical tool call ID into a provider-safe ID.
@@ -350,86 +328,66 @@ def repair_messages_for_replay(
     open_tool_use_ids: list[str] = []
 
     for message in source_messages:
-        role = str(message.get("role") or "")
-
-        if role == "assistant":
+        if message["role"] == "assistant":
             if open_tool_use_ids:
                 replay_messages.append(_interrupted_tool_result_message(open_tool_use_ids))
                 emitted_tool_result_ids.update(open_tool_use_ids)
                 open_tool_use_ids = []
 
-            raw_meta = message.get("meta")
-            stop_reason = str(raw_meta.get("stop_reason") or "") if isinstance(raw_meta, dict) else ""
-            if stop_reason in {"error", "cancelled"}:
+            if message.get("meta", {}).get("stop_reason") in {"error", "cancelled"}:
                 continue
 
-            content: list[dict[str, Any]] = []
+            content: list[ContentBlock] = []
             current_tool_use_ids: list[str] = []
-            for raw_block in message.get("content") or []:
-                if not isinstance(raw_block, dict):
-                    continue
-                block_type = raw_block.get("type")
-                if block_type in {"text", "thinking"}:
-                    text = str(raw_block.get("text") or "")
+            for block in message["content"]:
+                if block["type"] in {"text", "thinking"}:
                     # Empty native thinking blocks may still carry signatures or
                     # provider replay state.
-                    if text or get_native_meta(raw_block):
-                        content.append(dict(raw_block))
+                    if block["text"] or get_native_meta(block):
+                        content.append(dict(block))
                     continue
 
-                if block_type != "tool_use":
+                if block["type"] != "tool_use":
                     continue
 
-                tool_use_id = str(raw_block.get("id") or "")
+                # Some compatible upstreams return calls without an id; such a
+                # call cannot be matched to a result.
+                tool_use_id = block["id"]
                 if not tool_use_id or tool_use_id in emitted_tool_use_ids:
                     continue
 
                 emitted_tool_use_ids.add(tool_use_id)
                 current_tool_use_ids.append(tool_use_id)
-                content.append(dict(raw_block))
+                content.append(dict(block))
 
-            if not content:
-                continue
-
-            replay_message = dict(message)
-            replay_message["content"] = content
-            if isinstance(raw_meta, dict):
-                replay_message["meta"] = dict(raw_meta)
-            replay_messages.append(replay_message)
-            open_tool_use_ids = current_tool_use_ids
-            continue
-
-        if role != "user":
+            if content:
+                replay_messages.append({**message, "content": content})
+                open_tool_use_ids = current_tool_use_ids
             continue
 
         content = []
         resolved_tool_use_ids: set[str] = set()
         has_user_input = False
 
-        for raw_block in message.get("content") or []:
-            if not isinstance(raw_block, dict):
-                continue
-
-            block_type = raw_block.get("type")
+        for block in message["content"]:
+            block_type = block["type"]
             if block_type == "text":
-                text = str(raw_block.get("text") or "")
-                if text:
+                if block["text"]:
                     has_user_input = True
-                    content.append(dict(raw_block))
+                    content.append(dict(block))
                 continue
 
             if block_type in {"image", "document"}:
-                supported = supports_image_input if block_type == "image" else supports_pdf_input
                 has_user_input = True
+                supported = supports_image_input if block_type == "image" else supports_pdf_input
                 if supported:
-                    content.append(dict(raw_block))
+                    content.append(dict(block))
                 else:
                     # Keep a record of the file even though its bytes are dropped.
-                    default_mime = "image" if block_type == "image" else "application/pdf"
                     content.append(
                         unsupported_attachment_block(
-                            name=str(raw_block.get("name") or f"attached-{block_type}"),
-                            mime_type=str(raw_block.get("mime_type") or default_mime),
+                            name=block.get("name") or f"attached-{block_type}",
+                            mime_type=block["mime_type"],
                             kind=block_type,
                         )
                     )
@@ -438,22 +396,17 @@ def repair_messages_for_replay(
             if block_type != "tool_result":
                 continue
 
-            tool_use_id = str(raw_block.get("tool_use_id") or "")
-            if not tool_use_id or tool_use_id not in emitted_tool_use_ids or tool_use_id in emitted_tool_result_ids:
+            tool_use_id = block["tool_use_id"]
+            if tool_use_id not in emitted_tool_use_ids or tool_use_id in emitted_tool_result_ids:
                 continue
 
-            block = dict(raw_block)
-            raw_content = block.get("content")
-            if not supports_image_input and isinstance(raw_content, list):
-                filtered_content = [
-                    dict(item) for item in raw_content if isinstance(item, dict) and item.get("type") != "image"
-                ]
-                if filtered_content:
-                    block["content"] = filtered_content
-                else:
-                    block.pop("content", None)
+            result = dict(block)
+            if not supports_image_input and "content" in result:
+                kept = [item for item in result.pop("content") if item["type"] != "image"]
+                if kept:
+                    result["content"] = kept
 
-            content.append(block)
+            content.append(result)
             resolved_tool_use_ids.add(tool_use_id)
             emitted_tool_result_ids.add(tool_use_id)
 
@@ -472,7 +425,7 @@ def repair_messages_for_replay(
             ]
 
         if not content:
-            if replay_messages and replay_messages[-1].get("role") == "assistant":
+            if replay_messages and replay_messages[-1]["role"] == "assistant":
                 # Keep a valid replay transcript when a corrupted user turn is
                 # reduced to nothing after cleanup.
                 replay_messages.append(
@@ -484,11 +437,7 @@ def repair_messages_for_replay(
                 )
             continue
 
-        replay_message = dict(message)
-        replay_message["content"] = content
-        if isinstance(message.get("meta"), dict):
-            replay_message["meta"] = dict(message["meta"])
-        replay_messages.append(replay_message)
+        replay_messages.append({**message, "content": content})
 
     if open_tool_use_ids:
         replay_messages.append(_interrupted_tool_result_message(open_tool_use_ids))
@@ -512,41 +461,7 @@ def _interrupted_tool_result_message(tool_use_ids: list[str]) -> ConversationMes
     )
 
 
-def load_image_block_payload(block: dict[str, Any]) -> tuple[str, str]:
-    """Return (mime_type, base64_data) for one canonical image block."""
+def tool_result_content_blocks(block: ContentBlock) -> list[ContentBlock]:
+    """Return the tool result's structured content, or its output as one text block."""
 
-    mime_type = block.get("mime_type")
-    if not isinstance(mime_type, str) or not mime_type:
-        raise ValueError("image block is missing mime_type")
-
-    data = block.get("data")
-    if not isinstance(data, str) or not data:
-        raise ValueError("image block is missing data")
-
-    return mime_type, data
-
-
-def load_document_block_payload(block: dict[str, Any]) -> tuple[str, str, str | None]:
-    """Return (mime_type, base64_data, name) for one canonical document block."""
-
-    mime_type = block.get("mime_type")
-    if not isinstance(mime_type, str) or not mime_type:
-        raise ValueError("document block is missing mime_type")
-
-    data = block.get("data")
-    if not isinstance(data, str) or not data:
-        raise ValueError("document block is missing data")
-
-    name = block.get("name")
-    return mime_type, data, name if isinstance(name, str) and name else None
-
-
-def tool_result_content_blocks(block: dict[str, Any]) -> list[dict[str, Any]]:
-    """Return structured tool-result content, falling back to one text block."""
-
-    raw_content = block.get("content")
-    if isinstance(raw_content, list):
-        structured = [dict(item) for item in raw_content if isinstance(item, dict)]
-        if structured:
-            return structured
-    return [text_block(str(block.get("output") or ""))]
+    return block.get("content") or [text_block(block["output"])]
