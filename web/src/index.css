@@ -126,10 +126,10 @@
     );
     --scrollbar-track: transparent;
 
-    --diff-removed-bg: oklch(0.65 0.15 25 / 0.1);
-    --diff-added-bg: oklch(0.72 0.14 145 / 0.1);
-    --diff-removed-indicator: oklch(0.65 0.15 25 / 0.55);
-    --diff-added-indicator: oklch(0.72 0.14 145 / 0.55);
+    --diff-removed-bg: oklch(0.65 0.15 25 / 0.16);
+    --diff-added-bg: oklch(0.72 0.14 145 / 0.14);
+    --diff-removed-indicator: oklch(0.65 0.15 25 / 0.8);
+    --diff-added-indicator: oklch(0.72 0.14 145 / 0.8);
   }
 
   /* ── Light theme ── Quiet Blue / OKLCH ── */
@@ -169,10 +169,10 @@
     --elevation-overlay:
       0 0 0 1px var(--border), 0 8px 28px oklch(0 0 0 / 0.07);
 
-    --diff-removed-bg: oklch(0.55 0.17 25 / 0.07);
-    --diff-added-bg: oklch(0.6 0.16 145 / 0.07);
-    --diff-removed-indicator: oklch(0.55 0.17 25 / 0.55);
-    --diff-added-indicator: oklch(0.6 0.16 145 / 0.55);
+    --diff-removed-bg: oklch(0.55 0.17 25 / 0.1);
+    --diff-added-bg: oklch(0.6 0.16 145 / 0.1);
+    --diff-removed-indicator: oklch(0.55 0.17 25 / 0.8);
+    --diff-added-indicator: oklch(0.6 0.16 145 / 0.8);
   }
 
   html,
@@ -407,12 +407,6 @@
 }
 .diff-line-added {
   background-color: var(--diff-added-bg);
-}
-.diff-gutter-removed {
-  color: var(--diff-removed-indicator);
-}
-.diff-gutter-added {
-  color: var(--diff-added-indicator);
 }
 
 /* ── Project animations ── */

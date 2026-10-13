@@ -1,7 +1,7 @@
 import {
-  type CodeToHastOptions,
   createBundledHighlighter,
   type HighlighterGeneric,
+  type ThemedToken,
   type ThemeInput,
 } from "shiki/core";
 import { createJavaScriptRegexEngine } from "shiki/engine/javascript";
@@ -26,10 +26,16 @@ let highlighterPromise: Promise<AppHighlighter> | null = null;
 const langLoadCache = new Map<ResolvedLanguage, Promise<ResolvedLanguage>>();
 
 const LANGUAGE_ALIASES: Record<string, string> = {
+  cc: "cpp",
+  cxx: "cpp",
   golang: "go",
+  h: "c",
+  hh: "cpp",
+  hpp: "cpp",
   objectivec: "objective-c",
   "objective-c++": "objective-cpp",
   plaintext: "text",
+  pyi: "python",
   vuejs: "vue",
 };
 
@@ -46,7 +52,7 @@ function getHighlighter(): Promise<AppHighlighter> {
 // Pre-warm so the first highlight only waits on language load.
 void getHighlighter();
 
-export function resolveLanguage(lang: string): ResolvedLanguage {
+function resolveLanguage(lang: string): ResolvedLanguage {
   const normalized = String(lang || "")
     .trim()
     .toLowerCase();
@@ -86,36 +92,50 @@ function loadLang(
   return langLoadCache.get(lang) ?? Promise.resolve("text");
 }
 
-function codeToHtmlSafely(
-  highlighter: AppHighlighter,
-  code: string,
-  options: CodeToHastOptions<string, AppTheme>,
-): string | null {
-  try {
-    return highlighter.codeToHtml(code, options);
-  } catch {
-    return null;
-  }
-}
-
 const SHIKI_OPTIONS = {
   themes: { dark: "dark-plus", light: "light-plus" },
   defaultColor: false,
 } as const;
 
-export async function highlightCode(
-  code: string,
+async function loadHighlighter(
   language: string,
-): Promise<string | null> {
+): Promise<[AppHighlighter, BundledLanguage] | null> {
   const resolvedLanguage = resolveLanguage(language);
   if (resolvedLanguage === "text") return null;
 
   const highlighter = await getHighlighter();
   const loadedLanguage = await loadLang(highlighter, resolvedLanguage);
-  if (loadedLanguage === "text") return null;
+  return loadedLanguage === "text" ? null : [highlighter, loadedLanguage];
+}
 
-  return codeToHtmlSafely(highlighter, code, {
-    lang: loadedLanguage,
-    ...SHIKI_OPTIONS,
-  });
+export async function highlightCode(
+  code: string,
+  language: string,
+): Promise<string | null> {
+  const loaded = await loadHighlighter(language);
+  if (!loaded) return null;
+  const [highlighter, lang] = loaded;
+  try {
+    return highlighter.codeToHtml(code, { lang, ...SHIKI_OPTIONS });
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Tokens per line. Each token's `htmlStyle` carries the same `--shiki-*`
+ * variables as `highlightCode`, so it renders under a `.shiki` ancestor.
+ */
+export async function highlightTokens(
+  code: string,
+  language: string,
+): Promise<ThemedToken[][] | null> {
+  const loaded = await loadHighlighter(language);
+  if (!loaded) return null;
+  const [highlighter, lang] = loaded;
+  try {
+    return highlighter.codeToTokens(code, { lang, ...SHIKI_OPTIONS }).tokens;
+  } catch {
+    return null;
+  }
 }

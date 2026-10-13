@@ -7,16 +7,11 @@
  */
 
 import { Terminal } from "lucide-react";
-import { lazy, memo, type ReactNode, Suspense, useState } from "react";
+import { memo, type ReactNode, useMemo, useState } from "react";
 import { cn } from "../../utils/cn";
+import { hunksFromEdits, parsePatch } from "../../utils/diff";
+import { EditDiff } from "./EditDiff";
 import { TOOL_ICON } from "./toolIcons";
-
-const EditDiff = lazy(() => import("./EditDiff"));
-
-interface EditEntry {
-  oldText: string;
-  newText: string;
-}
 
 // Tool inputs/outputs are JSON from the model; treat fields as `unknown` and
 // type-check at the read site instead of trusting the shape with `as`.
@@ -45,6 +40,10 @@ interface WriteArgs {
 interface EditArgs {
   edits?: unknown;
 }
+interface EditEntry {
+  oldText?: unknown;
+  newText?: unknown;
+}
 interface EditMeta {
   patch?: unknown;
   added_lines?: unknown;
@@ -68,9 +67,13 @@ function asNumber(value: unknown): number | null {
   return typeof value === "number" ? value : null;
 }
 
-function getEdits(args: Args): EditEntry[] | null {
+function getEdits(args: Args): { oldText: string; newText: string }[] {
   const edits = (args as EditArgs | undefined)?.edits;
-  return Array.isArray(edits) ? (edits as EditEntry[]) : null;
+  if (!Array.isArray(edits)) return [];
+  return edits.map((edit: EditEntry | null | undefined) => ({
+    oldText: asString(edit?.oldText),
+    newText: asString(edit?.newText),
+  }));
 }
 
 function getEditPatch(metadata: Meta): string | null {
@@ -88,28 +91,6 @@ function getEditStats(
   return { added, removed };
 }
 
-function EditDiffFallback({ edits }: { edits: EditEntry[] }) {
-  return (
-    <div className="rounded-md bg-code shadow-hairline px-3 py-2 font-mono text-[13px] leading-normal overflow-x-auto scrollbar-subtle whitespace-pre-wrap">
-      {edits.map((entry, i) => (
-        <div key={i}>
-          {i > 0 && (
-            <div className="text-center text-muted-foreground/20 select-none text-xs py-0.5">
-              ···
-            </div>
-          )}
-          {entry.oldText && (
-            <div className="diff-line-removed px-1">{entry.oldText}</div>
-          )}
-          {entry.newText && (
-            <div className="diff-line-added px-1">{entry.newText}</div>
-          )}
-        </div>
-      ))}
-    </div>
-  );
-}
-
 interface ToolCardProps {
   name: string;
   args?: Record<string, unknown>;
@@ -125,7 +106,7 @@ interface ToolCardProps {
 // one fill, no internal rule. Input and output are told apart by text colour,
 // the way a terminal does it; a rule has to out-shout the fill to be seen, and
 // a second fill turns one surface into a titlebar plus a content pane.
-// Diffs are not text: EditDiff owns its own container (see EditDiff.tsx).
+// Diffs get their own surface (EditDiff.tsx): tinted rows run edge to edge.
 // ---------------------------------------------------------------------------
 
 function ToolSurface({ head, body }: { head?: ReactNode; body?: ReactNode }) {
@@ -342,18 +323,20 @@ function EditBody({
   display: string;
   isError: boolean;
 }) {
-  const edits = getEdits(args);
-  if (edits?.length) {
+  // The patch exists once the edit has applied; until then (or on failure)
+  // show the requested replacements.
+  const hunks = useMemo(() => {
     const patch = getEditPatch(metadata);
+    return patch ? parsePatch(patch) : hunksFromEdits(getEdits(args));
+  }, [args, metadata]);
+
+  if (hunks.length) {
     return (
       <div className="space-y-2">
-        {patch ? (
-          <Suspense fallback={<EditDiffFallback edits={edits} />}>
-            <EditDiff patch={patch} />
-          </Suspense>
-        ) : (
-          <EditDiffFallback edits={edits} />
-        )}
+        <EditDiff
+          path={asString((args as PathArgs | undefined)?.path)}
+          hunks={hunks}
+        />
         {isError && <ToolSurface body={display} />}
       </div>
     );

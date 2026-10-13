@@ -28,6 +28,7 @@ web/src/
     format.ts                  # cost, duration, path, and date formatting
     platform.ts                # macOS detection for shortcut modifiers
     messages.ts                # canonical messages → render messages
+    diff.ts                    # edit patch → diff hunks
     completion.ts              # slash, skill, and @ token matching
     config.ts                  # local and remote config resolution
     storage.ts                 # browser persistence
