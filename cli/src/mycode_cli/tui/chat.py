@@ -305,6 +305,7 @@ def clone_agent(agent: Agent, *, store: SessionStore, session_id: str, cwd: str,
         compact_threshold=agent.compact_threshold,
         reasoning_effort=agent.reasoning_effort,
         supports_reasoning_effort=agent.supports_reasoning_effort,
+        legacy_max_tokens=agent.legacy_max_tokens,
         supports_image_input=agent.supports_image_input,
         supports_pdf_input=agent.supports_pdf_input,
         system=agent.system,
@@ -336,6 +337,7 @@ def apply_resolved_provider(agent: Agent, resolved: ResolvedProvider) -> bool:
     agent.api_base = resolved.api_base
     agent.reasoning_effort = resolved.reasoning_effort
     agent.supports_reasoning_effort = resolved.supports_reasoning_effort
+    agent.legacy_max_tokens = resolved.legacy_max_tokens
 
     if runtime_changed:
         model_config = resolved.model_config
