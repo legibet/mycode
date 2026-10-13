@@ -76,19 +76,19 @@ class ModelMetadata:
 
 
 @cache
-def load_models_catalog() -> _ModelsCatalog | None:
-    """Load the bundled model catalog from disk once per process."""
+def load_models_catalog() -> dict[str, _CatalogEntry]:
+    """Load the bundled catalog, keyed by official model name, once per process."""
 
     try:
-        return _ModelsCatalog.model_validate_json(_MODELS_CATALOG_PATH.read_bytes())
+        return _ModelsCatalog.model_validate_json(_MODELS_CATALOG_PATH.read_bytes()).models
     except (OSError, ValidationError):
-        return None
+        return {}
 
 
-def infer_provider_from_model(model: str | None) -> str | None:
+def infer_provider_from_model(model: str) -> str | None:
     """Return the canonical built-in provider id for a known model id, else None."""
 
-    bare = (model or "").strip().split("/", 1)[-1].strip().lower()
+    bare = model.split("/", 1)[-1].strip().lower()
     if bare.startswith("claude-"):
         return "anthropic"
     if bare.startswith("deepseek-"):
@@ -122,11 +122,28 @@ def resolve_model_metadata(
 ) -> ModelMetadata:
     """Return catalog metadata for ``(provider, model)`` with non-None overrides layered on top.
 
-    Missing overrides and an absent catalog entry both leave the corresponding
-    fields at ``None`` so callers can apply their own fallback defaults.
+    The catalog is keyed by official model name. ``model`` is looked up as
+    supplied and then without its ``owner/`` prefix, so routed ids such as
+    OpenRouter's ``owner/model`` resolve to the official entry (with the
+    official provider's pricing). Fields that neither the catalog nor an
+    override supplies stay ``None`` so callers can apply their own defaults.
     """
 
-    base = lookup_model_metadata(provider_type=provider, model=model) or ModelMetadata(provider=provider, model=model)
+    metadata = ModelMetadata(provider=provider, model=model)
+    catalog = load_models_catalog()
+    entry = catalog.get(model) or catalog.get(model.split("/", 1)[-1])
+    if entry is not None:
+        metadata = replace(
+            metadata,
+            context_window=entry.context_window,
+            max_output_tokens=entry.max_output_tokens,
+            reasoning_efforts=entry.reasoning_efforts,
+            supports_image_input=entry.supports_image_input,
+            supports_pdf_input=entry.supports_pdf_input,
+            pricing=entry.cost.model_dump(mode="json", exclude_none=True, exclude_defaults=True)
+            if entry.cost is not None
+            else None,
+        )
     overrides = {
         "context_window": context_window,
         "max_output_tokens": max_output_tokens,
@@ -134,48 +151,4 @@ def resolve_model_metadata(
         "supports_image_input": supports_image_input,
         "supports_pdf_input": supports_pdf_input,
     }
-    return replace(base, **{k: v for k, v in overrides.items() if v is not None})
-
-
-def lookup_model_metadata(
-    *,
-    provider_type: str | None,
-    model: str | None,
-) -> ModelMetadata | None:
-    """Return model metadata for a provider/model request.
-
-    Looks up the official model name, first as supplied and then without its
-    prefix, so routed ids such as OpenRouter's ``owner/model`` resolve to the
-    official entry (with the official provider's pricing).
-    """
-
-    requested_model = (model or "").strip()
-    if not provider_type or not requested_model:
-        return None
-    catalog = load_models_catalog()
-    if catalog is None:
-        return None
-
-    model_name = requested_model.split("/", 1)[-1].strip()
-    catalog_entry = catalog.models.get(requested_model) or catalog.models.get(model_name)
-    if catalog_entry is None:
-        return None
-
-    return ModelMetadata(
-        provider=provider_type,
-        model=requested_model,
-        context_window=catalog_entry.context_window,
-        max_output_tokens=catalog_entry.max_output_tokens,
-        reasoning_efforts=catalog_entry.reasoning_efforts,
-        supports_image_input=catalog_entry.supports_image_input,
-        supports_pdf_input=catalog_entry.supports_pdf_input,
-        pricing=(
-            catalog_entry.cost.model_dump(
-                mode="json",
-                exclude_none=True,
-                exclude_defaults=True,
-            )
-            if catalog_entry.cost is not None
-            else None
-        ),
-    )
+    return replace(metadata, **{k: v for k, v in overrides.items() if v is not None})

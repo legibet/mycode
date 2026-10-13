@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from mycode.models import ModelMetadata
+from mycode.models import _ModelsCatalog
 from mycode.providers import list_env_discoverable_providers, provider_env_api_key_names
 from mycode_cli.config import (
     WebConfig,
@@ -26,8 +26,9 @@ def write_json(path: Path, payload: object) -> None:
     path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
 
-def patch_metadata(monkeypatch: pytest.MonkeyPatch, metadata: ModelMetadata | None) -> None:
-    monkeypatch.setattr("mycode.models.lookup_model_metadata", lambda **_: metadata)
+def patch_catalog(monkeypatch: pytest.MonkeyPatch, entries: dict[str, dict[str, object]]) -> None:
+    catalog = _ModelsCatalog.model_validate_json(json.dumps({"models": entries})).models
+    monkeypatch.setattr("mycode.models.load_models_catalog", lambda: catalog)
 
 
 def build_test_agent(tmp_path: Path, cwd: Path, settings, resolved):
@@ -54,7 +55,7 @@ def clear_provider_env(monkeypatch: pytest.MonkeyPatch) -> None:
 
 @pytest.fixture(autouse=True)
 def disable_live_models_dev_lookup(monkeypatch: pytest.MonkeyPatch) -> None:
-    patch_metadata(monkeypatch, None)
+    patch_catalog(monkeypatch, {})
 
 
 @pytest.fixture
@@ -632,16 +633,16 @@ class TestAgentCapabilities:
         self, tmp_path: Path, workspace: Path, config_home: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.setenv("OPENAI_API_KEY", "env-key")
-        patch_metadata(
+        patch_catalog(
             monkeypatch,
-            ModelMetadata(
-                provider="openai",
-                model="gpt-4.1-mini",
-                context_window=1_000_000,
-                max_output_tokens=32_768,
-                supports_image_input=True,
-                supports_pdf_input=True,
-            ),
+            {
+                "gpt-4.1-mini": {
+                    "context_window": 1_000_000,
+                    "max_output_tokens": 32_768,
+                    "supports_image_input": True,
+                    "supports_pdf_input": True,
+                }
+            },
         )
         write_json(
             config_home / "config.json",
@@ -668,17 +669,15 @@ class TestAgentCapabilities:
         self, tmp_path: Path, workspace: Path, config_home: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.setenv("OPENAI_API_KEY", "env-key")
-        patch_metadata(
+        patch_catalog(
             monkeypatch,
-            ModelMetadata(
-                provider="openai",
-                model="gpt-5.5",
-                context_window=400_000,
-                max_output_tokens=128_000,
-                reasoning_efforts=("low", "high"),
-                supports_image_input=None,
-                supports_pdf_input=None,
-            ),
+            {
+                "gpt-5.5": {
+                    "context_window": 400_000,
+                    "max_output_tokens": 128_000,
+                    "reasoning_efforts": ["low", "high"],
+                }
+            },
         )
         write_json(
             config_home / "config.json",
