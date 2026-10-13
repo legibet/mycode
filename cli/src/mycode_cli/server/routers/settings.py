@@ -17,12 +17,7 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException
 
-from mycode.providers import (
-    list_env_discoverable_providers,
-    list_supported_providers,
-    provider_default_models,
-    provider_env_api_key_names,
-)
+from mycode.providers import get_provider_adapter, list_env_discoverable_providers, list_supported_providers
 from mycode_cli.config import (
     PERMISSION_LEVEL_OPTIONS,
     PERMISSION_MODE_OPTIONS,
@@ -96,7 +91,7 @@ def _env_presence(raw: dict[str, Any]) -> dict[str, bool]:
 
     names: set[str] = set()
     for provider_id in list_env_discoverable_providers():
-        names.update(provider_env_api_key_names(provider_id))
+        names.update(get_provider_adapter(provider_id).env_api_key_names)
     names.update(WEB_PROVIDER_ENV_VARS.values())
 
     for entry in (raw.get("providers") or {}).values():
@@ -118,24 +113,22 @@ def _env_presence(raw: dict[str, Any]) -> dict[str, bool]:
 
 def _build_response(path: Path) -> dict[str, Any]:
     raw = _read_raw_config(path)
-    provider_types = list_supported_providers()
+    adapters = [get_provider_adapter(ptype) for ptype in list_supported_providers()]
     return {
         "path": str(path),
         "exists": path.is_file(),
         "config": _present_config(raw),
         "options": {
-            "provider_types": provider_types,
+            "provider_types": [adapter.provider_id for adapter in adapters],
             "permission_levels": list(PERMISSION_LEVEL_OPTIONS),
             "permission_modes": list(PERMISSION_MODE_OPTIONS),
         },
         "env": _env_presence(raw),
         "provider_type_env_vars": {
-            ptype: list(provider_env_api_key_names(ptype))
-            for ptype in provider_types
-            if provider_env_api_key_names(ptype)
+            adapter.provider_id: list(adapter.env_api_key_names) for adapter in adapters if adapter.env_api_key_names
         },
         "provider_type_default_models": {
-            ptype: list(provider_default_models(ptype)) for ptype in provider_types if provider_default_models(ptype)
+            adapter.provider_id: list(adapter.default_models) for adapter in adapters if adapter.default_models
         },
     }
 

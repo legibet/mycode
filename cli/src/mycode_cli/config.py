@@ -16,10 +16,6 @@ from mycode.providers import (
     is_supported_provider,
     list_env_discoverable_providers,
     list_supported_providers,
-    provider_api_key_from_env,
-    provider_can_authenticate_from_env,
-    provider_default_models,
-    provider_env_api_key_names,
 )
 
 _DEFAULT_MYCODE_HOME = "~/.mycode"
@@ -595,7 +591,7 @@ def _build_providers(raw_providers: dict[str, dict[str, Any]]) -> dict[str, Prov
         raw_models = cast(dict[str, dict[str, Any]] | None, raw.get("models"))
         models = {model: ModelConfig(**config) for model, config in (raw_models or {}).items()}
         if not models:
-            models = {model: ModelConfig() for model in provider_default_models(provider_type)}
+            models = {model: ModelConfig() for model in get_provider_adapter(provider_type).default_models}
         providers[name] = ProviderConfig(
             name=name,
             type=provider_type,
@@ -649,7 +645,7 @@ def provider_is_available(provider: ProviderConfig) -> bool:
         return bool((os.environ.get(provider.api_key_env_var) or "").strip())
     if provider.api_key:
         return True
-    return provider_can_authenticate_from_env(provider.type)
+    return get_provider_adapter(provider.type).can_authenticate_from_env()
 
 
 def resolve_provider(
@@ -673,7 +669,7 @@ def resolve_provider(
                 dict.fromkeys(
                     env_name
                     for provider_id in list_env_discoverable_providers()
-                    for env_name in provider_env_api_key_names(provider_id)
+                    for env_name in get_provider_adapter(provider_id).env_api_key_names
                 )
             )
             checked = ", ".join(env_names) or "<api key env>"
@@ -710,7 +706,7 @@ def provider_models(settings: Settings, provider: ResolvedProvider) -> list[str]
     provider_config = settings.providers.get(provider.provider_name or "")
     if provider_config and provider_config.models:
         return list(provider_config.models)
-    return list(provider_default_models(provider.provider)) or [provider.model]
+    return list(get_provider_adapter(provider.provider).default_models) or [provider.model]
 
 
 def _available_provider_references(settings: Settings) -> list[str]:
@@ -727,7 +723,7 @@ def _available_provider_references(settings: Settings) -> list[str]:
         if (
             provider_id not in configured_types
             and provider_id not in settings.providers
-            and provider_api_key_from_env(provider_id)
+            and get_provider_adapter(provider_id).api_key_from_env()
         ):
             available.append(provider_id)
 
@@ -746,10 +742,7 @@ def _resolve_provider_runtime(
 
     provider_config = settings.providers.get(selected_name)
     provider_type = provider_config.type if provider_config else selected_name
-
-    if not is_supported_provider(provider_type):
-        supported = ", ".join(list_supported_providers())
-        raise ValueError(f"unsupported provider {provider_type!r}; supported: {supported}")
+    adapter = get_provider_adapter(provider_type)
 
     requested_model = (model or "").strip()
     if requested_model:
@@ -757,7 +750,7 @@ def _resolve_provider_runtime(
     elif provider_config and provider_config.models:
         resolved_model = next(iter(provider_config.models))
     else:
-        defaults = provider_default_models(provider_type)
+        defaults = adapter.default_models
         if not defaults:
             raise ValueError(f"provider {selected_name!r} does not define any default models")
         resolved_model = defaults[0]
@@ -771,7 +764,6 @@ def _resolve_provider_runtime(
         model_config=model_config,
     )
     reasoning_efforts = meta.reasoning_efforts or ()
-    adapter = get_provider_adapter(provider_type)
     # Whether this endpoint accepts the effort knob: the adapter declares it
     # natively, or a generic openai_chat provider opts in via config.
     supports_effort = adapter.supports_reasoning_effort or bool(
@@ -790,10 +782,10 @@ def _resolve_provider_runtime(
         elif provider_config.api_key:
             resolved_api_key = provider_config.api_key
     if not resolved_api_key:
-        resolved_api_key = provider_api_key_from_env(provider_type)
+        resolved_api_key = adapter.api_key_from_env()
 
-    if not resolved_api_key and not provider_can_authenticate_from_env(provider_type):
-        checked = ", ".join(provider_env_api_key_names(provider_type)) or "<api key env>"
+    if not resolved_api_key and not adapter.can_authenticate_from_env():
+        checked = ", ".join(adapter.env_api_key_names) or "<api key env>"
         raise ValueError(f"provider {selected_name!r} is selected but no API key is available; checked: {checked}")
 
     return ResolvedProvider(

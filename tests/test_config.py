@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from mycode.models import _ModelsCatalog
-from mycode.providers import list_env_discoverable_providers, provider_env_api_key_names
+from mycode.providers import get_provider_adapter, list_env_discoverable_providers
 from mycode_cli.config import (
     WebConfig,
     WebProviderConfig,
@@ -44,7 +44,7 @@ def build_test_agent(tmp_path: Path, cwd: Path, settings, resolved):
 @pytest.fixture(autouse=True)
 def clear_provider_env(monkeypatch: pytest.MonkeyPatch) -> None:
     for provider in list_env_discoverable_providers():
-        for env_name in provider_env_api_key_names(provider):
+        for env_name in get_provider_adapter(provider).env_api_key_names:
             monkeypatch.delenv(env_name, raising=False)
     monkeypatch.delenv("ANTHROPIC_AUTH_TOKEN", raising=False)
     monkeypatch.delenv("GOOGLE_CLOUD_PROJECT", raising=False)

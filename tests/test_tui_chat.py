@@ -19,7 +19,7 @@ from prompt_toolkit.output import DummyOutput
 
 from mycode.agent import Agent, Event
 from mycode.messages import ContentBlock, ConversationMessage, build_message, merge_user_messages, text_block
-from mycode.providers import list_env_discoverable_providers, provider_env_api_key_names
+from mycode.providers import get_provider_adapter, list_env_discoverable_providers
 from mycode.providers.base import ProviderStreamEvent
 from mycode.tools import ToolExecutor
 from mycode_cli.background import BackgroundJob, BackgroundJobs
@@ -704,7 +704,7 @@ class TestModelSwitch:
         self, harness: TerminalHarness, tmp_path: Path, cli_home: Path, monkeypatch: pytest.MonkeyPatch
     ) -> TerminalChat:
         for provider in list_env_discoverable_providers():
-            for env_name in provider_env_api_key_names(provider):
+            for env_name in get_provider_adapter(provider).env_api_key_names:
                 monkeypatch.delenv(env_name, raising=False)
         cli_home.mkdir(parents=True)
         providers = {
