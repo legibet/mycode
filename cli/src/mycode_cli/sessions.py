@@ -31,9 +31,9 @@ from pathlib import Path
 from typing import Any, TypedDict
 
 from mycode.messages import ConversationMessage, flatten_message_text
-from mycode.models import Cost, add_cost, add_usage
 from mycode.session import SessionStore as TimelineStore
 from mycode.session import apply_rewind
+from mycode.usage import Cost, add_cost, add_usage
 
 DEFAULT_SESSION_TITLE = "New chat"
 _META_KEYS = ("cwd", "title", "created_at", "updated_at")

@@ -12,7 +12,6 @@ import httpx2
 from mycode.messages import (
     ConversationMessage,
     assistant_message,
-    build_usage,
     text_block,
     thinking_block,
     tool_use_block,
@@ -30,6 +29,7 @@ from mycode.providers.base import (
     normalize_provider_error,
     parse_tool_call_input,
 )
+from mycode.usage import build_usage
 
 
 @dataclass

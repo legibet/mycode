@@ -9,7 +9,7 @@ from urllib.parse import urlparse
 
 import httpx2
 
-from mycode.messages import assistant_message, build_usage, text_block, thinking_block, tool_use_block
+from mycode.messages import assistant_message, text_block, thinking_block, tool_use_block
 from mycode.providers.base import (
     CanonicalStopReason,
     ProviderAdapter,
@@ -20,6 +20,7 @@ from mycode.providers.base import (
     load_image_block_payload,
     normalize_provider_error,
 )
+from mycode.usage import build_usage
 
 if TYPE_CHECKING:
     from google import genai

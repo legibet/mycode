@@ -142,46 +142,6 @@ def merge_user_messages(messages: list[ConversationMessage], *, steer: bool) -> 
     )
 
 
-USAGE_TOKEN_KEYS = (
-    "total_tokens",
-    "input_tokens",
-    "cache_read_tokens",
-    "cache_write_tokens",
-    "output_tokens",
-    "reasoning_tokens",
-)
-
-
-def build_usage(
-    *,
-    total_tokens: int | None = None,
-    input_tokens: int | None = None,
-    cache_read_tokens: int | None = None,
-    cache_write_tokens: int | None = None,
-    output_tokens: int | None = None,
-    reasoning_tokens: int | None = None,
-) -> dict[str, Any]:
-    """Build a canonical usage dict from one provider request.
-
-    ``input_tokens`` is the full effective input including cache reads and
-    writes; ``output_tokens`` includes reasoning; ``cache_*_tokens`` and
-    ``reasoning_tokens`` are subsets of their respective totals. A missing key
-    means the upstream did not report it — readers must not substitute 0.
-    """
-
-    if total_tokens is None and input_tokens is not None and output_tokens is not None:
-        total_tokens = input_tokens + output_tokens
-    usage = {
-        "total_tokens": total_tokens,
-        "input_tokens": input_tokens,
-        "cache_read_tokens": cache_read_tokens,
-        "cache_write_tokens": cache_write_tokens,
-        "output_tokens": output_tokens,
-        "reasoning_tokens": reasoning_tokens,
-    }
-    return {key: value for key, value in usage.items() if value is not None}
-
-
 def assistant_message(
     blocks: list[ContentBlock],
     *,

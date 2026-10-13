@@ -11,7 +11,6 @@ from mycode.messages import (
     ConversationMessage,
     assistant_message,
     build_message,
-    build_usage,
     document_block,
     flatten_message_text,
     image_block,
@@ -21,7 +20,7 @@ from mycode.messages import (
     tool_use_block,
     user_text_message,
 )
-from mycode.models import Cost, ModelMetadata, add_cost, add_usage, estimate_cost, resolve_model_metadata
+from mycode.models import ModelMetadata, resolve_model_metadata
 from mycode.providers.base import ProviderError, StreamStartTimeoutError
 from mycode.session import SessionStore
 from mycode.tools import (
@@ -31,6 +30,7 @@ from mycode.tools import (
     ToolSpec,
     tool,
 )
+from mycode.usage import Cost, add_cost, add_usage, build_usage, estimate_cost
 
 __version__ = metadata.version("mycode-sdk")
 

@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any, Literal
 
 from mycode.messages import ConversationMessage, build_message, text_block
-from mycode.models import Cost
+from mycode.usage import Cost
 
 DEFAULT_COMPACT_THRESHOLD = 0.8
 

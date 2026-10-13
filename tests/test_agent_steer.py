@@ -11,8 +11,8 @@ from unittest.mock import patch
 import pytest
 
 from mycode import Agent, ConversationMessage, Event, SessionStore, image_block, text_block, tool
-from mycode.models import estimate_cost
 from mycode.providers.base import ProviderStreamEvent
+from mycode.usage import estimate_cost
 
 
 class _Adapter:

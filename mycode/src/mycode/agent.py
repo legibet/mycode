@@ -39,14 +39,7 @@ from mycode.messages import (
     tool_result_block,
     user_text_message,
 )
-from mycode.models import (
-    Cost,
-    add_cost,
-    add_usage,
-    estimate_cost,
-    infer_provider_from_model,
-    resolve_model_metadata,
-)
+from mycode.models import infer_provider_from_model, resolve_model_metadata
 from mycode.providers import get_provider_adapter
 from mycode.providers.base import (
     DEFAULT_REQUEST_TIMEOUT,
@@ -63,181 +56,11 @@ from mycode.tools import (
     ToolExecutor,
     ToolSpec,
 )
+from mycode.usage import Cost, add_cost, add_usage, estimate_cost
 
 logger = logging.getLogger(__name__)
 
 PersistCallback = Callable[[ConversationMessage], Awaitable[None]]
-_LIVE_OUTPUT_OMISSION = "[live output omitted]"
-# Bound on pending live output per tool call; the overflow is replaced by
-# _LIVE_OUTPUT_OMISSION rather than blocking the tool.
-_LIVE_OUTPUT_MAX_BYTES = 50 * 1024
-
-
-class _RunCancelled(BaseException):
-    """A user stop request, distinct from cancellation of the caller's task."""
-
-
-async def _finish_task[T](task: asyncio.Future[T]) -> T:
-    """Finish owned cleanup or persistence before propagating caller cancellation."""
-
-    interrupted = False
-    while not task.done():
-        try:
-            await asyncio.shield(task)
-        except asyncio.CancelledError:
-            if task.cancelled():
-                raise
-            interrupted = True
-    result = task.result()
-    if interrupted:
-        raise asyncio.CancelledError
-    return result
-
-
-@dataclass
-class _RunState:
-    loop: asyncio.AbstractEventLoop
-    cancel_requested: bool = False
-    # Interruptible tasks; parallel tool calls own one each.
-    tasks: set[asyncio.Future[Any]] = field(default_factory=set)
-    # before_tool hooks never overlap, so reviews of parallel calls come one at a time.
-    before_tool_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
-    # Only a chat run accepts steers, and only until it decides to finish.
-    accepting_steers: bool = False
-    steers: list[ConversationMessage] = field(default_factory=list)
-
-    def cancel_task(self, task: asyncio.Future[Any]) -> None:
-        if task not in self.tasks:
-            return
-        # Releasing the task first protects its cleanup even if the tool calls uncancel().
-        self.tasks.remove(task)
-        if task.done():
-            return
-        if not isinstance(task, asyncio.Task) or not task.cancelling():
-            task.cancel()
-
-    def cancel(self) -> None:
-        if not self.cancel_requested:
-            self.cancel_requested = True
-            # A hook requesting the stop itself must be able to finish its refusal.
-            current = asyncio.current_task()
-            for task in [task for task in self.tasks if task is not current]:
-                self.cancel_task(task)
-
-    def check_cancelled(self) -> None:
-        if self.cancel_requested:
-            raise _RunCancelled
-
-    @asynccontextmanager
-    async def task[T](self, awaitable: Awaitable[T]) -> AsyncGenerator[asyncio.Future[T], None]:
-        """Own one interruptible task, including its cancellation cleanup."""
-
-        caller = asyncio.current_task()
-        assert caller is not None
-        cancelling = caller.cancelling()
-        task = asyncio.ensure_future(awaitable)
-        self.tasks.add(task)
-        if self.cancel_requested:
-            self.cancel_task(task)
-        try:
-            yield task
-        except asyncio.CancelledError:
-            # Either the task running this scope was cancelled from outside
-            # (for example by asyncio.timeout), or run.cancel() stopped the
-            # owned task. An outside cancellation propagates, and the stop is
-            # recorded first so nested scopes and cleanup still wind down; a
-            # stop of the owned task is reported as _RunCancelled instead.
-            # The cancel count separates the two cases: a count above the one
-            # recorded on entry came from outside. A task that did not enter
-            # the scope has no recorded count, so any pending cancellation in
-            # it counts as outside.
-            current = asyncio.current_task()
-            assert current is not None
-            baseline = cancelling if current is caller else 0
-            if current.cancelling() > baseline or not self.cancel_requested:
-                self.cancel_requested = True
-                raise
-            raise _RunCancelled from None
-        except GeneratorExit:
-            self.cancel_requested = True
-            raise
-        finally:
-            try:
-                if not task.done():
-                    self.cancel_task(task)
-                    (outcome,) = await _finish_task(asyncio.gather(task, return_exceptions=True))
-                else:
-                    outcome = None if task.cancelled() else task.exception()
-                if isinstance(outcome, BaseException) and not isinstance(
-                    outcome, (_RunCancelled, asyncio.CancelledError)
-                ):
-                    raise outcome
-            finally:
-                self.tasks.discard(task)
-
-
-class _ToolOutputBuffer:
-    """Thread-safe bounded buffer for live tool output."""
-
-    def __init__(self, loop: asyncio.AbstractEventLoop):
-        self._loop = loop
-        self._event = asyncio.Event()
-        self._lock = threading.Lock()
-        self._pending = bytearray()
-        self._omitted = False
-        self._finished = False
-        self._notified = False
-        self._at_line_boundary = True
-
-    def append(self, delta: str) -> None:
-        if not delta:
-            return
-        with self._lock:
-            if self._finished:
-                return
-            self._pending.extend(delta.encode("utf-8"))
-            excess = len(self._pending) - _LIVE_OUTPUT_MAX_BYTES
-            if excess > 0:
-                del self._pending[:excess]
-                self._omitted = True
-            if self._notified:
-                return
-            self._notified = True
-        self._loop.call_soon_threadsafe(self._event.set)
-
-    def finish(self) -> None:
-        with self._lock:
-            self._finished = True
-            if self._notified:
-                return
-            self._notified = True
-        self._loop.call_soon_threadsafe(self._event.set)
-
-    async def get(self) -> str | None:
-        await self._event.wait()
-        with self._lock:
-            pending = self._pending.decode("utf-8", errors="ignore")
-            omitted = self._omitted
-            finished = self._finished
-            self._pending.clear()
-            self._omitted = False
-            self._notified = False
-            self._event.clear()
-            resignal = bool(pending and finished)
-            if resignal:
-                self._notified = True
-
-            if pending and omitted:
-                separator = "" if self._at_line_boundary else "\n"
-                pending = f"{separator}{_LIVE_OUTPUT_OMISSION}\n{pending}"
-            if pending:
-                self._at_line_boundary = pending.endswith("\n")
-
-        if resignal:
-            self._event.set()
-        if pending:
-            return pending
-        return None if finished else ""
 
 
 @dataclass
@@ -257,31 +80,6 @@ class RunResult:
     error: str | None = None
     usage: dict[str, Any] | None = None
     cancelled: bool = False
-
-
-def _created_at(message: ConversationMessage) -> datetime | None:
-    raw = (message.get("meta") or {}).get("created_at")
-    if not isinstance(raw, str):
-        return None
-    try:
-        stamp = datetime.fromisoformat(raw)
-    except ValueError:
-        return None
-    return stamp if stamp.tzinfo is not None else None
-
-
-def _turn_elapsed_ms(turn_start: ConversationMessage, record: ConversationMessage) -> int | None:
-    """Elapsed time between two committed records, read from their stamps.
-
-    Subtracting the stamps rather than keeping a separate clock is what makes
-    the streamed value equal the one a reloaded session derives from JSONL.
-    """
-
-    started = _created_at(turn_start)
-    ended = _created_at(record)
-    if started is None or ended is None:
-        return None
-    return max(0, int((ended - started).total_seconds() * 1000))
 
 
 class Agent:
@@ -1310,3 +1108,216 @@ class Agent:
             usage=summary_usage,
             cost=summary_cost,
         )
+
+
+# ------------------------------------------------------------------
+# Run control
+# ------------------------------------------------------------------
+
+
+class _RunCancelled(BaseException):
+    """A user stop request, distinct from cancellation of the caller's task."""
+
+
+async def _finish_task[T](task: asyncio.Future[T]) -> T:
+    """Finish owned cleanup or persistence before propagating caller cancellation."""
+
+    interrupted = False
+    while not task.done():
+        try:
+            await asyncio.shield(task)
+        except asyncio.CancelledError:
+            if task.cancelled():
+                raise
+            interrupted = True
+    result = task.result()
+    if interrupted:
+        raise asyncio.CancelledError
+    return result
+
+
+@dataclass
+class _RunState:
+    loop: asyncio.AbstractEventLoop
+    cancel_requested: bool = False
+    # Interruptible tasks; parallel tool calls own one each.
+    tasks: set[asyncio.Future[Any]] = field(default_factory=set)
+    # before_tool hooks never overlap, so reviews of parallel calls come one at a time.
+    before_tool_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    # Only a chat run accepts steers, and only until it decides to finish.
+    accepting_steers: bool = False
+    steers: list[ConversationMessage] = field(default_factory=list)
+
+    def cancel_task(self, task: asyncio.Future[Any]) -> None:
+        if task not in self.tasks:
+            return
+        # Releasing the task first protects its cleanup even if the tool calls uncancel().
+        self.tasks.remove(task)
+        if task.done():
+            return
+        if not isinstance(task, asyncio.Task) or not task.cancelling():
+            task.cancel()
+
+    def cancel(self) -> None:
+        if not self.cancel_requested:
+            self.cancel_requested = True
+            # A hook requesting the stop itself must be able to finish its refusal.
+            current = asyncio.current_task()
+            for task in [task for task in self.tasks if task is not current]:
+                self.cancel_task(task)
+
+    def check_cancelled(self) -> None:
+        if self.cancel_requested:
+            raise _RunCancelled
+
+    @asynccontextmanager
+    async def task[T](self, awaitable: Awaitable[T]) -> AsyncGenerator[asyncio.Future[T], None]:
+        """Own one interruptible task, including its cancellation cleanup."""
+
+        caller = asyncio.current_task()
+        assert caller is not None
+        cancelling = caller.cancelling()
+        task = asyncio.ensure_future(awaitable)
+        self.tasks.add(task)
+        if self.cancel_requested:
+            self.cancel_task(task)
+        try:
+            yield task
+        except asyncio.CancelledError:
+            # Either the task running this scope was cancelled from outside
+            # (for example by asyncio.timeout), or run.cancel() stopped the
+            # owned task. An outside cancellation propagates, and the stop is
+            # recorded first so nested scopes and cleanup still wind down; a
+            # stop of the owned task is reported as _RunCancelled instead.
+            # The cancel count separates the two cases: a count above the one
+            # recorded on entry came from outside. A task that did not enter
+            # the scope has no recorded count, so any pending cancellation in
+            # it counts as outside.
+            current = asyncio.current_task()
+            assert current is not None
+            baseline = cancelling if current is caller else 0
+            if current.cancelling() > baseline or not self.cancel_requested:
+                self.cancel_requested = True
+                raise
+            raise _RunCancelled from None
+        except GeneratorExit:
+            self.cancel_requested = True
+            raise
+        finally:
+            try:
+                if not task.done():
+                    self.cancel_task(task)
+                    (outcome,) = await _finish_task(asyncio.gather(task, return_exceptions=True))
+                else:
+                    outcome = None if task.cancelled() else task.exception()
+                if isinstance(outcome, BaseException) and not isinstance(
+                    outcome, (_RunCancelled, asyncio.CancelledError)
+                ):
+                    raise outcome
+            finally:
+                self.tasks.discard(task)
+
+
+# ------------------------------------------------------------------
+# Live tool output
+# ------------------------------------------------------------------
+
+
+_LIVE_OUTPUT_OMISSION = "[live output omitted]"
+# Bound on pending live output per tool call; the overflow is replaced by
+# _LIVE_OUTPUT_OMISSION rather than blocking the tool.
+_LIVE_OUTPUT_MAX_BYTES = 50 * 1024
+
+
+class _ToolOutputBuffer:
+    """Thread-safe bounded buffer for live tool output."""
+
+    def __init__(self, loop: asyncio.AbstractEventLoop):
+        self._loop = loop
+        self._event = asyncio.Event()
+        self._lock = threading.Lock()
+        self._pending = bytearray()
+        self._omitted = False
+        self._finished = False
+        self._notified = False
+        self._at_line_boundary = True
+
+    def append(self, delta: str) -> None:
+        if not delta:
+            return
+        with self._lock:
+            if self._finished:
+                return
+            self._pending.extend(delta.encode("utf-8"))
+            excess = len(self._pending) - _LIVE_OUTPUT_MAX_BYTES
+            if excess > 0:
+                del self._pending[:excess]
+                self._omitted = True
+            if self._notified:
+                return
+            self._notified = True
+        self._loop.call_soon_threadsafe(self._event.set)
+
+    def finish(self) -> None:
+        with self._lock:
+            self._finished = True
+            if self._notified:
+                return
+            self._notified = True
+        self._loop.call_soon_threadsafe(self._event.set)
+
+    async def get(self) -> str | None:
+        await self._event.wait()
+        with self._lock:
+            pending = self._pending.decode("utf-8", errors="ignore")
+            omitted = self._omitted
+            finished = self._finished
+            self._pending.clear()
+            self._omitted = False
+            self._notified = False
+            self._event.clear()
+            resignal = bool(pending and finished)
+            if resignal:
+                self._notified = True
+
+            if pending and omitted:
+                separator = "" if self._at_line_boundary else "\n"
+                pending = f"{separator}{_LIVE_OUTPUT_OMISSION}\n{pending}"
+            if pending:
+                self._at_line_boundary = pending.endswith("\n")
+
+        if resignal:
+            self._event.set()
+        if pending:
+            return pending
+        return None if finished else ""
+
+
+# ------------------------------------------------------------------
+# Turn timing
+# ------------------------------------------------------------------
+
+
+def _created_at(message: ConversationMessage) -> datetime | None:
+    raw = (message.get("meta") or {}).get("created_at")
+    if not isinstance(raw, str):
+        return None
+    try:
+        stamp = datetime.fromisoformat(raw)
+    except ValueError:
+        return None
+    return stamp if stamp.tzinfo is not None else None
+
+
+def _turn_elapsed_ms(turn_start: ConversationMessage, record: ConversationMessage) -> int | None:
+    """Elapsed time between two committed records, read from their stamps.
+
+    Subtracting the stamps rather than keeping a separate clock is what makes
+    the streamed value equal the one a reloaded session derives from JSONL.
+    """
+
+    started = _created_at(turn_start)
+    ended = _created_at(record)
+    if started is None or ended is None:
+        return None
+    return max(0, int((ended - started).total_seconds() * 1000))

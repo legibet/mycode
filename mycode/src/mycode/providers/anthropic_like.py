@@ -11,7 +11,6 @@ import httpx2
 from mycode.messages import (
     ConversationMessage,
     assistant_message,
-    build_usage,
     text_block,
     thinking_block,
     tool_use_block,
@@ -29,6 +28,7 @@ from mycode.providers.base import (
     normalize_provider_error,
     tool_result_content_blocks,
 )
+from mycode.usage import build_usage
 
 _RETRYABLE_ANTHROPIC_ERROR_TYPES = {"api_error", "overloaded_error", "rate_limit_error", "timeout_error"}
 
