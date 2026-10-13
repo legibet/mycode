@@ -53,8 +53,8 @@ export function CompletionMenu({
         className="max-h-60 overflow-y-auto rounded-lg border border-border bg-popover p-1 shadow-md"
       >
         {items.map((item, index) => (
-          // biome-ignore lint/a11y/useFocusableInteractive: option row in an aria-activedescendant listbox, not individually focusable
-          // biome-ignore lint/a11y/useKeyWithClickEvents: keyboard is handled on the controlling textarea
+          // Options in an aria-activedescendant listbox; the textarea keeps focus and handles keys.
+          // oxlint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/interactive-supports-focus
           <div
             key={item.id}
             id={completionItemDomId(menuId, index)}

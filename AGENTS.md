@@ -112,10 +112,10 @@ pnpm --dir web install                                 # install web deps
 
 uv run mycode                                          # start the CLI
 just dev                                               # backend API + Vite dev together
-just check                                             # ruff check + format check, ty, web typecheck, biome check
+just check                                             # ruff check + format check, ty, web typecheck, oxfmt + oxlint check
 just test                                              # Python + web tests
 just ci                                                # check + test
-just fmt                                               # ruff fix/format + biome check --write
+just fmt                                               # ruff fix/format + oxfmt + oxlint --fix
 ```
 
 Releases are cut by `scripts/release.sh`, which bumps the `mycode-sdk` and `mycode-cli` versions in their `pyproject.toml`, refreshes the CLI's pin on `mycode-sdk`, builds both wheels, and tags the repo.

@@ -76,7 +76,6 @@ export function Segmented<T extends string>({
       {options.map((opt) => {
         const active = opt.value === value;
         return (
-          // biome-ignore lint/a11y/useSemanticElements: visual button-group pattern; native radios don't fit the segmented look
           <button
             type="button"
             key={opt.value}

@@ -62,11 +62,6 @@ export default function HighlightedCode({ code, language }: HighlightedCodeProps
   }
 
   return (
-    <div
-      className="shiki-wrapper"
-      style={MONO_STYLE}
-      // biome-ignore lint/security/noDangerouslySetInnerHtml: shiki output is from tokenized AST, not user input
-      dangerouslySetInnerHTML={{ __html: html }}
-    />
+    <div className="shiki-wrapper" style={MONO_STYLE} dangerouslySetInnerHTML={{ __html: html }} />
   );
 }

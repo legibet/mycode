@@ -20,11 +20,11 @@ repos:
         args: [--fix]
       - id: ruff-format
 
-  # Frontend - Biome (linter + formatter)
+  # Frontend - oxfmt (formatter) + oxlint (linter)
   - repo: local
     hooks:
-      - id: biome-check
-        name: biome check
+      - id: web-check
+        name: web check
         entry: pnpm --dir web check
         language: system
         pass_filenames: false

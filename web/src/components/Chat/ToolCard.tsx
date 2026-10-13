@@ -161,7 +161,8 @@ function getPreview(name: string, args: Args): string {
       const values: string[] = [];
       for (const [key, value] of Object.entries(args)) {
         if (key === "content" || key === "prompt") continue;
-        values.push(typeof value === "object" ? "…" : String(value));
+        if (typeof value === "string") values.push(value);
+        else values.push(typeof value === "object" ? "…" : JSON.stringify(value));
       }
       return values.join(" ");
     }
@@ -331,7 +332,7 @@ function GenericArgs({ args }: { args: Record<string, unknown> }) {
     <div key={key}>
       <span className="text-accent/80">{key}: </span>
       <span className="break-all whitespace-pre-wrap text-foreground/75">
-        {typeof value === "object" ? JSON.stringify(value, null, 2) : String(value)}
+        {typeof value === "string" ? value : JSON.stringify(value, null, 2)}
       </span>
     </div>
   ));

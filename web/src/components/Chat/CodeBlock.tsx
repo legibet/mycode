@@ -21,7 +21,7 @@ export function CodeBlock({ className, children, ...props }: CodeBlockProps) {
 
   const match = LANGUAGE_RE.exec(className || "");
   const language = match?.[1] ?? "";
-  const rawContent = Array.isArray(children) ? children.join("") : String(children || "");
+  const rawContent = typeof children === "string" ? children : "";
   const codeContent = rawContent.replace(/\n$/, "");
 
   const isInline = !match && !rawContent.endsWith("\n");

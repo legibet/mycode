@@ -9,7 +9,6 @@ const blocks = [{ type: "text" as const, text: "Done" }];
 describe("turn stats card", () => {
   it("separates cached input and prices only the total without details", async () => {
     const { rerender } = render(
-      // biome-ignore lint/a11y/useValidAriaRole: component prop is the message role
       <MessageBubble
         role="assistant"
         blocks={blocks}
@@ -38,7 +37,6 @@ describe("turn stats card", () => {
     expect(detailed).toHaveTextContent("Total354,561$0.0027");
 
     rerender(
-      // biome-ignore lint/a11y/useValidAriaRole: component prop is the message role
       <MessageBubble
         role="assistant"
         blocks={blocks}
@@ -63,7 +61,6 @@ describe("turn stats card", () => {
 
   it("distinguishes zero from a nonzero cost below display precision", async () => {
     render(
-      // biome-ignore lint/a11y/useValidAriaRole: component prop is the message role
       <MessageBubble
         role="assistant"
         blocks={blocks}
@@ -112,7 +109,6 @@ describe("turn work folding", () => {
     error?: string;
   }) {
     return (
-      // biome-ignore lint/a11y/useValidAriaRole: component prop is the message role
       <MessageBubble
         role="assistant"
         blocks={props.blocks ?? turn}
@@ -226,7 +222,6 @@ describe("run error row", () => {
   it("renders the error as plain text, not markdown", () => {
     const error = 'provider said **no** to {"model": "x_y"}';
     render(
-      // biome-ignore lint/a11y/useValidAriaRole: component prop is the message role
       <MessageBubble
         role="assistant"
         blocks={[{ type: "text", text: "Partial" }]}

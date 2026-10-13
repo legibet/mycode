@@ -25,15 +25,14 @@ export function useWorkspaceFiles(
   prefix: string,
   enabled: boolean,
 ): WorkspaceFilesState {
-  const [state, setState] = useState<WorkspaceFilesState>(EMPTY_STATE);
+  // Results are tagged with their query so `loading` derives from whether the
+  // latest result answers the current query; stale entries stay visible meanwhile.
+  const query = enabled ? JSON.stringify([cwd, dir, prefix]) : null;
+  const [result, setResult] = useState<(WorkspaceFilesState & { query: string }) | null>(null);
+  if (query === null && result !== null) setResult(null);
 
   useEffect(() => {
-    if (!enabled) {
-      setState(EMPTY_STATE);
-      return;
-    }
-
-    setState((prev) => ({ ...prev, loading: true }));
+    if (query === null) return;
     const controller = new AbortController();
     const timer = setTimeout(async () => {
       try {
@@ -43,7 +42,8 @@ export function useWorkspaceFiles(
         });
         if (!res.ok) throw new Error(`status ${res.status}`);
         const data = (await res.json()) as WorkspaceFilesResponse;
-        setState({
+        setResult({
+          query,
           entries: data.error ? [] : data.entries,
           loading: false,
           truncated: data.truncated,
@@ -51,7 +51,7 @@ export function useWorkspaceFiles(
       } catch (e) {
         if (controller.signal.aborted) return;
         console.error("Failed to list workspace files:", e);
-        setState(EMPTY_STATE);
+        setResult({ query, ...EMPTY_STATE });
       }
     }, 120);
 
@@ -59,7 +59,9 @@ export function useWorkspaceFiles(
       clearTimeout(timer);
       controller.abort();
     };
-  }, [cwd, dir, prefix, enabled]);
+  }, [query, cwd, dir, prefix]);
 
-  return state;
+  if (query === null) return EMPTY_STATE;
+  if (result === null) return { ...EMPTY_STATE, loading: true };
+  return { ...result, loading: result.query !== query };
 }

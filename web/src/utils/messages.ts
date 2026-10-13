@@ -331,7 +331,7 @@ export function updateLatestAssistantMeta(
     const message = messages[i];
     if (message?.role !== "assistant") continue;
     const next = [...messages];
-    next[i] = { ...message, meta: { ...(message.meta ?? {}), ...patch } };
+    next[i] = { ...message, meta: { ...message.meta, ...patch } };
     return next;
   }
   return messages;
@@ -382,7 +382,6 @@ const USAGE_TOKEN_KEYS = [
 ] as const;
 
 function readCost(value: unknown): Cost | undefined {
-  // biome-ignore lint/complexity/useLiteralKeys: index-signature object boundary
   return isObject(value) && typeof value["total"] === "number"
     ? (value as unknown as Cost)
     : undefined;
@@ -494,7 +493,6 @@ function foldTurnStats(
   if (contextWindow !== undefined) stats.context_window = contextWindow;
   if (usage) {
     // Context occupancy is the latest request's total, never a sum.
-    // biome-ignore lint/complexity/useLiteralKeys: index-signature record requires bracket access
     const totalTokens = usage["total_tokens"];
     delete stats.context_tokens;
     if (typeof totalTokens === "number") {
@@ -520,17 +518,15 @@ interface JobMeta {
 export function isJobBlock(
   block: MessageBlock,
 ): block is TextBlock & { meta: Record<string, unknown> } {
-  // biome-ignore lint/complexity/useLiteralKeys: index signature requires bracket access
   return block.type === "text" && Boolean(block.meta?.["job"]);
 }
 
 /** Read a background job notification. */
 function jobResult(block: TextBlock): JobResult {
-  // biome-ignore lint/complexity/useLiteralKeys: index signature requires bracket access
   const job = (block.meta?.["job"] ?? {}) as JobMeta;
   return {
-    tool_use_id: String(job.tool_use_id ?? ""),
-    label: String(job.label ?? ""),
+    tool_use_id: typeof job.tool_use_id === "string" ? job.tool_use_id : "",
+    label: typeof job.label === "string" ? job.label : "",
     exit_code: typeof job.exit_code === "number" ? job.exit_code : 0,
     // The text is the header lines, a blank line, then the bounded output.
     output: block.text.split("\n\n").slice(1).join("\n\n"),
@@ -663,7 +659,6 @@ export function buildRenderMessages(
       const jobs: JobResult[] = [];
 
       for (const [blockIndex, block] of blocks.entries()) {
-        // biome-ignore lint/complexity/useLiteralKeys: index signature requires bracket access
         if (block?.type === "text" && block.meta?.["skill_snapshot"]) {
           continue;
         }

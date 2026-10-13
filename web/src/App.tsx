@@ -219,7 +219,7 @@ function AppContent() {
       if (event.composedPath().some((el) => el instanceof Element && el.matches("[role=dialog]"))) {
         return;
       }
-      void cancel();
+      cancel();
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);

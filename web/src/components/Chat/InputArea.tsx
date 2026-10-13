@@ -345,6 +345,7 @@ export const InputArea = memo(function InputArea({
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     if (jobs.length === 0) return;
+    // oxlint-disable-next-line react/set-state-in-effect -- resync the clock, which went stale while no job ran
     setNow(Date.now());
     const timer = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(timer);
@@ -655,7 +656,6 @@ export const InputArea = memo(function InputArea({
           )}
         </div>
       )}
-      {/* biome-ignore lint/a11y/noStaticElementInteractions: drag-and-drop drop target */}
       <div
         role="presentation"
         className={cn(

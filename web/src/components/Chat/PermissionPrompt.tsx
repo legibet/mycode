@@ -80,6 +80,7 @@ export const PermissionPrompt = memo(function PermissionPrompt({
 
   return (
     <div className="mx-auto max-w-4xl px-5 pt-3 pb-1 max-md:max-w-none max-md:px-3 max-md:pt-2">
+      {/* oxlint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- the dialog owns its keyboard shortcuts */}
       <div
         key={request.request_id}
         ref={setDialogElement}

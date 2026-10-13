@@ -230,9 +230,7 @@ function pendingFromMessage(message: PendingMessage): PendingInput {
   let partial = false;
   for (const block of message.content) {
     const meta = block.meta ?? {};
-    // biome-ignore lint/complexity/useLiteralKeys: index signature requires bracket access
     if (meta["skill_snapshot"]) continue;
-    // biome-ignore lint/complexity/useLiteralKeys: index signature requires bracket access
     if (block.type !== "text" || meta["attachment"]) partial = true;
     else if (block.text) texts.push(block.text);
   }
@@ -817,7 +815,7 @@ export function useChat(
             }
           }
 
-          fetchSessions();
+          void fetchSessions();
           if (
             resyncRef.current &&
             !streamAbortRef.current &&
@@ -926,7 +924,7 @@ export function useChat(
       if (run?.id) {
         // The history covers every event up to the run's last seq when none is pending.
         const lastSeq = pendingEvents.at(-1)?.seq ?? run.last_seq;
-        streamRun(run, data.session.id, lastSeq, replayStopped);
+        void streamRun(run, data.session.id, lastSeq, replayStopped);
       } else {
         setRunKind(null);
       }
@@ -975,7 +973,7 @@ export function useChat(
         for (const message of data?.messages ?? []) {
           for (const id of message.meta?.input_ids ?? []) delivered.add(id);
         }
-        fetchSessions();
+        void fetchSessions();
       } catch (error) {
         console.error("Failed to reload session after cancel:", error);
         if (activeSessionRef.current.id === sessionId) {
@@ -1024,7 +1022,7 @@ export function useChat(
             const detail = getErrorDetail(data);
             const existingRun = getRunFromDetail(detail);
             if (res.status === 409 && existingRun?.id && pendingItems.length === 0) {
-              streamRun(existingRun, sessionId, existingRun.last_seq || 0);
+              void streamRun(existingRun, sessionId, existingRun.last_seq || 0);
               return false;
             }
 
@@ -1048,8 +1046,8 @@ export function useChat(
         }
 
         // Refresh sidebar immediately so title + is_running are visible
-        fetchSessions();
-        streamRun(chatData.run, sessionId, 0);
+        void fetchSessions();
+        void streamRun(chatData.run, sessionId, 0);
         if (stoppedRequestTokenRef.current === requestToken) cancel();
         return true;
       } catch (e) {
@@ -1367,14 +1365,14 @@ export function useChat(
         const existingRun = getRunFromDetail(detail);
         if (res.status === 409 && existingRun?.id) {
           // Another client started a run; attach to it with its own kind.
-          streamRun(existingRun, sessionId, existingRun.last_seq || 0);
+          void streamRun(existingRun, sessionId, existingRun.last_seq || 0);
           return false;
         }
         throw new Error(getMessageFromDetail(detail, "Compaction failed"));
       }
 
-      fetchSessions();
-      streamRun((data as CompactResponse).run, sessionId, 0);
+      void fetchSessions();
+      void streamRun((data as CompactResponse).run, sessionId, 0);
       return true;
     } catch (e) {
       if (activeSessionRef.current.id === sessionId) {
@@ -1426,7 +1424,7 @@ export function useChat(
     setActiveSessionSnapshot(session);
     dispatch({ type: "set_messages", messages: [], sessionId: session.id });
     // Refresh from server to get accurate is_running, then prepend the new draft
-    fetchSessions();
+    void fetchSessions();
   }, [fetchSessions, sessionLoading, setActiveSessionSnapshot, stopStreaming, dispatch]);
 
   const selectSession = useCallback(
@@ -1459,7 +1457,7 @@ export function useChat(
           requestCwd: config.cwd,
           requestToken,
         });
-        fetchSessions();
+        void fetchSessions();
       } catch (e) {
         console.error("Failed to load session:", e);
       } finally {
@@ -1660,7 +1658,7 @@ export function useChat(
       } catch {
         return;
       }
-      fetchSessions();
+      void fetchSessions();
       if (event.session_id !== activeSessionRef.current.id) return;
       if (event.type === "job_started") {
         dispatch({ type: "job_started", job: event.job });

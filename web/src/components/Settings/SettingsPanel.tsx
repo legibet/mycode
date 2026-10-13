@@ -570,8 +570,7 @@ export function SettingsPanel({
                         placeholder={
                           key.api_key_saved && !key.api_key_dirty
                             ? "•••••• saved · type to replace"
-                            : // biome-ignore lint/suspicious/noTemplateCurlyInString: literal hint shown to the user
-                              "paste a key, or use ${ENV_VAR}"
+                            : "paste a key, or use ${ENV_VAR}"
                         }
                         spellCheck={false}
                         autoCorrect="off"

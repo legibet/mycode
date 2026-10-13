@@ -197,7 +197,7 @@ the provider supports effort and the model has non-empty values. Settings editor
 
 ```bash
 pnpm --dir web install                                 # install dependencies
-pnpm --dir web check                                   # Biome lint and format check
+pnpm --dir web check                                   # oxfmt format check + oxlint (type-aware)
 pnpm --dir web typecheck                               # TypeScript type checking
 pnpm --dir web test                                    # run web UI tests
 pnpm --dir web dev                                     # dev server (Vite HMR)

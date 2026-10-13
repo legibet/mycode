@@ -66,10 +66,7 @@ describe("messages", () => {
     expect(renderMessages).toHaveLength(4);
     const marker = renderMessages[2];
     expect(marker && isCompactMarker(marker)).toBe(true);
-    if (marker && isCompactMarker(marker)) {
-      expect(marker.sourceIndex).toBe(2);
-      expect(marker.renderKey).toBe("compact:2");
-    }
+    expect(marker).toMatchObject({ sourceIndex: 2, renderKey: "compact:2" });
     expect(expectChat(renderMessages[3]).role).toBe("user");
   });
 

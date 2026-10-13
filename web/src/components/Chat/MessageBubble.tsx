@@ -70,7 +70,6 @@ interface AttachmentMeta {
 }
 
 function getDurationMs(block: MessageBlock): number | undefined {
-  // biome-ignore lint/complexity/useLiteralKeys: index signature requires bracket access
   const durationMs = block.meta?.["duration_ms"];
   return typeof durationMs === "number" ? durationMs : undefined;
 }
@@ -352,7 +351,7 @@ export const MessageBubble = memo(function MessageBubble({
     const trimmed = editText.trim();
     if (!trimmed || !onRewindAndSend || typeof sourceIndex !== "number") return;
     setEditing(false);
-    onRewindAndSend(sourceIndex, trimmed);
+    void onRewindAndSend(sourceIndex, trimmed);
   }, [editText, onRewindAndSend, sourceIndex]);
 
   const cancelEdit = useCallback(() => {

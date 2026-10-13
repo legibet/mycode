@@ -9,7 +9,7 @@
  */
 
 import { Plus, Search, Settings as SettingsIcon, Terminal, Trash2 } from "lucide-react";
-import { type CSSProperties, memo, useMemo, useRef, useState } from "react";
+import { type CSSProperties, memo, useMemo, useState } from "react";
 
 import type { LocalConfig, RemoteConfig, SessionSummary } from "../types";
 import { cn } from "../utils/cn";
@@ -133,7 +133,6 @@ function SidebarResizer({
   };
 
   return (
-    // biome-ignore lint/a11y/useSemanticElements: <hr> is not interactive; ARIA window-splitter pattern uses role="separator" on a focusable div
     <div
       role="separator"
       aria-orientation="vertical"
@@ -184,12 +183,13 @@ export const Sidebar = memo(function Sidebar({
 }: SidebarProps) {
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
   const [workspaceOpenKey, setWorkspaceOpenKey] = useState(0);
-  const workspaceOpenedWithKeyboardRef = useRef(false);
+  const [workspaceOpenedWithKeyboard, setWorkspaceOpenedWithKeyboard] = useState(false);
   const resolvedCwd = config.cwd === "." ? remoteConfig?.cwd || "." : config.cwd;
   const wsName = basename(resolvedCwd);
   const wsPath = prettyPath(resolvedCwd);
 
   const groups = useMemo(() => {
+    // oxlint-disable-next-line react/purity -- buckets are relative to today; recomputed with each sessions update
     const now = new Date();
     const buckets: Record<Bucket, { session: SessionSummary; date: Date | null }[]> = {
       today: [],
@@ -228,15 +228,9 @@ export const Sidebar = memo(function Sidebar({
         <div className="flex items-start justify-between gap-2">
           <button
             type="button"
-            onPointerDown={() => {
-              workspaceOpenedWithKeyboardRef.current = false;
-            }}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" || e.key === " ") {
-                workspaceOpenedWithKeyboardRef.current = true;
-              }
-            }}
-            onClick={() => {
+            onClick={(e) => {
+              // Keyboard activation (Enter / Space) dispatches a click with detail 0.
+              setWorkspaceOpenedWithKeyboard(e.detail === 0);
               setWorkspaceOpenKey((key) => key + 1);
               setWorkspaceOpen(true);
             }}
@@ -287,7 +281,7 @@ export const Sidebar = memo(function Sidebar({
       <WorkspacePicker
         key={workspaceOpenKey}
         open={workspaceOpen}
-        openedWithKeyboard={workspaceOpenedWithKeyboardRef.current}
+        openedWithKeyboard={workspaceOpenedWithKeyboard}
         onClose={() => setWorkspaceOpen(false)}
         currentCwd={config.cwd}
         cwdHistory={cwdHistory}
