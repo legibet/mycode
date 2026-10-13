@@ -94,12 +94,6 @@ Read the relevant doc before related changes.
 
 Format: `type(scope): description`.
 
-Scopes:
-
-- `web` — changes under `web/` only
-- `sdk` — SDK package (`mycode/`) only
-- `cli` — CLI/server package (`cli/`) only
-
 Examples:
 
 ```text

@@ -162,20 +162,20 @@ Adapters raise `ProviderError` (`reason`, `retryable`, `status_code`, `retry_aft
 
 `achat()` yields `Event(type, data)`:
 
-| `type`           | `data`                                                                   |
-| ---------------- | ------------------------------------------------------------------------ |
-| `reasoning`      | `{"delta": str}`                                                         |
-| `reasoning_done` | `{"duration_ms": int}`                                                   |
-| `text`           | `{"delta": str}`                                                         |
-| `tool_start`     | `{"tool_call": {"id", "name", "input"}}`                                 |
-| `tool_output`    | `{"tool_use_id", "output"}`; delta from `streams_output=True` tools      |
-| `tool_done`      | `{"tool_use_id", "output", "is_error", "metadata"?, "content"?}`         |
+| `type`           | `data`                                                                        |
+| ---------------- | ----------------------------------------------------------------------------- |
+| `reasoning`      | `{"delta": str}`                                                              |
+| `reasoning_done` | `{"duration_ms": int}`                                                        |
+| `text`           | `{"delta": str}`                                                              |
+| `tool_start`     | `{"tool_call": {"id", "name", "input"}}`                                      |
+| `tool_output`    | `{"tool_use_id", "output"}`; delta from `streams_output=True` tools           |
+| `tool_done`      | `{"tool_use_id", "output", "is_error", "metadata"?, "content"?}`              |
 | `compact`        | `{"trigger": "auto"}`; emitted after an automatic compact marker is committed |
-| `user_message`   | `{"message"}`; a merged steer message, emitted after it is committed     |
-| `retry`          | fields under Timeouts and retries; emitted before each new attempt       |
-| `usage`          | see below; emitted after every provider request and at a delivered steer |
-| `error`          | `{"message"}`; fatal for the turn, then the iterator stops               |
-| `cancelled`      | `{}`; user stop completed, then the iterator stops                       |
+| `user_message`   | `{"message"}`; a merged steer message, emitted after it is committed          |
+| `retry`          | fields under Timeouts and retries; emitted before each new attempt            |
+| `usage`          | see below; emitted after every provider request and at a delivered steer      |
+| `error`          | `{"message"}`; fatal for the turn, then the iterator stops                    |
+| `cancelled`      | `{}`; user stop completed, then the iterator stops                            |
 
 ### Usage, cost, and turn duration
 
@@ -231,12 +231,12 @@ The session subdirectory is created lazily. Constructing an `Agent` with an unus
 
 ### Resolving `session_dir` and `session_id`
 
-| `session_dir` | `session_id`                                   | behaviour                                                        |
-| ------------- | ---------------------------------------------- | ---------------------------------------------------------------- |
-| `None`        | any                                            | no persistence; a runtime-only uuid is assigned when omitted     |
-| `Path(...)`   | `None`                                         | persistence on; a fresh uuid is allocated                        |
-| `Path(...)`   | `"X"`, `<dir>/X/messages.jsonl` does not exist | new timeline; files are created on the first persisted message   |
-| `Path(...)`   | `"X"`, `<dir>/X/messages.jsonl` exists         | history auto-loaded into `agent.messages` during `__init__`      |
+| `session_dir` | `session_id`                                   | behaviour                                                      |
+| ------------- | ---------------------------------------------- | -------------------------------------------------------------- |
+| `None`        | any                                            | no persistence; a runtime-only uuid is assigned when omitted   |
+| `Path(...)`   | `None`                                         | persistence on; a fresh uuid is allocated                      |
+| `Path(...)`   | `"X"`, `<dir>/X/messages.jsonl` does not exist | new timeline; files are created on the first persisted message |
+| `Path(...)`   | `"X"`, `<dir>/X/messages.jsonl` exists         | history auto-loaded into `agent.messages` during `__init__`    |
 
 Construct an `Agent` with the same `(session_dir, session_id)` to resume across processes. Passing `messages=[]` or `messages=[...]` for an existing session raises `ValueError` because it would conflict with the JSONL log.
 
