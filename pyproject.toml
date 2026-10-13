@@ -9,49 +9,16 @@ mycode-cli = { workspace = true }
 dev = [
     "mycode-sdk",
     "mycode-cli",
-    "basedpyright>=1.39.9",
     "hatchling>=1.31.0",
     "ruff>=0.15.21",
+    "ty>=0.0.86",
     "pytest>=9.1.1",
     "pytest-asyncio>=1.4.0",
 ]
 
-[tool.basedpyright]
-include = ["mycode/src", "cli/src", "tests", "scripts"]
-exclude = [
-    "**/__pycache__",
-    ".git",
-    ".pytest_cache",
-    ".ruff_cache",
-    ".venv",
-    ".uv-cache",
-    "dist",
-    "web",
-]
-pythonVersion = "3.12"
-pythonPlatform = "All"
-typeCheckingMode = "recommended"
-baselineFile = ".basedpyright/baseline.json"
-allowedUntypedLibraries = ["hatchling"]
-reportMissingTypeStubs = false
-reportAny = "none"
-reportExplicitAny = "none"
-reportUnannotatedClassAttribute = "none"
-reportUnusedCallResult = "hint"
-reportUnusedFunction = "none"
-reportUnknownMemberType = "none"
-reportUnknownVariableType = "none"
-reportUnknownArgumentType = "none"
-reportUnknownParameterType = "none"
-reportUnreachable = "hint"
-
-[[tool.basedpyright.executionEnvironments]]
-root = "tests"
-reportMissingParameterType = "none"
-reportPrivateUsage = "none"
-reportUnknownLambdaType = "none"
-reportUnusedParameter = "none"
-reportUnusedVariable = "none"
+[tool.ty.environment]
+python-version = "3.12"
+python-platform = "all"
 
 [tool.ruff]
 target-version = "py312"

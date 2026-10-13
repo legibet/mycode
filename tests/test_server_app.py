@@ -19,6 +19,7 @@ import pytest
 from conftest import FakeAgent
 from fastapi import Request
 from starlette.testclient import TestClient
+from starlette.types import Message
 
 from mycode.agent import Event, PersistCallback
 from mycode.messages import ConversationMessage, build_message, text_block
@@ -1380,7 +1381,7 @@ async def test_events_stream_announces_run_start_and_finish(tmp_path: Path, monk
         body: asyncio.Queue[bytes] = asyncio.Queue()
         headers: list[tuple[bytes, bytes]] = []
 
-        async def receive() -> dict[str, object]:
+        async def receive() -> Message:
             nonlocal requested
             if not requested:
                 requested = True
@@ -1388,11 +1389,11 @@ async def test_events_stream_announces_run_start_and_finish(tmp_path: Path, monk
             await disconnect.wait()
             return {"type": "http.disconnect"}
 
-        async def send(message: dict[str, object]) -> None:
+        async def send(message: Message) -> None:
             if message["type"] == "http.response.start":
-                headers.extend(cast(list[tuple[bytes, bytes]], message["headers"]))
+                headers.extend(message["headers"])
             elif message["type"] == "http.response.body":
-                body.put_nowait(cast(bytes, message.get("body", b"")))
+                body.put_nowait(message.get("body", b""))
 
         scope = {
             "type": "http",
@@ -1409,7 +1410,7 @@ async def test_events_stream_announces_run_start_and_finish(tmp_path: Path, monk
             "server": ("test", 80),
             "state": {},
         }
-        stream = asyncio.create_task(app(scope, receive, send))  # pyright: ignore[reportArgumentType]
+        stream = asyncio.create_task(app(scope, receive, send))
         await asyncio.wait_for(subscribed.wait(), 5)
 
         async with httpx2.AsyncClient(transport=httpx2.ASGITransport(app), base_url="http://test") as client:

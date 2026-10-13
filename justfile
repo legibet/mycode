@@ -47,7 +47,7 @@ web-dev:
 py-check:
   uv run ruff check .
   uv run ruff format --check .
-  uv run basedpyright
+  uv run ty check
 
 web-check:
   pnpm --dir web check

@@ -460,12 +460,12 @@ class Terminal:
         renderer = self._app.renderer
         output = self._app.output
         # `_cursor_pos` is where the renderer left the cursor inside its frame.
-        output.cursor_backward(renderer._cursor_pos.x)  # pyright: ignore[reportPrivateUsage]
-        output.cursor_up(renderer._cursor_pos.y)  # pyright: ignore[reportPrivateUsage]
+        output.cursor_backward(renderer._cursor_pos.x)
+        output.cursor_up(renderer._cursor_pos.y)
         output.erase_down()
         output.write_raw(text)
-        renderer._cursor_pos = Point(x=0, y=0)  # pyright: ignore[reportPrivateUsage]
-        renderer._last_screen = None  # pyright: ignore[reportPrivateUsage]
+        renderer._cursor_pos = Point(x=0, y=0)
+        renderer._last_screen = None
         if self._next_tail is not None:
             (self._tail,) = self._next_tail
             self._next_tail = None

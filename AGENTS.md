@@ -112,7 +112,7 @@ pnpm --dir web install                                 # install web deps
 
 uv run mycode                                          # start the CLI
 just dev                                               # backend API + Vite dev together
-just check                                             # ruff check + format check, basedpyright, web typecheck, biome check
+just check                                             # ruff check + format check, ty, web typecheck, biome check
 just test                                              # Python + web tests
 just ci                                                # check + test
 just fmt                                               # ruff fix/format + biome check --write

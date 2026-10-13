@@ -287,7 +287,7 @@ def _history_turns(messages: list[ConversationMessage], *, limit: int = 3) -> li
         if role == "user":
             # Use the shared flattener so attached file payload blocks stay out
             # of the readable history preview; background results print as tools.
-            parts = [("job", block) for block in _job_blocks(message)]
+            parts: list[tuple[str, Any]] = [("job", block) for block in _job_blocks(message)]
             text = flatten_message_text(message, include_thinking=False)
             if not isinstance(content, list):
                 text = text or str(content or "").strip()
