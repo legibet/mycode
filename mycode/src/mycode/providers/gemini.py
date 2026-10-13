@@ -32,7 +32,8 @@ def _normalize_finish_reason(raw_reason: Any) -> CanonicalStopReason:
     reason = str(getattr(raw_reason, "value", raw_reason) or "").lower()
     if reason == "stop":
         return "stop"
-    if reason == "max_tokens":
+    # CONTINUATION: stopped at the per-request token limit before finishing.
+    if reason in {"max_tokens", "continuation"}:
         return "length"
     if reason in {
         "safety",

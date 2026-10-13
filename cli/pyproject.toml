@@ -1,5 +1,5 @@
 [build-system]
-requires = ["hatchling>=1.31.0"]
+requires = ["hatchling>=1.32.4"]
 build-backend = "hatchling.build"
 
 [project]
@@ -28,14 +28,14 @@ keywords = ["agent", "cli", "llm", "coding-agent", "fastapi"]
 dependencies = [
     "mycode-sdk==0.19.2",
     "fastapi>=0.139.0",
-    "uvicorn[standard]>=0.51.0",
+    "uvicorn[standard]>=0.54.0",
     "rich>=15.0.0",
-    "prompt-toolkit>=3.0.52",
-    "pygments>=2.20.0",
-    "pydantic>=2.13.4",
-    "typer>=0.26.8",
+    "prompt-toolkit>=3.0.53",
+    "pygments>=2.21.0",
+    "pydantic>=2.13.5",
+    "typer>=0.27.2",
     "pyyaml>=6.0.3",
-    "httpx2>=2.10.0",
+    "httpx2>=2.13.1",
     "beautifulsoup4>=4.15.0",
     "markdownify>=1.2.3",
 ]

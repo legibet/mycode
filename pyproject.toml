@@ -5,13 +5,16 @@ members = ["mycode", "cli"]
 mycode-sdk = { workspace = true }
 mycode-cli = { workspace = true }
 
+[tool.uv]
+exclude-newer = "7 days"
+
 [dependency-groups]
 dev = [
     "mycode-sdk",
     "mycode-cli",
-    "hatchling>=1.31.0",
-    "ruff>=0.15.21",
-    "ty>=0.0.86",
+    "hatchling>=1.32.4",
+    "ruff>=0.16.10",
+    "ty>=0.0.84",
     "pytest>=9.1.1",
     "pytest-asyncio>=1.4.0",
 ]

@@ -1,5 +1,5 @@
 [build-system]
-requires = ["hatchling>=1.31.0"]
+requires = ["hatchling>=1.32.4"]
 build-backend = "hatchling.build"
 
 [project]
@@ -23,12 +23,12 @@ classifiers = [
 ]
 keywords = ["agent", "llm", "anthropic", "openai", "gemini", "sdk"]
 dependencies = [
-    "anthropic>=1.2.0",
-    "google-genai>=2.20.0",
-    "griffelib>=2.1.0",
-    "httpx2>=2.10.0",
-    "openai>=3.6.0",
-    "pydantic>=2.13.4",
+    "anthropic>=1.11.0",
+    "google-genai>=2.28.0",
+    "griffelib>=2.3.2",
+    "httpx2>=2.13.1",
+    "openai>=3.24.0",
+    "pydantic>=2.13.5",
 ]
 
 [project.urls]

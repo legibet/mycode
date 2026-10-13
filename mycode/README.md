@@ -82,7 +82,7 @@ Call `achat()` or `run()` again on the same `Agent` to continue:
 agent = Agent(model="claude-sonnet-5", api_key="...")
 
 agent.run("What is 2 + 2?")
-agent.run("Now multiply that by 10.")    # remembers the earlier answer
+agent.run("Now multiply that by 10.")  # remembers the earlier answer
 ```
 
 `agent.clear()` drops in-memory history. `agent.messages` accumulates across calls.

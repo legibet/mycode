@@ -316,8 +316,8 @@ class OpenAIResponsesAdapter(ProviderAdapter):
         request_model: str | None = None,
     ) -> ConversationMessage:
         raw_output = output_items if output_items is not None else (getattr(response, "output", None) or [])
-        # Persist received fields only; a full dump fills absent optionals with null.
-        dumped_output_items = [item.model_dump(exclude_unset=True) for item in raw_output]
+        # Persist received fields under their wire names; a full dump fills absent optionals with null.
+        dumped_output_items = [item.model_dump(exclude_unset=True, by_alias=True) for item in raw_output]
         blocks: list[dict[str, Any]] = []
         for item in raw_output:
             item_type = getattr(item, "type", None)

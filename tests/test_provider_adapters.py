@@ -11,7 +11,7 @@ import httpx2
 import pytest
 from anthropic import APIStatusError as AnthropicAPIStatusError
 from google.genai import types
-from openai.types.responses import ResponseReasoningItem
+from openai.types.responses import ResponseFunctionToolCall, ResponseReasoningItem
 
 from mycode import Agent
 from mycode.compact import build_compact_event
@@ -604,6 +604,18 @@ def test_responses_preserve_wire_fields_through_json_replay() -> None:
     assert stored_item == item.model_dump(exclude_unset=True)
     payload = adapter._build_request_payload(request_obj(model="m", messages=[message]))
     assert payload["input"] == [stored_item]
+
+
+def test_responses_persist_aliased_fields_under_wire_names() -> None:
+    adapter = OpenAIResponsesAdapter()
+    item = ResponseFunctionToolCall.model_validate(
+        {"type": "function_call", "id": "fc_1", "call_id": "call_1", "name": "read", "arguments": "{}", "async": False}
+    )
+    message = adapter._convert_final_response(_Obj(id="resp_1", model="m", status="completed", output=[item]))
+
+    stored_item = message["meta"]["native"]["output_items"][0]
+    assert stored_item["async"] is False
+    assert "async_" not in stored_item
 
 
 def test_xai_preserves_optional_tool_parameters() -> None:

@@ -134,12 +134,12 @@ class ProviderStreamEvent:
 
 
 def dump_model(value: Any) -> Any:
-    """Convert SDK model objects into plain Python data."""
+    """Convert SDK model objects into plain Python data, keyed by wire names."""
 
     if value is None:
         return None
     if hasattr(value, "model_dump"):
-        return value.model_dump()
+        return value.model_dump(by_alias=True)
     if isinstance(value, list):
         return [dump_model(item) for item in value]
     return value

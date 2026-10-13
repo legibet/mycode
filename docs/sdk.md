@@ -27,7 +27,7 @@ agent = Agent(
     model="claude-sonnet-5",
     api_key="YOUR_API_KEY",
     system="You are helpful.",
-    tools=[word_count],   # default: no tools registered
+    tools=[word_count],  # default: no tools registered
 )
 
 async for event in agent.achat("Hello"):
@@ -142,9 +142,9 @@ External task cancellation propagates `CancelledError`, so `asyncio.timeout()` w
 
 ```python
 Agent(
-    request_timeout=300,        # transport timeout per provider attempt, seconds
-    stream_start_timeout=60,    # max wait for the first upstream stream event
-    max_retries=2,              # retries after the initial attempt
+    request_timeout=300,  # transport timeout per provider attempt, seconds
+    stream_start_timeout=60,  # max wait for the first upstream stream event
+    max_retries=2,  # retries after the initial attempt
 )
 ```
 
@@ -183,9 +183,10 @@ A `usage` event follows each successful provider request, including automatic co
 
 ```python
 {
-    "context_tokens": 1456,        # latest normal request's usage.total_tokens
-    "turn_usage": {                # cumulative for the turn
-        "total_tokens": 2912, "input_tokens": 2800,
+    "context_tokens": 1456,  # latest normal request's usage.total_tokens
+    "turn_usage": {  # cumulative for the turn
+        "total_tokens": 2912,
+        "input_tokens": 2800,
         "output_tokens": 112,
     },
     "turn_cost": {
@@ -193,7 +194,7 @@ A `usage` event follows each successful provider request, including automatic co
         "output": 0.0081,
         "total": 0.0123,
     },
-    "turn_duration_ms": 23400,     # turn start -> the record this event follows
+    "turn_duration_ms": 23400,  # turn start -> the record this event follows
 }
 ```
 
@@ -214,8 +215,8 @@ Persistence is opt-in. Without `session_dir` the agent runs purely in memory and
 agent = Agent(
     model="claude-sonnet-5",
     api_key="...",
-    session_dir=Path("/data/chats"),   # root directory for all sessions
-    session_id="chat-42",              # subdirectory under session_dir
+    session_dir=Path("/data/chats"),  # root directory for all sessions
+    session_id="chat-42",  # subdirectory under session_dir
 )
 ```
 
@@ -261,7 +262,7 @@ Manual compaction requires new context after the latest marker. Otherwise it rai
 ```python
 agent.run("Review the project")
 marker = agent.compact()
-agent.run("Continue with the next task")   # sends summary replay, not full history
+agent.run("Continue with the next task")  # sends summary replay, not full history
 ```
 
 See `docs/sessions.md` for the on-disk record format, the projection rule that builds the provider-facing view, and the replay rules applied by `SessionStore.load_messages`.
@@ -321,8 +322,7 @@ Explicit metadata keeps schema text close to the decorator:
     description="Find entries by key.",
     parameters={"key": "Lookup key.", "limit": "Maximum results."},
 )
-def lookup_entries(key: str, limit: int = 10) -> list[str]:
-    ...
+def lookup_entries(key: str, limit: int = 10) -> list[str]: ...
 ```
 
 Use Pydantic models for nested input:

@@ -10,7 +10,7 @@ class ProviderAdapter(ABC):
     label: str
     env_api_key_names: tuple[str, ...]
     default_models: tuple[str, ...]
-    auto_discoverable: bool              # can be found from env alone
+    auto_discoverable: bool  # can be found from env alone
     supports_reasoning_effort: bool
 
     def stream_turn(request: ProviderRequest) -> AsyncIterator[ProviderStreamEvent]: ...
