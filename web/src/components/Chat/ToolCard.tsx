@@ -9,7 +9,7 @@
 import { Terminal } from "lucide-react";
 import { memo, type ReactNode, useMemo, useState } from "react";
 import { cn } from "../../utils/cn";
-import { hunksFromEdits, parsePatch } from "../../utils/diff";
+import { type HunkContext, hunksFromEdits, parsePatch } from "../../utils/diff";
 import { EditDiff } from "./EditDiff";
 import { TOOL_ICON } from "./toolIcons";
 
@@ -44,8 +44,13 @@ interface EditEntry {
   oldText?: unknown;
   newText?: unknown;
 }
+interface HighlightContextEntry {
+  old?: unknown;
+  new?: unknown;
+}
 interface EditMeta {
   patch?: unknown;
+  highlight_context?: unknown;
   added_lines?: unknown;
   removed_lines?: unknown;
 }
@@ -79,6 +84,15 @@ function getEdits(args: Args): { oldText: string; newText: string }[] {
 function getEditPatch(metadata: Meta): string | null {
   const patch = (metadata as EditMeta | null | undefined)?.patch;
   return typeof patch === "string" && patch ? patch : null;
+}
+
+function getHighlightContext(metadata: Meta): HunkContext[] {
+  const context = (metadata as EditMeta | null | undefined)?.highlight_context;
+  if (!Array.isArray(context)) return [];
+  return context.map((entry: HighlightContextEntry | null | undefined) => ({
+    old: asString(entry?.old),
+    new: asString(entry?.new),
+  }));
 }
 
 function getEditStats(
@@ -327,7 +341,9 @@ function EditBody({
   // show the requested replacements.
   const hunks = useMemo(() => {
     const patch = getEditPatch(metadata);
-    return patch ? parsePatch(patch) : hunksFromEdits(getEdits(args));
+    return patch
+      ? parsePatch(patch, getHighlightContext(metadata))
+      : hunksFromEdits(getEdits(args));
   }, [args, metadata]);
 
   if (hunks.length) {

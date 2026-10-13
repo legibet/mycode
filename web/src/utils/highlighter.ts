@@ -125,16 +125,23 @@ export async function highlightCode(
 /**
  * Tokens per line. Each token's `htmlStyle` carries the same `--shiki-*`
  * variables as `highlightCode`, so it renders under a `.shiki` ancestor.
+ * `context` is code assumed to precede `code`; it sets the starting grammar
+ * state (e.g. inside a docstring) and is left out of the result.
  */
 export async function highlightTokens(
   code: string,
   language: string,
+  context = "",
 ): Promise<ThemedToken[][] | null> {
   const loaded = await loadHighlighter(language);
   if (!loaded) return null;
   const [highlighter, lang] = loaded;
   try {
-    return highlighter.codeToTokens(code, { lang, ...SHIKI_OPTIONS }).tokens;
+    return highlighter.codeToTokens(code, {
+      lang,
+      grammarContextCode: context,
+      ...SHIKI_OPTIONS,
+    }).tokens;
   } catch {
     return null;
   }

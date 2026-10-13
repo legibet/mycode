@@ -43,6 +43,8 @@ READ_MAX_LINE_CHARS = 2000
 _READ_SKIP_CHUNK_CHARS = 64 * 1024
 BASH_TIMEOUT_SECONDS = 120
 _BASH_READ_CHUNK_SIZE = 64 * 1024
+_HIGHLIGHT_CONTEXT_LINES = 40
+_HIGHLIGHT_CONTEXT_CHARS = 4000
 
 
 # ---------------------------------------------------------------------------
@@ -325,6 +327,38 @@ def _normalize_text(text: str) -> tuple[str, list[int]]:
     return "".join(parts), imap
 
 
+def _highlight_context(patch_body: list[str], old_lines: list[str], new_lines: list[str]) -> list[dict[str, str]]:
+    """The text before each hunk in the old and the new file, one entry per hunk.
+
+    A hunk can start inside a multi-line string or comment; the UI feeds this
+    text to the highlighter first so each side starts in its own state. The
+    window is whole lines, at most 40 lines and 4000 characters, so a construct
+    opened further up is still missed.
+    """
+
+    def text_before(lines: list[str], hunk_range: str) -> str:
+        # A range is "start,length" (",1" omitted); an empty range's start is
+        # the line before it.
+        start, _, length = hunk_range.partition(",")
+        end = int(start) if length == "0" else int(start) - 1
+        context = lines[max(0, end - _HIGHLIGHT_CONTEXT_LINES) : end]
+        while len("\n".join(context)) > _HIGHLIGHT_CONTEXT_CHARS:
+            context.pop(0)
+        return "\n".join(context)
+
+    contexts: list[dict[str, str]] = []
+    for line in patch_body:
+        if line.startswith("@@"):
+            old_range, new_range = line.split()[1:3]  # "@@ -a,b +c,d @@"
+            contexts.append(
+                {
+                    "old": text_before(old_lines, old_range[1:]),
+                    "new": text_before(new_lines, new_range[1:]),
+                }
+            )
+    return contexts
+
+
 @tool(
     name="edit",
     description=(
@@ -455,10 +489,12 @@ def edit_tool(ctx: ToolContext[CliDeps], path: str, edits: list[EditEntry]) -> T
 
     # The UI renders this standard patch directly; stats are counted from the
     # same patch so TUI and web show the same +N/-N numbers.
+    old_lines = text.splitlines()
+    new_lines = updated.splitlines()
     patch_lines = list(
         unified_diff(
-            text.splitlines(),
-            updated.splitlines(),
+            old_lines,
+            new_lines,
             fromfile=f"a/{path}",
             tofile=f"b/{path}",
             n=3,
@@ -477,6 +513,7 @@ def edit_tool(ctx: ToolContext[CliDeps], path: str, edits: list[EditEntry]) -> T
         output=summary,
         metadata={
             "patch": patch,
+            "highlight_context": _highlight_context(patch_body, old_lines, new_lines),
             "added_lines": added_lines,
             "removed_lines": removed_lines,
         },

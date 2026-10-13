@@ -26,6 +26,7 @@ Applies a list of `{oldText, newText}` replacements. All entries match against t
 - Each `oldText` must identify exactly one region. Exact match is tried first; a fuzzy fallback tolerates line-ending and trailing-whitespace differences while still replacing only the matched original region. Zero matches (the error cites the closest line) or multiple matches fail the call.
 - Overlapping edits are an error. If the file's mtime changed between read and write, the call fails with `file changed while editing`.
 - The result output is `Updated <path>`; `metadata` carries `patch` (a standard unified diff) plus `added_lines` / `removed_lines` counted from that patch, so TUI and web show identical stats.
+- `metadata.highlight_context` has one `{old, new}` entry per hunk: each file's whole lines just before the hunk, at most 40 lines and 4000 characters. The web passes each side's text to the syntax highlighter as preceding code, so a hunk that starts inside a multi-line string or comment usually starts in the right state. It is best-effort: a construct opened before that window is still missed.
 
 ## bash
 

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { hunksFromEdits, parsePatch } from "./diff";
 
 describe("parsePatch", () => {
-  it("numbers removed lines on the old side and the rest on the new side", () => {
+  it("numbers lines per side and pairs hunks with their highlight context", () => {
     const patch = [
       "--- a/x.sql",
       "+++ b/x.sql",
@@ -20,19 +20,25 @@ describe("parsePatch", () => {
       "",
     ].join("\n");
 
-    expect(parsePatch(patch)).toEqual([
-      [
-        { kind: "context", text: "a", number: 12 },
-        { kind: "remove", text: "-- old note", number: 10 },
-        { kind: "remove", text: "x", number: 11 },
-        { kind: "add", text: "b", number: 13 },
-        { kind: "context", text: "c", number: 14 },
-      ],
-      [
-        { kind: "context", text: "d", number: 43 },
-        { kind: "add", text: "e", number: 44 },
-        { kind: "context", text: "f", number: 45 },
-      ],
+    expect(parsePatch(patch, [{ old: "before 9", new: "before 12" }])).toEqual([
+      {
+        lines: [
+          { kind: "context", text: "a", number: 12 },
+          { kind: "remove", text: "-- old note", number: 10 },
+          { kind: "remove", text: "x", number: 11 },
+          { kind: "add", text: "b", number: 13 },
+          { kind: "context", text: "c", number: 14 },
+        ],
+        context: { old: "before 9", new: "before 12" },
+      },
+      {
+        lines: [
+          { kind: "context", text: "d", number: 43 },
+          { kind: "add", text: "e", number: 44 },
+          { kind: "context", text: "f", number: 45 },
+        ],
+        context: { old: "", new: "" },
+      },
     ]);
   });
 });
@@ -45,10 +51,13 @@ describe("hunksFromEdits", () => {
         { oldText: "", newText: "" },
       ]),
     ).toEqual([
-      [
-        { kind: "add", text: "x", number: null },
-        { kind: "add", text: "y", number: null },
-      ],
+      {
+        lines: [
+          { kind: "add", text: "x", number: null },
+          { kind: "add", text: "y", number: null },
+        ],
+        context: { old: "", new: "" },
+      },
     ]);
   });
 });

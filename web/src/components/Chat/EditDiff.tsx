@@ -42,6 +42,7 @@ function languageForPath(path: string): string {
 /**
  * Highlight each side of the hunk as one run, so a construct spanning lines
  * (a string, a comment) keeps its colour, then map tokens back onto the rows.
+ * Each side starts from its own file's text before the hunk.
  * Context lines take the new side's tokens.
  */
 async function highlightHunk(
@@ -50,18 +51,18 @@ async function highlightHunk(
 ): Promise<LineTokens[]> {
   const { highlightTokens } = await highlighterModulePromise;
   const side = (skip: DiffLine["kind"]) =>
-    hunk
+    hunk.lines
       .filter((line) => line.kind !== skip)
       .map((line) => line.text)
       .join("\n");
   const [oldTokens, newTokens] = await Promise.all([
-    highlightTokens(side("add"), language),
-    highlightTokens(side("remove"), language),
+    highlightTokens(side("add"), language, hunk.context.old),
+    highlightTokens(side("remove"), language, hunk.context.new),
   ]);
 
   let oldIndex = 0;
   let newIndex = 0;
-  return hunk.map((line) => {
+  return hunk.lines.map((line) => {
     if (line.kind === "remove") return oldTokens?.[oldIndex++];
     if (line.kind === "context") oldIndex++;
     return newTokens?.[newIndex++];
@@ -102,7 +103,7 @@ export function EditDiff({ path, hunks }: EditDiffProps) {
 
   const maxNumber = Math.max(
     0,
-    ...hunks.flatMap((hunk) => hunk.map((line) => line.number ?? 0)),
+    ...hunks.flatMap((hunk) => hunk.lines.map((line) => line.number ?? 0)),
   );
   // Without line numbers (edits not yet applied) the marker opens the row.
   const gutterStyle = maxNumber > 0 && {
@@ -131,7 +132,7 @@ export function EditDiff({ path, hunks }: EditDiffProps) {
                   </span>
                 </div>
               )}
-              {hunk.map((line, i) => {
+              {hunk.lines.map((line, i) => {
                 const marker = MARKER[line.kind];
                 const lineTokens = tokens?.[h]?.[i];
                 return (

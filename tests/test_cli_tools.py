@@ -455,6 +455,35 @@ class TestEdit:
                 assert result.metadata["added_lines"] == expected_added
                 assert result.metadata["removed_lines"] == expected_removed
 
+    def test_edit_highlight_context_precedes_each_hunk_per_side(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            old = [f"line {i}" for i in range(1, 101)]
+            new = [*old[:1], "LINE 2", "EXTRA", *old[2:19], "LINE 20", *old[20:69], "LINE 70", *old[70:]]
+            test_file = Path(tmpdir) / "f.txt"
+            test_file.write_text("\n".join(old) + "\n")
+
+            result = _ctx(tmpdir).call(
+                "edit",
+                {
+                    "path": "f.txt",
+                    "edits": [
+                        {"oldText": "line 2\n", "newText": "LINE 2\nEXTRA\n"},
+                        {"oldText": "line 20\n", "newText": "LINE 20\n"},
+                        {"oldText": "line 70\n", "newText": "LINE 70\n"},
+                    ],
+                },
+            )
+
+            assert test_file.read_text() == "\n".join(new) + "\n"
+            assert result.metadata is not None
+            # Hunks start at old/new lines 1/1, 17/18 and 67/68. The second
+            # hunk's preceding text differs per side; the third is capped.
+            assert result.metadata["highlight_context"] == [
+                {"old": "", "new": ""},
+                {"old": "\n".join(old[0:16]), "new": "\n".join(new[0:17])},
+                {"old": "\n".join(old[26:66]), "new": "\n".join(new[27:67])},
+            ]
+
 
 def test_read_accepts_absolute_path():
     with tempfile.TemporaryDirectory() as tmpdir:

@@ -29,4 +29,30 @@ describe("EditDiff", () => {
     );
     expect(code()).toEqual(lines);
   });
+
+  it("starts each side from its own file's context", async () => {
+    // An earlier edit turned the docstring opener into a comment: the shared
+    // quotes close a docstring in the old file but open one in the new file.
+    const hunks = parsePatch(
+      ["@@ -2,2 +2,2 @@", '     """', "-    raw = 1", "+    raw = 2"].join(
+        "\n",
+      ),
+      [
+        {
+          old: 'def load():\n    """Load config.',
+          new: "def load():\n    # Load config.",
+        },
+      ],
+    );
+    const { container } = render(<EditDiff path="app.py" hunks={hunks} />);
+
+    await waitFor(() =>
+      expect(container.querySelector(".shiki span")).not.toBeNull(),
+    );
+    const tokenCount = (row: number) =>
+      container.querySelectorAll(".shiki")[row]?.querySelectorAll("span")
+        .length;
+    expect(tokenCount(1)).toBeGreaterThan(1); // old side: code
+    expect(tokenCount(2)).toBe(1); // new side: inside the string
+  });
 });
