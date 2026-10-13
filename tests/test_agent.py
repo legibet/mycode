@@ -918,7 +918,9 @@ class TestAgentCancel:
         stored = SessionStore(data_dir=tmp_path).load_messages_sync(agent.session_id)
         assert stored[-1]["role"] == "assistant"
         assert stored[-1]["meta"]["stop_reason"] == "cancelled"
-        assert stored[-1]["content"][0]["text"] == "working"
+        thinking = stored[-1]["content"][0]
+        assert thinking["type"] == "thinking"
+        assert thinking["text"] == "working"
         agent.clear()
 
     @pytest.mark.asyncio
@@ -1041,7 +1043,11 @@ def _tool_events(events: list[Event]) -> list[tuple[str, str]]:
 
 def _persisted_results(agent: Agent) -> list[tuple[str, str]]:
     message = next(m for m in reversed(agent.messages) if any(b.get("type") == "tool_result" for b in m["content"]))
-    return [(block["tool_use_id"], block["output"]) for block in message["content"]]
+    results: list[tuple[str, str]] = []
+    for block in message["content"]:
+        assert block["type"] == "tool_result"
+        results.append((block["tool_use_id"], block["output"]))
+    return results
 
 
 class TestParallelTools:

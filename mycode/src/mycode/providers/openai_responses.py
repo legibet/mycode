@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Sequence
 from copy import deepcopy
 from typing import Any, cast, override
 
@@ -12,13 +12,13 @@ import httpx2
 from mycode.messages import (
     ContentBlock,
     ConversationMessage,
+    StopReason,
     assistant_message,
     text_block,
     thinking_block,
     tool_use_block,
 )
 from mycode.providers.base import (
-    CanonicalStopReason,
     ProviderAdapter,
     ProviderError,
     ProviderRequest,
@@ -29,12 +29,13 @@ from mycode.providers.base import (
     parse_tool_call_input,
     tool_result_content_blocks,
 )
+from mycode.tools import ToolDefinition
 from mycode.usage import build_usage
 
 _RETRYABLE_RESPONSE_ERROR_CODES = {"rate_limit_exceeded", "server_error"}
 
 
-def _normalize_response_status(response: Any, *, has_tool_calls: bool) -> CanonicalStopReason:
+def _normalize_response_status(response: Any, *, has_tool_calls: bool) -> StopReason:
     status = str(getattr(response, "status", None) or "").lower()
     if status == "completed":
         return "tool_use" if has_tool_calls else "stop"
@@ -189,7 +190,7 @@ class OpenAIResponsesAdapter(ProviderAdapter):
 
         return items
 
-    def _serialize_input_content(self, blocks: list[ContentBlock]) -> list[dict[str, Any]]:
+    def _serialize_input_content(self, blocks: Sequence[ContentBlock]) -> list[dict[str, Any]]:
         content: list[dict[str, Any]] = []
         for block in blocks:
             match block["type"]:
@@ -251,7 +252,7 @@ class OpenAIResponsesAdapter(ProviderAdapter):
         )
         return items
 
-    def _serialize_tool(self, tool: dict[str, Any]) -> dict[str, Any]:
+    def _serialize_tool(self, tool: ToolDefinition) -> dict[str, Any]:
         parameters = deepcopy(tool["input_schema"])
         _normalize_strict_schema(parameters)
 
@@ -273,7 +274,7 @@ class OpenAIResponsesAdapter(ProviderAdapter):
         raw_output = output_items if output_items is not None else (getattr(response, "output", None) or [])
         # Persist received fields under their wire names; a full dump fills absent optionals with null.
         dumped_output_items = [item.model_dump(exclude_unset=True, by_alias=True) for item in raw_output]
-        blocks: list[dict[str, Any]] = []
+        blocks: list[ContentBlock] = []
         for item in raw_output:
             item_type = getattr(item, "type", None)
 
@@ -325,7 +326,7 @@ class OpenAIResponsesAdapter(ProviderAdapter):
                     "status": getattr(item, "status", None),
                 }
                 item_meta = {key: value for key, value in raw_item_meta.items() if value is not None}
-                block_meta = {**(native_block_meta(item_meta) or {}), **invalid_meta}
+                block_meta = (native_block_meta(item_meta) or {}) | invalid_meta
                 blocks.append(
                     tool_use_block(
                         tool_id=getattr(item, "call_id", ""),
@@ -346,7 +347,7 @@ class OpenAIResponsesAdapter(ProviderAdapter):
             provider_message_id=getattr(response, "id", None),
             stop_reason=_normalize_response_status(
                 response,
-                has_tool_calls=any(block.get("type") == "tool_use" for block in blocks),
+                has_tool_calls=any(block["type"] == "tool_use" for block in blocks),
             ),
             usage=build_usage(
                 total_tokens=raw_usage.get("total_tokens"),
@@ -374,7 +375,7 @@ class XAIAdapter(OpenAIResponsesAdapter):
     _reasoning_text_fields = ("summary", "content")
 
     @override
-    def _serialize_tool(self, tool: dict[str, Any]) -> dict[str, Any]:
+    def _serialize_tool(self, tool: ToolDefinition) -> dict[str, Any]:
         # xAI validates arguments against the supplied schema directly; optional
         # parameters keep their defaults and need no strict-mode rewriting.
         return {

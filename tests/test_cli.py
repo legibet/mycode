@@ -8,6 +8,7 @@ from typing import Any, cast
 import pytest
 
 from mycode.agent import Event
+from mycode.messages import ConversationMessage
 from mycode_cli.config import Settings
 from mycode_cli.main import app, resolve_session, run_noninteractive
 from mycode_cli.permissions import PERMISSION_DENIED_BY_USER_OUTPUT, PERMISSION_DENIED_OUTPUT
@@ -172,7 +173,7 @@ class TestLoadSessionTotals:
     async def test_folds_the_raw_timeline_including_rewound_turns(self, tmp_path: Path) -> None:
         store = SessionStore(data_dir=tmp_path)
         await store.create_session("s1", cwd="/tmp")
-        records = [
+        records: list[ConversationMessage] = [
             {"role": "user", "content": [{"type": "text", "text": "hi"}]},
             {
                 "role": "assistant",

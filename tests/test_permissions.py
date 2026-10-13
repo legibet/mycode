@@ -291,4 +291,6 @@ async def test_permission_hook_distinguishes_user_denial(tmp_path: Path, monkeyp
     assert events[-1].type == "cancelled"
     assert calls == []
     stored = SessionStore(data_dir=tmp_path).load_messages_sync(agent.session_id)
-    assert stored[-1]["content"][0]["output"] == PERMISSION_DENIED_BY_USER_OUTPUT
+    result = stored[-1]["content"][0]
+    assert result["type"] == "tool_result"
+    assert result["output"] == PERMISSION_DENIED_BY_USER_OUTPUT

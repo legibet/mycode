@@ -6,7 +6,7 @@ from typing import Any, Literal, Self
 
 from pydantic import BaseModel, Field, model_validator
 
-from mycode.compact import CompactTrigger
+from mycode.messages import CompactTrigger
 from mycode.usage import Cost
 
 RunKind = Literal["chat", "compact"]

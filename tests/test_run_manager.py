@@ -10,10 +10,11 @@ from typing import Any, override
 import pytest
 from conftest import FakeAgent
 
-from mycode import Agent, ContentBlock, build_message, text_block, tool
+from mycode import Agent, build_message, text_block, tool
 from mycode.agent import Event
-from mycode.messages import ConversationMessage
+from mycode.messages import ConversationMessage, TextBlock
 from mycode.providers.base import ProviderStreamEvent
+from mycode.usage import Usage
 from mycode_cli.background import BackgroundJob, BackgroundJobs
 from mycode_cli.config import PermissionConfig, Settings
 from mycode_cli.permissions import PERMISSION_DENIED_BY_USER_OUTPUT, ToolReviewRequest, build_permission_hooks
@@ -92,7 +93,7 @@ async def _wait_for_run_task(manager: RunManager, run_id: str) -> RunState:
     return state
 
 
-def _totals(cost: float | None, usage: dict[str, int] | None = None) -> SessionTotals:
+def _totals(cost: float | None, usage: Usage | None = None) -> SessionTotals:
     return SessionTotals(usage=usage or {}, cost={"total": cost} if cost is not None else None)
 
 
@@ -284,7 +285,7 @@ ASSISTANT_WITH_TOOL: ConversationMessage = {
 }
 TOOL_RESULT: ConversationMessage = {
     "role": "user",
-    "content": [{"type": "tool_result", "tool_use_id": "call-1", "output": "ok"}],
+    "content": [{"type": "tool_result", "tool_use_id": "call-1", "output": "ok", "is_error": False}],
 }
 STEER: ConversationMessage = {
     "role": "user",
@@ -801,10 +802,10 @@ async def test_close_cancels_all_runs_and_waits_for_cleanup() -> None:
     agent = CleanupAgent()
     review = ReviewAgent(manager, "review")
     run = await manager.start_run(
-        cwd="/work", session_id="s1", user_message={"role": "user"}, base_messages=[], agent=agent
+        cwd="/work", session_id="s1", user_message={"role": "user", "content": []}, base_messages=[], agent=agent
     )
     review_run = await manager.start_run(
-        cwd="/work", session_id="review", user_message={"role": "user"}, base_messages=[], agent=review
+        cwd="/work", session_id="review", user_message={"role": "user", "content": []}, base_messages=[], agent=review
     )
     await _wait_for_event(manager, review_run["id"], "permission_request")
     closing = asyncio.create_task(manager.aclose())
@@ -825,7 +826,9 @@ async def test_close_cancels_all_runs_and_waits_for_cleanup() -> None:
 async def test_close_does_not_enter_a_queued_agent_turn() -> None:
     manager = RunManager()
     agent = CleanupAgent()
-    await manager.start_run(cwd="/work", session_id="s1", user_message={"role": "user"}, base_messages=[], agent=agent)
+    await manager.start_run(
+        cwd="/work", session_id="s1", user_message={"role": "user", "content": []}, base_messages=[], agent=agent
+    )
     async with asyncio.timeout(2):
         await manager.aclose()
     assert not agent.started.is_set()
@@ -909,7 +912,7 @@ class CompactAgent(FakeAgent):
 async def test_compact_run_snapshot_has_kind_and_no_user_message(session_cost_base: float | None) -> None:
     manager = RunManager()
     agent = CompactAgent()
-    base = [{"role": "user", "content": [{"type": "text", "text": "earlier"}]}]
+    base: list[ConversationMessage] = [{"role": "user", "content": [{"type": "text", "text": "earlier"}]}]
     completed: list[str] = []
 
     async def on_complete(session_id: str) -> None:
@@ -1341,7 +1344,7 @@ async def test_compact_run_refuses_enqueue() -> None:
 # Background job results
 
 
-def _job_block(tool_use_id: str) -> ContentBlock:
+def _job_block(tool_use_id: str) -> TextBlock:
     return text_block("done", meta={"job": {"tool_use_id": tool_use_id, "name": "bash", "label": "x", "exit_code": 0}})
 
 
@@ -1360,10 +1363,10 @@ class JobRunAgent(SimpleAgent):
         yield Event("text", {"delta": "reply"})
 
 
-def _record_deliveries(jobs: BackgroundJobs) -> list[tuple[list[ContentBlock], set[str], bool]]:
+def _record_deliveries(jobs: BackgroundJobs) -> list[tuple[list[TextBlock], set[str], bool]]:
     """Install a deliver callback that records the registry state at each call."""
 
-    calls: list[tuple[list[ContentBlock], set[str], bool]] = []
+    calls: list[tuple[list[TextBlock], set[str], bool]] = []
 
     async def deliver() -> None:
         calls.append((list(jobs.pending), set(jobs.in_flight), jobs.suspended))
@@ -1427,7 +1430,7 @@ async def test_a_wake_started_as_the_run_ends_keeps_its_results(monkeypatch: pyt
     block = _job_block("toolu_a")
     wake_agent = JobRunAgent([])
     wakes: list[dict[str, Any]] = []
-    steered: list[ContentBlock] = []
+    steered: list[TextBlock] = []
 
     async def deliver() -> None:
         if await manager.get_active_run("s1") is None:

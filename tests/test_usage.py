@@ -4,13 +4,13 @@ from __future__ import annotations
 
 import pytest
 
-from mycode.usage import estimate_cost
+from mycode.usage import Usage, estimate_cost
 
 _SONNET_PRICING = {"input": 3.0, "output": 15.0, "cache_read": 0.3, "cache_write": 3.75}
 
 
 def test_estimate_cost_bills_a_cached_reasoning_request() -> None:
-    usage = {
+    usage: Usage = {
         "total_tokens": 12_100,
         "input_tokens": 11_200,
         "cache_read_tokens": 10_000,
@@ -56,7 +56,7 @@ def test_estimate_cost_applies_long_context_tiers_per_request() -> None:
 
 def test_estimate_cost_bills_distinct_reasoning_price_separately() -> None:
     cost = {"input": 1.0, "output": 10.0, "reasoning": 4.0}
-    usage = {"input_tokens": 100, "output_tokens": 50, "reasoning_tokens": 30}
+    usage: Usage = {"input_tokens": 100, "output_tokens": 50, "reasoning_tokens": 30}
 
     assert estimate_cost(usage, cost) == pytest.approx(
         {"input": 0.0001, "output": 0.0002, "reasoning": 0.00012, "total": 0.00042}
@@ -123,7 +123,7 @@ def test_estimate_cost_ignores_free_cache_categories_the_upstream_never_reports(
     # Z.AI-shaped pricing: cache writes are free (0.0) and never counted in the
     # response. Substituting 0 cannot understate, so the estimate proceeds.
     cost = {"input": 1.4, "output": 4.4, "cache_read": 0.26, "cache_write": 0.0}
-    usage = {"input_tokens": 100, "cache_read_tokens": 40, "output_tokens": 10}
+    usage: Usage = {"input_tokens": 100, "cache_read_tokens": 40, "output_tokens": 10}
 
     assert estimate_cost(usage, cost) == pytest.approx(
         {"input": 0.000084, "cache_read": 0.0000104, "output": 0.000044, "total": 0.0001384}

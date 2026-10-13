@@ -6,7 +6,8 @@ import asyncio
 import os
 from pathlib import Path
 
-from mycode import ContentBlock, build_message, text_block
+from mycode import build_message, text_block
+from mycode.messages import TextBlock
 from mycode.tools import ToolContext, ToolExecutor
 from mycode_cli.background import BackgroundJob, BackgroundJobs
 from mycode_cli.tools import DEFAULT_TOOLS
@@ -29,7 +30,7 @@ async def _wait_for_pending(jobs: BackgroundJobs) -> None:
         await asyncio.gather(*(job.task for job in jobs.jobs))
 
 
-def _job_block(tool_use_id: str) -> ContentBlock:
+def _job_block(tool_use_id: str) -> TextBlock:
     return text_block("done", meta={"job": {"tool_use_id": tool_use_id, "name": "bash", "label": "x", "exit_code": 0}})
 
 
@@ -60,6 +61,7 @@ class TestTool:
 
         await _wait_for_pending(jobs)
         block = jobs.pending[0]
+        assert block["type"] == "text"
         assert block["meta"]["job"] == {
             "tool_use_id": "toolu_1",
             "name": "bash",

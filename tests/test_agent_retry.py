@@ -344,7 +344,9 @@ async def test_acompact_retries_and_keeps_successful_marker_usage(tmp_path: Path
         marker = await agent.acompact()
 
     assert adapter.attempts == 3
-    assert marker["content"][0]["text"] == "THE_SUMMARY"
+    summary = marker["content"][0]
+    assert summary["type"] == "text"
+    assert summary["text"] == "THE_SUMMARY"
     assert marker["meta"]["usage"] == {"total_tokens": 42}
 
 

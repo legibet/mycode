@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Literal
 
 import pytest
 
+from mycode.messages import ConversationMessage
 from mycode_cli.sessions import SessionStore
 
 pytestmark = pytest.mark.asyncio
@@ -29,7 +31,7 @@ async def test_session_lifecycle_preserves_metadata_and_messages(store: SessionS
     assert "updated_at" in session
     assert [item["id"] for item in await store.list_sessions()] == ["s1"]
 
-    messages = [
+    messages: list[ConversationMessage] = [
         {"role": "user", "content": [{"type": "text", "text": "How do I write a Python function?"}]},
         {"role": "assistant", "content": [{"type": "text", "text": "Start with def."}]},
     ]
@@ -105,7 +107,7 @@ async def test_delete_session_removes_the_whole_directory(store: SessionStore) -
 # Search
 
 
-def _text(role: str, text: str) -> dict[str, object]:
+def _text(role: Literal["user", "assistant"], text: str) -> ConversationMessage:
     return {"role": role, "content": [{"type": "text", "text": text}]}
 
 

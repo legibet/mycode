@@ -9,6 +9,22 @@ from __future__ import annotations
 
 from typing import Any, NotRequired, TypedDict
 
+
+class Usage(TypedDict, total=False):
+    """Token counts for one provider request or a request aggregate.
+
+    A missing key means the upstream did not report it; readers must not
+    substitute 0. See :func:`build_usage` for the field semantics.
+    """
+
+    total_tokens: int
+    input_tokens: int
+    cache_read_tokens: int
+    cache_write_tokens: int
+    output_tokens: int
+    reasoning_tokens: int
+
+
 USAGE_TOKEN_KEYS = (
     "total_tokens",
     "input_tokens",
@@ -40,7 +56,7 @@ def build_usage(
     cache_write_tokens: int | None = None,
     output_tokens: int | None = None,
     reasoning_tokens: int | None = None,
-) -> dict[str, Any]:
+) -> Usage:
     """Build a canonical usage dict from one provider request.
 
     ``input_tokens`` is the full effective input including cache reads and
@@ -51,21 +67,26 @@ def build_usage(
 
     if total_tokens is None and input_tokens is not None and output_tokens is not None:
         total_tokens = input_tokens + output_tokens
-    usage = {
-        "total_tokens": total_tokens,
-        "input_tokens": input_tokens,
-        "cache_read_tokens": cache_read_tokens,
-        "cache_write_tokens": cache_write_tokens,
-        "output_tokens": output_tokens,
-        "reasoning_tokens": reasoning_tokens,
-    }
-    return {key: value for key, value in usage.items() if value is not None}
+    usage: Usage = {}
+    if total_tokens is not None:
+        usage["total_tokens"] = total_tokens
+    if input_tokens is not None:
+        usage["input_tokens"] = input_tokens
+    if cache_read_tokens is not None:
+        usage["cache_read_tokens"] = cache_read_tokens
+    if cache_write_tokens is not None:
+        usage["cache_write_tokens"] = cache_write_tokens
+    if output_tokens is not None:
+        usage["output_tokens"] = output_tokens
+    if reasoning_tokens is not None:
+        usage["reasoning_tokens"] = reasoning_tokens
+    return usage
 
 
-def add_usage(total: dict[str, int], usage: dict[str, Any]) -> dict[str, int]:
+def add_usage(total: Usage, usage: Usage) -> Usage:
     """Return ``total`` plus one request's token counts; missing fields keep known totals."""
 
-    result = dict(total)
+    result = total.copy()
     for key in USAGE_TOKEN_KEYS:
         value = usage.get(key)
         if value is not None:
@@ -73,7 +94,7 @@ def add_usage(total: dict[str, int], usage: dict[str, Any]) -> dict[str, int]:
     return result
 
 
-def estimate_cost(usage: dict[str, Any], pricing: dict[str, Any] | None) -> Cost | None:
+def estimate_cost(usage: Usage, pricing: dict[str, Any] | None) -> Cost | None:
     """Estimate the USD cost of one provider request.
 
     ``usage`` is a message's canonical ``meta.usage`` dict and ``pricing`` is

@@ -20,6 +20,7 @@ from mycode.compact import (
     apply_compact_replay,
     build_compact_event,
 )
+from mycode.messages import ConversationMessage, text_block
 from mycode.providers.base import ProviderStreamEvent
 from mycode.session import SessionStore
 
@@ -35,7 +36,7 @@ def make_agent(tmp_path: Path) -> Agent:
 
 @pytest.mark.asyncio
 async def test_session_load_keeps_compact_markers_inline_and_append_only(store: SessionStore) -> None:
-    raw_messages = [
+    raw_messages: list[ConversationMessage] = [
         {"role": "user", "content": [{"type": "text", "text": "hello"}]},
         {"role": "assistant", "content": [{"type": "text", "text": "hi"}]},
         build_compact_event("old summary", trigger="auto", provider="p", model="m", context_window=100),
@@ -88,12 +89,12 @@ async def test_session_load_keeps_compact_markers_inline_and_append_only(store: 
     ],
 )
 def test_compact_replay_preserves_role_order_after_summary(
-    tail: list[dict[str, object]],
+    tail: list[ConversationMessage],
     expected_roles: list[str],
     expected_texts: list[str],
     continues_directly: bool,
 ) -> None:
-    messages = [
+    messages: list[ConversationMessage] = [
         {"role": "user", "content": [{"type": "text", "text": "early"}]},
         {"role": "assistant", "content": [{"type": "text", "text": "ok"}]},
         build_compact_event("summary", trigger="auto", provider="p", model="m", context_window=100),
@@ -103,13 +104,15 @@ def test_compact_replay_preserves_role_order_after_summary(
     projected = apply_compact_replay(messages)
 
     assert [message["role"] for message in projected] == expected_roles
-    assert "summary" in projected[0]["content"][0]["text"]
-    assert ("Resume directly" in projected[0]["content"][0]["text"]) is continues_directly
-    assert [message["content"][0]["text"] for message in projected[1:]] == expected_texts
+    summary = projected[0]["content"][0]
+    assert summary["type"] == "text"
+    assert "summary" in summary["text"]
+    assert ("Resume directly" in summary["text"]) is continues_directly
+    assert [message["content"] for message in projected[1:]] == [[text_block(text)] for text in expected_texts]
 
 
 def test_compact_replay_uses_latest_summary_and_transcript_hint() -> None:
-    messages = [
+    messages: list[ConversationMessage] = [
         {"role": "user", "content": [{"type": "text", "text": "very old"}]},
         build_compact_event("EARLIER_SUMMARY", trigger="auto", provider="p", model="m", context_window=100),
         {"role": "assistant", "content": [{"type": "text", "text": "mid"}]},
@@ -120,7 +123,9 @@ def test_compact_replay_uses_latest_summary_and_transcript_hint() -> None:
     projected = apply_compact_replay(messages, transcript_path="/sessions/s1/messages.jsonl")
 
     assert [m["role"] for m in projected] == ["user", "assistant"]
-    summary_user_text = projected[0]["content"][0]["text"]
+    summary = projected[0]["content"][0]
+    assert summary["type"] == "text"
+    summary_user_text = summary["text"]
     assert "LATEST_SUMMARY" in summary_user_text
     assert "EARLIER_SUMMARY" not in summary_user_text
     assert "/sessions/s1/messages.jsonl" in summary_user_text
@@ -197,11 +202,11 @@ async def test_acompact_persists_marker_and_uses_manual_request_contract(tmp_pat
         session_dir=tmp_path,
         compact_threshold=0,
     )
-    persisted: list[dict[str, Any]] = []
+    persisted: list[ConversationMessage] = []
     store_lines_at_callback: list[int] = []
     messages_path = SessionStore(data_dir=tmp_path).messages_path(agent.session_id)
 
-    async def on_persist(message: dict[str, Any]) -> None:
+    async def on_persist(message: ConversationMessage) -> None:
         persisted.append(message)
         text = messages_path.read_text(encoding="utf-8") if messages_path.exists() else ""
         store_lines_at_callback.append(len(text.strip().splitlines()) if text.strip() else 0)
@@ -214,7 +219,9 @@ async def test_acompact_persists_marker_and_uses_manual_request_contract(tmp_pat
         marker = await agent.acompact(on_persist=on_persist)
 
     assert marker["role"] == "compact"
-    assert marker["content"][0]["text"] == "THE_SUMMARY"
+    summary = marker["content"][0]
+    assert summary["type"] == "text"
+    assert summary["text"] == "THE_SUMMARY"
 
     # The summary request carries no tools and no reasoning effort.
     compact_request = adapter.requests[1]
@@ -287,7 +294,9 @@ async def test_acompact_cancellation_writes_no_marker(tmp_path: Path) -> None:
             marker = await agent.acompact()
 
     assert marker["role"] == "compact"
-    assert marker["content"][0]["text"] == "SUMMARY"
+    summary = marker["content"][0]
+    assert summary["type"] == "text"
+    assert summary["text"] == "SUMMARY"
 
 
 class _UsageDetailAdapter:
@@ -393,7 +402,7 @@ async def test_failed_auto_compact_commit_propagates_without_publishing_marker(t
     agent = Agent(model="m", provider="anthropic", context_window=100_000, session_dir=tmp_path)
     failure = OSError("compact persistence failed")
 
-    async def persist(message: dict[str, Any]) -> None:
+    async def persist(message: ConversationMessage) -> None:
         if message["role"] == "compact":
             raise failure
 

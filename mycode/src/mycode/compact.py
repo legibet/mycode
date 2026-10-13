@@ -2,17 +2,17 @@
 
 from __future__ import annotations
 
-from typing import Any, Literal
-
-from mycode.messages import ConversationMessage, build_message, text_block
-from mycode.usage import Cost
+from mycode.messages import (
+    CompactTrigger,
+    ConversationMessage,
+    MessageMeta,
+    build_message,
+    flatten_message_text,
+    text_block,
+)
+from mycode.usage import Cost, Usage
 
 DEFAULT_COMPACT_THRESHOLD = 0.8
-
-# What started the compaction: the agent loop crossing the threshold inside a
-# turn, or an explicit acompact() call. Their markers sit in the same places in
-# the log, so the origin is recorded instead of inferred.
-CompactTrigger = Literal["auto", "manual"]
 
 
 class NothingToCompactError(ValueError):
@@ -94,19 +94,19 @@ def build_compact_event(
     provider: str,
     model: str,
     context_window: int,
-    usage: dict[str, Any] | None = None,
+    usage: Usage | None = None,
     cost: Cost | None = None,
 ) -> ConversationMessage:
-    meta: dict[str, Any] = {
+    meta: MessageMeta = {
         "trigger": trigger,
         "provider": provider,
         "model": model,
         "context_window": context_window,
     }
     if usage:
-        meta["usage"] = dict(usage)
+        meta["usage"] = usage.copy()
     if cost is not None:
-        meta["cost"] = dict(cost)
+        meta["cost"] = cost.copy()
     return build_message("compact", [text_block(summary_text)], meta=meta)
 
 
@@ -132,8 +132,7 @@ def apply_compact_replay(
     # tail needs an "Acknowledged." assistant turn to keep role alternation.
     continue_now = not tail or tail[0]["role"] == "assistant"
 
-    # build_compact_event stores the summary as the marker's one text block.
-    parts = [CONTINUATION_HEADER, messages[last_compact]["content"][0]["text"]]
+    parts = [CONTINUATION_HEADER, flatten_message_text(messages[last_compact])]
     if transcript_path:
         parts.append(TRANSCRIPT_HINT.format(path=transcript_path))
     if continue_now:

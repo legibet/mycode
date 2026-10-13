@@ -12,7 +12,7 @@ from conftest import TerminalHarness
 from rich.console import Console
 
 from mycode.agent import Event
-from mycode.messages import ContentBlock, ConversationMessage, text_block
+from mycode.messages import ConversationMessage, TextBlock, text_block
 from mycode_cli.sessions import SessionTotals
 from mycode_cli.tui.render import TurnRenderer, history_preview, job_lines
 from mycode_cli.tui.theme import ERROR_MARKER, THINKING_SYMBOL, TOOL_MARKER
@@ -22,48 +22,48 @@ def test_history_preview_renders_recent_turns() -> None:
     output = StringIO()
     console = Console(file=output, force_terminal=False, color_system=None, width=120)
 
-    for renderable in history_preview(
-        [
-            {"role": "user", "content": [{"type": "text", "text": "older question"}]},
-            {"role": "assistant", "content": [{"type": "text", "text": "older answer"}]},
-            {"role": "user", "content": [{"type": "text", "text": "turn one"}]},
-            {"role": "assistant", "content": [{"type": "text", "text": "answer one"}]},
-            {
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": "check @main.py"},
-                    {
-                        "type": "text",
-                        "text": '<file name="/tmp/main.py">\nprint(1)\n</file>',
-                        "meta": {"attachment": True, "path": "/tmp/main.py"},
-                    },
-                ],
-            },
-            {
-                "role": "assistant",
-                "content": [
-                    {"type": "thinking", "text": "hidden"},
-                    {"type": "text", "text": "checking `foo`"},
-                    {"type": "tool_use", "name": "read", "input": {"path": "foo.py"}},
-                    {"type": "tool_use", "id": "e1", "name": "edit", "input": {"path": "b.py"}},
-                    {"type": "text", "text": "```py\nprint(1)\n```"},
-                ],
-            },
-            {
-                "role": "user",
-                "content": [
-                    {
-                        "type": "tool_result",
-                        "tool_use_id": "e1",
-                        "output": "ok",
-                        "metadata": {"added_lines": 3, "removed_lines": 1},
-                    }
-                ],
-            },
-            {"role": "user", "content": [{"type": "text", "text": "latest question"}]},
-        ],
-        width=120,
-    ):
+    messages: list[ConversationMessage] = [
+        {"role": "user", "content": [{"type": "text", "text": "older question"}]},
+        {"role": "assistant", "content": [{"type": "text", "text": "older answer"}]},
+        {"role": "user", "content": [{"type": "text", "text": "turn one"}]},
+        {"role": "assistant", "content": [{"type": "text", "text": "answer one"}]},
+        {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": "check @main.py"},
+                {
+                    "type": "text",
+                    "text": '<file name="/tmp/main.py">\nprint(1)\n</file>',
+                    "meta": {"attachment": True, "path": "/tmp/main.py"},
+                },
+            ],
+        },
+        {
+            "role": "assistant",
+            "content": [
+                {"type": "thinking", "text": "hidden"},
+                {"type": "text", "text": "checking `foo`"},
+                {"type": "tool_use", "id": "r1", "name": "read", "input": {"path": "foo.py"}},
+                {"type": "tool_use", "id": "e1", "name": "edit", "input": {"path": "b.py"}},
+                {"type": "text", "text": "```py\nprint(1)\n```"},
+            ],
+        },
+        {
+            "role": "user",
+            "content": [
+                {
+                    "type": "tool_result",
+                    "tool_use_id": "e1",
+                    "output": "ok",
+                    "is_error": False,
+                    "metadata": {"added_lines": 3, "removed_lines": 1},
+                }
+            ],
+        },
+        {"role": "user", "content": [{"type": "text", "text": "latest question"}]},
+    ]
+
+    for renderable in history_preview(messages, width=120):
         console.print(renderable)
 
     rendered = output.getvalue()
@@ -388,7 +388,7 @@ class TestTurnRenderer:
         assert "m · 5 tokens" in rendered
 
 
-def _job_block(output: str, *, exit_code: int = 1) -> ContentBlock:
+def _job_block(output: str, *, exit_code: int = 1) -> TextBlock:
     return text_block(
         f"Background bash finished (pid 1, exit code {exit_code}): pytest -q\nLog: /x.log\n\n{output}",
         meta={"job": {"tool_use_id": "toolu_1", "name": "bash", "label": "pytest -q", "exit_code": exit_code}},

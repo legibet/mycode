@@ -18,7 +18,7 @@ from prompt_toolkit.input.defaults import create_pipe_input
 from prompt_toolkit.output import DummyOutput
 
 from mycode.agent import Agent, Event
-from mycode.messages import ContentBlock, ConversationMessage, build_message, merge_user_messages, text_block
+from mycode.messages import ConversationMessage, TextBlock, build_message, merge_user_messages, text_block
 from mycode.providers import get_provider_adapter, list_env_discoverable_providers
 from mycode.providers.base import ProviderStreamEvent
 from mycode.tools import ToolExecutor
@@ -276,7 +276,9 @@ class TestAttachments:
 
         message = _chat(_AttachmentAgent(), tmp_path)._build_user_message(f"check @{log_file}")
 
-        text = message["content"][1]["text"]
+        block = message["content"][1]
+        assert block["type"] == "text"
+        text = block["text"]
         assert "log line 1999\n" in text
         assert "log line 2000\n" not in text
         assert f"of {log_file}. Use read with offset=2001 to continue." in text
@@ -452,7 +454,9 @@ class TestMidTurnInput:
 
         [steer] = _steered(agent)
         assert steer["content"] == chat._build_user_message("use @notes.txt")["content"]
-        assert "remember sqlite" in steer["content"][1]["text"]
+        attachment = steer["content"][1]
+        assert attachment["type"] == "text"
+        assert "remember sqlite" in attachment["text"]
         assert len(steer["meta"]["input_ids"]) == 1
         assert chat._steers == []
         rendered = harness.text()
@@ -485,7 +489,7 @@ class TestMidTurnInput:
         await self._turn(harness, tmp_path, agent, ["later\x11"])
 
         assert _steered(agent) == []
-        assert [block["text"] for block in agent.turns[1]["content"]] == ["later"]
+        assert agent.turns[1]["content"] == [text_block("later")]
 
     @pytest.mark.parametrize("command", ["/model", "exit", "quit"])
     async def test_commands_are_refused_during_a_turn_and_stay_in_the_input(
@@ -762,7 +766,7 @@ class TestModelSwitch:
         assert (chat.provider_name, chat.agent.model, chat.agent.api_base) == expected
 
 
-def _job_block(tool_use_id: str = "toolu_1") -> ContentBlock:
+def _job_block(tool_use_id: str = "toolu_1") -> TextBlock:
     return text_block(
         "Background bash finished (pid 1, exit code 1): pytest -q\nLog: /x.log\n\nline a\nline b",
         meta={"job": {"tool_use_id": tool_use_id, "name": "bash", "label": "pytest -q", "exit_code": 1}},
@@ -813,7 +817,7 @@ class TestBackgroundJobs:
         agent = _TurnAgent(accepting=False)
         chat = _chat(agent, tmp_path, harness)
         block = _job_block()
-        after_turn: list[tuple[int, list[ContentBlock], bool]] = []
+        after_turn: list[tuple[int, list[TextBlock], bool]] = []
 
         async def main() -> None:
             turn = asyncio.create_task(chat._run_turn("first"))
@@ -891,7 +895,7 @@ class TestBackgroundJobs:
         agent = _TurnAgent(accepting=False)
         chat = _chat(agent, tmp_path, harness)
         block = _job_block()
-        after_stop: list[tuple[bool, list[ContentBlock]]] = []
+        after_stop: list[tuple[bool, list[TextBlock]]] = []
 
         async def main() -> None:
             turn = asyncio.create_task(chat._run_turn("first"))

@@ -29,6 +29,7 @@ dependencies = [
     "httpx2>=2.13.1",
     "openai>=3.24.0",
     "pydantic>=2.13.5",
+    "typing-extensions>=4.16.0",
 ]
 
 [project.urls]

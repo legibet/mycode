@@ -6,6 +6,8 @@ Source: `mycode/src/mycode/`
 
 `mycode-sdk` is a standalone Python SDK for multi-turn tool-calling agents. Import name: `mycode`. Ships independently of the CLI.
 
+Messages and blocks are plain JSON-ready dicts, typed by the TypedDicts in `mycode.messages`: `ConversationMessage`, the `ContentBlock` union (`TextBlock`, `ThinkingBlock`, `ImageBlock`, `DocumentBlock`, `ToolUseBlock`, `ToolResultBlock`, discriminated by `type`), and `RewindMarker` for raw session records. `MessageMeta` and `BlockMeta` type the SDK's own `meta` keys and accept any other key an application adds. Build them with the builders in `mycode.messages` (`text_block`, `build_message`, …). Record layout: docs/sessions.md.
+
 ## Agent
 
 ```python

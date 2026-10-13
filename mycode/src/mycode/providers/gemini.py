@@ -9,9 +9,16 @@ from urllib.parse import urlparse
 
 import httpx2
 
-from mycode.messages import assistant_message, text_block, thinking_block, tool_use_block
+from mycode.messages import (
+    BlockMeta,
+    ContentBlock,
+    StopReason,
+    assistant_message,
+    text_block,
+    thinking_block,
+    tool_use_block,
+)
 from mycode.providers.base import (
-    CanonicalStopReason,
     ProviderAdapter,
     ProviderRequest,
     ProviderStreamEvent,
@@ -27,7 +34,7 @@ if TYPE_CHECKING:
 _DUMMY_THOUGHT_SIGNATURE = "skip_thought_signature_validator"
 
 
-def _normalize_finish_reason(raw_reason: Any) -> CanonicalStopReason:
+def _normalize_finish_reason(raw_reason: Any) -> StopReason:
     reason = str(getattr(raw_reason, "value", raw_reason) or "").lower()
     if reason == "stop":
         return "stop"
@@ -84,7 +91,7 @@ class GoogleGeminiAdapter(ProviderAdapter):
     async def stream_turn(self, request: ProviderRequest) -> AsyncIterator[ProviderStreamEvent]:
         from google.genai.errors import APIError
 
-        blocks: list[dict[str, Any]] = []
+        blocks: list[ContentBlock] = []
         response_id: str | None = None
         finish_reason: str | None = None
         finish_message: str | None = None
@@ -139,7 +146,7 @@ class GoogleGeminiAdapter(ProviderAdapter):
                 reasoning_tokens=raw_usage.get("thoughts_token_count") or 0,
             )
         else:
-            normalized_usage = {}
+            normalized_usage = None
 
         yield ProviderStreamEvent(
             "message_done",
@@ -288,7 +295,7 @@ class GoogleGeminiAdapter(ProviderAdapter):
             ),
         )
 
-    def _consume_part(self, blocks: list[dict[str, Any]], part: Any) -> ProviderStreamEvent | None:
+    def _consume_part(self, blocks: list[ContentBlock], part: Any) -> ProviderStreamEvent | None:
         native_part = _to_json(part) or {}
         if native_part.get("thought") is False:
             native_part.pop("thought", None)
@@ -314,7 +321,7 @@ class GoogleGeminiAdapter(ProviderAdapter):
             # Gemini may put the final thought signature into an empty-text part.
             # Keep it as a separate empty block so replay preserves the original
             # part boundary instead of merging the signature into another block.
-            part_meta = {"native": {"part": native_part}}
+            part_meta: BlockMeta = {"native": {"part": native_part}}
             is_thought = getattr(part, "thought", False)
             blocks.append(thinking_block("", meta=part_meta) if is_thought else text_block("", meta=part_meta))
             return None
@@ -326,19 +333,19 @@ class GoogleGeminiAdapter(ProviderAdapter):
         # Gemini may stream one logical thought/text across many chunks.
         # Merge only when the block kind matches and we are not combining
         # distinct thought signatures.
-        if blocks and blocks[-1]["type"] == block_type:
-            last_part = get_native_meta(blocks[-1])["part"]
+        if blocks and (last_block := blocks[-1])["type"] == block_type:
+            last_part = get_native_meta(last_block)["part"]
             last_signature = last_part.get("thought_signature")
             current_signature = native_part.get("thought_signature")
             if not (last_signature and current_signature and last_signature != current_signature):
-                merged_text = blocks[-1]["text"] + text
-                blocks[-1]["text"] = merged_text
+                merged_text = last_block["text"] + text
+                last_block["text"] = merged_text
                 last_part["text"] = merged_text
                 if current_signature and not last_signature:
                     last_part["thought_signature"] = current_signature
                 return event
 
-        part_meta = {"native": {"part": native_part}}
+        part_meta: BlockMeta = {"native": {"part": native_part}}
         blocks.append(
             thinking_block(str(text), meta=part_meta) if is_thought else text_block(str(text), meta=part_meta)
         )

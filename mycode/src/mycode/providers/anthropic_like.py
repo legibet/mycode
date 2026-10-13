@@ -11,13 +11,16 @@ import httpx2
 from mycode.messages import (
     ContentBlock,
     ConversationMessage,
+    DocumentBlock,
+    ImageBlock,
+    StopReason,
+    ThinkingBlock,
     assistant_message,
     text_block,
     thinking_block,
     tool_use_block,
 )
 from mycode.providers.base import (
-    CanonicalStopReason,
     ProviderAdapter,
     ProviderRequest,
     ProviderStreamEvent,
@@ -27,12 +30,13 @@ from mycode.providers.base import (
     normalize_provider_error,
     tool_result_content_blocks,
 )
+from mycode.tools import ToolDefinition
 from mycode.usage import build_usage
 
 _RETRYABLE_ANTHROPIC_ERROR_TYPES = {"api_error", "overloaded_error", "rate_limit_error", "timeout_error"}
 
 
-def _normalize_stop_reason(raw_reason: Any) -> CanonicalStopReason:
+def _normalize_stop_reason(raw_reason: Any) -> StopReason:
     reason = str(raw_reason or "").lower()
     if reason == "tool_use":
         return "tool_use"
@@ -166,7 +170,7 @@ class AnthropicLikeAdapter(ProviderAdapter):
         )
 
     def _convert_final_message(self, message: Any, *, request_model: str | None = None) -> ConversationMessage:
-        blocks = []
+        blocks: list[ContentBlock] = []
         for block in getattr(message, "content", []) or []:
             block_type = getattr(block, "type", None)
 
@@ -232,7 +236,7 @@ class AnthropicLikeAdapter(ProviderAdapter):
             native_meta=message_native_meta,
         )
 
-    def _serialize_tool(self, tool: dict[str, Any]) -> dict[str, Any]:
+    def _serialize_tool(self, tool: ToolDefinition) -> dict[str, Any]:
         return {"name": tool["name"], "description": tool["description"], "input_schema": tool["input_schema"]}
 
     def _serialize_message(self, message: ConversationMessage) -> dict[str, Any]:
@@ -277,7 +281,7 @@ class AnthropicLikeAdapter(ProviderAdapter):
         raise ValueError(f"unsupported content block type: {block['type']}")
 
 
-def _native_thinking(block: ContentBlock) -> dict[str, Any] | None:
+def _native_thinking(block: ThinkingBlock) -> dict[str, Any] | None:
     """Return the replayable native thinking payload recorded on ``block``, if any."""
 
     native_meta = get_native_meta(block)
@@ -289,7 +293,7 @@ def _native_thinking(block: ContentBlock) -> dict[str, Any] | None:
     return None
 
 
-def _base64_source(block: ContentBlock) -> dict[str, Any]:
+def _base64_source(block: ImageBlock | DocumentBlock) -> dict[str, Any]:
     return {"type": "base64", "media_type": block["mime_type"], "data": block["data"]}
 
 

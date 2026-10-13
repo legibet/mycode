@@ -26,6 +26,7 @@ from mycode.attachments import (
 )
 from mycode.compact import DEFAULT_COMPACT_THRESHOLD, has_compactable_history
 from mycode.messages import (
+    ContentBlock,
     ConversationMessage,
     build_message,
     document_block,
@@ -78,7 +79,7 @@ def _resolve_workspace_attachment_path(rel_path: str, *, cwd: str) -> Path:
     return path
 
 
-def _read_workspace_text_attachment(rel_path: str, *, name: str | None, cwd: str) -> list[dict[str, Any]]:
+def _read_workspace_text_attachment(rel_path: str, *, name: str | None, cwd: str) -> list[ContentBlock]:
     """Read a workspace text file selected via the @ menu into a `<file>` block, bounded like ``read``.
 
     Re-validates the path at send time: it must resolve inside ``cwd`` (guards
@@ -126,7 +127,7 @@ async def _build_user_message(chat: UserInputRequest, deps: CliDeps) -> tuple[Co
         snapshots = await asyncio.to_thread(build_skill_snapshot_blocks, text, cwd)
         return build_message("user", [*snapshots, text_block(text)]), uploads
 
-    blocks: list[dict[str, Any]] = []
+    blocks: list[ContentBlock] = []
     visible_text: list[str] = []
     for block in chat.input:
         if block.type == "text":
@@ -206,17 +207,12 @@ def _validate_rewind_request(
         )
 
     target = messages[rewind_to]
-    raw_blocks = target.get("content")
-    blocks = raw_blocks if isinstance(raw_blocks, list) else []
     has_user_content = any(
-        isinstance(block, dict)
-        and (
-            (block.get("type") == "text" and block.get("text") and "job" not in (block.get("meta") or {}))
-            or block.get("type") in {"image", "document"}
-        )
-        for block in blocks
+        (block["type"] == "text" and block["text"] and "job" not in block.get("meta", {}))
+        or block["type"] in ("image", "document")
+        for block in target["content"]
     )
-    if target.get("role") != "user" or not has_user_content:
+    if target["role"] != "user" or not has_user_content:
         raise HTTPException(status_code=400, detail="rewind_to must reference a real user message")
 
 

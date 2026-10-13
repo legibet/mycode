@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 from mycode import build_message, flatten_message_text, text_block
+from mycode.messages import BlockMeta
 
 
 def test_flatten_skips_payload_blocks() -> None:
-    job = {"job": {"tool_use_id": "toolu_1", "name": "bash", "label": "pytest -q", "exit_code": 0}}
+    job: BlockMeta = {"job": {"tool_use_id": "toolu_1", "name": "bash", "label": "pytest -q", "exit_code": 0}}
     message = build_message(
         "user",
         [

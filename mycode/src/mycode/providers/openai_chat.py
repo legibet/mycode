@@ -12,13 +12,14 @@ import httpx2
 from mycode.messages import (
     ContentBlock,
     ConversationMessage,
+    StopReason,
+    ThinkingBlock,
     assistant_message,
     text_block,
     thinking_block,
     tool_use_block,
 )
 from mycode.providers.base import (
-    CanonicalStopReason,
     ProviderAdapter,
     ProviderRequest,
     ProviderStreamEvent,
@@ -28,6 +29,7 @@ from mycode.providers.base import (
     normalize_provider_error,
     parse_tool_call_input,
 )
+from mycode.tools import ToolDefinition
 from mycode.usage import build_usage
 
 
@@ -40,7 +42,7 @@ class _ChatToolCallState:
     arguments_parts: list[str] = field(default_factory=list)
 
 
-def _normalize_finish_reason(raw_reason: str | None) -> CanonicalStopReason:
+def _normalize_finish_reason(raw_reason: str | None) -> StopReason:
     reason = str(raw_reason or "").lower()
     if reason == "length":
         return "length"
@@ -139,7 +141,7 @@ class OpenAIChatAdapter(ProviderAdapter):
         except (APIError, httpx2.HTTPError) as exc:
             raise normalize_provider_error(exc, self.provider_id) from exc
 
-        blocks = []
+        blocks: list[ContentBlock] = []
         if thinking_parts or thinking_native_meta:
             blocks.append(
                 thinking_block(
@@ -215,7 +217,7 @@ class OpenAIChatAdapter(ProviderAdapter):
     def _build_provider_payload_overrides(self, request: ProviderRequest) -> dict[str, Any]:
         return {"reasoning_effort": request.reasoning_effort} if request.reasoning_effort else {}
 
-    def _serialize_tool(self, tool: dict[str, Any]) -> dict[str, Any]:
+    def _serialize_tool(self, tool: ToolDefinition) -> dict[str, Any]:
         return {
             "type": "function",
             "function": {"name": tool["name"], "description": tool["description"], "parameters": tool["input_schema"]},
@@ -263,7 +265,7 @@ class OpenAIChatAdapter(ProviderAdapter):
 
         return [payload]
 
-    def _serialize_reasoning(self, thinking_blocks: list[ContentBlock]) -> dict[str, Any]:
+    def _serialize_reasoning(self, thinking_blocks: list[ThinkingBlock]) -> dict[str, Any]:
         """Replay canonical thinking through the provider's reasoning field.
 
         When the source provider did not record a native field name, default to
@@ -422,11 +424,11 @@ class OpenRouterAdapter(OpenAIChatAdapter):
         return message.get("meta", {}).get("provider") == self.provider_id
 
     @override
-    def _project_incompatible_thinking(self, block: ContentBlock) -> ContentBlock | None:
+    def _project_incompatible_thinking(self, block: ThinkingBlock) -> ThinkingBlock | None:
         return thinking_block(block["text"]) if block["text"] else None
 
     @override
-    def _serialize_reasoning(self, thinking_blocks: list[ContentBlock]) -> dict[str, Any]:
+    def _serialize_reasoning(self, thinking_blocks: list[ThinkingBlock]) -> dict[str, Any]:
         if get_native_meta(thinking_blocks[0]):
             return super()._serialize_reasoning(thinking_blocks)
 
@@ -440,7 +442,7 @@ class OpenRouterAdapter(OpenAIChatAdapter):
         return {}
 
 
-def _join_thinking(thinking_blocks: list[ContentBlock]) -> str:
+def _join_thinking(thinking_blocks: list[ThinkingBlock]) -> str:
     return "\n".join(block["text"] for block in thinking_blocks if block["text"])
 
 

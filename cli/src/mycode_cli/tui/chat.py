@@ -32,6 +32,7 @@ from mycode.attachments import (
 )
 from mycode.compact import NothingToCompactError
 from mycode.messages import (
+    ContentBlock,
     ConversationMessage,
     build_message,
     flatten_message_text,
@@ -640,7 +641,7 @@ class TerminalChat:
     def _build_user_message(self, text: str) -> ConversationMessage:
         """Build one user message with skill snapshots and `@path` attachments."""
 
-        blocks: list[dict[str, Any]] = [*build_skill_snapshot_blocks(text, self.settings.cwd), text_block(text)]
+        blocks: list[ContentBlock] = [*build_skill_snapshot_blocks(text, self.settings.cwd), text_block(text)]
         try:
             tokens = shlex.split(text.replace("\r\n", "\n").replace("\r", "\n"), posix=True)
         except ValueError:

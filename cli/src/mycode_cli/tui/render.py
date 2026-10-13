@@ -19,7 +19,7 @@ from rich.table import Table
 from rich.text import Text
 
 from mycode.agent import Agent, PersistCallback
-from mycode.messages import ConversationMessage, flatten_message_text
+from mycode.messages import ConversationMessage, TextBlock, flatten_message_text
 from mycode_cli.sessions import SessionTotals
 
 from .markdown import Chunk, MarkdownBlock, MarkdownStream
@@ -223,16 +223,13 @@ def _tool_header(
     return marker.append_text(_tool_title(name, args, width - marker.cell_len, suffix=suffix))
 
 
-def _job_blocks(message: ConversationMessage) -> list[dict[str, Any]]:
+def _job_blocks(message: ConversationMessage) -> list[TextBlock]:
     """Return the background job notification blocks of a user message."""
 
-    content = message.get("content")
-    if not isinstance(content, list):
-        return []
-    return [block for block in content if isinstance(block, dict) and (block.get("meta") or {}).get("job")]
+    return [block for block in message["content"] if block["type"] == "text" and block.get("meta", {}).get("job")]
 
 
-def job_lines(block: dict[str, Any], width: int) -> list[Text]:
+def job_lines(block: TextBlock, width: int) -> list[Text]:
     """Render a finished background command: ``● Background finished  label  exit N``, then the output tail.
 
     The header names the event rather than the tool, so it does not read as a second ``Bash`` call.
@@ -250,7 +247,7 @@ def job_lines(block: dict[str, Any], width: int) -> list[Text]:
     lines = [marker.append_text(title).append_text(tail)]
 
     # The text is the header, a blank line, the output tail, then any bash notices.
-    _, _, body = str(block.get("text") or "").partition("\n\n")
+    _, _, body = block["text"].partition("\n\n")
     paragraphs = body.split("\n\n")
     notices: list[str] = []
     while paragraphs and paragraphs[-1].startswith(_BASH_NOTICES):
@@ -269,16 +266,15 @@ def _history_turns(messages: list[ConversationMessage], *, limit: int = 3) -> li
 
     turns: list[list[tuple[str, Any]]] = []
     results = {
-        block.get("tool_use_id"): block
+        block["tool_use_id"]: block
         for message in messages
-        if message.get("role") == "user" and isinstance(message.get("content"), list)
+        if message["role"] == "user"
         for block in message["content"]
-        if isinstance(block, dict) and block.get("type") == "tool_result"
+        if block["type"] == "tool_result"
     }
 
     for message in messages:
-        role = message.get("role")
-        content = message.get("content")
+        role = message["role"]
 
         if role == "compact":
             turns.append([("compact", None)])
@@ -288,34 +284,20 @@ def _history_turns(messages: list[ConversationMessage], *, limit: int = 3) -> li
             # Use the shared flattener so attached file payload blocks stay out
             # of the readable history preview; background results print as tools.
             parts: list[tuple[str, Any]] = [("job", block) for block in _job_blocks(message)]
-            text = flatten_message_text(message, include_thinking=False)
-            if not isinstance(content, list):
-                text = text or str(content or "").strip()
-            if text:
+            if text := flatten_message_text(message, include_thinking=False):
                 parts.append(("user", text))
             if parts:
                 turns.append(parts)
             continue
 
-        if role != "assistant":
-            continue
-
         parts: list[tuple[str, Any]] = []
-        if isinstance(content, list):
-            for block in content:
-                if not isinstance(block, dict):
-                    continue
-                if block.get("type") == "text":
-                    text = str(block.get("text") or "").strip()
-                    if text:
-                        parts.append(("text", text))
-                elif block.get("type") == "tool_use":
-                    result = results.get(block.get("id")) or {}
-                    parts.append(("tool", (str(block.get("name") or "tool"), block.get("input"), result)))
-        else:
-            text = str(content or "").strip()
-            if text:
-                parts.append(("text", text))
+        for block in message["content"]:
+            if block["type"] == "text":
+                if text := block["text"].strip():
+                    parts.append(("text", text))
+            elif block["type"] == "tool_use":
+                result = results.get(block["id"]) or {}
+                parts.append(("tool", (block["name"] or "tool", block["input"], result)))
 
         if not parts:
             continue
@@ -347,14 +329,9 @@ def history_preview(messages: list[ConversationMessage], *, width: int) -> list[
                 lines.append(compact_marker())
             else:
                 name, args, result = content
-                metadata = result.get("metadata")
                 lines.append(
                     _tool_header(
-                        name,
-                        args if isinstance(args, dict) else {},
-                        width,
-                        failed=bool(result.get("is_error")),
-                        metadata=metadata if isinstance(metadata, dict) else None,
+                        name, args, width, failed=bool(result.get("is_error")), metadata=result.get("metadata")
                     )
                 )
     return lines
@@ -571,7 +548,7 @@ class TurnRenderer:
                         case "compact":
                             self.compact()
                         case "user_message":
-                            self.user_message(event.data.get("message") or {})
+                            self.user_message(event.data["message"])
                         case "cancelled":
                             self.cancel()
                             return 0

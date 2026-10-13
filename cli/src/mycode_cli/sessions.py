@@ -30,10 +30,10 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, TypedDict
 
-from mycode.messages import ConversationMessage, flatten_message_text
+from mycode.messages import ConversationMessage, RewindMarker, flatten_message_text
 from mycode.session import SessionStore as TimelineStore
 from mycode.session import apply_rewind
-from mycode.usage import Cost, add_cost, add_usage
+from mycode.usage import Cost, Usage, add_cost, add_usage
 
 DEFAULT_SESSION_TITLE = "New chat"
 _META_KEYS = ("cwd", "title", "created_at", "updated_at")
@@ -45,10 +45,10 @@ SessionMetaDict = dict[str, object]
 class SessionTotals:
     """Token usage and USD cost summed over a session's billed requests."""
 
-    usage: dict[str, int] = field(default_factory=dict)
+    usage: Usage = field(default_factory=Usage)
     cost: Cost | None = None
 
-    def add(self, usage: dict[str, Any] | None, cost: Cost | None) -> SessionTotals:
+    def add(self, usage: Usage | None, cost: Cost | None) -> SessionTotals:
         return SessionTotals(add_usage(self.usage, usage or {}), add_cost(self.cost, cost))
 
     def payload(self) -> dict[str, Any]:
@@ -74,14 +74,15 @@ class SessionSearchHit(TypedDict):
     snippet: SessionSnippet | None
 
 
-def sum_session_totals(messages: Iterable[ConversationMessage]) -> SessionTotals:
+def sum_session_totals(records: Iterable[ConversationMessage | RewindMarker]) -> SessionTotals:
     """Sum billed requests, including compact markers and rewound turns."""
 
     totals = SessionTotals()
-    for message in messages:
-        if message.get("role") in {"assistant", "compact"}:
-            meta = message.get("meta") or {}
-            totals = totals.add(meta.get("usage"), meta.get("cost"))
+    for record in records:
+        match record:
+            case {"role": "assistant" | "compact"}:
+                meta = record.get("meta") or {}
+                totals = totals.add(meta.get("usage"), meta.get("cost"))
     return totals
 
 

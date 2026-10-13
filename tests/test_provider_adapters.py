@@ -13,7 +13,7 @@ from anthropic import APIStatusError as AnthropicAPIStatusError
 from google.genai import types
 from openai.types.responses import ResponseFunctionToolCall, ResponseReasoningItem
 
-from mycode import Agent
+from mycode import Agent, text_block
 from mycode.compact import build_compact_event
 from mycode.providers import (
     AlibabaAdapter,
@@ -1507,11 +1507,7 @@ def test_google_gemini_build_request_config_uses_supported_tool_settings() -> No
             ],
             [
                 {"role": "assistant", "content": [{"type": "text", "text": "first"}]},
-                {
-                    "role": "user",
-                    "content": [{"type": "text", "text": "[User turn omitted during replay]"}],
-                    "meta": {"synthetic": True},
-                },
+                {"role": "user", "content": [{"type": "text", "text": "[User turn omitted during replay]"}]},
                 {"role": "assistant", "content": [{"type": "text", "text": "second"}]},
             ],
             id="keeps-placeholder-user-turn",
@@ -1602,11 +1598,13 @@ def test_provider_prepare_messages_applies_compact_before_appending_messages() -
     prepared = adapter.prepare_messages(request)
 
     assert [message["role"] for message in prepared] == ["user", "assistant", "user"]
-    assert "latest summary" in prepared[0]["content"][0]["text"]
-    assert "/sessions/s1/messages.jsonl" in prepared[0]["content"][0]["text"]
-    assert "old prompt" not in prepared[0]["content"][0]["text"]
-    assert prepared[1]["content"][0]["text"] == "tail answer"
-    assert prepared[2]["content"][0]["text"] == "summarize now"
+    summary = prepared[0]["content"][0]
+    assert summary["type"] == "text"
+    assert "latest summary" in summary["text"]
+    assert "/sessions/s1/messages.jsonl" in summary["text"]
+    assert "old prompt" not in summary["text"]
+    assert prepared[1]["content"] == [text_block("tail answer")]
+    assert prepared[2]["content"] == [text_block("summarize now")]
 
 
 def test_provider_prepare_messages_escapes_image_notice_attributes_when_disabled() -> None:
@@ -1677,8 +1675,11 @@ def test_anthropic_prepare_messages_normalizes_tool_ids() -> None:
 
     prepared_messages = adapter.prepare_messages(request)
     assistant_blocks = prepared_messages[0]["content"]
-    first_tool_id = assistant_blocks[0]["id"]
-    second_tool_id = assistant_blocks[1]["id"]
+    first_block, second_block = assistant_blocks[:2]
+    assert first_block["type"] == "tool_use"
+    assert second_block["type"] == "tool_use"
+    first_tool_id = first_block["id"]
+    second_tool_id = second_block["id"]
 
     assert first_tool_id != second_tool_id
     assert first_tool_id.startswith("a_b_")

@@ -24,7 +24,6 @@ from mycode.attachments import AttachmentLike, build_attachment_blocks
 from mycode.compact import (
     COMPACT_SUMMARY_PROMPT,
     DEFAULT_COMPACT_THRESHOLD,
-    CompactTrigger,
     NothingToCompactError,
     build_compact_event,
     has_compactable_history,
@@ -32,11 +31,17 @@ from mycode.compact import (
 )
 from mycode.hooks import Hooks, ToolHookContext
 from mycode.messages import (
+    CompactTrigger,
     ContentBlock,
     ConversationMessage,
+    MessageMeta,
+    StopReason,
+    ToolUseBlock,
     build_message,
     flatten_message_text,
     merge_user_messages,
+    text_block,
+    thinking_block,
     tool_result_block,
     user_text_message,
 )
@@ -53,11 +58,12 @@ from mycode.providers.base import (
 from mycode.session import SessionStore
 from mycode.tools import (
     ToolContext,
+    ToolDefinition,
     ToolExecutionResult,
     ToolExecutor,
     ToolSpec,
 )
-from mycode.usage import Cost, add_cost, add_usage, estimate_cost
+from mycode.usage import Cost, Usage, add_cost, add_usage, estimate_cost
 
 logger = logging.getLogger(__name__)
 
@@ -581,7 +587,7 @@ class Agent:
     def _partial_assistant_message(self, response: _StreamedResponse, *, error: str | None) -> ConversationMessage:
         """Build the assistant message committed for a stream that broke off."""
 
-        meta: dict[str, Any] = {
+        meta: MessageMeta = {
             "provider": self.provider,
             "model": self.model,
             "context_window": self.context_window,
@@ -643,7 +649,7 @@ class Agent:
         elif user_input.get("role", "user") != "user":
             raise ValueError("user input must be a user message")
         else:
-            content = [dict(block) for block in user_input["content"]]
+            content = [block.copy() for block in user_input["content"]]
             message = build_message("user", content, meta=user_input.get("meta"))
         message["content"].extend(attachment_blocks)
 
@@ -662,8 +668,8 @@ class Agent:
     async def _run_tool_calls(
         self,
         run: _RunState,
-        tool_calls: list[ContentBlock],
-        stop_reason: str | None,
+        tool_calls: list[ToolUseBlock],
+        stop_reason: StopReason | None,
         on_persist: PersistCallback | None,
     ) -> AsyncGenerator[Event, None]:
         """Run one response's tool calls and commit their results in call order."""
@@ -695,10 +701,10 @@ class Agent:
                 )
         await self._commit(build_message("user", blocks), on_persist)
 
-    def _tool_groups(self, tool_calls: list[ContentBlock]) -> list[list[ContentBlock]]:
+    def _tool_groups(self, tool_calls: list[ToolUseBlock]) -> list[list[ToolUseBlock]]:
         """Split tool calls into runs of consecutive parallel-safe calls; any other call stands alone."""
 
-        groups: list[list[ContentBlock]] = []
+        groups: list[list[ToolUseBlock]] = []
         previous_safe = False
         for tool_call in tool_calls:
             spec = self.tools.get(tool_call["name"])
@@ -713,8 +719,8 @@ class Agent:
     async def _run_tool_group(
         self,
         run: _RunState,
-        tool_calls: list[ContentBlock],
-        stop_reason: str | None,
+        tool_calls: list[ToolUseBlock],
+        stop_reason: StopReason | None,
         results: dict[str, ToolExecutionResult],
     ) -> AsyncGenerator[Event, None]:
         """Run tool calls concurrently and yield their events as they arrive.
@@ -725,7 +731,7 @@ class Agent:
 
         queue: asyncio.Queue[tuple[Event, asyncio.Future[None]] | BaseException | None] = asyncio.Queue()
 
-        async def pump(tool_call: ContentBlock) -> None:
+        async def pump(tool_call: ToolUseBlock) -> None:
             try:
                 async with aclosing(self._run_tool_call(run, tool_call, stop_reason, results)) as events:
                     async for event in events:
@@ -769,8 +775,8 @@ class Agent:
     async def _run_tool_call(
         self,
         run: _RunState,
-        tool_use: ContentBlock,
-        stop_reason: str | None,
+        tool_use: ToolUseBlock,
+        stop_reason: StopReason | None,
         results: dict[str, ToolExecutionResult],
     ) -> AsyncGenerator[Event, None]:
         """Run one tool call, emit its events, and record its result in ``results``."""
@@ -975,7 +981,7 @@ class Agent:
     def _build_request(
         self,
         *,
-        tools: list[dict[str, Any]] | None = None,
+        tools: list[ToolDefinition] | None = None,
         max_tokens: int | None = None,
         reasoning_effort: str | None = None,
         append_messages: Sequence[ConversationMessage] = (),
@@ -1119,7 +1125,7 @@ class _RunState:
 # ------------------------------------------------------------------
 
 
-def _tool_call_error(run: _RunState, tool_use: ContentBlock, stop_reason: str | None) -> str | None:
+def _tool_call_error(run: _RunState, tool_use: ToolUseBlock, stop_reason: StopReason | None) -> str | None:
     """Return the error output for a tool call that must not run, else ``None``."""
 
     meta = tool_use.get("meta") or {}
@@ -1248,11 +1254,14 @@ class _StreamedResponse:
             return
         for block in reversed(content):
             if block["type"] == "thinking":
-                block["meta"] = {**block.get("meta", {}), "duration_ms": self.thinking_ms}
+                block["meta"] = block.get("meta", {}) | {"duration_ms": self.thinking_ms}
                 return
 
     def partial_content(self) -> list[ContentBlock]:
-        content: list[ContentBlock] = [{"type": block_type, "text": "".join(texts)} for block_type, texts in self.parts]
+        content: list[ContentBlock] = [
+            thinking_block("".join(texts)) if block_type == "thinking" else text_block("".join(texts))
+            for block_type, texts in self.parts
+        ]
         self.stamp_thinking(content)
         return content
 
@@ -1262,7 +1271,7 @@ class _TurnSegment:
     """Usage, cost and elapsed time since the user record that opened this part of the turn."""
 
     start: ConversationMessage
-    usage: dict[str, int] = field(default_factory=dict)
+    usage: Usage = field(default_factory=Usage)
     cost: Cost | None = None
 
     def add(self, record: ConversationMessage) -> None:
@@ -1278,8 +1287,8 @@ class _TurnSegment:
             "usage",
             {
                 "context_tokens": context_tokens,
-                "turn_usage": dict(self.usage),
-                "turn_cost": dict(self.cost) if self.cost is not None else None,
+                "turn_usage": self.usage.copy(),
+                "turn_cost": self.cost.copy() if self.cost is not None else None,
                 "turn_duration_ms": _turn_elapsed_ms(self.start, record),
             },
         )
