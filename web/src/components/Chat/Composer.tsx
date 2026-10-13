@@ -43,12 +43,9 @@ import {
   useRef,
   useState,
 } from "react";
+
 import { useWorkspaceFiles } from "../../hooks/useWorkspaceFiles";
-import type {
-  ComposerSubmission,
-  SkillInfo,
-  WorkspaceFileReference,
-} from "../../types";
+import type { ComposerSubmission, SkillInfo, WorkspaceFileReference } from "../../types";
 import { cn } from "../../utils/cn";
 import {
   type AtQuery,
@@ -60,11 +57,7 @@ import {
   type SlashCommand,
   type WorkspaceEntry,
 } from "../../utils/completion";
-import {
-  type CompletionItem,
-  CompletionMenu,
-  completionItemDomId,
-} from "./CompletionMenu";
+import { type CompletionItem, CompletionMenu, completionItemDomId } from "./CompletionMenu";
 import {
   $createWorkspaceFileNode,
   $isWorkspaceFileNode,
@@ -95,10 +88,7 @@ interface ComposerProps {
   history: string[];
   /** Return false to reject the submission (composer keeps its content).
    * `toQueue` is set by ⌘/Ctrl+Enter. */
-  onSubmit: (
-    submission: ComposerSubmission,
-    toQueue: boolean,
-  ) => Promise<boolean>;
+  onSubmit: (submission: ComposerSubmission, toQueue: boolean) => Promise<boolean>;
   onSlashCommand?: ((name: SlashCommand["name"]) => void) | undefined;
   onPasteFiles: (files: File[]) => void;
   onHasContentChange: (hasContent: boolean) => void;
@@ -119,9 +109,7 @@ function $readEditorContext(): EditorContext {
   if ($isRangeSelection(selection) && selection.isCollapsed()) {
     const anchorNode = selection.anchor.getNode();
     if ($isTextNode(anchorNode) && !$isWorkspaceFileNode(anchorNode)) {
-      const textBeforeCursor = anchorNode
-        .getTextContent()
-        .slice(0, selection.anchor.offset);
+      const textBeforeCursor = anchorNode.getTextContent().slice(0, selection.anchor.offset);
       atQuery = matchAtQuery(textBeforeCursor);
       skillQuery = matchSkillQuery(textBeforeCursor);
     }
@@ -157,12 +145,7 @@ function $completeAtToken(entry: WorkspaceEntry): void {
   if (entry.kind === "directory") {
     // Swap the token text in place; the caret lands after it and the menu
     // keeps browsing.
-    anchorNode.spliceText(
-      query.start,
-      offset - query.start,
-      dirTokenText(entry.path),
-      true,
-    );
+    anchorNode.spliceText(query.start, offset - query.start, dirTokenText(entry.path), true);
     return;
   }
 
@@ -216,10 +199,7 @@ function $setPlainText(text: string): void {
 }
 
 /** Text with its `@path` pills rebuilt from the references it was sent with. */
-function $submissionNodes({
-  text,
-  workspaceFiles,
-}: ComposerSubmission): LexicalNode[] {
+function $submissionNodes({ text, workspaceFiles }: ComposerSubmission): LexicalNode[] {
   const nodes: LexicalNode[] = [];
   text.split("\n").forEach((line, index) => {
     if (index > 0) nodes.push($createLineBreakNode());
@@ -242,8 +222,7 @@ function $submissionNodes({
         nodes.push($createTextNode(rest));
         break;
       }
-      if (pill.index > 0)
-        nodes.push($createTextNode(rest.slice(0, pill.index)));
+      if (pill.index > 0) nodes.push($createTextNode(rest.slice(0, pill.index)));
       nodes.push($createWorkspaceFileNode(pill.ref));
       rest = rest.slice(pill.index + pill.ref.path.length + 1);
     }
@@ -306,30 +285,27 @@ function ComposerInner({
   }, [editor, disabled]);
 
   useEffect(() => {
-    return editor.registerUpdateListener(
-      ({ editorState, prevEditorState, tags }) => {
-        const next = editorState.read($readEditorContext);
-        // Any text change not caused by recall leaves history navigation.
-        if (
-          !tags.has(HISTORY_RECALL_TAG) &&
-          next.rootText !==
-            prevEditorState.read(() => $getRoot().getTextContent())
-        ) {
-          historyIndexRef.current = null;
-        }
-        setContext((prev) =>
-          prev.rootText === next.rootText &&
-          prev.atQuery?.dir === next.atQuery?.dir &&
-          prev.atQuery?.prefix === next.atQuery?.prefix &&
-          (prev.atQuery === null) === (next.atQuery === null) &&
-          prev.skillQuery?.prefix === next.skillQuery?.prefix &&
-          (prev.skillQuery === null) === (next.skillQuery === null)
-            ? prev
-            : next,
-        );
-        onHasContentChange(next.rootText.trim().length > 0);
-      },
-    );
+    return editor.registerUpdateListener(({ editorState, prevEditorState, tags }) => {
+      const next = editorState.read($readEditorContext);
+      // Any text change not caused by recall leaves history navigation.
+      if (
+        !tags.has(HISTORY_RECALL_TAG) &&
+        next.rootText !== prevEditorState.read(() => $getRoot().getTextContent())
+      ) {
+        historyIndexRef.current = null;
+      }
+      setContext((prev) =>
+        prev.rootText === next.rootText &&
+        prev.atQuery?.dir === next.atQuery?.dir &&
+        prev.atQuery?.prefix === next.atQuery?.prefix &&
+        (prev.atQuery === null) === (next.atQuery === null) &&
+        prev.skillQuery?.prefix === next.skillQuery?.prefix &&
+        (prev.skillQuery === null) === (next.skillQuery === null)
+          ? prev
+          : next,
+      );
+      onHasContentChange(next.rootText.trim().length > 0);
+    });
   }, [editor, onHasContentChange]);
 
   const slashCandidates = useMemo(
@@ -347,9 +323,7 @@ function ComposerInner({
   }, [context.skillQuery, disabled, skills]);
 
   const atQuery =
-    disabled || slashCandidates.length > 0 || skillCandidates.length > 0
-      ? null
-      : context.atQuery;
+    disabled || slashCandidates.length > 0 || skillCandidates.length > 0 ? null : context.atQuery;
   const workspaceFiles = useWorkspaceFiles(
     cwd,
     atQuery?.dir ?? "",
@@ -386,17 +360,11 @@ function ComposerInner({
           (entry.kind === "image" && !supportsImages) ||
           (entry.kind === "document" && !supportsDocuments);
         const kindLabel =
-          entry.kind === "image"
-            ? "image"
-            : entry.kind === "document"
-              ? "pdf"
-              : "file";
+          entry.kind === "image" ? "image" : entry.kind === "document" ? "pdf" : "file";
         return {
           id: entry.path,
           label: entry.name,
-          hint: unsupported
-            ? `${kindLabel} · not supported by model`
-            : kindLabel,
+          hint: unsupported ? `${kindLabel} · not supported by model` : kindLabel,
           disabled: unsupported,
         };
       });
@@ -416,8 +384,7 @@ function ComposerInner({
   ]);
 
   const menuOpen =
-    (menuItems.length > 0 || Boolean(menuFooter)) &&
-    dismissedFor !== context.rootText;
+    (menuItems.length > 0 || Boolean(menuFooter)) && dismissedFor !== context.rootText;
   const menuIndex = Math.min(activeIndex, Math.max(menuItems.length - 1, 0));
 
   const submit = async (toQueue: boolean) => {
@@ -490,17 +457,12 @@ function ComposerInner({
 
     // Recall only starts from an empty editor (no text, no pills), so arrow
     // keys keep moving the caret in a draft; once recalling, they keep walking.
-    const recallHistory = (
-      event: KeyboardEvent | null,
-      step: -1 | 1,
-    ): boolean => {
+    const recallHistory = (event: KeyboardEvent | null, step: -1 | 1): boolean => {
       if (event?.isComposing) return false;
       const { history } = keyStateRef.current;
       const index = historyIndexRef.current;
       if (index === null) {
-        const empty = editor
-          .getEditorState()
-          .read(() => $getRoot().getTextContent() === "");
+        const empty = editor.getEditorState().read(() => $getRoot().getTextContent() === "");
         if (step === 1 || !empty || history.length === 0) return false;
       }
       const nextIndex = (index ?? history.length) + step;
@@ -520,24 +482,20 @@ function ComposerInner({
         KEY_ARROW_DOWN_COMMAND,
         (event) =>
           withMenu(event, (state) =>
-            setActiveIndex(
-              Math.min(state.menuIndex + 1, state.menuItems.length - 1),
-            ),
+            setActiveIndex(Math.min(state.menuIndex + 1, state.menuItems.length - 1)),
           ) || recallHistory(event, 1),
         COMMAND_PRIORITY_HIGH,
       ),
       editor.registerCommand(
         KEY_ARROW_UP_COMMAND,
         (event) =>
-          withMenu(event, (state) =>
-            setActiveIndex(Math.max(state.menuIndex - 1, 0)),
-          ) || recallHistory(event, -1),
+          withMenu(event, (state) => setActiveIndex(Math.max(state.menuIndex - 1, 0))) ||
+          recallHistory(event, -1),
         COMMAND_PRIORITY_HIGH,
       ),
       editor.registerCommand(
         KEY_TAB_COMMAND,
-        (event) =>
-          withMenu(event, (state) => state.selectMenuItem(state.menuIndex)),
+        (event) => withMenu(event, (state) => state.selectMenuItem(state.menuIndex)),
         COMMAND_PRIORITY_HIGH,
       ),
       editor.registerCommand(
@@ -585,8 +543,7 @@ function ComposerInner({
 
   useImperativeHandle(handleRef, () => ({
     submit: (toQueue) => void submit(toQueue),
-    prepend: (submissions) =>
-      editor.update(() => $prependSubmissions(submissions)),
+    prepend: (submissions) => editor.update(() => $prependSubmissions(submissions)),
   }));
 
   return (
@@ -604,13 +561,13 @@ function ComposerInner({
                   : undefined
               }
               className={cn(
-                "block w-full bg-transparent px-3.5 pt-4 pb-1.5 max-md:pt-3.5 text-base md:text-sm leading-relaxed focus-visible:outline-none max-h-50 overflow-y-auto whitespace-pre-wrap wrap-anywhere",
+                "block max-h-50 w-full overflow-y-auto bg-transparent px-3.5 pt-4 pb-1.5 text-base leading-relaxed wrap-anywhere whitespace-pre-wrap focus-visible:outline-none max-md:pt-3.5 md:text-sm",
                 disabled ? "text-muted-foreground/50" : "text-foreground",
               )}
             />
           }
           placeholder={
-            <div className="pointer-events-none absolute top-4 max-md:top-3.5 left-3.5 text-base md:text-sm leading-relaxed text-muted-foreground/40">
+            <div className="pointer-events-none absolute top-4 left-3.5 text-base leading-relaxed text-muted-foreground/40 max-md:top-3.5 md:text-sm">
               {placeholder}
             </div>
           }
@@ -641,10 +598,7 @@ const INITIAL_CONFIG = {
   },
 };
 
-export const Composer = memo(function Composer({
-  ref,
-  ...props
-}: ComposerProps) {
+export const Composer = memo(function Composer({ ref, ...props }: ComposerProps) {
   return (
     <LexicalComposer initialConfig={INITIAL_CONFIG}>
       <ComposerInner {...props} handleRef={ref} />

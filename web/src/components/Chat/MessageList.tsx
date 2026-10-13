@@ -18,6 +18,7 @@ import {
   useRef,
   useState,
 } from "react";
+
 import type { PendingInput, RenderMessage } from "../../types";
 import { isChatMessage, isCompactMarker } from "../../types";
 import { cn } from "../../utils/cn";
@@ -44,9 +45,7 @@ interface MessageListProps {
   sendError: string | null;
   /** Steers waiting for the running turn's next step boundary. */
   pendingSteers?: PendingInput[];
-  onRewindAndSend?:
-    | ((rewindTo: number, input: string) => Promise<void>)
-    | undefined;
+  onRewindAndSend?: ((rewindTo: number, input: string) => Promise<void>) | undefined;
   emptyStateFooter?: ReactNode;
 }
 
@@ -79,10 +78,9 @@ export const MessageList = memo(function MessageList({
   );
 });
 
-type WindowedMessagesProps = Omit<
-  MessageListProps,
-  "sessionId" | "pendingSteers"
-> & { pendingSteers: PendingInput[] };
+type WindowedMessagesProps = Omit<MessageListProps, "sessionId" | "pendingSteers"> & {
+  pendingSteers: PendingInput[];
+};
 
 function getInitialStartIndex(messageCount: number): number {
   return Math.max(0, messageCount - INITIAL_MESSAGE_COUNT);
@@ -236,17 +234,13 @@ function WindowedMessages({
   const [visibleStartIndex, setVisibleStartIndex] = useState(() =>
     getInitialStartIndex(messages.length),
   );
-  const effectiveStartIndex = Math.min(
-    visibleStartIndex,
-    getInitialStartIndex(messages.length),
-  );
+  const effectiveStartIndex = Math.min(visibleStartIndex, getInitialStartIndex(messages.length));
   const visibleMessages = useMemo(
     () => messages.slice(effectiveStartIndex),
     [effectiveStartIndex, messages],
   );
   const latestMessage = messages.at(-1);
-  const latestChat =
-    latestMessage && isChatMessage(latestMessage) ? latestMessage : null;
+  const latestChat = latestMessage && isChatMessage(latestMessage) ? latestMessage : null;
   const streamingKey =
     loading && latestChat?.role === "assistant"
       ? latestChat.renderKey || `msg-${messages.length - 1}`
@@ -267,8 +261,7 @@ function WindowedMessages({
       })),
     [pendingSteers],
   );
-  const showPendingCompact =
-    compacting && (!latestMessage || !isCompactMarker(latestMessage));
+  const showPendingCompact = compacting && (!latestMessage || !isCompactMarker(latestMessage));
   const latestOutputBlockCount = latestChat?.content.length ?? 0;
   const latestOutputTextLength =
     latestChat?.content.reduce((total, block) => {
@@ -323,9 +316,7 @@ function WindowedMessages({
       scrollTop: el.scrollTop,
     };
     setLayoutOptimized(false);
-    setVisibleStartIndex(
-      Math.max(0, effectiveStartIndex - LOAD_PREVIOUS_COUNT),
-    );
+    setVisibleStartIndex(Math.max(0, effectiveStartIndex - LOAD_PREVIOUS_COUNT));
   }, [effectiveStartIndex, isNearBottom]);
 
   const jumpToLatest = useCallback(() => {
@@ -346,9 +337,7 @@ function WindowedMessages({
     const el = containerRef.current;
     const content = contentRef.current;
     if (!el || !content) return;
-    const observer = new ResizeObserver(() =>
-      setAwayFromBottom(!isNearBottom(el)),
-    );
+    const observer = new ResizeObserver(() => setAwayFromBottom(!isNearBottom(el)));
     observer.observe(el);
     observer.observe(content);
     return () => observer.disconnect();
@@ -398,7 +387,7 @@ function WindowedMessages({
       <div
         ref={containerRef}
         onScroll={handleScroll}
-        className="min-h-0 flex-1 overflow-y-auto pb-4 pt-6 [overflow-anchor:none] scrollbar-gutter-both"
+        className="min-h-0 flex-1 scrollbar-gutter-both overflow-y-auto pt-6 pb-4 [overflow-anchor:none]"
       >
         <SettleAnchor
           streamingKey={streamingKey}
@@ -415,9 +404,7 @@ function WindowedMessages({
                   mycode
                   <span className="ml-0.5 inline-block h-6 w-0.5 animate-cursor-blink bg-accent/60 align-middle" />
                 </h1>
-                {emptyStateFooter && (
-                  <div className="mt-8">{emptyStateFooter}</div>
-                )}
+                {emptyStateFooter && <div className="mt-8">{emptyStateFooter}</div>}
               </div>
             )}
             {visibleMessages.map((message, visibleIndex) => {
@@ -439,9 +426,7 @@ function WindowedMessages({
                 );
               }
               const isStreamingMessage =
-                loading &&
-                index === messages.length - 1 &&
-                message.role === "assistant";
+                loading && index === messages.length - 1 && message.role === "assistant";
 
               return (
                 <div
@@ -472,21 +457,15 @@ function WindowedMessages({
               </div>
             )}
             {pendingSteerMessages.map(({ id, role, blocks }) => (
-              <MessageBubble
-                key={id}
-                role={role}
-                blocks={blocks}
-                isLoading={false}
-                pending
-              />
+              <MessageBubble key={id} role={role} blocks={blocks} isLoading={false} pending />
             ))}
             {!compacting && compactError && (
               <div
                 role="status"
                 title={compactError}
-                className="flex select-none items-center justify-center px-2 py-1"
+                className="flex items-center justify-center px-2 py-1 select-none"
               >
-                <span className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground/50">
+                <span className="text-[10px] tracking-[0.18em] text-muted-foreground/50 uppercase">
                   {compactError === "nothing to compact"
                     ? "nothing to compact"
                     : "compaction failed"}
@@ -495,9 +474,7 @@ function WindowedMessages({
             )}
             {sendError && (
               <div role="alert" className="chat-message-shell px-5 max-md:px-4">
-                <p className="break-words text-xs text-destructive/80">
-                  {sendError}
-                </p>
+                <p className="text-xs break-words text-destructive/80">{sendError}</p>
               </div>
             )}
             {(messages.length > 0 ||

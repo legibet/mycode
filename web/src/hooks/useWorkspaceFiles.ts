@@ -4,6 +4,7 @@
  */
 
 import { useEffect, useState } from "react";
+
 import type { WorkspaceFilesResponse } from "../utils/completion";
 
 interface WorkspaceFilesState {

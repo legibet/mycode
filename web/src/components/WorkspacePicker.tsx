@@ -7,23 +7,14 @@
  */
 
 import { Clock, Folder, FolderOpen, Search, X } from "lucide-react";
-import {
-  type KeyboardEvent,
-  type ReactNode,
-  useCallback,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { type KeyboardEvent, type ReactNode, useCallback, useMemo, useRef, useState } from "react";
 import useSWR from "swr";
+
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
-import type {
-  WorkspaceBrowseResponse,
-  WorkspaceEntry,
-  WorkspaceRootsResponse,
-} from "../types";
+
+import type { WorkspaceBrowseResponse, WorkspaceEntry, WorkspaceRootsResponse } from "../types";
 import { cn } from "../utils/cn";
 import { shouldAutoFocusTextInputOnOpen } from "../utils/focus";
 
@@ -32,11 +23,7 @@ import { shouldAutoFocusTextInputOnOpen } from "../utils/focus";
 const normalizeSlashes = (v: string): string => v.replace(/\\/g, "/");
 const isAbsolutePath = (v: string): boolean => /^([a-zA-Z]:[\\/]|\/)/.test(v);
 
-const matchRoot = (
-  roots: string[],
-  value: string,
-  fallback = true,
-): string | undefined => {
+const matchRoot = (roots: string[], value: string, fallback = true): string | undefined => {
   const normalized = normalizeSlashes(value);
   const sorted = roots.toSorted((a, b) => b.length - a.length);
   return (
@@ -51,9 +38,7 @@ const toRelativePath = (root: string, absolutePath: string): string => {
   const normRoot = normalizeSlashes(root).replace(/\/+$/, "");
   const normPath = normalizeSlashes(absolutePath);
   if (normPath === normRoot) return "";
-  const rel = normPath.startsWith(normRoot)
-    ? normPath.slice(normRoot.length)
-    : normPath;
+  const rel = normPath.startsWith(normRoot) ? normPath.slice(normRoot.length) : normPath;
   return rel.replace(/^\/+/, "");
 };
 
@@ -63,8 +48,7 @@ const EMPTY_ENTRIES: WorkspaceEntry[] = [];
 const rootLabel = (value: string): string => {
   if (!value || value === "/" || value === "\\") return "/";
   const normalized = value.replace(/[\\/]+$/, "");
-  if (/\/Users\/[^/]+$/.test(normalized) || /\/home\/[^/]+$/.test(normalized))
-    return "~";
+  if (/\/Users\/[^/]+$/.test(normalized) || /\/home\/[^/]+$/.test(normalized)) return "~";
   const parts = normalized.split(/[/\\]/);
   return parts[parts.length - 1] || value;
 };
@@ -88,9 +72,7 @@ async function browseFetcher(url: string): Promise<WorkspaceBrowseResponse> {
 
 const SWR_OPTS = { revalidateOnFocus: false } as const;
 
-function buildBrowseKey(
-  target: { root: string; path: string } | null,
-): string | null {
+function buildBrowseKey(target: { root: string; path: string } | null): string | null {
   if (!target?.root) return null;
   const params = new URLSearchParams({ root: target.root });
   if (target.path) params.set("path", target.path);
@@ -159,8 +141,11 @@ export function WorkspacePicker({
   );
   const requestedTarget = targetOverride ?? initialTarget;
   const browseKey = buildBrowseKey(requestedTarget);
-  const { data: browseData, error: browseError } =
-    useSWR<WorkspaceBrowseResponse>(browseKey, browseFetcher, SWR_OPTS);
+  const { data: browseData, error: browseError } = useSWR<WorkspaceBrowseResponse>(
+    browseKey,
+    browseFetcher,
+    SWR_OPTS,
+  );
   const activeTarget = browseData
     ? { root: browseData.root, path: browseData.path }
     : requestedTarget;
@@ -170,24 +155,19 @@ export function WorkspacePicker({
   const entries = browseData?.entries ?? EMPTY_ENTRIES;
   const current = browseData?.current ?? "";
 
-  const loading =
-    rootsLoading || (Boolean(browseKey) && !browseData && !browseError);
+  const loading = rootsLoading || (Boolean(browseKey) && !browseData && !browseError);
 
   const filteredEntries = useMemo(() => {
     const trimmed = filter.trim().toLowerCase();
     if (!trimmed) return entries;
-    return entries.filter((e: WorkspaceEntry) =>
-      e.name.toLowerCase().includes(trimmed),
-    );
+    return entries.filter((e: WorkspaceEntry) => e.name.toLowerCase().includes(trimmed));
   }, [filter, entries]);
 
   const browseTo = useCallback((nextRoot: string, nextPath: string) => {
     setUiError("");
     setFilter("");
     setTargetOverride((prev) =>
-      prev?.root === nextRoot && prev.path === nextPath
-        ? prev
-        : { root: nextRoot, path: nextPath },
+      prev?.root === nextRoot && prev.path === nextPath ? prev : { root: nextRoot, path: nextPath },
     );
   }, []);
 
@@ -260,8 +240,7 @@ export function WorkspacePicker({
   const handleInputKeyDown = useCallback(
     (e: KeyboardEvent<HTMLInputElement>) => {
       if (e.key === "Enter") {
-        const singleMatch =
-          filteredEntries.length === 1 ? filteredEntries[0] : null;
+        const singleMatch = filteredEntries.length === 1 ? filteredEntries[0] : null;
         if (singleMatch && root) {
           browseTo(root, singleMatch.path);
         } else if (filter.trim()) {
@@ -287,41 +266,31 @@ export function WorkspacePicker({
   const recentPaths = cwdHistory.filter((p) => p !== currentPath);
   const showRecent = recentPaths.length > 0 && !filter.trim();
   const noticeMessage =
-    uiError ||
-    (browseError
-      ? "Workspace no longer exists. Choose another workspace."
-      : "");
+    uiError || (browseError ? "Workspace no longer exists. Choose another workspace." : "");
   const blockingErrorMessage =
     (rootsError ? getErrorMessage(rootsError) : "") ||
-    (!rootsLoading && roots.length === 0
-      ? "No workspace roots configured."
-      : "");
+    (!rootsLoading && roots.length === 0 ? "No workspace roots configured." : "");
   const showRoots = Boolean(browseError) && roots.length > 0 && !filter.trim();
 
   const body: ReactNode = (
     <>
       {/* Drag handle — mobile only */}
       {!isDesktop && (
-        <div
-          className="flex justify-center pt-2.5 pb-1 shrink-0"
-          aria-hidden="true"
-        >
-          <div className="w-10 h-0.75 rounded-full bg-border/60" />
+        <div className="flex shrink-0 justify-center pt-2.5 pb-1" aria-hidden="true">
+          <div className="h-0.75 w-10 rounded-full bg-border/60" />
         </div>
       )}
 
       {/* Breadcrumb header */}
-      <div className="flex items-center min-h-11 px-4 border-b border-border/30 shrink-0 gap-1">
-        <div className="flex-1 flex items-center overflow-x-auto scrollbar-none min-w-0 gap-0.5">
+      <div className="flex min-h-11 shrink-0 items-center gap-1 border-b border-border/30 px-4">
+        <div className="flex min-w-0 flex-1 scrollbar-none items-center gap-0.5 overflow-x-auto">
           <button
             type="button"
             onClick={() => root && browseTo(root, "")}
             className={cn(
-              "shrink-0 px-1.5 py-0.5 rounded-sm text-xs font-mono",
-              "active:scale-95 transition-[color,background-color,scale] duration-150 hover:bg-muted/60 hover:text-foreground",
-              pathSegments.length === 0
-                ? "text-foreground font-medium"
-                : "text-muted-foreground",
+              "shrink-0 rounded-sm px-1.5 py-0.5 font-mono text-xs",
+              "transition-[color,background-color,scale] duration-150 hover:bg-muted/60 hover:text-foreground active:scale-95",
+              pathSegments.length === 0 ? "font-medium text-foreground" : "text-muted-foreground",
             )}
           >
             {rootLabel(root) || "~"}
@@ -329,21 +298,18 @@ export function WorkspacePicker({
           {pathSegments.map((segment, index) => {
             const crumbPath = pathSegments.slice(0, index + 1).join("/");
             return (
-              <div key={crumbPath} className="flex items-center shrink-0">
-                <span
-                  className="text-border select-none mx-0.5 text-xs"
-                  aria-hidden="true"
-                >
+              <div key={crumbPath} className="flex shrink-0 items-center">
+                <span className="mx-0.5 text-xs text-border select-none" aria-hidden="true">
                   /
                 </span>
                 <button
                   type="button"
                   onClick={() => browseTo(root, crumbPath)}
                   className={cn(
-                    "px-1.5 py-0.5 rounded-sm text-xs font-mono whitespace-nowrap",
-                    "active:scale-95 transition-[color,background-color,scale] duration-150 hover:bg-muted/60 hover:text-foreground",
+                    "rounded-sm px-1.5 py-0.5 font-mono text-xs whitespace-nowrap",
+                    "transition-[color,background-color,scale] duration-150 hover:bg-muted/60 hover:text-foreground active:scale-95",
                     index === pathSegments.length - 1
-                      ? "text-foreground font-medium"
+                      ? "font-medium text-foreground"
                       : "text-muted-foreground",
                   )}
                 >
@@ -358,10 +324,10 @@ export function WorkspacePicker({
           type="button"
           onClick={onClose}
           className={cn(
-            "flex items-center justify-center size-8 rounded-lg shrink-0",
-            "text-muted-foreground/50 active:scale-95 transition-[color,background-color,scale] duration-150",
+            "flex size-8 shrink-0 items-center justify-center rounded-lg",
+            "text-muted-foreground/50 transition-[color,background-color,scale] duration-150 active:scale-95",
             "hover:bg-muted/70 hover:text-foreground",
-            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+            "focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
           )}
           aria-label="Close"
         >
@@ -370,7 +336,7 @@ export function WorkspacePicker({
       </div>
 
       {/* Filter input */}
-      <div className="flex items-center gap-2.5 px-4 py-2.5 border-b border-border/20 shrink-0">
+      <div className="flex shrink-0 items-center gap-2.5 border-b border-border/20 px-4 py-2.5">
         <Search className="size-3.5 shrink-0 text-muted-foreground/30" />
         <input
           ref={inputRef}
@@ -383,14 +349,14 @@ export function WorkspacePicker({
           autoComplete="off"
           autoCorrect="off"
           autoCapitalize="off"
-          className="w-full bg-transparent text-base sm:text-sm font-mono focus-visible:outline-none text-foreground placeholder:text-muted-foreground/30 caret-accent"
+          className="w-full bg-transparent font-mono text-base text-foreground caret-accent placeholder:text-muted-foreground/30 focus-visible:outline-none sm:text-sm"
           aria-label="Filter directories or enter a path"
         />
         {filter && (
           <button
             type="button"
             onClick={() => setFilter("")}
-            className="shrink-0 text-muted-foreground/40 hover:text-muted-foreground active:scale-95 transition-[color,scale] duration-150"
+            className="shrink-0 text-muted-foreground/40 transition-[color,scale] duration-150 hover:text-muted-foreground active:scale-95"
             aria-label="Clear filter"
           >
             <X className="size-3" />
@@ -399,14 +365,14 @@ export function WorkspacePicker({
       </div>
 
       {/* Content */}
-      <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain">
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
         {loading && (
-          <div className="flex items-center justify-center h-36">
+          <div className="flex h-36 items-center justify-center">
             <div className="flex items-end gap-1">
               {[0, 1, 2].map((i) => (
                 <div
                   key={i}
-                  className="w-0.75 rounded-full bg-muted-foreground/30 animate-pulse"
+                  className="w-0.75 animate-pulse rounded-full bg-muted-foreground/30"
                   style={{
                     height: `${12 + i * 4}px`,
                     animationDelay: `${i * 120}ms`,
@@ -418,10 +384,8 @@ export function WorkspacePicker({
         )}
 
         {!loading && blockingErrorMessage && (
-          <div className="flex items-center justify-center h-36 px-6 text-center">
-            <p className="text-xs text-destructive leading-relaxed">
-              {blockingErrorMessage}
-            </p>
+          <div className="flex h-36 items-center justify-center px-6 text-center">
+            <p className="text-xs leading-relaxed text-destructive">{blockingErrorMessage}</p>
           </div>
         )}
 
@@ -437,7 +401,7 @@ export function WorkspacePicker({
             {showRecent && (
               <>
                 <div className="px-4 pt-3 pb-1.5">
-                  <span className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/40 select-none">
+                  <span className="text-[10px] font-semibold tracking-widest text-muted-foreground/40 uppercase select-none">
                     Recent
                   </span>
                 </div>
@@ -446,10 +410,10 @@ export function WorkspacePicker({
                     type="button"
                     key={p}
                     onClick={() => void handleSelectRecent(p)}
-                    className="group flex items-center gap-3 w-full min-h-11 px-4 py-2 text-left transition-colors hover:bg-muted/50 active:bg-muted/70 focus-visible:outline-none focus-visible:bg-muted/50"
+                    className="group flex min-h-11 w-full items-center gap-3 px-4 py-2 text-left transition-colors hover:bg-muted/50 focus-visible:bg-muted/50 focus-visible:outline-none active:bg-muted/70"
                   >
-                    <Clock className="size-3.5 shrink-0 text-muted-foreground/35 group-hover:text-accent/60 transition-colors" />
-                    <span className="truncate text-xs font-mono text-muted-foreground group-hover:text-foreground/80 transition-colors">
+                    <Clock className="size-3.5 shrink-0 text-muted-foreground/35 transition-colors group-hover:text-accent/60" />
+                    <span className="truncate font-mono text-xs text-muted-foreground transition-colors group-hover:text-foreground/80">
                       {p}
                     </span>
                   </button>
@@ -463,7 +427,7 @@ export function WorkspacePicker({
             {showRoots && (
               <>
                 <div className="px-4 pt-3 pb-1.5">
-                  <span className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/40 select-none">
+                  <span className="text-[10px] font-semibold tracking-widest text-muted-foreground/40 uppercase select-none">
                     Roots
                   </span>
                 </div>
@@ -472,10 +436,10 @@ export function WorkspacePicker({
                     type="button"
                     key={workspaceRoot}
                     onClick={() => browseTo(workspaceRoot, "")}
-                    className="group flex items-center gap-3 w-full min-h-11 px-4 py-2 text-left transition-colors hover:bg-muted/50 active:bg-muted/70 focus-visible:outline-none focus-visible:bg-muted/50"
+                    className="group flex min-h-11 w-full items-center gap-3 px-4 py-2 text-left transition-colors hover:bg-muted/50 focus-visible:bg-muted/50 focus-visible:outline-none active:bg-muted/70"
                   >
-                    <FolderOpen className="size-3.5 shrink-0 text-muted-foreground/35 group-hover:text-accent/60 transition-colors" />
-                    <span className="truncate text-xs font-mono text-muted-foreground group-hover:text-foreground/80 transition-colors">
+                    <FolderOpen className="size-3.5 shrink-0 text-muted-foreground/35 transition-colors group-hover:text-accent/60" />
+                    <span className="truncate font-mono text-xs text-muted-foreground transition-colors group-hover:text-foreground/80">
                       {workspaceRoot}
                     </span>
                   </button>
@@ -488,11 +452,9 @@ export function WorkspacePicker({
 
             {/* Entries */}
             {filteredEntries.length === 0 && !showRecent && !showRoots && (
-              <div className="flex flex-col items-center justify-center gap-3 h-36 text-muted-foreground/30">
+              <div className="flex h-36 flex-col items-center justify-center gap-3 text-muted-foreground/30">
                 <Folder className="size-10" strokeWidth={1} />
-                <p className="text-xs">
-                  {filter.trim() ? "No matches" : "This folder is empty"}
-                </p>
+                <p className="text-xs">{filter.trim() ? "No matches" : "This folder is empty"}</p>
               </div>
             )}
             {filteredEntries.map((entry) => (
@@ -500,10 +462,10 @@ export function WorkspacePicker({
                 type="button"
                 key={entry.path}
                 onClick={() => browseTo(root, entry.path)}
-                className="group flex items-center gap-3 w-full min-h-11 px-4 py-2 text-left transition-colors hover:bg-muted/50 active:bg-muted/70 focus-visible:outline-none focus-visible:bg-muted/50"
+                className="group flex min-h-11 w-full items-center gap-3 px-4 py-2 text-left transition-colors hover:bg-muted/50 focus-visible:bg-muted/50 focus-visible:outline-none active:bg-muted/70"
               >
-                <Folder className="size-3.5 shrink-0 text-accent/40 group-hover:text-accent/70 transition-colors" />
-                <span className="truncate text-sm font-mono text-foreground/70 group-hover:text-foreground transition-colors">
+                <Folder className="size-3.5 shrink-0 text-accent/40 transition-colors group-hover:text-accent/70" />
+                <span className="truncate font-mono text-sm text-foreground/70 transition-colors group-hover:text-foreground">
                   {entry.name}
                 </span>
               </button>
@@ -513,10 +475,10 @@ export function WorkspacePicker({
       </div>
 
       {/* Footer */}
-      <div className="flex items-center gap-3 h-12 px-4 border-t border-border/20 shrink-0">
+      <div className="flex h-12 shrink-0 items-center gap-3 border-t border-border/20 px-4">
         <FolderOpen className="size-3.5 shrink-0 text-muted-foreground/30" />
         <span
-          className="flex-1 min-w-0 truncate text-xs font-mono text-muted-foreground/60"
+          className="min-w-0 flex-1 truncate font-mono text-xs text-muted-foreground/60"
           title={current}
         >
           {current || "—"}
@@ -526,12 +488,12 @@ export function WorkspacePicker({
           onClick={handleSelect}
           disabled={!current}
           className={cn(
-            "shrink-0 px-3.5 h-7 rounded-md text-xs font-semibold",
-            "active:scale-95 transition-[color,background-color,border-color,scale] duration-150",
-            "bg-accent/15 text-accent border border-accent/20",
-            "hover:bg-accent/25 hover:border-accent/40 active:bg-accent/30",
-            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-            "disabled:opacity-25 disabled:cursor-not-allowed",
+            "h-7 shrink-0 rounded-md px-3.5 text-xs font-semibold",
+            "transition-[color,background-color,border-color,scale] duration-150 active:scale-95",
+            "border border-accent/20 bg-accent/15 text-accent",
+            "hover:border-accent/40 hover:bg-accent/25 active:bg-accent/30",
+            "focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
+            "disabled:cursor-not-allowed disabled:opacity-25",
           )}
         >
           Open
@@ -544,9 +506,7 @@ export function WorkspacePicker({
     if (!next) onClose();
   };
 
-  const initialFocus = shouldAutoFocusTextInputOnOpen(openedWithKeyboard)
-    ? inputRef
-    : undefined;
+  const initialFocus = shouldAutoFocusTextInputOnOpen(openedWithKeyboard) ? inputRef : undefined;
 
   if (isDesktop) {
     return (
@@ -554,7 +514,7 @@ export function WorkspacePicker({
         <DialogContent
           showCloseButton={false}
           initialFocus={initialFocus}
-          className="flex flex-col gap-0 p-0 w-110 max-w-[calc(100vw-2rem)] max-h-130 sm:max-w-[calc(100vw-2rem)]"
+          className="flex max-h-130 w-110 max-w-[calc(100vw-2rem)] flex-col gap-0 p-0 sm:max-w-[calc(100vw-2rem)]"
         >
           <DialogTitle className="sr-only">Select workspace</DialogTitle>
           {body}
@@ -569,7 +529,7 @@ export function WorkspacePicker({
         side="bottom"
         showCloseButton={false}
         initialFocus={initialFocus}
-        className="flex flex-col gap-0 p-0 max-h-[82vh] rounded-t-2xl"
+        className="flex max-h-[82vh] flex-col gap-0 rounded-t-2xl p-0"
       >
         <SheetTitle className="sr-only">Select workspace</SheetTitle>
         {body}

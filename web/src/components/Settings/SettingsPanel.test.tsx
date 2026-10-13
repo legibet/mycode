@@ -1,6 +1,7 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
+
 import type { SettingsResponse } from "../../types";
 import { SettingsPanel } from "./SettingsPanel";
 
@@ -55,15 +56,9 @@ describe("SettingsPanel", () => {
     const user = userEvent.setup();
     const { fetchMock } = renderSettings();
 
-    await user.selectOptions(
-      screen.getByRole("combobox", { name: "Web search provider" }),
-      "exa",
-    );
+    await user.selectOptions(screen.getByRole("combobox", { name: "Web search provider" }), "exa");
     expect(screen.getByText("key required")).toBeInTheDocument();
-    await user.type(
-      screen.getByRole("textbox", { name: "Exa API key" }),
-      "exa-key",
-    );
+    await user.type(screen.getByRole("textbox", { name: "Exa API key" }), "exa-key");
     await saveSettings(user);
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());

@@ -2,13 +2,13 @@
  * it — on hover for pointers, on tap for touch. */
 
 import { Fragment, type ReactNode } from "react";
+
 import type { UsageTotals } from "../../types";
 import { cn } from "../../utils/cn";
 import { formatCost } from "../../utils/format";
 import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover";
 
-const MUTED_TEXT =
-  "cursor-default text-xs tabular-nums text-muted-foreground/50";
+const MUTED_TEXT = "cursor-default text-xs tabular-nums text-muted-foreground/50";
 
 export function StatsPopover({
   trigger,
@@ -26,7 +26,7 @@ export function StatsPopover({
         delay={0}
         className={cn(
           MUTED_TEXT,
-          "rounded-sm outline-none transition-colors duration-150 hover:text-muted-foreground/90 focus-visible:text-muted-foreground/90 data-popup-open:text-muted-foreground/90",
+          "rounded-sm transition-colors duration-150 outline-none hover:text-muted-foreground/90 focus-visible:text-muted-foreground/90 data-popup-open:text-muted-foreground/90",
         )}
       >
         {trigger}
@@ -61,10 +61,7 @@ function usageRows(usage: UsageTotals | null | undefined): UsageRow[] {
   if (usage.input_tokens !== undefined) {
     rows.push({
       label: "Input",
-      tokens:
-        usage.input_tokens -
-        (usage.cache_read_tokens ?? 0) -
-        (usage.cache_write_tokens ?? 0),
+      tokens: usage.input_tokens - (usage.cache_read_tokens ?? 0) - (usage.cache_write_tokens ?? 0),
       cost: cost?.input,
     });
   }
@@ -92,9 +89,7 @@ function usageRows(usage: UsageTotals | null | undefined): UsageRow[] {
   return rows;
 }
 
-function usageTotalTokens(
-  usage: UsageTotals | null | undefined,
-): number | undefined {
+function usageTotalTokens(usage: UsageTotals | null | undefined): number | undefined {
   if (usage?.total_tokens !== undefined) return usage.total_tokens;
   if (usage?.input_tokens !== undefined && usage.output_tokens !== undefined) {
     return usage.input_tokens + usage.output_tokens;
@@ -136,23 +131,16 @@ export function UsageGrid({
       {summary.map((row) => (
         <Fragment key={row.label}>
           <span className="text-muted-foreground">{row.label}</span>
-          <span className="col-[2/-1] text-right tabular-nums">
-            {row.value}
-          </span>
+          <span className="col-[2/-1] text-right tabular-nums">{row.value}</span>
         </Fragment>
       ))}
       {summary.length > 0 && rows.length > 0 ? (
-        <span
-          aria-hidden
-          className="col-span-full mt-1 mb-0.5 border-t border-border/50"
-        />
+        <span aria-hidden className="col-span-full mt-1 mb-0.5 border-t border-border/50" />
       ) : null}
       {rows.map((row) => (
         <Fragment key={row.label}>
           <span className="text-muted-foreground">{row.label}</span>
-          <span className="text-right tabular-nums">
-            {row.tokens.toLocaleString()}
-          </span>
+          <span className="text-right tabular-nums">{row.tokens.toLocaleString()}</span>
           {cost ? (
             <span className="text-right tabular-nums">
               {breakdown ? formatCost(row.cost ?? 0) : null}
@@ -168,14 +156,8 @@ export function UsageGrid({
           )}
         >
           <span>Total</span>
-          <span className="text-right tabular-nums">
-            {totalTokens?.toLocaleString()}
-          </span>
-          {cost ? (
-            <span className="text-right tabular-nums">
-              {formatCost(cost.total)}
-            </span>
-          ) : null}
+          <span className="text-right tabular-nums">{totalTokens?.toLocaleString()}</span>
+          {cost ? <span className="text-right tabular-nums">{formatCost(cost.total)}</span> : null}
         </span>
       ) : null}
     </span>

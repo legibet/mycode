@@ -1,37 +1,30 @@
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
+
 import { MarkdownBlock } from "./MarkdownBlock";
 
 describe("MarkdownBlock", () => {
   it("closes unterminated markers only while streaming", () => {
     const partial = "Tests pass, now **checking";
     const live = render(<MarkdownBlock content={partial} streaming />);
-    expect(live.container.querySelector("strong")?.textContent).toBe(
-      "checking",
-    );
+    expect(live.container.querySelector("strong")?.textContent).toBe("checking");
 
     const done = render(<MarkdownBlock content={partial} />);
     expect(done.container.querySelector("strong")).toBeNull();
     expect(done.container.textContent).toContain("**checking");
 
     // An unfinished link is text only; a placeholder href would be clickable.
-    const link = render(
-      <MarkdownBlock content="See [docs](https://exam" streaming />,
-    );
+    const link = render(<MarkdownBlock content="See [docs](https://exam" streaming />);
     expect(link.container.querySelector("a")).toBeNull();
     expect(link.container.textContent).toBe("See docs");
   });
 
   it("renders inline and display math", () => {
     const { container } = render(
-      <MarkdownBlock
-        content={"Inline $x$ and \\(y\\)\n\n$$z^2$$\n\n\\[w^2\\]"}
-      />,
+      <MarkdownBlock content={"Inline $x$ and \\(y\\)\n\n$$z^2$$\n\n\\[w^2\\]"} />,
     );
 
-    expect(container.querySelectorAll(".katex").length).toBeGreaterThanOrEqual(
-      4,
-    );
+    expect(container.querySelectorAll(".katex").length).toBeGreaterThanOrEqual(4);
     expect(container.querySelectorAll(".katex-display")).toHaveLength(2);
   });
 
@@ -56,9 +49,7 @@ describe("MarkdownBlock", () => {
 
   it("renders emphasis around punctuation adjacent to CJK text", () => {
     const { container } = render(
-      <MarkdownBlock
-        content={'而是**"引号内容"**——尾部，以及**“弯引号”**和*"斜体"*'}
-      />,
+      <MarkdownBlock content={'而是**"引号内容"**——尾部，以及**“弯引号”**和*"斜体"*'} />,
     );
 
     const [double, curly] = container.querySelectorAll("strong");
@@ -70,15 +61,9 @@ describe("MarkdownBlock", () => {
   it("keeps math syntax literal in code and incomplete expressions", () => {
     const { container } = render(
       <MarkdownBlock
-        content={[
-          "Inline code: `$x$`",
-          "",
-          "```text",
-          "\\(y\\)",
-          "```",
-          "",
-          "Unfinished: $z",
-        ].join("\n")}
+        content={["Inline code: `$x$`", "", "```text", "\\(y\\)", "```", "", "Unfinished: $z"].join(
+          "\n",
+        )}
       />,
     );
 

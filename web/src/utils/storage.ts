@@ -4,11 +4,7 @@
 
 import type { LocalConfig } from "../types";
 import { isReasoningEffort } from "./config";
-import {
-  SIDEBAR_DEFAULT_WIDTH,
-  SIDEBAR_MAX_WIDTH,
-  SIDEBAR_MIN_WIDTH,
-} from "./sidebar";
+import { SIDEBAR_DEFAULT_WIDTH, SIDEBAR_MAX_WIDTH, SIDEBAR_MIN_WIDTH } from "./sidebar";
 
 const STORAGE_KEY = "mycode_config";
 const HISTORY_KEY = "mycode_cwd_history";
@@ -29,11 +25,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
-function getString(
-  record: Record<string, unknown>,
-  key: string,
-  fallback: string,
-): string {
+function getString(record: Record<string, unknown>, key: string, fallback: string): string {
   return typeof record[key] === "string" ? record[key] : fallback;
 }
 
@@ -76,10 +68,7 @@ export function loadConfig(): LocalConfig {
 
 export function saveConfig(config: LocalConfig): void {
   try {
-    localStorage.setItem(
-      STORAGE_KEY,
-      JSON.stringify({ ...config, _v: SCHEMA_VERSION }),
-    );
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...config, _v: SCHEMA_VERSION }));
   } catch (e) {
     console.error("Failed to save config:", e);
   }
@@ -144,19 +133,13 @@ function saveActiveSessionMap(activeSessions: Record<string, string>): void {
   try {
     const entries = Object.entries(activeSessions).filter(
       ([cwd, sessionId]) =>
-        typeof cwd === "string" &&
-        cwd &&
-        typeof sessionId === "string" &&
-        sessionId,
+        typeof cwd === "string" && cwd && typeof sessionId === "string" && sessionId,
     );
     if (entries.length === 0) {
       localStorage.removeItem(ACTIVE_SESSIONS_KEY);
       return;
     }
-    localStorage.setItem(
-      ACTIVE_SESSIONS_KEY,
-      JSON.stringify(Object.fromEntries(entries)),
-    );
+    localStorage.setItem(ACTIVE_SESSIONS_KEY, JSON.stringify(Object.fromEntries(entries)));
   } catch (e) {
     console.error("Failed to save active sessions:", e);
   }
@@ -189,9 +172,7 @@ function loadPromptHistoryMap(): Record<string, string[]> {
     if (!isRecord(parsed)) return {};
     return Object.fromEntries(
       Object.entries(parsed)
-        .filter((entry): entry is [string, unknown[]] =>
-          Array.isArray(entry[1]),
-        )
+        .filter((entry): entry is [string, unknown[]] => Array.isArray(entry[1]))
         .map(([cwd, entries]) => [
           cwd,
           entries.filter((item): item is string => typeof item === "string"),

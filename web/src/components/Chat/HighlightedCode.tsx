@@ -1,9 +1,4 @@
-import {
-  type CSSProperties,
-  startTransition,
-  useEffect,
-  useState,
-} from "react";
+import { type CSSProperties, startTransition, useEffect, useState } from "react";
 
 // Safety note: shiki codeToHtml generates HTML from a tokenized AST,
 // producing only <pre>/<code>/<span> elements with inline styles.
@@ -26,10 +21,7 @@ interface HighlightedCodeProps {
   language: string;
 }
 
-export default function HighlightedCode({
-  code,
-  language,
-}: HighlightedCodeProps) {
+export default function HighlightedCode({ code, language }: HighlightedCodeProps) {
   const [highlight, setHighlight] = useState<{
     code: string;
     language: string;
@@ -59,10 +51,7 @@ export default function HighlightedCode({
     };
   }, [code, language]);
 
-  const html =
-    highlight?.code === code && highlight.language === language
-      ? highlight.html
-      : null;
+  const html = highlight?.code === code && highlight.language === language ? highlight.html : null;
 
   if (!html) {
     return (

@@ -28,6 +28,7 @@ import {
   useRef,
   useState,
 } from "react";
+
 import type {
   AttachedFile,
   BackgroundJobInfo,
@@ -43,11 +44,7 @@ import type { SlashCommand } from "../../utils/completion";
 import { formatCost, formatDuration } from "../../utils/format";
 import { randomId } from "../../utils/id";
 import { isMac } from "../../utils/platform";
-import {
-  addPromptHistory,
-  loadPromptHistory,
-  savePromptHistory,
-} from "../../utils/storage";
+import { addPromptHistory, loadPromptHistory, savePromptHistory } from "../../utils/storage";
 import { Composer, type ComposerHandle } from "./Composer";
 import { EffortTrigger, ModelTrigger } from "./InputPills";
 import { hasUsageRows, StatsPopover, StatsText, UsageGrid } from "./StatsCard";
@@ -138,10 +135,7 @@ interface InputAreaProps {
   /** A compact run is active: nothing can be sent. */
   compacting?: boolean;
   /** `toQueue` is set by ⌘/Ctrl+Enter or ⌘/Ctrl+click. */
-  onSubmit: (
-    submission: ComposerSubmission,
-    toQueue: boolean,
-  ) => Promise<boolean>;
+  onSubmit: (submission: ComposerSubmission, toQueue: boolean) => Promise<boolean>;
   onCancel: () => void;
   /** Messages queued for the running chat's next turn. */
   queued?: PendingInput[];
@@ -189,9 +183,7 @@ function readFileAsBase64(file: File): Promise<string> {
 
 async function readFileAsUtf8(file: File): Promise<string | null> {
   try {
-    return new TextDecoder("utf-8", { fatal: true }).decode(
-      await file.arrayBuffer(),
-    );
+    return new TextDecoder("utf-8", { fatal: true }).decode(await file.arrayBuffer());
   } catch {
     return null;
   }
@@ -199,10 +191,7 @@ async function readFileAsUtf8(file: File): Promise<string | null> {
 
 async function processFiles(
   files: File[],
-  {
-    supportsImages,
-    supportsDocuments,
-  }: { supportsImages: boolean; supportsDocuments: boolean },
+  { supportsImages, supportsDocuments }: { supportsImages: boolean; supportsDocuments: boolean },
 ): Promise<{
   attachments: AttachedFile[];
   unsupported: Array<"image" | "document">;
@@ -225,9 +214,7 @@ async function processFiles(
         };
       }
 
-      const isPdfFile =
-        file.type === "application/pdf" ||
-        file.name.toLowerCase().endsWith(".pdf");
+      const isPdfFile = file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
       if (isPdfFile) {
         if (!supportsDocuments) {
           unsupported.add("document");
@@ -276,14 +263,11 @@ function SessionStats({
   if (percent === null && !cost) return null;
 
   // Warn shortly before auto-compact, or near the window when it is off.
-  const warn =
-    percent !== null && percent >= Math.round((compactThreshold || 1) * 90);
+  const warn = percent !== null && percent >= Math.round((compactThreshold || 1) * 90);
   const trigger = (
     <>
       {percent !== null && (
-        <span className={warn ? "text-destructive/70" : undefined}>
-          {percent}%
-        </span>
+        <span className={warn ? "text-destructive/70" : undefined}>{percent}%</span>
       )}
       {cost && (
         <span className={percent !== null ? "max-md:hidden" : undefined}>
@@ -356,9 +340,7 @@ export const InputArea = memo(function InputArea({
   const dragCounterRef = useRef(0);
   const [hasContent, setHasContent] = useState(false);
   const [inputNotice, setInputNotice] = useState<InputNotice | null>(null);
-  const [promptHistory, setPromptHistory] = useState(() =>
-    loadPromptHistory(config.cwd),
-  );
+  const [promptHistory, setPromptHistory] = useState(() => loadPromptHistory(config.cwd));
   // Running times tick once a second while any background command runs.
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -376,22 +358,19 @@ export const InputArea = memo(function InputArea({
   const hasImageUpload = files.some((file) => file.kind === "image");
   const hasDocumentUpload = files.some((file) => file.kind === "document");
 
-  const showInputNotice = useCallback(
-    (notice: InputNotice | null, timeoutMs?: number) => {
-      if (noticeTimerRef.current !== null) {
-        window.clearTimeout(noticeTimerRef.current);
+  const showInputNotice = useCallback((notice: InputNotice | null, timeoutMs?: number) => {
+    if (noticeTimerRef.current !== null) {
+      window.clearTimeout(noticeTimerRef.current);
+      noticeTimerRef.current = null;
+    }
+    setInputNotice(notice);
+    if (notice && timeoutMs) {
+      noticeTimerRef.current = window.setTimeout(() => {
+        setInputNotice(null);
         noticeTimerRef.current = null;
-      }
-      setInputNotice(notice);
-      if (notice && timeoutMs) {
-        noticeTimerRef.current = window.setTimeout(() => {
-          setInputNotice(null);
-          noticeTimerRef.current = null;
-        }, timeoutMs);
-      }
-    },
-    [],
-  );
+      }, timeoutMs);
+    }
+  }, []);
 
   useEffect(
     () => () => {
@@ -404,26 +383,17 @@ export const InputArea = memo(function InputArea({
 
   // Composer calls this on Enter; the send button routes through the same path.
   const handleSubmission = useCallback(
-    async (
-      submission: ComposerSubmission,
-      toQueue: boolean,
-    ): Promise<boolean> => {
+    async (submission: ComposerSubmission, toQueue: boolean): Promise<boolean> => {
       if (disabled || compacting) return false;
-      if (
-        !submission.text.trim() &&
-        submission.workspaceFiles.length === 0 &&
-        files.length === 0
-      ) {
+      if (!submission.text.trim() && submission.workspaceFiles.length === 0 && files.length === 0) {
         return false;
       }
       const unsupportedImage =
         !supportsImages &&
-        (hasImageUpload ||
-          submission.workspaceFiles.some((ref) => ref.kind === "image"));
+        (hasImageUpload || submission.workspaceFiles.some((ref) => ref.kind === "image"));
       const unsupportedDocument =
         !supportsDocuments &&
-        (hasDocumentUpload ||
-          submission.workspaceFiles.some((ref) => ref.kind === "document"));
+        (hasDocumentUpload || submission.workspaceFiles.some((ref) => ref.kind === "document"));
       if (unsupportedImage || unsupportedDocument) {
         showInputNotice({
           kind:
@@ -503,13 +473,7 @@ export const InputArea = memo(function InputArea({
       }
       if (result.attachments.length) onAttachFiles?.(result.attachments);
     },
-    [
-      disabled,
-      onAttachFiles,
-      showInputNotice,
-      supportsDocuments,
-      supportsImages,
-    ],
+    [disabled, onAttachFiles, showInputNotice, supportsDocuments, supportsImages],
   );
 
   const handlePasteFiles = useCallback(
@@ -582,7 +546,7 @@ export const InputArea = memo(function InputArea({
     .join(",");
 
   return (
-    <div className="mx-auto max-w-4xl max-md:max-w-none px-5 max-md:px-3 max-md:pb-2">
+    <div className="mx-auto max-w-4xl px-5 max-md:max-w-none max-md:px-3 max-md:pb-2">
       {(jobs.length > 0 || queued.length > 0) && (
         // What the session has in flight besides the composer: background
         // commands, then the next turn. One card behind the composer, showing
@@ -593,26 +557,19 @@ export const InputArea = memo(function InputArea({
               <div className="flex items-center gap-1.5 px-3.5 pb-0.5 text-[11px] leading-4 text-muted-foreground">
                 <Terminal aria-hidden="true" className="size-3" />
                 Background
-                <span className="tabular-nums text-muted-foreground/60">
-                  {jobs.length}
-                </span>
+                <span className="text-muted-foreground/60 tabular-nums">{jobs.length}</span>
               </div>
               <ul aria-label="Background commands">
                 {jobs.map((job) => (
-                  <li
-                    key={job.tool_use_id}
-                    className="flex items-center gap-2.5 px-3.5 py-1"
-                  >
+                  <li key={job.tool_use_id} className="flex items-center gap-2.5 px-3.5 py-1">
                     <span
                       className="min-w-0 flex-1 truncate font-mono text-xs text-foreground/75"
                       title={job.label}
                     >
                       {job.label}
                     </span>
-                    <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
-                      {formatDuration(
-                        Math.max(0, now - Date.parse(job.started_at)),
-                      )}
+                    <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
+                      {formatDuration(Math.max(0, now - Date.parse(job.started_at)))}
                     </span>
                     <button
                       type="button"
@@ -632,14 +589,10 @@ export const InputArea = memo(function InputArea({
             </div>
           )}
           {queued.length > 0 && (
-            <ul
-              aria-label="Queued messages"
-              className="divide-y divide-border/40"
-            >
+            <ul aria-label="Queued messages" className="divide-y divide-border/40">
               {queued.map((item) => {
                 const attachmentCount =
-                  item.attachments.length +
-                  item.submission.workspaceFiles.length;
+                  item.attachments.length + item.submission.workspaceFiles.length;
                 return (
                   <li
                     key={item.id}
@@ -669,10 +622,7 @@ export const InputArea = memo(function InputArea({
                         type="button"
                         title="Steer the current turn"
                         onClick={() => onSteerQueued?.(item.id)}
-                        className={cn(
-                          QUEUED_ACTION_CLASS,
-                          "gap-1 px-1.5 text-xs",
-                        )}
+                        className={cn(QUEUED_ACTION_CLASS, "gap-1 px-1.5 text-xs")}
                       >
                         <ArrowUpToLine className="size-3.5" />
                         Steer
@@ -711,7 +661,7 @@ export const InputArea = memo(function InputArea({
         className={cn(
           "relative rounded-lg bg-card transition-[background-color,box-shadow] duration-200",
           "focus-within:shadow-card-accent",
-          dragging ? "shadow-card-accent bg-accent/5" : "shadow-card",
+          dragging ? "bg-accent/5 shadow-card-accent" : "shadow-card",
         )}
         onDragEnter={handleDragEnter}
         onDragLeave={handleDragLeave}
@@ -727,18 +677,18 @@ export const InputArea = memo(function InputArea({
         {files.length > 0 && (
           <div className="flex flex-wrap gap-1.5 px-3 pt-2.5 pb-1">
             {files.map((file) => (
-              <div key={file.id} className="relative group/thumb shrink-0">
+              <div key={file.id} className="group/thumb relative shrink-0">
                 {file.kind === "image" ? (
                   <img
                     src={file.preview}
                     alt={file.name}
-                    className="size-14 rounded-lg object-cover border border-border/30"
+                    className="size-14 rounded-lg border border-border/30 object-cover"
                   />
                 ) : (
-                  <div className="h-14 min-w-28 rounded-lg border border-border/30 bg-muted/30 px-3 flex items-center gap-2 text-xs text-foreground/80">
+                  <div className="flex h-14 min-w-28 items-center gap-2 rounded-lg border border-border/30 bg-muted/30 px-3 text-xs text-foreground/80">
                     <FileText className="size-4 shrink-0 text-accent/80" />
                     <div className="min-w-0">
-                      <div className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground/70">
+                      <div className="text-[10px] tracking-[0.16em] text-muted-foreground/70 uppercase">
                         {file.kind === "document" ? "PDF" : "Text"}
                       </div>
                       <div className="line-clamp-2 break-all">{file.name}</div>
@@ -752,7 +702,7 @@ export const InputArea = memo(function InputArea({
                     onRemoveFile?.(file.id);
                   }}
                   aria-label={`Remove ${file.name}`}
-                  className="absolute -top-1 -right-1 size-4 bg-foreground text-background rounded-full flex items-center justify-center opacity-0 group-hover/thumb:opacity-100 max-md:opacity-100 transition-opacity"
+                  className="absolute -top-1 -right-1 flex size-4 items-center justify-center rounded-full bg-foreground text-background opacity-0 transition-opacity group-hover/thumb:opacity-100 max-md:opacity-100"
                 >
                   <X className="size-2.5" />
                 </button>
@@ -796,23 +746,18 @@ export const InputArea = memo(function InputArea({
             disabled={disabled || compacting}
             onClick={() => fileInputRef.current?.click()}
             className={cn(
-              "size-7 flex items-center justify-center rounded-md transition-colors shrink-0",
+              "flex size-7 shrink-0 items-center justify-center rounded-md transition-colors",
               disabled || compacting
                 ? "text-muted-foreground/20"
-                : "text-muted-foreground/60 hover:text-foreground hover:bg-muted/70",
+                : "text-muted-foreground/60 hover:bg-muted/70 hover:text-foreground",
             )}
             title="Attach file"
           >
             <Paperclip className="size-3.5" />
           </button>
 
-          <div className="flex items-center gap-0.5 min-w-0 flex-1 overflow-hidden">
-            <div
-              className={cn(
-                "min-w-0",
-                inputNotice && "max-w-[45%] max-md:max-w-24",
-              )}
-            >
+          <div className="flex min-w-0 flex-1 items-center gap-0.5 overflow-hidden">
+            <div className={cn("min-w-0", inputNotice && "max-w-[45%] max-md:max-w-24")}>
               <ModelTrigger
                 config={config}
                 remoteConfig={remoteConfig}
@@ -830,9 +775,7 @@ export const InputArea = memo(function InputArea({
                 {inputNotice.blocking ? (
                   <>
                     <span className="truncate max-md:hidden">{noticeText}</span>
-                    <span className="hidden truncate max-md:inline">
-                      {compactNoticeText}
-                    </span>
+                    <span className="hidden truncate max-md:inline">{compactNoticeText}</span>
                   </>
                 ) : (
                   <span className="truncate">{compactNoticeText}</span>
@@ -858,7 +801,7 @@ export const InputArea = memo(function InputArea({
               type="button"
               aria-label="Stop generating"
               onClick={onCancel}
-              className="size-7 flex items-center justify-center rounded-md text-destructive/70 hover:text-destructive hover:bg-destructive/10 active:scale-95 transition-[color,background-color,scale] duration-150 shrink-0"
+              className="flex size-7 shrink-0 items-center justify-center rounded-md text-destructive/70 transition-[color,background-color,scale] duration-150 hover:bg-destructive/10 hover:text-destructive active:scale-95"
               title="Stop · Esc"
             >
               <Square className="size-3 fill-current" />
@@ -867,21 +810,15 @@ export const InputArea = memo(function InputArea({
             <button
               type="button"
               aria-label="Send message"
-              onClick={(e) =>
-                composerRef.current?.submit(e.metaKey || e.ctrlKey)
-              }
+              onClick={(e) => composerRef.current?.submit(e.metaKey || e.ctrlKey)}
               disabled={!canSend}
               className={cn(
-                "size-7 flex items-center justify-center rounded-md transition-[color,background-color,filter,scale] duration-150 shrink-0",
+                "flex size-7 shrink-0 items-center justify-center rounded-md transition-[color,background-color,filter,scale] duration-150",
                 canSend
                   ? "bg-accent text-accent-foreground hover:brightness-105 hover:saturate-[.9] active:scale-95"
-                  : "text-muted-foreground/30 bg-muted/40",
+                  : "bg-muted/40 text-muted-foreground/30",
               )}
-              title={
-                loading
-                  ? `Steer · Enter, queue · ${isMac ? "⌘" : "Ctrl+"}Enter`
-                  : "Send"
-              }
+              title={loading ? `Steer · Enter, queue · ${isMac ? "⌘" : "Ctrl+"}Enter` : "Send"}
             >
               <ArrowUp className="size-3.5" strokeWidth={2.5} />
             </button>
@@ -889,10 +826,8 @@ export const InputArea = memo(function InputArea({
         </div>
 
         {dragging && (
-          <div className="absolute inset-0 flex items-center justify-center rounded-lg bg-accent/5 pointer-events-none z-10">
-            <span className="text-sm text-accent font-medium">
-              Drop file here
-            </span>
+          <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-lg bg-accent/5">
+            <span className="text-sm font-medium text-accent">Drop file here</span>
           </div>
         )}
       </div>

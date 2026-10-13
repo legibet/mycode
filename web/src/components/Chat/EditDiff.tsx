@@ -4,14 +4,9 @@
  * line) sits before the marker. Long lines scroll instead of wrapping.
  */
 
-import {
-  type CSSProperties,
-  Fragment,
-  startTransition,
-  useEffect,
-  useState,
-} from "react";
+import { type CSSProperties, Fragment, startTransition, useEffect, useState } from "react";
 import type { ThemedToken } from "shiki/core";
+
 import { cn } from "../../utils/cn";
 import type { DiffHunk, DiffLine } from "../../utils/diff";
 
@@ -45,10 +40,7 @@ function languageForPath(path: string): string {
  * Each side starts from its own file's text before the hunk.
  * Context lines take the new side's tokens.
  */
-async function highlightHunk(
-  hunk: DiffHunk,
-  language: string,
-): Promise<LineTokens[]> {
+async function highlightHunk(hunk: DiffHunk, language: string): Promise<LineTokens[]> {
   const { highlightTokens } = await highlighterModulePromise;
   const side = (skip: DiffLine["kind"]) =>
     hunk.lines
@@ -97,9 +89,7 @@ export function EditDiff({ path, hunks }: EditDiffProps) {
   }, [hunks, language]);
 
   const tokens =
-    highlight?.hunks === hunks && highlight.language === language
-      ? highlight.tokens
-      : null;
+    highlight?.hunks === hunks && highlight.language === language ? highlight.tokens : null;
 
   const maxNumber = Math.max(
     0,
@@ -111,20 +101,17 @@ export function EditDiff({ path, hunks }: EditDiffProps) {
   };
 
   return (
-    <div className="rounded-md bg-code shadow-hairline overflow-hidden">
-      <div className="max-h-60 overflow-auto scrollbar-subtle py-1.5 font-mono text-[13px] leading-normal">
+    <div className="overflow-hidden rounded-md bg-code shadow-hairline">
+      <div className="scrollbar-subtle max-h-60 overflow-auto py-1.5 font-mono text-[13px] leading-normal">
         <div className="w-max min-w-full whitespace-pre">
           {hunks.map((hunk, h) => (
             <Fragment key={h}>
               {h > 0 && (
-                <div
-                  aria-hidden="true"
-                  className="flex select-none text-muted-foreground/30"
-                >
+                <div aria-hidden="true" className="flex text-muted-foreground/30 select-none">
                   <span
                     className={cn(
                       "box-content shrink-0 text-center",
-                      gutterStyle ? "pl-3 pr-2.5" : "w-[1ch] pl-3",
+                      gutterStyle ? "pr-2.5 pl-3" : "w-[1ch] pl-3",
                     )}
                     style={gutterStyle || undefined}
                   >
@@ -139,7 +126,7 @@ export function EditDiff({ path, hunks }: EditDiffProps) {
                   <div key={i} className={cn("flex", ROW_STYLE[line.kind])}>
                     {gutterStyle && (
                       <span
-                        className="box-content shrink-0 select-none pl-3 pr-2.5 text-right tabular-nums text-muted-foreground/40"
+                        className="box-content shrink-0 pr-2.5 pl-3 text-right text-muted-foreground/40 tabular-nums select-none"
                         style={gutterStyle}
                       >
                         {line.number}
@@ -157,10 +144,7 @@ export function EditDiff({ path, hunks }: EditDiffProps) {
                     <span className="shiki pr-3">
                       {lineTokens
                         ? lineTokens.map((token, t) => (
-                            <span
-                              key={t}
-                              style={token.htmlStyle as CSSProperties}
-                            >
+                            <span key={t} style={token.htmlStyle as CSSProperties}>
                               {token.content}
                             </span>
                           ))

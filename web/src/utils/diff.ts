@@ -25,10 +25,7 @@ const HUNK_HEADER_RE = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/;
  * each hunk with its entry in `metadata.highlight_context`.
  * File headers before the first hunk and `\ No newline` markers are skipped.
  */
-export function parsePatch(
-  patch: string,
-  contexts: readonly HunkContext[] = [],
-): DiffHunk[] {
+export function parsePatch(patch: string, contexts: readonly HunkContext[] = []): DiffHunk[] {
   const hunks: DiffHunk[] = [];
   let lines: DiffLine[] | null = null;
   let oldNumber = 0;
@@ -69,18 +66,16 @@ function splitLines(text: string): string[] {
 }
 
 /** One hunk per edit, without line numbers: the view before the patch exists. */
-export function hunksFromEdits(
-  edits: { oldText: string; newText: string }[],
-): DiffHunk[] {
+export function hunksFromEdits(edits: { oldText: string; newText: string }[]): DiffHunk[] {
   return edits
     .map((edit) => ({
       lines: [
-        ...splitLines(edit.oldText).map(
-          (text): DiffLine => ({ kind: "remove", text, number: null }),
-        ),
-        ...splitLines(edit.newText).map(
-          (text): DiffLine => ({ kind: "add", text, number: null }),
-        ),
+        ...splitLines(edit.oldText).map((text): DiffLine => ({
+          kind: "remove",
+          text,
+          number: null,
+        })),
+        ...splitLines(edit.newText).map((text): DiffLine => ({ kind: "add", text, number: null })),
       ],
       context: NO_CONTEXT,
     }))

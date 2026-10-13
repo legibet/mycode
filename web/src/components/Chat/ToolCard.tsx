@@ -8,6 +8,7 @@
 
 import { Terminal } from "lucide-react";
 import { memo, type ReactNode, useMemo, useState } from "react";
+
 import { cn } from "../../utils/cn";
 import { type HunkContext, hunksFromEdits, parsePatch } from "../../utils/diff";
 import { EditDiff } from "./EditDiff";
@@ -95,9 +96,7 @@ function getHighlightContext(metadata: Meta): HunkContext[] {
   }));
 }
 
-function getEditStats(
-  metadata: Meta,
-): { added: number; removed: number } | null {
+function getEditStats(metadata: Meta): { added: number; removed: number } | null {
   const meta = metadata as EditMeta | null | undefined;
   const added = asNumber(meta?.added_lines);
   const removed = asNumber(meta?.removed_lines);
@@ -126,14 +125,14 @@ interface ToolCardProps {
 function ToolSurface({ head, body }: { head?: ReactNode; body?: ReactNode }) {
   if (!head && !body) return null;
   return (
-    <div className="rounded-md bg-code shadow-hairline overflow-hidden font-mono text-[13px]">
+    <div className="overflow-hidden rounded-md bg-code font-mono text-[13px] shadow-hairline">
       {head && (
-        <div className="px-3 py-2 leading-normal max-h-60 overflow-auto scrollbar-subtle">
+        <div className="scrollbar-subtle max-h-60 overflow-auto px-3 py-2 leading-normal">
           {head}
         </div>
       )}
       {body && (
-        <div className="px-3 py-2 leading-relaxed text-muted-foreground whitespace-pre-wrap overflow-auto scrollbar-subtle max-h-60">
+        <div className="scrollbar-subtle max-h-60 overflow-auto px-3 py-2 leading-relaxed whitespace-pre-wrap text-muted-foreground">
           {body}
         </div>
       )}
@@ -202,9 +201,7 @@ export function StatusPill({
     <span
       className={cn(
         "shrink-0 rounded px-1.5 py-px text-[11px] leading-4 tabular-nums",
-        tone === "error"
-          ? "bg-destructive/10 text-destructive"
-          : "bg-muted text-muted-foreground",
+        tone === "error" ? "bg-destructive/10 text-destructive" : "bg-muted text-muted-foreground",
         pulse && "animate-thinking",
       )}
     >
@@ -213,22 +210,14 @@ export function StatusPill({
   );
 }
 
-function CollapsedSuffix({
-  name,
-  args,
-  metadata,
-}: {
-  name: string;
-  args: Args;
-  metadata: Meta;
-}) {
+function CollapsedSuffix({ name, args, metadata }: { name: string; args: Args; metadata: Meta }) {
   if (name === "edit") {
     const stats = getEditStats(metadata);
     if (!stats || (stats.added === 0 && stats.removed === 0)) return null;
     return (
-      <span className="shrink-0 text-[12px] font-mono tabular-nums">
+      <span className="shrink-0 font-mono text-[12px] tabular-nums">
         <span className="text-diff-added">+{stats.added}</span>
-        <span className="text-diff-removed ml-1">−{stats.removed}</span>
+        <span className="ml-1 text-diff-removed">−{stats.removed}</span>
       </span>
     );
   }
@@ -238,10 +227,7 @@ function CollapsedSuffix({
     if (meta?.background !== true) return null;
     const exitCode = asNumber(meta.exit_code);
     return (
-      <StatusPill
-        tone={exitCode ? "error" : "muted"}
-        pulse={meta.running === true}
-      >
+      <StatusPill tone={exitCode ? "error" : "muted"} pulse={meta.running === true}>
         {exitCode != null
           ? `background · exit ${exitCode}`
           : meta.running === true
@@ -252,26 +238,19 @@ function CollapsedSuffix({
   }
 
   if (name === "websearch") {
-    const results = asNumber(
-      (metadata as WebSearchMeta | null | undefined)?.results,
-    );
+    const results = asNumber((metadata as WebSearchMeta | null | undefined)?.results);
     if (results == null) return null;
     return (
-      <span className="shrink-0 text-[12px] font-mono tabular-nums text-muted-foreground/60">
+      <span className="shrink-0 font-mono text-[12px] text-muted-foreground/60 tabular-nums">
         {results} results
       </span>
     );
   }
 
-  const hint =
-    name === "read"
-      ? getReadHint(args)
-      : name === "write"
-        ? getWriteHint(args)
-        : "";
+  const hint = name === "read" ? getReadHint(args) : name === "write" ? getWriteHint(args) : "";
   if (!hint) return null;
   return (
-    <span className="shrink-0 text-[12px] font-mono tabular-nums text-muted-foreground/60">
+    <span className="shrink-0 font-mono text-[12px] text-muted-foreground/60 tabular-nums">
       {hint}
     </span>
   );
@@ -290,9 +269,7 @@ export function BashBody({ args, display }: { args: Args; display: string }) {
         command && (
           <>
             <span className="text-muted-foreground/40 select-none">$ </span>
-            <span className="text-foreground whitespace-pre-wrap break-all">
-              {command}
-            </span>
+            <span className="break-all whitespace-pre-wrap text-foreground">{command}</span>
           </>
         )
       }
@@ -301,26 +278,12 @@ export function BashBody({ args, display }: { args: Args; display: string }) {
   );
 }
 
-function WriteBody({
-  args,
-  display,
-  isError,
-}: {
-  args: Args;
-  display: string;
-  isError: boolean;
-}) {
+function WriteBody({ args, display, isError }: { args: Args; display: string; isError: boolean }) {
   const content = asString((args as WriteArgs | undefined)?.content);
 
   return (
     <ToolSurface
-      head={
-        content && (
-          <span className="text-foreground/75 whitespace-pre-wrap">
-            {content}
-          </span>
-        )
-      }
+      head={content && <span className="whitespace-pre-wrap text-foreground/75">{content}</span>}
       body={isError ? display : null}
     />
   );
@@ -349,10 +312,7 @@ function EditBody({
   if (hunks.length) {
     return (
       <div className="space-y-2">
-        <EditDiff
-          path={asString((args as PathArgs | undefined)?.path)}
-          hunks={hunks}
-        />
+        <EditDiff path={asString((args as PathArgs | undefined)?.path)} hunks={hunks} />
         {isError && <ToolSurface body={display} />}
       </div>
     );
@@ -370,10 +330,8 @@ function GenericArgs({ args }: { args: Record<string, unknown> }) {
   return Object.entries(args).map(([key, value]) => (
     <div key={key}>
       <span className="text-accent/80">{key}: </span>
-      <span className="text-foreground/75 break-all whitespace-pre-wrap">
-        {typeof value === "object"
-          ? JSON.stringify(value, null, 2)
-          : String(value)}
+      <span className="break-all whitespace-pre-wrap text-foreground/75">
+        {typeof value === "object" ? JSON.stringify(value, null, 2) : String(value)}
       </span>
     </div>
   ));
@@ -393,14 +351,9 @@ export const ToolCard = memo(function ToolCard({
   isError,
 }: ToolCardProps) {
   const display =
-    typeof finalOutput === "string"
-      ? finalOutput
-      : typeof output === "string"
-        ? output
-        : "";
+    typeof finalOutput === "string" ? finalOutput : typeof output === "string" ? output : "";
   const resolvedIsError =
-    Boolean(isError) ||
-    (typeof finalOutput === "string" && finalOutput.startsWith("error:"));
+    Boolean(isError) || (typeof finalOutput === "string" && finalOutput.startsWith("error:"));
   const [expanded, setExpanded] = useState(false);
 
   const status = pending ? "pending" : resolvedIsError ? "error" : "success";
@@ -416,17 +369,10 @@ export const ToolCard = memo(function ToolCard({
     ) : name === "write" ? (
       <WriteBody args={args} display={display} isError={resolvedIsError} />
     ) : name === "edit" ? (
-      <EditBody
-        args={args}
-        metadata={metadata}
-        display={display}
-        isError={resolvedIsError}
-      />
+      <EditBody args={args} metadata={metadata} display={display} isError={resolvedIsError} />
     ) : (
       <ToolSurface
-        head={
-          args && Object.keys(args).length > 0 && <GenericArgs args={args} />
-        }
+        head={args && Object.keys(args).length > 0 && <GenericArgs args={args} />}
         body={display}
       />
     );
@@ -435,18 +381,15 @@ export const ToolCard = memo(function ToolCard({
     <div className="group/tool">
       <button
         type="button"
-        className="flex w-full items-center gap-1.5 select-none cursor-pointer text-left"
+        className="flex w-full cursor-pointer items-center gap-1.5 text-left select-none"
         aria-expanded={expanded}
         onClick={() => setExpanded((current) => !current)}
       >
-        <Icon
-          className="size-3.5 shrink-0 text-muted-foreground"
-          aria-hidden="true"
-        />
+        <Icon className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
 
         <span
           className={cn(
-            "text-[13px] shrink-0 tracking-tight transition-colors duration-200",
+            "shrink-0 text-[13px] tracking-tight transition-colors duration-200",
             status === "error"
               ? "text-destructive/90 group-hover/tool:text-destructive"
               : "text-foreground/90 group-hover/tool:text-foreground",
@@ -457,7 +400,7 @@ export const ToolCard = memo(function ToolCard({
         </span>
 
         {preview && (
-          <span className="min-w-0 text-[13px] font-mono text-muted-foreground/60 truncate">
+          <span className="min-w-0 truncate font-mono text-[13px] text-muted-foreground/60">
             {preview}
           </span>
         )}
@@ -469,9 +412,7 @@ export const ToolCard = memo(function ToolCard({
         data-expanded={expanded}
         className={cn(
           "chat-collapsible-body grid transition-[grid-template-rows,opacity] duration-300 ease-in-out",
-          expanded
-            ? "grid-rows-[1fr] opacity-100"
-            : "grid-rows-[0fr] opacity-0",
+          expanded ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0",
         )}
       >
         <div className="overflow-hidden">

@@ -2,6 +2,7 @@ import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createRef } from "react";
 import { describe, expect, it, vi } from "vitest";
+
 import { Composer, type ComposerHandle } from "./Composer";
 
 function renderWithHistory(history: string[]) {
@@ -84,9 +85,7 @@ describe("Composer", () => {
     expect(onSubmit).toHaveBeenCalledWith(
       {
         text: "review @src/main.ts ",
-        workspaceFiles: [
-          { path: "src/main.ts", name: "main.ts", kind: "text" },
-        ],
+        workspaceFiles: [{ path: "src/main.ts", name: "main.ts", kind: "text" }],
       },
       false,
     );
@@ -138,10 +137,7 @@ describe("Composer", () => {
 
   it("walks prompt history with arrow keys from an empty editor", async () => {
     const user = userEvent.setup();
-    const { editor, composerRef, onSubmit } = renderWithHistory([
-      "first prompt",
-      "second\nline",
-    ]);
+    const { editor, composerRef, onSubmit } = renderWithHistory(["first prompt", "second\nline"]);
     await user.click(editor);
 
     await user.keyboard("{ArrowUp}");
@@ -207,10 +203,7 @@ describe("Composer", () => {
     await user.paste("use sqlite");
     await user.keyboard("{Enter}");
     await waitFor(() =>
-      expect(onSubmit).toHaveBeenLastCalledWith(
-        { text: "use sqlite", workspaceFiles: [] },
-        false,
-      ),
+      expect(onSubmit).toHaveBeenLastCalledWith({ text: "use sqlite", workspaceFiles: [] }, false),
     );
 
     await user.paste("then add tests");
@@ -227,10 +220,7 @@ describe("Composer", () => {
     expect(screen.queryByRole("listbox")).toBeNull();
     await user.keyboard("{Enter}");
     await waitFor(() =>
-      expect(onSubmit).toHaveBeenLastCalledWith(
-        { text: "/new", workspaceFiles: [] },
-        false,
-      ),
+      expect(onSubmit).toHaveBeenLastCalledWith({ text: "/new", workspaceFiles: [] }, false),
     );
   });
 
@@ -250,9 +240,7 @@ describe("Composer", () => {
       ]),
     );
     await waitFor(() =>
-      expect(editor.querySelector("[data-workspace-file]")).toHaveTextContent(
-        "@src/a.ts",
-      ),
+      expect(editor.querySelector("[data-workspace-file]")).toHaveTextContent("@src/a.ts"),
     );
 
     composerRef.current?.submit(false);

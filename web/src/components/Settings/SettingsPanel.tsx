@@ -9,9 +9,11 @@
 
 import { Laptop, Loader2, Moon, Plus, Sun, X } from "lucide-react";
 import { type ReactNode, useCallback, useMemo, useState } from "react";
+
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
+
 import type {
   GlobalConfig,
   GlobalProviderEntry,
@@ -94,15 +96,15 @@ const PERMISSION_MODE_OPTIONS: { value: PermissionMode; label: string }[] = [
 
 const CANCEL_BTN_CLASS = cn(
   "inline-flex items-center justify-center rounded-md text-[13px]",
-  "text-muted-foreground hover:text-foreground hover:bg-muted/60 active:scale-95 transition-[color,background-color,scale] duration-150",
-  "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
+  "text-muted-foreground transition-[color,background-color,scale] duration-150 hover:bg-muted/60 hover:text-foreground active:scale-95",
+  "focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none",
 );
 
 const SAVE_BTN_CLASS = cn(
   "inline-flex items-center justify-center gap-1.5 rounded-md text-[13px] font-medium",
-  "bg-accent text-accent-foreground hover:brightness-105 hover:saturate-[.9] active:scale-95 transition-[color,filter,scale] duration-150",
-  "disabled:opacity-40 disabled:pointer-events-none",
-  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50",
+  "bg-accent text-accent-foreground transition-[color,filter,scale] duration-150 hover:brightness-105 hover:saturate-[.9] active:scale-95",
+  "disabled:pointer-events-none disabled:opacity-40",
+  "focus-visible:ring-2 focus-visible:ring-accent/50 focus-visible:outline-none",
 );
 
 const THEME_OPTIONS: { value: Theme; label: string; icon: ReactNode }[] = [
@@ -137,23 +139,19 @@ function buildDraft(response: SettingsResponse): DraftState {
   draft.web_tavily = buildWebKeyDraft(config.web?.tavily);
   draft.web_exa = buildWebKeyDraft(config.web?.exa);
 
-  draft.providers = Object.entries(config.providers ?? {}).map(
-    ([name, entry], i) => ({
-      id: `p-${i}-${name}`,
-      name,
-      original_name: name,
-      type: entry.type ?? name ?? fallbackType,
-      models: Array.isArray(entry.models)
-        ? entry.models
-        : Object.keys(entry.models ?? {}),
-      model_overrides: entry.model_overrides ?? {},
-      base_url: entry.base_url ?? "",
-      supports_reasoning_effort: Boolean(entry.supports_reasoning_effort),
-      api_key_input: typeof entry.api_key === "string" ? entry.api_key : "",
-      api_key_dirty: false,
-      api_key_saved: Boolean(entry.api_key_saved),
-    }),
-  );
+  draft.providers = Object.entries(config.providers ?? {}).map(([name, entry], i) => ({
+    id: `p-${i}-${name}`,
+    name,
+    original_name: name,
+    type: entry.type ?? name ?? fallbackType,
+    models: Array.isArray(entry.models) ? entry.models : Object.keys(entry.models ?? {}),
+    model_overrides: entry.model_overrides ?? {},
+    base_url: entry.base_url ?? "",
+    supports_reasoning_effort: Boolean(entry.supports_reasoning_effort),
+    api_key_input: typeof entry.api_key === "string" ? entry.api_key : "",
+    api_key_dirty: false,
+    api_key_saved: Boolean(entry.api_key_saved),
+  }));
 
   return draft;
 }
@@ -208,9 +206,7 @@ function buildPayload(draft: DraftState): GlobalConfig {
         if (o && Object.keys(o).length) overrides[id] = o;
       }
       if (Object.keys(overrides).length) {
-        entry.models = Object.fromEntries(
-          p.models.map((id) => [id, overrides[id] ?? {}]),
-        );
+        entry.models = Object.fromEntries(p.models.map((id) => [id, overrides[id] ?? {}]));
       } else {
         entry.models = p.models;
       }
@@ -283,12 +279,10 @@ export function SettingsPanel({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const providerTypes =
-    settings?.options.provider_types ?? EMPTY_PROVIDER_TYPES;
+  const providerTypes = settings?.options.provider_types ?? EMPTY_PROVIDER_TYPES;
   const envByName = settings?.env ?? {};
   const providerTypeEnvVars = settings?.provider_type_env_vars ?? {};
-  const providerTypeDefaultModels =
-    settings?.provider_type_default_models ?? {};
+  const providerTypeDefaultModels = settings?.provider_type_default_models ?? {};
 
   const usedTypesByOthersMap = useMemo(() => {
     const map = new Map<string, Set<string>>();
@@ -317,8 +311,7 @@ export function SettingsPanel({
   }, [draft.providers]);
 
   const hasInvalidProvider =
-    duplicateNames.size > 0 ||
-    draft.providers.some((p) => !p.name.trim() || !p.type);
+    duplicateNames.size > 0 || draft.providers.some((p) => !p.name.trim() || !p.type);
 
   const compactDisabled = draft.compact_threshold === "disabled";
 
@@ -329,16 +322,13 @@ export function SettingsPanel({
     }));
   }, []);
 
-  const updateWebKey = useCallback(
-    (provider: "tavily" | "exa", patch: Partial<WebKeyDraft>) => {
-      setDraft((prev) =>
-        provider === "tavily"
-          ? { ...prev, web_tavily: { ...prev.web_tavily, ...patch } }
-          : { ...prev, web_exa: { ...prev.web_exa, ...patch } },
-      );
-    },
-    [],
-  );
+  const updateWebKey = useCallback((provider: "tavily" | "exa", patch: Partial<WebKeyDraft>) => {
+    setDraft((prev) =>
+      provider === "tavily"
+        ? { ...prev, web_tavily: { ...prev.web_tavily, ...patch } }
+        : { ...prev, web_exa: { ...prev.web_exa, ...patch } },
+    );
+  }, []);
 
   const removeProvider = useCallback((id: string) => {
     setDraft((prev) => ({
@@ -399,9 +389,7 @@ export function SettingsPanel({
     }
   };
 
-  const projectOverrides = (projectConfigPaths ?? []).filter(
-    (path) => path !== settings?.path,
-  );
+  const projectOverrides = (projectConfigPaths ?? []).filter((path) => path !== settings?.path);
 
   const editsPath = `Edits ${prettifyPath(settings?.path ?? FALLBACK_CONFIG_PATH)}`;
 
@@ -410,9 +398,9 @@ export function SettingsPanel({
       {/* Header */}
       <div
         className={cn(
-          "flex items-center justify-between shrink-0",
+          "flex shrink-0 items-center justify-between",
           "border-b border-border/30",
-          "px-4 md:px-6 h-12 md:h-14",
+          "h-12 px-4 md:h-14 md:px-6",
           "max-md:pt-[env(safe-area-inset-top)]",
           "max-md:h-[calc(3rem+env(safe-area-inset-top))]",
         )}
@@ -423,10 +411,10 @@ export function SettingsPanel({
           onClick={onClose}
           aria-label="Close"
           className={cn(
-            "inline-flex items-center justify-center rounded-sm -mr-1",
+            "-mr-1 inline-flex items-center justify-center rounded-sm",
             "size-8",
-            "text-muted-foreground/70 hover:text-foreground hover:bg-muted/60 active:scale-95 transition-[color,background-color,scale] duration-150",
-            "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
+            "text-muted-foreground/70 transition-[color,background-color,scale] duration-150 hover:bg-muted/60 hover:text-foreground active:scale-95",
+            "focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none",
           )}
         >
           <X className="size-4" />
@@ -434,19 +422,17 @@ export function SettingsPanel({
       </div>
 
       {/* Body */}
-      <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain scrollbar-subtle">
+      <div className="scrollbar-subtle min-h-0 flex-1 overflow-y-auto overscroll-contain">
         {!settings ? (
-          <div className="flex items-center justify-center h-48 px-6 text-center text-[12px] text-muted-foreground/60">
+          <div className="flex h-48 items-center justify-center px-6 text-center text-[12px] text-muted-foreground/60">
             {loadError ? <span>{loadError}</span> : null}
           </div>
         ) : (
-          <div className="px-4 md:px-6 py-6 flex flex-col gap-7">
+          <div className="flex flex-col gap-7 px-4 py-6 md:px-6">
             {projectOverrides.length > 0 && (
               <div className="rounded-md border border-border/40 bg-muted/20 px-3.5 py-2.5 text-[12px] leading-relaxed">
-                <div className="text-foreground/80">
-                  Project-level config in effect:
-                </div>
-                <ul className="mt-1.5 ml-4 list-disc text-muted-foreground/80 marker:text-muted-foreground/40 space-y-0.5">
+                <div className="text-foreground/80">Project-level config in effect:</div>
+                <ul className="mt-1.5 ml-4 list-disc space-y-0.5 text-muted-foreground/80 marker:text-muted-foreground/40">
                   {projectOverrides.map((p) => (
                     <li key={p} className="truncate font-mono">
                       {prettifyPath(p)}
@@ -485,15 +471,14 @@ export function SettingsPanel({
                             compact_threshold: "",
                           }))
                         }
-                        className="text-accent hover:underline focus-visible:outline-none focus-visible:underline"
+                        className="text-accent hover:underline focus-visible:underline focus-visible:outline-none"
                       >
                         Enable
                       </button>
                     </>
                   ) : (
                     <>
-                      Trigger compaction at this fraction of context window
-                      (default 0.8).{" "}
+                      Trigger compaction at this fraction of context window (default 0.8).{" "}
                       <button
                         type="button"
                         onClick={() =>
@@ -502,7 +487,7 @@ export function SettingsPanel({
                             compact_threshold: "disabled",
                           }))
                         }
-                        className="text-accent hover:underline focus-visible:outline-none focus-visible:underline"
+                        className="text-accent hover:underline focus-visible:underline focus-visible:outline-none"
                       >
                         Disable
                       </button>
@@ -562,11 +547,9 @@ export function SettingsPanel({
                 </NativeSelect>
               </Field>
               {(["tavily", "exa"] as const).map((provider) => {
-                const selected =
-                  draft.web_fetch === provider || draft.web_search === provider;
+                const selected = draft.web_fetch === provider || draft.web_search === provider;
                 if (!selected) return null;
-                const key =
-                  provider === "tavily" ? draft.web_tavily : draft.web_exa;
+                const key = provider === "tavily" ? draft.web_tavily : draft.web_exa;
                 const label = provider === "tavily" ? "Tavily" : "Exa";
                 return (
                   <Field
@@ -604,7 +587,7 @@ export function SettingsPanel({
                               api_key_dirty: true,
                             })
                           }
-                          className="shrink-0 h-9 px-2 text-[12px] text-muted-foreground/70 hover:text-destructive active:scale-95 transition-[color,scale] duration-150"
+                          className="h-9 shrink-0 px-2 text-[12px] text-muted-foreground/70 transition-[color,scale] duration-150 hover:text-destructive active:scale-95"
                           aria-label={`Clear saved ${provider} API key`}
                         >
                           clear
@@ -654,9 +637,7 @@ export function SettingsPanel({
               <Field label="Mode">
                 <Segmented<PermissionMode>
                   value={draft.permission_mode}
-                  onChange={(value) =>
-                    setDraft((prev) => ({ ...prev, permission_mode: value }))
-                  }
+                  onChange={(value) => setDraft((prev) => ({ ...prev, permission_mode: value }))}
                   options={PERMISSION_MODE_OPTIONS}
                   ariaLabel="Permission mode"
                   size="sm"
@@ -674,9 +655,7 @@ export function SettingsPanel({
                     envByName={envByName}
                     providerTypeEnvVars={providerTypeEnvVars}
                     providerTypeDefaultModels={providerTypeDefaultModels}
-                    usedTypesByOthers={
-                      usedTypesByOthersMap.get(p.id) ?? new Set()
-                    }
+                    usedTypesByOthers={usedTypesByOthersMap.get(p.id) ?? new Set()}
                     duplicateName={duplicateNames.has(p.name.trim())}
                     onChange={updateProvider}
                     onRemove={removeProvider}
@@ -686,9 +665,9 @@ export function SettingsPanel({
                   type="button"
                   onClick={addProvider}
                   className={cn(
-                    "inline-flex items-center justify-center gap-1.5 rounded-lg h-9",
+                    "inline-flex h-9 items-center justify-center gap-1.5 rounded-lg",
                     "border border-dashed border-border/50 text-muted-foreground/80",
-                    "hover:border-border hover:text-foreground hover:bg-muted/30 active:scale-95 transition-[color,background-color,border-color,scale] duration-150",
+                    "transition-[color,background-color,border-color,scale] duration-150 hover:border-border hover:bg-muted/30 hover:text-foreground active:scale-95",
                     "text-[13px]",
                   )}
                 >
@@ -709,25 +688,17 @@ export function SettingsPanel({
         )}
       >
         {/* Mobile: error stacked above buttons; no path (would truncate uselessly) */}
-        <div className="md:hidden flex flex-col gap-2 px-4 py-3">
-          {error && (
-            <div className="text-[12px] text-destructive/90 leading-relaxed">
-              {error}
-            </div>
-          )}
+        <div className="flex flex-col gap-2 px-4 py-3 md:hidden">
+          {error && <div className="text-[12px] leading-relaxed text-destructive/90">{error}</div>}
           <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={onClose}
-              className={cn(CANCEL_BTN_CLASS, "flex-1 h-9")}
-            >
+            <button type="button" onClick={onClose} className={cn(CANCEL_BTN_CLASS, "h-9 flex-1")}>
               Cancel
             </button>
             <button
               type="button"
               onClick={() => void handleSave()}
               disabled={!settings || saving || hasInvalidProvider}
-              className={cn(SAVE_BTN_CLASS, "flex-2 h-9")}
+              className={cn(SAVE_BTN_CLASS, "h-9 flex-2")}
             >
               {saving && <Loader2 className="size-3.5 animate-spin" />}
               Save
@@ -736,20 +707,12 @@ export function SettingsPanel({
         </div>
 
         {/* Desktop: path on the left, buttons on the right */}
-        <div className="max-md:hidden flex items-center justify-between gap-3 px-6 py-3">
-          <div className="text-[12px] text-muted-foreground/70 truncate min-w-0 flex-1">
-            {error ? (
-              <span className="text-destructive/90">{error}</span>
-            ) : (
-              editsPath
-            )}
+        <div className="flex items-center justify-between gap-3 px-6 py-3 max-md:hidden">
+          <div className="min-w-0 flex-1 truncate text-[12px] text-muted-foreground/70">
+            {error ? <span className="text-destructive/90">{error}</span> : editsPath}
           </div>
-          <div className="flex items-center gap-2 shrink-0">
-            <button
-              type="button"
-              onClick={onClose}
-              className={cn(CANCEL_BTN_CLASS, "h-8 px-3.5")}
-            >
+          <div className="flex shrink-0 items-center gap-2">
+            <button type="button" onClick={onClose} className={cn(CANCEL_BTN_CLASS, "h-8 px-3.5")}>
               Cancel
             </button>
             <button
@@ -776,7 +739,7 @@ export function SettingsPanel({
       <Dialog open={open} onOpenChange={handleOpenChange}>
         <DialogContent
           showCloseButton={false}
-          className="flex flex-col gap-0 p-0 w-160 max-w-[calc(100vw-2rem)] max-h-[82vh] sm:max-w-[calc(100vw-2rem)]"
+          className="flex max-h-[82vh] w-160 max-w-[calc(100vw-2rem)] flex-col gap-0 p-0 sm:max-w-[calc(100vw-2rem)]"
         >
           <DialogTitle className="sr-only">Settings</DialogTitle>
           {body}
@@ -790,7 +753,7 @@ export function SettingsPanel({
       <SheetContent
         side="bottom"
         showCloseButton={false}
-        className="flex flex-col gap-0 p-0 h-dvh rounded-none"
+        className="flex h-dvh flex-col gap-0 rounded-none p-0"
       >
         <SheetTitle className="sr-only">Settings</SheetTitle>
         {body}

@@ -52,12 +52,10 @@
   --radius-xl: calc(var(--radius) + 4px);
 
   --font-sans:
-    "Source Sans 3", -apple-system, BlinkMacSystemFont, "PingFang SC",
-    "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans SC", system-ui, sans-serif;
-  --font-mono:
-    "Source Code Pro", ui-monospace, "PingFang SC", "Microsoft YaHei", monospace;
-  --font-display:
-    "Source Code Pro", ui-monospace, "PingFang SC", "Microsoft YaHei", monospace;
+    "Source Sans 3", -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB",
+    "Microsoft YaHei", "Noto Sans SC", system-ui, sans-serif;
+  --font-mono: "Source Code Pro", ui-monospace, "PingFang SC", "Microsoft YaHei", monospace;
+  --font-display: "Source Code Pro", ui-monospace, "PingFang SC", "Microsoft YaHei", monospace;
 
   --text-2xs: 0.6875rem;
   --text-2xs--line-height: 1rem;
@@ -110,20 +108,14 @@
 
     --elevation-hairline: 0 0 0 1px var(--code-border);
     --elevation-card:
-      0 0 0 1px var(--border), 0 1px 2px oklch(0 0 0 / 0.3),
-      0 2px 6px oklch(0 0 0 / 0.28);
+      0 0 0 1px var(--border), 0 1px 2px oklch(0 0 0 / 0.3), 0 2px 6px oklch(0 0 0 / 0.28);
     --elevation-card-accent:
-      0 0 0 1px color-mix(in oklch, var(--accent) 45%, transparent),
-      0 1px 2px oklch(0 0 0 / 0.3), 0 2px 6px oklch(0 0 0 / 0.28);
-    --elevation-overlay:
-      0 0 0 1px var(--border), 0 8px 28px oklch(0 0 0 / 0.45);
+      0 0 0 1px color-mix(in oklch, var(--accent) 45%, transparent), 0 1px 2px oklch(0 0 0 / 0.3),
+      0 2px 6px oklch(0 0 0 / 0.28);
+    --elevation-overlay: 0 0 0 1px var(--border), 0 8px 28px oklch(0 0 0 / 0.45);
 
     --scrollbar-thumb: color-mix(in oklch, var(--border) 90%, transparent);
-    --scrollbar-thumb-hover: color-mix(
-      in oklch,
-      var(--muted-foreground) 45%,
-      transparent
-    );
+    --scrollbar-thumb-hover: color-mix(in oklch, var(--muted-foreground) 45%, transparent);
     --scrollbar-track: transparent;
 
     --diff-removed-bg: oklch(0.65 0.15 25 / 0.16);
@@ -161,13 +153,11 @@
 
     --elevation-hairline: 0 0 0 1px var(--code-border);
     --elevation-card:
-      0 0 0 1px var(--border), 0 1px 2px oklch(0 0 0 / 0.04),
-      0 2px 6px oklch(0 0 0 / 0.03);
+      0 0 0 1px var(--border), 0 1px 2px oklch(0 0 0 / 0.04), 0 2px 6px oklch(0 0 0 / 0.03);
     --elevation-card-accent:
-      0 0 0 1px color-mix(in oklch, var(--accent) 45%, transparent),
-      0 1px 2px oklch(0 0 0 / 0.04), 0 2px 6px oklch(0 0 0 / 0.03);
-    --elevation-overlay:
-      0 0 0 1px var(--border), 0 8px 28px oklch(0 0 0 / 0.07);
+      0 0 0 1px color-mix(in oklch, var(--accent) 45%, transparent), 0 1px 2px oklch(0 0 0 / 0.04),
+      0 2px 6px oklch(0 0 0 / 0.03);
+    --elevation-overlay: 0 0 0 1px var(--border), 0 8px 28px oklch(0 0 0 / 0.07);
 
     --diff-removed-bg: oklch(0.55 0.17 25 / 0.1);
     --diff-added-bg: oklch(0.6 0.16 145 / 0.1);
@@ -187,7 +177,7 @@
     @apply border-border;
   }
   body {
-    @apply bg-background text-foreground font-sans;
+    @apply bg-background font-sans text-foreground;
     font-size: 15px;
     line-height: 1.55;
     -webkit-font-smoothing: antialiased;
@@ -218,7 +208,7 @@
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  @apply bg-border rounded-full;
+  @apply rounded-full bg-border;
 }
 ::-webkit-scrollbar-thumb:hover {
   @apply bg-muted-foreground/40;
@@ -278,7 +268,7 @@
 
 /* ── Prose / Markdown ── */
 .prose {
-  @apply text-foreground max-w-none;
+  @apply max-w-none text-foreground;
 }
 /* The bubble's flex gap owns spacing between blocks. */
 .prose > :first-child {
@@ -291,17 +281,17 @@
 .prose h2,
 .prose h3,
 .prose h4 {
-  @apply text-foreground font-semibold;
+  @apply font-semibold text-foreground;
   text-wrap: balance;
 }
 .prose h1 {
-  @apply text-xl mt-8 mb-4 tracking-[-0.012em];
+  @apply mt-8 mb-4 text-xl tracking-[-0.012em];
 }
 .prose h2 {
-  @apply text-lg mt-6 mb-3;
+  @apply mt-6 mb-3 text-lg;
 }
 .prose h3 {
-  @apply text-base mt-5 mb-2;
+  @apply mt-5 mb-2 text-base;
 }
 .prose p {
   @apply leading-relaxed not-first:mt-3;
@@ -309,7 +299,7 @@
   text-wrap: pretty;
 }
 .prose blockquote {
-  @apply mt-4 border-l-2 border-border pl-4 italic text-muted-foreground;
+  @apply mt-4 border-l-2 border-border pl-4 text-muted-foreground italic;
   overflow-wrap: anywhere;
 }
 .prose ul {
@@ -327,7 +317,7 @@
   @apply m-0 bg-transparent;
 }
 .prose pre code {
-  @apply rounded-none bg-transparent p-0 font-mono text-[13px] font-normal leading-relaxed text-foreground;
+  @apply rounded-none bg-transparent p-0 font-mono text-[13px] leading-relaxed font-normal text-foreground;
 }
 .prose .katex {
   font-size: 1.05em;
@@ -337,7 +327,7 @@
 }
 
 .prose a {
-  @apply text-accent underline underline-offset-2 decoration-accent/40 hover:decoration-accent transition-colors;
+  @apply text-accent underline decoration-accent/40 underline-offset-2 transition-colors hover:decoration-accent;
   overflow-wrap: anywhere;
 }
 .prose strong {
@@ -349,17 +339,17 @@
 
 /* Tables */
 .prose table {
-  @apply w-full min-w-max text-sm border-collapse;
+  @apply w-full min-w-max border-collapse text-sm;
 }
 .prose thead {
   @apply border-b border-border;
 }
 .prose th {
-  @apply px-3 py-2 text-left font-semibold text-foreground text-xs uppercase tracking-wider;
+  @apply px-3 py-2 text-left text-xs font-semibold tracking-wider text-foreground uppercase;
   overflow-wrap: anywhere;
 }
 .prose td {
-  @apply px-3 py-2 border-b border-border/30 text-foreground/80;
+  @apply border-b border-border/30 px-3 py-2 text-foreground/80;
   overflow-wrap: anywhere;
 }
 .prose tbody tr:hover {
@@ -368,7 +358,7 @@
 
 /* Task lists (GFM checkboxes) */
 .prose ul:has(> li > input[type="checkbox"]) {
-  @apply list-none ml-0;
+  @apply ml-0 list-none;
 }
 .prose li > input[type="checkbox"] {
   @apply mr-2 accent-accent;

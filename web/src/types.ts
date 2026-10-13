@@ -192,10 +192,7 @@ interface AttachedTextFile {
 }
 
 /** File attached in the input area, pending send (upload / drag / paste). */
-export type AttachedFile =
-  | AttachedImageFile
-  | AttachedDocumentFile
-  | AttachedTextFile;
+export type AttachedFile = AttachedImageFile | AttachedDocumentFile | AttachedTextFile;
 
 /** Workspace file referenced inline via the composer's @ pill. */
 export interface WorkspaceFileReference {
@@ -329,18 +326,13 @@ export interface JobMarkerMessage {
   renderKey: string;
 }
 
-export type RenderMessage =
-  | ChatMessage
-  | CompactMarkerMessage
-  | JobMarkerMessage;
+export type RenderMessage = ChatMessage | CompactMarkerMessage | JobMarkerMessage;
 
 export function isChatMessage(message: RenderMessage): message is ChatMessage {
   return "role" in message;
 }
 
-export function isCompactMarker(
-  message: RenderMessage,
-): message is CompactMarkerMessage {
+export function isCompactMarker(message: RenderMessage): message is CompactMarkerMessage {
   return "kind" in message && message.kind === "compact-marker";
 }
 
@@ -561,9 +553,7 @@ export interface WebProviderEntry {
 
 export interface GlobalConfig {
   compact_threshold?: number | false | null;
-  permission?:
-    | PermissionLevel
-    | { level?: PermissionLevel; mode?: PermissionMode };
+  permission?: PermissionLevel | { level?: PermissionLevel; mode?: PermissionMode };
   providers?: Record<string, GlobalProviderEntry>;
   web?: {
     fetch?: WebFetchProvider;

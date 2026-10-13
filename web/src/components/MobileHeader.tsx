@@ -10,23 +10,19 @@ interface MobileHeaderProps {
   onCreateSession: () => void;
 }
 
-export function MobileHeader({
-  title,
-  onMenuToggle,
-  onCreateSession,
-}: MobileHeaderProps) {
+export function MobileHeader({ title, onMenuToggle, onCreateSession }: MobileHeaderProps) {
   return (
-    <header className="flex md:hidden h-12 shrink-0 items-center justify-between px-4 border-b border-border/40 bg-background">
+    <header className="flex h-12 shrink-0 items-center justify-between border-b border-border/40 bg-background px-4 md:hidden">
       <button
         type="button"
         aria-label="Toggle menu"
         onClick={onMenuToggle}
-        className="flex items-center justify-center size-10 -ml-2 text-muted-foreground hover:text-foreground active:scale-95 transition-[color,scale] duration-150"
+        className="-ml-2 flex size-10 items-center justify-center text-muted-foreground transition-[color,scale] duration-150 hover:text-foreground active:scale-95"
       >
         <Menu className="size-5" />
       </button>
 
-      <span className="text-xs text-foreground/70 truncate max-w-[60%] text-center">
+      <span className="max-w-[60%] truncate text-center text-xs text-foreground/70">
         {title || "mycode"}
       </span>
 
@@ -34,7 +30,7 @@ export function MobileHeader({
         type="button"
         aria-label="New chat"
         onClick={onCreateSession}
-        className="flex items-center justify-center size-10 -mr-2 text-muted-foreground hover:text-foreground active:scale-95 transition-[color,scale] duration-150"
+        className="-mr-2 flex size-10 items-center justify-center text-muted-foreground transition-[color,scale] duration-150 hover:text-foreground active:scale-95"
       >
         <Plus className="size-5" />
       </button>

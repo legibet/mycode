@@ -7,6 +7,7 @@ import { Check, Copy } from "lucide-react";
 import type { ComponentPropsWithoutRef } from "react";
 import { useEffect, useRef, useState } from "react";
 import type { ExtraProps } from "react-markdown";
+
 import { copyText } from "../../utils/clipboard";
 import { cn } from "../../utils/cn";
 import HighlightedCode from "./HighlightedCode";
@@ -20,9 +21,7 @@ export function CodeBlock({ className, children, ...props }: CodeBlockProps) {
 
   const match = LANGUAGE_RE.exec(className || "");
   const language = match?.[1] ?? "";
-  const rawContent = Array.isArray(children)
-    ? children.join("")
-    : String(children || "");
+  const rawContent = Array.isArray(children) ? children.join("") : String(children || "");
   const codeContent = rawContent.replace(/\n$/, "");
 
   const isInline = !match && !rawContent.endsWith("\n");
@@ -55,7 +54,7 @@ export function CodeBlock({ className, children, ...props }: CodeBlockProps) {
     return (
       <code
         className={cn(
-          "px-1.5 py-0.5 rounded-sm bg-code font-mono text-[13px] text-accent font-medium",
+          "rounded-sm bg-code px-1.5 py-0.5 font-mono text-[13px] font-medium text-accent",
           className,
         )}
         {...props}
@@ -66,12 +65,9 @@ export function CodeBlock({ className, children, ...props }: CodeBlockProps) {
   }
 
   return (
-    <div
-      data-code-block
-      className="group/code relative my-3 rounded-md bg-code shadow-hairline"
-    >
+    <div data-code-block className="group/code relative my-3 rounded-md bg-code shadow-hairline">
       {language && (
-        <span className="absolute top-1.5 left-3 text-[11px] font-mono text-muted-foreground/50 uppercase tracking-wider select-none pointer-events-none z-10">
+        <span className="pointer-events-none absolute top-1.5 left-3 z-10 font-mono text-[11px] tracking-wider text-muted-foreground/50 uppercase select-none">
           {language}
         </span>
       )}
@@ -81,21 +77,17 @@ export function CodeBlock({ className, children, ...props }: CodeBlockProps) {
         aria-label="Copy code"
         onClick={handleCopy}
         className={cn(
-          "absolute top-1 right-1 z-10 flex items-center justify-center size-7 rounded-md active:scale-95 transition-[color,background-color,opacity,scale] duration-150",
+          "absolute top-1 right-1 z-10 flex size-7 items-center justify-center rounded-md transition-[color,background-color,opacity,scale] duration-150 active:scale-95",
           copied
             ? "text-accent opacity-100"
-            : "text-muted-foreground/40 max-md:opacity-60 opacity-0 group-hover/code:opacity-100 hover:text-foreground/60 hover:bg-muted/20",
+            : "text-muted-foreground/40 opacity-0 group-hover/code:opacity-100 hover:bg-muted/20 hover:text-foreground/60 max-md:opacity-60",
         )}
         title="Copy"
       >
-        {copied ? (
-          <Check className="size-3.5" />
-        ) : (
-          <Copy className="size-3.5" />
-        )}
+        {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
       </button>
 
-      <div className="overflow-x-auto scrollbar-subtle">
+      <div className="scrollbar-subtle overflow-x-auto">
         <div className={cn("px-3 pb-2.5", language ? "pt-6" : "pt-2")}>
           <HighlightedCode language={language} code={codeContent} />
         </div>

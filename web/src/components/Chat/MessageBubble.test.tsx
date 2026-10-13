@@ -1,5 +1,6 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
+
 import type { Interruption, MessageBlock } from "../../types";
 import { MessageBubble } from "./MessageBubble";
 
@@ -133,9 +134,10 @@ describe("turn work folding", () => {
 
     rerender(renderTurn({ isStreaming: false }));
 
-    expect(
-      screen.getByRole("button", { name: "Worked for 23s · 1 read" }),
-    ).toHaveAttribute("aria-expanded", "false");
+    expect(screen.getByRole("button", { name: "Worked for 23s · 1 read" })).toHaveAttribute(
+      "aria-expanded",
+      "false",
+    );
     expect(screen.getByText("The answer")).toBe(answer);
     expect(tool.isConnected).toBe(true);
     expect(tool).toHaveAttribute("aria-expanded", "true");
@@ -150,9 +152,10 @@ describe("turn work folding", () => {
       }),
     );
 
-    expect(
-      screen.getByRole("button", { name: "Stopped · 1 read" }),
-    ).toHaveAttribute("aria-expanded", "false");
+    expect(screen.getByRole("button", { name: "Stopped · 1 read" })).toHaveAttribute(
+      "aria-expanded",
+      "false",
+    );
     // The row carries the stop; no separate line repeats it.
     expect(screen.getAllByText("Stopped")).toHaveLength(1);
   });
@@ -166,9 +169,7 @@ describe("turn work folding", () => {
       }),
     );
 
-    expect(
-      screen.getByRole("button", { name: "Failed · 1 read" }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Failed · 1 read" })).toBeInTheDocument();
     expect(screen.getByText("HTTP 500")).toBeInTheDocument();
   });
 

@@ -1,6 +1,7 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+
 import type { SessionSearchHit } from "../types";
 import { SessionSearch } from "./SessionSearch";
 
@@ -54,9 +55,7 @@ beforeEach(() => {
 describe("SessionSearch", () => {
   it("does not fetch for an empty query", async () => {
     const { input } = renderSearch();
-    expect(
-      screen.getByText("Type to search titles and messages"),
-    ).toBeInTheDocument();
+    expect(screen.getByText("Type to search titles and messages")).toBeInTheDocument();
     await userEvent.type(input, "   ");
     await new Promise((resolve) => setTimeout(resolve, 400));
     expect(fetchMock).not.toHaveBeenCalled();
@@ -84,9 +83,7 @@ describe("SessionSearch", () => {
 
     const match = screen.getByText("Retry");
     expect(match.tagName).toBe("MARK");
-    expect(match.parentElement).toHaveTextContent(
-      "we should Retry the request",
-    );
+    expect(match.parentElement).toHaveTextContent("we should Retry the request");
   });
 
   it("keeps the match visible by trimming long leading context", async () => {
@@ -149,19 +146,14 @@ describe("SessionSearch", () => {
 
   it("selects the first result after the list is replaced", async () => {
     fetchMock
-      .mockResolvedValueOnce(
-        jsonResponse([hit("a", "Alpha"), hit("b", "Beta")]),
-      )
+      .mockResolvedValueOnce(jsonResponse([hit("a", "Alpha"), hit("b", "Beta")]))
       .mockResolvedValueOnce(jsonResponse([hit("c", "Gamma")]));
     const { input, onSelect } = renderSearch();
 
     await userEvent.type(input, "ab");
     await screen.findByText("Beta");
     await userEvent.keyboard("{ArrowDown}");
-    expect(screen.getByRole("option", { name: /Beta/ })).toHaveAttribute(
-      "aria-selected",
-      "true",
-    );
+    expect(screen.getByRole("option", { name: /Beta/ })).toHaveAttribute("aria-selected", "true");
 
     await userEvent.type(input, "c");
     const gamma = await screen.findByRole("option", { name: /Gamma/ });
@@ -172,14 +164,12 @@ describe("SessionSearch", () => {
 
   it("dims earlier results and blocks Enter while the next query loads", async () => {
     let release: (() => void) | undefined;
-    fetchMock
-      .mockResolvedValueOnce(jsonResponse([hit("a", "Alpha")]))
-      .mockImplementationOnce(
-        () =>
-          new Promise((resolve) => {
-            release = () => resolve(jsonResponse([hit("b", "Beta")]));
-          }),
-      );
+    fetchMock.mockResolvedValueOnce(jsonResponse([hit("a", "Alpha")])).mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          release = () => resolve(jsonResponse([hit("b", "Beta")]));
+        }),
+    );
     const { input, onSelect } = renderSearch();
 
     await userEvent.type(input, "a");

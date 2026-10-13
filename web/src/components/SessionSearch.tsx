@@ -8,6 +8,7 @@
  */
 
 import { useEffect, useRef, useState } from "react";
+
 import {
   Command,
   CommandEmpty,
@@ -18,6 +19,7 @@ import {
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
+
 import type { SessionSearchHit, SessionSearchResponse } from "../types";
 import { formatShortDate, parseDate } from "../utils/format";
 
@@ -67,7 +69,7 @@ export function SessionSearch({
         <DialogContent
           showCloseButton={false}
           initialFocus={inputRef}
-          className="flex flex-col gap-0 p-0 w-110 max-w-[calc(100vw-2rem)] max-h-[min(32.5rem,100dvh-2rem)] sm:max-w-[calc(100vw-2rem)]"
+          className="flex max-h-[min(32.5rem,100dvh-2rem)] w-110 max-w-[calc(100vw-2rem)] flex-col gap-0 p-0 sm:max-w-[calc(100vw-2rem)]"
         >
           <DialogTitle className="sr-only">Search chats</DialogTitle>
           {panel}
@@ -82,14 +84,11 @@ export function SessionSearch({
         side="bottom"
         showCloseButton={false}
         initialFocus={inputRef}
-        className="flex flex-col gap-0 p-0 max-h-[82vh] rounded-t-2xl"
+        className="flex max-h-[82vh] flex-col gap-0 rounded-t-2xl p-0"
       >
         <SheetTitle className="sr-only">Search chats</SheetTitle>
-        <div
-          className="flex justify-center pt-2.5 pb-1 shrink-0"
-          aria-hidden="true"
-        >
-          <div className="w-10 h-0.75 rounded-full bg-border/60" />
+        <div className="flex shrink-0 justify-center pt-2.5 pb-1" aria-hidden="true">
+          <div className="h-0.75 w-10 rounded-full bg-border/60" />
         </div>
         {panel}
       </SheetContent>
@@ -165,7 +164,7 @@ function SearchPanel({
       shouldFilter={false}
       value={value}
       onValueChange={setSelected}
-      className="flex-1 min-h-0 rounded-none! bg-transparent"
+      className="min-h-0 flex-1 rounded-none! bg-transparent"
     >
       <CommandInput
         ref={inputRef}
@@ -176,13 +175,11 @@ function SearchPanel({
         autoComplete="off"
         autoCorrect="off"
         autoCapitalize="off"
-        className="text-base sm:text-sm caret-accent placeholder:text-muted-foreground/40"
+        className="text-base caret-accent placeholder:text-muted-foreground/40 sm:text-sm"
       />
-      <CommandList className="flex-1 min-h-0 max-h-none mt-1 overscroll-contain">
+      <CommandList className="mt-1 max-h-none min-h-0 flex-1 overscroll-contain">
         {status && (
-          <div className="px-2 py-6 text-center text-[12px] text-muted-foreground/60">
-            {status}
-          </div>
+          <div className="px-2 py-6 text-center text-[12px] text-muted-foreground/60">{status}</div>
         )}
         {query && !loading && !failed && (
           <CommandEmpty className="py-6 text-[12px] text-muted-foreground/60">
@@ -190,8 +187,7 @@ function SearchPanel({
           </CommandEmpty>
         )}
         {results.map(({ session, snippet }) => {
-          const date =
-            parseDate(session.updated_at) || parseDate(session.created_at);
+          const date = parseDate(session.updated_at) || parseDate(session.created_at);
           const isActive = session.id === activeSessionId;
           return (
             <CommandItem
@@ -204,12 +200,12 @@ function SearchPanel({
             >
               {isActive && (
                 <span
-                  className="absolute left-0 top-2 bottom-2 w-0.5 rounded-r bg-accent"
+                  className="absolute top-2 bottom-2 left-0 w-0.5 rounded-r bg-accent"
                   aria-hidden="true"
                 />
               )}
-              <div className="flex items-center gap-2 min-w-0">
-                <span className="truncate flex-1 text-[13px] text-foreground">
+              <div className="flex min-w-0 items-center gap-2">
+                <span className="flex-1 truncate text-[13px] text-foreground">
                   {session.title || "New Chat"}
                 </span>
                 {date && (
@@ -223,9 +219,7 @@ function SearchPanel({
                   {snippet.before.length > BEFORE_MAX
                     ? `…${snippet.before.slice(-BEFORE_MAX)}`
                     : snippet.before}
-                  <mark className="bg-transparent text-accent">
-                    {snippet.match}
-                  </mark>
+                  <mark className="bg-transparent text-accent">{snippet.match}</mark>
                   {snippet.after}
                 </div>
               )}

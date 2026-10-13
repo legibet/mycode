@@ -7,16 +7,13 @@
 
 import { ChevronRight } from "lucide-react";
 import { type ReactNode, useLayoutEffect, useRef, useState } from "react";
+
 import type { Interruption, MessageBlock } from "../../types";
 import { cn } from "../../utils/cn";
 import { formatDuration } from "../../utils/format";
 
 // Summary order puts side effects first; a null tool counts every other tool.
-const TOOL_KINDS: readonly (readonly [
-  tool: string | null,
-  one: string,
-  many: string,
-])[] = [
+const TOOL_KINDS: readonly (readonly [tool: string | null, one: string, many: string])[] = [
   ["edit", "edit", "edits"],
   ["write", "write", "writes"],
   ["bash", "command", "commands"],
@@ -36,10 +33,7 @@ function summarizeTools(blocks: MessageBlock[]): string {
     const kind = TOOL_KINDS.findIndex(([tool]) => tool === block.name);
     const index = kind === -1 ? TOOL_KINDS.length - 1 : kind;
     counts[index] = (counts[index] ?? 0) + 1;
-    if (
-      block.runtime?.isError &&
-      block.runtime.finalOutput !== CANCELLED_OUTPUT
-    ) {
+    if (block.runtime?.isError && block.runtime.finalOutput !== CANCELLED_OUTPUT) {
       failed += 1;
     }
   }
@@ -66,14 +60,7 @@ interface SummaryRowProps {
  * One line: the lead, then the tool counts whole or not at all. The counts
  * drop when the full row would not fit, keeping the chevron beside the text.
  */
-function SummaryRow({
-  lead,
-  tools,
-  failed,
-  expanded,
-  fadeIn,
-  onToggle,
-}: SummaryRowProps) {
+function SummaryRow({ lead, tools, failed, expanded, fadeIn, onToggle }: SummaryRowProps) {
   const rowRef = useRef<HTMLButtonElement>(null);
   const textRef = useRef<HTMLSpanElement>(null);
   const fullRef = useRef<HTMLSpanElement>(null);
@@ -103,7 +90,7 @@ function SummaryRow({
       ref={rowRef}
       type="button"
       className={cn(
-        "relative flex max-w-full select-none items-center gap-1 overflow-hidden text-left text-[12px] cursor-pointer",
+        "relative flex max-w-full cursor-pointer items-center gap-1 overflow-hidden text-left text-[12px] select-none",
         // The row fades in over the work folding beneath it.
         fadeIn && "transition-opacity duration-300 starting:opacity-0",
       )}
@@ -193,11 +180,7 @@ export function WorkSection({
         )}
       >
         <div className="overflow-hidden">
-          {mounted && (
-            <div className={cn("flex flex-col gap-3", folded && "pt-3")}>
-              {children}
-            </div>
-          )}
+          {mounted && <div className={cn("flex flex-col gap-3", folded && "pt-3")}>{children}</div>}
         </div>
       </div>
     </div>

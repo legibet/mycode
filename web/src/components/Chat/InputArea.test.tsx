@@ -1,6 +1,7 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
+
 import type { Cost } from "../../types";
 import { InputArea } from "./InputArea";
 
@@ -44,9 +45,7 @@ describe("InputArea", () => {
 
     expect(onAttachFiles).not.toHaveBeenCalled();
     expect(screen.getByText("Image unsupported")).toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: "text-only" }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "text-only" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "medium" })).toBeNull();
 
     rerender(
@@ -71,9 +70,7 @@ describe("InputArea", () => {
 
     await waitFor(() => expect(onSubmit).not.toHaveBeenCalled());
     expect(screen.getByAltText("diagram.png")).toBeInTheDocument();
-    expect(
-      screen.getByText("Remove image or switch model"),
-    ).toBeInTheDocument();
+    expect(screen.getByText("Remove image or switch model")).toBeInTheDocument();
     expect(screen.getByText("Image unsupported")).toBeInTheDocument();
   });
 
@@ -129,9 +126,7 @@ describe("InputArea", () => {
 
     // A total-only cost still reaches the card, where mobile shows the cost.
     await user.click(screen.getByText("72%"));
-    expect(await screen.findByRole("dialog")).toHaveTextContent(
-      "Total1,040,000$0.39",
-    );
+    expect(await screen.findByRole("dialog")).toHaveTextContent("Total1,040,000$0.39");
   });
 
   const runningProps = {
@@ -152,9 +147,7 @@ describe("InputArea", () => {
     const onSubmit = vi.fn().mockResolvedValue(true);
     render(<InputArea {...runningProps} onSubmit={onSubmit} />);
 
-    expect(
-      screen.getByRole("button", { name: "Stop generating" }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Stop generating" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Send message" })).toBeNull();
 
     await user.click(screen.getByRole("textbox"));
@@ -165,14 +158,9 @@ describe("InputArea", () => {
     await user.click(send);
     await user.keyboard("{/Control}");
     await waitFor(() =>
-      expect(onSubmit).toHaveBeenCalledWith(
-        { text: "use sqlite", workspaceFiles: [] },
-        true,
-      ),
+      expect(onSubmit).toHaveBeenCalledWith({ text: "use sqlite", workspaceFiles: [] }, true),
     );
-    expect(
-      await screen.findByRole("button", { name: "Stop generating" }),
-    ).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Stop generating" })).toBeInTheDocument();
   });
 
   it("lists queued messages and edits one only from an empty composer", async () => {
@@ -190,9 +178,7 @@ describe("InputArea", () => {
               text: "then add tests\nand docs",
               workspaceFiles: [],
             },
-            attachments: [
-              { id: "f1", kind: "text", name: "notes.md", text: "notes" },
-            ],
+            attachments: [{ id: "f1", kind: "text", name: "notes.md", text: "notes" }],
             input: [],
           },
         ]}
@@ -267,9 +253,7 @@ describe("InputArea", () => {
   it("shows no card when nothing is running or queued", () => {
     render(<InputArea {...runningProps} onSubmit={vi.fn()} jobs={[]} />);
 
-    expect(
-      screen.queryByRole("list", { name: "Background commands" }),
-    ).toBeNull();
+    expect(screen.queryByRole("list", { name: "Background commands" })).toBeNull();
     expect(screen.queryByRole("list", { name: "Queued messages" })).toBeNull();
   });
 });

@@ -1,5 +1,6 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
 import type { ChatMessage, RenderMessage } from "../types";
 import { isChatMessage, isCompactMarker } from "../types";
 import { loadActiveSession, saveActiveSession } from "../utils/storage";
@@ -64,24 +65,20 @@ function renderChatHook(
   );
 }
 
-type MockResponse =
-  | Response
-  | ((init?: RequestInit) => Promise<Response> | Response);
+type MockResponse = Response | ((init?: RequestInit) => Promise<Response> | Response);
 
 function mockFetch(routes: Record<string, MockResponse>) {
-  const fetchMock = vi.fn(
-    async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
-      for (const [prefix, response] of Object.entries(routes)) {
-        if (!url.startsWith(prefix)) continue;
-        if (typeof response === "function") {
-          return response(init);
-        }
-        return response.clone();
+  const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    for (const [prefix, response] of Object.entries(routes)) {
+      if (!url.startsWith(prefix)) continue;
+      if (typeof response === "function") {
+        return response(init);
       }
-      throw new Error(`Unexpected fetch: ${url}`);
-    },
-  );
+      return response.clone();
+    }
+    throw new Error(`Unexpected fetch: ${url}`);
+  });
   globalThis.fetch = fetchMock as typeof fetch;
   return fetchMock;
 }
@@ -109,9 +106,7 @@ describe("useChat", () => {
     });
 
     expect(result.current.activeSession.isDraft).toBe(true);
-    expect(result.current.sessions[0]?.id).toBe(
-      result.current.activeSession.id,
-    );
+    expect(result.current.sessions[0]?.id).toBe(result.current.activeSession.id);
     expect(result.current.messages).toEqual([]);
     expect(result.current.loading).toBe(false);
   });
@@ -161,9 +156,7 @@ describe("useChat", () => {
     await result.current.send({ text: "hello", workspaceFiles: [] });
 
     const chatCall = fetchMock.mock.calls.find(([url]) => url === "/api/chat");
-    expect(JSON.parse(String(chatCall?.[1]?.body)).reasoning_effort).toBe(
-      "auto",
-    );
+    expect(JSON.parse(String(chatCall?.[1]?.body)).reasoning_effort).toBe("auto");
   });
 
   it("sends text attachments as attachment text blocks", async () => {
@@ -318,8 +311,7 @@ describe("useChat", () => {
 
     await waitFor(() => {
       const userMessage = result.current.messages.find(
-        (message): message is ChatMessage =>
-          isChatMessage(message) && message.role === "user",
+        (message): message is ChatMessage => isChatMessage(message) && message.role === "user",
       );
       expect(userMessage?.content[1]).toEqual({
         type: "document",
@@ -378,9 +370,7 @@ describe("useChat", () => {
       text: "existing output",
     });
     expect(
-      fetchMock.mock.calls.some(
-        ([url]) => url === "/api/runs/run-existing/stream?after=7",
-      ),
+      fetchMock.mock.calls.some(([url]) => url === "/api/runs/run-existing/stream?after=7"),
     ).toBe(true);
   });
 
@@ -571,11 +561,9 @@ describe("useChat", () => {
     const { result } = renderChatHook();
 
     await waitFor(() => expect(result.current.loading).toBe(false));
-    expect(
-      fetchMock.mock.calls.some(
-        ([url]) => url === "/api/runs/run-2/stream?after=7",
-      ),
-    ).toBe(true);
+    expect(fetchMock.mock.calls.some(([url]) => url === "/api/runs/run-2/stream?after=7")).toBe(
+      true,
+    );
   });
 
   it("appends all tool output deltas without inserting separators", async () => {
@@ -943,9 +931,7 @@ describe("useChat", () => {
     await waitFor(() => {
       expect(result.current.sessionLoading).toBe(false);
       expect(result.current.activeSession.id).toBe("session-1");
-      expect(result.current.sessions.map((session) => session.id)).toEqual([
-        "session-1",
-      ]);
+      expect(result.current.sessions.map((session) => session.id)).toEqual(["session-1"]);
       expect(expectChat(result.current.messages[0]).content[0]).toEqual({
         type: "text",
         text: "first session",
@@ -1089,9 +1075,7 @@ describe("useChat", () => {
     await waitFor(() => {
       expect(result.current.pendingPermission).toBeNull();
     });
-    expect(decideCalls).toEqual([
-      JSON.stringify({ request_id: "req-1", decision: "allow" }),
-    ]);
+    expect(decideCalls).toEqual([JSON.stringify({ request_id: "req-1", decision: "allow" })]);
 
     streamController.close();
   });
@@ -1190,9 +1174,7 @@ describe("useChat", () => {
       expect(result.current.sessionLoading).toBe(false);
       expect(result.current.activeSession.isDraft).toBe(true);
       expect(result.current.sessions).toHaveLength(1);
-      expect(result.current.sessions[0]?.id).toBe(
-        result.current.activeSession.id,
-      );
+      expect(result.current.sessions[0]?.id).toBe(result.current.activeSession.id);
       expect(result.current.messages).toEqual([]);
     });
 
@@ -1251,17 +1233,14 @@ describe("useChat", () => {
         "/api/runs/run-c/stream?after=0": () => {
           sessionState = {
             ...sessionState,
-            messages: [
-              ...sessionState.messages,
-              { role: "compact", content: [] },
-            ],
+            messages: [...sessionState.messages, { role: "compact", content: [] }],
             session_usage: { input_tokens: 1_200, output_tokens: 150 },
             session_cost: { total: 0.41 },
           };
-          return new Response(
-            'data: {"seq":1,"type":"compact"}\n\ndata: [DONE]\n\n',
-            { status: 200, headers: { "Content-Type": "text/event-stream" } },
-          );
+          return new Response('data: {"seq":1,"type":"compact"}\n\ndata: [DONE]\n\n', {
+            status: 200,
+            headers: { "Content-Type": "text/event-stream" },
+          });
         },
       },
       () => createJsonResponse(sessionState),
@@ -1310,9 +1289,7 @@ describe("useChat", () => {
     expect(result.current.currentContext).toBeNull();
     expect(result.current.compactError).toBeNull();
 
-    const compactCall = fetchMock.mock.calls.find(([url]) =>
-      String(url).endsWith("/compact"),
-    );
+    const compactCall = fetchMock.mock.calls.find(([url]) => String(url).endsWith("/compact"));
     expect(JSON.parse(String(compactCall?.[1]?.body))).toEqual({
       provider: "anthropic",
       model: "m1",
@@ -1325,41 +1302,38 @@ describe("useChat", () => {
       expectedError: "compaction produced no response",
     },
     { event: { type: "cancelled" }, expectedError: null },
-  ])(
-    "handles compact $event.type without changing history",
-    async ({ event, expectedError }) => {
-      mockCompactSessionRoutes({
-        "/api/sessions/session-c/compact": createJsonResponse({
-          run: {
-            id: "run-c",
-            session_id: "session-c",
-            kind: "compact",
-            status: "running",
-            last_seq: 0,
-          },
-        }),
-        "/api/runs/run-c/stream?after=0": new Response(
-          `data: ${JSON.stringify({ seq: 1, ...event })}\n\ndata: [DONE]\n\n`,
-          { status: 200, headers: { "Content-Type": "text/event-stream" } },
-        ),
-      });
+  ])("handles compact $event.type without changing history", async ({ event, expectedError }) => {
+    mockCompactSessionRoutes({
+      "/api/sessions/session-c/compact": createJsonResponse({
+        run: {
+          id: "run-c",
+          session_id: "session-c",
+          kind: "compact",
+          status: "running",
+          last_seq: 0,
+        },
+      }),
+      "/api/runs/run-c/stream?after=0": new Response(
+        `data: ${JSON.stringify({ seq: 1, ...event })}\n\ndata: [DONE]\n\n`,
+        { status: 200, headers: { "Content-Type": "text/event-stream" } },
+      ),
+    });
 
-      const { result } = renderChatHook();
-      await waitFor(() => expect(result.current.messages).toHaveLength(2));
+    const { result } = renderChatHook();
+    await waitFor(() => expect(result.current.messages).toHaveLength(2));
 
-      await act(async () => {
-        await result.current.compactSession();
-      });
-      await waitFor(() => expect(result.current.loading).toBe(false));
+    await act(async () => {
+      await result.current.compactSession();
+    });
+    await waitFor(() => expect(result.current.loading).toBe(false));
 
-      expect(result.current.compactError).toBe(expectedError);
-      expect(result.current.messages).toHaveLength(2);
-      expect(expectChat(result.current.messages[1]).content[0]).toMatchObject({
-        type: "text",
-        text: "hi there",
-      });
-    },
-  );
+    expect(result.current.compactError).toBe(expectedError);
+    expect(result.current.messages).toHaveLength(2);
+    expect(expectChat(result.current.messages[1]).content[0]).toMatchObject({
+      type: "text",
+      text: "hi there",
+    });
+  });
 
   it("surfaces nothing-to-compact from the start request without a run", async () => {
     mockCompactSessionRoutes({
@@ -1507,9 +1481,7 @@ describe("useChat", () => {
     await waitFor(() => expect(result.current.loading).toBe(false));
     expect(result.current.pendingPermission).toBeNull();
     const assistant = expectChat(result.current.messages[1]);
-    expect(assistant.content.filter((block) => block.type === "text")).toEqual(
-      [],
-    );
+    expect(assistant.content.filter((block) => block.type === "text")).toEqual([]);
     expect(assistant.content[0]).toMatchObject({
       type: "tool_use",
       runtime: { pending: false, isError: true },
@@ -1569,9 +1541,7 @@ describe("useChat", () => {
     });
     expect(result.current.pendingPermission).toBeNull();
     const assistant = expectChat(result.current.messages[1]);
-    expect(assistant.content.filter((block) => block.type === "text")).toEqual(
-      [],
-    );
+    expect(assistant.content.filter((block) => block.type === "text")).toEqual([]);
     expect(assistant.content[0]).toMatchObject({
       type: "tool_use",
       runtime: {
@@ -1642,9 +1612,7 @@ describe("useChat", () => {
     const session = vi
       .fn()
       .mockReturnValueOnce(idle([]))
-      .mockReturnValue(
-        idle([{ role: "user", content: [{ type: "text", text: "hi" }] }]),
-      );
+      .mockReturnValue(idle([{ role: "user", content: [{ type: "text", text: "hi" }] }]));
     const fetchMock = mockFetch({
       "/api/sessions?cwd=": createJsonResponse({
         sessions: [{ id: "session-1", title: "Saved" }],
@@ -1670,8 +1638,7 @@ describe("useChat", () => {
       "/api/runs/run-1/stream": () => new Promise<Response>(() => {}),
       "/api/runs/run-1/cancel": createJsonResponse({ status: "ok" }),
     });
-    const cancelled = () =>
-      fetchMock.mock.calls.some(([url]) => url === "/api/runs/run-1/cancel");
+    const cancelled = () => fetchMock.mock.calls.some(([url]) => url === "/api/runs/run-1/cancel");
     const { result } = renderChatHook();
     await waitFor(() => expect(result.current.sessionLoading).toBe(false));
 
@@ -1791,9 +1758,7 @@ describe("useChat pending input", () => {
       }),
     });
     const emit = (...lines: string[]) =>
-      controller.enqueue(
-        encoder.encode(lines.map((line) => `data: ${line}\n\n`).join("")),
-      );
+      controller.enqueue(encoder.encode(lines.map((line) => `data: ${line}\n\n`).join("")));
     const end = (...lines: string[]) => {
       emit(...lines, "[DONE]");
       controller.close();
@@ -1828,9 +1793,7 @@ describe("useChat pending input", () => {
     );
     const { result } = renderChatHook();
     await waitFor(() => expect(result.current.loading).toBe(true));
-    expect(result.current.pending.steers.map((item) => item.id)).toEqual([
-      "c1",
-    ]);
+    expect(result.current.pending.steers.map((item) => item.id)).toEqual(["c1"]);
     expect(result.current.pending.steers[0]?.partial).toBeUndefined();
     // The server holds the attachment; the composer can only get the text back.
     expect(result.current.pending.queue).toMatchObject([
@@ -1913,35 +1876,28 @@ describe("useChat pending input", () => {
     await waitFor(() => expect(result.current.loading).toBe(true));
 
     await act(async () => {
-      expect(result.current.steer({ text: "first", workspaceFiles: [] })).toBe(
-        true,
-      );
+      expect(result.current.steer({ text: "first", workspaceFiles: [] })).toBe(true);
     });
-    await waitFor(() =>
-      expect(calls(fetchMock, "/api/sessions/session-2/queue")).toHaveLength(1),
-    );
+    await waitFor(() => expect(calls(fetchMock, "/api/sessions/session-2/queue")).toHaveLength(1));
     await act(async () => {
       result.current.queue({
         text: "second @a.ts",
         workspaceFiles: [{ path: "a.ts", name: "a.ts", kind: "text" }],
       });
     });
-    await waitFor(() =>
-      expect(calls(fetchMock, "/api/sessions/session-2/queue")).toHaveLength(2),
-    );
+    await waitFor(() => expect(calls(fetchMock, "/api/sessions/session-2/queue")).toHaveLength(2));
     // Both 409s leave the items in the local queue until the stream ends.
     expect(result.current.pending.steers).toEqual([]);
-    expect(
-      result.current.pending.queue.map((item) => item.submission.text),
-    ).toEqual(["first", "second @a.ts"]);
+    expect(result.current.pending.queue.map((item) => item.submission.text)).toEqual([
+      "first",
+      "second @a.ts",
+    ]);
     expect(chatResponse).not.toHaveBeenCalled();
 
     end();
 
     await waitFor(() => expect(chatResponse).toHaveBeenCalledOnce());
-    const body = JSON.parse(
-      String(calls(fetchMock, "/api/chat")[0]?.[1]?.body),
-    );
+    const body = JSON.parse(String(calls(fetchMock, "/api/chat")[0]?.[1]?.body));
     expect(body.session_id).toBe("session-2");
     expect(body.input).toEqual([
       { type: "text", text: "first" },
@@ -1971,12 +1927,10 @@ describe("useChat pending input", () => {
 
     await waitFor(() => expect(onRestore).toHaveBeenCalledOnce());
     expect(
-      onRestore.mock.calls[0]?.[0].map(
-        (item: { id: string; submission: { text: string } }) => [
-          item.id,
-          item.submission.text,
-        ],
-      ),
+      onRestore.mock.calls[0]?.[0].map((item: { id: string; submission: { text: string } }) => [
+        item.id,
+        item.submission.text,
+      ]),
     ).toEqual([
       ["c1", "use sqlite"],
       ["c2", "then tests"],
@@ -1993,10 +1947,7 @@ describe("useChat pending input", () => {
         new Promise<Response>((resolve) => {
           rejectSteer = () =>
             resolve(
-              createJsonResponse(
-                { detail: { message: "run is not accepting steers" } },
-                409,
-              ),
+              createJsonResponse({ detail: { message: "run is not accepting steers" } }, 409),
             );
         }),
       "/api/runs/run-2/cancel": createJsonResponse({ status: "ok" }),
@@ -2057,9 +2008,10 @@ describe("useChat pending input", () => {
         (item: { submission: { text: string } }) => item.submission.text,
       ),
     ).toEqual(["not yet"]);
-    expect(
-      result.current.messages.map((message) => expectChat(message).role),
-    ).toEqual(["user", "user"]);
+    expect(result.current.messages.map((message) => expectChat(message).role)).toEqual([
+      "user",
+      "user",
+    ]);
   });
 
   it("moves a queued item into the current turn with one request", async () => {
@@ -2088,15 +2040,11 @@ describe("useChat pending input", () => {
       result.current.steerQueued("q2");
     });
     await waitFor(() =>
-      expect(result.current.pending.steers.map((item) => item.id)).toEqual([
-        "q1",
-      ]),
+      expect(result.current.pending.steers.map((item) => item.id)).toEqual(["q1"]),
     );
     expect(result.current.pending.queue.map((item) => item.id)).toEqual(["q2"]);
     expect(calls(fetchMock, "/api/runs/run-2/steer")).toHaveLength(0);
-    expect(
-      fetchMock.mock.calls.filter(([, init]) => init?.method === "DELETE"),
-    ).toHaveLength(0);
+    expect(fetchMock.mock.calls.filter(([, init]) => init?.method === "DELETE")).toHaveLength(0);
 
     end(JSON.stringify({ seq: 1, type: "cancelled" }));
     await waitFor(() => expect(result.current.loading).toBe(false));
@@ -2123,15 +2071,12 @@ describe("useChat pending input", () => {
       await result.current.removeQueued(id);
     });
     expect(result.current.pending.queue).toEqual([]);
-    const deletes = () =>
-      fetchMock.mock.calls.filter(([, init]) => init?.method === "DELETE");
+    const deletes = () => fetchMock.mock.calls.filter(([, init]) => init?.method === "DELETE");
     expect(deletes()).toHaveLength(1);
 
     await act(async () => acceptQueue());
     await waitFor(() => expect(deletes()).toHaveLength(2));
-    expect(String(deletes()[1]?.[0])).toBe(
-      `/api/sessions/session-2/queue/${id}`,
-    );
+    expect(String(deletes()[1]?.[0])).toBe(`/api/sessions/session-2/queue/${id}`);
 
     end();
     await waitFor(() => expect(result.current.loading).toBe(false));
@@ -2151,10 +2096,7 @@ describe("useChat pending input", () => {
         new Promise<Response>((resolve) => {
           rejectQueue = () =>
             resolve(
-              createJsonResponse(
-                { detail: { message: "session has no running chat" } },
-                409,
-              ),
+              createJsonResponse({ detail: { message: "session has no running chat" } }, 409),
             );
         }),
       "/api/chat": chatResponse,
@@ -2176,9 +2118,7 @@ describe("useChat pending input", () => {
     expect(result.current.pending.queue).toHaveLength(1);
     // A send now would race the leftovers' own request.
     expect(result.current.loading).toBe(true);
-    expect(
-      await result.current.send({ text: "manual", workspaceFiles: [] }),
-    ).toBe(false);
+    expect(await result.current.send({ text: "manual", workspaceFiles: [] })).toBe(false);
 
     await act(async () => rejectQueue());
     await waitFor(() => expect(chatResponse).toHaveBeenCalledOnce());
@@ -2324,9 +2264,7 @@ describe("useChat server events", () => {
   });
 
   it("opens /api/events on mount and closes it on unmount", async () => {
-    const { source, unmount } = await renderWithSession(() =>
-      createJsonResponse(idleSession),
-    );
+    const { source, unmount } = await renderWithSession(() => createJsonResponse(idleSession));
 
     expect(source.url).toBe("/api/events");
     expect(source.close).not.toHaveBeenCalled();
@@ -2393,9 +2331,7 @@ describe("useChat server events", () => {
   it("defers the reload until this client's stream ends", async () => {
     const session = vi
       .fn()
-      .mockReturnValueOnce(
-        createJsonResponse({ ...idleSession, active_run: runInfo("run-1") }),
-      )
+      .mockReturnValueOnce(createJsonResponse({ ...idleSession, active_run: runInfo("run-1") }))
       .mockReturnValue(createJsonResponse(idleSession));
     const { stream, end } = openStream();
     const { result, fetchMock, source } = await renderWithSession(session, {
@@ -2479,10 +2415,7 @@ describe("useChat server events", () => {
       session_id: "session-other",
       job: jobInfo("call-3"),
     });
-    expect(result.current.jobs).toEqual([
-      jobInfo("call-1"),
-      jobInfo("call-2", "make"),
-    ]);
+    expect(result.current.jobs).toEqual([jobInfo("call-1"), jobInfo("call-2", "make")]);
 
     source.emit({
       type: "job_finished",
@@ -2510,42 +2443,39 @@ describe("useChat server events", () => {
       await result.current.stopJob("call-1");
     });
 
-    expect(
-      fetchMock.mock.calls.filter(([, init]) => init?.method === "DELETE"),
-    ).toEqual([[`${SESSION_URL}/jobs/call-1`, { method: "DELETE" }]]);
+    expect(fetchMock.mock.calls.filter(([, init]) => init?.method === "DELETE")).toEqual([
+      [`${SESSION_URL}/jobs/call-1`, { method: "DELETE" }],
+    ]);
     expect(result.current.sendError).toBeNull();
   });
 
   it("shows the results the server attached to the sent message", async () => {
     const { stream } = openStream();
-    const { result } = await renderWithSession(
-      () => createJsonResponse(idleSession),
-      {
-        "/api/chat": createJsonResponse({
-          run: runInfo("run-2"),
-          session: { id: "session-1", title: "Saved" },
-          message: {
-            role: "user",
-            content: [
-              {
-                type: "text",
-                text: "Background bash finished (pid 3, exit code 0): sleep 1\nLog: /tmp/a.log\n\ndone",
-                meta: {
-                  job: {
-                    tool_use_id: "call-1",
-                    name: "bash",
-                    label: "sleep 1",
-                    exit_code: 0,
-                  },
+    const { result } = await renderWithSession(() => createJsonResponse(idleSession), {
+      "/api/chat": createJsonResponse({
+        run: runInfo("run-2"),
+        session: { id: "session-1", title: "Saved" },
+        message: {
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: "Background bash finished (pid 3, exit code 0): sleep 1\nLog: /tmp/a.log\n\ndone",
+              meta: {
+                job: {
+                  tool_use_id: "call-1",
+                  name: "bash",
+                  label: "sleep 1",
+                  exit_code: 0,
                 },
               },
-              { type: "text", text: "what happened?" },
-            ],
-          },
-        }),
-        "/api/runs/run-2/stream?after=0": sseResponse(stream),
-      },
-    );
+            },
+            { type: "text", text: "what happened?" },
+          ],
+        },
+      }),
+      "/api/runs/run-2/stream?after=0": sseResponse(stream),
+    });
 
     await act(async () => {
       await result.current.send({ text: "what happened?", workspaceFiles: [] });
@@ -2573,19 +2503,14 @@ describe("useChat server events", () => {
       }),
     });
     const hook = renderHook(
-      (cwd: string) =>
-        useChat({ provider: "", model: "", cwd, reasoningEfforts: {} }),
+      (cwd: string) => useChat({ provider: "", model: "", cwd, reasoningEfforts: {} }),
       { initialProps: "/workspace/a" },
     );
-    await waitFor(() =>
-      expect(hook.result.current.jobs).toEqual([jobInfo("call-1")]),
-    );
+    await waitFor(() => expect(hook.result.current.jobs).toEqual([jobInfo("call-1")]));
 
     hook.rerender("/workspace/b");
 
-    await waitFor(() =>
-      expect(hook.result.current.activeSession.isDraft).toBe(true),
-    );
+    await waitFor(() => expect(hook.result.current.activeSession.isDraft).toBe(true));
     expect(hook.result.current.jobs).toEqual([]);
   });
 
@@ -2600,17 +2525,13 @@ describe("useChat server events", () => {
       session_id: "session-other",
       run: { ...runInfo("run-x"), session_id: "session-other" },
     });
-    await waitFor(() =>
-      expect(calls(fetchMock, LIST_URL)).toBeGreaterThan(listCalls),
-    );
+    await waitFor(() => expect(calls(fetchMock, LIST_URL)).toBeGreaterThan(listCalls));
     expect(calls(fetchMock, SESSION_URL)).toBe(1);
 
     act(() => {
       result.current.createSession();
     });
-    await waitFor(() =>
-      expect(result.current.activeSession.isDraft).toBe(true),
-    );
+    await waitFor(() => expect(result.current.activeSession.isDraft).toBe(true));
     const draftId = result.current.activeSession.id;
     source.emit({
       type: "run_started",
@@ -2623,9 +2544,7 @@ describe("useChat server events", () => {
     });
     await act(async () => {});
     expect(
-      fetchMock.mock.calls.filter(([url]) =>
-        String(url).startsWith("/api/sessions/"),
-      ),
+      fetchMock.mock.calls.filter(([url]) => String(url).startsWith("/api/sessions/")),
     ).toHaveLength(1);
   });
 });

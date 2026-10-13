@@ -7,6 +7,7 @@
 
 import { CornerDownLeft, Terminal } from "lucide-react";
 import { type KeyboardEvent, memo, useCallback } from "react";
+
 import type { PermissionRequest } from "../../types";
 import { cn } from "../../utils/cn";
 import { TOOL_ICON } from "./toolIcons";
@@ -46,13 +47,11 @@ function Payload({ toolName, preview }: { toolName: string; preview: string }) {
         "rounded-md bg-code px-3 py-2 leading-normal text-foreground/80",
         isQuery ? "text-[13px]" : "font-mono text-[12.5px]",
         isCommand &&
-          "max-h-24 overflow-y-auto scrollbar-subtle whitespace-pre-wrap wrap-break-word",
+          "scrollbar-subtle max-h-24 overflow-y-auto wrap-break-word whitespace-pre-wrap",
         !isCommand && !isQuery && "break-all",
       )}
     >
-      {isCommand && (
-        <span className="select-none text-muted-foreground/40">$ </span>
-      )}
+      {isCommand && <span className="text-muted-foreground/40 select-none">$ </span>}
       {isQuery ? `“${preview}”` : preview}
     </div>
   );
@@ -80,7 +79,7 @@ export const PermissionPrompt = memo(function PermissionPrompt({
   const title = TOOL_TITLE[request.tool_name] ?? "Run this tool?";
 
   return (
-    <div className="mx-auto max-w-4xl max-md:max-w-none px-5 max-md:px-3 pt-3 max-md:pt-2 pb-1">
+    <div className="mx-auto max-w-4xl px-5 pt-3 pb-1 max-md:max-w-none max-md:px-3 max-md:pt-2">
       <div
         key={request.request_id}
         ref={setDialogElement}
@@ -88,7 +87,7 @@ export const PermissionPrompt = memo(function PermissionPrompt({
         aria-label="Tool permission request"
         tabIndex={-1}
         onKeyDown={handleKeyDown}
-        className="flex flex-col gap-3 rounded-lg bg-card px-3.5 py-3 shadow-card animate-fade-in-up focus:outline-none"
+        className="flex animate-fade-in-up flex-col gap-3 rounded-lg bg-card px-3.5 py-3 shadow-card focus:outline-none"
       >
         <div className="flex items-center gap-2">
           {/* Gives the header row enough weight to hold its end of the panel,
@@ -99,9 +98,7 @@ export const PermissionPrompt = memo(function PermissionPrompt({
           <span className="text-sm text-foreground/90">{title}</span>
         </div>
 
-        {request.preview && (
-          <Payload toolName={request.tool_name} preview={request.preview} />
-        )}
+        {request.preview && <Payload toolName={request.tool_name} preview={request.preview} />}
 
         <div className="flex items-center justify-end gap-1">
           <button
@@ -120,10 +117,7 @@ export const PermissionPrompt = memo(function PermissionPrompt({
             Deny
             {/* No color of its own: it inherits the button's, so the hint
                 lightens together with the label on hover. */}
-            <span
-              className="text-[10px] uppercase tracking-wider"
-              aria-hidden="true"
-            >
+            <span className="text-[10px] tracking-wider uppercase" aria-hidden="true">
               esc
             </span>
           </button>

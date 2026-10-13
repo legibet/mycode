@@ -2,6 +2,7 @@
 
 import { Check, ChevronDown } from "lucide-react";
 import { memo, useMemo, useState } from "react";
+
 import {
   Command,
   CommandEmpty,
@@ -16,17 +17,9 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
-import type {
-  LocalConfig,
-  ProviderInfo,
-  ReasoningEffort,
-  RemoteConfig,
-} from "../../types";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+
+import type { LocalConfig, ProviderInfo, ReasoningEffort, RemoteConfig } from "../../types";
 import { cn } from "../../utils/cn";
 import {
   getReasoningEffort,
@@ -69,9 +62,9 @@ export const ModelTrigger = memo(function ModelTrigger({
 
   const groups = useMemo(() => {
     const providers = remoteConfig?.providers || {};
-    const entries: Array<[string, ProviderInfo]> = Object.entries(
-      providers,
-    ).filter((e): e is [string, ProviderInfo] => e[1] !== undefined);
+    const entries: Array<[string, ProviderInfo]> = Object.entries(providers).filter(
+      (e): e is [string, ProviderInfo] => e[1] !== undefined,
+    );
     return entries.map(([providerKey, info]) => ({
       providerKey,
       providerName: info.name,
@@ -98,11 +91,7 @@ export const ModelTrigger = memo(function ModelTrigger({
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger
         render={
-          <button
-            type="button"
-            className={cn(TRIGGER_BTN, "min-w-0 max-w-full")}
-            title={label}
-          >
+          <button type="button" className={cn(TRIGGER_BTN, "max-w-full min-w-0")} title={label}>
             <span className="truncate font-mono">{label}</span>
             <ChevronDown
               className={cn(
@@ -128,14 +117,10 @@ export const ModelTrigger = memo(function ModelTrigger({
           <CommandList>
             <CommandEmpty>No matches</CommandEmpty>
             {groups.map((group) => (
-              <CommandGroup
-                key={group.providerKey}
-                heading={group.providerName}
-              >
+              <CommandGroup key={group.providerKey} heading={group.providerName}>
                 {group.items.map((item) => {
                   const active =
-                    item.providerKey === config.provider &&
-                    item.model === config.model;
+                    item.providerKey === config.provider && item.model === config.model;
                   return (
                     <CommandItem
                       key={`${item.providerKey}:${item.model}`}
@@ -143,12 +128,8 @@ export const ModelTrigger = memo(function ModelTrigger({
                       keywords={[item.providerName, item.model]}
                       onSelect={() => select(item)}
                     >
-                      <span className="flex-1 truncate font-mono text-[13px]">
-                        {item.model}
-                      </span>
-                      {active && (
-                        <Check className="size-3 shrink-0 text-accent" />
-                      )}
+                      <span className="flex-1 truncate font-mono text-[13px]">{item.model}</span>
+                      {active && <Check className="size-3 shrink-0 text-accent" />}
                     </CommandItem>
                   );
                 })}
@@ -174,11 +155,7 @@ export const EffortTrigger = memo(function EffortTrigger({
 }: EffortTriggerProps) {
   const [open, setOpen] = useState(false);
 
-  const options = getReasoningEffortOptions(
-    remoteConfig,
-    config.provider,
-    config.model,
-  );
+  const options = getReasoningEffortOptions(remoteConfig, config.provider, config.model);
 
   const current = getReasoningEffort(config, remoteConfig);
 
@@ -199,11 +176,7 @@ export const EffortTrigger = memo(function EffortTrigger({
     <DropdownMenu open={open} onOpenChange={setOpen}>
       <DropdownMenuTrigger
         render={
-          <button
-            type="button"
-            className={TRIGGER_BTN}
-            title={`Reasoning effort: ${current}`}
-          >
+          <button type="button" className={TRIGGER_BTN} title={`Reasoning effort: ${current}`}>
             <span className="font-mono">{current}</span>
             <ChevronDown
               className={cn(
@@ -214,19 +187,12 @@ export const EffortTrigger = memo(function EffortTrigger({
           </button>
         }
       />
-      <DropdownMenuContent
-        side="top"
-        align="start"
-        sideOffset={6}
-        className="min-w-35"
-      >
+      <DropdownMenuContent side="top" align="start" sideOffset={6} className="min-w-35">
         {options.map((opt) => {
           const active = opt === current;
           return (
             <DropdownMenuItem key={opt} onClick={() => select(opt)}>
-              <span className="flex-1 font-mono text-[13px]">
-                {opt || "auto"}
-              </span>
+              <span className="flex-1 font-mono text-[13px]">{opt || "auto"}</span>
               {active && <Check className="size-3 shrink-0 text-accent" />}
             </DropdownMenuItem>
           );

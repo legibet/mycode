@@ -8,6 +8,7 @@
 
 import { Terminal } from "lucide-react";
 import { useState } from "react";
+
 import type { JobResult } from "../../types";
 import { cn } from "../../utils/cn";
 import { BashBody, StatusPill } from "./ToolCard";
@@ -30,32 +31,25 @@ function JobRow({ job }: { job: JobResult }) {
     <div className="group/tool">
       <button
         type="button"
-        className="flex w-full items-center gap-1.5 select-none cursor-pointer text-left"
+        className="flex w-full cursor-pointer items-center gap-1.5 text-left select-none"
         aria-expanded={expanded}
         onClick={() => setExpanded((current) => !current)}
       >
-        <Terminal
-          className="size-3.5 shrink-0 text-muted-foreground"
-          aria-hidden="true"
-        />
-        <span className="text-[13px] shrink-0 tracking-tight text-foreground/90 transition-colors duration-200 group-hover/tool:text-foreground">
+        <Terminal className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+        <span className="shrink-0 text-[13px] tracking-tight text-foreground/90 transition-colors duration-200 group-hover/tool:text-foreground">
           Background finished
         </span>
-        <span className="min-w-0 text-[13px] font-mono text-muted-foreground/60 truncate">
+        <span className="min-w-0 truncate font-mono text-[13px] text-muted-foreground/60">
           {job.label}
         </span>
-        <StatusPill tone={failed ? "error" : "muted"}>
-          exit {job.exit_code}
-        </StatusPill>
+        <StatusPill tone={failed ? "error" : "muted"}>exit {job.exit_code}</StatusPill>
       </button>
 
       <div
         data-expanded={expanded}
         className={cn(
           "chat-collapsible-body grid transition-[grid-template-rows,opacity] duration-300 ease-in-out",
-          expanded
-            ? "grid-rows-[1fr] opacity-100"
-            : "grid-rows-[0fr] opacity-0",
+          expanded ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0",
         )}
       >
         <div className="overflow-hidden">

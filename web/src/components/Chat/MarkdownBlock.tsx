@@ -8,20 +8,14 @@
  * raw syntax never flashes; finished text renders as written.
  */
 
-import {
-  type ComponentProps,
-  type ComponentPropsWithoutRef,
-  memo,
-} from "react";
-import ReactMarkdown, {
-  type Components,
-  type ExtraProps,
-} from "react-markdown";
+import { type ComponentProps, type ComponentPropsWithoutRef, memo } from "react";
+import ReactMarkdown, { type Components, type ExtraProps } from "react-markdown";
 import rehypeKatex from "rehype-katex";
 import remarkCjkFriendly from "remark-cjk-friendly";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import remend from "remend";
+
 import "katex/dist/katex.min.css";
 import { CodeBlock } from "./CodeBlock";
 import { remarkSingleDollarMath } from "./remarkSingleDollarMath";
@@ -47,7 +41,7 @@ const MARKDOWN_COMPONENTS: Components = {
   pre: ({ children }: MarkdownPreProps) => children,
   code: CodeBlock,
   table: ({ children, ...props }: MarkdownTableProps) => (
-    <div className="my-4 overflow-x-auto scrollbar-subtle">
+    <div className="scrollbar-subtle my-4 overflow-x-auto">
       <table {...props}>{children}</table>
     </div>
   ),
@@ -66,11 +60,7 @@ function normalizeMathDelimiters(text: string): string {
 
   const appendDisplayMath = (body: string, nextIndex: number) => {
     const before =
-      result === "" || result.endsWith("\n\n")
-        ? ""
-        : result.endsWith("\n")
-          ? "\n"
-          : "\n\n";
+      result === "" || result.endsWith("\n\n") ? "" : result.endsWith("\n") ? "\n" : "\n\n";
     const after = text[nextIndex] && text[nextIndex] !== "\n" ? "\n\n" : "";
     result += `${before}$$\n${body.trim()}\n$$${after}`;
   };
@@ -86,11 +76,7 @@ function normalizeMathDelimiters(text: string): string {
 
       if (fenceChar) {
         result += line;
-        if (
-          fenceMatch &&
-          fenceMatch[2]?.[0] === fenceChar &&
-          fenceMatch[2].length >= fenceLength
-        ) {
+        if (fenceMatch && fenceMatch[2]?.[0] === fenceChar && fenceMatch[2].length >= fenceLength) {
           fenceChar = "";
           fenceLength = 0;
         }

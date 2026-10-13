@@ -17,6 +17,7 @@ import {
   useRef,
   useState,
 } from "react";
+
 import type {
   ChatMessage,
   DocumentBlock,
@@ -51,9 +52,7 @@ interface MessageBubbleProps {
   error?: string | undefined;
   /** A steer handed to the running turn and not yet delivered. */
   pending?: boolean | undefined;
-  onRewindAndSend?:
-    | ((rewindTo: number, input: string) => Promise<void>)
-    | undefined;
+  onRewindAndSend?: ((rewindTo: number, input: string) => Promise<void>) | undefined;
 }
 
 interface RenderErrorBoundaryProps {
@@ -87,16 +86,13 @@ function blocksEqual(prev: MessageBlock, next: MessageBlock): boolean {
   if (prev.type === "text" && next.type === "text") {
     return (
       prev.text === next.text &&
-      getAttachmentMeta(prev)?.attachment ===
-        getAttachmentMeta(next)?.attachment &&
+      getAttachmentMeta(prev)?.attachment === getAttachmentMeta(next)?.attachment &&
       getAttachmentMeta(prev)?.path === getAttachmentMeta(next)?.path
     );
   }
 
   if (prev.type === "thinking" && next.type === "thinking") {
-    return (
-      prev.text === next.text && getDurationMs(prev) === getDurationMs(next)
-    );
+    return prev.text === next.text && getDurationMs(prev) === getDurationMs(next);
   }
 
   if (prev.type === "tool_use" && next.type === "tool_use") {
@@ -115,19 +111,11 @@ function blocksEqual(prev: MessageBlock, next: MessageBlock): boolean {
   }
 
   if (prev.type === "image" && next.type === "image") {
-    return (
-      prev.data === next.data &&
-      prev.mime_type === next.mime_type &&
-      prev.name === next.name
-    );
+    return prev.data === next.data && prev.mime_type === next.mime_type && prev.name === next.name;
   }
 
   if (prev.type === "document" && next.type === "document") {
-    return (
-      prev.data === next.data &&
-      prev.mime_type === next.mime_type &&
-      prev.name === next.name
-    );
+    return prev.data === next.data && prev.mime_type === next.mime_type && prev.name === next.name;
   }
 
   if (prev.type === "compact" && next.type === "compact") return true;
@@ -158,10 +146,7 @@ function blockListsEqual(prev: MessageBlock[], next: MessageBlock[]): boolean {
 }
 
 // Stats objects are rebuilt on every projection, so compare by value.
-function turnStatsEqual(
-  prev: TurnStats | undefined,
-  next: TurnStats | undefined,
-): boolean {
+function turnStatsEqual(prev: TurnStats | undefined, next: TurnStats | undefined): boolean {
   if (prev === next) return true;
   if (!prev || !next) return false;
   return (
@@ -183,10 +168,7 @@ function turnStatsEqual(
   );
 }
 
-function messageBubblePropsEqual(
-  prev: MessageBubbleProps,
-  next: MessageBubbleProps,
-): boolean {
+function messageBubblePropsEqual(prev: MessageBubbleProps, next: MessageBubbleProps): boolean {
   if (
     prev.role !== next.role ||
     prev.sourceIndex !== next.sourceIndex ||
@@ -207,10 +189,7 @@ function messageBubblePropsEqual(
   return blockListsEqual(prev.blocks, next.blocks);
 }
 
-class RenderErrorBoundary extends Component<
-  RenderErrorBoundaryProps,
-  RenderErrorBoundaryState
-> {
+class RenderErrorBoundary extends Component<RenderErrorBoundaryProps, RenderErrorBoundaryState> {
   state: RenderErrorBoundaryState = { hasError: false };
 
   static getDerivedStateFromError(): RenderErrorBoundaryState {
@@ -256,14 +235,12 @@ function TurnStatsFooter({
 /** Attachment card in a user bubble: a labelled file reference. */
 function FileCard({ label, value }: { label: string; value: string }) {
   return (
-    <div className="min-w-32 max-w-xs rounded-lg border border-border/40 bg-muted/50 px-3 py-2 text-sm text-foreground/80">
+    <div className="max-w-xs min-w-32 rounded-lg border border-border/40 bg-muted/50 px-3 py-2 text-sm text-foreground/80">
       <div className="flex items-center gap-2">
         <FileText className="size-4 shrink-0 text-accent/80" />
         <span className="font-medium">{label}</span>
       </div>
-      <div className="mt-1 break-all text-xs text-muted-foreground">
-        {value}
-      </div>
+      <div className="mt-1 text-xs break-all text-muted-foreground">{value}</div>
     </div>
   );
 }
@@ -287,10 +264,7 @@ export const MessageBubble = memo(function MessageBubble({
   const [editText, setEditText] = useState("");
   const resetCopiedTimeoutRef = useRef<number | null>(null);
 
-  const { work, answer, afterAnswer } = useMemo(
-    () => splitTurn(blocks),
-    [blocks],
-  );
+  const { work, answer, afterAnswer } = useMemo(() => splitTurn(blocks), [blocks]);
   // The work folds once the turn ends, however it ends.
   const folded =
     !isStreaming &&
@@ -300,33 +274,32 @@ export const MessageBubble = memo(function MessageBubble({
 
   // Copy takes the visible text: a folded turn copies only its answer.
   const copyBlocks = folded ? answer : blocks;
-  const { textContent, textAttachmentBlocks, imageBlocks, documentBlocks } =
-    useMemo(() => {
-      const visibleText: string[] = [];
-      const textAttachmentBlocks: TextBlock[] = [];
-      const imageBlocks: ImageBlock[] = [];
-      const documentBlocks: DocumentBlock[] = [];
-      for (const block of copyBlocks) {
-        if (!block) continue;
-        if (block.type === "text") {
-          if (getAttachmentMeta(block)?.attachment) {
-            textAttachmentBlocks.push(block);
-          } else {
-            visibleText.push(block.text);
-          }
-        } else if (block.type === "image") {
-          imageBlocks.push(block);
-        } else if (block.type === "document") {
-          documentBlocks.push(block);
+  const { textContent, textAttachmentBlocks, imageBlocks, documentBlocks } = useMemo(() => {
+    const visibleText: string[] = [];
+    const textAttachmentBlocks: TextBlock[] = [];
+    const imageBlocks: ImageBlock[] = [];
+    const documentBlocks: DocumentBlock[] = [];
+    for (const block of copyBlocks) {
+      if (!block) continue;
+      if (block.type === "text") {
+        if (getAttachmentMeta(block)?.attachment) {
+          textAttachmentBlocks.push(block);
+        } else {
+          visibleText.push(block.text);
         }
+      } else if (block.type === "image") {
+        imageBlocks.push(block);
+      } else if (block.type === "document") {
+        documentBlocks.push(block);
       }
-      return {
-        textContent: visibleText.join("\n\n"),
-        textAttachmentBlocks,
-        imageBlocks,
-        documentBlocks,
-      };
-    }, [copyBlocks]);
+    }
+    return {
+      textContent: visibleText.join("\n\n"),
+      textAttachmentBlocks,
+      imageBlocks,
+      documentBlocks,
+    };
+  }, [copyBlocks]);
 
   useEffect(() => {
     return () => {
@@ -404,7 +377,7 @@ export const MessageBubble = memo(function MessageBubble({
     if (editing) {
       return (
         <div className="flex justify-end px-5 max-md:px-4">
-          <div className="max-w-[85%] w-full flex flex-col gap-2">
+          <div className="flex w-full max-w-[85%] flex-col gap-2">
             <textarea
               ref={setEditElement}
               name="edit-message"
@@ -416,13 +389,13 @@ export const MessageBubble = memo(function MessageBubble({
                 e.target.style.height = `${Math.min(e.target.scrollHeight, 300)}px`;
               }}
               onKeyDown={handleEditKeyDown}
-              className="w-full resize-none rounded-lg bg-muted px-3.5 py-2 text-base md:text-sm leading-relaxed text-foreground border border-border/60 focus:outline-none focus:border-accent/60 max-h-75"
+              className="max-h-75 w-full resize-none rounded-lg border border-border/60 bg-muted px-3.5 py-2 text-base leading-relaxed text-foreground focus:border-accent/60 focus:outline-none md:text-sm"
             />
             <div className="flex justify-end gap-2">
               <button
                 type="button"
                 onClick={cancelEdit}
-                className="px-3 py-1 text-xs rounded-lg text-muted-foreground hover:text-foreground active:scale-95 transition-[color,scale] duration-150"
+                className="rounded-lg px-3 py-1 text-xs text-muted-foreground transition-[color,scale] duration-150 hover:text-foreground active:scale-95"
               >
                 Cancel
               </button>
@@ -431,7 +404,7 @@ export const MessageBubble = memo(function MessageBubble({
                 onClick={submitEdit}
                 disabled={!editText.trim()}
                 className={cn(
-                  "px-3 py-1 text-xs rounded-lg transition-[color,background-color,filter,scale] duration-150",
+                  "rounded-lg px-3 py-1 text-xs transition-[color,background-color,filter,scale] duration-150",
                   editText.trim()
                     ? "bg-accent text-accent-foreground hover:brightness-105 hover:saturate-[.9] active:scale-95"
                     : "text-muted-foreground/40",
@@ -452,15 +425,15 @@ export const MessageBubble = memo(function MessageBubble({
             type="button"
             aria-label="Edit message"
             onClick={startEdit}
-            className="self-end mr-2 mb-0.5 opacity-0 group-hover/user:opacity-100 max-md:opacity-60 active:scale-95 transition-[color,opacity,scale] duration-150 size-6 flex items-center justify-center rounded-sm text-muted-foreground/50 hover:text-foreground"
+            className="mr-2 mb-0.5 flex size-6 items-center justify-center self-end rounded-sm text-muted-foreground/50 opacity-0 transition-[color,opacity,scale] duration-150 group-hover/user:opacity-100 hover:text-foreground active:scale-95 max-md:opacity-60"
             title="Edit & resend"
           >
             <Pencil className="size-3" />
           </button>
         )}
-        <div className="max-w-[85%] flex flex-col gap-1.5 items-end">
+        <div className="flex max-w-[85%] flex-col items-end gap-1.5">
           {imageBlocks.length > 0 && (
-            <div className="flex flex-wrap gap-2 justify-end">
+            <div className="flex flex-wrap justify-end gap-2">
               {imageBlocks.map((block) =>
                 block.data ? (
                   <img
@@ -471,28 +444,20 @@ export const MessageBubble = memo(function MessageBubble({
                   />
                 ) : (
                   // Workspace image before send: no bytes locally, show a card.
-                  <FileCard
-                    key={block.renderKey}
-                    label="Image"
-                    value={block.name ?? "image"}
-                  />
+                  <FileCard key={block.renderKey} label="Image" value={block.name ?? "image"} />
                 ),
               )}
             </div>
           )}
           {documentBlocks.length > 0 && (
-            <div className="flex flex-wrap gap-2 justify-end">
+            <div className="flex flex-wrap justify-end gap-2">
               {documentBlocks.map((block) => (
-                <FileCard
-                  key={block.renderKey}
-                  label="PDF"
-                  value={block.name ?? "document.pdf"}
-                />
+                <FileCard key={block.renderKey} label="PDF" value={block.name ?? "document.pdf"} />
               ))}
             </div>
           )}
           {textAttachmentBlocks.length > 0 && (
-            <div className="flex flex-wrap gap-2 justify-end">
+            <div className="flex flex-wrap justify-end gap-2">
               {textAttachmentBlocks.map((block) => {
                 const path = getAttachmentMeta(block)?.path;
                 return (
@@ -511,22 +476,18 @@ export const MessageBubble = memo(function MessageBubble({
                 // The sidebar's running dot: the message is waiting for the step.
                 <span
                   aria-hidden="true"
-                  className="size-1.5 shrink-0 rounded-full bg-accent animate-breathing"
+                  className="size-1.5 shrink-0 animate-breathing rounded-full bg-accent"
                 />
               )}
               <div
                 title={pending ? "Waiting for the current step" : undefined}
                 className={cn(
-                  "min-w-0 rounded-lg px-3.5 py-2 text-sm leading-relaxed whitespace-pre-wrap wrap-anywhere",
-                  pending
-                    ? "shadow-hairline text-foreground/80"
-                    : "bg-muted text-foreground",
+                  "min-w-0 rounded-lg px-3.5 py-2 text-sm leading-relaxed wrap-anywhere whitespace-pre-wrap",
+                  pending ? "text-foreground/80 shadow-hairline" : "bg-muted text-foreground",
                 )}
               >
                 {textContent}
-                {pending && (
-                  <span className="sr-only">Waiting for the current step…</span>
-                )}
+                {pending && <span className="sr-only">Waiting for the current step…</span>}
               </div>
             </div>
           )}
@@ -544,9 +505,7 @@ export const MessageBubble = memo(function MessageBubble({
           <ReasoningBlock
             content={block.text}
             durationMs={durationMs}
-            isStreaming={
-              isStreaming && durationMs == null && block === blocks.at(-1)
-            }
+            isStreaming={isStreaming && durationMs == null && block === blocks.at(-1)}
           />
         </RenderErrorBoundary>
       );
@@ -555,16 +514,12 @@ export const MessageBubble = memo(function MessageBubble({
       const renderKey = block.renderKey || `text:${block.text || "block"}`;
       return (
         <RenderErrorBoundary key={renderKey} fallback={renderErrorFallback}>
-          <MarkdownBlock
-            content={block.text}
-            streaming={isStreaming && block === blocks.at(-1)}
-          />
+          <MarkdownBlock content={block.text} streaming={isStreaming && block === blocks.at(-1)} />
         </RenderErrorBoundary>
       );
     }
     if (block.type === "tool_use") {
-      const renderKey =
-        block.renderKey || block.id || `tool:${block.name || "tool"}`;
+      const renderKey = block.renderKey || block.id || `tool:${block.name || "tool"}`;
       return (
         <RenderErrorBoundary key={renderKey} fallback={renderErrorFallback}>
           <ToolCard
@@ -587,7 +542,7 @@ export const MessageBubble = memo(function MessageBubble({
 
   return (
     <div className="group/msg relative px-5 max-md:px-4">
-      <div className="flex flex-col gap-3 text-foreground/90 leading-relaxed text-sm">
+      <div className="flex flex-col gap-3 text-sm leading-relaxed text-foreground/90">
         {/* The work keeps its place from its first block on, so folding
             never remounts it or the answer. */}
         {(work.length > 0 || folded) && (
@@ -605,34 +560,26 @@ export const MessageBubble = memo(function MessageBubble({
         {interruption === "cancelled" && !isStreaming && !folded && (
           <p className="text-xs text-muted-foreground">Stopped</p>
         )}
-        {error && (
-          <p className="break-words text-xs text-destructive/80">{error}</p>
-        )}
+        {error && <p className="text-xs break-words text-destructive/80">{error}</p>}
 
         {isStreaming && (
-          <span className="inline-block w-[1.5px] h-4 bg-foreground/40 ml-0.5 align-middle" />
+          <span className="ml-0.5 inline-block h-4 w-[1.5px] bg-foreground/40 align-middle" />
         )}
       </div>
 
       {!isUser && textContent && !isStreaming && (
-        <div className="mt-2 flex items-center gap-2 max-md:opacity-60 opacity-0 group-hover/msg:opacity-100 transition-opacity duration-150">
+        <div className="mt-2 flex items-center gap-2 opacity-0 transition-opacity duration-150 group-hover/msg:opacity-100 max-md:opacity-60">
           <button
             type="button"
             aria-label="Copy to clipboard"
             onClick={handleCopy}
             className={cn(
-              "flex items-center justify-center size-6 rounded-sm active:scale-95 transition-[color,scale] duration-150",
-              copied
-                ? "text-accent"
-                : "text-muted-foreground/50 hover:text-foreground",
+              "flex size-6 items-center justify-center rounded-sm transition-[color,scale] duration-150 active:scale-95",
+              copied ? "text-accent" : "text-muted-foreground/50 hover:text-foreground",
             )}
             title="Copy"
           >
-            {copied ? (
-              <Check className="size-3.5" />
-            ) : (
-              <Copy className="size-3.5" />
-            )}
+            {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
           </button>
           {(model || stats) && <TurnStatsFooter model={model} stats={stats} />}
         </div>

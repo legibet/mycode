@@ -12,6 +12,7 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
+
 import type { Theme, ThemeContextValue } from "../types";
 
 interface ThemeProviderProps {
@@ -41,9 +42,7 @@ export function ThemeProvider({
 }: ThemeProviderProps) {
   const [theme, setThemeState] = useState<Theme>(() => {
     const savedTheme = localStorage.getItem(storageKey);
-    return savedTheme === "light" ||
-      savedTheme === "dark" ||
-      savedTheme === "system"
+    return savedTheme === "light" || savedTheme === "dark" || savedTheme === "system"
       ? savedTheme
       : defaultTheme;
   });

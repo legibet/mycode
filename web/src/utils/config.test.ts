@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import type { LocalConfig, RemoteConfig } from "../types";
 import { getReasoningEffort, getReasoningEffortOverride } from "./config";
 
@@ -17,9 +18,7 @@ const remoteConfig: RemoteConfig = {
   },
 };
 
-function config(
-  reasoningEfforts: LocalConfig["reasoningEfforts"],
-): LocalConfig {
+function config(reasoningEfforts: LocalConfig["reasoningEfforts"]): LocalConfig {
   return {
     provider: "openai",
     model: "gpt-5",

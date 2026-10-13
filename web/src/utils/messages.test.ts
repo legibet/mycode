@@ -254,9 +254,9 @@ describe("messages", () => {
       running: true,
     });
     expect(again.runtime?.metadata).toBe(first.runtime?.metadata);
-    expect(
-      startCard(buildRenderMessages(backgroundStart)).runtime?.metadata,
-    ).not.toHaveProperty("running");
+    expect(startCard(buildRenderMessages(backgroundStart)).runtime?.metadata).not.toHaveProperty(
+      "running",
+    );
   });
 
   it("prefers the job's result over a stale running entry", () => {
@@ -281,9 +281,7 @@ describe("messages", () => {
       },
     ];
 
-    const start = startCard(
-      buildRenderMessages(finished, {}, new Set(["call-1"])),
-    );
+    const start = startCard(buildRenderMessages(finished, {}, new Set(["call-1"])));
 
     expect(start.runtime?.metadata).toEqual({
       background: true,
@@ -321,14 +319,10 @@ describe("messages", () => {
 
     expect(renderMessages).toHaveLength(5);
     const [, , marker] = renderMessages;
-    const [, , , user, reply] = renderMessages.map((m) =>
-      isChatMessage(m) ? m : null,
-    );
+    const [, , , user, reply] = renderMessages.map((m) => (isChatMessage(m) ? m : null));
     expect(marker).toMatchObject({
       kind: "job-marker",
-      jobs: [
-        { tool_use_id: "call-2", label: "make", exit_code: 0, output: "ok" },
-      ],
+      jobs: [{ tool_use_id: "call-2", label: "make", exit_code: 0, output: "ok" }],
     });
     expect(user?.role).toBe("user");
     expect(user?.content).toMatchObject([{ type: "text", text: "also lint" }]);
@@ -459,14 +453,11 @@ describe("turn interruption", () => {
 
   it("treats a turn that ends on tool results as stopped", () => {
     // A cancel between rounds persists no assistant record.
-    expect(
-      interruptions([user("go"), toolCall, toolResult, user("next")]),
-    ).toEqual(["cancelled"]);
+    expect(interruptions([user("go"), toolCall, toolResult, user("next")])).toEqual(["cancelled"]);
   });
 
   it("reads tool results followed by a steer as a continued turn", () => {
-    const at = (seconds: number) =>
-      new Date(Date.UTC(2026, 0, 1, 0, 0, seconds)).toISOString();
+    const at = (seconds: number) => new Date(Date.UTC(2026, 0, 1, 0, 0, seconds)).toISOString();
     const steer: ChatMessage = {
       ...user("use sqlite"),
       meta: { created_at: at(14), steer: true, input_ids: ["c1"] },
@@ -496,9 +487,7 @@ describe("turn interruption", () => {
     // the steer message, so the tool time after its last request counts.
     expect(rendered[1]?.interruption).toBeUndefined();
     expect(rendered[1]?.stats?.duration_ms).toBe(14000);
-    expect(rendered[2]?.content).toMatchObject([
-      { type: "text", text: "use sqlite" },
-    ]);
+    expect(rendered[2]?.content).toMatchObject([{ type: "text", text: "use sqlite" }]);
     expect(rendered[3]?.interruption).toBeUndefined();
   });
 });
@@ -808,11 +797,7 @@ describe("turn stats", () => {
 
     expect(renderMessages).toHaveLength(2);
     const turn = expectChat(renderMessages[1]);
-    expect(turn.content.map((block) => block.type)).toEqual([
-      "tool_use",
-      "compact",
-      "text",
-    ]);
+    expect(turn.content.map((block) => block.type)).toEqual(["tool_use", "compact", "text"]);
     expect(turn.stats).toEqual({
       total_tokens: 2_700,
       input_tokens: 2_450,
@@ -825,8 +810,7 @@ describe("turn stats", () => {
 });
 
 describe("turn duration", () => {
-  const at = (seconds: number) =>
-    new Date(Date.UTC(2026, 0, 1, 0, 0, seconds)).toISOString();
+  const at = (seconds: number) => new Date(Date.UTC(2026, 0, 1, 0, 0, seconds)).toISOString();
   const toolResult = (id: string, created_at: string): ChatMessage => ({
     role: "user",
     content: [
@@ -925,9 +909,7 @@ describe("splitTurn", () => {
     const answer = { type: "text" as const, text: "Done." };
     const lastCompact = { type: "compact" as const, renderKey: "c2" };
 
-    expect(
-      splitTurn([thinking, interim, tool, midCompact, answer, lastCompact]),
-    ).toEqual({
+    expect(splitTurn([thinking, interim, tool, midCompact, answer, lastCompact])).toEqual({
       work: [thinking, interim, tool, midCompact],
       answer: [answer],
       afterAnswer: [lastCompact],

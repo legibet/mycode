@@ -17,15 +17,12 @@ import {
   type Spread,
   TextNode,
 } from "lexical";
+
 import type { WorkspaceFileReference } from "../../types";
 
-const PILL_CLASS =
-  "rounded bg-accent/15 text-accent px-0.5 font-mono text-[0.92em]";
+const PILL_CLASS = "rounded bg-accent/15 text-accent px-0.5 font-mono text-[0.92em]";
 
-export type SerializedWorkspaceFileNode = Spread<
-  WorkspaceFileReference,
-  SerializedTextNode
->;
+export type SerializedWorkspaceFileNode = Spread<WorkspaceFileReference, SerializedTextNode>;
 
 export class WorkspaceFileNode extends TextNode {
   __path: string;
@@ -64,8 +61,7 @@ export class WorkspaceFileNode extends TextNode {
   }
 
   override updateFromJSON(
-    serialized: LexicalUpdateJSON<SerializedTextNode> &
-      Partial<WorkspaceFileReference>,
+    serialized: LexicalUpdateJSON<SerializedTextNode> & Partial<WorkspaceFileReference>,
   ): this {
     const self = super.updateFromJSON(serialized);
     if (typeof serialized.path === "string") self.__path = serialized.path;
@@ -90,11 +86,7 @@ export class WorkspaceFileNode extends TextNode {
     return dom;
   }
 
-  override updateDOM(
-    prevNode: this,
-    dom: HTMLElement,
-    config: EditorConfig,
-  ): boolean {
+  override updateDOM(prevNode: this, dom: HTMLElement, config: EditorConfig): boolean {
     const updated = super.updateDOM(prevNode, dom, config);
     if (prevNode.__path !== this.__path) {
       dom.setAttribute("data-workspace-file", this.__path);
@@ -108,15 +100,8 @@ export class WorkspaceFileNode extends TextNode {
   }
 }
 
-export function $createWorkspaceFileNode(
-  ref: WorkspaceFileReference,
-): WorkspaceFileNode {
-  const node = new WorkspaceFileNode(
-    `@${ref.path}`,
-    ref.path,
-    ref.kind,
-    ref.name,
-  );
+export function $createWorkspaceFileNode(ref: WorkspaceFileReference): WorkspaceFileNode {
+  const node = new WorkspaceFileNode(`@${ref.path}`, ref.path, ref.kind, ref.name);
   node.setMode("token");
   return $applyNodeReplacement(node);
 }

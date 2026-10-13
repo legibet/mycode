@@ -3,14 +3,8 @@
  * Keeps large document payloads out of React state; the request body still sends them.
  */
 
-import {
-  startTransition,
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
+
 import type {
   AttachedFile,
   BackgroundJobInfo,
@@ -54,11 +48,7 @@ import {
   updateLatestAssistantMeta,
   updateLatestThinkingDuration,
 } from "../utils/messages";
-import {
-  loadActiveSession,
-  removeActiveSession,
-  saveActiveSession,
-} from "../utils/storage";
+import { loadActiveSession, removeActiveSession, saveActiveSession } from "../utils/storage";
 import {
   isCurrentSendRequest,
   isCurrentWorkspaceRequest,
@@ -139,10 +129,7 @@ function getRunFromDetail(detail: ChatErrorResponse["detail"]): RunInfo | null {
   return typeof detail === "object" && detail?.run ? detail.run : null;
 }
 
-function getMessageFromDetail(
-  detail: ChatErrorResponse["detail"],
-  fallback: string,
-): string {
+function getMessageFromDetail(detail: ChatErrorResponse["detail"], fallback: string): string {
   if (typeof detail === "string" && detail) return detail;
   if (Array.isArray(detail)) {
     const firstMessage = detail.find((item) => item.msg)?.msg;
@@ -159,9 +146,7 @@ function createDraftSession(): SessionSummary {
 }
 
 /** Map a pending upload attachment to a /api/chat input block. */
-function attachmentToInputBlock(
-  attachment: AttachedFile,
-): Record<string, unknown> {
+function attachmentToInputBlock(attachment: AttachedFile): Record<string, unknown> {
   if (attachment.kind === "text") {
     return {
       type: "text",
@@ -179,9 +164,7 @@ function attachmentToInputBlock(
 }
 
 /** Map an inline @ workspace reference to a /api/chat path input block. */
-function workspaceRefToInputBlock(
-  ref: WorkspaceFileReference,
-): Record<string, unknown> {
+function workspaceRefToInputBlock(ref: WorkspaceFileReference): Record<string, unknown> {
   if (ref.kind === "text") {
     // Server reads the file into the same <file> snapshot as CLI @file;
     // the path doubles as the display name.
@@ -201,9 +184,7 @@ function workspaceRefToInputBlock(
 }
 
 /** Drop duplicate @ references so a file only enters the context once. */
-function dedupeWorkspaceFiles(
-  refs: WorkspaceFileReference[],
-): WorkspaceFileReference[] {
+function dedupeWorkspaceFiles(refs: WorkspaceFileReference[]): WorkspaceFileReference[] {
   const seen = new Set<string>();
   return refs.filter((ref) => {
     const key = `${ref.kind}:${ref.path}`;
@@ -237,11 +218,7 @@ function createPendingInput(
     id: randomId(),
     submission: { text, workspaceFiles },
     attachments,
-    input: buildInputBlocks(
-      text,
-      dedupeWorkspaceFiles(workspaceFiles),
-      attachments,
-    ),
+    input: buildInputBlocks(text, dedupeWorkspaceFiles(workspaceFiles), attachments),
   };
 }
 
@@ -269,10 +246,7 @@ function pendingFromMessage(message: PendingMessage): PendingInput {
   };
 }
 
-function withoutPending(
-  pending: PendingInputs,
-  ids: ReadonlySet<string>,
-): PendingInputs {
+function withoutPending(pending: PendingInputs, ids: ReadonlySet<string>): PendingInputs {
   const keep = (item: PendingInput) => !ids.has(item.id);
   return {
     steers: pending.steers.filter(keep),
@@ -283,10 +257,7 @@ function withoutPending(
 function chatReducer(state: ChatState, action: ChatAction): ChatState {
   switch (action.type) {
     case "set_messages": {
-      if (
-        action.expectedSessionId != null &&
-        state.messageSessionId !== action.expectedSessionId
-      ) {
+      if (action.expectedSessionId != null && state.messageSessionId !== action.expectedSessionId) {
         return state;
       }
 
@@ -311,13 +282,9 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
       const { content, attachments, workspaceFiles } = action;
       // PDFs can be large enough to freeze history rendering after a failed send.
       const uiAttachments = attachments?.map((attachment) =>
-        attachment.kind === "document"
-          ? { ...attachment, data: "" }
-          : attachment,
+        attachment.kind === "document" ? { ...attachment, data: "" } : attachment,
       );
-      const hasBlocks = Boolean(
-        uiAttachments?.length || workspaceFiles?.length,
-      );
+      const hasBlocks = Boolean(uiAttachments?.length || workspaceFiles?.length);
       return {
         ...state,
         rawMessages: [
@@ -421,22 +388,14 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
       const toolRuntimeById = { ...state.toolRuntimeById };
 
       if (event.type === "reasoning") {
-        rawMessages = appendAssistantDelta(
-          rawMessages,
-          "thinking",
-          event.delta || "",
-        );
+        rawMessages = appendAssistantDelta(rawMessages, "thinking", event.delta || "");
       } else if (event.type === "reasoning_done") {
         const durationMs = event.duration_ms;
         if (typeof durationMs === "number") {
           rawMessages = updateLatestThinkingDuration(rawMessages, durationMs);
         }
       } else if (event.type === "text") {
-        rawMessages = appendAssistantDelta(
-          rawMessages,
-          "text",
-          event.delta || "",
-        );
+        rawMessages = appendAssistantDelta(rawMessages, "text", event.delta || "");
       } else if (event.type === "tool_start") {
         const toolCall = event.tool_call || {};
         rawMessages = appendToolUse(rawMessages, toolCall);
@@ -471,9 +430,7 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
         const finalOutput = event.output || "";
         const metadata = event.metadata ?? null;
         const isError = Boolean(
-          event.is_error ||
-            (typeof finalOutput === "string" &&
-              finalOutput.startsWith("error:")),
+          event.is_error || (typeof finalOutput === "string" && finalOutput.startsWith("error:")),
         );
 
         if (toolUseId) {
@@ -491,13 +448,7 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
             metadata,
             isError,
           };
-          rawMessages = appendToolResult(
-            rawMessages,
-            toolUseId,
-            finalOutput,
-            metadata,
-            isError,
-          );
+          rawMessages = appendToolResult(rawMessages, toolUseId, finalOutput, metadata, isError);
         }
       } else if (event.type === "error") {
         rawMessages = markTailAssistantStopped(
@@ -530,10 +481,7 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
           ...state,
           rawMessages,
           toolRuntimeById,
-          sessionUsage: readUsageTotals(
-            event.session_usage,
-            event.session_cost,
-          ),
+          sessionUsage: readUsageTotals(event.session_usage, event.session_cost),
         };
       } else if (event.type === "compact") {
         rawMessages = [
@@ -545,16 +493,9 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
         // shape start_turn creates; later usage events patch its assistant.
         return {
           ...state,
-          rawMessages: [
-            ...rawMessages,
-            event.message,
-            createAssistantMessage([]),
-          ],
+          rawMessages: [...rawMessages, event.message, createAssistantMessage([])],
           toolRuntimeById,
-          pending: withoutPending(
-            state.pending,
-            new Set(event.message.meta?.input_ids ?? []),
-          ),
+          pending: withoutPending(state.pending, new Set(event.message.meta?.input_ids ?? [])),
         };
       }
 
@@ -592,9 +533,7 @@ export function useChat(
   const [sendError, setSendError] = useState<string | null>(null);
   const loading = runKind !== null;
   const [sessionLoading, setSessionLoading] = useState(false);
-  const [pendingPermissions, setPendingPermissions] = useState<
-    PermissionRequest[]
-  >([]);
+  const [pendingPermissions, setPendingPermissions] = useState<PermissionRequest[]>([]);
   const initRef = useRef(false);
   const cwdRef = useRef(config.cwd);
   const activeSessionRef = useRef(activeSession);
@@ -680,9 +619,7 @@ export function useChat(
     if (requestCwd !== cwdRef.current) return [];
 
     try {
-      const res = await fetch(
-        `/api/sessions?cwd=${encodeURIComponent(requestCwd)}`,
-      );
+      const res = await fetch(`/api/sessions?cwd=${encodeURIComponent(requestCwd)}`);
       if (!res.ok) throw new Error("Failed to load sessions");
       const data = (await res.json()) as SessionsResponse;
       if (requestCwd !== cwdRef.current) {
@@ -691,16 +628,13 @@ export function useChat(
       const savedSessions = data.sessions || [];
       const active = activeSessionRef.current;
       const sessionsWithDraft =
-        active.isDraft &&
-        !savedSessions.some((session) => session.id === active.id)
+        active.isDraft && !savedSessions.some((session) => session.id === active.id)
           ? [active, ...savedSessions]
           : savedSessions;
 
       setSessions(sessionsWithDraft);
 
-      const syncedActive = sessionsWithDraft.find(
-        (session) => session.id === active.id,
-      );
+      const syncedActive = sessionsWithDraft.find((session) => session.id === active.id);
       if (syncedActive && syncedActive !== active) {
         setActiveSessionSnapshot(syncedActive);
       }
@@ -725,12 +659,7 @@ export function useChat(
   }, []);
 
   const streamRun = useCallback(
-    async (
-      run: RunInfo,
-      sessionId: string,
-      after = 0,
-      interrupted = false,
-    ): Promise<void> => {
+    async (run: RunInfo, sessionId: string, after = 0, interrupted = false): Promise<void> => {
       const runId = run?.id;
       if (!runId) return;
       // Stopped or failed runs return pending input to the composer; a run
@@ -751,8 +680,7 @@ export function useChat(
       setRunKind(kind);
       // Whether this stream still drives the UI: no newer stream, same session.
       const isCurrent = () =>
-        streamTokenRef.current === token &&
-        activeSessionRef.current.id === sessionId;
+        streamTokenRef.current === token && activeSessionRef.current.id === sessionId;
 
       const recoverSession = async () => {
         if (!isCurrent()) return true;
@@ -772,10 +700,9 @@ export function useChat(
       };
 
       try {
-        const res = await fetch(
-          `/api/runs/${encodeURIComponent(runId)}/stream?after=${after}`,
-          { signal: controller.signal },
-        );
+        const res = await fetch(`/api/runs/${encodeURIComponent(runId)}/stream?after=${after}`, {
+          signal: controller.signal,
+        });
         if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
         if (!res.body) throw new Error("Response body is empty");
 
@@ -810,17 +737,13 @@ export function useChat(
                   preview: event.preview,
                 };
                 setPendingPermissions((prev) =>
-                  prev.some((p) => p.request_id === next.request_id)
-                    ? prev
-                    : [...prev, next],
+                  prev.some((p) => p.request_id === next.request_id) ? prev : [...prev, next],
                 );
                 continue;
               }
               if (event.type === "permission_resolved") {
                 const requestId = event.request_id;
-                setPendingPermissions((prev) =>
-                  prev.filter((p) => p.request_id !== requestId),
-                );
+                setPendingPermissions((prev) => prev.filter((p) => p.request_id !== requestId));
                 continue;
               }
               if (event.type === "cancelled") {
@@ -861,8 +784,7 @@ export function useChat(
         if (!(e instanceof Error) || e.name !== "AbortError") {
           const recovered = await recoverSession();
           if (!recovered && isCurrent()) {
-            const message =
-              "Stream disconnected. Reload the session to resume.";
+            const message = "Stream disconnected. Reload the session to resume.";
             stopped = true;
             if (kind === "compact") {
               setCompactError(message);
@@ -921,8 +843,7 @@ export function useChat(
       options?: { requestCwd?: string; requestToken?: number },
     ): Promise<SessionResponse | null> => {
       const requestCwd = options?.requestCwd ?? config.cwd;
-      const requestToken =
-        options?.requestToken ?? sessionRequestTokenRef.current;
+      const requestToken = options?.requestToken ?? sessionRequestTokenRef.current;
       const isStillCurrent = () =>
         isCurrentWorkspaceRequest({
           pendingRequestToken: sessionRequestTokenRef.current,
@@ -946,9 +867,7 @@ export function useChat(
       setPendingPermissions([]);
       const run = data.active_run || null;
 
-      const pendingEvents = Array.isArray(data.pending_events)
-        ? data.pending_events
-        : [];
+      const pendingEvents = Array.isArray(data.pending_events) ? data.pending_events : [];
       const isCompactRun = run?.kind === "compact";
       let replayStopped = false;
       const replayedPermissions = new Map<string, PermissionRequest>();
@@ -1104,11 +1023,7 @@ export function useChat(
 
             const detail = getErrorDetail(data);
             const existingRun = getRunFromDetail(detail);
-            if (
-              res.status === 409 &&
-              existingRun?.id &&
-              pendingItems.length === 0
-            ) {
+            if (res.status === 409 && existingRun?.id && pendingItems.length === 0) {
               streamRun(existingRun, sessionId, existingRun.last_seq || 0);
               return false;
             }
@@ -1151,26 +1066,14 @@ export function useChat(
         return false;
       }
     },
-    [
-      cancel,
-      dispatch,
-      fetchSessions,
-      restorePending,
-      setActiveSessionSnapshot,
-      streamRun,
-    ],
+    [cancel, dispatch, fetchSessions, restorePending, setActiveSessionSnapshot, streamRun],
   );
 
   /** Optimistic turn plus `POST /api/chat` with the current model settings. */
   const startTurn = useCallback(
     (
-      turn: Extract<
-        ChatAction,
-        { type: "start_turn" | "rewind_and_start_turn" }
-      >,
-      request:
-        | { message: string; rewind_to?: number }
-        | { input: Record<string, unknown>[] },
+      turn: Extract<ChatAction, { type: "start_turn" | "rewind_and_start_turn" }>,
+      request: { message: string; rewind_to?: number } | { input: Record<string, unknown>[] },
       pendingItems?: PendingInput[],
     ) => {
       const sessionId = activeSessionRef.current.id;
@@ -1204,17 +1107,10 @@ export function useChat(
   );
 
   const send = useCallback(
-    async (
-      submission: ComposerSubmission,
-      attachments: AttachedFile[] = [],
-    ) => {
+    async (submission: ComposerSubmission, attachments: AttachedFile[] = []) => {
       const content = submission.text.trim();
       const workspaceFiles = dedupeWorkspaceFiles(submission.workspaceFiles);
-      if (
-        (!content && !attachments.length && !workspaceFiles.length) ||
-        loading
-      )
-        return false;
+      if ((!content && !attachments.length && !workspaceFiles.length) || loading) return false;
 
       // Use structured `input` blocks when any attachment is present.
       const request =
@@ -1274,10 +1170,9 @@ export function useChat(
 
   const deleteQueued = useCallback(
     (sessionId: string, id: string) =>
-      fetch(
-        `/api/sessions/${encodeURIComponent(sessionId)}/queue/${encodeURIComponent(id)}`,
-        { method: "DELETE" },
-      ),
+      fetch(`/api/sessions/${encodeURIComponent(sessionId)}/queue/${encodeURIComponent(id)}`, {
+        method: "DELETE",
+      }),
     [],
   );
 
@@ -1308,10 +1203,7 @@ export function useChat(
         // the stream ends.
         if (res.status === 409) return;
         const data = (await res.json()) as ChatErrorResponse;
-        failPending(
-          item,
-          getMessageFromDetail(getErrorDetail(data), "Failed to queue"),
-        );
+        failPending(item, getMessageFromDetail(getErrorDetail(data), "Failed to queue"));
       } catch (e) {
         failPending(item, getErrorMessage(e));
       }
@@ -1322,10 +1214,7 @@ export function useChat(
   const deliverSteer = useCallback(
     async (runId: string, item: PendingInput) => {
       try {
-        const res = await postPendingInput(
-          `/api/runs/${encodeURIComponent(runId)}/steer`,
-          item,
-        );
+        const res = await postPendingInput(`/api/runs/${encodeURIComponent(runId)}/steer`, item);
         if (!isPending(item.id) || res.ok) return;
         if (res.status === 409) {
           // The turn is ending: the item becomes the next turn instead.
@@ -1334,10 +1223,7 @@ export function useChat(
           return;
         }
         const data = (await res.json()) as ChatErrorResponse;
-        failPending(
-          item,
-          getMessageFromDetail(getErrorDetail(data), "Failed to steer"),
-        );
+        failPending(item, getMessageFromDetail(getErrorDetail(data), "Failed to steer"));
       } catch (e) {
         failPending(item, getErrorMessage(e));
       }
@@ -1348,19 +1234,13 @@ export function useChat(
   /** Hand a message to the running chat: as a steer for its next step
    * boundary, or queued as its next turn. */
   const handOff = useCallback(
-    (
-      list: keyof PendingInputs,
-      submission: ComposerSubmission,
-      attachments?: AttachedFile[],
-    ) => {
+    (list: keyof PendingInputs, submission: ComposerSubmission, attachments?: AttachedFile[]) => {
       const run = activeRunRef.current;
       const item = createPendingInput(submission, attachments);
       if (run?.kind !== "chat" || !item) return false;
       dispatch({ type: "add_pending", list, item });
       setSendError(null);
-      track(
-        list === "steers" ? deliverSteer(run.id, item) : deliverQueued(item),
-      );
+      track(list === "steers" ? deliverSteer(run.id, item) : deliverQueued(item));
       return true;
     },
     [deliverQueued, deliverSteer, dispatch, track],
@@ -1399,9 +1279,7 @@ export function useChat(
    * on its way (delivered, or waiting to be sent when the run ends). */
   const takeBackQueued = useCallback(
     async (id: string): Promise<PendingInput | null> => {
-      const item = chatStateRef.current.pending.queue.find(
-        (queued) => queued.id === id,
-      );
+      const item = chatStateRef.current.pending.queue.find((queued) => queued.id === id);
       if (!item) return null;
       try {
         const res = await deleteQueued(activeSessionRef.current.id, id);
@@ -1472,17 +1350,14 @@ export function useChat(
     compactRequestRef.current = true;
 
     try {
-      const res = await fetch(
-        `/api/sessions/${encodeURIComponent(sessionId)}/compact`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            provider: config.provider || undefined,
-            model: config.model || undefined,
-          }),
-        },
-      );
+      const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/compact`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          provider: config.provider || undefined,
+          model: config.model || undefined,
+        }),
+      });
 
       const data = (await res.json()) as CompactResponse | ChatErrorResponse;
       if (activeSessionRef.current.id !== sessionId) return false;
@@ -1522,17 +1397,14 @@ export function useChat(
       // permission_resolved drives the clear; pre-clearing here would strand
       // the prompt if this POST fails while the server-side wait is still pending.
       try {
-        const res = await fetch(
-          `/api/runs/${encodeURIComponent(runId)}/decide`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              request_id: head.request_id,
-              decision,
-            }),
-          },
-        );
+        const res = await fetch(`/api/runs/${encodeURIComponent(runId)}/decide`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            request_id: head.request_id,
+            decision,
+          }),
+        });
         if (!res.ok) {
           console.error(`Decide POST failed: ${res.status}`);
         }
@@ -1555,13 +1427,7 @@ export function useChat(
     dispatch({ type: "set_messages", messages: [], sessionId: session.id });
     // Refresh from server to get accurate is_running, then prepend the new draft
     fetchSessions();
-  }, [
-    fetchSessions,
-    sessionLoading,
-    setActiveSessionSnapshot,
-    stopStreaming,
-    dispatch,
-  ]);
+  }, [fetchSessions, sessionLoading, setActiveSessionSnapshot, stopStreaming, dispatch]);
 
   const selectSession = useCallback(
     async (sessionId: string) => {
@@ -1619,27 +1485,18 @@ export function useChat(
       if (!sessionId) return;
 
       const isDeletingActive = sessionId === activeSession.id;
-      const deletedIndex = sessions.findIndex(
-        (session) => session.id === sessionId,
-      );
-      const remainingSessions = sessions.filter(
-        (session) => session.id !== sessionId,
-      );
+      const deletedIndex = sessions.findIndex((session) => session.id === sessionId);
+      const remainingSessions = sessions.filter((session) => session.id !== sessionId);
       const fallbackSession =
         deletedIndex >= 0
-          ? remainingSessions[deletedIndex] ||
-            remainingSessions[deletedIndex - 1] ||
-            null
+          ? remainingSessions[deletedIndex] || remainingSessions[deletedIndex - 1] || null
           : null;
 
       setSessionLoading(true);
       try {
-        const res = await fetch(
-          `/api/sessions/${encodeURIComponent(sessionId)}`,
-          {
-            method: "DELETE",
-          },
-        );
+        const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}`, {
+          method: "DELETE",
+        });
         if (!res.ok) throw new Error("Failed to delete session");
 
         if (!isDeletingActive) {
@@ -1726,24 +1583,17 @@ export function useChat(
       try {
         if (!isStillCurrent()) return;
         const preferredSessionId = loadActiveSession(requestCwd);
-        const res = await fetch(
-          `/api/sessions?cwd=${encodeURIComponent(requestCwd)}`,
-        );
+        const res = await fetch(`/api/sessions?cwd=${encodeURIComponent(requestCwd)}`);
         if (!res.ok) throw new Error("Failed to load sessions");
         const data = (await res.json()) as SessionsResponse;
         if (!isStillCurrent()) return;
 
         const savedSessions = data.sessions || [];
         setSessions(savedSessions);
-        const initialSessionId = resolveInitialSessionId(
-          savedSessions,
-          preferredSessionId,
-        );
+        const initialSessionId = resolveInitialSessionId(savedSessions, preferredSessionId);
 
         if (initialSessionId) {
-          const summary = savedSessions.find(
-            (session) => session.id === initialSessionId,
-          );
+          const summary = savedSessions.find((session) => session.id === initialSessionId);
           if (summary) {
             setActiveSessionSnapshot(summary);
           }
@@ -1789,11 +1639,7 @@ export function useChat(
     const sync = (runId: string) => {
       const session = activeSessionRef.current;
       if (session.isDraft) return;
-      if (
-        streamAbortRef.current ||
-        pendingRequestTokenRef.current ||
-        compactRequestRef.current
-      ) {
+      if (streamAbortRef.current || pendingRequestTokenRef.current || compactRequestRef.current) {
         resyncRef.current = runId;
         return;
       }
@@ -1820,10 +1666,7 @@ export function useChat(
         dispatch({ type: "job_started", job: event.job });
       } else if (event.type === "job_finished") {
         dispatch({ type: "job_finished", toolUseId: event.job.tool_use_id });
-      } else if (
-        event.type === "run_started" &&
-        event.run.id !== activeRunRef.current?.id
-      ) {
+      } else if (event.type === "run_started" && event.run.id !== activeRunRef.current?.id) {
         sync(event.run.id);
       }
     };
@@ -1853,12 +1696,7 @@ export function useChat(
     [chatState.jobs],
   );
   const messages = useMemo(
-    () =>
-      buildRenderMessages(
-        chatState.rawMessages,
-        chatState.toolRuntimeById,
-        runningJobIds,
-      ),
+    () => buildRenderMessages(chatState.rawMessages, chatState.toolRuntimeById, runningJobIds),
     [chatState.rawMessages, chatState.toolRuntimeById, runningJobIds],
   );
 
@@ -1871,10 +1709,7 @@ export function useChat(
       if (!isChatMessage(message)) continue;
       const stats = message.role === "assistant" ? message.stats : undefined;
       if (!stats) continue;
-      if (
-        stats.context_tokens !== undefined &&
-        stats.context_window !== undefined
-      ) {
+      if (stats.context_tokens !== undefined && stats.context_window !== undefined) {
         return { tokens: stats.context_tokens, window: stats.context_window };
       }
       break;

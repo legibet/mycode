@@ -45,20 +45,14 @@ function getBlocks(message?: ChatMessage | null): MessageBlock[] {
   return Array.isArray(message?.content) ? message.content : [];
 }
 
-function cloneBlock(
-  block: MessageBlock,
-  renderKey: string | null = null,
-): MessageBlock {
+function cloneBlock(block: MessageBlock, renderKey: string | null = null): MessageBlock {
   const next = { ...block };
   if (next.meta) next.meta = { ...next.meta };
   if (renderKey) next.renderKey = renderKey;
   return next;
 }
 
-function createMessage(
-  role: ChatMessage["role"],
-  content: MessageBlock[] = [],
-): ChatMessage {
+function createMessage(role: ChatMessage["role"], content: MessageBlock[] = []): ChatMessage {
   return { role, content };
 }
 
@@ -110,21 +104,13 @@ function createToolResultBlock(
   };
 }
 
-function createImageBlock(
-  data: string,
-  mimeType: string,
-  name?: string,
-): MessageBlock {
+function createImageBlock(data: string, mimeType: string, name?: string): MessageBlock {
   const block: MessageBlock = { type: "image", data, mime_type: mimeType };
   if (name) block.name = name;
   return block;
 }
 
-function createDocumentBlock(
-  data: string,
-  mimeType: string,
-  name?: string,
-): DocumentBlock {
+function createDocumentBlock(data: string, mimeType: string, name?: string): DocumentBlock {
   const block: DocumentBlock = { type: "document", data, mime_type: mimeType };
   if (name) block.name = name;
   return block;
@@ -132,18 +118,10 @@ function createDocumentBlock(
 
 function createAttachmentBlock(attachment: AttachedFile): MessageBlock {
   if (attachment.kind === "image") {
-    return createImageBlock(
-      attachment.data,
-      attachment.mime_type,
-      attachment.name,
-    );
+    return createImageBlock(attachment.data, attachment.mime_type, attachment.name);
   }
   if (attachment.kind === "document") {
-    return createDocumentBlock(
-      attachment.data,
-      attachment.mime_type,
-      attachment.name,
-    );
+    return createDocumentBlock(attachment.data, attachment.mime_type, attachment.name);
   }
   return createAttachedTextBlock(attachment.text, attachment.name);
 }
@@ -184,9 +162,7 @@ export function createUserMessage(
   return createMessage("user", blocks);
 }
 
-export function createAssistantMessage(
-  content: MessageBlock[] = [],
-): ChatMessage {
+export function createAssistantMessage(content: MessageBlock[] = []): ChatMessage {
   return createMessage("assistant", content);
 }
 
@@ -221,21 +197,14 @@ export function appendAssistantDelta(
       text: `${lastBlock.text || ""}${delta}`,
     };
   } else {
-    content.push(
-      blockType === "thinking"
-        ? createThinkingBlock(delta)
-        : createTextBlock(delta),
-    );
+    content.push(blockType === "thinking" ? createThinkingBlock(delta) : createTextBlock(delta));
   }
 
   next[index] = { ...assistant, content };
   return next;
 }
 
-export function appendToolUse(
-  messages: ChatMessage[],
-  toolCall: ToolCall,
-): ChatMessage[] {
+export function appendToolUse(messages: ChatMessage[], toolCall: ToolCall): ChatMessage[] {
   // Tail-aware: a backward scan would attach the new tool to the previous
   // turn's assistant when the tail is a tool-result user message or compact.
   const { messages: next, index } = ensureTailAssistant(messages);
@@ -286,11 +255,7 @@ export function updateLatestThinkingDuration(
   messages: ChatMessage[],
   durationMs: number,
 ): ChatMessage[] {
-  for (
-    let messageIndex = messages.length - 1;
-    messageIndex >= 0;
-    messageIndex--
-  ) {
+  for (let messageIndex = messages.length - 1; messageIndex >= 0; messageIndex--) {
     const message = messages[messageIndex];
     if (message?.role !== "assistant") continue;
 
@@ -377,20 +342,17 @@ function buildToolRuntime(
   toolResultBlock: ToolResultBlock | null,
 ): ToolRuntime {
   const output = typeof runtime?.output === "string" ? runtime.output : "";
-  const runtimeFinal =
-    typeof runtime?.finalOutput === "string" ? runtime.finalOutput : null;
+  const runtimeFinal = typeof runtime?.finalOutput === "string" ? runtime.finalOutput : null;
   const persistedOutput =
     typeof toolResultBlock?.output === "string" ? toolResultBlock.output : null;
   const finalOutput = runtimeFinal ?? persistedOutput;
   const runtimeMetadata = isObject(runtime?.metadata) ? runtime.metadata : null;
-  const persistedMetadata = isObject(toolResultBlock?.metadata)
-    ? toolResultBlock.metadata
-    : null;
+  const persistedMetadata = isObject(toolResultBlock?.metadata) ? toolResultBlock.metadata : null;
   const metadata = runtimeMetadata ?? persistedMetadata;
   const isError = Boolean(
     runtime?.isError ||
-      toolResultBlock?.is_error ||
-      (typeof finalOutput === "string" && finalOutput.startsWith("error:")),
+    toolResultBlock?.is_error ||
+    (typeof finalOutput === "string" && finalOutput.startsWith("error:")),
   );
 
   return {
@@ -427,10 +389,7 @@ function readCost(value: unknown): Cost | undefined {
 }
 
 /** Session totals from the server's `session_usage` / `session_cost` pair. */
-export function readUsageTotals(
-  usage: unknown,
-  cost: unknown,
-): UsageTotals | null {
+export function readUsageTotals(usage: unknown, cost: unknown): UsageTotals | null {
   const totals: UsageTotals = {};
   if (isObject(usage)) {
     for (const key of USAGE_TOKEN_KEYS) {
@@ -477,16 +436,8 @@ function addCost(total: Cost | undefined, request: Cost | undefined) {
 const ZONED_TIMESTAMP = /(?:Z|[+-]\d{2}:?\d{2})$/i;
 
 /** Milliseconds between two SDK timestamps; zone-free stamps are unknown, as in the SDK. */
-function elapsedMs(
-  start: string | undefined,
-  end: string | undefined,
-): number | undefined {
-  if (
-    !start ||
-    !end ||
-    !ZONED_TIMESTAMP.test(start) ||
-    !ZONED_TIMESTAMP.test(end)
-  ) {
+function elapsedMs(start: string | undefined, end: string | undefined): number | undefined {
+  if (!start || !end || !ZONED_TIMESTAMP.test(start) || !ZONED_TIMESTAMP.test(end)) {
     return undefined;
   }
   const ms = Date.parse(end) - Date.parse(start);
@@ -515,9 +466,7 @@ function foldTurnStats(
 ): TurnStats | undefined {
   if (!meta) return prev;
   const contextWindow =
-    typeof meta.context_window === "number"
-      ? meta.context_window
-      : prev?.context_window;
+    typeof meta.context_window === "number" ? meta.context_window : prev?.context_window;
 
   if (meta.turn_usage !== undefined || meta.turn_cost !== undefined) {
     const stats: TurnStats = {};
@@ -593,10 +542,7 @@ type JobStatus = { running: true } | { exit_code: number };
 
 // The start card's metadata with its job's status, built once per metadata
 // object and status: MessageBubble compares metadata by identity.
-const metadataWithStatus = new WeakMap<
-  object,
-  Map<string, Record<string, unknown>>
->();
+const metadataWithStatus = new WeakMap<object, Map<string, Record<string, unknown>>>();
 
 /** Mark the bash call that started a background job with the job's status. */
 function withJobStatus(block: ToolUseBlock, status: JobStatus): ToolUseBlock {
@@ -653,8 +599,7 @@ export function buildRenderMessages(
   const commitTurn = () => {
     // A streamed duration wins: a reattached run's history ends before the
     // records still streaming.
-    const durationMs =
-      turnStats?.duration_ms ?? elapsedMs(turnStartedAt, turnEndedAt);
+    const durationMs = turnStats?.duration_ms ?? elapsedMs(turnStartedAt, turnEndedAt);
     if (durationMs !== undefined) {
       turnStats = { ...turnStats, duration_ms: durationMs };
     }
@@ -733,9 +678,7 @@ export function buildRenderMessages(
           block?.type === "image" ||
           block?.type === "document"
         ) {
-          userBlocks.push(
-            cloneBlock(block, `user:${sourceIndex}:${blockIndex}`),
-          );
+          userBlocks.push(cloneBlock(block, `user:${sourceIndex}:${blockIndex}`));
         } else if (block?.type === "tool_result") {
           toolResults.push(block);
         }
@@ -772,8 +715,7 @@ export function buildRenderMessages(
             renderKey: `user:${sourceIndex}`,
             sourceIndex,
           };
-          if (isObject(message?.meta))
-            userMsg.meta = { ...(message.meta as MessageMeta) };
+          if (isObject(message?.meta)) userMsg.meta = { ...(message.meta as MessageMeta) };
           result.push(userMsg);
           currentAssistant = null;
         }
@@ -826,8 +768,7 @@ export function buildRenderMessages(
           runtime: buildToolRuntime(runtime, block),
         };
         const blockIndex = assistantContent.length;
-        nextBlock.renderKey =
-          toolUseId || `tool-result:${sourceIndex}:${blockIndex}`;
+        nextBlock.renderKey = toolUseId || `tool-result:${sourceIndex}:${blockIndex}`;
         assistantContent.push(nextBlock);
         currentAssistant = { ...assistantMessage, content: assistantContent };
         result[result.length - 1] = currentAssistant;
@@ -850,16 +791,12 @@ export function buildRenderMessages(
 
     for (const [sourceBlockIndex, block] of blocks.entries()) {
       if (block?.type === "thinking" && block.text) {
-        assistantContent.push(
-          cloneBlock(block, `assistant:${sourceIndex}:${sourceBlockIndex}`),
-        );
+        assistantContent.push(cloneBlock(block, `assistant:${sourceIndex}:${sourceBlockIndex}`));
         continue;
       }
 
       if (block?.type === "text" && block.text) {
-        assistantContent.push(
-          cloneBlock(block, `assistant:${sourceIndex}:${sourceBlockIndex}`),
-        );
+        assistantContent.push(cloneBlock(block, `assistant:${sourceIndex}:${sourceBlockIndex}`));
         continue;
       }
 
@@ -870,13 +807,9 @@ export function buildRenderMessages(
         id: block.id,
         name: block.name,
         input: isObject(block.input) ? block.input : EMPTY_TOOL_INPUT,
-        runtime: buildToolRuntime(
-          block.id ? toolRuntimeById[block.id] : undefined,
-          null,
-        ),
+        runtime: buildToolRuntime(block.id ? toolRuntimeById[block.id] : undefined, null),
       };
-      renderBlock.renderKey =
-        block.id || `assistant:${sourceIndex}:${sourceBlockIndex}`;
+      renderBlock.renderKey = block.id || `assistant:${sourceIndex}:${sourceBlockIndex}`;
       if (isObject(block.meta)) {
         renderBlock.meta = { ...block.meta };
       }
@@ -905,9 +838,7 @@ export function buildRenderMessages(
     turnStats = foldTurnStats(turnStats, rawMeta);
     const stopReason = rawMeta?.stop_reason;
     turnInterruption =
-      stopReason === "cancelled" || stopReason === "error"
-        ? stopReason
-        : undefined;
+      stopReason === "cancelled" || stopReason === "error" ? stopReason : undefined;
     // A partial response persisted on error or cancel had no usage event.
     if (rawMeta?.created_at && !turnInterruption) {
       turnEndedAt = rawMeta.created_at;

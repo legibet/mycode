@@ -4,18 +4,13 @@
  * Mobile: sidebar as overlay, top header bar.
  */
 
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  useSyncExternalStore,
-} from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import useSWR from "swr";
+
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
+
 import { InputArea, type InputAreaHandle } from "./components/Chat/InputArea";
 import { MessageList } from "./components/Chat/MessageList";
 import { PermissionPrompt } from "./components/Chat/PermissionPrompt";
@@ -77,12 +72,8 @@ function modelSupports(
   const info = remoteConfig?.providers?.[key];
   const m = model || remoteConfig?.default?.model || "";
   return {
-    image: Boolean(
-      info?.supports_image_input && info.image_input_models?.includes(m),
-    ),
-    pdf: Boolean(
-      info?.supports_pdf_input && info.pdf_input_models?.includes(m),
-    ),
+    image: Boolean(info?.supports_image_input && info.image_input_models?.includes(m)),
+    pdf: Boolean(info?.supports_pdf_input && info.pdf_input_models?.includes(m)),
   };
 }
 
@@ -123,8 +114,7 @@ function AppContent() {
     prevAttachmentsRef.current = attachments;
     const alive = new Set(attachments.map((a) => a.id));
     for (const a of prev) {
-      if (a.kind === "image" && !alive.has(a.id))
-        URL.revokeObjectURL(a.preview);
+      if (a.kind === "image" && !alive.has(a.id)) URL.revokeObjectURL(a.preview);
     }
   }, [attachments]);
 
@@ -165,16 +155,11 @@ function AppContent() {
     data: settingsResponse = null,
     error: settingsError,
     mutate: mutateSettings,
-  } = useSWR<SettingsResponse, Error>(
-    "/api/settings",
-    fetchJson<SettingsResponse>,
-  );
+  } = useSWR<SettingsResponse, Error>("/api/settings", fetchJson<SettingsResponse>);
 
   const config = useMemo(
     () =>
-      remoteConfig
-        ? normalizeConfigWithRemoteDefaults(localConfig, remoteConfig)
-        : localConfig,
+      remoteConfig ? normalizeConfigWithRemoteDefaults(localConfig, remoteConfig) : localConfig,
     [localConfig, remoteConfig],
   );
 
@@ -231,11 +216,7 @@ function AppContent() {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape" || event.defaultPrevented) return;
       if (event.isComposing) return;
-      if (
-        event
-          .composedPath()
-          .some((el) => el instanceof Element && el.matches("[role=dialog]"))
-      ) {
+      if (event.composedPath().some((el) => el instanceof Element && el.matches("[role=dialog]"))) {
         return;
       }
       void cancel();
@@ -252,11 +233,7 @@ function AppContent() {
       if (event.key.toLowerCase() !== "k") return;
       if (!(isMac ? event.metaKey : event.ctrlKey)) return;
       if (event.altKey || event.shiftKey) return;
-      if (
-        event
-          .composedPath()
-          .some((el) => el instanceof Element && el.matches("[role=dialog]"))
-      ) {
+      if (event.composedPath().some((el) => el instanceof Element && el.matches("[role=dialog]"))) {
         return;
       }
       event.preventDefault();
@@ -282,9 +259,7 @@ function AppContent() {
   );
 
   const handleRemoveHistory = useCallback((cwd: string) => {
-    setCwdHistory((prev) =>
-      prev.includes(cwd) ? prev.filter((item) => item !== cwd) : prev,
-    );
+    setCwdHistory((prev) => (prev.includes(cwd) ? prev.filter((item) => item !== cwd) : prev));
   }, []);
 
   const clearAttachments = useCallback(() => {
@@ -328,22 +303,17 @@ function AppContent() {
     ? "Workspace no longer exists. Choose another workspace."
     : undefined;
   const setupRequired =
-    Boolean(remoteConfig?.setup_error) ||
-    (!remoteConfig && Boolean(remoteConfigError));
+    Boolean(remoteConfig?.setup_error) || (!remoteConfig && Boolean(remoteConfigError));
   const emptyStateFooter = setupRequired ? (
     remoteConfig ? (
       <div className="flex items-center gap-3">
-        <p className="text-sm text-muted-foreground">
-          Add a provider to get started.
-        </p>
+        <p className="text-sm text-muted-foreground">Add a provider to get started.</p>
         <Button variant="outline" size="sm" onClick={handleOpenSettings}>
           Open settings
         </Button>
       </div>
     ) : (
-      <p className="text-sm text-muted-foreground">
-        Couldn&apos;t reach the API.
-      </p>
+      <p className="text-sm text-muted-foreground">Couldn&apos;t reach the API.</p>
     )
   ) : undefined;
 
@@ -419,7 +389,7 @@ function AppContent() {
             <SheetContent
               side="left"
               showCloseButton={false}
-              className="p-0 gap-0 w-65 bg-sidebar-bg"
+              className="w-65 gap-0 bg-sidebar-bg p-0"
             >
               <SheetTitle className="sr-only">Navigation</SheetTitle>
               <Sidebar {...sidebarProps} width={260} className="h-full" />
@@ -444,18 +414,13 @@ function AppContent() {
             compactError={setupRequired ? null : compactError}
             sendError={setupRequired ? null : sendError}
             pendingSteers={pending.steers}
-            onRewindAndSend={
-              workspaceMissing || setupRequired ? undefined : rewindAndSend
-            }
+            onRewindAndSend={workspaceMissing || setupRequired ? undefined : rewindAndSend}
             emptyStateFooter={emptyStateFooter}
           />
 
           <div className="shrink-0 pb-4 max-md:pb-1">
             {pendingPermission && (
-              <PermissionPrompt
-                request={pendingPermission}
-                onDecide={decidePermission}
-              />
+              <PermissionPrompt request={pendingPermission} onDecide={decidePermission} />
             )}
             <InputArea
               key={config.cwd}

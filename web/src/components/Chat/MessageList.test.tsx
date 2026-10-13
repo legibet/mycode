@@ -1,5 +1,6 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
 import type { RenderMessage } from "../../types";
 import { MessageList } from "./MessageList";
 
@@ -27,11 +28,11 @@ describe("MessageList", () => {
     nextFrameId = 1;
     animationFrames = new Map();
 
-    vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockImplementation(
-      function (this: HTMLElement) {
-        return scrollHeightForElement?.(this) ?? scrollHeight;
-      },
-    );
+    vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockImplementation(function (
+      this: HTMLElement,
+    ) {
+      return scrollHeightForElement?.(this) ?? scrollHeight;
+    });
     vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockReturnValue(400);
     vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
       const id = nextFrameId++;
@@ -64,9 +65,7 @@ describe("MessageList", () => {
       compactError: null,
       sendError: null,
     };
-    const { container, rerender } = render(
-      <MessageList {...props} messages={[]} />,
-    );
+    const { container, rerender } = render(<MessageList {...props} messages={[]} />);
 
     flushAnimationFrames();
 
@@ -77,8 +76,7 @@ describe("MessageList", () => {
     scrollHeight = 2_400;
     flushAnimationFrames();
 
-    const scrollContainer = container.firstElementChild
-      ?.firstElementChild as HTMLElement;
+    const scrollContainer = container.firstElementChild?.firstElementChild as HTMLElement;
     expect(scrollContainer.scrollTop).toBe(scrollContainer.scrollHeight);
   });
 
@@ -99,23 +97,16 @@ describe("MessageList", () => {
     );
     flushAnimationFrames();
 
-    const scrollContainer = container.firstElementChild
-      ?.firstElementChild as HTMLElement;
-    const renderedBefore = container.querySelectorAll(
-      ".chat-message-shell",
-    ).length;
+    const scrollContainer = container.firstElementChild?.firstElementChild as HTMLElement;
+    const renderedBefore = container.querySelectorAll(".chat-message-shell").length;
     const scrollHeightBefore = scrollContainer.scrollHeight;
 
     scrollContainer.scrollTop = 100;
     fireEvent.scroll(scrollContainer);
 
-    const renderedAfter = container.querySelectorAll(
-      ".chat-message-shell",
-    ).length;
+    const renderedAfter = container.querySelectorAll(".chat-message-shell").length;
     expect(renderedAfter).toBeGreaterThan(renderedBefore);
-    expect(scrollContainer.scrollTop).toBe(
-      100 + scrollContainer.scrollHeight - scrollHeightBefore,
-    );
+    expect(scrollContainer.scrollTop).toBe(100 + scrollContainer.scrollHeight - scrollHeightBefore);
   });
 
   it("keeps following output that arrives during a smooth jump to the latest", () => {
@@ -127,12 +118,9 @@ describe("MessageList", () => {
       compactError: null,
       sendError: null,
     };
-    const { container, rerender } = render(
-      <MessageList {...props} messages={history} />,
-    );
+    const { container, rerender } = render(<MessageList {...props} messages={history} />);
     flushAnimationFrames();
-    const scrollContainer = container.firstElementChild
-      ?.firstElementChild as HTMLElement;
+    const scrollContainer = container.firstElementChild?.firstElementChild as HTMLElement;
     // jsdom fires no scroll events for scrollTop writes and has no scrollTo,
     // so each position is replayed by hand.
     scrollContainer.scrollTo = () => {};
@@ -185,19 +173,16 @@ describe("MessageList", () => {
     };
     const { container, rerender } = render(<MessageList {...props} loading />);
     flushAnimationFrames();
-    const scrollContainer = container.firstElementChild
-      ?.firstElementChild as HTMLElement;
+    const scrollContainer = container.firstElementChild?.firstElementChild as HTMLElement;
     fireEvent.scroll(scrollContainer);
     scrollContainer.scrollTop = 500;
     fireEvent.scroll(scrollContainer);
     // The work starts above the container's top: the reader is inside it.
-    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(
-      function (this: HTMLElement) {
-        return this.hasAttribute("data-work")
-          ? new DOMRect(0, -300, 0, 1_000)
-          : new DOMRect();
-      },
-    );
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (
+      this: HTMLElement,
+    ) {
+      return this.hasAttribute("data-work") ? new DOMRect(0, -300, 0, 1_000) : new DOMRect();
+    });
 
     rerender(<MessageList {...props} loading={false} />);
 
@@ -239,20 +224,19 @@ describe("MessageList", () => {
       <MessageList {...props} messages={[...history, segment]} />,
     );
     flushAnimationFrames();
-    const scrollContainer = container.firstElementChild
-      ?.firstElementChild as HTMLElement;
+    const scrollContainer = container.firstElementChild?.firstElementChild as HTMLElement;
     fireEvent.scroll(scrollContainer);
     scrollContainer.scrollTop = 1_000;
     fireEvent.scroll(scrollContainer);
     // The work ends above the reader; folding shortens it by 600px.
-    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(
-      function (this: HTMLElement) {
-        const work = this.getAttribute("data-work");
-        if (work === "open") return new DOMRect(0, -1_300, 0, 1_200);
-        if (work === "folded") return new DOMRect(0, -1_300, 0, 600);
-        return new DOMRect();
-      },
-    );
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (
+      this: HTMLElement,
+    ) {
+      const work = this.getAttribute("data-work");
+      if (work === "open") return new DOMRect(0, -1_300, 0, 1_200);
+      if (work === "folded") return new DOMRect(0, -1_300, 0, 600);
+      return new DOMRect();
+    });
 
     rerender(
       <MessageList
@@ -300,9 +284,7 @@ describe("MessageList", () => {
     );
 
     expect(screen.getByText("use sqlite")).toBeInTheDocument();
-    expect(
-      screen.getByText("Waiting for the current step…"),
-    ).toBeInTheDocument();
+    expect(screen.getByText("Waiting for the current step…")).toBeInTheDocument();
   });
 
   it("shows the jump to the latest when content grows below the reader", () => {

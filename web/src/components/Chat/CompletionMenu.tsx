@@ -5,6 +5,7 @@
  */
 
 import { useEffect } from "react";
+
 import { cn } from "../../utils/cn";
 
 export interface CompletionItem {
@@ -72,9 +73,7 @@ export function CompletionMenu({
             onClick={() => onSelect(index)}
             onPointerMove={() => onHighlight(index)}
           >
-            <span className="truncate font-mono text-[13px] text-foreground">
-              {item.label}
-            </span>
+            <span className="truncate font-mono text-[13px] text-foreground">{item.label}</span>
             {item.hint && (
               <span className="max-w-xl truncate text-left text-xs text-muted-foreground">
                 {item.hint}
@@ -82,11 +81,7 @@ export function CompletionMenu({
             )}
           </div>
         ))}
-        {footer && (
-          <div className="px-2 py-1.5 text-xs text-muted-foreground">
-            {footer}
-          </div>
-        )}
+        {footer && <div className="px-2 py-1.5 text-xs text-muted-foreground">{footer}</div>}
       </div>
     </div>
   );

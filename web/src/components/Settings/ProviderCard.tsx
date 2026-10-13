@@ -5,13 +5,8 @@
 
 import { Checkbox } from "@base-ui/react/checkbox";
 import { Check, Plus, X } from "lucide-react";
-import {
-  type KeyboardEvent,
-  memo,
-  type ReactNode,
-  useId,
-  useState,
-} from "react";
+import { type KeyboardEvent, memo, type ReactNode, useId, useState } from "react";
+
 import { cn } from "../../utils/cn";
 import { Field, NativeSelect, TextInput } from "./controls";
 
@@ -63,8 +58,7 @@ export const ProviderCard = memo(function ProviderCard({
   const [modelInput, setModelInput] = useState("");
   const inputId = useId();
 
-  const update = (patch: Partial<ProviderDraft>) =>
-    onChange({ ...draft, ...patch });
+  const update = (patch: Partial<ProviderDraft>) => onChange({ ...draft, ...patch });
 
   // Type change re-applies the name=type rule when the user hasn't taken the
   // name field over (name is empty, or still equals the previous type). When
@@ -110,7 +104,7 @@ export const ProviderCard = memo(function ProviderCard({
   return (
     <div
       className={cn(
-        "relative rounded-lg bg-card shadow-card px-4 py-3.5",
+        "relative rounded-lg bg-card px-4 py-3.5 shadow-card",
         "transition-colors hover:border-border/60",
       )}
     >
@@ -119,19 +113,16 @@ export const ProviderCard = memo(function ProviderCard({
         onClick={() => onRemove(draft.id)}
         aria-label={`Remove provider ${draft.name || "untitled"}`}
         className={cn(
-          "absolute right-2 top-2 inline-flex items-center justify-center rounded-sm size-7",
-          "text-muted-foreground/50 hover:text-destructive hover:bg-destructive/10 active:scale-95 transition-[color,background-color,scale] duration-150",
-          "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-destructive/60",
+          "absolute top-2 right-2 inline-flex size-7 items-center justify-center rounded-sm",
+          "text-muted-foreground/50 transition-[color,background-color,scale] duration-150 hover:bg-destructive/10 hover:text-destructive active:scale-95",
+          "focus-visible:ring-1 focus-visible:ring-destructive/60 focus-visible:outline-none",
         )}
       >
         <X className="size-3.5" />
       </button>
 
       <div className="flex flex-col gap-2.5 pr-8">
-        <Field
-          label="Name"
-          hint={renderNameHint(draft, usedTypesByOthers, duplicateName)}
-        >
+        <Field label="Name" hint={renderNameHint(draft, usedTypesByOthers, duplicateName)}>
           <TextInput
             value={draft.name}
             onChange={(e) => update({ name: e.target.value })}
@@ -141,18 +132,11 @@ export const ProviderCard = memo(function ProviderCard({
             autoCapitalize="off"
             invalid={duplicateName || !draft.name.trim()}
           />
-          {duplicateName && (
-            <span className="text-[12px] text-destructive/80">
-              duplicate name
-            </span>
-          )}
+          {duplicateName && <span className="text-[12px] text-destructive/80">duplicate name</span>}
         </Field>
 
         <Field label="Type">
-          <NativeSelect
-            value={draft.type}
-            onChange={(e) => handleTypeChange(e.target.value)}
-          >
+          <NativeSelect value={draft.type} onChange={(e) => handleTypeChange(e.target.value)}>
             {providerTypes.map((t) => (
               <option key={t} value={t}>
                 {t}
@@ -179,21 +163,16 @@ export const ProviderCard = memo(function ProviderCard({
           >
             <Checkbox.Root
               checked={draft.supports_reasoning_effort}
-              onCheckedChange={(checked) =>
-                update({ supports_reasoning_effort: checked })
-              }
+              onCheckedChange={(checked) => update({ supports_reasoning_effort: checked })}
               aria-label="Reasoning effort supported"
               className={cn(
-                "group flex h-9 items-center gap-2.5 px-2 cursor-pointer select-none",
-                "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent/60",
+                "group flex h-9 cursor-pointer items-center gap-2.5 px-2 select-none",
+                "focus-visible:ring-1 focus-visible:ring-accent/60 focus-visible:outline-none",
               )}
             >
               <span className="flex size-4 shrink-0 items-center justify-center rounded-lg border border-border/60 transition-colors group-hover:border-border group-data-checked:border-accent group-data-checked:bg-accent">
                 <Checkbox.Indicator>
-                  <Check
-                    className="size-3 text-accent-foreground"
-                    strokeWidth={3}
-                  />
+                  <Check className="size-3 text-accent-foreground" strokeWidth={3} />
                 </Checkbox.Indicator>
               </span>
               <span className="text-[13px] text-foreground/90">Supported</span>
@@ -206,9 +185,7 @@ export const ProviderCard = memo(function ProviderCard({
             <TextInput
               id={inputId}
               value={draft.api_key_input}
-              onChange={(e) =>
-                update({ api_key_input: e.target.value, api_key_dirty: true })
-              }
+              onChange={(e) => update({ api_key_input: e.target.value, api_key_dirty: true })}
               placeholder={
                 draft.api_key_saved && !draft.api_key_dirty
                   ? "•••••• saved · type to replace"
@@ -224,12 +201,10 @@ export const ProviderCard = memo(function ProviderCard({
             {draft.api_key_saved && !draft.api_key_dirty && (
               <button
                 type="button"
-                onClick={() =>
-                  update({ api_key_input: "", api_key_dirty: true })
-                }
+                onClick={() => update({ api_key_input: "", api_key_dirty: true })}
                 className={cn(
                   "shrink-0 text-[12px]",
-                  "text-muted-foreground/70 hover:text-destructive active:scale-95 transition-[color,scale] duration-150",
+                  "text-muted-foreground/70 transition-[color,scale] duration-150 hover:text-destructive active:scale-95",
                   "h-9 px-2",
                 )}
                 aria-label="Clear saved API key"
@@ -255,8 +230,8 @@ export const ProviderCard = memo(function ProviderCard({
                   <span
                     key={model}
                     className={cn(
-                      "group inline-flex items-center gap-1 rounded-sm h-7 pl-2.5 pr-1",
-                      "bg-muted/60 text-foreground/90 text-[12px] font-mono",
+                      "group inline-flex h-7 items-center gap-1 rounded-sm pr-1 pl-2.5",
+                      "bg-muted/60 font-mono text-[12px] text-foreground/90",
                     )}
                   >
                     {model}
@@ -264,8 +239,8 @@ export const ProviderCard = memo(function ProviderCard({
                       type="button"
                       onClick={() => removeModel(model)}
                       className={cn(
-                        "inline-flex items-center justify-center rounded-sm size-5",
-                        "text-muted-foreground/60 hover:text-destructive active:scale-95 transition-[color,scale] duration-150",
+                        "inline-flex size-5 items-center justify-center rounded-sm",
+                        "text-muted-foreground/60 transition-[color,scale] duration-150 hover:text-destructive active:scale-95",
                       )}
                       aria-label={`Remove model ${model}`}
                     >
@@ -281,15 +256,13 @@ export const ProviderCard = memo(function ProviderCard({
                 onChange={(e) => setModelInput(e.target.value)}
                 onKeyDown={handleModelKeyDown}
                 aria-label="Add model"
-                placeholder={
-                  draft.models.length === 0 ? "add a model id…" : "add another…"
-                }
+                placeholder={draft.models.length === 0 ? "add a model id…" : "add another…"}
                 spellCheck={false}
                 autoCorrect="off"
                 autoCapitalize="off"
                 className={cn(
-                  "flex-1 min-w-0 bg-transparent h-9 px-2",
-                  "text-[13px] font-mono",
+                  "h-9 min-w-0 flex-1 bg-transparent px-2",
+                  "font-mono text-[13px]",
                   "border-b border-border/60",
                   "transition-colors",
                   "placeholder:text-muted-foreground/50",
@@ -301,8 +274,8 @@ export const ProviderCard = memo(function ProviderCard({
                   type="button"
                   onClick={addModel}
                   className={cn(
-                    "shrink-0 inline-flex items-center justify-center rounded-sm size-9",
-                    "text-muted-foreground/70 hover:text-foreground hover:bg-muted/50 active:scale-95 transition-[color,background-color,scale] duration-150",
+                    "inline-flex size-9 shrink-0 items-center justify-center rounded-sm",
+                    "text-muted-foreground/70 transition-[color,background-color,scale] duration-150 hover:bg-muted/50 hover:text-foreground active:scale-95",
                   )}
                   aria-label="Add model"
                 >
@@ -322,13 +295,12 @@ function computeApiKeyHint(
   envByName: Record<string, boolean>,
   providerTypeEnvVars: Record<string, string[]>,
 ): ReactNode {
-  const renamed =
-    draft.original_name !== "" && draft.original_name !== draft.name.trim();
+  const renamed = draft.original_name !== "" && draft.original_name !== draft.name.trim();
   if (renamed && draft.api_key_saved && !draft.api_key_dirty) {
     return (
       <span className="text-destructive/80">
-        renamed from <code className="font-mono">{draft.original_name}</code>:
-        saved key won't carry over, paste it again
+        renamed from <code className="font-mono">{draft.original_name}</code>: saved key won't carry
+        over, paste it again
       </span>
     );
   }
@@ -365,8 +337,7 @@ function computeApiKeyHint(
       </>
     ) : (
       <span className="text-destructive/80">
-        env <code className="font-mono">{primary}</code> not set. Paste a key or
-        set the env
+        env <code className="font-mono">{primary}</code> not set. Paste a key or set the env
       </span>
     );
   }
@@ -385,8 +356,7 @@ function renderNameHint(
     if (usedTypesByOthers.has(draft.type)) {
       return (
         <>
-          type <code className="font-mono">{draft.type}</code> already used.
-          pick an alias name
+          type <code className="font-mono">{draft.type}</code> already used. pick an alias name
         </>
       );
     }

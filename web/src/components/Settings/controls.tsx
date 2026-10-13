@@ -8,11 +8,8 @@
  *   • three font sizes (14 section / 13 control / 12 label·hint), three opacities (/100 /70 /50)
  */
 
-import type {
-  InputHTMLAttributes,
-  ReactNode,
-  SelectHTMLAttributes,
-} from "react";
+import type { InputHTMLAttributes, ReactNode, SelectHTMLAttributes } from "react";
+
 import { cn } from "../../utils/cn";
 
 interface FieldProps {
@@ -29,19 +26,13 @@ export function Field({ label, hint, children }: FieldProps) {
     <div
       className={cn(
         "flex flex-col gap-1.5",
-        "md:grid md:grid-cols-[110px_1fr] md:gap-x-3 md:gap-y-0 md:items-start",
+        "md:grid md:grid-cols-[110px_1fr] md:items-start md:gap-x-3 md:gap-y-0",
       )}
     >
-      <div className="text-[12px] text-muted-foreground/80 select-none md:pt-2">
-        {label}
-      </div>
-      <div className="flex flex-col gap-1.5 min-w-0">
+      <div className="text-[12px] text-muted-foreground/80 select-none md:pt-2">{label}</div>
+      <div className="flex min-w-0 flex-col gap-1.5">
         {children}
-        {hint && (
-          <div className="text-[12px] text-muted-foreground/70 leading-relaxed">
-            {hint}
-          </div>
-        )}
+        {hint && <div className="text-[12px] leading-relaxed text-muted-foreground/70">{hint}</div>}
       </div>
     </div>
   );
@@ -55,9 +46,7 @@ interface SectionProps {
 export function Section({ title, children }: SectionProps) {
   return (
     <section className="flex flex-col gap-3.5">
-      <h3 className="text-[14px] font-semibold text-foreground select-none">
-        {title}
-      </h3>
+      <h3 className="text-[14px] font-semibold text-foreground select-none">{title}</h3>
       <div className="flex flex-col gap-2.5">{children}</div>
     </section>
   );
@@ -100,7 +89,7 @@ export function Segmented<T extends string>({
               active
                 ? "bg-background text-foreground"
                 : "text-muted-foreground/80 hover:text-foreground",
-              "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent/60",
+              "focus-visible:ring-1 focus-visible:ring-accent/60 focus-visible:outline-none",
             )}
           >
             {opt.icon}
@@ -122,7 +111,7 @@ export function TextInput({ className, invalid, ...props }: TextInputProps) {
       {...props}
       className={cn(
         "h-9 w-full bg-transparent px-2",
-        "text-[13px] font-mono",
+        "font-mono text-[13px]",
         "border-b border-border/60",
         "transition-colors",
         "placeholder:text-muted-foreground/50",
@@ -146,8 +135,8 @@ export function NativeSelect({
       <select
         {...props}
         className={cn(
-          "appearance-none w-full h-9 pl-2 pr-7",
-          "text-[13px] font-mono bg-transparent",
+          "h-9 w-full appearance-none pr-7 pl-2",
+          "bg-transparent font-mono text-[13px]",
           "border-b border-border/60",
           "transition-colors",
           "hover:border-border",
@@ -159,7 +148,7 @@ export function NativeSelect({
       </select>
       <span
         aria-hidden="true"
-        className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground/60"
+        className="pointer-events-none absolute top-1/2 right-2 -translate-y-1/2 text-[10px] text-muted-foreground/60"
       >
         ▾
       </span>

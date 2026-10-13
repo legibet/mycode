@@ -44,14 +44,9 @@ export function getReasoningEffortOverride(
   config: LocalConfig,
   remoteConfig?: RemoteConfig | null,
 ): ReasoningEffort | undefined {
-  const saved =
-    config.reasoningEfforts[reasoningEffortKey(config.provider, config.model)];
+  const saved = config.reasoningEfforts[reasoningEffortKey(config.provider, config.model)];
   if (!saved || !remoteConfig) return undefined;
-  return getReasoningEffortOptions(
-    remoteConfig,
-    config.provider,
-    config.model,
-  ).includes(saved)
+  return getReasoningEffortOptions(remoteConfig, config.provider, config.model).includes(saved)
     ? saved
     : undefined;
 }
@@ -62,9 +57,7 @@ export function normalizeConfigWithRemoteDefaults(
 ): LocalConfig {
   const providers = remoteConfig?.providers || {};
   const providerChanged = !config.provider || !providers[config.provider];
-  const provider = providerChanged
-    ? remoteConfig?.default?.provider || ""
-    : config.provider;
+  const provider = providerChanged ? remoteConfig?.default?.provider || "" : config.provider;
   const providerInfo = providers[provider];
   const modelChanged = !providerInfo?.models?.includes(config.model);
   const model = modelChanged ? providerInfo?.models?.[0] || "" : config.model;

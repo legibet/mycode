@@ -60,15 +60,10 @@ function resolveLanguage(lang: string): ResolvedLanguage {
   if (!normalized) return "text";
 
   const resolved = LANGUAGE_ALIASES[normalized] || normalized;
-  return Object.hasOwn(bundledLanguages, resolved)
-    ? (resolved as BundledLanguage)
-    : "text";
+  return Object.hasOwn(bundledLanguages, resolved) ? (resolved as BundledLanguage) : "text";
 }
 
-function loadLang(
-  highlighter: AppHighlighter,
-  lang: BundledLanguage,
-): Promise<ResolvedLanguage> {
+function loadLang(highlighter: AppHighlighter, lang: BundledLanguage): Promise<ResolvedLanguage> {
   if (highlighter.getLoadedLanguages().includes(lang)) {
     return Promise.resolve(lang);
   }
@@ -108,10 +103,7 @@ async function loadHighlighter(
   return loadedLanguage === "text" ? null : [highlighter, loadedLanguage];
 }
 
-export async function highlightCode(
-  code: string,
-  language: string,
-): Promise<string | null> {
+export async function highlightCode(code: string, language: string): Promise<string | null> {
   const loaded = await loadHighlighter(language);
   if (!loaded) return null;
   const [highlighter, lang] = loaded;
