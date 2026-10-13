@@ -17,6 +17,12 @@ describe("MarkdownBlock", () => {
     const link = render(<MarkdownBlock content="See [docs](https://exam" streaming />);
     expect(link.container.querySelector("a")).toBeNull();
     expect(link.container.textContent).toBe("See docs");
+
+    // An unfinished image renders nothing rather than a broken <img>.
+    const image = render(<MarkdownBlock content="See ![diagram](https://exam" streaming />);
+    expect(image.container.querySelector("img")).toBeNull();
+    const imageDone = render(<MarkdownBlock content="See ![diagram](https://example.com/d.png)" />);
+    expect(imageDone.container.querySelector("img")?.getAttribute("alt")).toBe("diagram");
   });
 
   it("renders inline and display math", () => {

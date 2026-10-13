@@ -21,6 +21,7 @@ import { CodeBlock } from "./CodeBlock";
 import { remarkSingleDollarMath } from "./remarkSingleDollarMath";
 
 type MarkdownPreProps = ComponentPropsWithoutRef<"pre"> & ExtraProps;
+type MarkdownImgProps = ComponentPropsWithoutRef<"img"> & ExtraProps;
 type MarkdownTableProps = ComponentPropsWithoutRef<"table"> & ExtraProps;
 type ReactMarkdownProps = ComponentProps<typeof ReactMarkdown>;
 
@@ -45,6 +46,10 @@ const MARKDOWN_COMPONENTS: Components = {
       <table {...props}>{children}</table>
     </div>
   ),
+  // remend completes an unfinished image to a placeholder URL that the protocol
+  // filter empties; render nothing until the real URL has streamed in.
+  img: ({ src, alt = "", ...props }: MarkdownImgProps) =>
+    src ? <img src={src} alt={alt} {...props} /> : null,
 };
 
 /**

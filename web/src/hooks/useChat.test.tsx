@@ -13,31 +13,6 @@ function expectChat(message: RenderMessage | undefined): ChatMessage {
   return message;
 }
 
-function createLocalStorage() {
-  const store = new Map<string, string>();
-
-  return {
-    get length() {
-      return store.size;
-    },
-    key(index: number) {
-      return Array.from(store.keys())[index] ?? null;
-    },
-    getItem(key: string) {
-      return store.has(key) ? (store.get(key) ?? null) : null;
-    },
-    setItem(key: string, value: string) {
-      store.set(key, String(value));
-    },
-    removeItem(key: string) {
-      store.delete(key);
-    },
-    clear() {
-      store.clear();
-    },
-  };
-}
-
 function createJsonResponse(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), {
     status,
@@ -91,7 +66,6 @@ const acceptedMessage = {
 
 describe("useChat", () => {
   beforeEach(() => {
-    globalThis.localStorage = createLocalStorage();
     mockFetch({
       "/api/sessions?cwd=": createJsonResponse({ sessions: [] }),
     });
@@ -1719,7 +1693,6 @@ describe("useChat pending input", () => {
       reloaded?: () => unknown[];
     } = {},
   ) {
-    globalThis.localStorage = createLocalStorage();
     saveActiveSession("/workspace/a", "session-2");
     const encoder = new TextEncoder();
     let controller!: ReadableStreamDefaultController<Uint8Array>;
@@ -2235,7 +2208,6 @@ describe("useChat server events", () => {
     session: () => Response,
     routes: Record<string, MockResponse> = {},
   ) {
-    globalThis.localStorage = createLocalStorage();
     saveActiveSession("/workspace/a", "session-1");
     const fetchMock = mockFetch({
       "/api/sessions?cwd=": createJsonResponse({
@@ -2488,7 +2460,6 @@ describe("useChat server events", () => {
   });
 
   it("drops the running jobs with the session when the workspace changes", async () => {
-    globalThis.localStorage = createLocalStorage();
     saveActiveSession("/workspace/a", "session-1");
     mockFetch({
       "/api/sessions?cwd=%2Fworkspace%2Fb": createJsonResponse({

@@ -14,4 +14,5 @@ globalThis.ResizeObserver ??= class {
 
 afterEach(() => {
   cleanup();
+  localStorage.clear();
 });
