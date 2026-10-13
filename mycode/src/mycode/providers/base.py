@@ -13,7 +13,7 @@ import os
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Literal
 
 import httpx2
 
@@ -36,12 +36,15 @@ from mycode.tools import ToolDefinition
 DEFAULT_REQUEST_TIMEOUT = 300.0
 
 
+type ProviderErrorReason = Literal[
+    "connection_error", "request_timeout", "http_status", "stream_start_timeout", "provider_error"
+]
+
+
 class ProviderError(Exception):
     """Normalized provider failure raised by adapters.
 
-    ``reason`` is one of ``connection_error``, ``request_timeout``,
-    ``http_status``, ``stream_start_timeout``, ``provider_error``. The agent
-    runtime classifies retries on this type only and never inspects
+    The agent runtime classifies retries on this type only and never inspects
     SDK-specific exceptions.
     """
 
@@ -49,7 +52,7 @@ class ProviderError(Exception):
         self,
         message: str,
         *,
-        reason: str = "provider_error",
+        reason: ProviderErrorReason = "provider_error",
         retryable: bool = False,
         status_code: int | None = None,
         retry_after: float | None = None,
@@ -138,10 +141,29 @@ class ProviderRequest:
     request_timeout: float = DEFAULT_REQUEST_TIMEOUT
 
 
-@dataclass
-class ProviderStreamEvent:
-    type: str
-    data: dict[str, Any] = field(default_factory=dict)
+@dataclass(frozen=True, slots=True)
+class StreamStarted:
+    """The upstream stream produced its first event, ending the stream-start deadline."""
+
+
+@dataclass(frozen=True, slots=True)
+class ThinkingDelta:
+    text: str
+
+
+@dataclass(frozen=True, slots=True)
+class TextDelta:
+    text: str
+
+
+@dataclass(frozen=True, slots=True)
+class MessageDone:
+    """The turn's final assistant message, with all blocks and metadata."""
+
+    message: ConversationMessage
+
+
+type ProviderStreamEvent = StreamStarted | ThinkingDelta | TextDelta | MessageDone
 
 
 def dump_model(value: Any) -> Any:

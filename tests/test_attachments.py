@@ -10,7 +10,7 @@ from unittest.mock import patch
 import pytest
 
 from mycode import Agent, Attachment
-from mycode.providers.base import ProviderStreamEvent
+from mycode.providers.base import MessageDone, ProviderStreamEvent
 
 PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 16
 PDF = b"%PDF-1.4\n%fake\n"
@@ -25,9 +25,8 @@ class _Capture:
             if message.get("role") == "user":
                 self.user_content = list(message.get("content") or [])
                 break
-        yield ProviderStreamEvent(
-            "message_done",
-            {"message": {"role": "assistant", "content": [{"type": "text", "text": "ok"}]}},
+        yield MessageDone(
+            {"role": "assistant", "content": [{"type": "text", "text": "ok"}]},
         )
 
 

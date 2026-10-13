@@ -20,9 +20,13 @@ from mycode.messages import (
     tool_use_block,
 )
 from mycode.providers.base import (
+    MessageDone,
     ProviderAdapter,
     ProviderRequest,
     ProviderStreamEvent,
+    StreamStarted,
+    TextDelta,
+    ThinkingDelta,
     dump_model,
     get_native_meta,
     native_block_meta,
@@ -98,7 +102,7 @@ class OpenAIChatAdapter(ProviderAdapter):
                     async for chunk in stream:
                         if not started:
                             started = True
-                            yield ProviderStreamEvent("stream_started")
+                            yield StreamStarted()
                         response_id = response_id or getattr(chunk, "id", None)
 
                         if getattr(chunk, "usage", None) is not None:
@@ -118,11 +122,11 @@ class OpenAIChatAdapter(ProviderAdapter):
                             delta,
                         )
                         if reasoning_delta:
-                            yield ProviderStreamEvent("thinking_delta", {"text": reasoning_delta})
+                            yield ThinkingDelta(reasoning_delta)
 
                         if delta.content:
                             text_parts.append(delta.content)
-                            yield ProviderStreamEvent("text_delta", {"text": delta.content})
+                            yield TextDelta(delta.content)
 
                         for tool_call in delta.tool_calls or []:
                             index = tool_call.index or 0
@@ -193,7 +197,7 @@ class OpenAIChatAdapter(ProviderAdapter):
                 else None
             ),
         )
-        yield ProviderStreamEvent("message_done", {"message": final_message})
+        yield MessageDone(final_message)
 
     def _build_request_payload(self, request: ProviderRequest) -> dict[str, Any]:
         messages = []

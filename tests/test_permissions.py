@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from mycode import Agent, SessionStore, ToolHookContext, tool
-from mycode.providers.base import ProviderStreamEvent
+from mycode.providers.base import MessageDone
 from mycode.tools import ToolExecutionResult, ToolSpec
 from mycode_cli.config import PermissionConfig, Settings
 from mycode_cli.permissions import (
@@ -272,15 +272,12 @@ async def test_permission_hook_distinguishes_user_denial(tmp_path: Path, monkeyp
 
     class Adapter:
         async def stream_turn(self, _request):
-            yield ProviderStreamEvent(
-                "message_done",
+            yield MessageDone(
                 {
-                    "message": {
-                        "role": "assistant",
-                        "content": [{"type": "tool_use", "id": "call-1", "name": "probe", "input": {}}],
-                        "meta": {"stop_reason": "tool_use"},
-                    }
-                },
+                    "role": "assistant",
+                    "content": [{"type": "tool_use", "id": "call-1", "name": "probe", "input": {}}],
+                    "meta": {"stop_reason": "tool_use"},
+                }
             )
 
     monkeypatch.setattr("mycode.agent.get_provider_adapter", lambda _: Adapter())

@@ -12,7 +12,7 @@ from unittest.mock import patch
 import pytest
 
 from mycode import Agent, Event, Hooks, ToolExecutionResult, ToolHookContext, tool
-from mycode.providers.base import ProviderStreamEvent
+from mycode.providers.base import MessageDone, ProviderStreamEvent
 from mycode.tools import ToolContext, ToolSpec
 
 
@@ -31,28 +31,24 @@ class _ToolUseAdapter:
     async def stream_turn(self, _request) -> AsyncIterator[ProviderStreamEvent]:
         self.requests += 1
         if self.requests == 1:
-            yield ProviderStreamEvent(
-                "message_done",
+            yield MessageDone(
                 {
-                    "message": {
-                        "role": "assistant",
-                        "meta": {"stop_reason": "tool_use"},
-                        "content": [
-                            {
-                                "type": "tool_use",
-                                "id": "call-1",
-                                "name": self.tool_name,
-                                "input": self.tool_input,
-                            }
-                        ],
-                    }
-                },
+                    "role": "assistant",
+                    "meta": {"stop_reason": "tool_use"},
+                    "content": [
+                        {
+                            "type": "tool_use",
+                            "id": "call-1",
+                            "name": self.tool_name,
+                            "input": self.tool_input,
+                        }
+                    ],
+                }
             )
             return
 
-        yield ProviderStreamEvent(
-            "message_done",
-            {"message": {"role": "assistant", "content": [{"type": "text", "text": "done"}]}},
+        yield MessageDone(
+            {"role": "assistant", "content": [{"type": "text", "text": "done"}]},
         )
 
 

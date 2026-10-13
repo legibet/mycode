@@ -21,9 +21,13 @@ from mycode.messages import (
     tool_use_block,
 )
 from mycode.providers.base import (
+    MessageDone,
     ProviderAdapter,
     ProviderRequest,
     ProviderStreamEvent,
+    StreamStarted,
+    TextDelta,
+    ThinkingDelta,
     dump_model,
     get_native_meta,
     native_block_meta,
@@ -143,17 +147,17 @@ class AnthropicLikeAdapter(ProviderAdapter):
                 async for event in stream:
                     if not started:
                         started = True
-                        yield ProviderStreamEvent("stream_started")
+                        yield StreamStarted()
                     event_type = getattr(event, "type", None)
                     if event_type == "thinking":
                         thinking = cast(str | None, getattr(event, "thinking", None))
                         if thinking:
-                            yield ProviderStreamEvent("thinking_delta", {"text": thinking})
+                            yield ThinkingDelta(thinking)
                         continue
                     if event_type == "text":
                         text = cast(str | None, getattr(event, "text", None))
                         if text:
-                            yield ProviderStreamEvent("text_delta", {"text": text})
+                            yield TextDelta(text)
 
                 final_message = await stream.get_final_message()
         except (APIError, httpx2.HTTPError) as exc:
@@ -162,12 +166,7 @@ class AnthropicLikeAdapter(ProviderAdapter):
                 error.retryable = True
             raise error from exc
 
-        yield ProviderStreamEvent(
-            "message_done",
-            {
-                "message": self._convert_final_message(final_message, request_model=request.model),
-            },
-        )
+        yield MessageDone(self._convert_final_message(final_message, request_model=request.model))
 
     def _convert_final_message(self, message: Any, *, request_model: str | None = None) -> ConversationMessage:
         blocks: list[ContentBlock] = []

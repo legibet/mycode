@@ -15,6 +15,7 @@ from openai.types.responses import ResponseFunctionToolCall, ResponseReasoningIt
 
 from mycode import Agent, text_block
 from mycode.compact import build_compact_event
+from mycode.messages import ConversationMessage
 from mycode.providers import (
     AlibabaAdapter,
     AnthropicAdapter,
@@ -29,7 +30,14 @@ from mycode.providers import (
     XAIAdapter,
     ZAIAdapter,
 )
-from mycode.providers.base import ProviderError, ProviderRequest, repair_messages_for_replay
+from mycode.providers.base import (
+    MessageDone,
+    ProviderError,
+    ProviderRequest,
+    ProviderStreamEvent,
+    ThinkingDelta,
+    repair_messages_for_replay,
+)
 from mycode.tools import tool as define_tool
 
 _PNG_1X1 = base64.b64decode(
@@ -75,6 +83,12 @@ def _async_context_mock() -> MagicMock:
     mock.__aenter__ = AsyncMock(return_value=mock)
     mock.__aexit__ = AsyncMock(return_value=None)
     return mock
+
+
+def _final_message(events: list[ProviderStreamEvent]) -> ConversationMessage:
+    done = events[-1]
+    assert isinstance(done, MessageDone)
+    return done.message
 
 
 def _stream_mock(items: list[Any], *, final_message: Any = None) -> MagicMock:
@@ -698,8 +712,10 @@ async def test_responses_stream_and_persist_reasoning(
     events = [event async for event in adapter.stream_turn(request_obj(api_key="unused"))]
 
     expected = "thinking" if channel == "summary" or adapter.provider_id == "xai" else ""
-    assert "".join(event.data["text"] for event in events if event.type == "thinking_delta") == expected
-    assert events[-1].data["message"]["content"][0]["text"] == expected
+    assert "".join(event.text for event in events if isinstance(event, ThinkingDelta)) == expected
+    block = _final_message(events)["content"][0]
+    assert block["type"] == "thinking"
+    assert block["text"] == expected
 
 
 # Response conversion
@@ -721,7 +737,7 @@ async def test_responses_exhausts_stream_after_completion(monkeypatch: pytest.Mo
 
     events = [event async for event in OpenAIResponsesAdapter().stream_turn(request_obj(api_key="unused"))]
 
-    assert events[-1].type == "message_done"
+    assert isinstance(events[-1], MessageDone)
     assert exhausted
 
 
@@ -823,10 +839,11 @@ async def test_openai_responses_handles_incomplete_stream(monkeypatch: pytest.Mo
 
     events = [event async for event in OpenAIResponsesAdapter().stream_turn(request_obj(api_key="k", model="gpt-5.4"))]
 
-    assert events[-1].type == "message_done"
-    message = events[-1].data["message"]
+    message = _final_message(events)
     assert message["meta"]["stop_reason"] == "length"
-    assert message["content"][0]["input"] == {"path": "pyproject.toml"}
+    block = message["content"][0]
+    assert block["type"] == "tool_use"
+    assert block["input"] == {"path": "pyproject.toml"}
 
 
 def test_openai_responses_uses_stream_output_items_when_final_output_is_empty() -> None:
@@ -1863,8 +1880,10 @@ async def test_openrouter_preserves_structured_reasoning_across_models(monkeypat
         event
         async for event in adapter.stream_turn(request_obj(api_key="test-key", model="anthropic/claude-sonnet-4.6"))
     ]
-    stored_message = first_events[-1].data["message"]
-    assert stored_message["content"][0]["text"] == "first second"
+    stored_message = _final_message(first_events)
+    block = stored_message["content"][0]
+    assert block["type"] == "thinking"
+    assert block["text"] == "first second"
 
     _ = [
         event
@@ -2099,7 +2118,7 @@ async def test_openai_chat_replays_its_native_reasoning_field(
     monkeypatch.setattr("openai.AsyncOpenAI", fake_client)
 
     first_events = [event async for event in adapter.stream_turn(request_obj(api_key="test-key", model="test-model"))]
-    stored_message = first_events[-1].data["message"]
+    stored_message = _final_message(first_events)
 
     _ = [
         event
@@ -2159,7 +2178,7 @@ async def test_deepseek_replays_native_reasoning_across_turns(
     first_events = [
         event async for event in adapter.stream_turn(request_obj(api_key="test-key", model="deepseek-v4-pro"))
     ]
-    stored_message = first_events[-1].data["message"]
+    stored_message = _final_message(first_events)
 
     _ = [
         event
@@ -2286,9 +2305,11 @@ async def test_anthropic_preserves_native_thinking_blocks_across_tool_turns(
     first_events = [
         event async for event in adapter.stream_turn(request_obj(api_key="test-key", model="claude-sonnet-5"))
     ]
-    stored_message = first_events[-1].data["message"]
+    stored_message = _final_message(first_events)
     assert stored_message["meta"]["stop_reason"] == "tool_use"
-    assert stored_message["content"][0]["text"] == "Think"
+    block = stored_message["content"][0]
+    assert block["type"] == "thinking"
+    assert block["text"] == "Think"
 
     second_events = [
         event
@@ -2308,7 +2329,7 @@ async def test_anthropic_preserves_native_thinking_blocks_across_tool_turns(
             )
         )
     ]
-    assert second_events[-1].data["message"]["meta"]["stop_reason"] == "stop"
+    assert _final_message(second_events)["meta"]["stop_reason"] == "stop"
     replayed_request = client.messages.stream.call_args_list[1].kwargs
     assert replayed_request["messages"][0]["content"][:2] == [
         {"type": "thinking", "thinking": "Think", "signature": "signature"},
@@ -2504,7 +2525,7 @@ async def test_moonshot_replays_native_unsigned_thinking(
     first_events = [
         event async for event in adapter.stream_turn(request_obj(api_key="test-key", model="kimi-k2.7-code"))
     ]
-    stored_message = first_events[-1].data["message"]
+    stored_message = _final_message(first_events)
 
     _ = [
         event
@@ -2683,8 +2704,8 @@ async def test_openai_chat_normalizes_usage_details(monkeypatch: pytest.MonkeyPa
 
     events = [event async for event in OpenAIChatAdapter().stream_turn(request_obj(api_key="k", model="m"))]
 
-    assert events[-1].data["message"]["meta"]["stop_reason"] == "stop"
-    assert events[-1].data["message"]["meta"]["usage"] == {
+    assert _final_message(events)["meta"]["stop_reason"] == "stop"
+    assert _final_message(events)["meta"]["usage"] == {
         "total_tokens": 1_080,
         "input_tokens": 1_000,
         "cache_read_tokens": 700,
@@ -2713,7 +2734,7 @@ async def test_deepseek_falls_back_to_its_cache_hit_extension_field(monkeypatch:
 
     events = [event async for event in DeepSeekAdapter().stream_turn(request_obj(api_key="k", model="deepseek-chat"))]
 
-    usage = events[-1].data["message"]["meta"]["usage"]
+    usage = _final_message(events)["meta"]["usage"]
     assert usage["cache_read_tokens"] == 80
     assert usage["input_tokens"] == 100
 
@@ -2736,7 +2757,7 @@ async def test_openrouter_stores_the_charged_cost(monkeypatch: pytest.MonkeyPatc
     request_call = client.chat.completions.create.await_args
     assert request_call is not None
     assert "extra_body" not in request_call.kwargs
-    assert events[-1].data["message"]["meta"]["cost"] == {"total": 0.0123}
+    assert _final_message(events)["meta"]["cost"] == {"total": 0.0123}
 
 
 async def test_gemini_normalizes_usage_details(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -2761,9 +2782,9 @@ async def test_gemini_normalizes_usage_details(monkeypatch: pytest.MonkeyPatch) 
         event async for event in GoogleGeminiAdapter().stream_turn(request_obj(api_key="k", model="gemini-3.6-flash"))
     ]
 
-    assert events[-1].data["message"]["meta"]["stop_reason"] == "stop"
+    assert _final_message(events)["meta"]["stop_reason"] == "stop"
     # Output includes thoughts; the absent tool-use prompt count means zero.
-    assert events[-1].data["message"]["meta"]["usage"] == {
+    assert _final_message(events)["meta"]["usage"] == {
         "total_tokens": 135,
         "input_tokens": 100,
         "cache_read_tokens": 40,

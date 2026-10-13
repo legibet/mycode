@@ -20,8 +20,8 @@ from mycode.compact import (
     apply_compact_replay,
     build_compact_event,
 )
-from mycode.messages import ConversationMessage, text_block
-from mycode.providers.base import ProviderStreamEvent
+from mycode.messages import ConversationMessage, MessageMeta, text_block
+from mycode.providers.base import MessageDone, ProviderStreamEvent
 from mycode.session import SessionStore
 
 
@@ -141,9 +141,8 @@ class _RecordingAdapter:
     async def stream_turn(self, request: Any) -> AsyncIterator[ProviderStreamEvent]:
         self.requests.append(request)
         text = self._summaries.pop(0)
-        yield ProviderStreamEvent(
-            "message_done",
-            {"message": {"role": "assistant", "content": [{"type": "text", "text": text}]}},
+        yield MessageDone(
+            {"role": "assistant", "content": [{"type": "text", "text": text}]},
         )
 
 
@@ -154,13 +153,13 @@ class _UsageAdapter:
 
     async def stream_turn(self, request: Any) -> AsyncIterator[ProviderStreamEvent]:
         self.requests.append(request)
-        message: dict[str, Any] = {
+        message: ConversationMessage = {
             "role": "assistant",
             "content": [{"type": "text", "text": "reply" if len(self.requests) == 1 else "summary"}],
         }
         if len(self.requests) == 1:
             message["meta"] = {"usage": {"total_tokens": self.total_tokens}}
-        yield ProviderStreamEvent("message_done", {"message": message})
+        yield MessageDone(message)
 
 
 @pytest.mark.asyncio
@@ -269,9 +268,8 @@ async def test_acompact_cancellation_writes_no_marker(tmp_path: Path) -> None:
                 # A late summary must not be committed after cancellation.
                 with suppress(asyncio.CancelledError):
                     await asyncio.Event().wait()
-            yield ProviderStreamEvent(
-                "message_done",
-                {"message": {"role": "assistant", "content": [{"type": "text", "text": "SUMMARY"}]}},
+            yield MessageDone(
+                {"role": "assistant", "content": [{"type": "text", "text": "SUMMARY"}]},
             )
 
     adapter = _HangThenSummary()
@@ -308,21 +306,20 @@ class _UsageDetailAdapter:
     async def stream_turn(self, _request: Any) -> AsyncIterator[ProviderStreamEvent]:
         self.requests += 1
         if self.requests == 1:
-            meta = {
+            meta: MessageMeta = {
                 "created_at": "2020-01-01T00:00:01+00:00",
                 "usage": {"total_tokens": 80_000, "input_tokens": 79_000, "output_tokens": 1_000},
                 "cost": {"total": 0.01},
             }
             text = "reply"
         else:
-            meta = {
+            meta: MessageMeta = {
                 "usage": {"total_tokens": 80_500, "input_tokens": 80_000, "output_tokens": 500},
                 "cost": {"total": 0.005},
             }
             text = "summary"
-        yield ProviderStreamEvent(
-            "message_done",
-            {"message": {"role": "assistant", "content": [{"type": "text", "text": text}], "meta": meta}},
+        yield MessageDone(
+            {"role": "assistant", "content": [{"type": "text", "text": text}], "meta": meta},
         )
 
 
@@ -374,10 +371,9 @@ class _FailingSummaryAdapter:
         self.requests += 1
         if self.requests > 1:
             raise ValueError("summary failed")
-        meta = {"usage": {"total_tokens": 80_000, "input_tokens": 79_000, "output_tokens": 1_000}}
-        yield ProviderStreamEvent(
-            "message_done",
-            {"message": {"role": "assistant", "content": [{"type": "text", "text": "reply"}], "meta": meta}},
+        meta: MessageMeta = {"usage": {"total_tokens": 80_000, "input_tokens": 79_000, "output_tokens": 1_000}}
+        yield MessageDone(
+            {"role": "assistant", "content": [{"type": "text", "text": "reply"}], "meta": meta},
         )
 
 
@@ -421,15 +417,12 @@ class _LegacyMetaAdapter:
     """Simulates pre-usage assistant messages that only carry meta.total_tokens."""
 
     async def stream_turn(self, _request: Any) -> AsyncIterator[ProviderStreamEvent]:
-        yield ProviderStreamEvent(
-            "message_done",
+        yield MessageDone(
             {
-                "message": {
-                    "role": "assistant",
-                    "content": [{"type": "text", "text": "reply"}],
-                    "meta": {"total_tokens": 90_000},
-                }
-            },
+                "role": "assistant",
+                "content": [{"type": "text", "text": "reply"}],
+                "meta": {"total_tokens": 90_000},
+            }
         )
 
 

@@ -5,13 +5,14 @@ from collections.abc import Callable
 from copy import deepcopy
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Unpack
 from unittest.mock import patch
 
 import pytest
 
-from mycode import Agent, ConversationMessage, Event, SessionStore, image_block, text_block, tool
-from mycode.providers.base import ProviderStreamEvent
+from mycode import Agent, ContentBlock, ConversationMessage, Event, SessionStore, image_block, text_block, tool
+from mycode.messages import MessageMeta
+from mycode.providers.base import MessageDone, ProviderStreamEvent, TextDelta
 from mycode.usage import estimate_cost
 
 
@@ -31,20 +32,20 @@ class _Adapter:
             yield event
 
 
-def _turn(*blocks: dict[str, Any], meta: dict[str, Any] | None = None) -> list[ProviderStreamEvent]:
-    message_meta = dict(meta or {})
+def _turn(*blocks: ContentBlock, meta: MessageMeta | None = None) -> list[ProviderStreamEvent]:
+    message_meta: MessageMeta = {**(meta or {})}
     if any(block["type"] == "tool_use" for block in blocks):
         message_meta.setdefault("stop_reason", "tool_use")
-    message = {"role": "assistant", "content": list(blocks), "meta": message_meta}
-    texts = [ProviderStreamEvent("text_delta", {"text": block["text"]}) for block in blocks if block["type"] == "text"]
-    return [*texts, ProviderStreamEvent("message_done", {"message": message})]
+    message: ConversationMessage = {"role": "assistant", "content": list(blocks), "meta": message_meta}
+    texts = [TextDelta(block["text"]) for block in blocks if block["type"] == "text"]
+    return [*texts, MessageDone(message)]
 
 
-def _text_turn(text: str, **meta: Any) -> list[ProviderStreamEvent]:
+def _text_turn(text: str, **meta: Unpack[MessageMeta]) -> list[ProviderStreamEvent]:
     return _turn({"type": "text", "text": text}, meta=meta)
 
 
-def _ping_turn(**meta: Any) -> list[ProviderStreamEvent]:
+def _ping_turn(**meta: Unpack[MessageMeta]) -> list[ProviderStreamEvent]:
     return _turn({"type": "tool_use", "id": "call-1", "name": "ping", "input": {}}, meta=meta)
 
 

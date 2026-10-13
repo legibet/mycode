@@ -26,12 +26,12 @@ class ProviderAdapter(ABC):
 - Replacing replay PDFs with a short text notice when `request.supports_pdf_input` is false
 - Flushing interrupted tool calls with synthetic error results
 
-`stream_turn()` yields `ProviderStreamEvent` objects:
+`stream_turn()` yields `ProviderStreamEvent` values, a union of dataclasses in `providers/base.py`:
 
-- `stream_started` — emitted once, on the first event or chunk exposed by the upstream SDK; stops the Agent's `stream_start_timeout` timer and never reaches SDK consumers. A `message_done` without a prior marker also counts as stream start.
-- `thinking_delta` — reasoning text
-- `text_delta` — response text
-- `message_done` — final `ConversationMessage` with all blocks and metadata
+- `StreamStarted()` — emitted once, on the first event or chunk exposed by the upstream SDK; stops the Agent's `stream_start_timeout` timer and never reaches SDK consumers. A `MessageDone` without a prior marker also counts as stream start.
+- `ThinkingDelta(text)` — reasoning text
+- `TextDelta(text)` — response text
+- `MessageDone(message)` — final `ConversationMessage` with all blocks and metadata
 
 `ProviderRequest` carries: provider, model, session_id, messages, system, tools, max_tokens, api_key, api_base, reasoning_effort, legacy_max_tokens, supports_image_input, supports_pdf_input, request_timeout.
 

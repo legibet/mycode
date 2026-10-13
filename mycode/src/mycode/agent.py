@@ -49,11 +49,15 @@ from mycode.models import infer_provider_from_model, resolve_model_metadata
 from mycode.providers import get_provider_adapter
 from mycode.providers.base import (
     DEFAULT_REQUEST_TIMEOUT,
+    MessageDone,
     ProviderAdapter,
     ProviderError,
     ProviderRequest,
     ProviderStreamEvent,
+    StreamStarted,
     StreamStartTimeoutError,
+    TextDelta,
+    ThinkingDelta,
 )
 from mycode.session import SessionStore
 from mycode.tools import (
@@ -479,23 +483,21 @@ class Agent:
         try:
             async for provider_event in stream:
                 run.check_cancelled()
-                match provider_event.type:
-                    case "retry":
-                        yield Event("retry", dict(provider_event.data))
-                    case "thinking_delta":
-                        text = provider_event.data["text"]
+                match provider_event:
+                    case Event():
+                        yield provider_event
+                    case ThinkingDelta(text=text):
                         response.add("thinking", text)
                         yield Event("reasoning", {"delta": text})
-                    case "text_delta":
+                    case TextDelta(text=text):
                         if (done := response.end_thinking()) is not None:
                             yield done
-                        text = provider_event.data["text"]
                         response.add("text", text)
                         yield Event("text", {"delta": text})
-                    case "message_done":
+                    case MessageDone(message=message):
                         if (done := response.end_thinking()) is not None:
                             yield done
-                        response.message = provider_event.data["message"]
+                        response.message = message
         except (_RunCancelled, asyncio.CancelledError, GeneratorExit, Exception) as exc:
             failed = isinstance(exc, Exception)
             if failed:
@@ -553,8 +555,8 @@ class Agent:
         summary_message: ConversationMessage | None = None
         async with aclosing(self._stream_provider_turn(run, adapter, request)) as stream:
             async for provider_event in stream:
-                if provider_event.type == "message_done":
-                    summary_message = provider_event.data["message"]
+                if isinstance(provider_event, MessageDone):
+                    summary_message = provider_event.message
 
         if summary_message is None:
             raise ValueError("compaction produced no response")
@@ -888,13 +890,13 @@ class Agent:
         run: _RunState,
         adapter: ProviderAdapter,
         request: ProviderRequest,
-    ) -> AsyncGenerator[ProviderStreamEvent, None]:
+    ) -> AsyncGenerator[ThinkingDelta | TextDelta | MessageDone | Event, None]:
         """Stream one provider turn, retrying failed attempts before visible output.
 
-        Yields an internal ``retry`` event before each new attempt. Once a
-        thinking or text delta has been yielded, failures propagate instead
-        of retrying. Adapter ``stream_started`` markers are consumed here
-        and never reach the caller.
+        Yields a ``retry`` event before each new attempt. Once a thinking or
+        text delta has been yielded, failures propagate instead of retrying.
+        Adapter ``StreamStarted`` markers are consumed here and never reach
+        the caller.
         """
 
         max_attempts = self.max_retries + 1
@@ -903,9 +905,9 @@ class Agent:
             try:
                 async with aclosing(self._stream_provider_attempt(run, adapter, request)) as stream:
                     async for event in stream:
-                        if event.type == "stream_started":
+                        if isinstance(event, StreamStarted):
                             continue
-                        if event.type in {"thinking_delta", "text_delta"}:
+                        if isinstance(event, ThinkingDelta | TextDelta):
                             visible_output_emitted = True
                         yield event
                 return
@@ -922,7 +924,7 @@ class Agent:
                 }
                 if exc.status_code is not None:
                     retry_data["status_code"] = exc.status_code
-                yield ProviderStreamEvent("retry", retry_data)
+                yield Event("retry", retry_data)
                 async with run.task(asyncio.sleep(delay)) as wait:
                     await asyncio.shield(wait)
                 run.check_cancelled()

@@ -9,8 +9,8 @@ from unittest.mock import patch
 
 import pytest
 
-from mycode import Agent, Event, RunResult
-from mycode.providers.base import ProviderStreamEvent
+from mycode import Agent, ConversationMessage, Event, RunResult
+from mycode.providers.base import MessageDone, ProviderStreamEvent
 from mycode.tools import ToolContext, ToolExecutor
 from mycode_cli.tools import DEFAULT_TOOLS, bash_tool
 from mycode_cli.workspace import CliDeps
@@ -231,17 +231,17 @@ class _ScriptedProviderAdapter:
 
 
 def _bash_turn(call_id: str, command: str) -> list[ProviderStreamEvent]:
-    message = {
+    message: ConversationMessage = {
         "role": "assistant",
         "content": [{"type": "tool_use", "id": call_id, "name": "bash", "input": {"command": command}}],
         "meta": {"stop_reason": "tool_use"},
     }
-    return [ProviderStreamEvent("message_done", {"message": message})]
+    return [MessageDone(message)]
 
 
 def _text_turn() -> list[ProviderStreamEvent]:
-    message = {"role": "assistant", "content": [{"type": "text", "text": "done"}]}
-    return [ProviderStreamEvent("message_done", {"message": message})]
+    message: ConversationMessage = {"role": "assistant", "content": [{"type": "text", "text": "done"}]}
+    return [MessageDone(message)]
 
 
 def _chat_events(events: list[Event]) -> list[Event]:

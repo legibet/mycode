@@ -8,19 +8,26 @@ from unittest.mock import patch
 import httpx2
 import pytest
 
-from mycode import Agent, Event, ProviderError, SessionStore
-from mycode.providers.base import ProviderStreamEvent, normalize_provider_error
+from mycode import Agent, ConversationMessage, Event, ProviderError, SessionStore
+from mycode.providers.base import (
+    MessageDone,
+    ProviderStreamEvent,
+    StreamStarted,
+    TextDelta,
+    ThinkingDelta,
+    normalize_provider_error,
+)
 
 
 def _text_turn(text: str = "done") -> list[ProviderStreamEvent]:
-    message: dict[str, Any] = {
+    message: ConversationMessage = {
         "role": "assistant",
         "content": [{"type": "text", "text": text}],
         "meta": {"usage": {"total_tokens": 10, "input_tokens": 6, "output_tokens": 4}},
     }
     return [
-        ProviderStreamEvent("text_delta", {"text": text}),
-        ProviderStreamEvent("message_done", {"message": message}),
+        TextDelta(text),
+        MessageDone(message),
     ]
 
 
@@ -44,7 +51,7 @@ class _ScriptedAdapter:
         self.attempts += 1
         if self._errors:
             raise self._errors.pop(0)
-        yield ProviderStreamEvent("stream_started")
+        yield StreamStarted()
         for event in self._turn:
             yield event
 
@@ -60,7 +67,7 @@ class _SilentFirstAdapter:
         self.attempts += 1
         if self.attempts == 1:
             await asyncio.sleep(60)
-        yield ProviderStreamEvent("stream_started")
+        yield StreamStarted()
         for event in self._turn:
             yield event
 
@@ -71,8 +78,8 @@ class _FailsAfterTextAdapter:
 
     async def stream_turn(self, _request: Any):
         self.attempts += 1
-        yield ProviderStreamEvent("stream_started")
-        yield ProviderStreamEvent("text_delta", {"text": "partial"})
+        yield StreamStarted()
+        yield TextDelta("partial")
         raise _transient_error("stream died mid-turn")
 
 
@@ -82,8 +89,8 @@ class _FailsAfterReasoningAdapter:
 
     async def stream_turn(self, _request: Any):
         self.attempts += 1
-        yield ProviderStreamEvent("stream_started")
-        yield ProviderStreamEvent("thinking_delta", {"text": "thinking"})
+        yield StreamStarted()
+        yield ThinkingDelta("thinking")
         raise _transient_error("reasoning stream died")
 
 
@@ -269,7 +276,7 @@ async def test_provider_cleanup_failure_survives_stop(tmp_path: Path, error: Exc
         async def stream_turn(self, _request):
             self.attempts += 1
             try:
-                yield ProviderStreamEvent("text_delta", {"text": "partial"})
+                yield TextDelta("partial")
                 await asyncio.Event().wait()
             finally:
                 raise error
@@ -300,7 +307,7 @@ async def test_failure_after_stream_start_but_before_output_still_retries(tmp_pa
 
         async def stream_turn(self, _request: Any):
             self.attempts += 1
-            yield ProviderStreamEvent("stream_started")
+            yield StreamStarted()
             if self.attempts == 1:
                 raise _transient_error("died before any output")
             for event in self._turn:
@@ -326,14 +333,14 @@ async def test_acompact_retries_and_keeps_successful_marker_usage(tmp_path: Path
             self.attempts += 1
             if self.attempts == 2:  # request 1 is the chat turn, 2+ the summary
                 raise _transient_error("summary attempt lost")
-            yield ProviderStreamEvent("stream_started")
+            yield StreamStarted()
             text = "chat reply" if self.attempts == 1 else "THE_SUMMARY"
-            message: dict[str, Any] = {
+            message: ConversationMessage = {
                 "role": "assistant",
                 "content": [{"type": "text", "text": text}],
                 "meta": {"usage": {"total_tokens": 42}},
             }
-            yield ProviderStreamEvent("message_done", {"message": message})
+            yield MessageDone(message)
 
     adapter = _FlakySummaryAdapter()
     agent = _new_agent(tmp_path, compact_threshold=0)

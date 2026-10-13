@@ -19,9 +19,13 @@ from mycode.messages import (
     tool_use_block,
 )
 from mycode.providers.base import (
+    MessageDone,
     ProviderAdapter,
     ProviderRequest,
     ProviderStreamEvent,
+    StreamStarted,
+    TextDelta,
+    ThinkingDelta,
     get_native_meta,
     normalize_provider_error,
 )
@@ -114,7 +118,7 @@ class GoogleGeminiAdapter(ProviderAdapter):
                     async for chunk in stream:
                         if not started:
                             started = True
-                            yield ProviderStreamEvent("stream_started")
+                            yield StreamStarted()
                         response_id = response_id or getattr(chunk, "response_id", None)
                         usage = _to_json(getattr(chunk, "usage_metadata", None)) or usage
 
@@ -148,21 +152,18 @@ class GoogleGeminiAdapter(ProviderAdapter):
         else:
             normalized_usage = None
 
-        yield ProviderStreamEvent(
-            "message_done",
-            {
-                "message": assistant_message(
-                    blocks,
-                    provider=self.provider_id,
-                    model=request.model,
-                    provider_message_id=response_id,
-                    stop_reason=_normalize_finish_reason(finish_reason),
-                    usage=normalized_usage,
-                    native_meta={
-                        "finish_message": str(finish_message) if finish_message else None,
-                    },
-                )
-            },
+        yield MessageDone(
+            assistant_message(
+                blocks,
+                provider=self.provider_id,
+                model=request.model,
+                provider_message_id=response_id,
+                stop_reason=_normalize_finish_reason(finish_reason),
+                usage=normalized_usage,
+                native_meta={
+                    "finish_message": str(finish_message) if finish_message else None,
+                },
+            )
         )
 
     def _build_client(
@@ -295,7 +296,7 @@ class GoogleGeminiAdapter(ProviderAdapter):
             ),
         )
 
-    def _consume_part(self, blocks: list[ContentBlock], part: Any) -> ProviderStreamEvent | None:
+    def _consume_part(self, blocks: list[ContentBlock], part: Any) -> ThinkingDelta | TextDelta | None:
         native_part = _to_json(part) or {}
         if native_part.get("thought") is False:
             native_part.pop("thought", None)
@@ -327,7 +328,7 @@ class GoogleGeminiAdapter(ProviderAdapter):
             return None
 
         is_thought = bool(getattr(part, "thought", False))
-        event = ProviderStreamEvent("thinking_delta" if is_thought else "text_delta", {"text": str(text)})
+        event = ThinkingDelta(str(text)) if is_thought else TextDelta(str(text))
         block_type = "thinking" if is_thought else "text"
 
         # Gemini may stream one logical thought/text across many chunks.

@@ -24,7 +24,7 @@ from starlette.types import Message
 from mycode.agent import Event, PersistCallback
 from mycode.messages import ConversationMessage, RewindMarker, build_message, text_block
 from mycode.models import ModelMetadata
-from mycode.providers.base import ProviderRequest, ProviderStreamEvent
+from mycode.providers.base import MessageDone, ProviderRequest, ProviderStreamEvent, TextDelta
 from mycode.session import SessionStore as TimelineStore
 from mycode_cli.background import BackgroundJobs
 from mycode_cli.runtime import load_session_totals
@@ -46,9 +46,8 @@ class _CaptureAdapter:
         self.messages = list(request.messages)
         self.reasoning_effort = request.reasoning_effort
         self.legacy_max_tokens = request.legacy_max_tokens
-        yield ProviderStreamEvent(
-            "message_done",
-            {"message": {"role": "assistant", "content": [{"type": "text", "text": "ok"}]}},
+        yield MessageDone(
+            {"role": "assistant", "content": [{"type": "text", "text": "ok"}]},
         )
 
 
@@ -63,7 +62,7 @@ def test_app_lifespans_isolate_resources_and_persist_cancelled_runs(
     class PartialAdapter(_CaptureAdapter):
         @override
         async def stream_turn(self, request: ProviderRequest) -> AsyncIterator[ProviderStreamEvent]:
-            yield ProviderStreamEvent("text_delta", {"text": "partial reply"})
+            yield TextDelta("partial reply")
             started.set()
             await asyncio.Event().wait()
 
@@ -785,7 +784,7 @@ def test_compact_endpoint_conflicts_and_cancel_write_no_marker(
         async def stream_turn(self, request: ProviderRequest) -> AsyncIterator[ProviderStreamEvent]:
             del request
             await asyncio.sleep(30)
-            yield ProviderStreamEvent("message_done", {"message": {}})
+            yield MessageDone({"role": "assistant", "content": []})
 
     monkeypatch.setattr("mycode.agent.get_provider_adapter", lambda _provider: _HangingAdapter())
     store = SessionStore(data_dir=tmp_path / "sessions")
@@ -1083,7 +1082,7 @@ class _ScriptedAdapter:
         if index == self.hold:
             self.held.set()
             await self.release.wait()
-        yield ProviderStreamEvent("message_done", {"message": copy.deepcopy(self.replies[index])})
+        yield MessageDone(copy.deepcopy(self.replies[index]))
 
 
 @dataclass

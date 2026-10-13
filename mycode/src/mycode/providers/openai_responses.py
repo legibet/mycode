@@ -19,10 +19,14 @@ from mycode.messages import (
     tool_use_block,
 )
 from mycode.providers.base import (
+    MessageDone,
     ProviderAdapter,
     ProviderError,
     ProviderRequest,
     ProviderStreamEvent,
+    StreamStarted,
+    TextDelta,
+    ThinkingDelta,
     dump_model,
     native_block_meta,
     normalize_provider_error,
@@ -90,19 +94,19 @@ class OpenAIResponsesAdapter(ProviderAdapter):
                     async for event in stream:
                         if not started:
                             started = True
-                            yield ProviderStreamEvent("stream_started")
+                            yield StreamStarted()
                         event_type = getattr(event, "type", None)
 
                         if event_type in self._thinking_delta_types:
                             delta = cast(str | None, getattr(event, "delta", None))
                             if delta:
-                                yield ProviderStreamEvent("thinking_delta", {"text": delta})
+                                yield ThinkingDelta(delta)
                             continue
 
                         if event_type == "response.output_text.delta":
                             delta = cast(str | None, getattr(event, "delta", None))
                             if delta:
-                                yield ProviderStreamEvent("text_delta", {"text": delta})
+                                yield TextDelta(delta)
                             continue
 
                         if event_type == "response.output_item.done":
@@ -130,16 +134,13 @@ class OpenAIResponsesAdapter(ProviderAdapter):
                     if final_response is None:
                         raise ProviderError(f"{self.label} stream ended before response.completed")
 
-                    yield ProviderStreamEvent(
-                        "message_done",
-                        {
-                            "message": self._convert_final_response(
-                                final_response,
-                                output_items=[streamed_output_items[index] for index in sorted(streamed_output_items)]
-                                or None,
-                                request_model=request.model,
-                            )
-                        },
+                    yield MessageDone(
+                        self._convert_final_response(
+                            final_response,
+                            output_items=[streamed_output_items[index] for index in sorted(streamed_output_items)]
+                            or None,
+                            request_model=request.model,
+                        )
                     )
         except (APIError, httpx2.HTTPError) as exc:
             raise normalize_provider_error(exc, self.provider_id) from exc

@@ -13,7 +13,7 @@ from conftest import FakeAgent
 from mycode import Agent, build_message, text_block, tool
 from mycode.agent import Event
 from mycode.messages import ConversationMessage, TextBlock
-from mycode.providers.base import ProviderStreamEvent
+from mycode.providers.base import MessageDone
 from mycode.usage import Usage
 from mycode_cli.background import BackgroundJob, BackgroundJobs
 from mycode_cli.config import PermissionConfig, Settings
@@ -647,15 +647,12 @@ async def test_request_decision_deny_returns_deny(tmp_path: Path, monkeypatch: p
 
     class Adapter:
         async def stream_turn(self, _request):
-            yield ProviderStreamEvent(
-                "message_done",
+            yield MessageDone(
                 {
-                    "message": {
-                        "role": "assistant",
-                        "content": [{"type": "tool_use", "id": "call-1", "name": "probe", "input": {}}],
-                        "meta": {"stop_reason": "tool_use"},
-                    }
-                },
+                    "role": "assistant",
+                    "content": [{"type": "tool_use", "id": "call-1", "name": "probe", "input": {}}],
+                    "meta": {"stop_reason": "tool_use"},
+                }
             )
 
     monkeypatch.setattr("mycode.agent.get_provider_adapter", lambda _: Adapter())
@@ -753,15 +750,12 @@ async def test_shutdown_preserves_tool_cleanup_after_cancel_request_is_interrupt
 
     class ToolAdapter:
         async def stream_turn(self, request):
-            yield ProviderStreamEvent(
-                "message_done",
+            yield MessageDone(
                 {
-                    "message": {
-                        "role": "assistant",
-                        "content": [{"type": "tool_use", "id": "call-1", "name": "wait_tool", "input": {}}],
-                        "meta": {"stop_reason": "tool_use"},
-                    }
-                },
+                    "role": "assistant",
+                    "content": [{"type": "tool_use", "id": "call-1", "name": "wait_tool", "input": {}}],
+                    "meta": {"stop_reason": "tool_use"},
+                }
             )
 
     monkeypatch.setattr("mycode.agent.get_provider_adapter", lambda _: ToolAdapter())

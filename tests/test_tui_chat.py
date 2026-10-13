@@ -20,7 +20,7 @@ from prompt_toolkit.output import DummyOutput
 from mycode.agent import Agent, Event
 from mycode.messages import ConversationMessage, TextBlock, build_message, merge_user_messages, text_block
 from mycode.providers import get_provider_adapter, list_env_discoverable_providers
-from mycode.providers.base import ProviderStreamEvent
+from mycode.providers.base import MessageDone, ProviderStreamEvent
 from mycode.tools import ToolExecutor
 from mycode_cli.background import BackgroundJob, BackgroundJobs
 from mycode_cli.config import PermissionConfig, Settings, WebConfig, get_settings
@@ -634,9 +634,7 @@ class TestMidTurnInput:
                 Adapter.calls += 1
                 if Adapter.calls == 1:
                     await release.wait()
-                yield ProviderStreamEvent(
-                    "message_done", {"message": {"role": "assistant", "content": [{"type": "text", "text": "ok"}]}}
-                )
+                yield MessageDone({"role": "assistant", "content": [{"type": "text", "text": "ok"}]})
 
         monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
         monkeypatch.setattr("mycode.agent.get_provider_adapter", lambda _provider: Adapter())

@@ -14,6 +14,7 @@ import pytest
 
 from mycode import (
     Agent,
+    ContentBlock,
     ConversationMessage,
     Event,
     Hooks,
@@ -23,10 +24,12 @@ from mycode import (
     ToolExecutionResult,
     ToolHookContext,
     ToolSpec,
+    build_message,
     text_block,
     tool,
 )
-from mycode.providers.base import ProviderStreamEvent
+from mycode.messages import BlockMeta, MessageMeta
+from mycode.providers.base import MessageDone, ProviderStreamEvent, TextDelta, ThinkingDelta
 
 
 class _FakeProviderAdapter:
@@ -61,20 +64,14 @@ _PING_TOOL = ToolSpec(
 )
 
 
-def _assistant_turn(
-    *blocks: dict[str, object],
-    meta: dict[str, object] | None = None,
-) -> list[ProviderStreamEvent]:
-    message: dict[str, object] = {"role": "assistant", "content": list(blocks)}
-    message_meta = dict(meta or {})
-    if any(block.get("type") == "tool_use" for block in blocks):
+def _assistant_turn(*blocks: ContentBlock, meta: MessageMeta | None = None) -> list[ProviderStreamEvent]:
+    message_meta: MessageMeta = {**(meta or {})}
+    if any(block["type"] == "tool_use" for block in blocks):
         message_meta.setdefault("stop_reason", "tool_use")
-    if message_meta:
-        message["meta"] = message_meta
-    return [ProviderStreamEvent("message_done", {"message": message})]
+    return [MessageDone(build_message("assistant", blocks, meta=message_meta))]
 
 
-def _text_turn(text: str = "done", *, meta: dict[str, object] | None = None) -> list[ProviderStreamEvent]:
+def _text_turn(text: str = "done", *, meta: MessageMeta | None = None) -> list[ProviderStreamEvent]:
     return _assistant_turn({"type": "text", "text": text}, meta=meta)
 
 
@@ -169,8 +166,8 @@ def _new_agent(tmp_path: Path, **overrides) -> Agent:
 )
 async def test_invalid_tool_calls_are_reported_without_execution(
     tmp_path: Path,
-    assistant_meta: dict[str, object],
-    tool_meta: dict[str, object] | None,
+    assistant_meta: MessageMeta,
+    tool_meta: BlockMeta | None,
     expected_message: str,
 ) -> None:
     calls: list[str] = []
@@ -269,7 +266,7 @@ class _SlowProviderAdapter:
 
     async def stream_turn(self, _request):
         try:
-            yield ProviderStreamEvent("thinking_delta", {"text": "working"})
+            yield ThinkingDelta("working")
             await asyncio.Event().wait()
         finally:
             self.closed.set()
@@ -325,8 +322,8 @@ def test_agent_run_collects_stream_events(tmp_path: Path) -> None:
     adapter = _FakeProviderAdapter(
         [
             [
-                ProviderStreamEvent("thinking_delta", {"text": "plan "}),
-                ProviderStreamEvent("text_delta", {"text": "hello"}),
+                ThinkingDelta("plan "),
+                TextDelta("hello"),
                 *_assistant_turn(
                     {"type": "thinking", "text": "plan "},
                     {"type": "text", "text": "hello"},
@@ -483,8 +480,8 @@ class TestAgentReasoningPersistence:
             adapter = _FakeProviderAdapter(
                 [
                     [
-                        ProviderStreamEvent("thinking_delta", {"text": "hidden "}),
-                        ProviderStreamEvent("text_delta", {"text": "Visible answer"}),
+                        ThinkingDelta("hidden "),
+                        TextDelta("Visible answer"),
                         *_assistant_turn(
                             {"type": "thinking", "text": "hidden "},
                             {"type": "text", "text": "Visible answer"},
@@ -1026,7 +1023,7 @@ class TestAgentCancel:
 
 
 def _tool_calls(*calls: tuple[str, dict[str, object]]) -> list[ProviderStreamEvent]:
-    blocks: list[dict[str, object]] = [
+    blocks: list[ContentBlock] = [
         {"type": "tool_use", "id": f"call-{index}", "name": name, "input": tool_input}
         for index, (name, tool_input) in enumerate(calls)
     ]
