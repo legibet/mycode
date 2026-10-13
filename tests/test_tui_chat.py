@@ -17,7 +17,8 @@ from prompt_toolkit.completion import Completer, DummyCompleter
 from prompt_toolkit.input.defaults import create_pipe_input
 from prompt_toolkit.output import DummyOutput
 
-from mycode.agent import Agent, Event
+from mycode import CancelledEvent, ErrorEvent, Event, TextEvent, UserMessageEvent
+from mycode.agent import Agent
 from mycode.messages import ConversationMessage, TextBlock, build_message, merge_user_messages, text_block
 from mycode.providers import get_provider_adapter, list_env_discoverable_providers
 from mycode.providers.base import MessageDone, ProviderStreamEvent
@@ -392,13 +393,13 @@ class _TurnAgent(_AttachmentAgent):
         if len(self.turns) == 1:
             await self.finish.wait()
         if self.cancels:
-            yield Event("cancelled", {})
+            yield CancelledEvent()
             return
         if steers := self.take_steers():
             delivered = merge_user_messages(steers, steer=True)
             self.messages.append(delivered)
-            yield Event("user_message", {"message": delivered})
-        yield Event("text", {"delta": f"answer {len(self.turns)}"})
+            yield UserMessageEvent(message=delivered)
+        yield TextEvent(delta=f"answer {len(self.turns)}")
 
 
 def _steered(agent: _TurnAgent) -> list[ConversationMessage]:
@@ -588,7 +589,7 @@ class TestMidTurnInput:
                 self.turns.append(message)
                 self.messages.append(message)
                 await self.finish.wait()
-                yield Event("error", {"message": "provider failed"})
+                yield ErrorEvent(message="provider failed")
 
         agent = FailingAgent()
 

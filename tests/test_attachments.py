@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 import pytest
 
-from mycode import Agent, Attachment
+from mycode import Agent, Attachment, ErrorEvent
 from mycode.providers.base import MessageDone, ProviderStreamEvent
 
 PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 16
@@ -141,4 +141,5 @@ async def test_unsupported_media_emits_error_event_without_calling_provider(
 
     assert called is False
     assert [e.type for e in events] == ["error"]
-    assert error_word in events[0].data["message"]
+    assert isinstance(events[0], ErrorEvent)
+    assert error_word in events[0].message

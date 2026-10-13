@@ -21,7 +21,8 @@ from fastapi import Request
 from starlette.testclient import TestClient
 from starlette.types import Message
 
-from mycode.agent import Event, PersistCallback
+from mycode import Event, TextEvent, UsageEvent
+from mycode.agent import PersistCallback
 from mycode.messages import ConversationMessage, RewindMarker, build_message, text_block
 from mycode.models import ModelMetadata
 from mycode.providers.base import MessageDone, ProviderRequest, ProviderStreamEvent, TextDelta
@@ -911,8 +912,8 @@ async def test_running_session_uses_snapshot_cost_after_usage_eviction_then_load
             ) -> AsyncGenerator[Event, None]:
                 assert isinstance(user_input, dict)
                 await store.append_message("s1", user_input)
-                yield Event("usage", {"turn_cost": {"total": 0.5}})
-                yield Event("text", {"delta": "answer"})
+                yield UsageEvent(turn_cost={"total": 0.5}, context_tokens=None, turn_usage={}, turn_duration_ms=None)
+                yield TextEvent(delta="answer")
                 ready.set()
                 await release.wait()
                 await store.append_message(

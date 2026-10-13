@@ -10,8 +10,21 @@ from typing import Any, override
 import pytest
 from conftest import FakeAgent
 
-from mycode import Agent, build_message, text_block, tool
-from mycode.agent import Event
+from mycode import (
+    Agent,
+    CancelledEvent,
+    ErrorEvent,
+    RetryEvent,
+    TextEvent,
+    ToolDoneEvent,
+    ToolOutputEvent,
+    ToolStartEvent,
+    UsageEvent,
+    UserMessageEvent,
+    build_message,
+    text_block,
+    tool,
+)
 from mycode.messages import ConversationMessage, TextBlock
 from mycode.providers.base import MessageDone
 from mycode.usage import Usage
@@ -42,10 +55,10 @@ class BlockingAgent(ChatOnlyAgent):
 
     async def achat(self, user_input, on_persist=None):
         text = user_input["content"][0]["text"] if isinstance(user_input, dict) else user_input
-        yield Event("text", {"delta": f"reply:{text}"})
+        yield TextEvent(delta=f"reply:{text}")
         await self.release.wait()
         if self.cancelled:
-            yield Event("cancelled", {})
+            yield CancelledEvent()
 
 
 class SimpleAgent(ChatOnlyAgent):
@@ -54,13 +67,13 @@ class SimpleAgent(ChatOnlyAgent):
 
     async def achat(self, user_input, on_persist=None):
         text = user_input["content"][0]["text"] if isinstance(user_input, dict) else user_input
-        yield Event("text", {"delta": f"reply:{text}"})
+        yield TextEvent(delta=f"reply:{text}")
 
 
 class RetryingAgent(SimpleAgent):
     @override
     async def achat(self, user_input, on_persist=None):
-        yield Event("retry", {"attempt": 2, "max_attempts": 3})
+        yield RetryEvent(attempt=2, max_attempts=3, delay_seconds=1.0, reason="http_status", message="overloaded")
         async for event in super().achat(user_input):
             yield event
 
@@ -76,13 +89,13 @@ class ToolOutputAgent(ChatOnlyAgent):
 
     async def achat(self, user_input, on_persist=None):
         del user_input
-        yield Event("tool_start", {"tool_call": {"id": "call-1", "name": "bash", "input": {}}})
-        yield Event("tool_output", {"tool_use_id": "call-1", "output": "a" * 8})
-        yield Event("tool_output", {"tool_use_id": "call-1", "output": "b" * 8})
+        yield ToolStartEvent(tool_call={"type": "tool_use", "id": "call-1", "name": "bash", "input": {}})
+        yield ToolOutputEvent(tool_use_id="call-1", output="a" * 8)
+        yield ToolOutputEvent(tool_use_id="call-1", output="b" * 8)
         self.output_sent.set()
         if self.block_before_done:
             await self.release.wait()
-        yield Event("tool_done", {"tool_use_id": "call-1", "output": "final", "is_error": False})
+        yield ToolDoneEvent(tool_use_id="call-1", output="final", is_error=False)
 
 
 async def _wait_for_run_task(manager: RunManager, run_id: str) -> RunState:
@@ -106,13 +119,11 @@ class UsageAgent(ChatOnlyAgent):
 
     async def achat(self, user_input, on_persist=None):
         del user_input
-        yield Event(
-            "usage",
-            {
-                "context_tokens": 100,
-                "turn_usage": {"input_tokens": 100, "output_tokens": 10},
-                "turn_cost": {"total": self.turn_cost} if self.turn_cost is not None else None,
-            },
+        yield UsageEvent(
+            context_tokens=100,
+            turn_usage={"input_tokens": 100, "output_tokens": 10},
+            turn_cost={"total": self.turn_cost} if self.turn_cost is not None else None,
+            turn_duration_ms=None,
         )
 
 
@@ -264,18 +275,18 @@ class CommittingAgent(ChatOnlyAgent):
     async def achat(self, user_input, on_persist=None):
         assert on_persist is not None
         await on_persist(user_input)
-        yield Event("text", {"delta": "a"})
+        yield TextEvent(delta="a")
         await on_persist(ASSISTANT_WITH_TOOL)
-        yield Event("usage", {})
-        yield Event("tool_start", {"tool_call": {"id": "call-1", "name": "bash", "input": {}}})
-        yield Event("tool_done", {"tool_use_id": "call-1", "output": "ok", "is_error": False})
+        yield UsageEvent(context_tokens=None, turn_usage={}, turn_cost=None, turn_duration_ms=None)
+        yield ToolStartEvent(tool_call={"type": "tool_use", "id": "call-1", "name": "bash", "input": {}})
+        yield ToolDoneEvent(tool_use_id="call-1", output="ok", is_error=False)
         await on_persist(TOOL_RESULT)
-        yield Event("text", {"delta": "b"})
+        yield TextEvent(delta="b")
         await self._pause()
         await on_persist(STEER)
-        yield Event("usage", {})
-        yield Event("user_message", {"message": STEER})
-        yield Event("text", {"delta": "c"})
+        yield UsageEvent(context_tokens=None, turn_usage={}, turn_cost=None, turn_duration_ms=None)
+        yield UserMessageEvent(message=STEER)
+        yield TextEvent(delta="c")
         await self._pause()
 
 
@@ -473,7 +484,7 @@ class CancelledAchatAgent(ChatOnlyAgent):
 
     async def achat(self, user_input, on_persist=None):
         del user_input
-        yield Event("text", {"delta": "partial"})
+        yield TextEvent(delta="partial")
         raise asyncio.CancelledError
 
 
@@ -510,7 +521,7 @@ class PersistFailAfterCancelAgent(ChatOnlyAgent):
 
     async def achat(self, user_input, on_persist=None):
         del user_input
-        yield Event("text", {"delta": "partial"})
+        yield TextEvent(delta="partial")
         self.started.set()
         await self.release.wait()
         raise OSError()
@@ -557,14 +568,14 @@ class ReviewAgent(ChatOnlyAgent):
 
     async def achat(self, user_input, on_persist=None):
         del user_input
-        yield Event("text", {"delta": "before"})
+        yield TextEvent(delta="before")
         self.decision = await self.manager.request_decision(
             session_id=self.session_id,
             tool_call_id="call-1",
             tool_name="bash",
             preview="ls",
         )
-        yield Event("text", {"delta": f"after:{self.decision}"})
+        yield TextEvent(delta=f"after:{self.decision}")
 
 
 async def _wait_for_event(manager: RunManager, run_id: str, event_type: str) -> dict[str, object]:
@@ -724,7 +735,7 @@ class CleanupAgent(ChatOnlyAgent):
         self.cleaning_up.set()
         await self.release_cleanup.wait()
         self.cleaned_up = True
-        yield Event("cancelled", {})
+        yield CancelledEvent()
 
 
 async def test_shutdown_preserves_tool_cleanup_after_cancel_request_is_interrupted(
@@ -1047,7 +1058,7 @@ class QueueAgent(ChatOnlyAgent):
         if len(self.inputs) == 1:
             self.started.set()
             await self.release.wait()
-        yield Event("text", {"delta": "reply"})
+        yield TextEvent(delta="reply")
 
 
 async def _start_queue_run(manager: RunManager, agent: QueueAgent) -> RunState:
@@ -1136,11 +1147,17 @@ async def test_sdk_user_message_advances_the_session_base() -> None:
             return None
 
         async def achat(self, user_input, on_persist=None):
-            yield Event("usage", {"turn_usage": {"input_tokens": 100}, "turn_cost": {"total": 0.01}})
+            yield UsageEvent(
+                turn_usage={"input_tokens": 100}, turn_cost={"total": 0.01}, context_tokens=None, turn_duration_ms=None
+            )
             # The SDK closes the steered segment by repeating its totals.
-            yield Event("usage", {"turn_usage": {"input_tokens": 100}, "turn_cost": {"total": 0.01}})
-            yield Event("user_message", {"message": _input("steer", "s1")})
-            yield Event("usage", {"turn_usage": {"input_tokens": 30}, "turn_cost": {"total": 0.02}})
+            yield UsageEvent(
+                turn_usage={"input_tokens": 100}, turn_cost={"total": 0.01}, context_tokens=None, turn_duration_ms=None
+            )
+            yield UserMessageEvent(message=_input("steer", "s1"))
+            yield UsageEvent(
+                turn_usage={"input_tokens": 30}, turn_cost={"total": 0.02}, context_tokens=None, turn_duration_ms=None
+            )
 
     manager = RunManager()
     run = await manager.start_run(
@@ -1200,7 +1217,7 @@ async def test_failure_drops_the_queue() -> None:
         async def achat(self, user_input, on_persist=None):
             async for event in super().achat(user_input):
                 yield event
-            yield Event("error", {"message": "provider failed"})
+            yield ErrorEvent(message="provider failed")
 
     manager = RunManager()
     agent = FailingAgent()
@@ -1352,9 +1369,9 @@ class JobRunAgent(SimpleAgent):
     @override
     async def achat(self, user_input, on_persist=None):
         if self.error is not None:
-            yield Event("error", {"message": self.error})
+            yield ErrorEvent(message=self.error)
             return
-        yield Event("text", {"delta": "reply"})
+        yield TextEvent(delta="reply")
 
 
 def _record_deliveries(jobs: BackgroundJobs) -> list[tuple[list[TextBlock], set[str], bool]]:

@@ -2,9 +2,24 @@
 
 from importlib import metadata
 
-from mycode.agent import Agent, Event, PersistCallback, RunResult
+from mycode.agent import Agent, PersistCallback, RunResult
 from mycode.attachments import Attachment
 from mycode.compact import NothingToCompactError
+from mycode.events import (
+    CancelledEvent,
+    CompactEvent,
+    ErrorEvent,
+    Event,
+    ReasoningDoneEvent,
+    ReasoningEvent,
+    RetryEvent,
+    TextEvent,
+    ToolDoneEvent,
+    ToolOutputEvent,
+    ToolStartEvent,
+    UsageEvent,
+    UserMessageEvent,
+)
 from mycode.hooks import AfterToolHook, BeforeToolHook, HookResult, Hooks, ToolHookContext
 from mycode.messages import (
     ContentBlock,
@@ -35,12 +50,24 @@ from mycode.usage import Cost, add_cost, add_usage, build_usage, estimate_cost
 __version__ = metadata.version("mycode-sdk")
 
 __all__ = [
+    "CancelledEvent",
+    "CompactEvent",
+    "ErrorEvent",
+    "Event",
+    "ReasoningDoneEvent",
+    "ReasoningEvent",
+    "RetryEvent",
+    "TextEvent",
+    "ToolDoneEvent",
+    "ToolOutputEvent",
+    "ToolStartEvent",
+    "UsageEvent",
+    "UserMessageEvent",
     "Agent",
     "Attachment",
     "ContentBlock",
     "ConversationMessage",
     "Cost",
-    "Event",
     "AfterToolHook",
     "BeforeToolHook",
     "HookResult",

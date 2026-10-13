@@ -11,7 +11,19 @@ import pytest
 from conftest import TerminalHarness
 from rich.console import Console
 
-from mycode.agent import Event
+from mycode import (
+    CancelledEvent,
+    ErrorEvent,
+    Event,
+    ReasoningDoneEvent,
+    ReasoningEvent,
+    TextEvent,
+    ToolDoneEvent,
+    ToolOutputEvent,
+    ToolStartEvent,
+    UsageEvent,
+    UserMessageEvent,
+)
 from mycode.messages import ConversationMessage, TextBlock, text_block
 from mycode_cli.sessions import SessionTotals
 from mycode_cli.tui.render import TurnRenderer, history_preview, job_lines
@@ -95,7 +107,7 @@ class _EventAgent:
 
 
 def _text_events(text: str, size: int = 7) -> list[Event]:
-    return [Event("text", {"delta": text[index : index + size]}) for index in range(0, len(text), size)]
+    return [TextEvent(delta=text[index : index + size]) for index in range(0, len(text), size)]
 
 
 async def _render_turn(
@@ -138,9 +150,9 @@ class TestTurnRenderer:
         code, rendered = await _render_turn(
             harness,
             [
-                Event("reasoning", {"delta": "Let me think"}),
-                Event("reasoning_done", {"duration_ms": 1200}),
-                Event("text", {"delta": "answer"}),
+                ReasoningEvent(delta="Let me think"),
+                ReasoningDoneEvent(duration_ms=1200),
+                TextEvent(delta="answer"),
             ],
         )
 
@@ -152,10 +164,12 @@ class TestTurnRenderer:
         code, rendered = await _render_turn(
             harness,
             [
-                Event("tool_start", {"tool_call": {"id": "1", "name": "bash", "input": {"command": "printf"}}}),
-                Event("tool_output", {"tool_use_id": "1", "output": "one\nsec"}),
-                Event("tool_output", {"tool_use_id": "1", "output": "ond\nthird"}),
-                Event("tool_done", {"tool_use_id": "1", "output": "one\nsecond\nthird", "is_error": False}),
+                ToolStartEvent(
+                    tool_call={"type": "tool_use", "id": "1", "name": "bash", "input": {"command": "printf"}}
+                ),
+                ToolOutputEvent(tool_use_id="1", output="one\nsec"),
+                ToolOutputEvent(tool_use_id="1", output="ond\nthird"),
+                ToolDoneEvent(tool_use_id="1", output="one\nsecond\nthird", is_error=False),
             ],
         )
 
@@ -167,9 +181,9 @@ class TestTurnRenderer:
         _, rendered = await _render_turn(
             harness,
             [
-                Event("tool_start", {"tool_call": {"id": "1", "name": "bash", "input": {"command": "seq"}}}),
-                Event("tool_output", {"tool_use_id": "1", "output": lines}),
-                Event("tool_done", {"tool_use_id": "1", "output": lines, "is_error": False}),
+                ToolStartEvent(tool_call={"type": "tool_use", "id": "1", "name": "bash", "input": {"command": "seq"}}),
+                ToolOutputEvent(tool_use_id="1", output=lines),
+                ToolDoneEvent(tool_use_id="1", output=lines, is_error=False),
             ],
         )
 
@@ -181,12 +195,16 @@ class TestTurnRenderer:
         _, rendered = await _render_turn(
             harness,
             [
-                Event(
-                    "tool_start",
-                    {"tool_call": {"id": "1", "name": "bash", "input": {"command": "make\n  && make test"}}},
+                ToolStartEvent(
+                    tool_call={
+                        "type": "tool_use",
+                        "id": "1",
+                        "name": "bash",
+                        "input": {"command": "make\n  && make test"},
+                    }
                 ),
-                Event("tool_output", {"tool_use_id": "1", "output": output}),
-                Event("tool_done", {"tool_use_id": "1", "output": output, "is_error": False}),
+                ToolOutputEvent(tool_use_id="1", output=output),
+                ToolDoneEvent(tool_use_id="1", output=output, is_error=False),
             ],
         )
 
@@ -198,17 +216,13 @@ class TestTurnRenderer:
         _, rendered = await _render_turn(
             harness,
             [
-                Event("tool_start", {"tool_call": {"id": "1", "name": "bash", "input": {"command": "rg -n x " * 20}}}),
-                Event("tool_done", {"tool_use_id": "1", "output": "", "is_error": False}),
-                Event("tool_start", {"tool_call": {"id": "2", "name": "edit", "input": {"path": path}}}),
-                Event(
-                    "tool_done",
-                    {
-                        "tool_use_id": "2",
-                        "output": "ok",
-                        "is_error": False,
-                        "metadata": {"added_lines": 3, "removed_lines": 1},
-                    },
+                ToolStartEvent(
+                    tool_call={"type": "tool_use", "id": "1", "name": "bash", "input": {"command": "rg -n x " * 20}}
+                ),
+                ToolDoneEvent(tool_use_id="1", output="", is_error=False),
+                ToolStartEvent(tool_call={"type": "tool_use", "id": "2", "name": "edit", "input": {"path": path}}),
+                ToolDoneEvent(
+                    tool_use_id="2", output="ok", is_error=False, metadata={"added_lines": 3, "removed_lines": 1}
                 ),
             ],
         )
@@ -223,16 +237,15 @@ class TestTurnRenderer:
         code, rendered = await _render_turn(
             harness,
             [
-                Event("tool_start", {"tool_call": {"id": "1", "name": "bash", "input": {"command": "build"}}}),
-                Event("tool_output", {"tool_use_id": "1", "output": "started\n"}),
-                Event(
-                    "tool_done",
-                    {
-                        "tool_use_id": "1",
-                        "output": "started\n\n[Output truncated: Showing the last 50KB of output. "
-                        + "Full output: /tmp/bash.log.]\n\n[Command timed out after 1s]",
-                        "is_error": True,
-                    },
+                ToolStartEvent(
+                    tool_call={"type": "tool_use", "id": "1", "name": "bash", "input": {"command": "build"}}
+                ),
+                ToolOutputEvent(tool_use_id="1", output="started\n"),
+                ToolDoneEvent(
+                    tool_use_id="1",
+                    output="started\n\n[Output truncated: Showing the last 50KB of output. "
+                    + "Full output: /tmp/bash.log.]\n\n[Command timed out after 1s]",
+                    is_error=True,
                 ),
             ],
         )
@@ -247,9 +260,11 @@ class TestTurnRenderer:
         _, rendered = await _render_turn(
             harness,
             [
-                Event("tool_start", {"tool_call": {"id": "1", "name": "bash", "input": {"command": "cargo build"}}}),
-                Event("tool_output", {"tool_use_id": "1", "output": output}),
-                Event("tool_done", {"tool_use_id": "1", "output": output + "\n[exit code: 101]", "is_error": True}),
+                ToolStartEvent(
+                    tool_call={"type": "tool_use", "id": "1", "name": "bash", "input": {"command": "cargo build"}}
+                ),
+                ToolOutputEvent(tool_use_id="1", output=output),
+                ToolDoneEvent(tool_use_id="1", output=output + "\n[exit code: 101]", is_error=True),
             ],
         )
 
@@ -260,23 +275,24 @@ class TestTurnRenderer:
         _, rendered = await _render_turn(
             harness,
             [
-                Event("text", {"delta": "Checking."}),
-                Event(
-                    "tool_start",
-                    {"tool_call": {"id": "1", "name": "read", "input": {"path": "a.py", "offset": 10, "limit": 5}}},
+                TextEvent(delta="Checking."),
+                ToolStartEvent(
+                    tool_call={
+                        "type": "tool_use",
+                        "id": "1",
+                        "name": "read",
+                        "input": {"path": "a.py", "offset": 10, "limit": 5},
+                    }
                 ),
-                Event("tool_done", {"tool_use_id": "1", "output": "x", "is_error": False}),
-                Event("tool_start", {"tool_call": {"id": "2", "name": "edit", "input": {"path": "b.py"}}}),
-                Event(
-                    "tool_done",
-                    {
-                        "tool_use_id": "2",
-                        "output": "Updated b.py",
-                        "is_error": False,
-                        "metadata": {"added_lines": 3, "removed_lines": 1},
-                    },
+                ToolDoneEvent(tool_use_id="1", output="x", is_error=False),
+                ToolStartEvent(tool_call={"type": "tool_use", "id": "2", "name": "edit", "input": {"path": "b.py"}}),
+                ToolDoneEvent(
+                    tool_use_id="2",
+                    output="Updated b.py",
+                    is_error=False,
+                    metadata={"added_lines": 3, "removed_lines": 1},
                 ),
-                Event("text", {"delta": "Done."}),
+                TextEvent(delta="Done."),
             ],
         )
 
@@ -286,10 +302,12 @@ class TestTurnRenderer:
         _, rendered = await _render_turn(
             harness,
             [
-                Event("tool_start", {"tool_call": {"id": "1", "name": "webfetch", "input": {"url": "https://a.test"}}}),
-                Event("tool_start", {"tool_call": {"id": "2", "name": "read", "input": {"path": "b.py"}}}),
-                Event("tool_done", {"tool_use_id": "2", "output": "x", "is_error": False}),
-                Event("tool_done", {"tool_use_id": "1", "output": "error: timed out", "is_error": True}),
+                ToolStartEvent(
+                    tool_call={"type": "tool_use", "id": "1", "name": "webfetch", "input": {"url": "https://a.test"}}
+                ),
+                ToolStartEvent(tool_call={"type": "tool_use", "id": "2", "name": "read", "input": {"path": "b.py"}}),
+                ToolDoneEvent(tool_use_id="2", output="x", is_error=False),
+                ToolDoneEvent(tool_use_id="1", output="error: timed out", is_error=True),
             ],
         )
 
@@ -298,7 +316,7 @@ class TestTurnRenderer:
     async def test_finish_prints_context_and_session_cost(self, harness: TerminalHarness) -> None:
         _, rendered = await _render_turn(
             harness,
-            [Event("usage", {"context_tokens": 34_210, "turn_cost": {"total": 0.02}})],
+            [UsageEvent(context_tokens=34_210, turn_cost={"total": 0.02}, turn_usage={}, turn_duration_ms=None)],
             model="gpt-5.5",
             context_window=128_000,
             session_cost_base=0.40,
@@ -321,10 +339,15 @@ class TestTurnRenderer:
         turn_cost: float | None,
         expected: float | None,
     ) -> None:
-        usage = {"turn_cost": {"total": turn_cost} if turn_cost is not None else None}
+        usage = UsageEvent(
+            context_tokens=None,
+            turn_usage={},
+            turn_cost={"total": turn_cost} if turn_cost is not None else None,
+            turn_duration_ms=None,
+        )
         _, rendered = await _render_turn(
             harness,
-            [Event("usage", usage)],
+            [usage],
             context_window=1_000,
             session_cost_base=session_cost_base,
         )
@@ -335,7 +358,7 @@ class TestTurnRenderer:
             assert f"${expected:.2f}" in rendered
 
     async def test_user_message_closes_the_segment_and_echoes_the_steer(self, harness: TerminalHarness) -> None:
-        steer = {
+        steer: ConversationMessage = {
             "role": "user",
             "content": [{"type": "text", "text": "use sqlite"}, {"type": "text", "text": "keep the tests"}],
             "meta": {"steer": True},
@@ -343,11 +366,11 @@ class TestTurnRenderer:
         _, rendered = await _render_turn(
             harness,
             [
-                Event("text", {"delta": "first segment"}),
-                Event("usage", {"context_tokens": 10, "turn_cost": {"total": 0.02}}),
-                Event("user_message", {"message": steer}),
-                Event("text", {"delta": "second segment"}),
-                Event("usage", {"context_tokens": 20, "turn_cost": {"total": 0.03}}),
+                TextEvent(delta="first segment"),
+                UsageEvent(context_tokens=10, turn_cost={"total": 0.02}, turn_usage={}, turn_duration_ms=None),
+                UserMessageEvent(message=steer),
+                TextEvent(delta="second segment"),
+                UsageEvent(context_tokens=20, turn_cost={"total": 0.03}, turn_usage={}, turn_duration_ms=None),
             ],
             session_cost_base=0.40,
         )
@@ -359,14 +382,14 @@ class TestTurnRenderer:
         )
 
     async def test_cancelled_event_is_a_muted_stop_not_an_error(self, harness: TerminalHarness) -> None:
-        code, rendered = await _render_turn(harness, [Event("text", {"delta": "partial"}), Event("cancelled", {})])
+        code, rendered = await _render_turn(harness, [TextEvent(delta="partial"), CancelledEvent()])
 
         assert code == 0
         assert "partial\n\ncancelled\n" in rendered
         assert ERROR_MARKER not in rendered
 
     async def test_error_event_is_printed_and_fails_the_turn(self, harness: TerminalHarness) -> None:
-        code, rendered = await _render_turn(harness, [Event("error", {"message": "provider error"})])
+        code, rendered = await _render_turn(harness, [ErrorEvent(message="provider error")])
 
         assert code == 1
         assert f"{ERROR_MARKER} provider error" in rendered
@@ -376,7 +399,12 @@ class TestTurnRenderer:
         codes: list[int] = []
 
         async def main() -> None:
-            agent = _EventAgent([*_text_events("first block\n\nsecond block\n"), Event("usage", {"context_tokens": 5})])
+            agent = _EventAgent(
+                [
+                    *_text_events("first block\n\nsecond block\n"),
+                    UsageEvent(context_tokens=5, turn_usage={}, turn_cost=None, turn_duration_ms=None),
+                ]
+            )
             codes.append(await renderer.render(cast(Any, agent), "hi"))
 
         await harness.terminal.run(main)
@@ -457,7 +485,7 @@ async def test_user_message_with_only_job_blocks_prints_the_card_without_a_steer
     renderer = TurnRenderer(harness.terminal, model="m", context_window=None, on_user_message=delivered.append)
 
     await renderer.render(
-        cast(Any, _EventAgent([Event("text", {"delta": "working"}), Event("user_message", {"message": message})])),
+        cast(Any, _EventAgent([TextEvent(delta="working"), UserMessageEvent(message=message)])),
         "hi",
     )
 

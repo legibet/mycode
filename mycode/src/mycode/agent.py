@@ -29,6 +29,21 @@ from mycode.compact import (
     has_compactable_history,
     should_compact,
 )
+from mycode.events import (
+    CancelledEvent,
+    CompactEvent,
+    ErrorEvent,
+    Event,
+    ReasoningDoneEvent,
+    ReasoningEvent,
+    RetryEvent,
+    TextEvent,
+    ToolDoneEvent,
+    ToolOutputEvent,
+    ToolStartEvent,
+    UsageEvent,
+    UserMessageEvent,
+)
 from mycode.hooks import Hooks, ToolHookContext
 from mycode.messages import (
     CompactTrigger,
@@ -75,21 +90,13 @@ PersistCallback = Callable[[ConversationMessage], Awaitable[None]]
 
 
 @dataclass
-class Event:
-    """Streaming event emitted by :meth:`Agent.achat`."""
-
-    type: str
-    data: dict[str, Any] = field(default_factory=dict)
-
-
-@dataclass
 class RunResult:
     """Collected result returned by :meth:`Agent.run`."""
 
     text: str = ""
     events: list[Event] = field(default_factory=list)
     error: str | None = None
-    usage: dict[str, Any] | None = None
+    usage: UsageEvent | None = None
     cancelled: bool = False
 
 
@@ -293,9 +300,9 @@ class Agent:
                         yield event
                 run.check_cancelled()
             except _RunCancelled:
-                terminal = Event("cancelled")
+                terminal = CancelledEvent()
             except _TurnFailed as exc:
-                terminal = Event("error", {"message": str(exc)})
+                terminal = ErrorEvent(message=str(exc))
         if terminal is not None:
             yield terminal
 
@@ -319,16 +326,17 @@ class Agent:
             result = RunResult()
             text_parts: list[str] = []
             async for event in self.achat(user_input, attachments=attachments, on_persist=on_persist):
-                if event.type != "tool_output":
+                if not isinstance(event, ToolOutputEvent):
                     result.events.append(event)
-                if event.type == "text":
-                    text_parts.append(str(event.data.get("delta") or ""))
-                elif event.type == "usage":
-                    result.usage = event.data
-                elif event.type == "error" and result.error is None:
-                    result.error = str(event.data.get("message") or "")
-                elif event.type == "cancelled":
-                    result.cancelled = True
+                match event:
+                    case TextEvent(delta=delta):
+                        text_parts.append(delta)
+                    case UsageEvent():
+                        result.usage = event
+                    case ErrorEvent(message=message) if result.error is None:
+                        result.error = message
+                    case CancelledEvent():
+                        result.cancelled = True
             result.text = "".join(text_parts)
             return result
 
@@ -444,7 +452,7 @@ class Agent:
             if should_compact(context_tokens, self.context_window, self.compact_threshold):
                 compact_marker = await self._auto_compact(run, adapter, on_persist)
                 if compact_marker is not None:
-                    yield Event("compact", {"trigger": "auto"})
+                    yield CompactEvent(trigger="auto")
                     # Summary usage is billed, but does not describe the normal context size.
                     segment.add(compact_marker)
                     yield segment.usage_event(context_tokens, compact_marker)
@@ -459,7 +467,7 @@ class Agent:
                 steer_message = merge_user_messages(steers, steer=True)
                 await self._commit(steer_message, on_persist)
                 yield segment.usage_event(context_tokens, steer_message)
-                yield Event("user_message", {"message": steer_message})
+                yield UserMessageEvent(message=steer_message)
                 segment = _TurnSegment(steer_message)
             elif not tool_calls:
                 run.accepting_steers = False
@@ -484,16 +492,16 @@ class Agent:
             async for provider_event in stream:
                 run.check_cancelled()
                 match provider_event:
-                    case Event():
+                    case RetryEvent():
                         yield provider_event
                     case ThinkingDelta(text=text):
                         response.add("thinking", text)
-                        yield Event("reasoning", {"delta": text})
+                        yield ReasoningEvent(delta=text)
                     case TextDelta(text=text):
                         if (done := response.end_thinking()) is not None:
                             yield done
                         response.add("text", text)
-                        yield Event("text", {"delta": text})
+                        yield TextEvent(delta=text)
                     case MessageDone(message=message):
                         if (done := response.end_thinking()) is not None:
                             yield done
@@ -786,7 +794,7 @@ class Agent:
         tool_id, name, args = tool_use["id"], tool_use["name"], tool_use["input"]
         # Surface the tool to the UI before running hooks so the call is
         # always visible — even when a hook is awaiting a permission decision.
-        yield Event("tool_start", {"tool_call": {"id": tool_id, "name": name, "input": args}})
+        yield ToolStartEvent(tool_call=tool_use.copy())
 
         spec = self.tools.get(name)
         if (error := _tool_call_error(run, tool_use, stop_reason)) is not None:
@@ -820,12 +828,18 @@ class Agent:
                         task.add_done_callback(lambda _task: output_buffer.finish())
                         while (output := await output_buffer.get()) is not None:
                             if output and not run.cancel_requested:
-                                yield Event("tool_output", {"tool_use_id": tool_id, "output": output})
+                                yield ToolOutputEvent(tool_use_id=tool_id, output=output)
                     result = await asyncio.shield(task)
             except _RunCancelled:
                 result = ToolExecutionResult(output="error: cancelled", is_error=True)
         results[tool_id] = result
-        yield self._tool_done_event(tool_id, result)
+        yield ToolDoneEvent(
+            tool_use_id=tool_id,
+            output=result.output,
+            is_error=result.is_error,
+            metadata=result.metadata or None,
+            content=result.content or None,
+        )
 
     async def _execute_tool(
         self,
@@ -868,19 +882,6 @@ class Agent:
         run.check_cancelled()
         return result
 
-    @staticmethod
-    def _tool_done_event(tool_id: str, result: ToolExecutionResult) -> Event:
-        data: dict[str, Any] = {
-            "tool_use_id": tool_id,
-            "output": result.output,
-            "is_error": result.is_error,
-        }
-        if result.metadata:
-            data["metadata"] = result.metadata
-        if result.content:
-            data["content"] = result.content
-        return Event("tool_done", data)
-
     # ------------------------------------------------------------------
     # Provider streaming
     # ------------------------------------------------------------------
@@ -890,7 +891,7 @@ class Agent:
         run: _RunState,
         adapter: ProviderAdapter,
         request: ProviderRequest,
-    ) -> AsyncGenerator[ThinkingDelta | TextDelta | MessageDone | Event, None]:
+    ) -> AsyncGenerator[ThinkingDelta | TextDelta | MessageDone | RetryEvent, None]:
         """Stream one provider turn, retrying failed attempts before visible output.
 
         Yields a ``retry`` event before each new attempt. Once a thinking or
@@ -915,16 +916,14 @@ class Agent:
                 if run.cancel_requested or visible_output_emitted or not exc.retryable or attempt >= max_attempts:
                     raise
                 delay = self._retry_delay(attempt, exc)
-                retry_data: dict[str, Any] = {
-                    "attempt": attempt + 1,
-                    "max_attempts": max_attempts,
-                    "delay_seconds": round(delay, 3),
-                    "reason": exc.reason,
-                    "message": str(exc),
-                }
-                if exc.status_code is not None:
-                    retry_data["status_code"] = exc.status_code
-                yield Event("retry", retry_data)
+                yield RetryEvent(
+                    attempt=attempt + 1,
+                    max_attempts=max_attempts,
+                    delay_seconds=round(delay, 3),
+                    reason=exc.reason,
+                    message=str(exc),
+                    status_code=exc.status_code,
+                )
                 async with run.task(asyncio.sleep(delay)) as wait:
                     await asyncio.shield(wait)
                 run.check_cancelled()
@@ -1241,13 +1240,13 @@ class _StreamedResponse:
         else:
             self.parts.append((block_type, [text]))
 
-    def end_thinking(self) -> Event | None:
+    def end_thinking(self) -> ReasoningDoneEvent | None:
         """Settle the thinking duration once; return its ``reasoning_done`` event."""
 
         if self.thinking_started_at is None or self.thinking_ms is not None:
             return None
         self.thinking_ms = max(0, int((time.monotonic() - self.thinking_started_at) * 1000))
-        return Event("reasoning_done", {"duration_ms": self.thinking_ms})
+        return ReasoningDoneEvent(duration_ms=self.thinking_ms)
 
     def stamp_thinking(self, content: list[ContentBlock]) -> None:
         """Record the thinking duration on the last thinking block of ``content``."""
@@ -1282,17 +1281,14 @@ class _TurnSegment:
         self.usage = add_usage(self.usage, record["meta"].get("usage") or {})
         self.cost = add_cost(self.cost, record["meta"].get("cost"))
 
-    def usage_event(self, context_tokens: int | None, record: ConversationMessage) -> Event:
+    def usage_event(self, context_tokens: int | None, record: ConversationMessage) -> UsageEvent:
         """Report the segment so far, timed up to the committed ``record``."""
 
-        return Event(
-            "usage",
-            {
-                "context_tokens": context_tokens,
-                "turn_usage": self.usage.copy(),
-                "turn_cost": self.cost.copy() if self.cost is not None else None,
-                "turn_duration_ms": _turn_elapsed_ms(self.start, record),
-            },
+        return UsageEvent(
+            context_tokens=context_tokens,
+            turn_usage=self.usage.copy(),
+            turn_cost=self.cost.copy() if self.cost is not None else None,
+            turn_duration_ms=_turn_elapsed_ms(self.start, record),
         )
 
 

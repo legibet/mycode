@@ -3,6 +3,7 @@
 import asyncio
 from collections.abc import Callable
 from copy import deepcopy
+from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Unpack
@@ -10,7 +11,19 @@ from unittest.mock import patch
 
 import pytest
 
-from mycode import Agent, ContentBlock, ConversationMessage, Event, SessionStore, image_block, text_block, tool
+from mycode import (
+    Agent,
+    CancelledEvent,
+    ContentBlock,
+    ConversationMessage,
+    Event,
+    SessionStore,
+    UsageEvent,
+    UserMessageEvent,
+    image_block,
+    text_block,
+    tool,
+)
 from mycode.messages import MessageMeta
 from mycode.providers.base import MessageDone, ProviderStreamEvent, TextDelta
 from mycode.usage import estimate_cost
@@ -95,7 +108,7 @@ async def test_steer_is_delivered_after_the_tool_batch_and_persisted(tmp_path: P
     assert _texts(steer) == ["use sqlite"]
     assert steer["meta"]["steer"] is True
     assert steer["meta"]["input_ids"] == ["c1"]
-    assert next(event for event in events if event.type == "user_message").data == {"message": steer}
+    assert next(event for event in events if event.type == "user_message") == UserMessageEvent(message=steer)
     # The request after the batch sees the tool results, then the steer.
     assert adapter.requests[1][-2:] == [tool_results, steer]
     assert persisted == agent.messages
@@ -139,7 +152,7 @@ async def test_steer_after_automatic_compaction_lands_after_the_marker(tmp_path:
     with patch("mycode.agent.get_provider_adapter", return_value=adapter):
         async for event in agent.achat("hello"):
             events.append(event)
-            if event.type == "text" and event.data["delta"] == "reply":
+            if event.type == "text" and event.delta == "reply":
                 assert agent.steer("keep going") is True
 
     types = [event.type for event in events]
@@ -168,7 +181,7 @@ async def test_pending_steers_merge_into_one_message(tmp_path: Path) -> None:
                     ["and keep the tests"],
                 ]
 
-    delivered = [event.data["message"] for event in events if event.type == "user_message"]
+    delivered = [event.message for event in events if event.type == "user_message"]
     assert len(delivered) == 1
     merged = delivered[0]
     assert _texts(merged) == ["use sqlite", "no id here", "and keep the tests"]
@@ -205,7 +218,7 @@ async def test_stop_refuses_new_steers_and_never_delivers_pending_ones(tmp_path:
                 agent.cancel()
                 assert agent.steer("late") is False
 
-    assert events[-1] == Event("cancelled")
+    assert events[-1] == CancelledEvent()
     assert "user_message" not in [event.type for event in events]
     assert len(adapter.requests) == 1
     assert all(not (message.get("meta") or {}).get("steer") for message in agent.messages)
@@ -284,23 +297,23 @@ def test_usage_restarts_at_the_steer_message(tmp_path: Path) -> None:
     with patch("mycode.agent.get_provider_adapter", return_value=adapter):
         result = agent.run(user)
 
-    usages = [event.data for event in result.events if event.type == "usage"]
+    usages = [event for event in result.events if event.type == "usage"]
     assert len(usages) == 4
-    assert usages[1]["turn_usage"] == {"total_tokens": 250, "input_tokens": 220, "output_tokens": 30}
+    assert usages[1].turn_usage == {"total_tokens": 250, "input_tokens": 220, "output_tokens": 30}
     steer, answer = agent.messages[-2:]
     assert steer["meta"]["steer"] is True
     # The closing event repeats the segment's totals and runs to the steer message.
     closing_index = next(i for i, event in enumerate(result.events) if event.type == "user_message") - 1
-    assert result.events[closing_index].type == "usage"
-    closing = result.events[closing_index].data
-    assert closing == {**usages[1], "turn_duration_ms": closing["turn_duration_ms"]}
+    closing = result.events[closing_index]
+    assert isinstance(closing, UsageEvent)
+    assert closing == replace(usages[1], turn_duration_ms=closing.turn_duration_ms)
     segment = datetime.fromisoformat(steer["meta"]["created_at"]) - datetime.fromisoformat(started_at)
-    assert closing["turn_duration_ms"] == int(segment.total_seconds() * 1000)
+    assert closing.turn_duration_ms == int(segment.total_seconds() * 1000)
     # The segment opened by the steer counts only its own request.
     last = usages[3]
-    assert last["context_tokens"] == 200
-    assert last["turn_usage"] == {"total_tokens": 200, "input_tokens": 170, "output_tokens": 30}
-    assert last["turn_cost"] == estimate_cost(last["turn_usage"], agent.model_pricing)
+    assert last.context_tokens == 200
+    assert last.turn_usage == {"total_tokens": 200, "input_tokens": 170, "output_tokens": 30}
+    assert last.turn_cost == estimate_cost(last.turn_usage, agent.model_pricing)
     elapsed = datetime.fromisoformat(answer["meta"]["created_at"]) - datetime.fromisoformat(steer["meta"]["created_at"])
-    assert last["turn_duration_ms"] == int(elapsed.total_seconds() * 1000)
+    assert last.turn_duration_ms == int(elapsed.total_seconds() * 1000)
     assert result.usage == last

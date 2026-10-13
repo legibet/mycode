@@ -283,8 +283,8 @@ async def test_permission_hook_distinguishes_user_denial(tmp_path: Path, monkeyp
     monkeypatch.setattr("mycode.agent.get_provider_adapter", lambda _: Adapter())
     events = [event async for event in agent.achat("go")]
     done = next(event for event in events if event.type == "tool_done")
-    assert done.data["output"] == PERMISSION_DENIED_BY_USER_OUTPUT
-    assert done.data["is_error"] is True
+    assert done.output == PERMISSION_DENIED_BY_USER_OUTPUT
+    assert done.is_error is True
     assert events[-1].type == "cancelled"
     assert calls == []
     stored = SessionStore(data_dir=tmp_path).load_messages_sync(agent.session_id)

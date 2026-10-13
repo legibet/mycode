@@ -13,6 +13,7 @@ from unittest.mock import patch
 
 import pytest
 
+from mycode import CompactEvent, UsageEvent
 from mycode.agent import Agent
 from mycode.compact import (
     COMPACT_SUMMARY_PROMPT,
@@ -339,16 +340,19 @@ async def test_auto_compact_usage_counts_into_the_turn(tmp_path: Path) -> None:
         ]
 
     assert [event.type for event in events] == ["usage", "compact", "usage"]
-    assert events[0].data["turn_duration_ms"] == 1000
-    assert events[1].data["trigger"] == "auto"
-    final_usage = events[-1].data
+    assert isinstance(events[0], UsageEvent)
+    assert events[0].turn_duration_ms == 1000
+    assert isinstance(events[1], CompactEvent)
+    assert events[1].trigger == "auto"
+    final_usage = events[-1]
+    assert isinstance(final_usage, UsageEvent)
     # The summary call is billed into the turn, but the context metric keeps
     # the last normal request's total — the summary total is not context size.
-    assert final_usage["context_tokens"] == 80_000
-    assert final_usage["turn_usage"]["total_tokens"] == 160_500
-    assert final_usage["turn_usage"]["input_tokens"] == 159_000
-    assert final_usage["turn_usage"]["output_tokens"] == 1_500
-    assert final_usage["turn_cost"] == pytest.approx({"total": 0.015})
+    assert final_usage.context_tokens == 80_000
+    assert final_usage.turn_usage["total_tokens"] == 160_500
+    assert final_usage.turn_usage["input_tokens"] == 159_000
+    assert final_usage.turn_usage["output_tokens"] == 1_500
+    assert final_usage.turn_cost == pytest.approx({"total": 0.015})
 
     records = await SessionStore(data_dir=tmp_path).load_raw_messages(agent.session_id)
     assert records == agent.messages
@@ -356,7 +360,7 @@ async def test_auto_compact_usage_counts_into_the_turn(tmp_path: Path) -> None:
     assert marker["role"] == "compact"
     assert marker["meta"]["trigger"] == "auto"
     elapsed = datetime.fromisoformat(marker["meta"]["created_at"]) - datetime.fromisoformat(started_at)
-    assert final_usage["turn_duration_ms"] == int(elapsed.total_seconds() * 1000)
+    assert final_usage.turn_duration_ms == int(elapsed.total_seconds() * 1000)
     assert marker["meta"]["usage"] == {"total_tokens": 80_500, "input_tokens": 80_000, "output_tokens": 500}
     assert marker["meta"]["cost"] == {"total": 0.005}
 
@@ -385,7 +389,8 @@ async def test_failed_auto_compact_keeps_successful_turn_usage() -> None:
         events = [event async for event in agent.achat("hello")]
 
     assert [event.type for event in events] == ["usage"]
-    assert events[0].data["turn_usage"] == {
+    assert isinstance(events[0], UsageEvent)
+    assert events[0].turn_usage == {
         "total_tokens": 80_000,
         "input_tokens": 79_000,
         "output_tokens": 1_000,
@@ -436,4 +441,5 @@ async def test_legacy_total_tokens_meta_is_ignored() -> None:
         events = [event async for event in agent.achat("hello")]
 
     assert [event.type for event in events] == ["usage"]
-    assert events[0].data["context_tokens"] is None
+    assert isinstance(events[0], UsageEvent)
+    assert events[0].context_tokens is None

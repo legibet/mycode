@@ -39,7 +39,7 @@ async def main() -> None:
 
     async for event in agent.achat("Read pyproject.toml and tell me the project name."):
         if event.type == "text":
-            print(event.data["delta"], end="", flush=True)
+            print(event.delta, end="", flush=True)
 
 
 asyncio.run(main())

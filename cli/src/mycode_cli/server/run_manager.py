@@ -13,7 +13,16 @@ from typing import Any, Literal, Protocol
 from uuid import uuid4
 from weakref import WeakValueDictionary
 
-from mycode.agent import Event, PersistCallback
+from mycode.agent import PersistCallback
+from mycode.events import (
+    CancelledEvent,
+    CompactEvent,
+    ErrorEvent,
+    Event,
+    ToolDoneEvent,
+    UsageEvent,
+    UserMessageEvent,
+)
 from mycode.messages import ConversationMessage, merge_user_messages
 from mycode_cli.background import BackgroundJobs, is_job_message
 from mycode_cli.permissions import ToolReviewDecision
@@ -449,15 +458,13 @@ class RunManager:
 
         await self._append_event(
             state,
-            Event(
-                "permission_request",
-                {
-                    "request_id": request_id,
-                    "tool_use_id": tool_call_id,
-                    "tool_name": tool_name,
-                    "preview": preview,
-                },
-            ),
+            {
+                "type": "permission_request",
+                "request_id": request_id,
+                "tool_use_id": tool_call_id,
+                "tool_name": tool_name,
+                "preview": preview,
+            },
         )
 
         decision: ToolReviewDecision = "deny"
@@ -472,11 +479,7 @@ class RunManager:
         finally:
             state.pending_decisions.pop(request_id, None)
             await self._append_event(
-                state,
-                Event(
-                    "permission_resolved",
-                    {"request_id": request_id, "decision": decision},
-                ),
+                state, {"type": "permission_resolved", "request_id": request_id, "decision": decision}
             )
 
     async def resolve_decision(
@@ -501,7 +504,7 @@ class RunManager:
 
         # A run can be stopped before the SDK operation has started.
         if state.cancel_requested:
-            await self._append_event(state, Event("cancelled", {}))
+            await self._append_event(state, CancelledEvent())
             await self._finish_run(state, status="cancelled")
             return
 
@@ -515,7 +518,7 @@ class RunManager:
                 if state.on_complete is not None:
                     await state.on_complete(state.session_id)
                 await self._append_event(
-                    state, Event("compact", {"trigger": "manual"}), compact_totals=sum_session_totals([marker])
+                    state, CompactEvent(trigger="manual"), compact_totals=sum_session_totals([marker])
                 )
             else:
                 assert state.user_message is not None
@@ -529,12 +532,12 @@ class RunManager:
                             # is in the session; a failed commit reaches the
                             # client as an error with nothing delivered.
                             if state.delivering:
-                                await self._append_event(state, Event("user_message", {"message": message}))
+                                await self._append_event(state, UserMessageEvent(message=message))
                                 state.delivering = []
                             if event.type == "retry":
                                 continue
                             if event.type == "error":
-                                last_error = str(event.data.get("message") or "unknown error")
+                                last_error = event.message or "unknown error"
                             elif event.type == "cancelled":
                                 cancelled = True
                                 continue
@@ -566,14 +569,14 @@ class RunManager:
             # Reached by compact failures (e.g. nothing to compact, provider
             # errors) and by persist/cleanup failures during a chat turn.
             last_error = str(exc)
-            await self._append_event(state, Event("error", {"message": last_error}))
+            await self._append_event(state, ErrorEvent(message=last_error))
 
         if last_error is not None:
             await self._finish_run(state, status="failed", error=last_error)
             return
 
         if cancelled or state.cancel_requested:
-            await self._append_event(state, Event("cancelled", {}))
+            await self._append_event(state, CancelledEvent())
             await self._finish_run(state, status="cancelled")
             return
 
@@ -589,39 +592,37 @@ class RunManager:
                 state.history_seq = state.next_seq - 1
 
     async def _append_event(
-        self, state: RunState, event: Event, *, compact_totals: SessionTotals | None = None
+        self, state: RunState, event: Event | dict[str, Any], *, compact_totals: SessionTotals | None = None
     ) -> None:
+        """Buffer one stream event: an SDK event, or a server-only payload."""
+
         async with state.condition:
-            if event.type == "user_message":
-                # A delivered steer or queued turn starts a new usage segment.
-                state.session_base = state.session_totals
-                state.history_len = len(state.committed)
-                state.history_seq = state.next_seq
-            elif event.type == "usage":
-                state.session_totals = state.session_base.add(event.data.get("turn_usage"), event.data.get("turn_cost"))
-                event = Event(
-                    "usage",
-                    {
-                        **event.data,
+            payload = event if isinstance(event, dict) else event.to_dict()
+            match event:
+                case UserMessageEvent():
+                    # A delivered steer or queued turn starts a new usage segment.
+                    state.session_base = state.session_totals
+                    state.history_len = len(state.committed)
+                    state.history_seq = state.next_seq
+                case UsageEvent():
+                    state.session_totals = state.session_base.add(event.turn_usage, event.turn_cost)
+                    payload |= {
                         "context_window": state.agent.context_window,
                         "model": state.agent.model,
                         **state.session_totals.payload(),
-                    },
-                )
-            elif event.type == "compact" and compact_totals is not None:
-                state.session_totals = state.session_base.add(compact_totals.usage, compact_totals.cost)
+                    }
+                case CompactEvent() if compact_totals is not None:
+                    state.session_totals = state.session_base.add(compact_totals.usage, compact_totals.cost)
+                case ToolDoneEvent():
+                    retained = [
+                        buffered
+                        for buffered in state.events
+                        if buffered.get("type") != "tool_output" or buffered.get("tool_use_id") != event.tool_use_id
+                    ]
+                    state.events = retained
+                    state.tool_output_bytes = sum(_tool_output_bytes(buffered) for buffered in retained)
 
-            if event.type == "tool_done":
-                tool_use_id = event.data.get("tool_use_id")
-                retained = [
-                    payload
-                    for payload in state.events
-                    if payload.get("type") != "tool_output" or payload.get("tool_use_id") != tool_use_id
-                ]
-                state.events = retained
-                state.tool_output_bytes = sum(_tool_output_bytes(payload) for payload in retained)
-
-            payload = {"seq": state.next_seq, "type": event.type, **event.data}
+            payload = {"seq": state.next_seq, **payload}
             state.next_seq += 1
             state.events.append(payload)
             state.tool_output_bytes += _tool_output_bytes(payload)

@@ -108,11 +108,13 @@ async def run_noninteractive(agent: Agent, message: str, *, store: SessionStore,
     async with aclosing(agent.achat(message, on_persist=track)) as stream:
         async for event in stream:
             if event.type == "error":
-                error_message = str(event.data.get("message") or "agent error")
-            elif event.type == "tool_done" and event.data.get("is_error"):
-                output = str(event.data.get("output") or "")
-                if output in {PERMISSION_DENIED_OUTPUT, PERMISSION_DENIED_BY_USER_OUTPUT}:
-                    error_message = output
+                error_message = event.message or "agent error"
+            elif (
+                event.type == "tool_done"
+                and event.is_error
+                and event.output in {PERMISSION_DENIED_OUTPUT, PERMISSION_DENIED_BY_USER_OUTPUT}
+            ):
+                error_message = event.output
 
     reply = ""
     if latest_assistant:

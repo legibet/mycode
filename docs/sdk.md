@@ -76,7 +76,7 @@ Text attachments are inlined in full, with no size limit; an application that ac
 
 ### `run()` synchronous wrapper
 
-`run()` consumes `achat()` via `asyncio.run`, concatenates `text` deltas into `RunResult.text`, captures the first error message in `RunResult.error`, and keeps the last `usage` payload in `RunResult.usage`; after a steer that payload describes only the last segment. User cancellation sets `RunResult.cancelled=True` and leaves `error=None`. `RunResult.events` keeps the non-transient events, including final `tool_done` results; live `tool_output` deltas are omitted so synchronous runs do not retain complete command streams in memory.
+`run()` consumes `achat()` via `asyncio.run`, concatenates `text` deltas into `RunResult.text`, captures the first error message in `RunResult.error`, and keeps the last `UsageEvent` in `RunResult.usage`; after a steer that event describes only the last segment. User cancellation sets `RunResult.cancelled=True` and leaves `error=None`. `RunResult.events` keeps the non-transient events, including final `tool_done` results; live `tool_output` deltas are omitted so synchronous runs do not retain complete command streams in memory.
 
 ```python
 result = agent.run("Hello")
@@ -162,42 +162,53 @@ Adapters raise `ProviderError` (`reason`, `retryable`, `status_code`, `retry_aft
 
 ### Streaming events
 
-`achat()` yields `Event(type, data)`:
+`achat()` yields `Event` values from `mycode.events`: frozen dataclasses whose `type` names the event. Match on the class, or compare `event.type`; both narrow the type. `event.to_dict()` returns the JSON-ready payload, `type` plus the fields, leaving out optional fields while they are unset (the CLI server builds its SSE payloads from it). Frozen means the attributes cannot be reassigned; the dicts and lists they hold are not copied.
 
-| `type`           | `data`                                                                        |
-| ---------------- | ----------------------------------------------------------------------------- |
-| `reasoning`      | `{"delta": str}`                                                              |
-| `reasoning_done` | `{"duration_ms": int}`                                                        |
-| `text`           | `{"delta": str}`                                                              |
-| `tool_start`     | `{"tool_call": {"id", "name", "input"}}`                                      |
-| `tool_output`    | `{"tool_use_id", "output"}`; delta from `streams_output=True` tools           |
-| `tool_done`      | `{"tool_use_id", "output", "is_error", "metadata"?, "content"?}`              |
-| `compact`        | `{"trigger": "auto"}`; emitted after an automatic compact marker is committed |
-| `user_message`   | `{"message"}`; a merged steer message, emitted after it is committed          |
-| `retry`          | fields under Timeouts and retries; emitted before each new attempt            |
-| `usage`          | see below; emitted after every provider request and at a delivered steer      |
-| `error`          | `{"message"}`; fatal for the turn, then the iterator stops                    |
-| `cancelled`      | `{}`; user stop completed, then the iterator stops                            |
+```python
+from mycode import TextEvent, ToolDoneEvent
+
+async for event in agent.achat("Hello"):
+    match event:
+        case TextEvent(delta=delta):
+            print(delta, end="")
+        case ToolDoneEvent(tool_use_id=tool_use_id, is_error=True):
+            print(f"\n{tool_use_id} failed")
+```
+
+| class                | `type`           | fields                                                                                     |
+| -------------------- | ---------------- | ------------------------------------------------------------------------------------------ |
+| `ReasoningEvent`     | `reasoning`      | `delta`                                                                                    |
+| `ReasoningDoneEvent` | `reasoning_done` | `duration_ms`                                                                              |
+| `TextEvent`          | `text`           | `delta`                                                                                    |
+| `ToolStartEvent`     | `tool_start`     | `tool_call`: a copy of the `tool_use` block                                                |
+| `ToolOutputEvent`    | `tool_output`    | `tool_use_id`, `output`; delta from `streams_output=True` tools                            |
+| `ToolDoneEvent`      | `tool_done`      | `tool_use_id`, `output`, `is_error`, `metadata` (optional), `content` (optional)           |
+| `CompactEvent`       | `compact`        | `trigger` (`"auto"`); emitted after an automatic compact marker is committed               |
+| `UserMessageEvent`   | `user_message`   | `message`; a merged steer message, emitted after it is committed                           |
+| `RetryEvent`         | `retry`          | fields under Timeouts and retries; emitted before each new attempt                         |
+| `UsageEvent`         | `usage`          | see below; emitted after every provider request and at a delivered steer                   |
+| `ErrorEvent`         | `error`          | `message`; fatal for the turn, then the iterator stops                                     |
+| `CancelledEvent`     | `cancelled`      | none; user stop completed, then the iterator stops                                         |
 
 ### Usage, cost, and turn duration
 
 A `usage` event follows each successful provider request, including automatic compaction. It reports the latest context occupancy plus the turn's cumulative usage, cost, and elapsed time. A delivered steer starts a new segment of the turn: `turn_usage`, `turn_cost`, and `turn_duration_ms` restart from the merged steer message, so each `usage` event describes the current segment only. Before its `user_message`, a delivered steer emits one closing `usage` event for the segment it ends: same `context_tokens`, `turn_usage`, and `turn_cost`, with `turn_duration_ms` running to the merged steer message, so tool time after the last request is counted. `context_tokens` carries over.
 
 ```python
-{
-    "context_tokens": 1456,  # latest normal request's usage.total_tokens
-    "turn_usage": {  # cumulative for the turn
+UsageEvent(
+    context_tokens=1456,  # latest normal request's usage.total_tokens
+    turn_usage={  # cumulative for the turn
         "total_tokens": 2912,
         "input_tokens": 2800,
         "output_tokens": 112,
     },
-    "turn_cost": {
+    turn_cost={
         "input": 0.0042,
         "output": 0.0081,
         "total": 0.0123,
     },
-    "turn_duration_ms": 23400,  # turn start -> the record this event follows
-}
+    turn_duration_ms=23400,  # turn start -> the record this event follows
+)
 ```
 
 - `context_tokens` is the latest normal request's context usage. It is not cumulative.
