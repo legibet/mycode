@@ -35,7 +35,6 @@ from mycode.messages import (
     ContentBlock,
     ConversationMessage,
     build_message,
-    flatten_message_text,
     merge_user_messages,
     text_block,
 )
@@ -52,7 +51,7 @@ from mycode_cli.config import (
 )
 from mycode_cli.permissions import ToolReviewDecision, ToolReviewRequest
 from mycode_cli.runtime import build_agent, load_session_totals
-from mycode_cli.sessions import SessionStore
+from mycode_cli.sessions import SessionStore, display_text
 from mycode_cli.state import load_state, save_state
 from mycode_cli.system_prompt import build_skill_snapshot_blocks, discover_slash_skills
 from mycode_cli.tools import read_text_window
@@ -469,7 +468,7 @@ class TerminalChat:
                 # The queue stays where Esc and Alt+Up reach it while the next
                 # turn is prepared; it is taken only once the turn can start.
                 renderer = await self._turn_renderer()
-                text = "\n\n".join(flatten_message_text(item) for item in self._queue)
+                text = "\n\n".join(display_text(item) for item in self._queue)
                 await self.store.record_user_turn(self.session_id, cwd=self.settings.cwd, text=text)
                 if not self._queue:
                     return
@@ -553,7 +552,7 @@ class TerminalChat:
         self._steers, self._queue = delivering, []
         self._show_pending()
         if returned:
-            self.terminal.prepend_input("\n\n".join(flatten_message_text(item) for item in returned))
+            self.terminal.prepend_input("\n\n".join(display_text(item) for item in returned))
 
     def _interrupt(self) -> None:
         """Esc or Ctrl+C during a turn: take the pending input back, then cancel.
@@ -568,8 +567,8 @@ class TerminalChat:
     def _show_pending(self) -> None:
         width = self.terminal.width
         self.terminal.set_pending(
-            [Text(shorten(f"steer {flatten_message_text(item)}", width), style=MUTED) for item in self._steers]
-            + [Text(shorten(f"queued {flatten_message_text(item)}", width), style=MUTED) for item in self._queue]
+            [Text(shorten(f"steer {display_text(item)}", width), style=MUTED) for item in self._steers]
+            + [Text(shorten(f"queued {display_text(item)}", width), style=MUTED) for item in self._queue]
         )
 
     def _print_header(self, session: dict[str, Any], *, mode: str, message_count: int) -> None:
@@ -772,7 +771,7 @@ class TerminalChat:
         for i, msg in enumerate(messages):
             if msg.get("role") != "user":
                 continue
-            text = flatten_message_text(msg, include_thinking=False)
+            text = display_text(msg)
             if text:
                 user_turns[i] = text
 

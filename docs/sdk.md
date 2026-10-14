@@ -40,7 +40,7 @@ async for event in agent.achat("Hello"):
 
 `user_input` is either a `str` or a `ConversationMessage` with `role="user"`. A passed message's `content` and `meta` are kept verbatim; attachments are appended to its `content`.
 
-`flatten_message_text(message)` joins a message's readable text (and thinking, unless `include_thinking=False`) as paragraphs. Blocks whose `meta` carries `attachment`, `skill_snapshot`, or `job` are payloads for the provider, not user text, and are skipped; see docs/sessions.md.
+`flatten_message_text(message)` joins a message's non-empty text blocks as paragraphs.
 
 ### Attachments
 

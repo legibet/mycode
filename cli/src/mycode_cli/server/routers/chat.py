@@ -30,7 +30,6 @@ from mycode.messages import (
     ConversationMessage,
     build_message,
     document_block,
-    flatten_message_text,
     image_block,
     text_block,
 )
@@ -63,7 +62,7 @@ from mycode_cli.server.schemas import (
     StreamEvent,
     UserInputRequest,
 )
-from mycode_cli.sessions import SessionStore
+from mycode_cli.sessions import SessionStore, display_text
 from mycode_cli.system_prompt import build_skill_snapshot_blocks, discover_slash_skills
 from mycode_cli.tools import read_text_window
 from mycode_cli.workspace import CliDeps, resolve_path
@@ -297,7 +296,7 @@ async def chat(chat: ChatRequest, store: StoreDep, runs: RunManagerDep) -> ChatR
         session = await store.record_user_turn(
             session_id,
             cwd=cwd,
-            text=flatten_message_text(user_message, include_thinking=False),
+            text=display_text(user_message),
         )
 
         async def review(request: ToolReviewRequest) -> ToolReviewDecision:
@@ -585,7 +584,7 @@ async def queue_message(
     await store.record_user_turn(
         session_id,
         cwd=state.cwd,
-        text=flatten_message_text(message, include_thinking=False),
+        text=display_text(message),
     )
     return RunResponse(run=RunInfo.model_validate(state.info()))
 

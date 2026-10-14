@@ -581,7 +581,7 @@ class Agent:
         if summary_message is None:
             raise ValueError("compaction produced no response")
 
-        summary_text = flatten_message_text(summary_message, include_thinking=False)
+        summary_text = flatten_message_text(summary_message)
         if not summary_text:
             raise ValueError("compaction produced empty summary")
 
@@ -864,7 +864,7 @@ class Agent:
 
         try:
             async with run.before_tool_lock:
-                result = await self.hooks.run_before_tool(hook_ctx, check_cancelled=run.check_cancelled)
+                result = await self.hooks._run_before_tool(hook_ctx, run.check_cancelled)
         except Exception as exc:
             return ToolExecutionResult(output=f"error: tool hook failed: {exc}", is_error=True)
         # run.cancel() keeps this task owned when the stop is requested from
@@ -884,7 +884,7 @@ class Agent:
             return replace(result, is_error=True)
 
         try:
-            result = await self.hooks.run_after_tool(hook_ctx, result, check_cancelled=run.check_cancelled)
+            result = await self.hooks._run_after_tool(hook_ctx, result, run.check_cancelled)
         except Exception:
             logger.exception(
                 "after_tool hook failed for %s (call %s)",

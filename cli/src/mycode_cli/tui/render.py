@@ -33,8 +33,8 @@ from mycode.events import (
     UsageEvent,
     UserMessageEvent,
 )
-from mycode.messages import ConversationMessage, TextBlock, flatten_message_text
-from mycode_cli.sessions import SessionTotals
+from mycode.messages import ConversationMessage, TextBlock
+from mycode_cli.sessions import SessionTotals, display_text
 
 from .markdown import Chunk, MarkdownBlock, MarkdownStream
 from .terminal import Terminal
@@ -298,7 +298,7 @@ def _history_turns(messages: list[ConversationMessage], *, limit: int = 3) -> li
             # Use the shared flattener so attached file payload blocks stay out
             # of the readable history preview; background results print as tools.
             parts: list[tuple[str, Any]] = [("job", block) for block in _job_blocks(message)]
-            if text := flatten_message_text(message, include_thinking=False):
+            if text := display_text(message):
                 parts.append(("user", text))
             if parts:
                 turns.append(parts)
@@ -656,7 +656,7 @@ class TurnRenderer:
         for block in _job_blocks(message):
             self._print(*job_lines(block, self._terminal.width), joined=self._last_tool)
             self._last_tool = True
-        if text := flatten_message_text(message, include_thinking=False):
+        if text := display_text(message):
             echo = user_echo(text)
             echo.append("  steer", style=MUTED)
             self._print(echo)

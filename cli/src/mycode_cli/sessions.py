@@ -30,7 +30,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, TypedDict
 
-from mycode.messages import ConversationMessage, RewindMarker, flatten_message_text
+from mycode.messages import ConversationMessage, RewindMarker
 from mycode.session import SessionStore as TimelineStore
 from mycode.session import apply_rewind
 from mycode.usage import Cost, Usage, add_cost, add_usage
@@ -88,6 +88,26 @@ def sum_session_totals(records: Iterable[ConversationMessage | RewindMarker]) ->
 
 def _now() -> str:
     return datetime.now(UTC).isoformat()
+
+
+def display_text(message: ConversationMessage) -> str:
+    """Join the text a person wrote or reads in ``message`` as paragraphs.
+
+    Attachment payloads, skill snapshots (``meta.skill_snapshot``), and
+    background job notifications (``meta.job``) are replayed to the provider
+    but are not message text, so they are skipped.
+    """
+
+    parts: list[str] = []
+    for block in message["content"]:
+        if block["type"] != "text":
+            continue
+        meta = block.get("meta", {})
+        if meta.get("attachment") or meta.get("skill_snapshot") or meta.get("job"):
+            continue
+        if text := block["text"].strip():
+            parts.append(text)
+    return "\n\n".join(parts)
 
 
 def derive_title(text: str) -> str:
@@ -260,7 +280,7 @@ class SessionStore(TimelineStore):
         # The key was taken before the read: a concurrent append leaves a stale
         # key behind, so the next search re-reads the file.
         texts = [
-            " ".join(flatten_message_text(message, include_thinking=False).split())
+            " ".join(display_text(message).split())
             for message in self.load_messages_sync(session_id)
             if message.get("role") in {"user", "assistant"}
         ]

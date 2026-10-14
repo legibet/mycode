@@ -280,20 +280,9 @@ def assistant_message(
     return build_message("assistant", blocks, meta=meta or None)
 
 
-def flatten_message_text(message: ConversationMessage, *, include_thinking: bool = True) -> str:
-    """Join readable text blocks as paragraphs, skipping synthetic payload blocks.
+def flatten_message_text(message: ConversationMessage) -> str:
+    """Join a message's non-empty text blocks as paragraphs."""
 
-    Attachment payloads, skill snapshots, and background job notifications
-    (`meta.job`) are provider-facing content, not user text.
-    """
-
-    parts: list[str] = []
-    for block in message["content"]:
-        meta = block.get("meta", {})
-        if meta.get("attachment") or meta.get("skill_snapshot") or meta.get("job"):
-            continue
-        if block["type"] != "text" and not (include_thinking and block["type"] == "thinking"):
-            continue
-        if text := block["text"].strip():
-            parts.append(text)
-    return "\n\n".join(parts)
+    return "\n\n".join(
+        text for block in message["content"] if block["type"] == "text" and (text := block["text"].strip())
+    )

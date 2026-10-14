@@ -224,7 +224,7 @@ async def test_permission_hook_denies_without_interactive_review_without_cancell
 ) -> None:
     monkeypatch.setattr("mycode_cli.permissions.discover_skills", lambda _cwd: [])
     hooks = build_permission_hooks(_settings(tmp_path, permission=PermissionConfig(level="safe", mode="ask")))
-    result = await hooks.run_before_tool(_ctx("bash", {"command": "pnpm install"}))
+    result = await hooks._run_before_tool(_ctx("bash", {"command": "pnpm install"}), lambda: None)
 
     assert result == ToolExecutionResult(output=PERMISSION_DENIED_OUTPUT, is_error=True)
 
@@ -242,7 +242,7 @@ async def test_permission_hook_allows_interactive_approval(tmp_path: Path, monke
         _settings(tmp_path, permission=PermissionConfig(level="safe", mode="ask")),
         review=review,
     )
-    result = await hooks.run_before_tool(_ctx("bash", {"command": "pnpm install"}))
+    result = await hooks._run_before_tool(_ctx("bash", {"command": "pnpm install"}), lambda: None)
 
     assert result is None
     assert reviewed[0].preview == "pnpm install"
