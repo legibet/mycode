@@ -2,16 +2,29 @@
 
 from importlib import metadata
 
-from mycode.agent import Agent, Event, PersistCallback, RunResult
+from mycode.agent import Agent, PersistCallback, RunResult
 from mycode.attachments import Attachment
 from mycode.compact import NothingToCompactError
+from mycode.events import (
+    CancelledEvent,
+    CompactEvent,
+    ErrorEvent,
+    Event,
+    ReasoningDoneEvent,
+    ReasoningEvent,
+    RetryEvent,
+    TextEvent,
+    ToolDoneEvent,
+    ToolOutputEvent,
+    ToolStartEvent,
+    UsageEvent,
+    UserMessageEvent,
+)
 from mycode.hooks import AfterToolHook, BeforeToolHook, HookResult, Hooks, ToolHookContext
 from mycode.messages import (
     ContentBlock,
     ConversationMessage,
-    assistant_message,
     build_message,
-    build_usage,
     document_block,
     flatten_message_text,
     image_block,
@@ -21,7 +34,7 @@ from mycode.messages import (
     tool_use_block,
     user_text_message,
 )
-from mycode.models import Cost, ModelMetadata, add_cost, add_usage, estimate_cost, resolve_model_metadata
+from mycode.models import ModelMetadata, resolve_model_metadata
 from mycode.providers.base import ProviderError, StreamStartTimeoutError
 from mycode.session import SessionStore
 from mycode.tools import (
@@ -31,16 +44,29 @@ from mycode.tools import (
     ToolSpec,
     tool,
 )
+from mycode.usage import Cost, Usage, add_cost, add_usage, estimate_cost
 
 __version__ = metadata.version("mycode-sdk")
 
 __all__ = [
+    "CancelledEvent",
+    "CompactEvent",
+    "ErrorEvent",
+    "Event",
+    "ReasoningDoneEvent",
+    "ReasoningEvent",
+    "RetryEvent",
+    "TextEvent",
+    "ToolDoneEvent",
+    "ToolOutputEvent",
+    "ToolStartEvent",
+    "UsageEvent",
+    "UserMessageEvent",
     "Agent",
     "Attachment",
     "ContentBlock",
     "ConversationMessage",
     "Cost",
-    "Event",
     "AfterToolHook",
     "BeforeToolHook",
     "HookResult",
@@ -57,12 +83,11 @@ __all__ = [
     "ToolExecutor",
     "ToolHookContext",
     "ToolSpec",
+    "Usage",
     "__version__",
     "add_cost",
     "add_usage",
-    "assistant_message",
     "build_message",
-    "build_usage",
     "document_block",
     "estimate_cost",
     "flatten_message_text",

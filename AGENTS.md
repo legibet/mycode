@@ -14,11 +14,13 @@ Always-loaded context for agent runs on this project. Detailed specs live in `do
 ```text
 mycode/src/mycode/        # SDK package
   agent.py                # agent loop (Agent, achat, run)
+  events.py               # streaming events yielded by achat (dataclasses)
   messages.py             # internal block-based message format
   tools.py                # ToolSpec, ToolExecutor, ToolContext, @tool
   hooks.py                # before_tool / after_tool hook protocol
   session.py              # append-only JSONL timeline and rewind replay
   models.py               # bundled model metadata lookup
+  usage.py                # token usage and USD cost (build, sum, estimate)
   models_catalog.json     # generated; source: scripts/update_models_catalog.py
   providers/              # one file per protocol family
     base.py               # ProviderAdapter ABC + prepare_messages()
@@ -80,7 +82,7 @@ Read the relevant doc before related changes.
 
 | Area                                                                                                         | Doc                                           |
 | ------------------------------------------------------------------------------------------------------------ | --------------------------------------------- |
-| `mycode/src/mycode/agent.py`, `messages.py`, `tools.py`, `hooks.py`, `models.py`                             | `docs/sdk.md`                                 |
+| `mycode/src/mycode/agent.py`, `events.py`, `messages.py`, `tools.py`, `hooks.py`, `models.py`, `usage.py`    | `docs/sdk.md`                                 |
 | `mycode/src/mycode/session.py`, `cli/src/mycode_cli/sessions.py`, anything touching JSONL / compact / rewind | `docs/sessions.md`                            |
 | `mycode/src/mycode/providers/*`                                                                              | `docs/providers.md`                           |
 | `cli/src/mycode_cli/tools.py`, `web_tools.py`, `permissions.py`                                              | `docs/tools.md`                               |

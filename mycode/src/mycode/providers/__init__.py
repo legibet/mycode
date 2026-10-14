@@ -59,26 +59,6 @@ def get_provider_adapter(provider_name: str) -> ProviderAdapter:
         raise ValueError(f"unsupported provider {provider_name!r}; supported: {supported}") from exc
 
 
-def provider_env_api_key_names(provider_name: str | None) -> tuple[str, ...]:
-    adapter = _PROVIDERS.get(provider_name) if provider_name else None
-    return adapter.env_api_key_names if adapter else ()
-
-
-def provider_api_key_from_env(provider_name: str | None) -> str | None:
-    adapter = _PROVIDERS.get(provider_name) if provider_name else None
-    return adapter.api_key_from_env() if adapter else None
-
-
-def provider_can_authenticate_from_env(provider_name: str | None) -> bool:
-    adapter = _PROVIDERS.get(provider_name) if provider_name else None
-    return adapter.can_authenticate_from_env() if adapter else False
-
-
-def provider_default_models(provider_name: str | None) -> tuple[str, ...]:
-    adapter = _PROVIDERS.get(provider_name) if provider_name else None
-    return adapter.default_models if adapter else ()
-
-
 __all__ = [
     "AlibabaAdapter",
     "AnthropicAdapter",
@@ -97,8 +77,4 @@ __all__ = [
     "list_env_discoverable_providers",
     "is_supported_provider",
     "list_supported_providers",
-    "provider_api_key_from_env",
-    "provider_can_authenticate_from_env",
-    "provider_default_models",
-    "provider_env_api_key_names",
 ]

@@ -13,8 +13,9 @@ from anthropic import APIStatusError as AnthropicAPIStatusError
 from google.genai import types
 from openai.types.responses import ResponseFunctionToolCall, ResponseReasoningItem
 
-from mycode import Agent
+from mycode import Agent, text_block
 from mycode.compact import build_compact_event
+from mycode.messages import ConversationMessage
 from mycode.providers import (
     AlibabaAdapter,
     AnthropicAdapter,
@@ -29,7 +30,14 @@ from mycode.providers import (
     XAIAdapter,
     ZAIAdapter,
 )
-from mycode.providers.base import ProviderError, ProviderRequest, repair_messages_for_replay
+from mycode.providers.base import (
+    MessageDone,
+    ProviderError,
+    ProviderRequest,
+    ProviderStreamEvent,
+    ThinkingDelta,
+    repair_messages_for_replay,
+)
 from mycode.tools import tool as define_tool
 
 _PNG_1X1 = base64.b64decode(
@@ -75,6 +83,12 @@ def _async_context_mock() -> MagicMock:
     mock.__aenter__ = AsyncMock(return_value=mock)
     mock.__aexit__ = AsyncMock(return_value=None)
     return mock
+
+
+def _final_message(events: list[ProviderStreamEvent]) -> ConversationMessage:
+    done = events[-1]
+    assert isinstance(done, MessageDone)
+    return done.message
 
 
 def _stream_mock(items: list[Any], *, final_message: Any = None) -> MagicMock:
@@ -377,6 +391,7 @@ def test_responses_replay_native_output_items_for_tool_results() -> None:
                         "type": "tool_result",
                         "tool_use_id": "call_1",
                         "output": "file contents",
+                        "is_error": False,
                     }
                 ],
             },
@@ -425,6 +440,7 @@ def test_openai_responses_serializes_tool_result_images(tmp_path) -> None:
                                 "mime_type": "image/png",
                             },
                         ],
+                        "is_error": False,
                     }
                 ],
             },
@@ -488,7 +504,9 @@ async def test_openai_responses_replays_foreign_thinking_as_assistant_text(
                     },
                     {
                         "role": "user",
-                        "content": [{"type": "tool_result", "tool_use_id": "call_1", "output": "42"}],
+                        "content": [
+                            {"type": "tool_result", "tool_use_id": "call_1", "output": "42", "is_error": False}
+                        ],
                     },
                 ],
             )
@@ -664,8 +682,8 @@ def test_xai_persists_reported_cost_and_falls_back_to_estimate(ticks: int | None
         assert message["meta"]["cost"] == {"total": ticks / 10_000_000_000}
 
     agent = Agent(provider="xai", model="grok-4.6", api_key="unused")
-    _, cost = agent._finalize_request_message(message)
-    assert cost is not None
+    agent._finalize_request_message(message)
+    cost = message["meta"]["cost"]
     assert cost["total"] == pytest.approx(ticks / 10_000_000_000 if ticks is not None else 0.000984)
     if ticks is not None:
         assert cost == {"total": ticks / 10_000_000_000}
@@ -694,8 +712,10 @@ async def test_responses_stream_and_persist_reasoning(
     events = [event async for event in adapter.stream_turn(request_obj(api_key="unused"))]
 
     expected = "thinking" if channel == "summary" or adapter.provider_id == "xai" else ""
-    assert "".join(event.data["text"] for event in events if event.type == "thinking_delta") == expected
-    assert events[-1].data["message"]["content"][0]["text"] == expected
+    assert "".join(event.text for event in events if isinstance(event, ThinkingDelta)) == expected
+    block = _final_message(events)["content"][0]
+    assert block["type"] == "thinking"
+    assert block["text"] == expected
 
 
 # Response conversion
@@ -717,7 +737,7 @@ async def test_responses_exhausts_stream_after_completion(monkeypatch: pytest.Mo
 
     events = [event async for event in OpenAIResponsesAdapter().stream_turn(request_obj(api_key="unused"))]
 
-    assert events[-1].type == "message_done"
+    assert isinstance(events[-1], MessageDone)
     assert exhausted
 
 
@@ -819,10 +839,11 @@ async def test_openai_responses_handles_incomplete_stream(monkeypatch: pytest.Mo
 
     events = [event async for event in OpenAIResponsesAdapter().stream_turn(request_obj(api_key="k", model="gpt-5.4"))]
 
-    assert events[-1].type == "message_done"
-    message = events[-1].data["message"]
+    message = _final_message(events)
     assert message["meta"]["stop_reason"] == "length"
-    assert message["content"][0]["input"] == {"path": "pyproject.toml"}
+    block = message["content"][0]
+    assert block["type"] == "tool_use"
+    assert block["input"] == {"path": "pyproject.toml"}
 
 
 def test_openai_responses_uses_stream_output_items_when_final_output_is_empty() -> None:
@@ -1202,7 +1223,9 @@ async def test_google_gemini_replays_foreign_thinking_as_plain_model_text(
                     },
                     {
                         "role": "user",
-                        "content": [{"type": "tool_result", "tool_use_id": "call_1", "output": "42"}],
+                        "content": [
+                            {"type": "tool_result", "tool_use_id": "call_1", "output": "42", "is_error": False}
+                        ],
                     },
                 ],
             )
@@ -1268,7 +1291,9 @@ async def test_google_gemini_replaces_native_signatures_after_model_switch(
                     },
                     {
                         "role": "user",
-                        "content": [{"type": "tool_result", "tool_use_id": "call_1", "output": "done"}],
+                        "content": [
+                            {"type": "tool_result", "tool_use_id": "call_1", "output": "done", "is_error": False}
+                        ],
                     },
                 ],
             )
@@ -1331,6 +1356,7 @@ def test_google_gemini_replays_native_parts_for_same_provider_history() -> None:
                         "type": "tool_result",
                         "tool_use_id": "call_1",
                         "output": "file contents",
+                        "is_error": False,
                     }
                 ],
             },
@@ -1440,16 +1466,19 @@ def test_google_gemini_build_request_config_uses_supported_tool_settings() -> No
                             "type": "tool_result",
                             "tool_use_id": "call_1",
                             "output": "first",
+                            "is_error": False,
                         },
                         {
                             "type": "tool_result",
                             "tool_use_id": "call_1",
                             "output": "duplicate",
+                            "is_error": False,
                         },
                         {
                             "type": "tool_result",
                             "tool_use_id": "call_2",
                             "output": "orphan",
+                            "is_error": False,
                         },
                     ],
                 },
@@ -1470,6 +1499,7 @@ def test_google_gemini_build_request_config_uses_supported_tool_settings() -> No
                             "type": "tool_result",
                             "tool_use_id": "call_1",
                             "output": "first",
+                            "is_error": False,
                         }
                     ],
                 },
@@ -1486,6 +1516,7 @@ def test_google_gemini_build_request_config_uses_supported_tool_settings() -> No
                             "type": "tool_result",
                             "tool_use_id": "missing",
                             "output": "orphan",
+                            "is_error": False,
                         }
                     ],
                 },
@@ -1493,11 +1524,7 @@ def test_google_gemini_build_request_config_uses_supported_tool_settings() -> No
             ],
             [
                 {"role": "assistant", "content": [{"type": "text", "text": "first"}]},
-                {
-                    "role": "user",
-                    "content": [{"type": "text", "text": "[User turn omitted during replay]"}],
-                    "meta": {"synthetic": True},
-                },
+                {"role": "user", "content": [{"type": "text", "text": "[User turn omitted during replay]"}]},
                 {"role": "assistant", "content": [{"type": "text", "text": "second"}]},
             ],
             id="keeps-placeholder-user-turn",
@@ -1537,6 +1564,7 @@ def test_provider_prepare_messages_filters_history_images_when_disabled() -> Non
                             {"type": "text", "text": "Read image file [image/png]"},
                             {"type": "image", "data": "abc", "mime_type": "image/png"},
                         ],
+                        "is_error": False,
                     },
                 ],
             },
@@ -1562,6 +1590,7 @@ def test_provider_prepare_messages_filters_history_images_when_disabled() -> Non
                     "tool_use_id": "call_1",
                     "output": "Read image file [image/png]",
                     "content": [{"type": "text", "text": "Read image file [image/png]"}],
+                    "is_error": False,
                 },
             ],
         },
@@ -1586,11 +1615,13 @@ def test_provider_prepare_messages_applies_compact_before_appending_messages() -
     prepared = adapter.prepare_messages(request)
 
     assert [message["role"] for message in prepared] == ["user", "assistant", "user"]
-    assert "latest summary" in prepared[0]["content"][0]["text"]
-    assert "/sessions/s1/messages.jsonl" in prepared[0]["content"][0]["text"]
-    assert "old prompt" not in prepared[0]["content"][0]["text"]
-    assert prepared[1]["content"][0]["text"] == "tail answer"
-    assert prepared[2]["content"][0]["text"] == "summarize now"
+    summary = prepared[0]["content"][0]
+    assert summary["type"] == "text"
+    assert "latest summary" in summary["text"]
+    assert "/sessions/s1/messages.jsonl" in summary["text"]
+    assert "old prompt" not in summary["text"]
+    assert prepared[1]["content"] == [text_block("tail answer")]
+    assert prepared[2]["content"] == [text_block("summarize now")]
 
 
 def test_provider_prepare_messages_escapes_image_notice_attributes_when_disabled() -> None:
@@ -1646,11 +1677,13 @@ def test_anthropic_prepare_messages_normalizes_tool_ids() -> None:
                         "type": "tool_result",
                         "tool_use_id": "a/b",
                         "output": "done a",
+                        "is_error": False,
                     },
                     {
                         "type": "tool_result",
                         "tool_use_id": "a|b",
                         "output": "done b",
+                        "is_error": False,
                     },
                 ],
             },
@@ -1659,8 +1692,11 @@ def test_anthropic_prepare_messages_normalizes_tool_ids() -> None:
 
     prepared_messages = adapter.prepare_messages(request)
     assistant_blocks = prepared_messages[0]["content"]
-    first_tool_id = assistant_blocks[0]["id"]
-    second_tool_id = assistant_blocks[1]["id"]
+    first_block, second_block = assistant_blocks[:2]
+    assert first_block["type"] == "tool_use"
+    assert second_block["type"] == "tool_use"
+    first_tool_id = first_block["id"]
+    second_tool_id = second_block["id"]
 
     assert first_tool_id != second_tool_id
     assert first_tool_id.startswith("a_b_")
@@ -1681,11 +1717,13 @@ def test_anthropic_prepare_messages_normalizes_tool_ids() -> None:
                     "type": "tool_result",
                     "tool_use_id": first_tool_id,
                     "output": "done a",
+                    "is_error": False,
                 },
                 {
                     "type": "tool_result",
                     "tool_use_id": second_tool_id,
                     "output": "done b",
+                    "is_error": False,
                 },
             ],
         },
@@ -1842,8 +1880,10 @@ async def test_openrouter_preserves_structured_reasoning_across_models(monkeypat
         event
         async for event in adapter.stream_turn(request_obj(api_key="test-key", model="anthropic/claude-sonnet-4.6"))
     ]
-    stored_message = first_events[-1].data["message"]
-    assert stored_message["content"][0]["text"] == "first second"
+    stored_message = _final_message(first_events)
+    block = stored_message["content"][0]
+    assert block["type"] == "thinking"
+    assert block["text"] == "first second"
 
     _ = [
         event
@@ -2012,7 +2052,10 @@ _STEER_HISTORY: list[dict[str, Any]] = [
         "content": [{"type": "tool_use", "id": "call_1", "name": "read", "input": {"path": "x.py"}}],
         "meta": {"stop_reason": "tool_use"},
     },
-    {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "call_1", "output": "contents of x.py"}]},
+    {
+        "role": "user",
+        "content": [{"type": "tool_result", "tool_use_id": "call_1", "output": "contents of x.py", "is_error": False}],
+    },
     {
         "role": "user",
         "content": [{"type": "text", "text": "use sqlite"}, {"type": "text", "text": "keep the tests"}],
@@ -2075,7 +2118,7 @@ async def test_openai_chat_replays_its_native_reasoning_field(
     monkeypatch.setattr("openai.AsyncOpenAI", fake_client)
 
     first_events = [event async for event in adapter.stream_turn(request_obj(api_key="test-key", model="test-model"))]
-    stored_message = first_events[-1].data["message"]
+    stored_message = _final_message(first_events)
 
     _ = [
         event
@@ -2135,7 +2178,7 @@ async def test_deepseek_replays_native_reasoning_across_turns(
     first_events = [
         event async for event in adapter.stream_turn(request_obj(api_key="test-key", model="deepseek-v4-pro"))
     ]
-    stored_message = first_events[-1].data["message"]
+    stored_message = _final_message(first_events)
 
     _ = [
         event
@@ -2183,6 +2226,7 @@ def test_anthropic_serializes_image_tool_result_content(tmp_path) -> None:
                                     "mime_type": "image/png",
                                 },
                             ],
+                            "is_error": False,
                         }
                     ],
                 },
@@ -2261,9 +2305,11 @@ async def test_anthropic_preserves_native_thinking_blocks_across_tool_turns(
     first_events = [
         event async for event in adapter.stream_turn(request_obj(api_key="test-key", model="claude-sonnet-5"))
     ]
-    stored_message = first_events[-1].data["message"]
+    stored_message = _final_message(first_events)
     assert stored_message["meta"]["stop_reason"] == "tool_use"
-    assert stored_message["content"][0]["text"] == "Think"
+    block = stored_message["content"][0]
+    assert block["type"] == "thinking"
+    assert block["text"] == "Think"
 
     second_events = [
         event
@@ -2275,13 +2321,15 @@ async def test_anthropic_preserves_native_thinking_blocks_across_tool_turns(
                     stored_message,
                     {
                         "role": "user",
-                        "content": [{"type": "tool_result", "tool_use_id": "call_1", "output": "done"}],
+                        "content": [
+                            {"type": "tool_result", "tool_use_id": "call_1", "output": "done", "is_error": False}
+                        ],
                     },
                 ],
             )
         )
     ]
-    assert second_events[-1].data["message"]["meta"]["stop_reason"] == "stop"
+    assert _final_message(second_events)["meta"]["stop_reason"] == "stop"
     replayed_request = client.messages.stream.call_args_list[1].kwargs
     assert replayed_request["messages"][0]["content"][:2] == [
         {"type": "thinking", "thinking": "Think", "signature": "signature"},
@@ -2365,7 +2413,9 @@ async def test_anthropic_like_targets_replay_foreign_thinking_as_assistant_text(
                     },
                     {
                         "role": "user",
-                        "content": [{"type": "tool_result", "tool_use_id": "call_1", "output": "done"}],
+                        "content": [
+                            {"type": "tool_result", "tool_use_id": "call_1", "output": "done", "is_error": False}
+                        ],
                     },
                 ],
             )
@@ -2427,7 +2477,9 @@ async def test_anthropic_does_not_reuse_thinking_signature_after_model_switch(
                     },
                     {
                         "role": "user",
-                        "content": [{"type": "tool_result", "tool_use_id": "call_1", "output": "done"}],
+                        "content": [
+                            {"type": "tool_result", "tool_use_id": "call_1", "output": "done", "is_error": False}
+                        ],
                     },
                 ],
             )
@@ -2473,7 +2525,7 @@ async def test_moonshot_replays_native_unsigned_thinking(
     first_events = [
         event async for event in adapter.stream_turn(request_obj(api_key="test-key", model="kimi-k2.7-code"))
     ]
-    stored_message = first_events[-1].data["message"]
+    stored_message = _final_message(first_events)
 
     _ = [
         event
@@ -2485,7 +2537,9 @@ async def test_moonshot_replays_native_unsigned_thinking(
                     stored_message,
                     {
                         "role": "user",
-                        "content": [{"type": "tool_result", "tool_use_id": "call_1", "output": "done"}],
+                        "content": [
+                            {"type": "tool_result", "tool_use_id": "call_1", "output": "done", "is_error": False}
+                        ],
                     },
                 ],
             )
@@ -2650,8 +2704,8 @@ async def test_openai_chat_normalizes_usage_details(monkeypatch: pytest.MonkeyPa
 
     events = [event async for event in OpenAIChatAdapter().stream_turn(request_obj(api_key="k", model="m"))]
 
-    assert events[-1].data["message"]["meta"]["stop_reason"] == "stop"
-    assert events[-1].data["message"]["meta"]["usage"] == {
+    assert _final_message(events)["meta"]["stop_reason"] == "stop"
+    assert _final_message(events)["meta"]["usage"] == {
         "total_tokens": 1_080,
         "input_tokens": 1_000,
         "cache_read_tokens": 700,
@@ -2680,7 +2734,7 @@ async def test_deepseek_falls_back_to_its_cache_hit_extension_field(monkeypatch:
 
     events = [event async for event in DeepSeekAdapter().stream_turn(request_obj(api_key="k", model="deepseek-chat"))]
 
-    usage = events[-1].data["message"]["meta"]["usage"]
+    usage = _final_message(events)["meta"]["usage"]
     assert usage["cache_read_tokens"] == 80
     assert usage["input_tokens"] == 100
 
@@ -2703,7 +2757,7 @@ async def test_openrouter_stores_the_charged_cost(monkeypatch: pytest.MonkeyPatc
     request_call = client.chat.completions.create.await_args
     assert request_call is not None
     assert "extra_body" not in request_call.kwargs
-    assert events[-1].data["message"]["meta"]["cost"] == {"total": 0.0123}
+    assert _final_message(events)["meta"]["cost"] == {"total": 0.0123}
 
 
 async def test_gemini_normalizes_usage_details(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -2728,9 +2782,9 @@ async def test_gemini_normalizes_usage_details(monkeypatch: pytest.MonkeyPatch) 
         event async for event in GoogleGeminiAdapter().stream_turn(request_obj(api_key="k", model="gemini-3.6-flash"))
     ]
 
-    assert events[-1].data["message"]["meta"]["stop_reason"] == "stop"
+    assert _final_message(events)["meta"]["stop_reason"] == "stop"
     # Output includes thoughts; the absent tool-use prompt count means zero.
-    assert events[-1].data["message"]["meta"]["usage"] == {
+    assert _final_message(events)["meta"]["usage"] == {
         "total_tokens": 135,
         "input_tokens": 100,
         "cache_read_tokens": 40,

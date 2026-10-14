@@ -8,6 +8,7 @@ import html
 import json
 import shlex
 from collections.abc import AsyncIterator, Callable
+from dataclasses import replace
 from pathlib import Path
 from typing import Any, cast, override
 
@@ -17,26 +18,23 @@ from prompt_toolkit.completion import Completer, DummyCompleter
 from prompt_toolkit.input.defaults import create_pipe_input
 from prompt_toolkit.output import DummyOutput
 
-from mycode.agent import Agent, Event
-from mycode.messages import ContentBlock, ConversationMessage, build_message, merge_user_messages, text_block
-from mycode.providers import list_env_discoverable_providers, provider_env_api_key_names
-from mycode.providers.base import ProviderStreamEvent
-from mycode.tools import ToolExecutor
-from mycode_cli.background import BackgroundJob, BackgroundJobs
-from mycode_cli.config import PermissionConfig, Settings, WebConfig, get_settings
+from mycode import CancelledEvent, ErrorEvent, Event, TextEvent, UserMessageEvent
+from mycode.agent import Agent
+from mycode.messages import ConversationMessage, TextBlock, build_message, merge_user_messages, text_block
+from mycode.providers import get_provider_adapter, list_env_discoverable_providers
+from mycode.providers.base import MessageDone, ProviderStreamEvent
+from mycode_cli.background import BackgroundJob
+from mycode_cli.config import PermissionConfig, ResolvedProvider, Settings, WebConfig, get_settings, resolve_provider
 from mycode_cli.permissions import ToolReviewRequest
 from mycode_cli.runtime import load_session_totals
 from mycode_cli.sessions import SessionStore
-from mycode_cli.tools import DEFAULT_TOOLS
 from mycode_cli.tui.chat import (
     TerminalChat,
     _build_chat_key_bindings,
     _PromptCompleter,
-    clone_agent,
 )
 from mycode_cli.tui.terminal import Terminal
 from mycode_cli.tui.theme import TOOL_MARKER
-from mycode_cli.web_tools import build_web_tools
 from mycode_cli.workspace import CliDeps
 
 
@@ -50,21 +48,30 @@ def settings_for(cwd: str) -> Settings:
     )
 
 
+PROVIDER = ResolvedProvider(
+    provider_name="anthropic",
+    provider="anthropic",
+    model="claude-sonnet-4-6",
+    api_key=None,
+    api_base=None,
+    reasoning_effort=None,
+)
+
+
 def _chat(agent: object, tmp_path: Path, harness: TerminalHarness | None = None) -> TerminalChat:
     chat = TerminalChat(
-        agent=cast(Any, agent),
         settings=settings_for(str(tmp_path)),
         store=SessionStore(data_dir=tmp_path / "sessions"),
+        resolved_provider=PROVIDER,
         session_id="s",
-        jobs=BackgroundJobs(),
     )
+    chat.agent = cast(Any, agent)
     if harness is not None:
         chat.terminal = harness.terminal
     return chat
 
 
 class _AttachmentAgent:
-    provider = "anthropic"
     model = "claude-sonnet-4-6"
 
     def __init__(
@@ -75,27 +82,26 @@ class _AttachmentAgent:
     ) -> None:
         self.supports_image_input = supports_image_input
         self.supports_pdf_input = supports_pdf_input
-        self.tools = ToolExecutor(DEFAULT_TOOLS)
 
     def cancel(self) -> None:
         return None
 
 
-def test_clone_agent_keeps_configured_tools_and_uses_the_new_session_directory(tmp_path: Path) -> None:
+async def test_new_session_keeps_configured_tools_and_uses_the_new_session_directory(
+    tmp_path: Path, cli_home: Path
+) -> None:
     store = SessionStore(data_dir=tmp_path / "sessions")
-    agent = Agent(
-        model="gpt-5.5",
-        provider="openai",
-        session_dir=store.data_dir,
-        session_id="old",
-        tools=build_web_tools(WebConfig(search="tavily")),
+    settings = replace(settings_for(str(tmp_path)), web=WebConfig(search="tavily"))
+    chat = TerminalChat(settings=settings, store=store, resolved_provider=PROVIDER, session_id="old")
+    tools = [spec.name for spec in chat.agent.tools.specs]
+
+    await chat._leave_session("new")
+
+    assert "websearch" in tools
+    assert [spec.name for spec in chat.agent.tools.specs] == tools
+    assert chat.agent.deps == CliDeps.for_session(
+        cwd=tmp_path, data_dir=store.data_dir, session_id="new", jobs=chat.jobs
     )
-
-    jobs = BackgroundJobs()
-    cloned = clone_agent(agent, store=store, session_id="new", cwd=str(tmp_path), jobs=jobs)
-
-    assert cloned.tools.specs == agent.tools.specs
-    assert cloned.deps == CliDeps.for_session(cwd=tmp_path, data_dir=store.data_dir, session_id="new", jobs=jobs)
 
 
 @pytest.fixture
@@ -276,7 +282,9 @@ class TestAttachments:
 
         message = _chat(_AttachmentAgent(), tmp_path)._build_user_message(f"check @{log_file}")
 
-        text = message["content"][1]["text"]
+        block = message["content"][1]
+        assert block["type"] == "text"
+        text = block["text"]
         assert "log line 1999\n" in text
         assert "log line 2000\n" not in text
         assert f"of {log_file}. Use read with offset=2001 to continue." in text
@@ -390,13 +398,13 @@ class _TurnAgent(_AttachmentAgent):
         if len(self.turns) == 1:
             await self.finish.wait()
         if self.cancels:
-            yield Event("cancelled", {})
+            yield CancelledEvent()
             return
         if steers := self.take_steers():
             delivered = merge_user_messages(steers, steer=True)
             self.messages.append(delivered)
-            yield Event("user_message", {"message": delivered})
-        yield Event("text", {"delta": f"answer {len(self.turns)}"})
+            yield UserMessageEvent(message=delivered)
+        yield TextEvent(delta=f"answer {len(self.turns)}")
 
 
 def _steered(agent: _TurnAgent) -> list[ConversationMessage]:
@@ -452,7 +460,9 @@ class TestMidTurnInput:
 
         [steer] = _steered(agent)
         assert steer["content"] == chat._build_user_message("use @notes.txt")["content"]
-        assert "remember sqlite" in steer["content"][1]["text"]
+        attachment = steer["content"][1]
+        assert attachment["type"] == "text"
+        assert "remember sqlite" in attachment["text"]
         assert len(steer["meta"]["input_ids"]) == 1
         assert chat._steers == []
         rendered = harness.text()
@@ -485,7 +495,7 @@ class TestMidTurnInput:
         await self._turn(harness, tmp_path, agent, ["later\x11"])
 
         assert _steered(agent) == []
-        assert [block["text"] for block in agent.turns[1]["content"]] == ["later"]
+        assert agent.turns[1]["content"] == [text_block("later")]
 
     @pytest.mark.parametrize("command", ["/model", "exit", "quit"])
     async def test_commands_are_refused_during_a_turn_and_stay_in_the_input(
@@ -584,7 +594,7 @@ class TestMidTurnInput:
                 self.turns.append(message)
                 self.messages.append(message)
                 await self.finish.wait()
-                yield Event("error", {"message": "provider failed"})
+                yield ErrorEvent(message="provider failed")
 
         agent = FailingAgent()
 
@@ -623,16 +633,13 @@ class TestMidTurnInput:
         release = asyncio.Event()
 
         class Adapter:
-            supports_reasoning_effort = False
             calls = 0
 
             async def stream_turn(self, request: object) -> AsyncIterator[ProviderStreamEvent]:
                 Adapter.calls += 1
                 if Adapter.calls == 1:
                     await release.wait()
-                yield ProviderStreamEvent(
-                    "message_done", {"message": {"role": "assistant", "content": [{"type": "text", "text": "ok"}]}}
-                )
+                yield MessageDone({"role": "assistant", "content": [{"type": "text", "text": "ok"}]})
 
         monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
         monkeypatch.setattr("mycode.agent.get_provider_adapter", lambda _provider: Adapter())
@@ -704,7 +711,7 @@ class TestModelSwitch:
         self, harness: TerminalHarness, tmp_path: Path, cli_home: Path, monkeypatch: pytest.MonkeyPatch
     ) -> TerminalChat:
         for provider in list_env_discoverable_providers():
-            for env_name in provider_env_api_key_names(provider):
+            for env_name in get_provider_adapter(provider).env_api_key_names:
                 monkeypatch.delenv(env_name, raising=False)
         cli_home.mkdir(parents=True)
         providers = {
@@ -712,20 +719,18 @@ class TestModelSwitch:
                 "type": "openai_chat",
                 "api_key": "k",
                 "base_url": "http://alpha",
-                "models": {"a1": {}, "a2": {}},
+                "supports_reasoning_effort": True,
+                "models": {"a1": {"reasoning_efforts": ["low", "high"]}, "a2": {}},
             },
             "beta": {"type": "openai_chat", "api_key": "k", "base_url": "http://beta", "models": {"b1": {}}},
         }
         (cli_home / "config.json").write_text(json.dumps({"providers": providers}))
-        store = SessionStore(data_dir=tmp_path / "sessions")
-        agent = Agent(model="a1", provider="openai_chat", session_dir=store.data_dir, session_id="s")
+        settings = get_settings(str(tmp_path))
         chat = TerminalChat(
-            agent=agent,
-            settings=get_settings(str(tmp_path)),
-            store=store,
+            settings=settings,
+            store=SessionStore(data_dir=tmp_path / "sessions"),
+            resolved_provider=resolve_provider(settings, provider_name="alpha", model="a1"),
             session_id="s",
-            jobs=BackgroundJobs(),
-            provider_name="alpha",
         )
         chat.terminal = harness.terminal
         return chat
@@ -759,10 +764,30 @@ class TestModelSwitch:
 
         await chat.terminal.run(main)
 
-        assert (chat.provider_name, chat.agent.model, chat.agent.api_base) == expected
+        assert (chat.resolved_provider.provider_name, chat.agent.model, chat.agent.api_base) == expected
+
+    async def test_failed_rebuild_keeps_the_current_session_and_agent(
+        self, chat: TerminalChat, harness: TerminalHarness, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        agent, resolved, jobs = chat.agent, chat.resolved_provider, chat.jobs
+
+        def unreadable(**_kwargs: object) -> None:
+            raise PermissionError("session file is unreadable")
+
+        monkeypatch.setattr("mycode_cli.tui.chat.build_agent", unreadable)
+
+        async def main() -> None:
+            await chat._switch_model("a2")
+            chat._apply_effort_change("high")
+            await chat._start_new_session()
+
+        await chat.terminal.run(main)
+
+        assert (chat.agent, chat.resolved_provider, chat.jobs, chat.session_id) == (agent, resolved, jobs, "s")
+        assert harness.text().count("session file is unreadable") == 3
 
 
-def _job_block(tool_use_id: str = "toolu_1") -> ContentBlock:
+def _job_block(tool_use_id: str = "toolu_1") -> TextBlock:
     return text_block(
         "Background bash finished (pid 1, exit code 1): pytest -q\nLog: /x.log\n\nline a\nline b",
         meta={"job": {"tool_use_id": tool_use_id, "name": "bash", "label": "pytest -q", "exit_code": 1}},
@@ -813,7 +838,7 @@ class TestBackgroundJobs:
         agent = _TurnAgent(accepting=False)
         chat = _chat(agent, tmp_path, harness)
         block = _job_block()
-        after_turn: list[tuple[int, list[ContentBlock], bool]] = []
+        after_turn: list[tuple[int, list[TextBlock], bool]] = []
 
         async def main() -> None:
             turn = asyncio.create_task(chat._run_turn("first"))
@@ -891,7 +916,7 @@ class TestBackgroundJobs:
         agent = _TurnAgent(accepting=False)
         chat = _chat(agent, tmp_path, harness)
         block = _job_block()
-        after_stop: list[tuple[bool, list[ContentBlock]]] = []
+        after_stop: list[tuple[bool, list[TextBlock]]] = []
 
         async def main() -> None:
             turn = asyncio.create_task(chat._run_turn("first"))
@@ -943,12 +968,11 @@ class TestBackgroundJobs:
 
     async def test_new_session_stops_live_jobs(self, harness: TerminalHarness, tmp_path: Path, cli_home: Path) -> None:
         store = SessionStore(data_dir=tmp_path / "sessions")
-        agent = Agent(model="claude-sonnet-4-6", provider="anthropic", session_dir=store.data_dir, session_id="s")
-        old_jobs = BackgroundJobs()
         chat = TerminalChat(
-            agent=agent, settings=settings_for(str(tmp_path)), store=store, session_id="s", jobs=old_jobs
+            settings=settings_for(str(tmp_path)), store=store, resolved_provider=PROVIDER, session_id="s"
         )
         chat.terminal = harness.terminal
+        old_jobs = chat.jobs
         tasks: list[asyncio.Task[None]] = []
 
         async def run_forever() -> None:

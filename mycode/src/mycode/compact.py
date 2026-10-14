@@ -2,17 +2,17 @@
 
 from __future__ import annotations
 
-from typing import Any, Literal
-
-from mycode.messages import ConversationMessage, build_message, text_block
-from mycode.models import Cost
+from mycode.messages import (
+    CompactTrigger,
+    ConversationMessage,
+    MessageMeta,
+    build_message,
+    flatten_message_text,
+    text_block,
+)
+from mycode.usage import Cost, Usage
 
 DEFAULT_COMPACT_THRESHOLD = 0.8
-
-# What started the compaction: the agent loop crossing the threshold inside a
-# turn, or an explicit acompact() call. Their markers sit in the same places in
-# the log, so the origin is recorded instead of inferred.
-CompactTrigger = Literal["auto", "manual"]
 
 
 class NothingToCompactError(ValueError):
@@ -80,9 +80,9 @@ def has_compactable_history(messages: list[ConversationMessage]) -> bool:
     """True when at least one non-empty user/assistant message follows the latest compact marker."""
 
     for message in reversed(messages):
-        if message.get("role") == "compact":
+        if message["role"] == "compact":
             return False
-        if message.get("role") in ("user", "assistant") and message.get("content"):
+        if message["role"] in ("user", "assistant") and message["content"]:
             return True
     return False
 
@@ -94,19 +94,19 @@ def build_compact_event(
     provider: str,
     model: str,
     context_window: int,
-    usage: dict[str, Any] | None = None,
+    usage: Usage | None = None,
     cost: Cost | None = None,
 ) -> ConversationMessage:
-    meta: dict[str, Any] = {
+    meta: MessageMeta = {
         "trigger": trigger,
         "provider": provider,
         "model": model,
         "context_window": context_window,
     }
     if usage:
-        meta["usage"] = dict(usage)
+        meta["usage"] = usage.copy()
     if cost is not None:
-        meta["cost"] = dict(cost)
+        meta["cost"] = cost.copy()
     return build_message("compact", [text_block(summary_text)], meta=meta)
 
 
@@ -121,24 +121,18 @@ def apply_compact_replay(
     """
 
     for i in range(len(messages) - 1, -1, -1):
-        if messages[i].get("role") == "compact":
+        if messages[i]["role"] == "compact":
             last_compact = i
             break
     else:
         return messages
 
-    summary_text = ""
-    for block in messages[last_compact].get("content") or []:
-        if isinstance(block, dict) and block.get("type") == "text":
-            summary_text = str(block.get("text") or "")
-            break
-
     tail = messages[last_compact + 1 :]
     # No tail or assistant-led tail = mid-loop; resume directly. A user-led
     # tail needs an "Acknowledged." assistant turn to keep role alternation.
-    continue_now = not tail or tail[0].get("role") == "assistant"
+    continue_now = not tail or tail[0]["role"] == "assistant"
 
-    parts = [CONTINUATION_HEADER, summary_text]
+    parts = [CONTINUATION_HEADER, flatten_message_text(messages[last_compact])]
     if transcript_path:
         parts.append(TRANSCRIPT_HINT.format(path=transcript_path))
     if continue_now:

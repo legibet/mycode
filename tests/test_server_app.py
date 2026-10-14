@@ -21,10 +21,11 @@ from fastapi import Request
 from starlette.testclient import TestClient
 from starlette.types import Message
 
-from mycode.agent import Event, PersistCallback
-from mycode.messages import ConversationMessage, build_message, text_block
+from mycode import Event, TextEvent, UsageEvent
+from mycode.agent import PersistCallback
+from mycode.messages import ConversationMessage, RewindMarker, build_message, text_block
 from mycode.models import ModelMetadata
-from mycode.providers.base import ProviderRequest, ProviderStreamEvent
+from mycode.providers.base import MessageDone, ProviderRequest, ProviderStreamEvent, TextDelta
 from mycode.session import SessionStore as TimelineStore
 from mycode_cli.background import BackgroundJobs
 from mycode_cli.runtime import load_session_totals
@@ -35,8 +36,6 @@ from mycode_cli.sessions import SessionStore
 
 
 class _CaptureAdapter:
-    supports_reasoning_effort = False
-
     def __init__(self) -> None:
         self.messages: list[ConversationMessage] | None = None
         self.reasoning_effort: str | None = None
@@ -46,9 +45,8 @@ class _CaptureAdapter:
         self.messages = list(request.messages)
         self.reasoning_effort = request.reasoning_effort
         self.legacy_max_tokens = request.legacy_max_tokens
-        yield ProviderStreamEvent(
-            "message_done",
-            {"message": {"role": "assistant", "content": [{"type": "text", "text": "ok"}]}},
+        yield MessageDone(
+            {"role": "assistant", "content": [{"type": "text", "text": "ok"}]},
         )
 
 
@@ -63,7 +61,7 @@ def test_app_lifespans_isolate_resources_and_persist_cancelled_runs(
     class PartialAdapter(_CaptureAdapter):
         @override
         async def stream_turn(self, request: ProviderRequest) -> AsyncIterator[ProviderStreamEvent]:
-            yield ProviderStreamEvent("text_delta", {"text": "partial reply"})
+            yield TextDelta("partial reply")
             started.set()
             await asyncio.Event().wait()
 
@@ -184,7 +182,7 @@ def test_chat_reads_only_required_history_and_preserves_replay_and_cost(
             await store.create_session("s1", cwd=str(tmp_path))
         if has_timeline:
             await store.append_message("s1", {"role": "user", "content": [{"type": "text", "text": "discarded"}]})
-            await store.append_message("s1", {"role": "assistant", "meta": {"cost": {"total": 0.25}}})
+            await store.append_message("s1", {"role": "assistant", "content": [], "meta": {"cost": {"total": 0.25}}})
             await store.append_rewind("s1", 0)
             await store.append_message("s1", {"role": "user", "content": [{"type": "text", "text": "kept"}]})
             await store.append_message(
@@ -200,7 +198,7 @@ def test_chat_reads_only_required_history_and_preserves_replay_and_cost(
     reads = 0
     original_load = TimelineStore.load_raw_messages_sync
 
-    def load(timeline: TimelineStore, session_id: str) -> list[ConversationMessage]:
+    def load(timeline: TimelineStore, session_id: str) -> list[ConversationMessage | RewindMarker]:
         nonlocal reads
         reads += 1
         return original_load(timeline, session_id)
@@ -224,7 +222,11 @@ def test_chat_reads_only_required_history_and_preserves_replay_and_cost(
             events = [json.loads(line[6:]) for line in stream.iter_lines() if line.startswith("data: {")]
 
     assert adapter.messages is not None
-    texts = [block["text"] for message in adapter.messages for block in message.get("content") or []]
+    texts: list[str] = []
+    for message in adapter.messages:
+        for block in message["content"]:
+            assert block["type"] == "text"
+            texts.append(block["text"])
     assert texts == (["kept", "answer"] if has_timeline and history != "rewind" else []) + ["follow-up"]
     usage = [event for event in events if event["type"] == "usage"]
     assert usage
@@ -327,9 +329,12 @@ def test_chat_skill_reference_reaches_provider_and_keeps_visible_title(
 
     assert adapter.messages is not None
     user_blocks = adapter.messages[0]["content"]
-    assert "Review the interface carefully." in user_blocks[0]["text"]
-    assert "description: Design interfaces." not in user_blocks[0]["text"]
-    assert user_blocks[-1]["text"] == prompt
+    skill_block, prompt_block = user_blocks[0], user_blocks[-1]
+    assert skill_block["type"] == "text"
+    assert prompt_block["type"] == "text"
+    assert "Review the interface carefully." in skill_block["text"]
+    assert "description: Design interfaces." not in skill_block["text"]
+    assert prompt_block["text"] == prompt
     assert session["session"]["title"] == prompt
 
 
@@ -368,7 +373,11 @@ def test_chat_bounds_text_attachments_and_saves_large_uploads(tmp_path: Path, mo
             list(stream.iter_lines())
 
     assert adapter.messages is not None
-    workspace_file, uploaded, small = (block["text"] for block in adapter.messages[0]["content"][1:])
+    attachment_texts: list[str] = []
+    for block in adapter.messages[0]["content"][1:]:
+        assert block["type"] == "text"
+        attachment_texts.append(block["text"])
+    workspace_file, uploaded, small = attachment_texts
     assert f"of {tmp_path / 'big.txt'}. Use read with offset=2001 to continue." in workspace_file
     [saved] = (tmp_path / "sessions" / "s1" / "tool-output").iterdir()
     assert saved.read_text(encoding="utf-8") == upload
@@ -688,7 +697,7 @@ async def test_steers_and_queue_are_delivered_and_persisted(tmp_path: Path, monk
         ("q2", True, ["s1", "q2"]),
         ("q1", None, ["q1"]),
     ]
-    persisted = [message for message in run.store.load_raw_messages_sync("s1") if message.get("role") == "user"]
+    persisted = [message for message in run.store.load_raw_messages_sync("s1") if message["role"] == "user"]
     assert [message["meta"].get("input_ids") for message in persisted] == [None, ["s1", "q2"], ["q1"]]
     assert persisted[1]["meta"]["steer"] is True
     assert state.status == "completed"
@@ -756,7 +765,9 @@ def test_compact_endpoint_persists_marker_without_synthetic_turns(
     assert session["active_run"] is None
     # The summary request replayed the seeded history for the requested model.
     assert adapter.messages is not None
-    assert adapter.messages[0]["content"][0]["text"] == "hello"
+    seeded = adapter.messages[0]["content"][0]
+    assert seeded["type"] == "text"
+    assert seeded["text"] == "hello"
 
 
 def test_compact_endpoint_conflicts_and_cancel_write_no_marker(
@@ -767,12 +778,10 @@ def test_compact_endpoint_conflicts_and_cancel_write_no_marker(
     monkeypatch.setenv("MYCODE_HOME", str(tmp_path / "home"))
 
     class _HangingAdapter:
-        supports_reasoning_effort = False
-
         async def stream_turn(self, request: ProviderRequest) -> AsyncIterator[ProviderStreamEvent]:
             del request
             await asyncio.sleep(30)
-            yield ProviderStreamEvent("message_done", {"message": {}})
+            yield MessageDone({"role": "assistant", "content": []})
 
     monkeypatch.setattr("mycode.agent.get_provider_adapter", lambda _provider: _HangingAdapter())
     store = SessionStore(data_dir=tmp_path / "sessions")
@@ -818,7 +827,7 @@ def test_session_load_returns_persisted_costs_from_one_read(tmp_path: Path, monk
 
     async def seed() -> None:
         await store.create_session("s1", cwd=str(tmp_path))
-        await store.append_message("s1", {"role": "compact", "meta": {"cost": {"total": 0.03}}})
+        await store.append_message("s1", {"role": "compact", "content": [], "meta": {"cost": {"total": 0.03}}})
         await store.append_rewind("s1", 0)
         await store.append_message("s1", {"role": "user", "content": [{"type": "text", "text": "hi"}]})
         await store.append_message(
@@ -847,7 +856,7 @@ def test_session_load_returns_persisted_costs_from_one_read(tmp_path: Path, monk
     reads = 0
     original_load = store.load_raw_messages_sync
 
-    def load(session_id: str) -> list[ConversationMessage]:
+    def load(session_id: str) -> list[ConversationMessage | RewindMarker]:
         nonlocal reads
         reads += 1
         return original_load(session_id)
@@ -881,7 +890,7 @@ async def test_running_session_uses_snapshot_cost_after_usage_eviction_then_load
         store = cast(SessionStore, app.state.store)
         runs = cast(RunManager, app.state.runs)
         await store.create_session("s1", cwd=str(tmp_path))
-        await store.append_message("s1", {"role": "assistant", "meta": {"cost": {"total": 0.25}}})
+        await store.append_message("s1", {"role": "assistant", "content": [], "meta": {"cost": {"total": 0.25}}})
         data = await store.load_session("s1")
         assert data is not None
         ready = asyncio.Event()
@@ -899,8 +908,8 @@ async def test_running_session_uses_snapshot_cost_after_usage_eviction_then_load
             ) -> AsyncGenerator[Event, None]:
                 assert isinstance(user_input, dict)
                 await store.append_message("s1", user_input)
-                yield Event("usage", {"turn_cost": {"total": 0.5}})
-                yield Event("text", {"delta": "answer"})
+                yield UsageEvent(turn_cost={"total": 0.5}, context_tokens=None, turn_usage={}, turn_duration_ms=None)
+                yield TextEvent(delta="answer")
                 ready.set()
                 await release.wait()
                 await store.append_message(
@@ -927,7 +936,7 @@ async def test_running_session_uses_snapshot_cost_after_usage_eviction_then_load
         reads = 0
         original_load = store.load_raw_messages_sync
 
-        def load(session_id: str) -> list[ConversationMessage]:
+        def load(session_id: str) -> list[ConversationMessage | RewindMarker]:
             nonlocal reads
             reads += 1
             return original_load(session_id)
@@ -1055,8 +1064,6 @@ def _job_ids(message: ConversationMessage) -> list[str | None]:
 class _ScriptedAdapter:
     """Answers each provider request with the next reply; request ``hold`` waits for ``release``."""
 
-    supports_reasoning_effort = False
-
     def __init__(self, *replies: ConversationMessage, hold: int | None = None) -> None:
         self.replies = replies
         self.requests: list[list[ConversationMessage]] = []
@@ -1070,7 +1077,7 @@ class _ScriptedAdapter:
         if index == self.hold:
             self.held.set()
             await self.release.wait()
-        yield ProviderStreamEvent("message_done", {"message": copy.deepcopy(self.replies[index])})
+        yield MessageDone(copy.deepcopy(self.replies[index]))
 
 
 @dataclass
@@ -1164,7 +1171,9 @@ async def test_result_after_the_turn_wakes_the_session(tmp_path: Path, monkeypat
     wake_input = adapter.requests[2][-1]
     assert wake_input["role"] == "user"
     assert _job_ids(wake_input) == ["toolu_bg"]
-    persisted = [m for m in app.store.load_raw_messages_sync("s1") if _job_ids(m) == ["toolu_bg"]]
+    persisted = [
+        m for m in app.store.load_raw_messages_sync("s1") if m["role"] != "rewind" and _job_ids(m) == ["toolu_bg"]
+    ]
     assert [m["content"][0]["meta"]["job"]["exit_code"] for m in persisted] == [2]
     assert session["active_run"] is None
     assert [_job_ids(m) for m in session["messages"]].count(["toolu_bg"]) == 1
@@ -1187,7 +1196,9 @@ async def test_result_during_the_turn_arrives_as_a_steer(tmp_path: Path, monkeyp
     assert pending == {"steers": [], "queue": []}
     assert run.status == "completed"
     assert len(adapter.requests) == 3
-    [steer] = [m for m in app.store.load_raw_messages_sync("s1") if _job_ids(m) == ["toolu_bg"]]
+    [steer] = [
+        m for m in app.store.load_raw_messages_sync("s1") if m["role"] != "rewind" and _job_ids(m) == ["toolu_bg"]
+    ]
     assert steer["meta"]["steer"] is True
     assert steer["meta"]["input_ids"] == []
     assert adapter.requests[2][-1]["content"] == steer["content"]
@@ -1351,7 +1362,9 @@ async def test_stopping_a_job_still_delivers_its_result(tmp_path: Path, monkeypa
 
     assert wake.wake is True
     assert wake.status == "completed"
-    [persisted] = [m for m in app.store.load_raw_messages_sync("s1") if _job_ids(m) == ["toolu_bg"]]
+    [persisted] = [
+        m for m in app.store.load_raw_messages_sync("s1") if m["role"] != "rewind" and _job_ids(m) == ["toolu_bg"]
+    ]
     assert persisted["content"][0]["meta"]["job"]["exit_code"] < 0
     for response in (again, unknown_job, unknown_session):
         assert response.status_code == 404

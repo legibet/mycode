@@ -5,6 +5,7 @@ import tempfile
 import threading
 from collections.abc import AsyncIterator
 from copy import deepcopy
+from dataclasses import asdict
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -14,19 +15,32 @@ import pytest
 
 from mycode import (
     Agent,
+    CancelledEvent,
+    ContentBlock,
     ConversationMessage,
+    ErrorEvent,
     Event,
     Hooks,
+    ReasoningDoneEvent,
+    ReasoningEvent,
     RunResult,
     SessionStore,
+    TextEvent,
     ToolContext,
+    ToolDoneEvent,
     ToolExecutionResult,
     ToolHookContext,
+    ToolOutputEvent,
     ToolSpec,
+    ToolStartEvent,
+    UsageEvent,
+    build_message,
     text_block,
     tool,
 )
-from mycode.providers.base import ProviderStreamEvent
+from mycode.messages import BlockMeta, MessageMeta, flatten_message_text
+from mycode.models import resolve_model_metadata
+from mycode.providers.base import MessageDone, ProviderStreamEvent, TextDelta, ThinkingDelta
 
 
 class _FakeProviderAdapter:
@@ -61,20 +75,14 @@ _PING_TOOL = ToolSpec(
 )
 
 
-def _assistant_turn(
-    *blocks: dict[str, object],
-    meta: dict[str, object] | None = None,
-) -> list[ProviderStreamEvent]:
-    message: dict[str, object] = {"role": "assistant", "content": list(blocks)}
-    message_meta = dict(meta or {})
-    if any(block.get("type") == "tool_use" for block in blocks):
+def _assistant_turn(*blocks: ContentBlock, meta: MessageMeta | None = None) -> list[ProviderStreamEvent]:
+    message_meta: MessageMeta = {**(meta or {})}
+    if any(block["type"] == "tool_use" for block in blocks):
         message_meta.setdefault("stop_reason", "tool_use")
-    if message_meta:
-        message["meta"] = message_meta
-    return [ProviderStreamEvent("message_done", {"message": message})]
+    return [MessageDone(build_message("assistant", blocks, meta=message_meta))]
 
 
-def _text_turn(text: str = "done", *, meta: dict[str, object] | None = None) -> list[ProviderStreamEvent]:
+def _text_turn(text: str = "done", *, meta: MessageMeta | None = None) -> list[ProviderStreamEvent]:
     return _assistant_turn({"type": "text", "text": text}, meta=meta)
 
 
@@ -124,10 +132,10 @@ def _chat_events(events: list[Event]) -> list[Event]:
     return [event for event in events if event.type != "usage"]
 
 
-def _billing_facts(usage: dict[str, Any]) -> dict[str, Any]:
-    """A usage payload without its wall-clock field, for exact comparison."""
+def _billing_facts(usage: UsageEvent) -> dict[str, Any]:
+    """A usage event's fields without its wall-clock field, for exact comparison."""
 
-    return {key: value for key, value in usage.items() if key != "turn_duration_ms"}
+    return {key: value for key, value in asdict(usage).items() if key != "turn_duration_ms"}
 
 
 async def _collect_events(stream: AsyncIterator[Event]) -> list[Event]:
@@ -169,8 +177,8 @@ def _new_agent(tmp_path: Path, **overrides) -> Agent:
 )
 async def test_invalid_tool_calls_are_reported_without_execution(
     tmp_path: Path,
-    assistant_meta: dict[str, object],
-    tool_meta: dict[str, object] | None,
+    assistant_meta: MessageMeta,
+    tool_meta: BlockMeta | None,
     expected_message: str,
 ) -> None:
     calls: list[str] = []
@@ -201,8 +209,8 @@ async def test_invalid_tool_calls_are_reported_without_execution(
 
     assert calls == []
     tool_done = next(event for event in events if event.type == "tool_done")
-    assert tool_done.data["is_error"] is True
-    assert expected_message in tool_done.data["output"]
+    assert tool_done.is_error is True
+    assert expected_message in tool_done.output
     result_message = adapter.message_snapshots[1][-1]
     assert result_message["content"][0]["is_error"] is True
 
@@ -229,7 +237,7 @@ async def test_provider_error_message_ends_turn_without_executing_tools(tmp_path
         events = _chat_events([event async for event in agent.achat("run the tool")])
 
     assert [event.type for event in events] == ["error"]
-    assert events[0].data == {"message": "provider returned an error response"}
+    assert events[0] == ErrorEvent(message="provider returned an error response")
     assert agent.messages[-1]["meta"]["error"] == "provider returned an error response"
     assert calls == []
     assert len(adapter.message_snapshots) == 1
@@ -259,7 +267,7 @@ async def test_multiple_truncated_tool_calls_are_all_rejected(tmp_path: Path) ->
     tool_done = [event for event in events if event.type == "tool_done"]
     assert calls == []
     assert len(tool_done) == 2
-    assert all(event.data["is_error"] is True for event in tool_done)
+    assert all(event.is_error is True for event in tool_done)
     assert len(adapter.message_snapshots[1][-1]["content"]) == 2
 
 
@@ -269,7 +277,7 @@ class _SlowProviderAdapter:
 
     async def stream_turn(self, _request):
         try:
-            yield ProviderStreamEvent("thinking_delta", {"text": "working"})
+            yield ThinkingDelta("working")
             await asyncio.Event().wait()
         finally:
             self.closed.set()
@@ -321,12 +329,54 @@ def test_agent_requires_explicit_provider_for_unknown_models(tmp_path: Path) -> 
         _new_agent(tmp_path, model="not-a-real-model")
 
 
+def test_set_model_replaces_model_settings_and_keeps_history(tmp_path: Path) -> None:
+    agent = _new_agent(
+        tmp_path,
+        provider="openai",
+        api_key="key",
+        api_base="https://proxy.example/v1",
+        reasoning_effort="high",
+        legacy_max_tokens=True,
+        max_tokens=1000,
+        context_window=5000,
+        supports_image_input=False,
+        system="Keep me.",
+    )
+    with patch("mycode.agent.get_provider_adapter", return_value=_FakeProviderAdapter([_text_turn("first")])):
+        agent.run("hello")
+
+    # Omitted arguments reset to their defaults instead of carrying over.
+    agent.set_model("gemini-2.5-flash")
+    adapter = _FakeProviderAdapter([_text_turn("second")])
+    with patch("mycode.agent.get_provider_adapter", return_value=adapter):
+        agent.run("again")
+
+    expected = resolve_model_metadata(provider="google", model="gemini-2.5-flash")
+    request = adapter.requests[0]
+    assert (request.provider, request.model, request.system) == ("google", "gemini-2.5-flash", "Keep me.")
+    assert (request.api_key, request.api_base, request.reasoning_effort) == (None, None, None)
+    assert request.legacy_max_tokens is False
+    assert request.max_tokens == expected.max_output_tokens
+    assert request.supports_image_input is expected.supports_image_input
+    assert agent.context_window == expected.context_window
+    assert agent.model_pricing == expected.pricing
+    assert [flatten_message_text(message) for message in adapter.message_snapshots[0]] == ["hello", "first", "again"]
+
+    with pytest.raises(ValueError, match="could not infer provider"):
+        agent.set_model("not-a-real-model")
+    assert (agent.provider, agent.model, agent.context_window) == (
+        "google",
+        "gemini-2.5-flash",
+        expected.context_window,
+    )
+
+
 def test_agent_run_collects_stream_events(tmp_path: Path) -> None:
     adapter = _FakeProviderAdapter(
         [
             [
-                ProviderStreamEvent("thinking_delta", {"text": "plan "}),
-                ProviderStreamEvent("text_delta", {"text": "hello"}),
+                ThinkingDelta("plan "),
+                TextDelta("hello"),
                 *_assistant_turn(
                     {"type": "thinking", "text": "plan "},
                     {"type": "text", "text": "hello"},
@@ -342,9 +392,10 @@ def test_agent_run_collects_stream_events(tmp_path: Path) -> None:
     assert result.error is None
     events = _chat_events(result.events)
     assert [event.type for event in events] == ["reasoning", "reasoning_done", "text"]
-    assert events[0].data == {"delta": "plan "}
-    assert isinstance(events[1].data.get("duration_ms"), int)
-    assert events[2].data == {"delta": "hello"}
+    assert events[0] == ReasoningEvent(delta="plan ")
+    assert isinstance(events[1], ReasoningDoneEvent)
+    assert isinstance(events[1].duration_ms, int)
+    assert events[2] == TextEvent(delta="hello")
 
 
 def test_agent_run_rejects_non_user_messages(tmp_path: Path) -> None:
@@ -443,7 +494,8 @@ async def test_custom_tools_can_call_other_registered_tools(tmp_path: Path) -> N
         )
 
     assert [event.type for event in events] == ["tool_start", "tool_done"]
-    assert events[1].data["output"] == "hello from sdk"
+    assert isinstance(events[1], ToolDoneEvent)
+    assert events[1].output == "hello from sdk"
 
 
 @pytest.mark.asyncio
@@ -461,8 +513,10 @@ async def test_async_custom_tools_can_call_and_stream_other_tools(tmp_path: Path
         )
 
     assert [event.type for event in events] == ["tool_start", "tool_output", "tool_done"]
-    assert events[1].data["output"] == "hello from sdk"
-    assert events[2].data["output"] == "hello from sdk"
+    assert isinstance(events[1], ToolOutputEvent)
+    assert events[1].output == "hello from sdk"
+    assert isinstance(events[2], ToolDoneEvent)
+    assert events[2].output == "hello from sdk"
 
 
 class TestAgentReasoningPersistence:
@@ -483,8 +537,8 @@ class TestAgentReasoningPersistence:
             adapter = _FakeProviderAdapter(
                 [
                     [
-                        ProviderStreamEvent("thinking_delta", {"text": "hidden "}),
-                        ProviderStreamEvent("text_delta", {"text": "Visible answer"}),
+                        ThinkingDelta("hidden "),
+                        TextDelta("Visible answer"),
                         *_assistant_turn(
                             {"type": "thinking", "text": "hidden "},
                             {"type": "text", "text": "Visible answer"},
@@ -497,10 +551,11 @@ class TestAgentReasoningPersistence:
                 events = _chat_events([event async for event in agent.achat("hello", on_persist=on_persist)])
 
             assert [event.type for event in events] == ["reasoning", "reasoning_done", "text"]
-            assert events[0].data == {"delta": "hidden "}
-            duration_ms = events[1].data.get("duration_ms")
+            assert events[0] == ReasoningEvent(delta="hidden ")
+            assert isinstance(events[1], ReasoningDoneEvent)
+            duration_ms = events[1].duration_ms
             assert isinstance(duration_ms, int)
-            assert events[2].data == {"delta": "Visible answer"}
+            assert events[2] == TextEvent(delta="Visible answer")
             assistant_messages = [m for m in persisted if m.get("role") == "assistant"]
             assert assistant_messages[0]["content"] == [
                 {"type": "thinking", "text": "hidden ", "meta": {"duration_ms": duration_ms}},
@@ -532,9 +587,12 @@ class TestAgentReasoningPersistence:
                 events = _chat_events([event async for event in agent.achat("hello", on_persist=on_persist)])
 
             assert [event.type for event in events] == ["tool_start", "tool_done"]
-            assert events[0].data == {"tool_call": {"id": "call-1", "name": "read", "input": {"path": "test.txt"}}}
-            assert events[1].data["tool_use_id"] == "call-1"
-            assert events[1].data["is_error"] is True
+            assert events[0] == ToolStartEvent(
+                tool_call={"type": "tool_use", "id": "call-1", "name": "read", "input": {"path": "test.txt"}}
+            )
+            assert isinstance(events[1], ToolDoneEvent)
+            assert events[1].tool_use_id == "call-1"
+            assert events[1].is_error is True
             assistant_messages = [m for m in persisted if m.get("role") == "assistant"]
             assert len(assistant_messages) == 2
             assert assistant_messages[0]["content"] == [
@@ -568,7 +626,7 @@ class TestAgentTurnLimits:
                 events = _chat_events([event async for event in agent.achat("hello")])
 
             assert events[-1].type == "tool_done"
-            assert all(event.data.get("message") != "max_turns reached" for event in events)
+            assert ErrorEvent(message="max_turns reached") not in events
 
     @pytest.mark.asyncio
     async def test_achat_respects_explicit_turn_limit(self):
@@ -591,7 +649,7 @@ class TestAgentTurnLimits:
                 events = _chat_events([event async for event in agent.achat("hello")])
 
             assert events[-1].type == "error"
-            assert events[-1].data == {"message": "max_turns reached"}
+            assert events[-1] == ErrorEvent(message="max_turns reached")
 
 
 class TestCustomTools:
@@ -617,11 +675,7 @@ class TestCustomTools:
                 events = _chat_events([event async for event in agent.achat("hello")])
 
             assert [event.type for event in events] == ["tool_start", "tool_done"]
-            assert events[1].data == {
-                "tool_use_id": "call-1",
-                "output": "pong: hello",
-                "is_error": False,
-            }
+            assert events[1] == ToolDoneEvent(tool_use_id="call-1", output="pong: hello", is_error=False)
 
     @pytest.mark.asyncio
     async def test_agent_forwards_sync_streaming_tool_output(self, tmp_path: Path) -> None:
@@ -645,8 +699,9 @@ class TestCustomTools:
             events = _chat_events([event async for event in agent.achat("run tool")])
 
         assert [event.type for event in events] == ["tool_start", "tool_output", "tool_done"]
-        assert events[1].data["output"] == "from worker"
-        assert events[2].data["output"] == "complete"
+        assert events[1] == ToolOutputEvent(tool_use_id="call-1", output="from worker")
+        assert isinstance(events[2], ToolDoneEvent)
+        assert events[2].output == "complete"
 
     @pytest.mark.asyncio
     async def test_live_output_marks_an_omitted_middle_segment(self, tmp_path: Path) -> None:
@@ -675,16 +730,17 @@ class TestCustomTools:
         with patch("mycode.agent.get_provider_adapter", return_value=adapter):
             async for event in agent.achat("run tool"):
                 events.append(event)
-                if event.type == "tool_output" and event.data["output"] == "partial":
+                if event.type == "tool_output" and event.output == "partial":
                     release.set()
                     await asyncio.sleep(0.01)
 
         events = _chat_events(events)
-        displayed = "".join(event.data["output"] for event in events if event.type == "tool_output")
+        displayed = "".join(event.output for event in events if event.type == "tool_output")
         assert displayed.startswith("partial\n[live output omitted]\n")
         assert displayed.endswith("\ntail\n")
         assert displayed.count("[live output omitted]") == 1
-        assert events[-1].data["output"] == "complete"
+        assert isinstance(events[-1], ToolDoneEvent)
+        assert events[-1].output == "complete"
 
     @pytest.mark.parametrize("streams_output", [False, True])
     def test_cancel_stops_async_tool_from_another_thread(
@@ -736,11 +792,7 @@ class TestCustomTools:
         assert results[0].error is None
         events = _chat_events(results[0].events)
         assert [event.type for event in events] == ["tool_start", "tool_done", "cancelled"]
-        assert events[-2].data == {
-            "tool_use_id": "call-1",
-            "output": "error: cancelled",
-            "is_error": True,
-        }
+        assert events[-2] == ToolDoneEvent(tool_use_id="call-1", output="error: cancelled", is_error=True)
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("streams_output", [False, True])
@@ -796,13 +848,13 @@ class TestCustomTools:
                 events = _chat_events(await task)
 
         assert [event.type for event in events] == ["tool_start", "tool_done", "cancelled"]
-        assert events[-2].data == {
-            "tool_use_id": "call-1",
-            "output": "cancelled cleanly",
-            "is_error": True,
-            "content": [{"type": "text", "text": "kept"}],
-            "metadata": {"cleaned": True},
-        }
+        assert events[-2] == ToolDoneEvent(
+            tool_use_id="call-1",
+            output="cancelled cleanly",
+            is_error=True,
+            content=[{"type": "text", "text": "kept"}],
+            metadata={"cleaned": True},
+        )
         assert skipped_calls == []
 
     @pytest.mark.asyncio
@@ -828,7 +880,7 @@ class TestCustomTools:
             with patch("mycode.agent.get_provider_adapter", return_value=adapter):
                 events = _chat_events([event async for event in agent.achat("hello", on_persist=on_persist)])
 
-            assert events == [Event("cancelled")]
+            assert events == [CancelledEvent()]
             assert agent.messages[-1]["role"] == "assistant"
 
 
@@ -851,7 +903,7 @@ class TestAgentCancel:
 
             assert adapter.requests == 2
             assert [event.type for event in events] == ["usage", "cancelled"]
-            assert events[-1].data == {}
+            assert events[-1] == CancelledEvent()
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("interrupt", ["cancel", "athrow", "task_cancel"])
@@ -867,8 +919,7 @@ class TestAgentCancel:
             with patch("mycode.agent.get_provider_adapter", return_value=adapter):
                 stream = agent.achat("hello")
                 first_event = await anext(stream)
-                assert first_event.type == "reasoning"
-                assert first_event.data == {"delta": "working"}
+                assert first_event == ReasoningEvent(delta="working")
 
                 history = deepcopy(agent.messages)
                 with pytest.raises(RuntimeError):
@@ -877,10 +928,12 @@ class TestAgentCancel:
                     await agent.acompact()
                 with pytest.raises(RuntimeError):
                     agent.clear()
+                with pytest.raises(RuntimeError):
+                    agent.set_model("claude-sonnet-4-5")
                 assert agent.messages == history
                 if interrupt == "cancel":
                     agent.cancel()
-                    assert await anext(stream) == Event("cancelled")
+                    assert await anext(stream) == CancelledEvent()
                 elif interrupt == "athrow":
                     with pytest.raises(asyncio.CancelledError):
                         await stream.athrow(asyncio.CancelledError())
@@ -918,7 +971,9 @@ class TestAgentCancel:
         stored = SessionStore(data_dir=tmp_path).load_messages_sync(agent.session_id)
         assert stored[-1]["role"] == "assistant"
         assert stored[-1]["meta"]["stop_reason"] == "cancelled"
-        assert stored[-1]["content"][0]["text"] == "working"
+        thinking = stored[-1]["content"][0]
+        assert thinking["type"] == "thinking"
+        assert thinking["text"] == "working"
         agent.clear()
 
     @pytest.mark.asyncio
@@ -1019,12 +1074,12 @@ class TestAgentCancel:
                 await started.wait()
                 agent.cancel()
                 release.set()
-                assert (await task)[-1] == Event("cancelled")
+                assert (await task)[-1] == CancelledEvent()
         assert SessionStore(data_dir=tmp_path).load_messages_sync(agent.session_id) == agent.messages
 
 
 def _tool_calls(*calls: tuple[str, dict[str, object]]) -> list[ProviderStreamEvent]:
-    blocks: list[dict[str, object]] = [
+    blocks: list[ContentBlock] = [
         {"type": "tool_use", "id": f"call-{index}", "name": name, "input": tool_input}
         for index, (name, tool_input) in enumerate(calls)
     ]
@@ -1033,15 +1088,19 @@ def _tool_calls(*calls: tuple[str, dict[str, object]]) -> list[ProviderStreamEve
 
 def _tool_events(events: list[Event]) -> list[tuple[str, str]]:
     return [
-        (event.type, event.data["tool_call"]["id"] if event.type == "tool_start" else event.data["tool_use_id"])
+        (event.type, event.tool_call["id"] if isinstance(event, ToolStartEvent) else event.tool_use_id)
         for event in events
-        if event.type in {"tool_start", "tool_done"}
+        if isinstance(event, ToolStartEvent | ToolDoneEvent)
     ]
 
 
 def _persisted_results(agent: Agent) -> list[tuple[str, str]]:
     message = next(m for m in reversed(agent.messages) if any(b.get("type") == "tool_result" for b in m["content"]))
-    return [(block["tool_use_id"], block["output"]) for block in message["content"]]
+    results: list[tuple[str, str]] = []
+    for block in message["content"]:
+        assert block["type"] == "tool_result"
+        results.append((block["tool_use_id"], block["output"]))
+    return results
 
 
 class TestParallelTools:
@@ -1161,7 +1220,7 @@ class TestParallelTools:
                 events = await _collect_events(agent.achat("go"))
 
         assert reviewed == ["a", "b"]
-        assert events[-1] == Event("cancelled")
+        assert events[-1] == CancelledEvent()
         assert _persisted_results(agent) == [
             ("call-0", "error: cancelled"),
             ("call-1", "error: denied"),
@@ -1227,7 +1286,7 @@ class TestTurnUsage:
             result = agent.run(user)
 
         assert result.usage is not None
-        assert result.usage["turn_duration_ms"] == expected_duration_ms
+        assert result.usage.turn_duration_ms == expected_duration_ms
         records = SessionStore(data_dir=tmp_path).load_raw_messages_sync(agent.session_id)
         assert records == agent.messages
         assert records[0]["meta"]["created_at"] == created_at
@@ -1267,7 +1326,7 @@ class TestTurnUsage:
         with patch("mycode.agent.get_provider_adapter", return_value=adapter):
             result = agent.run("hello")
 
-        first, second = [event.data for event in result.events if event.type == "usage"]
+        first, second = [event for event in result.events if event.type == "usage"]
         assert _billing_facts(first) == {
             "context_tokens": 100,
             "turn_usage": {
@@ -1278,12 +1337,14 @@ class TestTurnUsage:
             "turn_cost": pytest.approx({"input": 0.00009, "output": 0.00002, "total": 0.00011}),
         }
         # Both events time the same turn, so the elapsed value only grows.
-        assert 0 <= first["turn_duration_ms"] <= second["turn_duration_ms"]
-        assert second["context_tokens"] == 150
-        assert second["turn_usage"]["total_tokens"] == 250
-        assert second["turn_usage"]["input_tokens"] == 220
-        assert second["turn_usage"]["output_tokens"] == 30
-        assert second["turn_cost"] == pytest.approx({"input": 0.00022, "output": 0.00006, "total": 0.00028})
+        assert first.turn_duration_ms is not None
+        assert second.turn_duration_ms is not None
+        assert 0 <= first.turn_duration_ms <= second.turn_duration_ms
+        assert second.context_tokens == 150
+        assert second.turn_usage["total_tokens"] == 250
+        assert second.turn_usage["input_tokens"] == 220
+        assert second.turn_usage["output_tokens"] == 30
+        assert second.turn_cost == pytest.approx({"input": 0.00022, "output": 0.00006, "total": 0.00028})
         assert agent.messages[1]["meta"]["cost"] == pytest.approx(
             {"input": 0.00009, "output": 0.00002, "total": 0.00011}
         )
@@ -1306,9 +1367,9 @@ class TestTurnUsage:
             result = agent.run("hello")
 
         assert result.usage is not None
-        assert result.usage["context_tokens"] is None
-        assert result.usage["turn_usage"] == {"total_tokens": 100, "input_tokens": 90, "output_tokens": 10}
-        assert result.usage["turn_cost"] == pytest.approx({"input": 0.00009, "output": 0.00002, "total": 0.00011})
+        assert result.usage.context_tokens is None
+        assert result.usage.turn_usage == {"total_tokens": 100, "input_tokens": 90, "output_tokens": 10}
+        assert result.usage.turn_cost == pytest.approx({"input": 0.00009, "output": 0.00002, "total": 0.00011})
 
     def test_total_only_request_downgrades_the_turn_cost(self, tmp_path: Path) -> None:
         adapter = _FakeProviderAdapter(
@@ -1332,7 +1393,7 @@ class TestTurnUsage:
             result = agent.run("hello")
 
         assert result.usage is not None
-        assert result.usage["turn_cost"] == pytest.approx({"total": 0.02011})
+        assert result.usage.turn_cost == pytest.approx({"total": 0.02011})
 
     def test_failed_followup_request_keeps_last_successful_usage(self, tmp_path: Path) -> None:
         class _FailingSecondRequestAdapter:
@@ -1359,5 +1420,5 @@ class TestTurnUsage:
         assert len([event for event in result.events if event.type == "usage"]) == 1
         assert result.events[-1].type == "error"
         assert result.usage is not None
-        assert result.usage["context_tokens"] == 100
-        assert result.usage["turn_usage"] == {"total_tokens": 100, "input_tokens": 90, "output_tokens": 10}
+        assert result.usage.context_tokens == 100
+        assert result.usage.turn_usage == {"total_tokens": 100, "input_tokens": 90, "output_tokens": 10}

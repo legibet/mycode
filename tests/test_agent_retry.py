@@ -8,19 +8,26 @@ from unittest.mock import patch
 import httpx2
 import pytest
 
-from mycode import Agent, Event, ProviderError, SessionStore
-from mycode.providers.base import ProviderStreamEvent, normalize_provider_error
+from mycode import Agent, CancelledEvent, ConversationMessage, ErrorEvent, Event, ProviderError, SessionStore
+from mycode.providers.base import (
+    MessageDone,
+    ProviderStreamEvent,
+    StreamStarted,
+    TextDelta,
+    ThinkingDelta,
+    normalize_provider_error,
+)
 
 
 def _text_turn(text: str = "done") -> list[ProviderStreamEvent]:
-    message: dict[str, Any] = {
+    message: ConversationMessage = {
         "role": "assistant",
         "content": [{"type": "text", "text": text}],
         "meta": {"usage": {"total_tokens": 10, "input_tokens": 6, "output_tokens": 4}},
     }
     return [
-        ProviderStreamEvent("text_delta", {"text": text}),
-        ProviderStreamEvent("message_done", {"message": message}),
+        TextDelta(text),
+        MessageDone(message),
     ]
 
 
@@ -44,7 +51,7 @@ class _ScriptedAdapter:
         self.attempts += 1
         if self._errors:
             raise self._errors.pop(0)
-        yield ProviderStreamEvent("stream_started")
+        yield StreamStarted()
         for event in self._turn:
             yield event
 
@@ -60,7 +67,7 @@ class _SilentFirstAdapter:
         self.attempts += 1
         if self.attempts == 1:
             await asyncio.sleep(60)
-        yield ProviderStreamEvent("stream_started")
+        yield StreamStarted()
         for event in self._turn:
             yield event
 
@@ -71,8 +78,8 @@ class _FailsAfterTextAdapter:
 
     async def stream_turn(self, _request: Any):
         self.attempts += 1
-        yield ProviderStreamEvent("stream_started")
-        yield ProviderStreamEvent("text_delta", {"text": "partial"})
+        yield StreamStarted()
+        yield TextDelta("partial")
         raise _transient_error("stream died mid-turn")
 
 
@@ -82,8 +89,8 @@ class _FailsAfterReasoningAdapter:
 
     async def stream_turn(self, _request: Any):
         self.attempts += 1
-        yield ProviderStreamEvent("stream_started")
-        yield ProviderStreamEvent("thinking_delta", {"text": "thinking"})
+        yield StreamStarted()
+        yield ThinkingDelta("thinking")
         raise _transient_error("reasoning stream died")
 
 
@@ -125,24 +132,24 @@ async def test_transient_failures_retry_until_success(tmp_path: Path) -> None:
         events = await _collect(agent)
 
     retries = [event for event in events if event.type == "retry"]
-    assert [(r.data["attempt"], r.data["max_attempts"]) for r in retries] == [(2, 3), (3, 3)]
-    assert retries[0].data["reason"] == "http_status"
-    assert retries[0].data["status_code"] == 529
-    assert retries[0].data["message"] == "overloaded"
-    assert retries[1].data["reason"] == "connection_error"
-    assert 0 < retries[1].data["delay_seconds"] <= 8
+    assert [(r.attempt, r.max_attempts) for r in retries] == [(2, 3), (3, 3)]
+    assert retries[0].reason == "http_status"
+    assert retries[0].status_code == 529
+    assert retries[0].message == "overloaded"
+    assert retries[1].reason == "connection_error"
+    assert 0 < retries[1].delay_seconds <= 8
     assert adapter.attempts == 3
-    assert any(event.type == "text" and event.data["delta"] == "recovered" for event in events)
+    assert any(event.type == "text" and event.delta == "recovered" for event in events)
     assert not any(event.type == "error" for event in events)
 
     usage = [event for event in events if event.type == "usage"][-1]
-    assert usage.data["turn_usage"] == {"total_tokens": 10, "input_tokens": 6, "output_tokens": 4}
-    assert usage.data["turn_cost"] == {
+    assert usage.turn_usage == {"total_tokens": 10, "input_tokens": 6, "output_tokens": 4}
+    assert usage.turn_cost == {
         "input": 6 / 1_000_000,
         "output": 8 / 1_000_000,
         "total": 14 / 1_000_000,
     }
-    assert usage.data["context_tokens"] == 10
+    assert usage.context_tokens == 10
 
 
 async def test_non_retryable_failure_fails_immediately(tmp_path: Path) -> None:
@@ -154,7 +161,7 @@ async def test_non_retryable_failure_fails_immediately(tmp_path: Path) -> None:
 
     assert adapter.attempts == 1
     assert not any(event.type == "retry" for event in events)
-    assert events[-1] == Event("error", {"message": "invalid request"})
+    assert events[-1] == ErrorEvent(message="invalid request")
 
 
 async def test_exhausted_retries_surface_last_error_and_persist_nothing(tmp_path: Path) -> None:
@@ -166,7 +173,7 @@ async def test_exhausted_retries_surface_last_error_and_persist_nothing(tmp_path
 
     assert adapter.attempts == 3
     assert len([event for event in events if event.type == "retry"]) == 2
-    assert events[-1] == Event("error", {"message": "down 2"})
+    assert events[-1] == ErrorEvent(message="down 2")
 
     # No attempt produced output — nothing but the user message is persisted.
     assert [message["role"] for message in agent.messages] == ["user"]
@@ -181,9 +188,9 @@ async def test_stream_start_timeout_cancels_and_retries(tmp_path: Path) -> None:
 
     retries = [event for event in events if event.type == "retry"]
     assert len(retries) == 1
-    assert retries[0].data["reason"] == "stream_start_timeout"
+    assert retries[0].reason == "stream_start_timeout"
     assert adapter.attempts == 2
-    assert any(event.type == "text" and event.data["delta"] == "late but fine" for event in events)
+    assert any(event.type == "text" and event.delta == "late but fine" for event in events)
 
 
 async def test_stream_start_timeout_exhausted_raises_dedicated_error(tmp_path: Path) -> None:
@@ -194,8 +201,8 @@ async def test_stream_start_timeout_exhausted_raises_dedicated_error(tmp_path: P
         events = await _collect(agent)
 
     assert adapter.attempts == 1
-    assert events[-1].type == "error"
-    assert "no provider stream event received within" in events[-1].data["message"]
+    assert isinstance(events[-1], ErrorEvent)
+    assert "no provider stream event received within" in events[-1].message
 
 
 async def test_no_retry_after_output_and_partial_persisted_once(tmp_path: Path) -> None:
@@ -207,7 +214,7 @@ async def test_no_retry_after_output_and_partial_persisted_once(tmp_path: Path) 
 
     assert adapter.attempts == 1
     assert not any(event.type == "retry" for event in events)
-    assert events[-1] == Event("error", {"message": "stream died mid-turn"})
+    assert events[-1] == ErrorEvent(message="stream died mid-turn")
 
     messages = SessionStore(data_dir=tmp_path).load_messages_sync("session")
     assistants = [message for message in messages if message["role"] == "assistant"]
@@ -226,7 +233,7 @@ async def test_no_retry_after_reasoning_and_partial_persisted_once(tmp_path: Pat
 
     assert adapter.attempts == 1
     assert not any(event.type == "retry" for event in events)
-    assert events[-1] == Event("error", {"message": "reasoning stream died"})
+    assert events[-1] == ErrorEvent(message="reasoning stream died")
     assistants = [message for message in agent.messages if message["role"] == "assistant"]
     assert len(assistants) == 1
     assert assistants[0]["content"] == [
@@ -255,9 +262,9 @@ async def test_cancel_interrupts_backoff_and_honors_retry_after(tmp_path: Path) 
         await asyncio.wait_for(run(), timeout=5)
 
     retries = [event for event in events if event.type == "retry"]
-    assert retries[0].data["delay_seconds"] == 30.0
+    assert retries[0].delay_seconds == 30.0
     assert adapter.attempts == 1
-    assert events[-1] == Event("cancelled")
+    assert events[-1] == CancelledEvent()
 
 
 @pytest.mark.parametrize("error", [OSError("close failed"), ProviderError("close failed", retryable=True)])
@@ -269,7 +276,7 @@ async def test_provider_cleanup_failure_survives_stop(tmp_path: Path, error: Exc
         async def stream_turn(self, _request):
             self.attempts += 1
             try:
-                yield ProviderStreamEvent("text_delta", {"text": "partial"})
+                yield TextDelta("partial")
                 await asyncio.Event().wait()
             finally:
                 raise error
@@ -282,7 +289,7 @@ async def test_provider_cleanup_failure_survives_stop(tmp_path: Path, error: Exc
         if stop == "cancel":
             agent.cancel()
             events = [event async for event in stream]
-            assert events == [Event("error", {"message": "close failed"})]
+            assert events == [ErrorEvent(message="close failed")]
         else:
             with pytest.raises(type(error), match="close failed"):
                 await stream.aclose()
@@ -300,7 +307,7 @@ async def test_failure_after_stream_start_but_before_output_still_retries(tmp_pa
 
         async def stream_turn(self, _request: Any):
             self.attempts += 1
-            yield ProviderStreamEvent("stream_started")
+            yield StreamStarted()
             if self.attempts == 1:
                 raise _transient_error("died before any output")
             for event in self._turn:
@@ -314,7 +321,7 @@ async def test_failure_after_stream_start_but_before_output_still_retries(tmp_pa
 
     assert adapter.attempts == 2
     assert len([event for event in events if event.type == "retry"]) == 1
-    assert any(event.type == "text" and event.data["delta"] == "second try" for event in events)
+    assert any(event.type == "text" and event.delta == "second try" for event in events)
 
 
 async def test_acompact_retries_and_keeps_successful_marker_usage(tmp_path: Path) -> None:
@@ -326,14 +333,14 @@ async def test_acompact_retries_and_keeps_successful_marker_usage(tmp_path: Path
             self.attempts += 1
             if self.attempts == 2:  # request 1 is the chat turn, 2+ the summary
                 raise _transient_error("summary attempt lost")
-            yield ProviderStreamEvent("stream_started")
+            yield StreamStarted()
             text = "chat reply" if self.attempts == 1 else "THE_SUMMARY"
-            message: dict[str, Any] = {
+            message: ConversationMessage = {
                 "role": "assistant",
                 "content": [{"type": "text", "text": text}],
                 "meta": {"usage": {"total_tokens": 42}},
             }
-            yield ProviderStreamEvent("message_done", {"message": message})
+            yield MessageDone(message)
 
     adapter = _FlakySummaryAdapter()
     agent = _new_agent(tmp_path, compact_threshold=0)
@@ -344,7 +351,9 @@ async def test_acompact_retries_and_keeps_successful_marker_usage(tmp_path: Path
         marker = await agent.acompact()
 
     assert adapter.attempts == 3
-    assert marker["content"][0]["text"] == "THE_SUMMARY"
+    summary = marker["content"][0]
+    assert summary["type"] == "text"
+    assert summary["text"] == "THE_SUMMARY"
     assert marker["meta"]["usage"] == {"total_tokens": 42}
 
 

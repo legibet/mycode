@@ -8,7 +8,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
 
-from mycode import ContentBlock, ConversationMessage
+from mycode.messages import ContentBlock, ConversationMessage, TextBlock
 
 logger = logging.getLogger(__name__)
 
@@ -43,7 +43,7 @@ class BackgroundJobs:
         # Called with ``"job_started"`` or ``"job_finished"`` and the job, for live job lists.
         self.on_change: Callable[[str, BackgroundJob], None] | None = None
         self.jobs: list[BackgroundJob] = []
-        self.pending: list[ContentBlock] = []
+        self.pending: list[TextBlock] = []
         self.in_flight: set[str] = set()
         # Set by a user Stop or a wake that never committed; cleared by the next user message.
         self.suspended = False
@@ -71,7 +71,7 @@ class BackgroundJobs:
                 return True
         return False
 
-    async def notify(self, block: ContentBlock) -> None:
+    async def notify(self, block: TextBlock) -> None:
         self.pending.append(block)
         await self.deliver_pending()
 
@@ -85,12 +85,12 @@ class BackgroundJobs:
         except Exception:
             logger.exception("background job delivery failed")
 
-    def deliverable(self) -> list[ContentBlock]:
+    def deliverable(self) -> list[TextBlock]:
         """The pending blocks not yet handed to a run."""
 
         return [block for block in self.pending if job_id(block) not in self.in_flight]
 
-    def take_pending(self) -> list[ContentBlock]:
+    def take_pending(self) -> list[TextBlock]:
         """Take the deliverable blocks, marking them in flight."""
 
         blocks = self.deliverable()
@@ -103,8 +103,8 @@ class BackgroundJobs:
         committed = {
             job_id(block)
             for message in messages
-            if message.get("role") == "user"
-            for block in message.get("content") or []
+            if message["role"] == "user"
+            for block in message["content"]
             if job_id(block)
         }
         self.pending = [block for block in self.pending if job_id(block) not in committed]
@@ -127,13 +127,12 @@ class BackgroundJobs:
 def job_id(block: ContentBlock) -> str | None:
     """Return the ``tool_use_id`` of a job notification block, or ``None`` for other blocks."""
 
-    meta = block.get("meta")
-    job = meta.get("job") if isinstance(meta, dict) else None
-    return str(job["tool_use_id"]) if isinstance(job, dict) else None
+    job = block.get("meta", {}).get("job")
+    return job["tool_use_id"] if job else None
 
 
 def is_job_message(message: ConversationMessage) -> bool:
     """Whether every block of ``message`` is a job notification."""
 
-    content = message.get("content") or []
+    content = message["content"]
     return bool(content) and all(job_id(block) for block in content)

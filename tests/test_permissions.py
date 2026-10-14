@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from mycode import Agent, SessionStore, ToolHookContext, tool
-from mycode.providers.base import ProviderStreamEvent
+from mycode.providers.base import MessageDone
 from mycode.tools import ToolExecutionResult, ToolSpec
 from mycode_cli.config import PermissionConfig, Settings
 from mycode_cli.permissions import (
@@ -224,7 +224,7 @@ async def test_permission_hook_denies_without_interactive_review_without_cancell
 ) -> None:
     monkeypatch.setattr("mycode_cli.permissions.discover_skills", lambda _cwd: [])
     hooks = build_permission_hooks(_settings(tmp_path, permission=PermissionConfig(level="safe", mode="ask")))
-    result = await hooks.run_before_tool(_ctx("bash", {"command": "pnpm install"}))
+    result = await hooks._run_before_tool(_ctx("bash", {"command": "pnpm install"}), lambda: None)
 
     assert result == ToolExecutionResult(output=PERMISSION_DENIED_OUTPUT, is_error=True)
 
@@ -242,7 +242,7 @@ async def test_permission_hook_allows_interactive_approval(tmp_path: Path, monke
         _settings(tmp_path, permission=PermissionConfig(level="safe", mode="ask")),
         review=review,
     )
-    result = await hooks.run_before_tool(_ctx("bash", {"command": "pnpm install"}))
+    result = await hooks._run_before_tool(_ctx("bash", {"command": "pnpm install"}), lambda: None)
 
     assert result is None
     assert reviewed[0].preview == "pnpm install"
@@ -272,23 +272,22 @@ async def test_permission_hook_distinguishes_user_denial(tmp_path: Path, monkeyp
 
     class Adapter:
         async def stream_turn(self, _request):
-            yield ProviderStreamEvent(
-                "message_done",
+            yield MessageDone(
                 {
-                    "message": {
-                        "role": "assistant",
-                        "content": [{"type": "tool_use", "id": "call-1", "name": "probe", "input": {}}],
-                        "meta": {"stop_reason": "tool_use"},
-                    }
-                },
+                    "role": "assistant",
+                    "content": [{"type": "tool_use", "id": "call-1", "name": "probe", "input": {}}],
+                    "meta": {"stop_reason": "tool_use"},
+                }
             )
 
     monkeypatch.setattr("mycode.agent.get_provider_adapter", lambda _: Adapter())
     events = [event async for event in agent.achat("go")]
     done = next(event for event in events if event.type == "tool_done")
-    assert done.data["output"] == PERMISSION_DENIED_BY_USER_OUTPUT
-    assert done.data["is_error"] is True
+    assert done.output == PERMISSION_DENIED_BY_USER_OUTPUT
+    assert done.is_error is True
     assert events[-1].type == "cancelled"
     assert calls == []
     stored = SessionStore(data_dir=tmp_path).load_messages_sync(agent.session_id)
-    assert stored[-1]["content"][0]["output"] == PERMISSION_DENIED_BY_USER_OUTPUT
+    result = stored[-1]["content"][0]
+    assert result["type"] == "tool_result"
+    assert result["output"] == PERMISSION_DENIED_BY_USER_OUTPUT

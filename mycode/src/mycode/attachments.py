@@ -15,7 +15,7 @@ from mimetypes import guess_type
 from pathlib import Path
 from typing import Self
 
-from mycode.messages import ContentBlock, document_block, image_block, text_block
+from mycode.messages import BlockMeta, ContentBlock, TextBlock, document_block, image_block, text_block
 
 SUPPORTED_IMAGE_MIME_TYPES = frozenset({"image/png", "image/jpeg", "image/gif", "image/webp"})
 SUPPORTED_DOCUMENT_MIME_TYPES = frozenset({"application/pdf"})
@@ -114,7 +114,7 @@ def unsupported_attachment_block(
     mime_type: str,
     kind: str,
     path: str | None = None,
-) -> ContentBlock:
+) -> TextBlock:
     """Text-block stand-in for an image/PDF block a model can't ingest.
 
     Pass ``path`` (e.g. the original ``@path`` typed by the user) to keep it on
@@ -126,7 +126,7 @@ def unsupported_attachment_block(
     safe_name = html.escape(name, quote=True)
     safe_mime = html.escape(mime_type, quote=True)
     body = f"Current model does not support {label}."
-    meta: dict[str, object] = {"attachment": True}
+    meta: BlockMeta = {"attachment": True}
     if path is not None:
         meta["path"] = path
     return text_block(

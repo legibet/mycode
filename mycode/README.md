@@ -39,7 +39,7 @@ async def main() -> None:
 
     async for event in agent.achat("Read pyproject.toml and tell me the project name."):
         if event.type == "text":
-            print(event.data["delta"], end="", flush=True)
+            print(event.delta, end="", flush=True)
 
 
 asyncio.run(main())
@@ -73,6 +73,8 @@ The SDK infers the provider from the model string (`claude-*` to Anthropic, `gpt
 | OpenAI-compatible | `openai_chat` | - |
 
 Pass `api_key=` to override the env var, `api_base=` for a custom endpoint. Model metadata is bundled from [models.dev](https://models.dev); pass `context_window`, `supports_image_input`, or `supports_pdf_input` to override.
+
+Call `agent.set_model(...)` between turns to switch models; the conversation carries over.
 
 ## Multi-turn conversations
 

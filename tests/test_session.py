@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from mycode.messages import ConversationMessage
 from mycode.session import SessionStore
 
 pytestmark = pytest.mark.asyncio
@@ -20,7 +21,7 @@ async def test_append_creates_session_and_replays_messages(store: SessionStore) 
     assert not store.session_exists("s1")
     assert await store.load_messages("s1") == []
 
-    messages = [
+    messages: list[ConversationMessage] = [
         {"role": "user", "content": [{"type": "text", "text": "How do I write a Python function?"}]},
         {"role": "assistant", "content": [{"type": "text", "text": "Start with def."}]},
     ]
@@ -34,7 +35,7 @@ async def test_append_creates_session_and_replays_messages(store: SessionStore) 
 async def test_load_raw_messages_keeps_rewound_tails(store: SessionStore) -> None:
     assert await store.load_raw_messages("s1") == []
 
-    records = [
+    records: list[ConversationMessage] = [
         {"role": "user", "content": [{"type": "text", "text": "hi"}]},
         {"role": "assistant", "content": [{"type": "text", "text": "rewound reply"}]},
     ]
@@ -51,7 +52,7 @@ async def test_load_raw_messages_keeps_rewound_tails(store: SessionStore) -> Non
 async def test_load_messages_preserves_orphan_tool_use(store: SessionStore) -> None:
     """The store is a pure reader; closing orphan tool_use blocks is the provider's job."""
 
-    message = {
+    message: ConversationMessage = {
         "role": "assistant",
         "content": [{"type": "tool_use", "id": "call_1", "name": "read", "input": {"path": "x.py"}}],
     }

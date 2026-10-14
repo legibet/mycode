@@ -8,7 +8,7 @@ from uuid import uuid4
 from fastapi import APIRouter, HTTPException, Query
 from fastapi import Path as PathParam
 
-from mycode.messages import ConversationMessage
+from mycode.messages import ContentBlock, ConversationMessage
 from mycode_cli.server.deps import RunManagerDep, StoreDep, resolve_workspace_cwd
 from mycode_cli.server.schemas import SessionCreateRequest, StatusResponse
 from mycode_cli.sessions import SessionTotals
@@ -16,17 +16,15 @@ from mycode_cli.sessions import SessionTotals
 router = APIRouter(prefix="/sessions", tags=["sessions"])
 
 
-def _redact_document_data(messages: list[ConversationMessage]) -> list[dict[str, Any]]:
-    redacted: list[dict[str, Any]] = []
+def _redact_document_data(messages: list[ConversationMessage]) -> list[ConversationMessage]:
+    redacted: list[ConversationMessage] = []
     for message in messages:
-        content = []
-        for block in message.get("content") or []:
-            if not isinstance(block, dict):
-                continue
-            if block.get("type") == "document" and block.get("data"):
-                block = {**block, "data": ""}
+        content: list[ContentBlock] = []
+        for block in message["content"]:
+            if block["type"] == "document" and block["data"]:
+                block = block | {"data": ""}
             content.append(block)
-        redacted.append({**message, "content": content})
+        redacted.append(message | {"content": content})
     return redacted
 
 

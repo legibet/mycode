@@ -486,7 +486,7 @@ Response:
 | `text`                | `delta: str`                                                                                                                        |
 | `tool_start`          | `tool_call: {id, name, input}`                                                                                                      |
 | `tool_output`         | `tool_use_id: str`, `output: str`                                                                                                   |
-| `tool_done`           | `tool_use_id: str`, `output: str`, `is_error: bool`, `metadata?`, `content?`                                                        |
+| `tool_done`           | `tool_use_id: str`, `output: str`, `is_error: bool`, `metadata?`                                                                    |
 | `compact`             | `trigger: "auto" \| "manual"`                                                                                                       |
 | `user_message`        | `message: {role, content, meta}`                                                                                                    |
 | `error`               | `message: str`                                                                                                                      |
@@ -498,6 +498,8 @@ Response:
 Parallel-safe tool calls run concurrently (`docs/sdk.md`, Parallel calls). Their `tool_start` events come in call order and their later events interleave, so clients match `tool_output` and `tool_done` by `tool_use_id`. Permission requests come one at a time.
 
 `tool_output` is ordered, append-only display text. Clients do not insert separators between events. Under buffer pressure, `[live output omitted]` replaces one continuous middle segment. `tool_done.output` is the authoritative final result. Once a tool's `tool_done` is buffered, the server may drop that tool's earlier `tool_output` events — a consumer that has not read them yet skips straight to the `tool_done`.
+
+`tool_done` sends the display result only. The SDK event's multimodal `content`, such as an image a tool read, is not sent; it stays in the persisted `tool_result` block for provider replay.
 
 `compact.trigger` matches the persisted marker's `meta.trigger`: `auto` inside a chat run, where the marker belongs to the running turn, and `manual` for a compact run.
 

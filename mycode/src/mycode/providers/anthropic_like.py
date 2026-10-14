@@ -9,31 +9,38 @@ from typing import Any, cast, override
 import httpx2
 
 from mycode.messages import (
+    ContentBlock,
     ConversationMessage,
+    DocumentBlock,
+    ImageBlock,
+    StopReason,
+    ThinkingBlock,
     assistant_message,
-    build_usage,
     text_block,
     thinking_block,
     tool_use_block,
 )
 from mycode.providers.base import (
-    CanonicalStopReason,
+    MessageDone,
     ProviderAdapter,
     ProviderRequest,
     ProviderStreamEvent,
+    StreamStarted,
+    TextDelta,
+    ThinkingDelta,
     dump_model,
     get_native_meta,
-    load_document_block_payload,
-    load_image_block_payload,
     native_block_meta,
     normalize_provider_error,
     tool_result_content_blocks,
 )
+from mycode.tools import ToolDefinition
+from mycode.usage import build_usage
 
 _RETRYABLE_ANTHROPIC_ERROR_TYPES = {"api_error", "overloaded_error", "rate_limit_error", "timeout_error"}
 
 
-def _normalize_stop_reason(raw_reason: Any) -> CanonicalStopReason:
+def _normalize_stop_reason(raw_reason: Any) -> StopReason:
     reason = str(raw_reason or "").lower()
     if reason == "tool_use":
         return "tool_use"
@@ -140,17 +147,17 @@ class AnthropicLikeAdapter(ProviderAdapter):
                 async for event in stream:
                     if not started:
                         started = True
-                        yield ProviderStreamEvent("stream_started")
+                        yield StreamStarted()
                     event_type = getattr(event, "type", None)
                     if event_type == "thinking":
                         thinking = cast(str | None, getattr(event, "thinking", None))
                         if thinking:
-                            yield ProviderStreamEvent("thinking_delta", {"text": thinking})
+                            yield ThinkingDelta(thinking)
                         continue
                     if event_type == "text":
                         text = cast(str | None, getattr(event, "text", None))
                         if text:
-                            yield ProviderStreamEvent("text_delta", {"text": text})
+                            yield TextDelta(text)
 
                 final_message = await stream.get_final_message()
         except (APIError, httpx2.HTTPError) as exc:
@@ -159,15 +166,10 @@ class AnthropicLikeAdapter(ProviderAdapter):
                 error.retryable = True
             raise error from exc
 
-        yield ProviderStreamEvent(
-            "message_done",
-            {
-                "message": self._convert_final_message(final_message, request_model=request.model),
-            },
-        )
+        yield MessageDone(self._convert_final_message(final_message, request_model=request.model))
 
     def _convert_final_message(self, message: Any, *, request_model: str | None = None) -> ConversationMessage:
-        blocks = []
+        blocks: list[ContentBlock] = []
         for block in getattr(message, "content", []) or []:
             block_type = getattr(block, "type", None)
 
@@ -233,98 +235,65 @@ class AnthropicLikeAdapter(ProviderAdapter):
             native_meta=message_native_meta,
         )
 
-    def _serialize_tool(self, tool: dict[str, Any]) -> dict[str, Any]:
-        return {
-            "name": tool.get("name") or "",
-            "description": tool.get("description") or "",
-            "input_schema": tool.get("input_schema") or {"type": "object", "properties": {}},
-        }
+    def _serialize_tool(self, tool: ToolDefinition) -> dict[str, Any]:
+        return {"name": tool["name"], "description": tool["description"], "input_schema": tool["input_schema"]}
 
     def _serialize_message(self, message: ConversationMessage) -> dict[str, Any]:
-        role = str(message.get("role") or "user")
         content = []
-        for block in message.get("content") or []:
-            if not isinstance(block, dict):
-                continue
-            native_meta = get_native_meta(block)
-            native_block = native_meta.get("anthropic_block")
-            has_native_thinking = native_meta.get("signature") or (
-                isinstance(native_block, dict) and native_block.get("type") in {"thinking", "redacted_thinking"}
-            )
+        for block in message["content"]:
+            # Anthropic rejects thinking without its signature, such as
+            # portable thinking replayed from another provider.
             if (
                 self.provider_id == "anthropic"
-                and role == "assistant"
-                and block.get("type") == "thinking"
-                and not has_native_thinking
+                and message["role"] == "assistant"
+                and block["type"] == "thinking"
+                and not _native_thinking(block)
             ):
                 continue
             content.append(self._serialize_block(block))
-        return {
-            "role": role,
-            "content": content,
-        }
+        return {"role": message["role"], "content": content}
 
-    def _serialize_block(self, block: dict[str, Any]) -> dict[str, Any]:
-        block_type = block.get("type")
+    def _serialize_block(self, block: ContentBlock) -> dict[str, Any]:
+        match block["type"]:
+            case "text":
+                return {"type": "text", "text": block["text"]}
+            case "thinking":
+                return _native_thinking(block) or {"type": "thinking", "thinking": block["text"]}
+            case "tool_use":
+                return {"type": "tool_use", "id": block["id"], "name": block["name"], "input": block["input"]}
+            case "image" | "document":
+                return {"type": block["type"], "source": _base64_source(block)}
+            case "tool_result":
+                # Tool content is application-defined; only text and images are sent.
+                content_blocks = []
+                for item in tool_result_content_blocks(block):
+                    if item["type"] == "text":
+                        content_blocks.append({"type": "text", "text": item["text"]})
+                    elif item["type"] == "image":
+                        content_blocks.append({"type": "image", "source": _base64_source(item)})
+                return {
+                    "type": "tool_result",
+                    "tool_use_id": block["tool_use_id"],
+                    "content": content_blocks or block["output"],
+                    "is_error": block["is_error"],
+                }
+        raise ValueError(f"unsupported content block type: {block['type']}")
 
-        if block_type == "text":
-            return {"type": "text", "text": str(block.get("text") or "")}
 
-        if block_type == "thinking":
-            native_meta = get_native_meta(block)
-            native_block = native_meta.get("anthropic_block")
-            if isinstance(native_block, dict) and native_block.get("type") in {"thinking", "redacted_thinking"}:
-                return dict(native_block)
+def _native_thinking(block: ThinkingBlock) -> dict[str, Any] | None:
+    """Return the replayable native thinking payload recorded on ``block``, if any."""
 
-            payload: dict[str, Any] = {
-                "type": "thinking",
-                "thinking": str(block.get("text") or ""),
-            }
-            if native_meta.get("signature"):
-                payload["signature"] = native_meta["signature"]
-            return payload
+    native_meta = get_native_meta(block)
+    if native_block := native_meta.get("anthropic_block"):
+        return dict(native_block)
+    # Older records keep only the signature next to the thinking text.
+    if signature := native_meta.get("signature"):
+        return {"type": "thinking", "thinking": block["text"], "signature": signature}
+    return None
 
-        if block_type == "tool_use":
-            return {
-                "type": "tool_use",
-                "id": block.get("id"),
-                "name": block.get("name"),
-                "input": block.get("input") if isinstance(block.get("input"), dict) else {},
-            }
 
-        if block_type == "image":
-            mime_type, data = load_image_block_payload(block)
-            return {
-                "type": "image",
-                "source": {"type": "base64", "media_type": mime_type, "data": data},
-            }
-
-        if block_type == "document":
-            mime_type, data, _name = load_document_block_payload(block)
-            return {
-                "type": "document",
-                "source": {"type": "base64", "media_type": mime_type, "data": data},
-            }
-
-        if block_type == "tool_result":
-            content_blocks = []
-            for item in tool_result_content_blocks(block):
-                if item.get("type") == "text":
-                    content_blocks.append({"type": "text", "text": str(item.get("text") or "")})
-                    continue
-                if item.get("type") == "image":
-                    mime_type, data = load_image_block_payload(item)
-                    content_blocks.append(
-                        {"type": "image", "source": {"type": "base64", "media_type": mime_type, "data": data}}
-                    )
-            return {
-                "type": "tool_result",
-                "tool_use_id": block.get("tool_use_id"),
-                "content": content_blocks or str(block.get("output") or ""),
-                "is_error": bool(block.get("is_error")),
-            }
-
-        return dict(block)
+def _base64_source(block: ImageBlock | DocumentBlock) -> dict[str, Any]:
+    return {"type": "base64", "media_type": block["mime_type"], "data": block["data"]}
 
 
 class AnthropicAdapter(AnthropicLikeAdapter):

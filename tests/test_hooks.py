@@ -11,8 +11,18 @@ from unittest.mock import patch
 
 import pytest
 
-from mycode import Agent, Event, Hooks, ToolExecutionResult, ToolHookContext, tool
-from mycode.providers.base import ProviderStreamEvent
+from mycode import (
+    Agent,
+    CancelledEvent,
+    Event,
+    Hooks,
+    ToolDoneEvent,
+    ToolExecutionResult,
+    ToolHookContext,
+    ToolOutputEvent,
+    tool,
+)
+from mycode.providers.base import MessageDone, ProviderStreamEvent
 from mycode.tools import ToolContext, ToolSpec
 
 
@@ -31,28 +41,24 @@ class _ToolUseAdapter:
     async def stream_turn(self, _request) -> AsyncIterator[ProviderStreamEvent]:
         self.requests += 1
         if self.requests == 1:
-            yield ProviderStreamEvent(
-                "message_done",
+            yield MessageDone(
                 {
-                    "message": {
-                        "role": "assistant",
-                        "meta": {"stop_reason": "tool_use"},
-                        "content": [
-                            {
-                                "type": "tool_use",
-                                "id": "call-1",
-                                "name": self.tool_name,
-                                "input": self.tool_input,
-                            }
-                        ],
-                    }
-                },
+                    "role": "assistant",
+                    "meta": {"stop_reason": "tool_use"},
+                    "content": [
+                        {
+                            "type": "tool_use",
+                            "id": "call-1",
+                            "name": self.tool_name,
+                            "input": self.tool_input,
+                        }
+                    ],
+                }
             )
             return
 
-        yield ProviderStreamEvent(
-            "message_done",
-            {"message": {"role": "assistant", "content": [{"type": "text", "text": "done"}]}},
+        yield MessageDone(
+            {"role": "assistant", "content": [{"type": "text", "text": "done"}]},
         )
 
 
@@ -105,7 +111,8 @@ async def test_agent_passes_the_same_deps_to_parameterized_tools_and_hooks() -> 
     with patch("mycode.agent.get_provider_adapter", return_value=adapter):
         events = _chat_events([event async for event in agent.achat("inspect")])
 
-    assert events[-1].data["output"] == "ok"
+    assert isinstance(events[-1], ToolDoneEvent)
+    assert events[-1].output == "ok"
     assert len(seen) == 2
     assert all(value is deps for value in seen)
 
@@ -140,7 +147,7 @@ async def test_before_tool_blocks_execution_and_after_hooks_see_result(tmp_path:
     assert calls == []
     assert seen == ["blocked"]
     assert [event.type for event in events] == ["tool_start", "tool_done"]
-    assert events[1].data == {"tool_use_id": "call-1", "output": "blocked", "is_error": True}
+    assert events[1] == ToolDoneEvent(tool_use_id="call-1", output="blocked", is_error=True)
 
 
 @pytest.mark.asyncio
@@ -168,7 +175,7 @@ async def test_after_tool_hooks_replace_results_in_order(tmp_path: Path) -> None
         events = _chat_events([event async for event in agent.achat("run ping")])
 
     assert seen == ["tool", "tool+first"]
-    assert events[1].data == {"tool_use_id": "call-1", "output": "tool+first+second", "is_error": False}
+    assert events[1] == ToolDoneEvent(tool_use_id="call-1", output="tool+first+second", is_error=False)
 
 
 @pytest.mark.asyncio
@@ -196,7 +203,7 @@ async def test_tool_hook_context_input_is_readonly(tmp_path: Path) -> None:
     with patch("mycode.agent.get_provider_adapter", return_value=adapter):
         events = _chat_events([event async for event in agent.achat("run ping")])
 
-    assert events[1].data == {"tool_use_id": "call-1", "output": "ok", "is_error": False}
+    assert events[1] == ToolDoneEvent(tool_use_id="call-1", output="ok", is_error=False)
 
 
 @pytest.mark.asyncio
@@ -225,11 +232,7 @@ async def test_hook_errors_become_tool_errors(tmp_path: Path) -> None:
 
     assert calls == []
     assert after_calls == []
-    assert events[1].data == {
-        "tool_use_id": "call-1",
-        "output": "error: tool hook failed: boom",
-        "is_error": True,
-    }
+    assert events[1] == ToolDoneEvent(tool_use_id="call-1", output="error: tool hook failed: boom", is_error=True)
 
 
 @pytest.mark.asyncio
@@ -249,7 +252,7 @@ async def test_after_tool_hook_errors_keep_tool_result(tmp_path: Path) -> None:
     with patch("mycode.agent.get_provider_adapter", return_value=adapter):
         events = _chat_events([event async for event in agent.achat("run ping")])
 
-    assert events[1].data == {"tool_use_id": "call-1", "output": "tool ran", "is_error": False}
+    assert events[1] == ToolDoneEvent(tool_use_id="call-1", output="tool ran", is_error=False)
 
 
 @pytest.mark.asyncio
@@ -279,11 +282,7 @@ async def test_cancellation_after_before_hooks_cannot_be_replaced(tmp_path: Path
 
     assert calls == []
     assert after_calls == []
-    assert events[1].data == {
-        "tool_use_id": "call-1",
-        "output": "error: cancelled",
-        "is_error": True,
-    }
+    assert events[1] == ToolDoneEvent(tool_use_id="call-1", output="error: cancelled", is_error=True)
 
 
 @pytest.mark.asyncio
@@ -324,9 +323,10 @@ async def test_cancelled_before_hook_cannot_enter_tool_or_after(tmp_path: Path) 
     assert calls == []
     assert after_calls == []
     assert events[0].type == "tool_start"
-    assert events[1].data["output"] == "error: cancelled"
-    assert events[1].data["is_error"] is True
-    assert events[-1] == Event("cancelled", {})
+    assert isinstance(events[1], ToolDoneEvent)
+    assert events[1].output == "error: cancelled"
+    assert events[1].is_error is True
+    assert events[-1] == CancelledEvent()
 
 
 @pytest.mark.asyncio
@@ -358,9 +358,9 @@ async def test_cancelled_after_hook_cannot_replace_result(tmp_path: Path) -> Non
             events = await task
 
     done = next(event for event in events if event.type == "tool_done")
-    assert done.data["output"] == "error: cancelled"
-    assert done.data["is_error"] is True
-    assert events[-1] == Event("cancelled", {})
+    assert done.output == "error: cancelled"
+    assert done.is_error is True
+    assert events[-1] == CancelledEvent()
 
 
 @pytest.mark.asyncio
@@ -394,7 +394,7 @@ async def test_before_tool_blocks_streaming_tool_without_live_output(tmp_path: P
 
     assert calls == []
     assert [event.type for event in events] == ["tool_start", "tool_done"]
-    assert events[1].data == {"tool_use_id": "call-1", "output": "blocked", "is_error": True}
+    assert events[1] == ToolDoneEvent(tool_use_id="call-1", output="blocked", is_error=True)
 
 
 @pytest.mark.asyncio
@@ -426,8 +426,8 @@ async def test_after_tool_can_replace_streaming_tool_result(tmp_path: Path) -> N
         events = _chat_events([event async for event in agent.achat("run ping")])
 
     assert [event.type for event in events] == ["tool_start", "tool_output", "tool_done"]
-    assert events[1].data == {"tool_use_id": "call-1", "output": "live"}
-    assert events[2].data == {"tool_use_id": "call-1", "output": "replaced", "is_error": False}
+    assert events[1] == ToolOutputEvent(tool_use_id="call-1", output="live")
+    assert events[2] == ToolDoneEvent(tool_use_id="call-1", output="replaced", is_error=False)
 
 
 @pytest.mark.asyncio
@@ -466,7 +466,7 @@ async def test_streaming_cancellation_cannot_be_replaced(tmp_path: Path) -> None
         rest = [event async for event in stream]
 
     assert first.type == "tool_start"
-    assert second.data == {"tool_use_id": "call-1", "output": "live"}
+    assert second == ToolOutputEvent(tool_use_id="call-1", output="live")
     assert after_calls == []
     assert [event.type for event in rest] == ["tool_done", "cancelled"]
-    assert rest[0].data == {"tool_use_id": "call-1", "output": "error: cancelled", "is_error": True}
+    assert rest[0] == ToolDoneEvent(tool_use_id="call-1", output="error: cancelled", is_error=True)

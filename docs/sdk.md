@@ -6,6 +6,8 @@ Source: `mycode/src/mycode/`
 
 `mycode-sdk` is a standalone Python SDK for multi-turn tool-calling agents. Import name: `mycode`. Ships independently of the CLI.
 
+Messages and blocks are plain JSON-ready dicts, typed by the TypedDicts in `mycode.messages`: `ConversationMessage`, the `ContentBlock` union (`TextBlock`, `ThinkingBlock`, `ImageBlock`, `DocumentBlock`, `ToolUseBlock`, `ToolResultBlock`, discriminated by `type`), and `RewindMarker` for raw session records. `MessageMeta` and `BlockMeta` type the SDK's own `meta` keys and accept any other key an application adds. Build them with the builders in `mycode.messages` (`text_block`, `build_message`, …). Record layout: docs/sessions.md.
+
 ## Agent
 
 ```python
@@ -38,7 +40,7 @@ async for event in agent.achat("Hello"):
 
 `user_input` is either a `str` or a `ConversationMessage` with `role="user"`. A passed message's `content` and `meta` are kept verbatim; attachments are appended to its `content`.
 
-`flatten_message_text(message)` joins a message's readable text (and thinking, unless `include_thinking=False`) as paragraphs. Blocks whose `meta` carries `attachment`, `skill_snapshot`, or `job` are payloads for the provider, not user text, and are skipped; see docs/sessions.md.
+`flatten_message_text(message)` joins a message's non-empty text blocks as paragraphs.
 
 ### Attachments
 
@@ -74,7 +76,7 @@ Text attachments are inlined in full, with no size limit; an application that ac
 
 ### `run()` synchronous wrapper
 
-`run()` consumes `achat()` via `asyncio.run`, concatenates `text` deltas into `RunResult.text`, captures the first error message in `RunResult.error`, and keeps the last `usage` payload in `RunResult.usage`; after a steer that payload describes only the last segment. User cancellation sets `RunResult.cancelled=True` and leaves `error=None`. `RunResult.events` keeps the non-transient events, including final `tool_done` results; live `tool_output` deltas are omitted so synchronous runs do not retain complete command streams in memory.
+`run()` consumes `achat()` via `asyncio.run`, concatenates `text` deltas into `RunResult.text`, captures the first error message in `RunResult.error`, and keeps the last `UsageEvent` in `RunResult.usage`; after a steer that event describes only the last segment. User cancellation sets `RunResult.cancelled=True` and leaves `error=None`. `RunResult.events` keeps the non-transient events, including final `tool_done` results; live `tool_output` deltas are omitted so synchronous runs do not retain complete command streams in memory.
 
 ```python
 result = agent.run("Hello")
@@ -118,7 +120,7 @@ At the boundary all pending steers merge into one `user` message: each item's co
 
 ### Model metadata
 
-`models.py` reads the bundled `models_catalog.json` catalog, which stores one official model list per supported provider (models.dev data via [basellm/llm-metadata](https://github.com/basellm/llm-metadata)). `lookup_model_metadata(provider_type=..., model=...)` looks up the official model name, first as supplied and then without its prefix, so routed ids such as OpenRouter's `owner/model` resolve to the official entry. A match supplies all metadata fields, including reasoning efforts and reference pricing — for routed providers the pricing is the official provider's, not the router's. An unmatched model returns `None`.
+`models.py` reads the bundled `models_catalog.json` catalog, which stores one official model list per supported provider (models.dev data via [basellm/llm-metadata](https://github.com/basellm/llm-metadata)). `resolve_model_metadata(provider=..., model=..., **overrides)` looks up the official model name, first as supplied and then without its prefix, so routed ids such as OpenRouter's `owner/model` resolve to the official entry. A match supplies all metadata fields, including reasoning efforts and reference pricing — for routed providers the pricing is the official provider's, not the router's.
 
 `resolve_model_metadata()` applies non-`None` explicit overrides to the matched metadata. The metadata fields consumed at runtime are `reasoning_efforts`, `supports_image_input`, `supports_pdf_input`, `context_window` (compact threshold calculation), and `max_output_tokens` (provider output limit). If no model matches, unspecified fields remain `None`; `context_window` then defaults to `128000` and `max_output_tokens` to `16384`, image/PDF input is rejected, and no effort is sent.
 
@@ -127,6 +129,10 @@ At the boundary all pending steers merge into one `user` message: each item's co
 `Agent(reasoning_effort=...)` passes the value directly to the selected provider adapter. Pass `None` to leave the effort unspecified. The adapter converts string values to the provider's request format and may reject unsupported values.
 
 `ModelMetadata.reasoning_efforts` lists the effort values advertised for a model. It is informational and does not validate or restrict `Agent.reasoning_effort`.
+
+### Switching models
+
+`agent.set_model(model, ...)` switches the model between operations and raises `RuntimeError` during one. It takes the constructor's model and endpoint arguments (`provider`, `api_key`, `api_base`, `reasoning_effort`, `legacy_max_tokens`, `max_tokens`, `context_window`, `supports_image_input`, `supports_pdf_input`) and replaces all of them: an omitted argument takes its constructor default, not the previous value, so a custom endpoint must pass `api_key` / `api_base` again. Capability fields and pricing are re-resolved as at construction. History, session, tools, hooks, `deps`, `system`, and the timeout, retry, and compact settings are kept; the next request replays the history to the new provider. Assign these fields only through `set_model()`; direct assignment leaves the derived capability fields stale. `reasoning_effort` alone may also be assigned directly.
 
 ### Cancellation
 
@@ -160,42 +166,53 @@ Adapters raise `ProviderError` (`reason`, `retryable`, `status_code`, `retry_aft
 
 ### Streaming events
 
-`achat()` yields `Event(type, data)`:
+`achat()` yields `Event` values from `mycode.events`: frozen dataclasses whose `type` names the event. Match on the class, or compare `event.type`; both narrow the type. `event.to_dict()` returns the JSON-ready payload, `type` plus the fields, leaving out optional fields while they are unset (the CLI server builds its SSE payloads from it). Frozen means the attributes cannot be reassigned; the dicts and lists they hold are not copied.
 
-| `type`           | `data`                                                                        |
-| ---------------- | ----------------------------------------------------------------------------- |
-| `reasoning`      | `{"delta": str}`                                                              |
-| `reasoning_done` | `{"duration_ms": int}`                                                        |
-| `text`           | `{"delta": str}`                                                              |
-| `tool_start`     | `{"tool_call": {"id", "name", "input"}}`                                      |
-| `tool_output`    | `{"tool_use_id", "output"}`; delta from `streams_output=True` tools           |
-| `tool_done`      | `{"tool_use_id", "output", "is_error", "metadata"?, "content"?}`              |
-| `compact`        | `{"trigger": "auto"}`; emitted after an automatic compact marker is committed |
-| `user_message`   | `{"message"}`; a merged steer message, emitted after it is committed          |
-| `retry`          | fields under Timeouts and retries; emitted before each new attempt            |
-| `usage`          | see below; emitted after every provider request and at a delivered steer      |
-| `error`          | `{"message"}`; fatal for the turn, then the iterator stops                    |
-| `cancelled`      | `{}`; user stop completed, then the iterator stops                            |
+```python
+from mycode import TextEvent, ToolDoneEvent
+
+async for event in agent.achat("Hello"):
+    match event:
+        case TextEvent(delta=delta):
+            print(delta, end="")
+        case ToolDoneEvent(tool_use_id=tool_use_id, is_error=True):
+            print(f"\n{tool_use_id} failed")
+```
+
+| class                | `type`           | fields                                                                                     |
+| -------------------- | ---------------- | ------------------------------------------------------------------------------------------ |
+| `ReasoningEvent`     | `reasoning`      | `delta`                                                                                    |
+| `ReasoningDoneEvent` | `reasoning_done` | `duration_ms`                                                                              |
+| `TextEvent`          | `text`           | `delta`                                                                                    |
+| `ToolStartEvent`     | `tool_start`     | `tool_call`: a copy of the `tool_use` block                                                |
+| `ToolOutputEvent`    | `tool_output`    | `tool_use_id`, `output`; delta from `streams_output=True` tools                            |
+| `ToolDoneEvent`      | `tool_done`      | `tool_use_id`, `output`, `is_error`, `metadata` (optional), `content` (optional)           |
+| `CompactEvent`       | `compact`        | `trigger` (`"auto"`); emitted after an automatic compact marker is committed               |
+| `UserMessageEvent`   | `user_message`   | `message`; a merged steer message, emitted after it is committed                           |
+| `RetryEvent`         | `retry`          | fields under Timeouts and retries; emitted before each new attempt                         |
+| `UsageEvent`         | `usage`          | see below; emitted after every provider request and at a delivered steer                   |
+| `ErrorEvent`         | `error`          | `message`; fatal for the turn, then the iterator stops                                     |
+| `CancelledEvent`     | `cancelled`      | none; user stop completed, then the iterator stops                                         |
 
 ### Usage, cost, and turn duration
 
 A `usage` event follows each successful provider request, including automatic compaction. It reports the latest context occupancy plus the turn's cumulative usage, cost, and elapsed time. A delivered steer starts a new segment of the turn: `turn_usage`, `turn_cost`, and `turn_duration_ms` restart from the merged steer message, so each `usage` event describes the current segment only. Before its `user_message`, a delivered steer emits one closing `usage` event for the segment it ends: same `context_tokens`, `turn_usage`, and `turn_cost`, with `turn_duration_ms` running to the merged steer message, so tool time after the last request is counted. `context_tokens` carries over.
 
 ```python
-{
-    "context_tokens": 1456,  # latest normal request's usage.total_tokens
-    "turn_usage": {  # cumulative for the turn
+UsageEvent(
+    context_tokens=1456,  # latest normal request's usage.total_tokens
+    turn_usage={  # cumulative for the turn
         "total_tokens": 2912,
         "input_tokens": 2800,
         "output_tokens": 112,
     },
-    "turn_cost": {
+    turn_cost={
         "input": 0.0042,
         "output": 0.0081,
         "total": 0.0123,
     },
-    "turn_duration_ms": 23400,  # turn start -> the record this event follows
-}
+    turn_duration_ms=23400,  # turn start -> the record this event follows
+)
 ```
 
 - `context_tokens` is the latest normal request's context usage. It is not cumulative.
@@ -205,7 +222,7 @@ A `usage` event follows each successful provider request, including automatic co
 - `turn_duration_ms` is the difference in milliseconds between the opening user record's `meta.created_at` (the user input, or the latest merged steer message) and the assistant or automatic compact record this event follows (for a steer's closing event, the merged steer message), clamped to zero. It is not persisted; reloading the same records gives the same value. Missing, invalid, or timezone-free stamps make it `None`.
 - Failed and cancelled requests without final usage do not emit an extra `usage` event, so an interrupted turn's last streamed `turn_duration_ms` stops at its last completed request.
 
-Each completed request persists token facts in `meta.usage` and its fixed USD cost in `meta.cost`; see docs/sessions.md. `add_usage(total, usage)` and `add_cost(total, cost)` fold one request into a running total, as turn totals do; a total-only cost reduces the sum to total-only. `estimate_cost(usage, pricing)` uses `ModelMetadata.pricing` from models.dev and applies long-context tiers per request. Missing cache/reasoning prices use base input/output prices. Missing required totals or prices and inconsistent token counts return `None`. OpenRouter's reported charge is persisted directly as `{"total": ...}`. Historical costs are never recomputed.
+Each completed request persists token facts in `meta.usage` and its fixed USD cost in `meta.cost`; see docs/sessions.md. `mycode.usage` holds the helpers: `add_usage(total, usage)` and `add_cost(total, cost)` fold one request into a running total, as turn totals do; a total-only cost reduces the sum to total-only. `estimate_cost(usage, pricing)` uses `ModelMetadata.pricing` from models.dev and applies long-context tiers per request. Missing cache/reasoning prices use base input/output prices. Missing required totals or prices and inconsistent token counts return `None`. OpenRouter's reported charge is persisted directly as `{"total": ...}`. Historical costs are never recomputed.
 
 ## Sessions
 

@@ -9,8 +9,15 @@ from unittest.mock import patch
 
 import pytest
 
-from mycode import Agent, Event, RunResult
-from mycode.providers.base import ProviderStreamEvent
+from mycode import (
+    Agent,
+    ConversationMessage,
+    Event,
+    RunResult,
+    ToolDoneEvent,
+    ToolOutputEvent,
+)
+from mycode.providers.base import MessageDone, ProviderStreamEvent
 from mycode.tools import ToolContext, ToolExecutor
 from mycode_cli.tools import DEFAULT_TOOLS, bash_tool
 from mycode_cli.workspace import CliDeps
@@ -231,17 +238,17 @@ class _ScriptedProviderAdapter:
 
 
 def _bash_turn(call_id: str, command: str) -> list[ProviderStreamEvent]:
-    message = {
+    message: ConversationMessage = {
         "role": "assistant",
         "content": [{"type": "tool_use", "id": call_id, "name": "bash", "input": {"command": command}}],
         "meta": {"stop_reason": "tool_use"},
     }
-    return [ProviderStreamEvent("message_done", {"message": message})]
+    return [MessageDone(message)]
 
 
 def _text_turn() -> list[ProviderStreamEvent]:
-    message = {"role": "assistant", "content": [{"type": "text", "text": "done"}]}
-    return [ProviderStreamEvent("message_done", {"message": message})]
+    message: ConversationMessage = {"role": "assistant", "content": [{"type": "text", "text": "done"}]}
+    return [MessageDone(message)]
 
 
 def _chat_events(events: list[Event]) -> list[Event]:
@@ -274,14 +281,15 @@ class TestAgentBash:
         with patch("mycode.agent.get_provider_adapter", return_value=adapter):
             events = _chat_events([event async for event in agent.achat("run bash")])
 
-        tool_output_events = [event for event in events if event.type == "tool_output"]
+        tool_output_events = [event for event in events if isinstance(event, ToolOutputEvent)]
         assert events[0].type == "tool_start"
-        assert events[-1].type == "tool_done"
         assert all(event.type == "tool_output" for event in events[1:-1])
         assert tool_output_events
-        assert "".join(event.data["output"] for event in tool_output_events) == "one\nsecond\n"
-        assert events[-1].data["output"] == "one\nsecond"
-        assert events[-1].data["is_error"] is False
+        assert "".join(event.output for event in tool_output_events) == "one\nsecond\n"
+        done = events[-1]
+        assert isinstance(done, ToolDoneEvent)
+        assert done.output == "one\nsecond"
+        assert done.is_error is False
 
     def test_cancel_stops_bash_from_another_thread(self, tmp_path: Path) -> None:
         marker = tmp_path / "bash-started"
@@ -313,13 +321,13 @@ class TestAgentBash:
 
         assert not run_thread.is_alive()
         events = _chat_events(results[0].events)
-        tool_done = [event for event in events if event.type == "tool_done"]
+        tool_done = [event for event in events if isinstance(event, ToolDoneEvent)]
         assert len(tool_done) == 1
-        result = tool_done[0].data
-        assert result["tool_use_id"] == "call-1"
-        assert result["is_error"] is True
-        assert "Output truncated:" in result["output"]
-        assert "error: cancelled" in result["output"]
+        result = tool_done[0]
+        assert result.tool_use_id == "call-1"
+        assert result.is_error is True
+        assert "Output truncated:" in result.output
+        assert "error: cancelled" in result.output
         log_path = tmp_path / agent.session_id / "tool-output" / "bash-call-1.log"
-        assert str(log_path) in result["output"]
+        assert str(log_path) in result.output
         assert log_path.read_bytes() == b"x" * 60000

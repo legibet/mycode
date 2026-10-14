@@ -19,8 +19,23 @@ from rich.table import Table
 from rich.text import Text
 
 from mycode.agent import Agent, PersistCallback
-from mycode.messages import ConversationMessage, flatten_message_text
-from mycode_cli.sessions import SessionTotals
+from mycode.events import (
+    CancelledEvent,
+    CompactEvent,
+    ErrorEvent,
+    ReasoningDoneEvent,
+    ReasoningEvent,
+    RetryEvent,
+    TextEvent,
+    ToolDoneEvent,
+    ToolOutputEvent,
+    ToolStartEvent,
+    UsageEvent,
+    UserMessageEvent,
+)
+from mycode.messages import ConversationMessage, TextBlock
+from mycode_cli.background import job_id
+from mycode_cli.sessions import SessionTotals, display_text
 
 from .markdown import Chunk, MarkdownBlock, MarkdownStream
 from .terminal import Terminal
@@ -223,16 +238,13 @@ def _tool_header(
     return marker.append_text(_tool_title(name, args, width - marker.cell_len, suffix=suffix))
 
 
-def _job_blocks(message: ConversationMessage) -> list[dict[str, Any]]:
+def _job_blocks(message: ConversationMessage) -> list[TextBlock]:
     """Return the background job notification blocks of a user message."""
 
-    content = message.get("content")
-    if not isinstance(content, list):
-        return []
-    return [block for block in content if isinstance(block, dict) and (block.get("meta") or {}).get("job")]
+    return [block for block in message["content"] if block["type"] == "text" and job_id(block)]
 
 
-def job_lines(block: dict[str, Any], width: int) -> list[Text]:
+def job_lines(block: TextBlock, width: int) -> list[Text]:
     """Render a finished background command: ``● Background finished  label  exit N``, then the output tail.
 
     The header names the event rather than the tool, so it does not read as a second ``Bash`` call.
@@ -250,7 +262,7 @@ def job_lines(block: dict[str, Any], width: int) -> list[Text]:
     lines = [marker.append_text(title).append_text(tail)]
 
     # The text is the header, a blank line, the output tail, then any bash notices.
-    _, _, body = str(block.get("text") or "").partition("\n\n")
+    _, _, body = block["text"].partition("\n\n")
     paragraphs = body.split("\n\n")
     notices: list[str] = []
     while paragraphs and paragraphs[-1].startswith(_BASH_NOTICES):
@@ -269,53 +281,38 @@ def _history_turns(messages: list[ConversationMessage], *, limit: int = 3) -> li
 
     turns: list[list[tuple[str, Any]]] = []
     results = {
-        block.get("tool_use_id"): block
+        block["tool_use_id"]: block
         for message in messages
-        if message.get("role") == "user" and isinstance(message.get("content"), list)
+        if message["role"] == "user"
         for block in message["content"]
-        if isinstance(block, dict) and block.get("type") == "tool_result"
+        if block["type"] == "tool_result"
     }
 
     for message in messages:
-        role = message.get("role")
-        content = message.get("content")
+        role = message["role"]
 
         if role == "compact":
             turns.append([("compact", None)])
             continue
 
         if role == "user":
-            # Use the shared flattener so attached file payload blocks stay out
-            # of the readable history preview; background results print as tools.
+            # display_text keeps payload blocks out of the readable history
+            # preview; background results print as tools.
             parts: list[tuple[str, Any]] = [("job", block) for block in _job_blocks(message)]
-            text = flatten_message_text(message, include_thinking=False)
-            if not isinstance(content, list):
-                text = text or str(content or "").strip()
-            if text:
+            if text := display_text(message):
                 parts.append(("user", text))
             if parts:
                 turns.append(parts)
             continue
 
-        if role != "assistant":
-            continue
-
         parts: list[tuple[str, Any]] = []
-        if isinstance(content, list):
-            for block in content:
-                if not isinstance(block, dict):
-                    continue
-                if block.get("type") == "text":
-                    text = str(block.get("text") or "").strip()
-                    if text:
-                        parts.append(("text", text))
-                elif block.get("type") == "tool_use":
-                    result = results.get(block.get("id")) or {}
-                    parts.append(("tool", (str(block.get("name") or "tool"), block.get("input"), result)))
-        else:
-            text = str(content or "").strip()
-            if text:
-                parts.append(("text", text))
+        for block in message["content"]:
+            if block["type"] == "text":
+                if text := block["text"].strip():
+                    parts.append(("text", text))
+            elif block["type"] == "tool_use":
+                result = results.get(block["id"]) or {}
+                parts.append(("tool", (block["name"] or "tool", block["input"], result)))
 
         if not parts:
             continue
@@ -347,14 +344,9 @@ def history_preview(messages: list[ConversationMessage], *, width: int) -> list[
                 lines.append(compact_marker())
             else:
                 name, args, result = content
-                metadata = result.get("metadata")
                 lines.append(
                     _tool_header(
-                        name,
-                        args if isinstance(args, dict) else {},
-                        width,
-                        failed=bool(result.get("is_error")),
-                        metadata=metadata if isinstance(metadata, dict) else None,
+                        name, args, width, failed=bool(result.get("is_error")), metadata=result.get("metadata")
                     )
                 )
     return lines
@@ -515,7 +507,7 @@ class TurnRenderer:
         # Tool phase: the running tools by call id, in call order.
         self._tools: dict[str, _RunningTool] = {}
         # Stats reported by the agent's `usage` event for the latest request.
-        self._stats: dict[str, Any] = {}
+        self._stats: UsageEvent | None = None
         # Whether the turn ended on a cancel or an error rather than completing.
         self.stopped = False
 
@@ -529,57 +521,43 @@ class TurnRenderer:
         """Stream one assistant turn to the terminal and return its exit code."""
 
         exit_code = 0
-        self._stats = {}
+        self._stats = None
         self._show_spinner(Text())
         try:
             async with aclosing(agent.achat(message, on_persist=on_persist)) as stream:
                 async for event in stream:
-                    match event.type:
-                        case "reasoning":
-                            self.reasoning(event.data.get("delta", ""))
-                        case "reasoning_done":
-                            duration_ms = event.data.get("duration_ms")
-                            if isinstance(duration_ms, int):
-                                self._thinking_duration_ms = duration_ms
-                        case "text":
-                            self.text(event.data.get("delta", ""))
-                        case "tool_start":
-                            tool_call = event.data.get("tool_call") or {}
-                            self.tool_start(
-                                tool_call.get("id", ""), tool_call.get("name", ""), tool_call.get("input") or {}
-                            )
-                        case "tool_output":
-                            self.tool_output(event.data.get("tool_use_id", ""), event.data.get("output", ""))
-                        case "tool_done":
-                            output = str(event.data.get("output") or "")
-                            is_error = bool(event.data.get("is_error"))
-                            raw_meta = event.data.get("metadata")
-                            metadata = raw_meta if isinstance(raw_meta, dict) else None
+                    match event:
+                        case ReasoningEvent():
+                            self.reasoning(event.delta)
+                        case ReasoningDoneEvent():
+                            self._thinking_duration_ms = event.duration_ms
+                        case TextEvent():
+                            self.text(event.delta)
+                        case ToolStartEvent():
+                            tool_call = event.tool_call
+                            self.tool_start(tool_call["id"], tool_call["name"], tool_call["input"])
+                        case ToolOutputEvent():
+                            self.tool_output(event.tool_use_id, event.output)
+                        case ToolDoneEvent():
                             self.tool_done(
-                                event.data.get("tool_use_id", ""), output, is_error=is_error, metadata=metadata
+                                event.tool_use_id, event.output, is_error=event.is_error, metadata=event.metadata
                             )
-                            if is_error:
+                            if event.is_error:
                                 exit_code = 1
-                        case "retry":
-                            self.retry(
-                                attempt=event.data.get("attempt"),
-                                max_attempts=event.data.get("max_attempts"),
-                                reason=str(event.data.get("reason") or ""),
-                            )
-                        case "usage":
-                            self._stats = dict(event.data)
-                        case "compact":
+                        case RetryEvent():
+                            self.retry(attempt=event.attempt, max_attempts=event.max_attempts, reason=event.reason)
+                        case UsageEvent():
+                            self._stats = event
+                        case CompactEvent():
                             self.compact()
-                        case "user_message":
-                            self.user_message(event.data.get("message") or {})
-                        case "cancelled":
+                        case UserMessageEvent():
+                            self.user_message(event.message)
+                        case CancelledEvent():
                             self.cancel()
                             return 0
-                        case "error":
+                        case ErrorEvent():
                             exit_code = 1
-                            self.error(event.data.get("message", ""))
-                        case _:
-                            pass
+                            self.error(event.message)
             self.finish()
             return exit_code
         finally:
@@ -656,7 +634,7 @@ class TurnRenderer:
 
         self._print(*renderables)
 
-    def retry(self, *, attempt: object, max_attempts: object, reason: str) -> None:
+    def retry(self, *, attempt: int, max_attempts: int, reason: str) -> None:
         """Show the retry status in the tail until the next event replaces it."""
 
         self._show_spinner(Text(f"retry {attempt}/{max_attempts} · {reason}", style=WARNING))
@@ -679,12 +657,13 @@ class TurnRenderer:
         for block in _job_blocks(message):
             self._print(*job_lines(block, self._terminal.width), joined=self._last_tool)
             self._last_tool = True
-        if text := flatten_message_text(message, include_thinking=False):
+        if text := display_text(message):
             echo = user_echo(text)
             echo.append("  steer", style=MUTED)
             self._print(echo)
-        self._session_base = self._session_base.add(self._stats.get("turn_usage"), self._stats.get("turn_cost"))
-        self._stats = {}
+        if self._stats is not None:
+            self._session_base = self._session_base.add(self._stats.turn_usage, self._stats.turn_cost)
+            self._stats = None
         if self._on_user_message is not None:
             self._on_user_message(message)
         self._show_spinner(Text())
@@ -707,14 +686,14 @@ class TurnRenderer:
         """Flush the current segment and print its stats line."""
 
         self._end_phase()
-        context_tokens = self._stats.get("context_tokens")
+        context_tokens = self._stats.context_tokens if self._stats else None
         parts: list[str] = []
         if context_tokens:
             usage_text = f"{context_tokens:,} tokens"
             if self._context_window:
                 usage_text += f" ({round(context_tokens * 100 / self._context_window)}%)"
             parts.append(usage_text)
-        session_cost = self._session_base.add(None, self._stats.get("turn_cost")).cost
+        session_cost = self._session_base.add(None, self._stats.turn_cost if self._stats else None).cost
         if session_cost is not None:
             parts.append(_format_cost(session_cost["total"]))
         if parts:

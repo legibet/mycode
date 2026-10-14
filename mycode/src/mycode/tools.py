@@ -20,16 +20,26 @@ import typing
 from collections.abc import Callable, Coroutine, Mapping, Sequence
 from dataclasses import dataclass
 from types import FunctionType
-from typing import Any, cast, overload
+from typing import Any, TypedDict, cast, overload
 
 from griffe import Docstring, DocstringSectionKind, Parser
 from pydantic import ConfigDict, Field, ValidationError, create_model
+
+from mycode.messages import ImageBlock, TextBlock
 
 # ---------------------------------------------------------------------------
 # Core types
 # ---------------------------------------------------------------------------
 
 ToolOutputCallback = Callable[[str], None]
+
+
+class ToolDefinition(TypedDict):
+    """Provider-facing tool declaration."""
+
+    name: str
+    description: str
+    input_schema: dict[str, Any]
 
 
 @dataclass(frozen=True)
@@ -39,7 +49,7 @@ class ToolExecutionResult:
     # Replayed to providers on later turns.
     output: str
     # Structured replay content, e.g. an image returned by a tool.
-    content: list[dict[str, Any]] | None = None
+    content: list[TextBlock | ImageBlock] | None = None
     # UI-only structured data such as edit patches and line stats.
     metadata: dict[str, Any] | None = None
     is_error: bool = False
@@ -132,7 +142,7 @@ class ToolExecutor:
         return tuple(self._tools.values())
 
     @property
-    def definitions(self) -> list[dict[str, Any]]:
+    def definitions(self) -> list[ToolDefinition]:
         return [
             {"name": spec.name, "description": spec.description, "input_schema": spec.input_schema}
             for spec in self._tools.values()

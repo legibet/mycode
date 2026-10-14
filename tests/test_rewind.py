@@ -2,6 +2,7 @@
 
 import asyncio
 from pathlib import Path
+from typing import Literal
 
 import pytest
 from fastapi.testclient import TestClient
@@ -19,7 +20,7 @@ def store(tmp_path: Path) -> SessionStore:
     return SessionStore(data_dir=tmp_path / "sessions")
 
 
-def text_message(role: str, text: str) -> ConversationMessage:
+def text_message(role: Literal["user", "assistant"], text: str) -> ConversationMessage:
     return {"role": role, "content": [{"type": "text", "text": text}]}
 
 
@@ -128,12 +129,13 @@ def test_chat_rejects_rewind_to_compact_marker(tmp_path: Path, monkeypatch) -> N
     asyncio.run(store.create_session("chat-42", cwd="/tmp"))
     sid = "chat-42"
 
-    for message in [
+    messages: list[ConversationMessage] = [
         {"role": "user", "content": [{"type": "text", "text": "hello"}]},
         {"role": "assistant", "content": [{"type": "text", "text": "hi"}]},
         build_compact_event("summary", trigger="auto", provider="p", model="m", context_window=100),
         {"role": "user", "content": [{"type": "text", "text": "explain X"}]},
-    ]:
+    ]
+    for message in messages:
         asyncio.run(store.append_message(sid, message))
 
     app = create_app(serve_web=False)

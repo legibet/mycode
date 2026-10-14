@@ -9,17 +9,27 @@ from urllib.parse import urlparse
 
 import httpx2
 
-from mycode.messages import assistant_message, build_usage, text_block, thinking_block, tool_use_block
+from mycode.messages import (
+    BlockMeta,
+    ContentBlock,
+    StopReason,
+    assistant_message,
+    text_block,
+    thinking_block,
+    tool_use_block,
+)
 from mycode.providers.base import (
-    CanonicalStopReason,
+    MessageDone,
     ProviderAdapter,
     ProviderRequest,
     ProviderStreamEvent,
+    StreamStarted,
+    TextDelta,
+    ThinkingDelta,
     get_native_meta,
-    load_document_block_payload,
-    load_image_block_payload,
     normalize_provider_error,
 )
+from mycode.usage import build_usage
 
 if TYPE_CHECKING:
     from google import genai
@@ -28,7 +38,7 @@ if TYPE_CHECKING:
 _DUMMY_THOUGHT_SIGNATURE = "skip_thought_signature_validator"
 
 
-def _normalize_finish_reason(raw_reason: Any) -> CanonicalStopReason:
+def _normalize_finish_reason(raw_reason: Any) -> StopReason:
     reason = str(getattr(raw_reason, "value", raw_reason) or "").lower()
     if reason == "stop":
         return "stop"
@@ -85,7 +95,7 @@ class GoogleGeminiAdapter(ProviderAdapter):
     async def stream_turn(self, request: ProviderRequest) -> AsyncIterator[ProviderStreamEvent]:
         from google.genai.errors import APIError
 
-        blocks: list[dict[str, Any]] = []
+        blocks: list[ContentBlock] = []
         response_id: str | None = None
         finish_reason: str | None = None
         finish_message: str | None = None
@@ -108,7 +118,7 @@ class GoogleGeminiAdapter(ProviderAdapter):
                     async for chunk in stream:
                         if not started:
                             started = True
-                            yield ProviderStreamEvent("stream_started")
+                            yield StreamStarted()
                         response_id = response_id or getattr(chunk, "response_id", None)
                         usage = _to_json(getattr(chunk, "usage_metadata", None)) or usage
 
@@ -140,23 +150,20 @@ class GoogleGeminiAdapter(ProviderAdapter):
                 reasoning_tokens=raw_usage.get("thoughts_token_count") or 0,
             )
         else:
-            normalized_usage = {}
+            normalized_usage = None
 
-        yield ProviderStreamEvent(
-            "message_done",
-            {
-                "message": assistant_message(
-                    blocks,
-                    provider=self.provider_id,
-                    model=request.model,
-                    provider_message_id=response_id,
-                    stop_reason=_normalize_finish_reason(finish_reason),
-                    usage=normalized_usage,
-                    native_meta={
-                        "finish_message": str(finish_message) if finish_message else None,
-                    },
-                )
-            },
+        yield MessageDone(
+            assistant_message(
+                blocks,
+                provider=self.provider_id,
+                model=request.model,
+                provider_message_id=response_id,
+                stop_reason=_normalize_finish_reason(finish_reason),
+                usage=normalized_usage,
+                native_meta={
+                    "finish_message": str(finish_message) if finish_message else None,
+                },
+            )
         )
 
     def _build_client(
@@ -196,96 +203,63 @@ class GoogleGeminiAdapter(ProviderAdapter):
         tool_names: dict[str, str] = {}
 
         for message in self.prepare_messages(request):
-            role = str(message.get("role") or "")
-            blocks = [block for block in message.get("content") or [] if isinstance(block, dict)]
-
-            if role == "assistant":
-                parts: list[dict[str, Any]] = []
+            parts: list[dict[str, Any]] = []
+            if message["role"] == "assistant":
                 needs_dummy_signature = True
-
-                for block in blocks:
-                    if block.get("type") == "tool_use":
-                        tool_id = str(block.get("id") or "")
-                        tool_name = str(block.get("name") or "")
-                        if tool_id and tool_name:
-                            tool_names[tool_id] = tool_name
+                for block in message["content"]:
+                    if block["type"] == "tool_use":
+                        tool_names[block["id"]] = block["name"]
 
                     native_part = get_native_meta(block).get("part")
-                    if isinstance(native_part, dict):
+                    if native_part is not None:
                         parts.append(dict(native_part))
                         if native_part.get("function_call") and native_part.get("thought_signature"):
                             needs_dummy_signature = False
                         continue
 
-                    block_type = block.get("type")
-                    if block_type == "thinking":
-                        parts.append({"text": str(block.get("text") or ""), "thought": True})
-                        continue
-
-                    if block_type == "text":
-                        parts.append({"text": str(block.get("text") or "")})
-                        continue
-
-                    if block_type != "tool_use":
-                        continue
-
-                    part: dict[str, Any] = {
-                        "function_call": {
-                            "id": block.get("id") or "",
-                            "name": block.get("name") or "",
-                            "args": block.get("input") if isinstance(block.get("input"), dict) else {},
-                        }
-                    }
-                    # Gemini 3 validates the first function call in each step of
-                    # the current turn. Cross-provider replay has no real thought
-                    # signature, so we attach the documented dummy signature once.
-                    if needs_dummy_signature:
-                        part["thought_signature"] = _DUMMY_THOUGHT_SIGNATURE
-                        needs_dummy_signature = False
-                    parts.append(part)
+                    match block["type"]:
+                        case "thinking":
+                            parts.append({"text": block["text"], "thought": True})
+                        case "text":
+                            parts.append({"text": block["text"]})
+                        case "tool_use":
+                            part: dict[str, Any] = {
+                                "function_call": {"id": block["id"], "name": block["name"], "args": block["input"]}
+                            }
+                            # Gemini 3 validates the first function call in each step of
+                            # the current turn. Cross-provider replay has no real thought
+                            # signature, so we attach the documented dummy signature once.
+                            if needs_dummy_signature:
+                                part["thought_signature"] = _DUMMY_THOUGHT_SIGNATURE
+                                needs_dummy_signature = False
+                            parts.append(part)
 
                 if parts:
                     contents.append({"role": "model", "parts": parts})
                 continue
 
-            if role != "user":
-                continue
-
-            parts = []
-            for block in blocks:
-                block_type = block.get("type")
-                if block_type == "text":
-                    parts.append({"text": str(block.get("text") or "")})
-                    continue
-
-                if block_type == "image":
-                    mime_type, data = load_image_block_payload(block)
-                    parts.append({"inline_data": {"mime_type": mime_type, "data": data}})
-                    continue
-                if block_type == "document":
-                    mime_type, data, _name = load_document_block_payload(block)
-                    parts.append({"inline_data": {"mime_type": mime_type, "data": data}})
-                    continue
-
-                if block_type != "tool_result":
-                    continue
-
-                tool_id = str(block.get("tool_use_id") or "")
-                response: dict[str, Any] = {"result": str(block.get("output") or "")}
-                if block.get("is_error"):
-                    response["is_error"] = True
-
-                # Gemini requires the exact id and name from the matching
-                # function_call in the previous model turn.
-                parts.append(
-                    {
-                        "function_response": {
-                            "id": tool_id,
-                            "name": tool_names.get(tool_id, ""),
-                            "response": response,
-                        }
-                    }
-                )
+            for block in message["content"]:
+                match block["type"]:
+                    case "text":
+                        parts.append({"text": block["text"]})
+                    case "image" | "document":
+                        parts.append({"inline_data": {"mime_type": block["mime_type"], "data": block["data"]}})
+                    case "tool_result":
+                        response: dict[str, Any] = {"result": block["output"]}
+                        if block["is_error"]:
+                            response["is_error"] = True
+                        # Gemini requires the exact id and name from the matching
+                        # function_call in the previous model turn.
+                        tool_id = block["tool_use_id"]
+                        parts.append(
+                            {
+                                "function_response": {
+                                    "id": tool_id,
+                                    "name": tool_names.get(tool_id, ""),
+                                    "response": response,
+                                }
+                            }
+                        )
 
             if parts:
                 contents.append({"role": "user", "parts": parts})
@@ -301,9 +275,9 @@ class GoogleGeminiAdapter(ProviderAdapter):
                 types.Tool(
                     function_declarations=[
                         types.FunctionDeclaration(
-                            name=str(tool.get("name") or ""),
-                            description=str(tool.get("description") or ""),
-                            parameters_json_schema=tool.get("input_schema") or {"type": "object", "properties": {}},
+                            name=tool["name"],
+                            description=tool["description"],
+                            parameters_json_schema=tool["input_schema"],
                         )
                         for tool in request.tools
                     ]
@@ -322,7 +296,7 @@ class GoogleGeminiAdapter(ProviderAdapter):
             ),
         )
 
-    def _consume_part(self, blocks: list[dict[str, Any]], part: Any) -> ProviderStreamEvent | None:
+    def _consume_part(self, blocks: list[ContentBlock], part: Any) -> ThinkingDelta | TextDelta | None:
         native_part = _to_json(part) or {}
         if native_part.get("thought") is False:
             native_part.pop("thought", None)
@@ -348,32 +322,31 @@ class GoogleGeminiAdapter(ProviderAdapter):
             # Gemini may put the final thought signature into an empty-text part.
             # Keep it as a separate empty block so replay preserves the original
             # part boundary instead of merging the signature into another block.
-            part_meta = {"native": {"part": native_part}}
+            part_meta: BlockMeta = {"native": {"part": native_part}}
             is_thought = getattr(part, "thought", False)
             blocks.append(thinking_block("", meta=part_meta) if is_thought else text_block("", meta=part_meta))
             return None
 
         is_thought = bool(getattr(part, "thought", False))
-        event = ProviderStreamEvent("thinking_delta" if is_thought else "text_delta", {"text": str(text)})
+        event = ThinkingDelta(str(text)) if is_thought else TextDelta(str(text))
         block_type = "thinking" if is_thought else "text"
 
         # Gemini may stream one logical thought/text across many chunks.
         # Merge only when the block kind matches and we are not combining
         # distinct thought signatures.
-        if blocks and blocks[-1].get("type") == block_type:
-            last_part = get_native_meta(blocks[-1]).get("part")
-            if isinstance(last_part, dict):
-                last_signature = last_part.get("thought_signature")
-                current_signature = native_part.get("thought_signature")
-                if not (last_signature and current_signature and last_signature != current_signature):
-                    merged_text = f"{blocks[-1].get('text') or ''}{text}"
-                    blocks[-1]["text"] = merged_text
-                    last_part["text"] = merged_text
-                    if current_signature and not last_signature:
-                        last_part["thought_signature"] = current_signature
-                    return event
+        if blocks and (last_block := blocks[-1])["type"] == block_type:
+            last_part = get_native_meta(last_block)["part"]
+            last_signature = last_part.get("thought_signature")
+            current_signature = native_part.get("thought_signature")
+            if not (last_signature and current_signature and last_signature != current_signature):
+                merged_text = last_block["text"] + text
+                last_block["text"] = merged_text
+                last_part["text"] = merged_text
+                if current_signature and not last_signature:
+                    last_part["thought_signature"] = current_signature
+                return event
 
-        part_meta = {"native": {"part": native_part}}
+        part_meta: BlockMeta = {"native": {"part": native_part}}
         blocks.append(
             thinking_block(str(text), meta=part_meta) if is_thought else text_block(str(text), meta=part_meta)
         )

@@ -10,10 +10,24 @@ from typing import Any, override
 import pytest
 from conftest import FakeAgent
 
-from mycode import Agent, ContentBlock, build_message, text_block, tool
-from mycode.agent import Event
-from mycode.messages import ConversationMessage
-from mycode.providers.base import ProviderStreamEvent
+from mycode import (
+    Agent,
+    CancelledEvent,
+    ErrorEvent,
+    RetryEvent,
+    TextEvent,
+    ToolDoneEvent,
+    ToolOutputEvent,
+    ToolStartEvent,
+    UsageEvent,
+    UserMessageEvent,
+    build_message,
+    text_block,
+    tool,
+)
+from mycode.messages import ConversationMessage, TextBlock
+from mycode.providers.base import MessageDone
+from mycode.usage import Usage
 from mycode_cli.background import BackgroundJob, BackgroundJobs
 from mycode_cli.config import PermissionConfig, Settings
 from mycode_cli.permissions import PERMISSION_DENIED_BY_USER_OUTPUT, ToolReviewRequest, build_permission_hooks
@@ -41,10 +55,10 @@ class BlockingAgent(ChatOnlyAgent):
 
     async def achat(self, user_input, on_persist=None):
         text = user_input["content"][0]["text"] if isinstance(user_input, dict) else user_input
-        yield Event("text", {"delta": f"reply:{text}"})
+        yield TextEvent(delta=f"reply:{text}")
         await self.release.wait()
         if self.cancelled:
-            yield Event("cancelled", {})
+            yield CancelledEvent()
 
 
 class SimpleAgent(ChatOnlyAgent):
@@ -53,13 +67,13 @@ class SimpleAgent(ChatOnlyAgent):
 
     async def achat(self, user_input, on_persist=None):
         text = user_input["content"][0]["text"] if isinstance(user_input, dict) else user_input
-        yield Event("text", {"delta": f"reply:{text}"})
+        yield TextEvent(delta=f"reply:{text}")
 
 
 class RetryingAgent(SimpleAgent):
     @override
     async def achat(self, user_input, on_persist=None):
-        yield Event("retry", {"attempt": 2, "max_attempts": 3})
+        yield RetryEvent(attempt=2, max_attempts=3, delay_seconds=1.0, reason="http_status", message="overloaded")
         async for event in super().achat(user_input):
             yield event
 
@@ -75,13 +89,13 @@ class ToolOutputAgent(ChatOnlyAgent):
 
     async def achat(self, user_input, on_persist=None):
         del user_input
-        yield Event("tool_start", {"tool_call": {"id": "call-1", "name": "bash", "input": {}}})
-        yield Event("tool_output", {"tool_use_id": "call-1", "output": "a" * 8})
-        yield Event("tool_output", {"tool_use_id": "call-1", "output": "b" * 8})
+        yield ToolStartEvent(tool_call={"type": "tool_use", "id": "call-1", "name": "bash", "input": {}})
+        yield ToolOutputEvent(tool_use_id="call-1", output="a" * 8)
+        yield ToolOutputEvent(tool_use_id="call-1", output="b" * 8)
         self.output_sent.set()
         if self.block_before_done:
             await self.release.wait()
-        yield Event("tool_done", {"tool_use_id": "call-1", "output": "final", "is_error": False})
+        yield ToolDoneEvent(tool_use_id="call-1", output="final", is_error=False)
 
 
 async def _wait_for_run_task(manager: RunManager, run_id: str) -> RunState:
@@ -92,7 +106,7 @@ async def _wait_for_run_task(manager: RunManager, run_id: str) -> RunState:
     return state
 
 
-def _totals(cost: float | None, usage: dict[str, int] | None = None) -> SessionTotals:
+def _totals(cost: float | None, usage: Usage | None = None) -> SessionTotals:
     return SessionTotals(usage=usage or {}, cost={"total": cost} if cost is not None else None)
 
 
@@ -105,13 +119,11 @@ class UsageAgent(ChatOnlyAgent):
 
     async def achat(self, user_input, on_persist=None):
         del user_input
-        yield Event(
-            "usage",
-            {
-                "context_tokens": 100,
-                "turn_usage": {"input_tokens": 100, "output_tokens": 10},
-                "turn_cost": {"total": self.turn_cost} if self.turn_cost is not None else None,
-            },
+        yield UsageEvent(
+            context_tokens=100,
+            turn_usage={"input_tokens": 100, "output_tokens": 10},
+            turn_cost={"total": self.turn_cost} if self.turn_cost is not None else None,
+            turn_duration_ms=None,
         )
 
 
@@ -144,7 +156,7 @@ async def test_usage_events_compose_known_session_totals(
     usage_events = [event for event in state.events if event["type"] == "usage"]
     expected_cost = pytest.approx({"total": expected}) if expected is not None else None
     assert usage_events[0]["session_usage"] == {"input_tokens": 150, "output_tokens": 10}
-    assert usage_events[0]["session_cost"] == expected_cost
+    assert usage_events[0].get("session_cost") == expected_cost
     assert state.session_totals.cost == expected_cost
     assert usage_events[0]["model"] == "test-model"
     assert usage_events[0]["context_window"] == 1_000
@@ -182,6 +194,71 @@ async def test_snapshot_includes_user_message_and_pending_events() -> None:
 
     agent.release.set()
     await _wait_for_run_task(manager, run["id"])
+
+
+class WireShapeAgent(ChatOnlyAgent):
+    """Yields SDK events carrying fields the web API does not send, then waits."""
+
+    def __init__(self) -> None:
+        self.sent = asyncio.Event()
+        self.release = asyncio.Event()
+
+    def cancel(self) -> None:
+        self.release.set()
+
+    async def achat(self, user_input, on_persist=None):
+        del user_input
+        yield ToolStartEvent(
+            tool_call={
+                "type": "tool_use",
+                "id": "call-1",
+                "name": "read",
+                "input": {"path": "shot.png"},
+                "meta": {"native": {"signature": "sig"}},
+            }
+        )
+        yield ToolDoneEvent(
+            tool_use_id="call-1",
+            output="read shot.png",
+            is_error=False,
+            content=[{"type": "image", "data": "aGk=", "mime_type": "image/png"}],
+        )
+        yield UsageEvent(context_tokens=None, turn_usage={}, turn_cost=None, turn_duration_ms=None)
+        self.sent.set()
+        await self.release.wait()
+
+
+async def test_reconnect_snapshot_replays_events_in_their_live_shape() -> None:
+    manager = RunManager()
+    agent = WireShapeAgent()
+    run = await manager.start_run(
+        cwd="/work",
+        session_id="session-1",
+        user_message={"role": "user", "content": [{"type": "text", "text": "look"}]},
+        base_messages=[],
+        agent=agent,
+    )
+    await agent.sent.wait()
+
+    snapshot = await manager.snapshot_session("session-1")
+    assert snapshot is not None
+    pending = snapshot["pending_events"]
+    assert pending == [
+        {"seq": 1, "type": "tool_start", "tool_call": {"id": "call-1", "name": "read", "input": {"path": "shot.png"}}},
+        {"seq": 2, "type": "tool_done", "tool_use_id": "call-1", "output": "read shot.png", "is_error": False},
+        {
+            "seq": 3,
+            "type": "usage",
+            "context_window": 1_000,
+            "model": "test-model",
+            "turn_usage": {},
+        },
+    ]
+
+    agent.release.set()
+    await _wait_for_run_task(manager, run["id"])
+    live = [event async for event in manager.stream_events(run["id"], after=0)]
+    assert live == pending
 
 
 async def test_stream_events_respects_after_and_finishes() -> None:
@@ -263,18 +340,18 @@ class CommittingAgent(ChatOnlyAgent):
     async def achat(self, user_input, on_persist=None):
         assert on_persist is not None
         await on_persist(user_input)
-        yield Event("text", {"delta": "a"})
+        yield TextEvent(delta="a")
         await on_persist(ASSISTANT_WITH_TOOL)
-        yield Event("usage", {})
-        yield Event("tool_start", {"tool_call": {"id": "call-1", "name": "bash", "input": {}}})
-        yield Event("tool_done", {"tool_use_id": "call-1", "output": "ok", "is_error": False})
+        yield UsageEvent(context_tokens=None, turn_usage={}, turn_cost=None, turn_duration_ms=None)
+        yield ToolStartEvent(tool_call={"type": "tool_use", "id": "call-1", "name": "bash", "input": {}})
+        yield ToolDoneEvent(tool_use_id="call-1", output="ok", is_error=False)
         await on_persist(TOOL_RESULT)
-        yield Event("text", {"delta": "b"})
+        yield TextEvent(delta="b")
         await self._pause()
         await on_persist(STEER)
-        yield Event("usage", {})
-        yield Event("user_message", {"message": STEER})
-        yield Event("text", {"delta": "c"})
+        yield UsageEvent(context_tokens=None, turn_usage={}, turn_cost=None, turn_duration_ms=None)
+        yield UserMessageEvent(message=STEER)
+        yield TextEvent(delta="c")
         await self._pause()
 
 
@@ -284,7 +361,7 @@ ASSISTANT_WITH_TOOL: ConversationMessage = {
 }
 TOOL_RESULT: ConversationMessage = {
     "role": "user",
-    "content": [{"type": "tool_result", "tool_use_id": "call-1", "output": "ok"}],
+    "content": [{"type": "tool_result", "tool_use_id": "call-1", "output": "ok", "is_error": False}],
 }
 STEER: ConversationMessage = {
     "role": "user",
@@ -472,7 +549,7 @@ class CancelledAchatAgent(ChatOnlyAgent):
 
     async def achat(self, user_input, on_persist=None):
         del user_input
-        yield Event("text", {"delta": "partial"})
+        yield TextEvent(delta="partial")
         raise asyncio.CancelledError
 
 
@@ -509,7 +586,7 @@ class PersistFailAfterCancelAgent(ChatOnlyAgent):
 
     async def achat(self, user_input, on_persist=None):
         del user_input
-        yield Event("text", {"delta": "partial"})
+        yield TextEvent(delta="partial")
         self.started.set()
         await self.release.wait()
         raise OSError()
@@ -556,14 +633,14 @@ class ReviewAgent(ChatOnlyAgent):
 
     async def achat(self, user_input, on_persist=None):
         del user_input
-        yield Event("text", {"delta": "before"})
+        yield TextEvent(delta="before")
         self.decision = await self.manager.request_decision(
             session_id=self.session_id,
             tool_call_id="call-1",
             tool_name="bash",
             preview="ls",
         )
-        yield Event("text", {"delta": f"after:{self.decision}"})
+        yield TextEvent(delta=f"after:{self.decision}")
 
 
 async def _wait_for_event(manager: RunManager, run_id: str, event_type: str) -> dict[str, object]:
@@ -646,15 +723,12 @@ async def test_request_decision_deny_returns_deny(tmp_path: Path, monkeypatch: p
 
     class Adapter:
         async def stream_turn(self, _request):
-            yield ProviderStreamEvent(
-                "message_done",
+            yield MessageDone(
                 {
-                    "message": {
-                        "role": "assistant",
-                        "content": [{"type": "tool_use", "id": "call-1", "name": "probe", "input": {}}],
-                        "meta": {"stop_reason": "tool_use"},
-                    }
-                },
+                    "role": "assistant",
+                    "content": [{"type": "tool_use", "id": "call-1", "name": "probe", "input": {}}],
+                    "meta": {"stop_reason": "tool_use"},
+                }
             )
 
     monkeypatch.setattr("mycode.agent.get_provider_adapter", lambda _: Adapter())
@@ -726,7 +800,7 @@ class CleanupAgent(ChatOnlyAgent):
         self.cleaning_up.set()
         await self.release_cleanup.wait()
         self.cleaned_up = True
-        yield Event("cancelled", {})
+        yield CancelledEvent()
 
 
 async def test_shutdown_preserves_tool_cleanup_after_cancel_request_is_interrupted(
@@ -752,22 +826,19 @@ async def test_shutdown_preserves_tool_cleanup_after_cancel_request_is_interrupt
 
     class ToolAdapter:
         async def stream_turn(self, request):
-            yield ProviderStreamEvent(
-                "message_done",
+            yield MessageDone(
                 {
-                    "message": {
-                        "role": "assistant",
-                        "content": [{"type": "tool_use", "id": "call-1", "name": "wait_tool", "input": {}}],
-                        "meta": {"stop_reason": "tool_use"},
-                    }
-                },
+                    "role": "assistant",
+                    "content": [{"type": "tool_use", "id": "call-1", "name": "wait_tool", "input": {}}],
+                    "meta": {"stop_reason": "tool_use"},
+                }
             )
 
     monkeypatch.setattr("mycode.agent.get_provider_adapter", lambda _: ToolAdapter())
     manager = RunManager()
     agent = Agent(provider="anthropic", model="test-model", api_key="test-key", tools=[wait_tool])
     run = await manager.start_run(
-        cwd="/work", session_id="s1", user_message={"role": "user"}, base_messages=[], agent=agent
+        cwd="/work", session_id="s1", user_message={"role": "user", "content": []}, base_messages=[], agent=agent
     )
     await asyncio.wait_for(started.wait(), 2)
     request = asyncio.create_task(manager.cancel_run(run["id"]))
@@ -801,10 +872,10 @@ async def test_close_cancels_all_runs_and_waits_for_cleanup() -> None:
     agent = CleanupAgent()
     review = ReviewAgent(manager, "review")
     run = await manager.start_run(
-        cwd="/work", session_id="s1", user_message={"role": "user"}, base_messages=[], agent=agent
+        cwd="/work", session_id="s1", user_message={"role": "user", "content": []}, base_messages=[], agent=agent
     )
     review_run = await manager.start_run(
-        cwd="/work", session_id="review", user_message={"role": "user"}, base_messages=[], agent=review
+        cwd="/work", session_id="review", user_message={"role": "user", "content": []}, base_messages=[], agent=review
     )
     await _wait_for_event(manager, review_run["id"], "permission_request")
     closing = asyncio.create_task(manager.aclose())
@@ -825,7 +896,9 @@ async def test_close_cancels_all_runs_and_waits_for_cleanup() -> None:
 async def test_close_does_not_enter_a_queued_agent_turn() -> None:
     manager = RunManager()
     agent = CleanupAgent()
-    await manager.start_run(cwd="/work", session_id="s1", user_message={"role": "user"}, base_messages=[], agent=agent)
+    await manager.start_run(
+        cwd="/work", session_id="s1", user_message={"role": "user", "content": []}, base_messages=[], agent=agent
+    )
     async with asyncio.timeout(2):
         await manager.aclose()
     assert not agent.started.is_set()
@@ -909,7 +982,7 @@ class CompactAgent(FakeAgent):
 async def test_compact_run_snapshot_has_kind_and_no_user_message(session_cost_base: float | None) -> None:
     manager = RunManager()
     agent = CompactAgent()
-    base = [{"role": "user", "content": [{"type": "text", "text": "earlier"}]}]
+    base: list[ConversationMessage] = [{"role": "user", "content": [{"type": "text", "text": "earlier"}]}]
     completed: list[str] = []
 
     async def on_complete(session_id: str) -> None:
@@ -1050,7 +1123,7 @@ class QueueAgent(ChatOnlyAgent):
         if len(self.inputs) == 1:
             self.started.set()
             await self.release.wait()
-        yield Event("text", {"delta": "reply"})
+        yield TextEvent(delta="reply")
 
 
 async def _start_queue_run(manager: RunManager, agent: QueueAgent) -> RunState:
@@ -1139,11 +1212,17 @@ async def test_sdk_user_message_advances_the_session_base() -> None:
             return None
 
         async def achat(self, user_input, on_persist=None):
-            yield Event("usage", {"turn_usage": {"input_tokens": 100}, "turn_cost": {"total": 0.01}})
+            yield UsageEvent(
+                turn_usage={"input_tokens": 100}, turn_cost={"total": 0.01}, context_tokens=None, turn_duration_ms=None
+            )
             # The SDK closes the steered segment by repeating its totals.
-            yield Event("usage", {"turn_usage": {"input_tokens": 100}, "turn_cost": {"total": 0.01}})
-            yield Event("user_message", {"message": _input("steer", "s1")})
-            yield Event("usage", {"turn_usage": {"input_tokens": 30}, "turn_cost": {"total": 0.02}})
+            yield UsageEvent(
+                turn_usage={"input_tokens": 100}, turn_cost={"total": 0.01}, context_tokens=None, turn_duration_ms=None
+            )
+            yield UserMessageEvent(message=_input("steer", "s1"))
+            yield UsageEvent(
+                turn_usage={"input_tokens": 30}, turn_cost={"total": 0.02}, context_tokens=None, turn_duration_ms=None
+            )
 
     manager = RunManager()
     run = await manager.start_run(
@@ -1203,7 +1282,7 @@ async def test_failure_drops_the_queue() -> None:
         async def achat(self, user_input, on_persist=None):
             async for event in super().achat(user_input):
                 yield event
-            yield Event("error", {"message": "provider failed"})
+            yield ErrorEvent(message="provider failed")
 
     manager = RunManager()
     agent = FailingAgent()
@@ -1341,7 +1420,7 @@ async def test_compact_run_refuses_enqueue() -> None:
 # Background job results
 
 
-def _job_block(tool_use_id: str) -> ContentBlock:
+def _job_block(tool_use_id: str) -> TextBlock:
     return text_block("done", meta={"job": {"tool_use_id": tool_use_id, "name": "bash", "label": "x", "exit_code": 0}})
 
 
@@ -1355,15 +1434,15 @@ class JobRunAgent(SimpleAgent):
     @override
     async def achat(self, user_input, on_persist=None):
         if self.error is not None:
-            yield Event("error", {"message": self.error})
+            yield ErrorEvent(message=self.error)
             return
-        yield Event("text", {"delta": "reply"})
+        yield TextEvent(delta="reply")
 
 
-def _record_deliveries(jobs: BackgroundJobs) -> list[tuple[list[ContentBlock], set[str], bool]]:
+def _record_deliveries(jobs: BackgroundJobs) -> list[tuple[list[TextBlock], set[str], bool]]:
     """Install a deliver callback that records the registry state at each call."""
 
-    calls: list[tuple[list[ContentBlock], set[str], bool]] = []
+    calls: list[tuple[list[TextBlock], set[str], bool]] = []
 
     async def deliver() -> None:
         calls.append((list(jobs.pending), set(jobs.in_flight), jobs.suspended))
@@ -1427,7 +1506,7 @@ async def test_a_wake_started_as_the_run_ends_keeps_its_results(monkeypatch: pyt
     block = _job_block("toolu_a")
     wake_agent = JobRunAgent([])
     wakes: list[dict[str, Any]] = []
-    steered: list[ContentBlock] = []
+    steered: list[TextBlock] = []
 
     async def deliver() -> None:
         if await manager.get_active_run("s1") is None:

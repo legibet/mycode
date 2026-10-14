@@ -7,7 +7,8 @@ from typing import Any, cast
 
 import pytest
 
-from mycode.agent import Event
+from mycode import ErrorEvent, ReasoningEvent, TextEvent, ToolDoneEvent
+from mycode.messages import ConversationMessage
 from mycode_cli.config import Settings
 from mycode_cli.main import app, resolve_session, run_noninteractive
 from mycode_cli.permissions import PERMISSION_DENIED_BY_USER_OUTPUT, PERMISSION_DENIED_OUTPUT
@@ -30,15 +31,15 @@ class _FakeAgent:
                     "content": [{"type": "text", "text": "Persisted final answer"}],
                 }
             )
-        yield Event("reasoning", {"delta": "Hidden reasoning"})
-        yield Event("text", {"delta": "Streamed answer should stay hidden"})
+        yield ReasoningEvent(delta="Hidden reasoning")
+        yield TextEvent(delta="Streamed answer should stay hidden")
 
 
 class _ErrorAgent:
     session_id = "session"
 
     async def achat(self, message: str, *, on_persist=None):
-        yield Event("error", {"message": "provider error"})
+        yield ErrorEvent(message="provider error")
 
 
 class _PermissionDeniedAgent:
@@ -48,14 +49,14 @@ class _PermissionDeniedAgent:
         self.output = output
 
     async def achat(self, message: str, *, on_persist=None):
-        yield Event("tool_done", {"tool_use_id": "call-1", "output": self.output, "is_error": True})
+        yield ToolDoneEvent(tool_use_id="call-1", output=self.output, is_error=True)
 
 
 class _PermissionDeniedThenReplyAgent:
     session_id = "session"
 
     async def achat(self, message: str, *, on_persist=None):
-        yield Event("tool_done", {"tool_use_id": "call-1", "output": PERMISSION_DENIED_OUTPUT, "is_error": True})
+        yield ToolDoneEvent(tool_use_id="call-1", output=PERMISSION_DENIED_OUTPUT, is_error=True)
         if on_persist:
             await on_persist(
                 {
@@ -172,7 +173,7 @@ class TestLoadSessionTotals:
     async def test_folds_the_raw_timeline_including_rewound_turns(self, tmp_path: Path) -> None:
         store = SessionStore(data_dir=tmp_path)
         await store.create_session("s1", cwd="/tmp")
-        records = [
+        records: list[ConversationMessage] = [
             {"role": "user", "content": [{"type": "text", "text": "hi"}]},
             {
                 "role": "assistant",

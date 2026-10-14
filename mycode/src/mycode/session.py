@@ -19,14 +19,14 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import cast
 
-from mycode.messages import ConversationMessage
+from mycode.messages import ConversationMessage, RewindMarker
 
 # ---------------------------------------------------------------------
 # Rewind markers
 # ---------------------------------------------------------------------
 
 
-def build_rewind_event(rewind_to: int) -> ConversationMessage:
+def build_rewind_event(rewind_to: int) -> RewindMarker:
     """Build a rewind marker to append to session JSONL."""
 
     return {
@@ -38,19 +38,17 @@ def build_rewind_event(rewind_to: int) -> ConversationMessage:
     }
 
 
-def apply_rewind(messages: list[ConversationMessage]) -> list[ConversationMessage]:
+def apply_rewind(records: list[ConversationMessage | RewindMarker]) -> list[ConversationMessage]:
     """Apply rewind markers inline while replaying the raw message log."""
 
     result: list[ConversationMessage] = []
-    for message in messages:
-        if message.get("role") == "rewind":
+    for record in records:
+        if record["role"] == "rewind":
             # Rewind indices refer to the visible message list at that moment,
             # so replay truncates the accumulated result in place.
-            rewind_to = (message.get("meta") or {}).get("rewind_to", 0)
-            if rewind_to is not None:
-                del result[rewind_to:]
+            del result[record["meta"]["rewind_to"] :]
         else:
-            result.append(message)
+            result.append(record)
     return result
 
 
@@ -82,14 +80,14 @@ class SessionStore:
     def session_exists(self, session_id: str) -> bool:
         return self.messages_path(session_id).exists()
 
-    def load_raw_messages_sync(self, session_id: str) -> list[ConversationMessage]:
+    def load_raw_messages_sync(self, session_id: str) -> list[ConversationMessage | RewindMarker]:
         """Read the raw JSONL timeline — rewound tails included; [] when absent.
 
         This exposes the append-only record as-is; callers needing the visible
         history should use :meth:`load_messages` instead.
         """
 
-        raw_messages: list[ConversationMessage] = []
+        raw_messages: list[ConversationMessage | RewindMarker] = []
         try:
             with self.messages_path(session_id).open("r", encoding="utf-8") as handle:
                 for line in handle:
@@ -101,12 +99,12 @@ class SessionStore:
                     except ValueError:
                         continue
                     if isinstance(msg, dict):
-                        raw_messages.append(cast(ConversationMessage, msg))
+                        raw_messages.append(cast(ConversationMessage | RewindMarker, msg))
         except FileNotFoundError:
             pass
         return raw_messages
 
-    async def load_raw_messages(self, session_id: str) -> list[ConversationMessage]:
+    async def load_raw_messages(self, session_id: str) -> list[ConversationMessage | RewindMarker]:
         return await asyncio.to_thread(self.load_raw_messages_sync, session_id)
 
     def load_messages_sync(self, session_id: str) -> list[ConversationMessage]:
@@ -122,7 +120,7 @@ class SessionStore:
     async def load_messages(self, session_id: str) -> list[ConversationMessage]:
         return await asyncio.to_thread(self.load_messages_sync, session_id)
 
-    async def append_message(self, session_id: str, message: ConversationMessage) -> None:
+    async def append_message(self, session_id: str, message: ConversationMessage | RewindMarker) -> None:
         """Append one message, creating the session directory on first write."""
 
         def append() -> None:

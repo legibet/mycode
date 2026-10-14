@@ -26,10 +26,10 @@ from mycode.attachments import (
 )
 from mycode.compact import DEFAULT_COMPACT_THRESHOLD, has_compactable_history
 from mycode.messages import (
+    ContentBlock,
     ConversationMessage,
     build_message,
     document_block,
-    flatten_message_text,
     image_block,
     text_block,
 )
@@ -59,10 +59,9 @@ from mycode_cli.server.schemas import (
     RunInfo,
     RunResponse,
     StatusResponse,
-    StreamEvent,
     UserInputRequest,
 )
-from mycode_cli.sessions import SessionStore
+from mycode_cli.sessions import SessionStore, display_text
 from mycode_cli.system_prompt import build_skill_snapshot_blocks, discover_slash_skills
 from mycode_cli.tools import read_text_window
 from mycode_cli.workspace import CliDeps, resolve_path
@@ -78,7 +77,7 @@ def _resolve_workspace_attachment_path(rel_path: str, *, cwd: str) -> Path:
     return path
 
 
-def _read_workspace_text_attachment(rel_path: str, *, name: str | None, cwd: str) -> list[dict[str, Any]]:
+def _read_workspace_text_attachment(rel_path: str, *, name: str | None, cwd: str) -> list[ContentBlock]:
     """Read a workspace text file selected via the @ menu into a `<file>` block, bounded like ``read``.
 
     Re-validates the path at send time: it must resolve inside ``cwd`` (guards
@@ -126,7 +125,7 @@ async def _build_user_message(chat: UserInputRequest, deps: CliDeps) -> tuple[Co
         snapshots = await asyncio.to_thread(build_skill_snapshot_blocks, text, cwd)
         return build_message("user", [*snapshots, text_block(text)]), uploads
 
-    blocks: list[dict[str, Any]] = []
+    blocks: list[ContentBlock] = []
     visible_text: list[str] = []
     for block in chat.input:
         if block.type == "text":
@@ -183,7 +182,7 @@ async def _build_user_message(chat: UserInputRequest, deps: CliDeps) -> tuple[Co
 
 
 def _check_input_support(message: ConversationMessage, model: ModelMetadata | RunAgent) -> None:
-    content_types = {b.get("type") for b in (message.get("content") or []) if isinstance(b, dict)}
+    content_types = {block["type"] for block in message["content"]}
     if "image" in content_types and not model.supports_image_input:
         raise HTTPException(status_code=400, detail="current model does not support image input")
     if "document" in content_types and not model.supports_pdf_input:
@@ -206,17 +205,12 @@ def _validate_rewind_request(
         )
 
     target = messages[rewind_to]
-    raw_blocks = target.get("content")
-    blocks = raw_blocks if isinstance(raw_blocks, list) else []
     has_user_content = any(
-        isinstance(block, dict)
-        and (
-            (block.get("type") == "text" and block.get("text") and "job" not in (block.get("meta") or {}))
-            or block.get("type") in {"image", "document"}
-        )
-        for block in blocks
+        (block["type"] == "text" and block["text"] and "job" not in block.get("meta", {}))
+        or block["type"] in ("image", "document")
+        for block in target["content"]
     )
-    if target.get("role") != "user" or not has_user_content:
+    if target["role"] != "user" or not has_user_content:
         raise HTTPException(status_code=400, detail="rewind_to must reference a real user message")
 
 
@@ -301,7 +295,7 @@ async def chat(chat: ChatRequest, store: StoreDep, runs: RunManagerDep) -> ChatR
         session = await store.record_user_turn(
             session_id,
             cwd=cwd,
-            text=flatten_message_text(user_message, include_thinking=False),
+            text=display_text(user_message),
         )
 
         async def review(request: ToolReviewRequest) -> ToolReviewDecision:
@@ -455,8 +449,7 @@ async def stream_run(
         async for payload in runs.stream_events(run_id, after):
             if await req.is_disconnected():
                 return
-            event = StreamEvent(**payload)
-            yield f"data: {json.dumps(event.model_dump(exclude_none=True), ensure_ascii=False)}\n\n"
+            yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
         yield "data: [DONE]\n\n"
 
@@ -589,7 +582,7 @@ async def queue_message(
     await store.record_user_turn(
         session_id,
         cwd=state.cwd,
-        text=flatten_message_text(message, include_thinking=False),
+        text=display_text(message),
     )
     return RunResponse(run=RunInfo.model_validate(state.info()))
 
@@ -642,7 +635,7 @@ async def get_config(cwd: Annotated[str | None, Query()] = None) -> dict[str, An
 
     providers_info: dict[str, Any] = {}
     for provider in resolve_provider_choices(settings):
-        provider_config = settings.providers.get(provider.provider_name or "")
+        provider_config = settings.providers.get(provider.provider_name)
         models = provider_models(settings, provider)
 
         info: dict[str, Any] = {
@@ -680,7 +673,7 @@ async def get_config(cwd: Annotated[str | None, Query()] = None) -> dict[str, An
         info["supports_pdf_input"] = bool(pdf_models)
         info["pdf_input_models"] = pdf_models
 
-        providers_info[provider.provider_name or provider.provider] = info
+        providers_info[provider.provider_name] = info
 
     default_payload = (
         {"provider": resolved.provider_name, "model": resolved.model}

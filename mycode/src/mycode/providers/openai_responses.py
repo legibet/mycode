@@ -3,39 +3,43 @@
 from __future__ import annotations
 
 import json
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Sequence
 from copy import deepcopy
 from typing import Any, cast, override
 
 import httpx2
 
 from mycode.messages import (
+    ContentBlock,
     ConversationMessage,
+    StopReason,
     assistant_message,
-    build_usage,
     text_block,
     thinking_block,
     tool_use_block,
 )
 from mycode.providers.base import (
-    CanonicalStopReason,
+    MessageDone,
     ProviderAdapter,
     ProviderError,
     ProviderRequest,
     ProviderStreamEvent,
+    StreamStarted,
+    TextDelta,
+    ThinkingDelta,
     dump_model,
-    load_document_block_payload,
-    load_image_block_payload,
     native_block_meta,
     normalize_provider_error,
     parse_tool_call_input,
     tool_result_content_blocks,
 )
+from mycode.tools import ToolDefinition
+from mycode.usage import build_usage
 
 _RETRYABLE_RESPONSE_ERROR_CODES = {"rate_limit_exceeded", "server_error"}
 
 
-def _normalize_response_status(response: Any, *, has_tool_calls: bool) -> CanonicalStopReason:
+def _normalize_response_status(response: Any, *, has_tool_calls: bool) -> StopReason:
     status = str(getattr(response, "status", None) or "").lower()
     if status == "completed":
         return "tool_use" if has_tool_calls else "stop"
@@ -90,19 +94,19 @@ class OpenAIResponsesAdapter(ProviderAdapter):
                     async for event in stream:
                         if not started:
                             started = True
-                            yield ProviderStreamEvent("stream_started")
+                            yield StreamStarted()
                         event_type = getattr(event, "type", None)
 
                         if event_type in self._thinking_delta_types:
                             delta = cast(str | None, getattr(event, "delta", None))
                             if delta:
-                                yield ProviderStreamEvent("thinking_delta", {"text": delta})
+                                yield ThinkingDelta(delta)
                             continue
 
                         if event_type == "response.output_text.delta":
                             delta = cast(str | None, getattr(event, "delta", None))
                             if delta:
-                                yield ProviderStreamEvent("text_delta", {"text": delta})
+                                yield TextDelta(delta)
                             continue
 
                         if event_type == "response.output_item.done":
@@ -130,16 +134,13 @@ class OpenAIResponsesAdapter(ProviderAdapter):
                     if final_response is None:
                         raise ProviderError(f"{self.label} stream ended before response.completed")
 
-                    yield ProviderStreamEvent(
-                        "message_done",
-                        {
-                            "message": self._convert_final_response(
-                                final_response,
-                                output_items=[streamed_output_items[index] for index in sorted(streamed_output_items)]
-                                or None,
-                                request_model=request.model,
-                            )
-                        },
+                    yield MessageDone(
+                        self._convert_final_response(
+                            final_response,
+                            output_items=[streamed_output_items[index] for index in sorted(streamed_output_items)]
+                            or None,
+                            request_model=request.model,
+                        )
                     )
         except (APIError, httpx2.HTTPError) as exc:
             raise normalize_provider_error(exc, self.provider_id) from exc
@@ -147,20 +148,12 @@ class OpenAIResponsesAdapter(ProviderAdapter):
     def _build_request_payload(self, request: ProviderRequest) -> dict[str, Any]:
         input_items: list[dict[str, Any]] = []
         for message in self.prepare_messages(request):
-            role = message.get("role")
-            if role == "user":
+            if message["role"] == "user":
                 input_items.extend(self._serialize_user_message(message))
-                continue
-
-            if role != "assistant":
-                continue
-
-            native_output_items = self._native_output_items(message)
-            if native_output_items is not None:
+            elif native_output_items := self._native_output_items(message):
                 input_items.extend(native_output_items)
-                continue
-
-            input_items.extend(self._serialize_fallback_assistant_message(message))
+            else:
+                input_items.extend(self._serialize_fallback_assistant_message(message))
 
         payload: dict[str, Any] = {
             "model": request.model,
@@ -183,127 +176,91 @@ class OpenAIResponsesAdapter(ProviderAdapter):
 
     def _serialize_user_message(self, message: ConversationMessage) -> list[dict[str, Any]]:
         items: list[dict[str, Any]] = []
-        blocks = [block for block in message.get("content") or [] if isinstance(block, dict)]
-        message_content = self._serialize_input_content(blocks)
+        message_content = self._serialize_input_content(message["content"])
         if message_content:
-            items.append(
-                {
-                    "type": "message",
-                    "role": "user",
-                    "content": message_content,
-                }
-            )
+            items.append({"type": "message", "role": "user", "content": message_content})
 
-        for block in blocks:
-            if block.get("type") != "tool_result":
+        for block in message["content"]:
+            if block["type"] != "tool_result":
                 continue
             result_blocks = tool_result_content_blocks(block)
-            has_images = any(item.get("type") == "image" for item in result_blocks)
-            if has_images:
-                output: str | list[dict[str, Any]] = self._serialize_input_content(result_blocks)
-            else:
-                output = str(block.get("output") or "")
-            items.append(
-                {
-                    "type": "function_call_output",
-                    "call_id": block.get("tool_use_id") or "",
-                    "output": output,
-                }
-            )
+            output: str | list[dict[str, Any]] = block["output"]
+            if any(item["type"] == "image" for item in result_blocks):
+                output = self._serialize_input_content(result_blocks)
+            items.append({"type": "function_call_output", "call_id": block["tool_use_id"], "output": output})
 
         return items
 
-    def _serialize_input_content(self, blocks: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    def _serialize_input_content(self, blocks: Sequence[ContentBlock]) -> list[dict[str, Any]]:
         content: list[dict[str, Any]] = []
         for block in blocks:
-            block_type = block.get("type")
-            if block_type == "text":
-                content.append({"type": "input_text", "text": str(block.get("text") or "")})
-                continue
-            if block_type == "image":
-                mime_type, data = load_image_block_payload(block)
-                content.append({"type": "input_image", "image_url": f"data:{mime_type};base64,{data}"})
-                continue
-            if block_type == "document":
-                mime_type, data, name = load_document_block_payload(block)
-                content.append(
-                    {
-                        "type": "input_file",
-                        "filename": name or "document.pdf",
-                        "file_data": f"data:{mime_type};base64,{data}",
-                    }
-                )
+            match block["type"]:
+                case "text":
+                    content.append({"type": "input_text", "text": block["text"]})
+                case "image":
+                    content.append(
+                        {"type": "input_image", "image_url": f"data:{block['mime_type']};base64,{block['data']}"}
+                    )
+                case "document":
+                    content.append(
+                        {
+                            "type": "input_file",
+                            "filename": block.get("name") or "document.pdf",
+                            "file_data": f"data:{block['mime_type']};base64,{block['data']}",
+                        }
+                    )
         return content
 
-    def _native_output_items(self, message: ConversationMessage) -> list[dict[str, Any]] | None:
+    def _native_output_items(self, message: ConversationMessage) -> list[dict[str, Any]]:
         """Replay stored output items when history already came from Responses."""
 
-        raw_meta = message.get("meta")
-        if not isinstance(raw_meta, dict):
-            return None
-
-        native_meta = raw_meta.get("native")
-        output_items = native_meta.get("output_items") if isinstance(native_meta, dict) else None
-        if not isinstance(output_items, list) or not output_items:
-            return None
-
         invalid_call_ids = {
-            block.get("id")
-            for block in message.get("content") or []
-            if isinstance(block, dict)
-            and block.get("type") == "tool_use"
-            and (block.get("meta") or {}).get("invalid_input") is True
+            block["id"]
+            for block in message["content"]
+            if block["type"] == "tool_use" and block.get("meta", {}).get("invalid_input") is True
         }
 
         replay_items: list[dict[str, Any]] = []
-        for raw_item in output_items:
+        for raw_item in message.get("meta", {}).get("native", {}).get("output_items") or []:
             item = dict(raw_item)
-            item_type = str(item.get("type") or "")
             item.pop("status", None)  # some gateways don't expect this field in input items
-            if item_type != "reasoning":
+            if item["type"] != "reasoning":
                 item.pop("id", None)
-            if item_type == "function_call" and item.get("call_id") in invalid_call_ids:
+            if item["type"] == "function_call" and item["call_id"] in invalid_call_ids:
                 item["arguments"] = "{}"  # never resend arguments that failed to parse
             replay_items.append(item)
 
         return replay_items
 
     def _serialize_fallback_assistant_message(self, message: ConversationMessage) -> list[dict[str, Any]]:
-        blocks = [block for block in message.get("content") or [] if isinstance(block, dict)]
-        text_parts = [
-            str(block.get("text") or "") for block in blocks if block.get("type") == "text" and block.get("text")
-        ]
-
+        blocks = message["content"]
         items: list[dict[str, Any]] = []
-        if text_parts:
-            message_item: dict[str, Any] = {
-                "type": "message",
-                "role": "assistant",
-                "content": [{"type": "output_text", "text": "\n".join(text_parts)}],
-            }
-            items.append(message_item)
+        texts = [block["text"] for block in blocks if block["type"] == "text" and block["text"]]
+        if texts:
+            items.append(
+                {"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": "\n".join(texts)}]}
+            )
 
-        for block in blocks:
-            if block.get("type") != "tool_use":
-                continue
-            call_item: dict[str, Any] = {
+        items.extend(
+            {
                 "type": "function_call",
-                "call_id": block.get("id") or "",
-                "name": block.get("name") or "",
-                "arguments": json.dumps(block.get("input") if isinstance(block.get("input"), dict) else {}),
+                "call_id": block["id"],
+                "name": block["name"],
+                "arguments": json.dumps(block["input"]),
             }
-            items.append(call_item)
-
+            for block in blocks
+            if block["type"] == "tool_use"
+        )
         return items
 
-    def _serialize_tool(self, tool: dict[str, Any]) -> dict[str, Any]:
-        parameters = deepcopy(cast(dict[str, Any], tool.get("input_schema") or {"type": "object", "properties": {}}))
+    def _serialize_tool(self, tool: ToolDefinition) -> dict[str, Any]:
+        parameters = deepcopy(tool["input_schema"])
         _normalize_strict_schema(parameters)
 
         return {
             "type": "function",
-            "name": tool.get("name") or "",
-            "description": tool.get("description") or "",
+            "name": tool["name"],
+            "description": tool["description"],
             "parameters": parameters,
             "strict": True,
         }
@@ -318,7 +275,7 @@ class OpenAIResponsesAdapter(ProviderAdapter):
         raw_output = output_items if output_items is not None else (getattr(response, "output", None) or [])
         # Persist received fields under their wire names; a full dump fills absent optionals with null.
         dumped_output_items = [item.model_dump(exclude_unset=True, by_alias=True) for item in raw_output]
-        blocks: list[dict[str, Any]] = []
+        blocks: list[ContentBlock] = []
         for item in raw_output:
             item_type = getattr(item, "type", None)
 
@@ -370,7 +327,7 @@ class OpenAIResponsesAdapter(ProviderAdapter):
                     "status": getattr(item, "status", None),
                 }
                 item_meta = {key: value for key, value in raw_item_meta.items() if value is not None}
-                block_meta = {**(native_block_meta(item_meta) or {}), **invalid_meta}
+                block_meta = (native_block_meta(item_meta) or {}) | invalid_meta
                 blocks.append(
                     tool_use_block(
                         tool_id=getattr(item, "call_id", ""),
@@ -391,7 +348,7 @@ class OpenAIResponsesAdapter(ProviderAdapter):
             provider_message_id=getattr(response, "id", None),
             stop_reason=_normalize_response_status(
                 response,
-                has_tool_calls=any(block.get("type") == "tool_use" for block in blocks),
+                has_tool_calls=any(block["type"] == "tool_use" for block in blocks),
             ),
             usage=build_usage(
                 total_tokens=raw_usage.get("total_tokens"),
@@ -419,14 +376,14 @@ class XAIAdapter(OpenAIResponsesAdapter):
     _reasoning_text_fields = ("summary", "content")
 
     @override
-    def _serialize_tool(self, tool: dict[str, Any]) -> dict[str, Any]:
+    def _serialize_tool(self, tool: ToolDefinition) -> dict[str, Any]:
         # xAI validates arguments against the supplied schema directly; optional
         # parameters keep their defaults and need no strict-mode rewriting.
         return {
             "type": "function",
-            "name": tool.get("name") or "",
-            "description": tool.get("description") or "",
-            "parameters": tool.get("input_schema") or {"type": "object", "properties": {}},
+            "name": tool["name"],
+            "description": tool["description"],
+            "parameters": tool["input_schema"],
         }
 
     @override
