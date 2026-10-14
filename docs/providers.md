@@ -123,7 +123,7 @@ DeepSeek and Z.AI pin the legacy name via `max_tokens_field`. Generic `openai_ch
 - API: Gemini Developer API
 - Base URL: `https://generativelanguage.googleapis.com`
 - API key env: `GEMINI_API_KEY`, `GOOGLE_API_KEY`
-- Default models: `gemini-3.7-flash`, `gemini-3.1-pro-preview`
+- Default models: `gemini-3.8-flash`, `gemini-4-argon`
 - `supports_reasoning_effort`: true; explicit values are converted to Gemini's `ThinkingLevel` enum
 - Replays original parts with their function-call ids and thought signatures
 - Cross-provider tool-loop fallback: adds documented dummy thought signature to avoid 400 errors
