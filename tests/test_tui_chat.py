@@ -633,7 +633,6 @@ class TestMidTurnInput:
         release = asyncio.Event()
 
         class Adapter:
-            supports_reasoning_effort = False
             calls = 0
 
             async def stream_turn(self, request: object) -> AsyncIterator[ProviderStreamEvent]:

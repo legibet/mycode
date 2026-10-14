@@ -34,6 +34,7 @@ from mycode.events import (
     UserMessageEvent,
 )
 from mycode.messages import ConversationMessage, TextBlock
+from mycode_cli.background import job_id
 from mycode_cli.sessions import SessionTotals, display_text
 
 from .markdown import Chunk, MarkdownBlock, MarkdownStream
@@ -240,7 +241,7 @@ def _tool_header(
 def _job_blocks(message: ConversationMessage) -> list[TextBlock]:
     """Return the background job notification blocks of a user message."""
 
-    return [block for block in message["content"] if block["type"] == "text" and block.get("meta", {}).get("job")]
+    return [block for block in message["content"] if block["type"] == "text" and job_id(block)]
 
 
 def job_lines(block: TextBlock, width: int) -> list[Text]:
@@ -295,8 +296,8 @@ def _history_turns(messages: list[ConversationMessage], *, limit: int = 3) -> li
             continue
 
         if role == "user":
-            # Use the shared flattener so attached file payload blocks stay out
-            # of the readable history preview; background results print as tools.
+            # display_text keeps payload blocks out of the readable history
+            # preview; background results print as tools.
             parts: list[tuple[str, Any]] = [("job", block) for block in _job_blocks(message)]
             if text := display_text(message):
                 parts.append(("user", text))

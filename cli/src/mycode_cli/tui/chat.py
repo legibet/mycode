@@ -215,7 +215,7 @@ def _is_command(text: str) -> bool:
 
 
 def _input_id(message: ConversationMessage) -> str | None:
-    return (message.get("meta") or {}).get("input_id")
+    return message.get("meta", {}).get("input_id")
 
 
 def _matched_slash_command(text_before_cursor: str) -> tuple[str, str] | None:
@@ -538,7 +538,7 @@ class TerminalChat:
     def _steer_delivered(self, message: ConversationMessage) -> None:
         """Drop the steers merged into a delivered message."""
 
-        delivered = set((message.get("meta") or {}).get("input_ids") or [])
+        delivered = set(message.get("meta", {}).get("input_ids", []))
         self._steers = [steer for steer in self._steers if _input_id(steer) not in delivered]
         self._show_pending()
 
@@ -765,11 +765,11 @@ class TerminalChat:
             self.terminal.print(Text("nothing to rewind", style=MUTED))
             return None
 
-        # Collect real user text turns, skipping tool-result-only and attachment
-        # blocks via the shared flattener (same view as the history preview).
+        # Collect real user text turns; display_text skips tool results and
+        # payload blocks (same view as the history preview).
         user_turns: dict[int, str] = {}  # message_index -> text
         for i, msg in enumerate(messages):
-            if msg.get("role") != "user":
+            if msg["role"] != "user":
                 continue
             text = display_text(msg)
             if text:

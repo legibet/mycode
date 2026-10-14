@@ -81,7 +81,7 @@ def sum_session_totals(records: Iterable[ConversationMessage | RewindMarker]) ->
     for record in records:
         match record:
             case {"role": "assistant" | "compact"}:
-                meta = record.get("meta") or {}
+                meta = record.get("meta", {})
                 totals = totals.add(meta.get("usage"), meta.get("cost"))
     return totals
 
@@ -282,7 +282,7 @@ class SessionStore(TimelineStore):
         texts = [
             " ".join(display_text(message).split())
             for message in self.load_messages_sync(session_id)
-            if message.get("role") in {"user", "assistant"}
+            if message["role"] in {"user", "assistant"}
         ]
         self._search_texts[session_id] = (key, texts)
         return texts

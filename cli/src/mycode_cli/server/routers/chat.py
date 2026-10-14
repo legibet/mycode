@@ -182,7 +182,7 @@ async def _build_user_message(chat: UserInputRequest, deps: CliDeps) -> tuple[Co
 
 
 def _check_input_support(message: ConversationMessage, model: ModelMetadata | RunAgent) -> None:
-    content_types = {b.get("type") for b in (message.get("content") or []) if isinstance(b, dict)}
+    content_types = {block["type"] for block in message["content"]}
     if "image" in content_types and not model.supports_image_input:
         raise HTTPException(status_code=400, detail="current model does not support image input")
     if "document" in content_types and not model.supports_pdf_input:

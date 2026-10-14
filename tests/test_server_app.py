@@ -36,8 +36,6 @@ from mycode_cli.sessions import SessionStore
 
 
 class _CaptureAdapter:
-    supports_reasoning_effort = False
-
     def __init__(self) -> None:
         self.messages: list[ConversationMessage] | None = None
         self.reasoning_effort: str | None = None
@@ -780,8 +778,6 @@ def test_compact_endpoint_conflicts_and_cancel_write_no_marker(
     monkeypatch.setenv("MYCODE_HOME", str(tmp_path / "home"))
 
     class _HangingAdapter:
-        supports_reasoning_effort = False
-
         async def stream_turn(self, request: ProviderRequest) -> AsyncIterator[ProviderStreamEvent]:
             del request
             await asyncio.sleep(30)
@@ -1067,8 +1063,6 @@ def _job_ids(message: ConversationMessage) -> list[str | None]:
 
 class _ScriptedAdapter:
     """Answers each provider request with the next reply; request ``hold`` waits for ``release``."""
-
-    supports_reasoning_effort = False
 
     def __init__(self, *replies: ConversationMessage, hold: int | None = None) -> None:
         self.replies = replies

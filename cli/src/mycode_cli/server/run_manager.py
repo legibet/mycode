@@ -299,7 +299,7 @@ class RunManager:
             if state is None:
                 return None
             for index, message in enumerate(state.queue):
-                if (message.get("meta") or {}).get("input_id") == input_id:
+                if message.get("meta", {}).get("input_id") == input_id:
                     del state.queue[index]
                     return state.info()
             return None
@@ -313,7 +313,7 @@ class RunManager:
 
         async with self._lock:
             for index, message in enumerate(state.queue):
-                if (message.get("meta") or {}).get("input_id") == input_id:
+                if message.get("meta", {}).get("input_id") == input_id:
                     if not state.agent.steer(message):
                         return False
                     del state.queue[index]
@@ -588,7 +588,7 @@ class RunManager:
             state.committed.append(message)
             # A steer or queued message enters history with its user_message
             # event, which clients apply as the start of its segment.
-            if message.get("role") == "user" and "input_ids" not in (message.get("meta") or {}):
+            if message["role"] == "user" and "input_ids" not in message.get("meta", {}):
                 state.history_len = len(state.committed)
                 state.history_seq = state.next_seq - 1
 

@@ -25,7 +25,7 @@ class Usage(TypedDict, total=False):
     reasoning_tokens: int
 
 
-USAGE_TOKEN_KEYS = (
+_USAGE_TOKEN_KEYS = (
     "total_tokens",
     "input_tokens",
     "cache_read_tokens",
@@ -87,7 +87,7 @@ def add_usage(total: Usage, usage: Usage) -> Usage:
     """Return ``total`` plus one request's token counts; missing fields keep known totals."""
 
     result = total.copy()
-    for key in USAGE_TOKEN_KEYS:
+    for key in _USAGE_TOKEN_KEYS:
         value = usage.get(key)
         if value is not None:
             result[key] = result.get(key, 0) + value
@@ -110,7 +110,7 @@ def estimate_cost(usage: Usage, pricing: dict[str, Any] | None) -> Cost | None:
     output_tokens = usage.get("output_tokens")
     if input_tokens is None or output_tokens is None:
         return None
-    if any(usage.get(key, 0) < 0 for key in USAGE_TOKEN_KEYS):
+    if any(usage.get(key, 0) < 0 for key in _USAGE_TOKEN_KEYS):
         return None
 
     prices: dict[str, float | None] = {key: pricing.get(key) for key in _PRICE_KEYS}

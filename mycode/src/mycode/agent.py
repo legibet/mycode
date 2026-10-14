@@ -148,8 +148,8 @@ class Agent:
         self.deps = deps
 
         # Persistence is opt-in: a store is only created when ``session_dir``
-        # is supplied. ``session_id`` is always populated (uuid when absent)
-        # so Events can carry a stable runtime tag even in memory-only mode.
+        # is supplied. ``session_id`` is always populated (uuid when absent);
+        # requests carry it even in memory-only mode.
         self.session_dir = session_dir
         self.session_id = (session_id or "").strip() or uuid4().hex
         self._store: SessionStore | None = SessionStore(data_dir=session_dir) if session_dir is not None else None
@@ -1141,7 +1141,7 @@ class _RunState:
 def _tool_call_error(run: _RunState, tool_use: ToolUseBlock, stop_reason: StopReason | None) -> str | None:
     """Return the error output for a tool call that must not run, else ``None``."""
 
-    meta = tool_use.get("meta") or {}
+    meta = tool_use.get("meta", {})
     if stop_reason == "length":
         return "error: tool call was truncated by the output token limit and was not executed"
     if meta.get("invalid_input") is True:
@@ -1305,8 +1305,8 @@ class _TurnSegment:
 
 
 def _created_at(message: ConversationMessage) -> datetime | None:
-    raw = (message.get("meta") or {}).get("created_at")
-    if not isinstance(raw, str):
+    raw = message.get("meta", {}).get("created_at")
+    if raw is None:
         return None
     try:
         stamp = datetime.fromisoformat(raw)
