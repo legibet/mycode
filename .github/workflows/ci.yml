@@ -36,7 +36,7 @@ jobs:
         run: uv run ty check
 
       - name: Run Python tests
-        run: uv run pytest
+        run: uv run pytest -n auto
 
   web:
     runs-on: ubuntu-latest

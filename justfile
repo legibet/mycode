@@ -56,7 +56,7 @@ web-check:
 check: py-check web-check
 
 py-test:
-  uv run pytest
+  uv run pytest -n auto
 
 web-test:
   pnpm --dir web test

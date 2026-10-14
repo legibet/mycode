@@ -17,6 +17,7 @@ dev = [
     "ty>=0.0.84",
     "pytest>=9.1.1",
     "pytest-asyncio>=1.4.0",
+    "pytest-xdist>=3.8.0",
 ]
 
 [tool.ty.environment]
