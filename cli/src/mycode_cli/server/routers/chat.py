@@ -59,7 +59,6 @@ from mycode_cli.server.schemas import (
     RunInfo,
     RunResponse,
     StatusResponse,
-    StreamEvent,
     UserInputRequest,
 )
 from mycode_cli.sessions import SessionStore, display_text
@@ -450,8 +449,7 @@ async def stream_run(
         async for payload in runs.stream_events(run_id, after):
             if await req.is_disconnected():
                 return
-            event = StreamEvent(**payload)
-            yield f"data: {json.dumps(event.model_dump(exclude_none=True), ensure_ascii=False)}\n\n"
+            yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
         yield "data: [DONE]\n\n"
 

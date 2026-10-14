@@ -156,7 +156,7 @@ async def test_usage_events_compose_known_session_totals(
     usage_events = [event for event in state.events if event["type"] == "usage"]
     expected_cost = pytest.approx({"total": expected}) if expected is not None else None
     assert usage_events[0]["session_usage"] == {"input_tokens": 150, "output_tokens": 10}
-    assert usage_events[0]["session_cost"] == expected_cost
+    assert usage_events[0].get("session_cost") == expected_cost
     assert state.session_totals.cost == expected_cost
     assert usage_events[0]["model"] == "test-model"
     assert usage_events[0]["context_window"] == 1_000
@@ -194,6 +194,71 @@ async def test_snapshot_includes_user_message_and_pending_events() -> None:
 
     agent.release.set()
     await _wait_for_run_task(manager, run["id"])
+
+
+class WireShapeAgent(ChatOnlyAgent):
+    """Yields SDK events carrying fields the web API does not send, then waits."""
+
+    def __init__(self) -> None:
+        self.sent = asyncio.Event()
+        self.release = asyncio.Event()
+
+    def cancel(self) -> None:
+        self.release.set()
+
+    async def achat(self, user_input, on_persist=None):
+        del user_input
+        yield ToolStartEvent(
+            tool_call={
+                "type": "tool_use",
+                "id": "call-1",
+                "name": "read",
+                "input": {"path": "shot.png"},
+                "meta": {"native": {"signature": "sig"}},
+            }
+        )
+        yield ToolDoneEvent(
+            tool_use_id="call-1",
+            output="read shot.png",
+            is_error=False,
+            content=[{"type": "image", "data": "aGk=", "mime_type": "image/png"}],
+        )
+        yield UsageEvent(context_tokens=None, turn_usage={}, turn_cost=None, turn_duration_ms=None)
+        self.sent.set()
+        await self.release.wait()
+
+
+async def test_reconnect_snapshot_replays_events_in_their_live_shape() -> None:
+    manager = RunManager()
+    agent = WireShapeAgent()
+    run = await manager.start_run(
+        cwd="/work",
+        session_id="session-1",
+        user_message={"role": "user", "content": [{"type": "text", "text": "look"}]},
+        base_messages=[],
+        agent=agent,
+    )
+    await agent.sent.wait()
+
+    snapshot = await manager.snapshot_session("session-1")
+    assert snapshot is not None
+    pending = snapshot["pending_events"]
+    assert pending == [
+        {"seq": 1, "type": "tool_start", "tool_call": {"id": "call-1", "name": "read", "input": {"path": "shot.png"}}},
+        {"seq": 2, "type": "tool_done", "tool_use_id": "call-1", "output": "read shot.png", "is_error": False},
+        {
+            "seq": 3,
+            "type": "usage",
+            "context_window": 1_000,
+            "model": "test-model",
+            "turn_usage": {},
+        },
+    ]
+
+    agent.release.set()
+    await _wait_for_run_task(manager, run["id"])
+    live = [event async for event in manager.stream_events(run["id"], after=0)]
+    assert live == pending
 
 
 async def test_stream_events_respects_after_and_finishes() -> None:

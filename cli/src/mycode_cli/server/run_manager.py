@@ -26,6 +26,7 @@ from mycode.events import (
 from mycode.messages import ConversationMessage, merge_user_messages
 from mycode_cli.background import BackgroundJobs, is_job_message
 from mycode_cli.permissions import ToolReviewDecision
+from mycode_cli.server.schemas import StreamEvent
 from mycode_cli.sessions import SessionTotals, sum_session_totals
 
 RunStatus = Literal["running", "completed", "failed", "cancelled"]
@@ -594,7 +595,7 @@ class RunManager:
     async def _append_event(
         self, state: RunState, event: Event | dict[str, Any], *, compact_totals: SessionTotals | None = None
     ) -> None:
-        """Buffer one stream event: an SDK event, or a server-only payload."""
+        """Buffer one stream event, an SDK event or a server-only payload, projected to its SSE shape."""
 
         async with state.condition:
             payload = event if isinstance(event, dict) else event.to_dict()
@@ -622,7 +623,8 @@ class RunManager:
                     state.events = retained
                     state.tool_output_bytes = sum(_tool_output_bytes(buffered) for buffered in retained)
 
-            payload = {"seq": state.next_seq, **payload}
+            # The buffer holds web API events: SSE and reconnect snapshots share this shape.
+            payload = StreamEvent(seq=state.next_seq, **payload).model_dump(exclude_none=True)
             state.next_seq += 1
             state.events.append(payload)
             state.tool_output_bytes += _tool_output_bytes(payload)
