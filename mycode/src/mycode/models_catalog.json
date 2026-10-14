@@ -1,8 +1,24 @@
 {
   "models": {
+    "MiniMax-H3": {
+      "context_window": null,
+      "max_output_tokens": null,
+      "reasoning_efforts": null,
+      "supports_image_input": true,
+      "supports_pdf_input": false
+    },
+    "MiniMax-H3-Max": {
+      "context_window": null,
+      "max_output_tokens": null,
+      "reasoning_efforts": null,
+      "supports_image_input": true,
+      "supports_pdf_input": false
+    },
     "MiniMax-M2": {
       "context_window": 204800,
       "cost": {
+        "cache_read": 0.03,
+        "cache_write": 0.375,
         "input": 0.3,
         "output": 1.2
       },
@@ -21,6 +37,19 @@
       },
       "max_output_tokens": 131072,
       "reasoning_efforts": [],
+      "supports_image_input": false,
+      "supports_pdf_input": false
+    },
+    "MiniMax-M2.1-highspeed": {
+      "context_window": 204800,
+      "cost": {
+        "cache_read": 0.03,
+        "cache_write": 0.375,
+        "input": 0.6,
+        "output": 2.4
+      },
+      "max_output_tokens": 131072,
+      "reasoning_efforts": null,
       "supports_image_input": false,
       "supports_pdf_input": false
     },
@@ -1108,6 +1137,22 @@
         "output": 3.75
       },
       "max_output_tokens": 65536,
+      "reasoning_efforts": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "supports_image_input": true,
+      "supports_pdf_input": true
+    },
+    "gemini-4-argon": {
+      "context_window": 1048576,
+      "cost": {
+        "cache_read": 0.1,
+        "input": 2,
+        "output": 10
+      },
+      "max_output_tokens": 32768,
       "reasoning_efforts": [
         "low",
         "medium",
@@ -2491,6 +2536,13 @@
       "supports_image_input": false,
       "supports_pdf_input": false
     },
+    "image-01": {
+      "context_window": null,
+      "max_output_tokens": null,
+      "reasoning_efforts": null,
+      "supports_image_input": true,
+      "supports_pdf_input": false
+    },
     "kimi-k2.6": {
       "context_window": 262144,
       "cost": {
@@ -3023,6 +3075,25 @@
         "medium",
         "high",
         "xhigh"
+      ],
+      "supports_image_input": true,
+      "supports_pdf_input": true
+    },
+    "muse-wonder-1.0": {
+      "context_window": 1048576,
+      "cost": {
+        "cache_read": 0.2,
+        "input": 4,
+        "output": 20
+      },
+      "max_output_tokens": 131072,
+      "reasoning_efforts": [
+        "minimal",
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
       ],
       "supports_image_input": true,
       "supports_pdf_input": true
@@ -3936,6 +4007,48 @@
       },
       "max_output_tokens": 8192,
       "reasoning_efforts": [],
+      "supports_image_input": false,
+      "supports_pdf_input": false
+    },
+    "speech-02-hd": {
+      "context_window": null,
+      "max_output_tokens": null,
+      "reasoning_efforts": null,
+      "supports_image_input": false,
+      "supports_pdf_input": false
+    },
+    "speech-02-turbo": {
+      "context_window": null,
+      "max_output_tokens": null,
+      "reasoning_efforts": null,
+      "supports_image_input": false,
+      "supports_pdf_input": false
+    },
+    "speech-2.6-hd": {
+      "context_window": null,
+      "max_output_tokens": null,
+      "reasoning_efforts": null,
+      "supports_image_input": false,
+      "supports_pdf_input": false
+    },
+    "speech-2.6-turbo": {
+      "context_window": null,
+      "max_output_tokens": null,
+      "reasoning_efforts": null,
+      "supports_image_input": false,
+      "supports_pdf_input": false
+    },
+    "speech-2.8-hd": {
+      "context_window": null,
+      "max_output_tokens": null,
+      "reasoning_efforts": null,
+      "supports_image_input": false,
+      "supports_pdf_input": false
+    },
+    "speech-2.8-turbo": {
+      "context_window": null,
+      "max_output_tokens": null,
+      "reasoning_efforts": null,
       "supports_image_input": false,
       "supports_pdf_input": false
     },
