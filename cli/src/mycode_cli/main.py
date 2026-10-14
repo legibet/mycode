@@ -15,7 +15,6 @@ import typer
 from mycode.agent import Agent
 from mycode.messages import ConversationMessage
 from mycode_cli import __version__
-from mycode_cli.background import BackgroundJobs
 from mycode_cli.config import (
     ResolvedProvider,
     Settings,
@@ -143,7 +142,6 @@ class _BootstrapContext:
     settings: Settings
     resolved_provider: ResolvedProvider
     resolved_session: ResolvedSession
-    agent: Agent
 
 
 def _bootstrap(
@@ -152,10 +150,8 @@ def _bootstrap(
     model: str | None,
     session: str | None,
     continue_last: bool,
-    max_turns: int | None,
     permission: str | None,
     reasoning_effort: str | None = None,
-    jobs: BackgroundJobs | None = None,
 ) -> _BootstrapContext:
     """Shared setup for the chat and run commands."""
 
@@ -196,22 +192,11 @@ def _bootstrap(
         console.print(error_line(str(exc)))
         raise SystemExit(1) from exc
 
-    agent = build_agent(
-        store=store,
-        cwd=cwd,
-        settings=settings,
-        resolved_provider=resolved_provider,
-        session_id=resolved_session.session_id,
-        max_turns=max_turns,
-        jobs=jobs,
-    )
-
     return _BootstrapContext(
         store=store,
         settings=settings,
         resolved_provider=resolved_provider,
         resolved_session=resolved_session,
-        agent=agent,
     )
 
 
@@ -250,26 +235,20 @@ def chat(
 
     from .tui.chat import TerminalChat
 
-    # Background commands outlive turns; the interactive chat delivers their results.
-    jobs = BackgroundJobs()
     setup = _bootstrap(
         provider=provider,
         model=model,
         session=session,
         continue_last=continue_last,
-        max_turns=max_turns,
         permission=permission,
-        jobs=jobs,
     )
 
     terminal_chat = TerminalChat(
-        agent=setup.agent,
         settings=setup.settings,
         store=setup.store,
+        resolved_provider=setup.resolved_provider,
         session_id=setup.resolved_session.session_id,
-        jobs=jobs,
-        provider_name=setup.resolved_provider.provider_name,
-        reasoning_efforts=setup.resolved_provider.reasoning_efforts,
+        max_turns=max_turns,
         session=setup.resolved_session.session,
         mode=setup.resolved_session.mode,
         messages=setup.resolved_session.messages,
@@ -298,14 +277,19 @@ def run(
         model=model,
         session=session,
         continue_last=continue_last,
-        max_turns=max_turns,
         permission=permission,
         reasoning_effort=reasoning_effort,
     )
-
-    code = asyncio.run(
-        run_noninteractive(setup.agent, " ".join(message).strip(), store=setup.store, cwd=setup.settings.cwd)
+    agent = build_agent(
+        store=setup.store,
+        cwd=setup.settings.cwd,
+        settings=setup.settings,
+        resolved_provider=setup.resolved_provider,
+        session_id=setup.resolved_session.session_id,
+        max_turns=max_turns,
     )
+
+    code = asyncio.run(run_noninteractive(agent, " ".join(message).strip(), store=setup.store, cwd=setup.settings.cwd))
     raise SystemExit(code)
 
 

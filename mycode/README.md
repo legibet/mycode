@@ -74,6 +74,8 @@ The SDK infers the provider from the model string (`claude-*` to Anthropic, `gpt
 
 Pass `api_key=` to override the env var, `api_base=` for a custom endpoint. Model metadata is bundled from [models.dev](https://models.dev); pass `context_window`, `supports_image_input`, or `supports_pdf_input` to override.
 
+Call `agent.set_model(...)` between turns to switch models; the conversation carries over.
+
 ## Multi-turn conversations
 
 Call `achat()` or `run()` again on the same `Agent` to continue:

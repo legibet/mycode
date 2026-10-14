@@ -121,7 +121,6 @@ class Agent:
         context_window: int | None = None,
         compact_threshold: float | None = None,
         reasoning_effort: str | None = None,
-        supports_reasoning_effort: bool = False,
         legacy_max_tokens: bool = False,
         supports_image_input: bool | None = None,
         supports_pdf_input: bool | None = None,
@@ -130,13 +129,19 @@ class Agent:
         hooks: Hooks | None = None,
         deps: object | None = None,
     ):
-        self.model = model
-        if provider is None:
-            inferred = infer_provider_from_model(model)
-            if inferred is None:
-                raise ValueError(f"could not infer provider for model {model!r}; pass provider= explicitly")
-            provider = inferred
-        self.provider = provider
+        self._active_run: _RunState | None = None
+        self.set_model(
+            model,
+            provider=provider,
+            api_key=api_key,
+            api_base=api_base,
+            reasoning_effort=reasoning_effort,
+            legacy_max_tokens=legacy_max_tokens,
+            max_tokens=max_tokens,
+            context_window=context_window,
+            supports_image_input=supports_image_input,
+            supports_pdf_input=supports_pdf_input,
+        )
 
         # Opaque application context handed to every tool and hook; the SDK
         # never reads it.
@@ -150,8 +155,6 @@ class Agent:
         self._store: SessionStore | None = SessionStore(data_dir=session_dir) if session_dir is not None else None
         self.transcript_path: str | None = str(self._store.messages_path(self.session_id)) if self._store else None
 
-        self.api_key = api_key
-        self.api_base = api_base
         self.max_turns = max_turns
         if request_timeout <= 0:
             raise ValueError("request_timeout must be positive")
@@ -163,16 +166,9 @@ class Agent:
         self.stream_start_timeout = float(stream_start_timeout)
         self.max_retries = int(max_retries)
         self.compact_threshold = compact_threshold if compact_threshold is not None else DEFAULT_COMPACT_THRESHOLD
-        self.reasoning_effort = reasoning_effort
-        # Whether the endpoint accepts the effort knob. Comes from provider
-        # config, not the catalog, so it stays out of refresh_capabilities.
-        self.supports_reasoning_effort = supports_reasoning_effort
-        # Whether the endpoint only implements the legacy max_tokens field.
-        self.legacy_max_tokens = legacy_max_tokens
 
         self.system = system
         self.hooks = hooks or Hooks()
-        self._active_run: _RunState | None = None
 
         # History resolution:
         # - messages is None → auto-resume from disk if the session exists
@@ -189,36 +185,52 @@ class Agent:
 
         self.tools = ToolExecutor(tools)
 
-        self.refresh_capabilities(
-            max_tokens=max_tokens,
-            context_window=context_window,
-            supports_image_input=supports_image_input,
-            supports_pdf_input=supports_pdf_input,
-        )
-
-    def refresh_capabilities(
+    def set_model(
         self,
+        model: str,
         *,
+        provider: str | None = None,
+        api_key: str | None = None,
+        api_base: str | None = None,
+        reasoning_effort: str | None = None,
+        legacy_max_tokens: bool = False,
         max_tokens: int | None = None,
         context_window: int | None = None,
         supports_image_input: bool | None = None,
         supports_pdf_input: bool | None = None,
     ) -> None:
-        """Resolve model capability fields against the metadata catalog.
+        """Switch to ``model``, keeping the history and the execution config.
 
-        Explicit arguments win; otherwise the bundled catalog supplies the value;
-        otherwise a conservative default is used. Call this after mutating
-        ``self.provider`` or ``self.model`` to re-derive the capability fields.
+        Every model and endpoint setting is replaced: an omitted argument takes
+        its constructor default, not the previous value, so a custom endpoint
+        needs ``api_key`` / ``api_base`` again. Capability fields and pricing
+        are re-resolved against the metadata catalog; explicit arguments win,
+        then the catalog, then a conservative default. On error the current
+        settings are kept.
         """
 
+        if self._active_run is not None:
+            raise RuntimeError("cannot switch model during an active operation")
+        if provider is None:
+            provider = infer_provider_from_model(model)
+            if provider is None:
+                raise ValueError(f"could not infer provider for model {model!r}; pass provider= explicitly")
         meta = resolve_model_metadata(
-            provider=self.provider,
-            model=self.model,
+            provider=provider,
+            model=model,
             max_output_tokens=max_tokens,
             context_window=context_window,
             supports_image_input=supports_image_input,
             supports_pdf_input=supports_pdf_input,
         )
+
+        self.model = model
+        self.provider = provider
+        self.api_key = api_key
+        self.api_base = api_base
+        self.reasoning_effort = reasoning_effort
+        # Whether the endpoint only implements the legacy max_tokens field.
+        self.legacy_max_tokens = legacy_max_tokens
         self.max_tokens: int = meta.max_output_tokens or 16_384
         self.context_window: int = meta.context_window or 128_000
         self.model_pricing: dict[str, Any] | None = meta.pricing

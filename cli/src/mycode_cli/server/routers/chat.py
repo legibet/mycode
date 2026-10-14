@@ -638,7 +638,7 @@ async def get_config(cwd: Annotated[str | None, Query()] = None) -> dict[str, An
 
     providers_info: dict[str, Any] = {}
     for provider in resolve_provider_choices(settings):
-        provider_config = settings.providers.get(provider.provider_name or "")
+        provider_config = settings.providers.get(provider.provider_name)
         models = provider_models(settings, provider)
 
         info: dict[str, Any] = {
@@ -676,7 +676,7 @@ async def get_config(cwd: Annotated[str | None, Query()] = None) -> dict[str, An
         info["supports_pdf_input"] = bool(pdf_models)
         info["pdf_input_models"] = pdf_models
 
-        providers_info[provider.provider_name or provider.provider] = info
+        providers_info[provider.provider_name] = info
 
     default_payload = (
         {"provider": resolved.provider_name, "model": resolved.model}

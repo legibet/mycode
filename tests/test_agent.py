@@ -38,7 +38,8 @@ from mycode import (
     text_block,
     tool,
 )
-from mycode.messages import BlockMeta, MessageMeta
+from mycode.messages import BlockMeta, MessageMeta, flatten_message_text
+from mycode.models import resolve_model_metadata
 from mycode.providers.base import MessageDone, ProviderStreamEvent, TextDelta, ThinkingDelta
 
 
@@ -326,6 +327,48 @@ def test_agent_forwards_runtime_configuration_to_provider(tmp_path: Path) -> Non
 def test_agent_requires_explicit_provider_for_unknown_models(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="could not infer provider"):
         _new_agent(tmp_path, model="not-a-real-model")
+
+
+def test_set_model_replaces_model_settings_and_keeps_history(tmp_path: Path) -> None:
+    agent = _new_agent(
+        tmp_path,
+        provider="openai",
+        api_key="key",
+        api_base="https://proxy.example/v1",
+        reasoning_effort="high",
+        legacy_max_tokens=True,
+        max_tokens=1000,
+        context_window=5000,
+        supports_image_input=False,
+        system="Keep me.",
+    )
+    with patch("mycode.agent.get_provider_adapter", return_value=_FakeProviderAdapter([_text_turn("first")])):
+        agent.run("hello")
+
+    # Omitted arguments reset to their defaults instead of carrying over.
+    agent.set_model("gemini-2.5-flash")
+    adapter = _FakeProviderAdapter([_text_turn("second")])
+    with patch("mycode.agent.get_provider_adapter", return_value=adapter):
+        agent.run("again")
+
+    expected = resolve_model_metadata(provider="google", model="gemini-2.5-flash")
+    request = adapter.requests[0]
+    assert (request.provider, request.model, request.system) == ("google", "gemini-2.5-flash", "Keep me.")
+    assert (request.api_key, request.api_base, request.reasoning_effort) == (None, None, None)
+    assert request.legacy_max_tokens is False
+    assert request.max_tokens == expected.max_output_tokens
+    assert request.supports_image_input is expected.supports_image_input
+    assert agent.context_window == expected.context_window
+    assert agent.model_pricing == expected.pricing
+    assert [flatten_message_text(message) for message in adapter.message_snapshots[0]] == ["hello", "first", "again"]
+
+    with pytest.raises(ValueError, match="could not infer provider"):
+        agent.set_model("not-a-real-model")
+    assert (agent.provider, agent.model, agent.context_window) == (
+        "google",
+        "gemini-2.5-flash",
+        expected.context_window,
+    )
 
 
 def test_agent_run_collects_stream_events(tmp_path: Path) -> None:
@@ -885,6 +928,8 @@ class TestAgentCancel:
                     await agent.acompact()
                 with pytest.raises(RuntimeError):
                     agent.clear()
+                with pytest.raises(RuntimeError):
+                    agent.set_model("claude-sonnet-4-5")
                 assert agent.messages == history
                 if interrupt == "cancel":
                     agent.cancel()

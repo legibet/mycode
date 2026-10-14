@@ -108,12 +108,12 @@ class Settings:
 class ResolvedProvider:
     """Resolved provider ready for Agent construction."""
 
+    provider_name: str
     provider: str
     model: str
     api_key: str | None
     api_base: str | None
     reasoning_effort: str | None
-    provider_name: str | None = None
     model_config: ModelConfig | None = None
     supports_reasoning_effort: bool = False
     legacy_max_tokens: bool = False
@@ -703,7 +703,7 @@ def resolve_provider_choices(settings: Settings) -> list[ResolvedProvider]:
 def provider_models(settings: Settings, provider: ResolvedProvider) -> list[str]:
     """Return a resolved provider's selectable models: configured ones, else the adapter defaults."""
 
-    provider_config = settings.providers.get(provider.provider_name or "")
+    provider_config = settings.providers.get(provider.provider_name)
     if provider_config and provider_config.models:
         return list(provider_config.models)
     return list(get_provider_adapter(provider.provider).default_models) or [provider.model]

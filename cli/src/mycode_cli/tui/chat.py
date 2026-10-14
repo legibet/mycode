@@ -50,13 +50,13 @@ from mycode_cli.config import (
     resolve_provider,
     resolve_provider_choices,
 )
-from mycode_cli.permissions import ToolReviewDecision, ToolReviewRequest, build_permission_hooks
-from mycode_cli.runtime import load_session_totals
+from mycode_cli.permissions import ToolReviewDecision, ToolReviewRequest
+from mycode_cli.runtime import build_agent, load_session_totals
 from mycode_cli.sessions import SessionStore
 from mycode_cli.state import load_state, save_state
 from mycode_cli.system_prompt import build_skill_snapshot_blocks, discover_slash_skills
 from mycode_cli.tools import read_text_window
-from mycode_cli.workspace import CliDeps, resolve_path
+from mycode_cli.workspace import resolve_path
 
 from .render import (
     TurnRenderer,
@@ -287,93 +287,26 @@ def history_file_path() -> str:
     return str(path)
 
 
-def clone_agent(agent: Agent, *, store: SessionStore, session_id: str, cwd: str, jobs: BackgroundJobs) -> Agent:
-    """Keep the current runtime config while swapping session state.
-
-    History auto-loads from disk when ``session_id`` exists under the store.
-    """
-
-    return Agent(
-        model=agent.model,
-        provider=agent.provider,
-        session_dir=store.data_dir,
-        session_id=session_id,
-        api_key=agent.api_key,
-        api_base=agent.api_base,
-        max_turns=agent.max_turns,
-        max_tokens=agent.max_tokens,
-        context_window=agent.context_window,
-        compact_threshold=agent.compact_threshold,
-        reasoning_effort=agent.reasoning_effort,
-        supports_reasoning_effort=agent.supports_reasoning_effort,
-        legacy_max_tokens=agent.legacy_max_tokens,
-        supports_image_input=agent.supports_image_input,
-        supports_pdf_input=agent.supports_pdf_input,
-        system=agent.system,
-        tools=agent.tools.specs,
-        hooks=agent.hooks,
-        deps=CliDeps.for_session(cwd=cwd, data_dir=store.data_dir, session_id=session_id, jobs=jobs),
-    )
-
-
-def apply_resolved_provider(agent: Agent, resolved: ResolvedProvider) -> bool:
-    """Copy runtime settings from a resolved provider onto an active agent.
-
-    Returns whether any field actually changed. Does not touch session state.
-    Re-derives model capability fields from the resolved model config when the
-    provider or model changes so the agent reports accurate support flags.
-    """
-
-    runtime_changed = (
-        agent.provider != resolved.provider
-        or agent.model != resolved.model
-        or agent.api_base != resolved.api_base
-        or agent.api_key != resolved.api_key
-        or agent.reasoning_effort != resolved.reasoning_effort
-    )
-
-    agent.provider = resolved.provider
-    agent.model = resolved.model
-    agent.api_key = resolved.api_key
-    agent.api_base = resolved.api_base
-    agent.reasoning_effort = resolved.reasoning_effort
-    agent.supports_reasoning_effort = resolved.supports_reasoning_effort
-    agent.legacy_max_tokens = resolved.legacy_max_tokens
-
-    if runtime_changed:
-        model_config = resolved.model_config
-        agent.refresh_capabilities(
-            max_tokens=model_config.max_output_tokens if model_config else None,
-            context_window=model_config.context_window if model_config else None,
-            supports_image_input=model_config.supports_image_input if model_config else None,
-            supports_pdf_input=model_config.supports_pdf_input if model_config else None,
-        )
-    return runtime_changed
-
-
 class TerminalChat:
     """Own the interactive TUI session: slash commands, session switching, and agent turns."""
 
     def __init__(
         self,
         *,
-        agent: Agent,
         settings: Settings,
         store: SessionStore,
+        resolved_provider: ResolvedProvider,
         session_id: str,
-        jobs: BackgroundJobs,
-        provider_name: str | None = None,
-        reasoning_efforts: tuple[str, ...] = (),
+        max_turns: int | None = None,
         session: dict[str, Any] | None = None,
         mode: Literal["new", "resumed"] = "new",
         messages: list[ConversationMessage] | None = None,
     ) -> None:
-        self.agent = agent
         self.settings = settings
         self.store = store
+        self.resolved_provider = resolved_provider
         self.session_id = session_id
-        self.provider_name = provider_name or agent.provider
-        self.reasoning_efforts = reasoning_efforts
+        self.max_turns = max_turns
         self.state = load_state()
         self._session = session or {}
         self._mode: Literal["new", "resumed"] = mode
@@ -382,7 +315,7 @@ class TerminalChat:
         self._steers: list[ConversationMessage] = []
         self._queue: list[ConversationMessage] = []
         # The session's background jobs; a finished one wakes the idle loop through ``_wake``.
-        self.jobs = jobs
+        self.jobs = BackgroundJobs()
         self.jobs.deliver = self._deliver_jobs
         self._wake = asyncio.Event()
         # The running turn's renderer; tool reviews print through it.
@@ -392,7 +325,25 @@ class TerminalChat:
             completer=_PromptCompleter(cwd=self.settings.cwd),
             key_bindings=_build_chat_key_bindings(),
         )
-        self.agent.hooks = build_permission_hooks(self.settings, review=self._review_tool_call)
+        self.agent = self._build_agent(resolved_provider, session_id, self.jobs)
+
+    def _build_agent(self, resolved_provider: ResolvedProvider, session_id: str, jobs: BackgroundJobs) -> Agent:
+        """Build an agent for ``session_id``; its history loads from disk.
+
+        Reads the session and the system prompt sources, so it can fail with
+        ``OSError`` or ``ValueError``. Callers build first and switch state after.
+        """
+
+        return build_agent(
+            store=self.store,
+            cwd=self.settings.cwd,
+            settings=self.settings,
+            resolved_provider=resolved_provider,
+            session_id=session_id,
+            max_turns=self.max_turns,
+            review=self._review_tool_call,
+            jobs=jobs,
+        )
 
     async def _review_tool_call(self, request: ToolReviewRequest) -> ToolReviewDecision:
         title = Text()
@@ -625,12 +576,12 @@ class TerminalChat:
         self.terminal.print(
             Text(),
             *header_lines(
-                provider=self.provider_name,
-                model=self.agent.model,
+                provider=self.resolved_provider.provider_name,
+                model=self.resolved_provider.model,
                 session=session,
                 mode=mode,
                 message_count=message_count,
-                reasoning_effort=self.agent.reasoning_effort,
+                reasoning_effort=self.resolved_provider.reasoning_effort,
             ),
         )
 
@@ -740,7 +691,7 @@ class TerminalChat:
     def _supports_effort_or_warn(self) -> bool:
         """Return whether the current model supports reasoning effort."""
 
-        if self.agent.supports_reasoning_effort and self.reasoning_efforts:
+        if self.resolved_provider.supports_reasoning_effort and self.resolved_provider.reasoning_efforts:
             return True
         self.terminal.print(Text("current model does not support reasoning effort", style=MUTED))
         return False
@@ -776,22 +727,31 @@ class TerminalChat:
     async def _start_new_session(self) -> None:
         """Start a fresh session while keeping the current runtime settings."""
 
-        await self._leave_session(uuid4().hex)
+        if not await self._leave_session(uuid4().hex):
+            return
         self._print_header({"id": self.session_id, "title": "New chat"}, mode="new", message_count=0)
 
-    async def _leave_session(self, session_id: str) -> None:
-        """Stop the session's background jobs and move the agent to ``session_id``."""
+    async def _leave_session(self, session_id: str) -> bool:
+        """Move to ``session_id`` with a new agent, stopping this session's background jobs.
 
+        Returns ``False``, staying in the current session, when the agent cannot be built.
+        """
+
+        jobs = BackgroundJobs()
+        try:
+            agent = self._build_agent(self.resolved_provider, session_id, jobs)
+        except (OSError, ValueError) as exc:
+            self.terminal.print(error_line(str(exc)))
+            return False
         count = len(self.jobs.jobs)
         await self.jobs.close()
         if count:
             self._print_done("stopped", f"{count} background job{'s' if count > 1 else ''}")
+        jobs.deliver = self._deliver_jobs
         self.session_id = session_id
-        self.jobs = BackgroundJobs()
-        self.jobs.deliver = self._deliver_jobs
-        self.agent = clone_agent(
-            self.agent, store=self.store, session_id=session_id, cwd=self.settings.cwd, jobs=self.jobs
-        )
+        self.jobs = jobs
+        self.agent = agent
+        return True
 
     async def _rewind(self) -> str | None:
         """Rewind the conversation to a chosen user message.
@@ -872,25 +832,30 @@ class TerminalChat:
             self.terminal.print(error_line("failed to load session"))
             return
         messages = data["messages"]
-        await self._leave_session(session_id)
+        if not await self._leave_session(session_id):
+            return
         self._print_header(data["session"], mode="resumed", message_count=len(messages))
         self._print_history(messages)
 
     async def _switch_model(self, query: str) -> None:
-        """Pick a model from every available provider and apply it to the active agent.
+        """Pick a model from every available provider and rebuild the agent with it.
 
         A query naming a listed model exactly switches to it directly, preferring
         the current provider; any other query opens the picker filtered by it.
+        Providers resolve against freshly loaded config; the agent keeps the
+        session's settings, including a ``--permission`` override.
         """
 
-        self.settings = get_settings(self.settings.cwd)
-        current = (self.provider_name, self.agent.model)
+        settings = get_settings(self.settings.cwd)
+        current_name = self.resolved_provider.provider_name
+        current_model = self.resolved_provider.model
+        current = (current_name, current_model)
         groups: list[tuple[str, list[str]]] = []
-        for provider in resolve_provider_choices(self.settings):
-            name = provider.provider_name or provider.provider
-            models = provider_models(self.settings, provider)
-            if name == self.provider_name and self.agent.model not in models:
-                models.append(self.agent.model)
+        for provider in resolve_provider_choices(settings):
+            name = provider.provider_name
+            models = provider_models(settings, provider)
+            if name == current_name and current_model not in models:
+                models.append(current_model)
             groups.append((name, models))
 
         matches = [(name, model) for name, models in groups for model in models if model == query]
@@ -911,21 +876,26 @@ class TerminalChat:
 
         provider_name, model = selected
         try:
-            resolved = resolve_provider(self.settings, provider_name=provider_name, model=model)
+            resolved = resolve_provider(settings, provider_name=provider_name, model=model)
         except ValueError as exc:
             self.terminal.print(error_line(str(exc)))
             return
         resolved = replace(resolved, reasoning_effort=self.state.effort_for(resolved))
 
-        changed = apply_resolved_provider(self.agent, resolved)
-        self.provider_name = provider_name
-        self.reasoning_efforts = resolved.reasoning_efforts
+        try:
+            agent = self._build_agent(resolved, self.session_id, self.jobs)
+        except (OSError, ValueError) as exc:
+            self.terminal.print(error_line(str(exc)))
+            return
+        changed = resolved != self.resolved_provider
+        self.resolved_provider = resolved
+        self.agent = agent
         self.state.provider = provider_name
         self.state.model = model
         save_state(self.state)
         label = f"{provider_name} / {model}"
-        if self.agent.reasoning_effort:
-            label += f" [effort: {self.agent.reasoning_effort}]"
+        if resolved.reasoning_effort:
+            label += f" [effort: {resolved.reasoning_effort}]"
         self._print_runtime_status("model", label, changed=changed)
 
     async def _switch_effort(self) -> None:
@@ -934,33 +904,40 @@ class TerminalChat:
         if not self._supports_effort_or_warn():
             return
 
-        current = self.agent.reasoning_effort or "auto"
-        choices = [(effort, effort) for effort in ("auto", *self.reasoning_efforts)]
+        current = self.resolved_provider.reasoning_effort or "auto"
+        choices = [(effort, effort) for effort in ("auto", *self.resolved_provider.reasoning_efforts)]
         selected = await self.terminal.choose(choices, default=current)
         if selected is not None:
             self._apply_effort_change(selected)
 
     def _apply_effort_change(self, effort: str) -> None:
-        """Apply a reasoning effort change to the active agent."""
+        """Rebuild the agent with a new reasoning effort."""
 
         if not self._supports_effort_or_warn():
             return
 
         try:
-            resolved = normalize_reasoning_effort(effort)
+            normalized = normalize_reasoning_effort(effort)
         except ValueError as exc:
             self.terminal.print(error_line(str(exc)))
             return
 
-        if resolved is not None and resolved not in self.reasoning_efforts:
-            supported = ", ".join(self.reasoning_efforts)
-            message = f"reasoning effort {resolved!r} is not supported by model {self.agent.model!r}"
+        current = self.resolved_provider
+        if normalized is not None and normalized not in current.reasoning_efforts:
+            supported = ", ".join(current.reasoning_efforts)
+            message = f"reasoning effort {normalized!r} is not supported by model {current.model!r}"
             message += f"; supported efforts: {supported}"
             self.terminal.print(error_line(message))
             return
 
-        changed = resolved != self.agent.reasoning_effort
-        self.agent.reasoning_effort = resolved
-        self.state.set_effort(self.provider_name, self.agent.model, resolved)
+        resolved = replace(current, reasoning_effort=normalized)
+        try:
+            agent = self._build_agent(resolved, self.session_id, self.jobs)
+        except (OSError, ValueError) as exc:
+            self.terminal.print(error_line(str(exc)))
+            return
+        self.resolved_provider = resolved
+        self.agent = agent
+        self.state.set_effort(current.provider_name, current.model, normalized)
         save_state(self.state)
-        self._print_runtime_status("effort", resolved or "auto", changed=changed)
+        self._print_runtime_status("effort", normalized or "auto", changed=normalized != current.reasoning_effort)

@@ -130,6 +130,10 @@ At the boundary all pending steers merge into one `user` message: each item's co
 
 `ModelMetadata.reasoning_efforts` lists the effort values advertised for a model. It is informational and does not validate or restrict `Agent.reasoning_effort`.
 
+### Switching models
+
+`agent.set_model(model, ...)` switches the model between operations and raises `RuntimeError` during one. It takes the constructor's model and endpoint arguments (`provider`, `api_key`, `api_base`, `reasoning_effort`, `legacy_max_tokens`, `max_tokens`, `context_window`, `supports_image_input`, `supports_pdf_input`) and replaces all of them: an omitted argument takes its constructor default, not the previous value, so a custom endpoint must pass `api_key` / `api_base` again. Capability fields and pricing are re-resolved as at construction. History, session, tools, hooks, `deps`, `system`, and the timeout, retry, and compact settings are kept; the next request replays the history to the new provider. Assign these fields only through `set_model()`; direct assignment leaves the derived capability fields stale. `reasoning_effort` alone may also be assigned directly.
+
 ### Cancellation
 
 Call `agent.cancel()` from any task or thread, then continue consuming `achat()` until its terminal `cancelled` event. Repeated calls are safe; idle calls do nothing. The agent finishes cleanup before reporting the stop. Cleanup and persistence failures remain errors.

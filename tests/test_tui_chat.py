@@ -8,6 +8,7 @@ import html
 import json
 import shlex
 from collections.abc import AsyncIterator, Callable
+from dataclasses import replace
 from pathlib import Path
 from typing import Any, cast, override
 
@@ -22,22 +23,18 @@ from mycode.agent import Agent
 from mycode.messages import ConversationMessage, TextBlock, build_message, merge_user_messages, text_block
 from mycode.providers import get_provider_adapter, list_env_discoverable_providers
 from mycode.providers.base import MessageDone, ProviderStreamEvent
-from mycode.tools import ToolExecutor
-from mycode_cli.background import BackgroundJob, BackgroundJobs
-from mycode_cli.config import PermissionConfig, Settings, WebConfig, get_settings
+from mycode_cli.background import BackgroundJob
+from mycode_cli.config import PermissionConfig, ResolvedProvider, Settings, WebConfig, get_settings, resolve_provider
 from mycode_cli.permissions import ToolReviewRequest
 from mycode_cli.runtime import load_session_totals
 from mycode_cli.sessions import SessionStore
-from mycode_cli.tools import DEFAULT_TOOLS
 from mycode_cli.tui.chat import (
     TerminalChat,
     _build_chat_key_bindings,
     _PromptCompleter,
-    clone_agent,
 )
 from mycode_cli.tui.terminal import Terminal
 from mycode_cli.tui.theme import TOOL_MARKER
-from mycode_cli.web_tools import build_web_tools
 from mycode_cli.workspace import CliDeps
 
 
@@ -51,21 +48,30 @@ def settings_for(cwd: str) -> Settings:
     )
 
 
+PROVIDER = ResolvedProvider(
+    provider_name="anthropic",
+    provider="anthropic",
+    model="claude-sonnet-4-6",
+    api_key=None,
+    api_base=None,
+    reasoning_effort=None,
+)
+
+
 def _chat(agent: object, tmp_path: Path, harness: TerminalHarness | None = None) -> TerminalChat:
     chat = TerminalChat(
-        agent=cast(Any, agent),
         settings=settings_for(str(tmp_path)),
         store=SessionStore(data_dir=tmp_path / "sessions"),
+        resolved_provider=PROVIDER,
         session_id="s",
-        jobs=BackgroundJobs(),
     )
+    chat.agent = cast(Any, agent)
     if harness is not None:
         chat.terminal = harness.terminal
     return chat
 
 
 class _AttachmentAgent:
-    provider = "anthropic"
     model = "claude-sonnet-4-6"
 
     def __init__(
@@ -76,27 +82,26 @@ class _AttachmentAgent:
     ) -> None:
         self.supports_image_input = supports_image_input
         self.supports_pdf_input = supports_pdf_input
-        self.tools = ToolExecutor(DEFAULT_TOOLS)
 
     def cancel(self) -> None:
         return None
 
 
-def test_clone_agent_keeps_configured_tools_and_uses_the_new_session_directory(tmp_path: Path) -> None:
+async def test_new_session_keeps_configured_tools_and_uses_the_new_session_directory(
+    tmp_path: Path, cli_home: Path
+) -> None:
     store = SessionStore(data_dir=tmp_path / "sessions")
-    agent = Agent(
-        model="gpt-5.5",
-        provider="openai",
-        session_dir=store.data_dir,
-        session_id="old",
-        tools=build_web_tools(WebConfig(search="tavily")),
+    settings = replace(settings_for(str(tmp_path)), web=WebConfig(search="tavily"))
+    chat = TerminalChat(settings=settings, store=store, resolved_provider=PROVIDER, session_id="old")
+    tools = [spec.name for spec in chat.agent.tools.specs]
+
+    await chat._leave_session("new")
+
+    assert "websearch" in tools
+    assert [spec.name for spec in chat.agent.tools.specs] == tools
+    assert chat.agent.deps == CliDeps.for_session(
+        cwd=tmp_path, data_dir=store.data_dir, session_id="new", jobs=chat.jobs
     )
-
-    jobs = BackgroundJobs()
-    cloned = clone_agent(agent, store=store, session_id="new", cwd=str(tmp_path), jobs=jobs)
-
-    assert cloned.tools.specs == agent.tools.specs
-    assert cloned.deps == CliDeps.for_session(cwd=tmp_path, data_dir=store.data_dir, session_id="new", jobs=jobs)
 
 
 @pytest.fixture
@@ -715,20 +720,18 @@ class TestModelSwitch:
                 "type": "openai_chat",
                 "api_key": "k",
                 "base_url": "http://alpha",
-                "models": {"a1": {}, "a2": {}},
+                "supports_reasoning_effort": True,
+                "models": {"a1": {"reasoning_efforts": ["low", "high"]}, "a2": {}},
             },
             "beta": {"type": "openai_chat", "api_key": "k", "base_url": "http://beta", "models": {"b1": {}}},
         }
         (cli_home / "config.json").write_text(json.dumps({"providers": providers}))
-        store = SessionStore(data_dir=tmp_path / "sessions")
-        agent = Agent(model="a1", provider="openai_chat", session_dir=store.data_dir, session_id="s")
+        settings = get_settings(str(tmp_path))
         chat = TerminalChat(
-            agent=agent,
-            settings=get_settings(str(tmp_path)),
-            store=store,
+            settings=settings,
+            store=SessionStore(data_dir=tmp_path / "sessions"),
+            resolved_provider=resolve_provider(settings, provider_name="alpha", model="a1"),
             session_id="s",
-            jobs=BackgroundJobs(),
-            provider_name="alpha",
         )
         chat.terminal = harness.terminal
         return chat
@@ -762,7 +765,27 @@ class TestModelSwitch:
 
         await chat.terminal.run(main)
 
-        assert (chat.provider_name, chat.agent.model, chat.agent.api_base) == expected
+        assert (chat.resolved_provider.provider_name, chat.agent.model, chat.agent.api_base) == expected
+
+    async def test_failed_rebuild_keeps_the_current_session_and_agent(
+        self, chat: TerminalChat, harness: TerminalHarness, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        agent, resolved, jobs = chat.agent, chat.resolved_provider, chat.jobs
+
+        def unreadable(**_kwargs: object) -> None:
+            raise PermissionError("session file is unreadable")
+
+        monkeypatch.setattr("mycode_cli.tui.chat.build_agent", unreadable)
+
+        async def main() -> None:
+            await chat._switch_model("a2")
+            chat._apply_effort_change("high")
+            await chat._start_new_session()
+
+        await chat.terminal.run(main)
+
+        assert (chat.agent, chat.resolved_provider, chat.jobs, chat.session_id) == (agent, resolved, jobs, "s")
+        assert harness.text().count("session file is unreadable") == 3
 
 
 def _job_block(tool_use_id: str = "toolu_1") -> TextBlock:
@@ -946,12 +969,11 @@ class TestBackgroundJobs:
 
     async def test_new_session_stops_live_jobs(self, harness: TerminalHarness, tmp_path: Path, cli_home: Path) -> None:
         store = SessionStore(data_dir=tmp_path / "sessions")
-        agent = Agent(model="claude-sonnet-4-6", provider="anthropic", session_dir=store.data_dir, session_id="s")
-        old_jobs = BackgroundJobs()
         chat = TerminalChat(
-            agent=agent, settings=settings_for(str(tmp_path)), store=store, session_id="s", jobs=old_jobs
+            settings=settings_for(str(tmp_path)), store=store, resolved_provider=PROVIDER, session_id="s"
         )
         chat.terminal = harness.terminal
+        old_jobs = chat.jobs
         tasks: list[asyncio.Task[None]] = []
 
         async def run_forever() -> None:
