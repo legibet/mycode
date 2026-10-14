@@ -24,7 +24,6 @@ from mycode.hooks import AfterToolHook, BeforeToolHook, HookResult, Hooks, ToolH
 from mycode.messages import (
     ContentBlock,
     ConversationMessage,
-    assistant_message,
     build_message,
     document_block,
     flatten_message_text,
@@ -45,7 +44,7 @@ from mycode.tools import (
     ToolSpec,
     tool,
 )
-from mycode.usage import Cost, add_cost, add_usage, build_usage, estimate_cost
+from mycode.usage import Cost, Usage, add_cost, add_usage, estimate_cost
 
 __version__ = metadata.version("mycode-sdk")
 
@@ -84,12 +83,11 @@ __all__ = [
     "ToolExecutor",
     "ToolHookContext",
     "ToolSpec",
+    "Usage",
     "__version__",
     "add_cost",
     "add_usage",
-    "assistant_message",
     "build_message",
-    "build_usage",
     "document_block",
     "estimate_cost",
     "flatten_message_text",
