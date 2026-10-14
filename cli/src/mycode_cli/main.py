@@ -13,7 +13,7 @@ from uuid import uuid4
 import typer
 
 from mycode.agent import Agent
-from mycode.messages import ConversationMessage
+from mycode.messages import ConversationMessage, flatten_message_text
 from mycode_cli import __version__
 from mycode_cli.config import (
     ResolvedProvider,
@@ -100,7 +100,7 @@ async def run_noninteractive(agent: Agent, message: str, *, store: SessionStore,
 
     async def track(payload: ConversationMessage) -> None:
         nonlocal latest_assistant
-        if payload.get("role") == "assistant":
+        if payload["role"] == "assistant":
             latest_assistant = payload
 
     error_message = ""
@@ -115,13 +115,7 @@ async def run_noninteractive(agent: Agent, message: str, *, store: SessionStore,
             ):
                 error_message = event.output
 
-    reply = ""
-    if latest_assistant:
-        reply = "".join(
-            str(block.get("text") or "")
-            for block in latest_assistant.get("content") or []
-            if isinstance(block, dict) and block.get("type") == "text"
-        )
+    reply = flatten_message_text(latest_assistant) if latest_assistant else ""
 
     if reply:
         sys.stdout.write(reply)
