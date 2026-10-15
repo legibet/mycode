@@ -33,7 +33,7 @@ from mycode.messages import ConversationMessage, RewindMarker
 from mycode.session import SessionStore as TimelineStore
 from mycode.session import apply_rewind
 from mycode.usage import Cost, Usage, add_cost, add_usage
-from mycode_cli.workspace import resolve_cwd
+from mycode_cli.config import resolve_cwd
 
 DEFAULT_SESSION_TITLE = "New chat"
 _META_FIELDS = ("cwd", "title", "created_at", "updated_at")
@@ -139,6 +139,11 @@ class SessionStore(TimelineStore):
 
     def meta_path(self, session_id: str) -> Path:
         return self.session_dir(session_id) / "meta.json"
+
+    def tool_output_dir(self, session_id: str) -> Path:
+        """The session's scratch directory for large tool outputs and uploads."""
+
+        return self.session_dir(session_id) / "tool-output"
 
     def _read_meta(self, session_id: str) -> SessionInfo | None:
         """Read a catalog entry; a missing or malformed ``meta.json`` means no entry."""

@@ -7,9 +7,9 @@ from typing import Annotated, cast
 
 from fastapi import Depends, HTTPException, Request
 
+from mycode_cli.config import resolve_cwd
 from mycode_cli.server.run_manager import RunManager
 from mycode_cli.sessions import SessionStore
-from mycode_cli.workspace import resolve_cwd
 
 
 def resolve_workspace_cwd(raw: str | None) -> str:

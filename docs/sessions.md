@@ -27,7 +27,7 @@ The SDK timeline appears on the first persisted message. The CLI normally create
 }
 ```
 
-- `cwd` — CLI workspace, used for session filtering and restoration; stored and compared with `~` and symlinks resolved (`workspace.resolve_cwd`), so the TUI and web agree on a workspace reached through a symlink
+- `cwd` — CLI workspace, used for session filtering and restoration; stored and compared with `~` and symlinks resolved (`config.resolve_cwd`), so the TUI and web agree on a workspace reached through a symlink
 - `title` — first readable user text, flattened and truncated to 48 characters; `"New chat"` until then
 - `created_at` / `updated_at` — CLI catalog timestamps
 
@@ -181,7 +181,7 @@ Rewind indices refer to the visible history, which now includes pre-compact turn
 
 ## tool-output/ Logs
 
-The CLI creates `CliDeps(cwd, tool_output_dir)` for each agent and passes it through `Agent(deps=...)`. Bash writes output exceeding its 2000-line or 50KB display limit as raw combined stdout/stderr to `<tool_output_dir>/bash-<tool_call_id>.log`; webfetch uses the same directory for truncated converted content. Tool results cite the saved path. The web server saves an uploaded text attachment larger than one `read` window as `<tool_output_dir>/upload-<id>`, and the attachment cites it.
+The CLI creates `CliDeps(cwd, tool_output_dir, web, jobs)` for each agent, with `tool_output_dir` from `SessionStore.tool_output_dir(session_id)`, and passes it through `Agent(deps=...)`. Bash writes output exceeding its 2000-line or 50KB display limit as raw combined stdout/stderr to `<tool_output_dir>/bash-<tool_call_id>.log`; webfetch uses the same directory for truncated converted content. Tool results cite the saved path. The web server saves an uploaded text attachment larger than one `read` window as `<tool_output_dir>/upload-<id>`, and the attachment cites it.
 
 The CLI sets `tool_output_dir` to `<data_dir>/<session_id>/tool-output/`. It is created only when something spills. The SDK has no output-directory policy.
 

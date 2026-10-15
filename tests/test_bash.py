@@ -290,7 +290,7 @@ def _bash_agent(tmp_path: Path) -> Agent:
         session_dir=tmp_path,
         session_id="session",
         tools=[bash_tool],
-        deps=CliDeps.for_session(cwd=tmp_path, data_dir=tmp_path, session_id="session", web=WebConfig()),
+        deps=CliDeps(cwd=tmp_path, tool_output_dir=tmp_path / "session" / "tool-output", web=WebConfig()),
     )
 
 

@@ -17,7 +17,6 @@ from mycode.providers import (
     list_env_discoverable_providers,
     list_supported_providers,
 )
-from mycode_cli.workspace import resolve_cwd
 
 _DEFAULT_MYCODE_HOME = "~/.mycode"
 _API_KEY_ENV_REF_RE = re.compile(r"^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$")
@@ -148,6 +147,16 @@ def resolve_sessions_dir() -> Path:
     """Resolve the directory used for persisted sessions."""
 
     return resolve_mycode_home() / "sessions"
+
+
+def resolve_cwd(path: str | Path) -> str:
+    """Normalize a workspace directory: absolute, with ``~`` and symlinks resolved.
+
+    Settings, the session catalog, and tool context all use this form, so the
+    TUI and the web server agree on which sessions belong to a workspace.
+    """
+
+    return str(Path(path).expanduser().resolve(strict=False))
 
 
 def resolve_project(cwd: str) -> Path:

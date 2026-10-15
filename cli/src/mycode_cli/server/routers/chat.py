@@ -36,7 +36,6 @@ from mycode_cli.background import BackgroundJobs
 from mycode_cli.config import (
     ResolvedProvider,
     Settings,
-    WebConfig,
     get_settings,
     resolve_provider,
 )
@@ -59,7 +58,7 @@ from mycode_cli.server.schemas import (
 from mycode_cli.sessions import SessionData, SessionStore, display_text
 from mycode_cli.system_prompt import build_skill_snapshot_blocks
 from mycode_cli.tools import read_text_window
-from mycode_cli.workspace import CliDeps, resolve_path
+from mycode_cli.workspace import resolve_path
 
 router = APIRouter()
 
@@ -105,7 +104,9 @@ def _remove_uploads(uploads: dict[Path, str]) -> None:
         path.unlink(missing_ok=True)
 
 
-async def _build_user_message(chat: UserInputRequest, deps: CliDeps) -> tuple[ConversationMessage, dict[Path, str]]:
+async def _build_user_message(
+    chat: UserInputRequest, *, cwd: str, tool_output_dir: Path
+) -> tuple[ConversationMessage, dict[Path, str]]:
     """Build the user message and the uploads to save before it is sent.
 
     A text upload that does not fit one read window is shown truncated, and its
@@ -113,7 +114,6 @@ async def _build_user_message(chat: UserInputRequest, deps: CliDeps) -> tuple[Co
     The caller writes it once the request has passed validation.
     """
 
-    cwd = str(deps.cwd)
     uploads: dict[Path, str] = {}
     if not chat.input:
         text = str(chat.message or "").strip()
@@ -133,7 +133,7 @@ async def _build_user_message(chat: UserInputRequest, deps: CliDeps) -> tuple[Co
             if block.is_attachment:
                 name = str(block.name or "attached-file")
                 window = read_text_window(io.StringIO(text, newline=None))
-                upload_path = deps.tool_output_dir / f"upload-{uuid4().hex}"
+                upload_path = tool_output_dir / f"upload-{uuid4().hex}"
                 if window.partial:
                     uploads[upload_path] = text
                 blocks.extend(build_attachment_blocks([Attachment.text(window.render(upload_path), name=name)]))
@@ -227,9 +227,7 @@ async def chat(chat: ChatRequest, store: StoreDep, runs: RunManagerDep) -> ChatR
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     session_id = chat.session_id or "default"
     jobs = runs.jobs_for(session_id)
-    user_message, uploads = await _build_user_message(
-        chat, CliDeps.for_session(cwd=cwd, data_dir=store.data_dir, session_id=session_id, web=settings.web)
-    )
+    user_message, uploads = await _build_user_message(chat, cwd=cwd, tool_output_dir=store.tool_output_dir(session_id))
 
     # Capability check before any disk mutation — a failed check must not
     # leave an empty session on disk or land a premature rewind marker.
@@ -475,8 +473,7 @@ async def steer_run(
     if state is None:
         raise HTTPException(status_code=404, detail="run not found")
     message, uploads = await _build_user_message(
-        body,
-        CliDeps.for_session(cwd=state.cwd, data_dir=store.data_dir, session_id=state.session_id, web=WebConfig()),
+        body, cwd=state.cwd, tool_output_dir=store.tool_output_dir(state.session_id)
     )
     message["meta"] = {"input_id": body.input_id}
     _check_input_support(message, state.agent)
@@ -503,9 +500,7 @@ async def queue_message(
     state = await runs.get_active_run(session_id)
     if state is None:
         raise HTTPException(status_code=409, detail={"message": "session has no running chat to queue on"})
-    message, uploads = await _build_user_message(
-        body, CliDeps.for_session(cwd=state.cwd, data_dir=store.data_dir, session_id=session_id, web=WebConfig())
-    )
+    message, uploads = await _build_user_message(body, cwd=state.cwd, tool_output_dir=store.tool_output_dir(session_id))
     message["meta"] = {"input_id": body.input_id}
     _check_input_support(message, state.agent)
     await asyncio.to_thread(_write_uploads, uploads)

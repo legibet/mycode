@@ -20,12 +20,12 @@ from mycode_cli.config import (
     Settings,
     get_settings,
     parse_permission,
+    resolve_cwd,
     resolve_sessions_dir,
 )
 from mycode_cli.permissions import PERMISSION_DENIED_BY_USER_OUTPUT, PERMISSION_DENIED_OUTPUT
 from mycode_cli.sessions import SessionStore
 from mycode_cli.state import load_state, resolve_remembered_provider
-from mycode_cli.workspace import resolve_cwd
 
 from .runtime import build_agent
 

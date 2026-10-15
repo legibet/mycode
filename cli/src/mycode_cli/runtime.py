@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from mycode.agent import Agent
 from mycode_cli.background import BackgroundJobs
 from mycode_cli.config import ResolvedProvider, Settings
@@ -49,7 +51,7 @@ def build_agent(
         system=build_system_prompt(settings.cwd, skills),
         tools=[*DEFAULT_TOOLS, *build_web_tools(settings.web)],
         hooks=build_permission_hooks(settings, skills=skills, review=review),
-        deps=CliDeps.for_session(
-            cwd=settings.cwd, data_dir=store.data_dir, session_id=session_id, web=settings.web, jobs=jobs
+        deps=CliDeps(
+            cwd=Path(settings.cwd), tool_output_dir=store.tool_output_dir(session_id), web=settings.web, jobs=jobs
         ),
     )
