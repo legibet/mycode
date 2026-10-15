@@ -198,13 +198,14 @@ SDK `SessionStore` (`mycode/src/mycode/session.py`) manages only the timeline:
 - `append_message(session_id, message)` — append one line, creating the session directory lazily
 - `append_rewind(session_id, rewind_to)` — append a rewind marker
 
-CLI `SessionStore` (`cli/src/mycode_cli/sessions.py`) extends the SDK store with catalog and application lifecycle operations:
+CLI `SessionStore` (`cli/src/mycode_cli/sessions.py`) extends the SDK store with catalog and application lifecycle operations. A catalog entry is a `SessionInfo` (`id`, `cwd`, `title`, `created_at`, `updated_at`); a missing or unreadable `meta.json` means the session has no entry:
 
 - `create_session(session_id, *, cwd)` — create a `"New chat"` catalog entry without creating a timeline
 - `record_user_turn(session_id, *, cwd, text)` — lazily create metadata, derive the first title, and update activity time
 - `touch(session_id)` — update activity time after rewind or successful manual compact
 - `load_metadata(session_id)` — load catalog metadata without reading the timeline
 - `load_session(session_id)` — load catalog metadata, visible messages, and cumulative cost from one raw timeline read
+- `load_totals(session_id)` — cumulative usage and cost from the raw timeline, including compact summaries and rewound turns
 - `list_sessions(*, cwd=None)` / `latest_session(...)` — scan and sort the catalog
 - `search_sessions(query, *, cwd=None, limit=50)` — case-insensitive substring search over catalog titles and visible user/assistant text, returning each hit with a one-line snippet of the first body match. The per-session body text is cached in memory and re-derived when `messages.jsonl` changes (`mtime_ns` + size), so the JSONL stays the only source of truth
 - `delete_session(session_id)` — remove catalog, timeline, and tool output together

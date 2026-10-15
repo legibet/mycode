@@ -43,7 +43,7 @@ from mycode_cli.config import (
     resolve_provider_choices,
 )
 from mycode_cli.permissions import ToolReviewCallback, ToolReviewDecision, ToolReviewRequest
-from mycode_cli.runtime import build_agent, load_session_totals
+from mycode_cli.runtime import build_agent
 from mycode_cli.server.deps import RunManagerDep, StoreDep, resolve_workspace_cwd
 from mycode_cli.server.run_manager import ActiveRunError, RunAgent, RunManager
 from mycode_cli.server.schemas import (
@@ -58,7 +58,7 @@ from mycode_cli.server.schemas import (
     StatusResponse,
     UserInputRequest,
 )
-from mycode_cli.sessions import SessionStore, display_text
+from mycode_cli.sessions import SessionData, SessionStore, display_text
 from mycode_cli.system_prompt import build_skill_snapshot_blocks, discover_slash_skills
 from mycode_cli.tools import read_text_window
 from mycode_cli.workspace import CliDeps, resolve_path
@@ -186,15 +186,11 @@ def _check_input_support(message: ConversationMessage, model: ModelMetadata | Ru
         raise HTTPException(status_code=400, detail="current model does not support PDF input")
 
 
-def _validate_rewind_request(
-    *,
-    session: dict[str, Any] | None,
-    messages: list[ConversationMessage],
-    rewind_to: int,
-) -> None:
-    if session is None:
+def _validate_rewind_request(data: SessionData | None, rewind_to: int) -> None:
+    if data is None:
         raise HTTPException(status_code=400, detail="rewind_to requires an existing session")
 
+    messages = data["messages"]
     if not (0 <= rewind_to < len(messages)):
         raise HTTPException(
             status_code=400,
@@ -239,10 +235,7 @@ async def chat(chat: ChatRequest, store: StoreDep, runs: RunManagerDep) -> ChatR
             )
 
         if chat.rewind_to is not None:
-            data = await store.load_session(session_id)
-            session = cast(dict[str, Any] | None, data["session"] if data else None)
-            existing_messages = data["messages"] if data else []
-            _validate_rewind_request(session=session, messages=existing_messages, rewind_to=chat.rewind_to)
+            _validate_rewind_request(await store.load_session(session_id), chat.rewind_to)
 
         # All validation passed. Save uploads, land the rewind marker (if any)
         # and register the user turn in the catalog: first turn creates the
@@ -290,7 +283,7 @@ async def chat(chat: ChatRequest, store: StoreDep, runs: RunManagerDep) -> ChatR
             review=review,
         )
 
-        session_base = await load_session_totals(store, session_id)
+        session_base = await store.load_totals(session_id)
         # The user's message ends a Stop and carries the results that waited
         # for it. Taken last: a run that fails to start leaves nothing in flight.
         jobs.suspended = False
@@ -351,7 +344,7 @@ async def _deliver_job_results(
                     jobs=jobs,
                 )
                 await store.touch(session_id)
-                session_base = await load_session_totals(store, session_id)
+                session_base = await store.load_totals(session_id)
             except Exception:
                 jobs.suspended = True
                 raise
@@ -461,7 +454,7 @@ async def compact_session(
         if not has_compactable_history(data["messages"]):
             raise HTTPException(status_code=400, detail="nothing to compact")
 
-        cwd = str(data["session"]["cwd"])
+        cwd = data["session"]["cwd"]
         settings = await asyncio.to_thread(get_settings, cwd)
         resolved = resolve_provider(settings, provider_name=body.provider, model=body.model)
 

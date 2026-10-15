@@ -35,7 +35,7 @@ from mycode.events import (
 )
 from mycode.messages import ConversationMessage, TextBlock
 from mycode_cli.background import job_id
-from mycode_cli.sessions import SessionTotals, display_text
+from mycode_cli.sessions import DEFAULT_SESSION_TITLE, SessionInfo, SessionTotals, display_text
 
 from .markdown import Chunk, MarkdownBlock, MarkdownStream
 from .terminal import Terminal
@@ -136,8 +136,6 @@ def error_line(message: str) -> Text:
 def format_local_timestamp(value: str, display_format: str) -> str:
     """Format an ISO timestamp with a simple local fallback."""
 
-    if not value:
-        return ""
     try:
         timestamp = datetime.fromisoformat(value)
         return timestamp.astimezone().strftime(display_format)
@@ -167,15 +165,12 @@ def header_lines(
     *,
     provider: str,
     model: str,
-    session: dict[str, Any],
-    mode: str,
+    reasoning_effort: str | None,
+    session_id: str,
+    resumed: SessionInfo | None,
     message_count: int,
-    reasoning_effort: str | None = None,
 ) -> list[Text]:
-    """Build the session header shown above the interactive chat."""
-
-    title = session.get("title") or ""
-    session_id = str(session.get("id") or "")[:8]
+    """Build the session header shown above the interactive chat; ``resumed`` is the resumed session's entry."""
 
     line = Text()
     line.append("mycode", style=ACCENT)
@@ -186,17 +181,16 @@ def header_lines(
     if reasoning_effort:
         line.append(" · ", style=MUTED)
         line.append(reasoning_effort, style=MUTED)
-    if session_id:
-        line.append(" · ", style=MUTED)
-        line.append(session_id, style=MUTED)
+    line.append(" · ", style=MUTED)
+    line.append(session_id[:8], style=MUTED)
     lines = [line]
 
-    if mode == "resumed":
+    if resumed is not None:
         meta = Text()
         meta.append("resumed", style=MUTED)
-        if title and title != "New chat":
+        if resumed["title"] != DEFAULT_SESSION_TITLE:
             meta.append(" · ", style=MUTED)
-            meta.append(title, style=MUTED)
+            meta.append(resumed["title"], style=MUTED)
         if message_count:
             meta.append(" · ", style=MUTED)
             meta.append(f"{message_count} msgs", style=MUTED)
@@ -353,7 +347,7 @@ def history_preview(messages: list[ConversationMessage], *, width: int) -> list[
 
 
 def session_list_table(
-    sessions: list[dict[str, Any]],
+    sessions: list[SessionInfo],
     *,
     include_cwd: bool = False,
     heading: str = "sessions",
@@ -375,16 +369,14 @@ def session_list_table(
         table.add_column()  # cwd
 
     for index, session in enumerate(sessions, start=1):
-        session_id = str(session.get("id") or "-")
-        timestamp = format_local_timestamp(str(session.get("updated_at") or ""), "%Y-%m-%d %H:%M") or "-"
         row: list[RenderableType] = [
             Text(str(index), style=MUTED),
-            Text(session_id[:12], style=MUTED),
-            Text(timestamp, style=MUTED),
-            Text(shorten(str(session.get("title") or "New chat"), title_limit)),
+            Text(session["id"][:12], style=MUTED),
+            Text(format_local_timestamp(session["updated_at"], "%Y-%m-%d %H:%M"), style=MUTED),
+            Text(shorten(session["title"], title_limit)),
         ]
         if include_cwd:
-            row.append(Text(shorten(str(session.get("cwd") or ""), cwd_limit), style=MUTED))
+            row.append(Text(shorten(session["cwd"], cwd_limit), style=MUTED))
         table.add_row(*row)
 
     return [Text(f"{heading} ({len(sessions)})", style=MUTED), Text(), table]

@@ -28,7 +28,6 @@ from mycode.models import ModelMetadata
 from mycode.providers.base import MessageDone, ProviderRequest, ProviderStreamEvent, TextDelta
 from mycode.session import SessionStore as TimelineStore
 from mycode_cli.background import BackgroundJobs
-from mycode_cli.runtime import load_session_totals
 from mycode_cli.server.app import create_api_app, create_app
 from mycode_cli.server.deps import get_run_manager, get_store
 from mycode_cli.server.run_manager import RunManager, RunState
@@ -1194,14 +1193,15 @@ async def test_a_wake_that_cannot_start_holds_the_result_for_the_next_message(
 
     async with _job_app(tmp_path, monkeypatch, adapter) as app:
         await app.wait(await app.chat("build in the background"))
-        monkeypatch.setattr("mycode_cli.server.routers.chat.load_session_totals", failing_totals)
+        load_totals = SessionStore.load_totals
+        monkeypatch.setattr(SessionStore, "load_totals", failing_totals)
         await app.finish_job(gate)
         assert await app.runs.get_active_run("s1") is None
         assert app.jobs.suspended is True
         assert app.jobs.in_flight == set()
         assert _job_ids(build_message("user", app.jobs.pending)) == ["toolu_bg"]
 
-        monkeypatch.setattr("mycode_cli.server.routers.chat.load_session_totals", load_session_totals)
+        monkeypatch.setattr(SessionStore, "load_totals", load_totals)
         await app.wait(await app.chat("what happened?"))
         assert app.jobs.pending == []
 

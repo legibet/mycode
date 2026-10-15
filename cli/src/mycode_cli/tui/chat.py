@@ -8,7 +8,7 @@ import shlex
 from collections.abc import Iterable
 from contextlib import suppress
 from pathlib import Path
-from typing import Any, Literal, override
+from typing import override
 from uuid import uuid4
 
 from prompt_toolkit.application import get_app
@@ -48,8 +48,8 @@ from mycode_cli.config import (
     resolve_provider_choices,
 )
 from mycode_cli.permissions import ToolReviewDecision, ToolReviewRequest
-from mycode_cli.runtime import build_agent, load_session_totals
-from mycode_cli.sessions import SessionStore, display_text
+from mycode_cli.runtime import build_agent
+from mycode_cli.sessions import SessionInfo, SessionStore, display_text
 from mycode_cli.state import load_state, save_state
 from mycode_cli.system_prompt import build_skill_snapshot_blocks, discover_slash_skills
 from mycode_cli.tools import read_text_window
@@ -295,9 +295,6 @@ class TerminalChat:
         resolved_provider: ResolvedProvider,
         session_id: str,
         max_turns: int | None = None,
-        session: dict[str, Any] | None = None,
-        mode: Literal["new", "resumed"] = "new",
-        messages: list[ConversationMessage] | None = None,
     ) -> None:
         self.settings = settings
         self.store = store
@@ -305,9 +302,6 @@ class TerminalChat:
         self.session_id = session_id
         self.max_turns = max_turns
         self.state = load_state()
-        self._session = session or {}
-        self._mode: Literal["new", "resumed"] = mode
-        self._messages = messages or []
         # Input submitted during a turn: steers the agent holds, and the queue for the next turn.
         self._steers: list[ConversationMessage] = []
         self._queue: list[ConversationMessage] = []
@@ -372,9 +366,11 @@ class TerminalChat:
             await self.jobs.close()
 
     async def _main(self) -> None:
-        self._print_header(self._session, mode=self._mode, message_count=len(self._messages))
-        if self._mode == "resumed":
-            self._print_history(self._messages)
+        # A session id without a catalog entry is a new session.
+        session = await self.store.load_metadata(self.session_id)
+        self._print_header(session)
+        if session is not None:
+            self._print_history(self.agent.messages)
 
         while True:
             if self.jobs.pending and not self.jobs.suspended:
@@ -510,7 +506,7 @@ class TerminalChat:
             self.terminal,
             model=self.agent.model,
             context_window=self.agent.context_window,
-            session_base=await load_session_totals(self.store, self.session_id),
+            session_base=await self.store.load_totals(self.session_id),
             on_user_message=self._steer_delivered,
         )
         return self._renderer
@@ -569,16 +565,18 @@ class TerminalChat:
             + [Text(shorten(f"queued {display_text(item)}", width), style=MUTED) for item in self._queue]
         )
 
-    def _print_header(self, session: dict[str, Any], *, mode: str, message_count: int) -> None:
+    def _print_header(self, session: SessionInfo | None) -> None:
+        """Print the session header; ``session`` is the resumed catalog entry, ``None`` for a new session."""
+
         self.terminal.print(
             Text(),
             *header_lines(
                 provider=self.resolved_provider.provider_name,
                 model=self.resolved_provider.model,
-                session=session,
-                mode=mode,
-                message_count=message_count,
                 reasoning_effort=self.resolved_provider.reasoning_effort,
+                session_id=self.session_id,
+                resumed=session,
+                message_count=len(self.agent.messages),
             ),
         )
 
@@ -724,9 +722,8 @@ class TerminalChat:
     async def _start_new_session(self) -> None:
         """Start a fresh session while keeping the current runtime settings."""
 
-        if not await self._leave_session(uuid4().hex):
-            return
-        self._print_header({"id": self.session_id, "title": "New chat"}, mode="new", message_count=0)
+        if await self._leave_session(uuid4().hex):
+            self._print_header(None)
 
     async def _leave_session(self, session_id: str) -> bool:
         """Move to ``session_id`` with a new agent, stopping this session's background jobs.
@@ -807,32 +804,30 @@ class TerminalChat:
         """Switch to another saved session in the current workspace."""
 
         sessions = await self.store.list_sessions(cwd=self.settings.cwd)
-        sessions = [s for s in sessions if s.get("id") != self.session_id]
-        if not sessions:
+        options = [
+            (
+                session,
+                f"{shorten(session['title'], 40)}  {format_local_timestamp(session['updated_at'], '%m-%d %H:%M')}",
+            )
+            for session in sessions
+            if session["id"] != self.session_id
+        ]
+        if not options:
             self.terminal.print(Text("no other sessions in this workspace", style=MUTED))
             return
 
-        options: list[tuple[dict[str, Any], str]] = []
-        for s in sessions:
-            title = shorten(str(s.get("title") or "New chat"), 40)
-            ts = format_local_timestamp(str(s.get("updated_at") or ""), "%m-%d %H:%M")
-            label = f"{title}  {ts}" if ts else title
-            options.append((s, label))
-
-        session = await self.terminal.choose(options)
+        selected = await self.terminal.choose(options)
+        if selected is None:
+            return
+        # The picker can stay open while the web UI deletes the session.
+        session = await self.store.load_metadata(selected["id"])
         if session is None:
+            self.terminal.print(error_line("session no longer exists"))
             return
-
-        session_id = str(session["id"])
-        data = await self.store.load_session(session_id)
-        if data is None:
-            self.terminal.print(error_line("failed to load session"))
+        if not await self._leave_session(session["id"]):
             return
-        messages = data["messages"]
-        if not await self._leave_session(session_id):
-            return
-        self._print_header(data["session"], mode="resumed", message_count=len(messages))
-        self._print_history(messages)
+        self._print_header(session)
+        self._print_history(self.agent.messages)
 
     async def _switch_model(self, query: str) -> None:
         """Pick a model from every available provider and rebuild the agent with it.

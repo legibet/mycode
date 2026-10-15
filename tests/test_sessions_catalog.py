@@ -86,12 +86,18 @@ async def test_session_listing_filters_and_orders_by_recent_activity(store: Sess
     assert {session["id"] for session in await store.list_sessions()} == {"first", "second", "other"}
 
 
-async def test_listing_ignores_sessions_without_a_catalog_entry(store: SessionStore) -> None:
+async def test_listing_skips_sessions_without_a_valid_catalog_entry(store: SessionStore) -> None:
+    await store.create_session("ok", cwd="/tmp")
     # An SDK-only session (timeline without meta.json) is invisible to the catalog.
     await store.append_message("bare", {"role": "user", "content": [{"type": "text", "text": "hi"}]})
+    null_field = '{"cwd": "/tmp", "title": "t", "created_at": "2026-01-01", "updated_at": null}'
+    for session_id, meta in [("broken", "{"), ("null-field", null_field)]:
+        store.meta_path(session_id).parent.mkdir(parents=True)
+        store.meta_path(session_id).write_text(meta)
 
-    assert await store.list_sessions() == []
+    assert [session["id"] for session in await store.list_sessions()] == ["ok"]
     assert await store.load_session("bare") is None
+    assert await store.load_session("null-field") is None
 
 
 async def test_delete_session_removes_the_whole_directory(store: SessionStore) -> None:
@@ -102,6 +108,71 @@ async def test_delete_session_removes_the_whole_directory(store: SessionStore) -
     await store.delete_session("s1")
 
     assert not store.session_dir("s1").exists()
+
+
+async def test_load_totals_folds_the_raw_timeline_including_rewound_turns(store: SessionStore) -> None:
+    await store.create_session("s1", cwd="/tmp")
+    records: list[ConversationMessage] = [
+        {"role": "user", "content": [{"type": "text", "text": "hi"}]},
+        {
+            "role": "assistant",
+            "content": [],
+            "meta": {
+                "provider": "p",
+                "model": "m",
+                "usage": {"input_tokens": 100, "cache_read_tokens": 80, "output_tokens": 10},
+                "cost": {"input": 0.01, "output": 0.01, "total": 0.02},
+            },
+        },
+        {
+            "role": "compact",
+            "content": [],
+            "meta": {
+                "provider": "p",
+                "model": "m",
+                "usage": {"input_tokens": 50, "output_tokens": 5},
+                "cost": {"input": 0.003, "output": 0.002, "total": 0.005},
+            },
+        },
+    ]
+    for record in records:
+        await store.append_message("s1", record)
+    await store.append_rewind("s1", 0)
+
+    totals = await store.load_totals("s1")
+    assert totals.usage == {"input_tokens": 150, "cache_read_tokens": 80, "output_tokens": 15}
+    assert totals.cost == pytest.approx({"input": 0.013, "output": 0.012, "total": 0.025})
+
+
+async def test_load_totals_skips_records_without_usage_or_cost(store: SessionStore) -> None:
+    await store.create_session("s1", cwd="/tmp")
+    await store.append_message(
+        "s1",
+        {
+            "role": "assistant",
+            "content": [],
+            "meta": {"provider": "p", "model": "m", "cost": {"total": 0.02}},
+        },
+    )
+    # A cancelled stream without cost must not hide known session costs.
+    await store.append_message("s1", {"role": "assistant", "content": [], "meta": {"provider": "p", "model": "m"}})
+
+    totals = await store.load_totals("s1")
+    assert totals.usage == {}
+    assert totals.cost == pytest.approx({"total": 0.02})
+
+    await store.create_session("s2", cwd="/tmp")
+    await store.append_message(
+        "s2",
+        {
+            "role": "assistant",
+            "content": [],
+            "meta": {"provider": "unknown", "model": "unknown", "usage": {"input_tokens": 10, "output_tokens": 5}},
+        },
+    )
+    totals = await store.load_totals("s2")
+    assert totals.usage == {"input_tokens": 10, "output_tokens": 5}
+    assert totals.cost is None
 
 
 # Search

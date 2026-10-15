@@ -27,7 +27,6 @@ from mycode.providers.base import MessageDone, ProviderStreamEvent
 from mycode_cli.background import BackgroundJob
 from mycode_cli.config import PermissionConfig, ResolvedProvider, Settings, WebConfig, get_settings, resolve_provider
 from mycode_cli.permissions import ToolReviewRequest
-from mycode_cli.runtime import load_session_totals
 from mycode_cli.sessions import SessionStore
 from mycode_cli.tui.chat import (
     TerminalChat,
@@ -103,6 +102,27 @@ async def test_new_session_keeps_configured_tools_and_uses_the_new_session_direc
     assert chat.agent.deps == CliDeps.for_session(
         cwd=tmp_path, data_dir=store.data_dir, session_id="new", jobs=chat.jobs
     )
+
+
+async def test_resume_stays_put_when_the_picked_session_was_deleted(harness: TerminalHarness, tmp_path: Path) -> None:
+    chat = _chat(_AttachmentAgent(), tmp_path, harness)
+    await chat.store.create_session("other", cwd=str(tmp_path))
+
+    async def main() -> None:
+        async def delete_then_pick() -> None:
+            await asyncio.sleep(0.1)
+            # The web UI deletes the session while the picker is open.
+            await chat.store.delete_session("other")
+            harness.pipe.send_text("\r")
+
+        task = asyncio.create_task(delete_then_pick())
+        await chat._resume_session()
+        await task
+
+    await chat.terminal.run(main)
+
+    assert chat.session_id == "s"
+    assert "session no longer exists" in harness.text()
 
 
 @pytest.fixture
@@ -673,13 +693,15 @@ class TestMidTurnInput:
         preparing = asyncio.Event()
         release = asyncio.Event()
 
+        load_totals = SessionStore.load_totals
+
         async def gated(store: SessionStore, session_id: str) -> Any:
             if preparing.is_set():
                 await release.wait()
             preparing.set()
-            return await load_session_totals(store, session_id)
+            return await load_totals(store, session_id)
 
-        monkeypatch.setattr("mycode_cli.tui.chat.load_session_totals", gated)
+        monkeypatch.setattr(SessionStore, "load_totals", gated)
         chat = _chat(agent, tmp_path, harness)
         read: list[str] = []
 

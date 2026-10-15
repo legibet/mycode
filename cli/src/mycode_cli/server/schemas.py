@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field, model_validator
 
 from mycode.messages import CompactTrigger
 from mycode.usage import Cost
+from mycode_cli.sessions import SessionInfo
 
 RunKind = Literal["chat", "compact"]
 
@@ -158,7 +159,7 @@ class ChatResponse(BaseModel):
     """Response for POST /chat."""
 
     run: RunInfo
-    session: dict[str, Any]
+    session: SessionInfo
     # The user message as the run received it: finished background results
     # that waited for this message ride ahead of its own blocks.
     message: dict[str, Any]

@@ -1,4 +1,4 @@
-"""Agent construction and session-level helpers shared by the TUI and the web server."""
+"""Agent construction shared by the TUI, ``mycode run``, and the web server."""
 
 from __future__ import annotations
 
@@ -6,21 +6,11 @@ from mycode.agent import Agent
 from mycode_cli.background import BackgroundJobs
 from mycode_cli.config import ResolvedProvider, Settings
 from mycode_cli.permissions import ToolReviewCallback, build_permission_hooks
-from mycode_cli.sessions import SessionStore, SessionTotals, sum_session_totals
+from mycode_cli.sessions import SessionStore
 from mycode_cli.system_prompt import build_system_prompt
 from mycode_cli.tools import DEFAULT_TOOLS
 from mycode_cli.web_tools import build_web_tools
 from mycode_cli.workspace import CliDeps
-
-
-async def load_session_totals(store: SessionStore, session_id: str) -> SessionTotals:
-    """Load the session's cumulative usage and USD cost from its raw JSONL timeline.
-
-    Counts tool loops, compact summaries, and turns discarded by rewind.
-    Records without usage or cost contribute nothing to that total.
-    """
-
-    return sum_session_totals(await store.load_raw_messages(session_id))
 
 
 def build_agent(

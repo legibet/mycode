@@ -36,9 +36,17 @@ from mycode.session import apply_rewind
 from mycode.usage import Cost, Usage, add_cost, add_usage
 
 DEFAULT_SESSION_TITLE = "New chat"
-_META_KEYS = ("cwd", "title", "created_at", "updated_at")
+_META_FIELDS = ("cwd", "title", "created_at", "updated_at")
 
-SessionMetaDict = dict[str, object]
+
+class SessionInfo(TypedDict):
+    """A session's catalog entry; ``meta.json`` stores every field but ``id``."""
+
+    id: str
+    cwd: str
+    title: str
+    created_at: str
+    updated_at: str
 
 
 @dataclass(frozen=True)
@@ -58,7 +66,7 @@ class SessionTotals:
 
 
 class SessionData(TypedDict):
-    session: SessionMetaDict
+    session: SessionInfo
     messages: list[ConversationMessage]
     totals: SessionTotals
 
@@ -70,7 +78,7 @@ class SessionSnippet(TypedDict):
 
 
 class SessionSearchHit(TypedDict):
-    session: SessionMetaDict
+    session: SessionInfo
     snippet: SessionSnippet | None
 
 
@@ -132,64 +140,59 @@ class SessionStore(TimelineStore):
     def meta_path(self, session_id: str) -> Path:
         return self.session_dir(session_id) / "meta.json"
 
-    def _read_meta(self, session_id: str) -> SessionMetaDict | None:
-        path = self.meta_path(session_id)
+    def _read_meta(self, session_id: str) -> SessionInfo | None:
+        """Read a catalog entry; a missing or malformed ``meta.json`` means no entry."""
+
         try:
-            raw = json.loads(path.read_text(encoding="utf-8"))
+            raw = json.loads(self.meta_path(session_id).read_text(encoding="utf-8"))
         except (OSError, ValueError):
             return None
-        if not isinstance(raw, dict):
+        if not isinstance(raw, dict) or not all(isinstance(raw.get(key), str) for key in _META_FIELDS):
             return None
-        return {key: raw[key] for key in _META_KEYS if key in raw}
+        return {
+            "id": session_id,
+            "cwd": raw["cwd"],
+            "title": raw["title"],
+            "created_at": raw["created_at"],
+            "updated_at": raw["updated_at"],
+        }
 
-    def _write_meta(self, session_id: str, meta: SessionMetaDict) -> None:
-        path = self.meta_path(session_id)
+    def _write_meta(self, session: SessionInfo) -> None:
+        path = self.meta_path(session["id"])
         path.parent.mkdir(parents=True, exist_ok=True)
+        meta = {key: value for key, value in session.items() if key != "id"}
         path.write_text(json.dumps(meta, indent=2, ensure_ascii=False), encoding="utf-8")
 
-    def _summary(self, session_id: str, meta: SessionMetaDict) -> SessionMetaDict:
-        """Return meta augmented with the session id for API responses."""
-
-        return {"id": session_id, **meta}
+    def _new_session(self, session_id: str, *, cwd: str, title: str) -> SessionInfo:
+        now = _now()
+        return {"id": session_id, "cwd": os.path.abspath(cwd), "title": title, "created_at": now, "updated_at": now}
 
     # ------------------------------------------------------------------
     # Lifecycle
     # ------------------------------------------------------------------
 
-    async def create_session(self, session_id: str, *, cwd: str) -> SessionMetaDict:
-        """Create the catalog entry for a fresh session and return its summary."""
+    async def create_session(self, session_id: str, *, cwd: str) -> SessionInfo:
+        """Create the catalog entry for a fresh session."""
 
-        now = _now()
-        meta: SessionMetaDict = {
-            "cwd": os.path.abspath(cwd),
-            "title": DEFAULT_SESSION_TITLE,
-            "created_at": now,
-            "updated_at": now,
-        }
-        await asyncio.to_thread(self._write_meta, session_id, meta)
-        return self._summary(session_id, meta)
+        session = self._new_session(session_id, cwd=cwd, title=DEFAULT_SESSION_TITLE)
+        await asyncio.to_thread(self._write_meta, session)
+        return session
 
-    async def record_user_turn(self, session_id: str, *, cwd: str, text: str) -> SessionMetaDict:
+    async def record_user_turn(self, session_id: str, *, cwd: str, text: str) -> SessionInfo:
         """Register one user turn: create the catalog entry on the first turn,
         promote the title from the first turn that carries readable text, and
         bump ``updated_at``."""
 
-        def record() -> SessionMetaDict:
-            meta: SessionMetaDict | None = self._read_meta(session_id)
-            if meta is None:
-                now = _now()
-                meta = {
-                    "cwd": os.path.abspath(cwd),
-                    "title": derive_title(text),
-                    "created_at": now,
-                    "updated_at": now,
-                }
+        def record() -> SessionInfo:
+            session = self._read_meta(session_id)
+            if session is None:
+                session = self._new_session(session_id, cwd=cwd, title=derive_title(text))
             else:
-                if meta.get("title") == DEFAULT_SESSION_TITLE:
-                    meta["title"] = derive_title(text)
-                meta["updated_at"] = _now()
-            self._write_meta(session_id, meta)
-            return self._summary(session_id, meta)
+                if session["title"] == DEFAULT_SESSION_TITLE:
+                    session["title"] = derive_title(text)
+                session["updated_at"] = _now()
+            self._write_meta(session)
+            return session
 
         return await asyncio.to_thread(record)
 
@@ -197,11 +200,11 @@ class SessionStore(TimelineStore):
         """Bump ``updated_at``; a no-op for sessions without a catalog entry."""
 
         def bump() -> None:
-            meta = self._read_meta(session_id)
-            if meta is None:
+            session = self._read_meta(session_id)
+            if session is None:
                 return
-            meta["updated_at"] = _now()
-            self._write_meta(session_id, meta)
+            session["updated_at"] = _now()
+            self._write_meta(session)
 
         await asyncio.to_thread(bump)
 
@@ -215,54 +218,49 @@ class SessionStore(TimelineStore):
     # Listing and loading
     # ------------------------------------------------------------------
 
-    async def list_sessions(self, *, cwd: str | None = None) -> list[SessionMetaDict]:
+    async def list_sessions(self, *, cwd: str | None = None) -> list[SessionInfo]:
         """List cataloged sessions under ``data_dir``, newest first."""
 
         normalized = os.path.abspath(cwd) if cwd else None
 
-        def load_all() -> list[SessionMetaDict]:
-            out: list[SessionMetaDict] = []
-            for entry in self.data_dir.iterdir():
-                if not entry.is_dir():
-                    continue
-                meta = self._read_meta(entry.name)
-                if meta is None:
-                    continue
-                if normalized and os.path.abspath(str(meta.get("cwd") or "")) != normalized:
-                    continue
-                out.append(self._summary(entry.name, meta))
-
-            out.sort(key=lambda m: str(m.get("updated_at") or ""), reverse=True)
-            return out
+        def load_all() -> list[SessionInfo]:
+            sessions = [
+                session
+                for entry in self.data_dir.iterdir()
+                if entry.is_dir() and (session := self._read_meta(entry.name)) is not None
+            ]
+            if normalized:
+                sessions = [session for session in sessions if os.path.abspath(session["cwd"]) == normalized]
+            return sorted(sessions, key=lambda session: session["updated_at"], reverse=True)
 
         return await asyncio.to_thread(load_all)
 
-    async def latest_session(self, *, cwd: str | None = None) -> SessionMetaDict | None:
+    async def latest_session(self, *, cwd: str | None = None) -> SessionInfo | None:
         sessions = await self.list_sessions(cwd=cwd)
         return sessions[0] if sessions else None
 
-    async def load_metadata(self, session_id: str) -> SessionMetaDict | None:
+    async def load_metadata(self, session_id: str) -> SessionInfo | None:
         """Load a catalog entry without reading its message timeline."""
 
-        def load() -> SessionMetaDict | None:
-            meta = self._read_meta(session_id)
-            return self._summary(session_id, meta) if meta is not None else None
+        return await asyncio.to_thread(self._read_meta, session_id)
 
-        return await asyncio.to_thread(load)
+    async def load_totals(self, session_id: str) -> SessionTotals:
+        """Sum the session's usage and USD cost over its raw timeline.
+
+        Counts tool loops, compact summaries, and turns discarded by rewind.
+        """
+
+        return sum_session_totals(await self.load_raw_messages(session_id))
 
     async def load_session(self, session_id: str) -> SessionData | None:
         """Load metadata, visible messages, and usage totals from one raw timeline read."""
 
         def load() -> SessionData | None:
-            meta = self._read_meta(session_id)
-            if meta is None:
+            session = self._read_meta(session_id)
+            if session is None:
                 return None
             raw = self.load_raw_messages_sync(session_id)
-            return {
-                "session": self._summary(session_id, meta),
-                "messages": apply_rewind(raw),
-                "totals": sum_session_totals(raw),
-            }
+            return {"session": session, "messages": apply_rewind(raw), "totals": sum_session_totals(raw)}
 
         return await asyncio.to_thread(load)
 
@@ -305,7 +303,7 @@ class SessionStore(TimelineStore):
             hits: list[SessionSearchHit] = []
             for session in sessions:
                 snippet: SessionSnippet | None = None
-                for text in self._searchable_texts(str(session["id"])):
+                for text in self._searchable_texts(session["id"]):
                     if found := pattern.search(text):
                         start, end = found.span()
                         snippet = {
@@ -314,7 +312,7 @@ class SessionStore(TimelineStore):
                             "after": text[end : end + 80],
                         }
                         break
-                if snippet is None and not pattern.search(str(session.get("title") or "")):
+                if snippet is None and not pattern.search(session["title"]):
                     continue
                 hits.append({"session": session, "snippet": snippet})
                 if len(hits) >= limit:

@@ -43,10 +43,7 @@ async def list_sessions(
     cwd: Annotated[str | None, Query()] = None,
 ) -> dict[str, Any]:
     sessions = await store.list_sessions(cwd=cwd)
-    for session in sessions:
-        session_id = str(session["id"])
-        session["is_running"] = await runs.has_active_run(session_id)
-    return {"sessions": sessions}
+    return {"sessions": [{**session, "is_running": await runs.has_active_run(session["id"])} for session in sessions]}
 
 
 @router.get("/search")
@@ -57,10 +54,10 @@ async def search_sessions(
     cwd: Annotated[str | None, Query()] = None,
     limit: Annotated[int, Query(ge=1)] = 50,
 ) -> dict[str, Any]:
-    results = await store.search_sessions(q, cwd=cwd, limit=limit)
-    for result in results:
+    results = []
+    for result in await store.search_sessions(q, cwd=cwd, limit=limit):
         session = result["session"]
-        session["is_running"] = await runs.has_active_run(str(session["id"]))
+        results.append({**result, "session": {**session, "is_running": await runs.has_active_run(session["id"])}})
     return {"results": results}
 
 
