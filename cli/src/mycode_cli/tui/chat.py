@@ -7,7 +7,6 @@ import re
 import shlex
 from collections.abc import Iterable
 from contextlib import suppress
-from dataclasses import replace
 from pathlib import Path
 from typing import Any, Literal, override
 from uuid import uuid4
@@ -43,7 +42,6 @@ from mycode_cli.config import (
     ResolvedProvider,
     Settings,
     get_settings,
-    normalize_reasoning_effort,
     provider_models,
     resolve_mycode_home,
     resolve_provider,
@@ -690,7 +688,7 @@ class TerminalChat:
     def _supports_effort_or_warn(self) -> bool:
         """Return whether the current model supports reasoning effort."""
 
-        if self.resolved_provider.supports_reasoning_effort and self.resolved_provider.reasoning_efforts:
+        if self.resolved_provider.reasoning_efforts:
             return True
         self.terminal.print(Text("current model does not support reasoning effort", style=MUTED))
         return False
@@ -879,7 +877,7 @@ class TerminalChat:
         except ValueError as exc:
             self.terminal.print(error_line(str(exc)))
             return
-        resolved = replace(resolved, reasoning_effort=self.state.effort_for(resolved))
+        resolved = resolved.with_reasoning_effort(self.state.effort_for(resolved))
 
         try:
             agent = self._build_agent(resolved, self.session_id, self.jobs)
@@ -915,28 +913,17 @@ class TerminalChat:
         if not self._supports_effort_or_warn():
             return
 
-        try:
-            normalized = normalize_reasoning_effort(effort)
-        except ValueError as exc:
-            self.terminal.print(error_line(str(exc)))
-            return
-
         current = self.resolved_provider
-        if normalized is not None and normalized not in current.reasoning_efforts:
-            supported = ", ".join(current.reasoning_efforts)
-            message = f"reasoning effort {normalized!r} is not supported by model {current.model!r}"
-            message += f"; supported efforts: {supported}"
-            self.terminal.print(error_line(message))
-            return
-
-        resolved = replace(current, reasoning_effort=normalized)
         try:
+            resolved = current.with_reasoning_effort(effort)
             agent = self._build_agent(resolved, self.session_id, self.jobs)
         except (OSError, ValueError) as exc:
             self.terminal.print(error_line(str(exc)))
             return
         self.resolved_provider = resolved
         self.agent = agent
-        self.state.set_effort(current.provider_name, current.model, normalized)
+        self.state.set_effort(current.provider_name, current.model, resolved.reasoning_effort)
         save_state(self.state)
-        self._print_runtime_status("effort", normalized or "auto", changed=normalized != current.reasoning_effort)
+        self._print_runtime_status(
+            "effort", resolved.reasoning_effort or "auto", changed=resolved.reasoning_effort != current.reasoning_effort
+        )

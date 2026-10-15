@@ -80,11 +80,10 @@ file and adapts it for the UI.
 
 For a resolved provider (`_resolve_provider_runtime` in `config.py`):
 
-1. Explicit `api_key` param (CLI flag or API request)
-2. Config `api_key`
+1. Config `api_key`
    - `${ENV_NAME}` — dereferenced from env at resolution time
    - plain string — used as-is
-3. Provider adapter's built-in default env vars (e.g., `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`)
+2. Provider adapter's built-in default env vars (e.g., `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`)
 
 If no API key is found at any step and the adapter cannot authenticate from ambient environment state (`can_authenticate_from_env()`), resolution raises an error listing which env vars were checked. Otherwise the provider resolves with `api_key` unset — e.g. a configured `google_vertex` entry using ADC via `GOOGLE_CLOUD_PROJECT`.
 
@@ -115,7 +114,7 @@ For configured entries, availability is resolved in this order:
 
 Auto-discovery is narrower: only providers with `auto_discoverable=True` and a built-in API key env var set; `can_authenticate_from_env()` is not consulted. So `GOOGLE_CLOUD_API_KEY` auto-discovers `google_vertex` while `GOOGLE_CLOUD_PROJECT` alone does not — ADC users opt in with a configured entry such as `{"type": "google_vertex"}`, which `GOOGLE_CLOUD_PROJECT` then makes available.
 
-`ResolvedProvider.model_config` is the selected model's config override, or `None`.
+`ResolvedProvider.metadata` is the model's catalog metadata with its config overrides applied. `ResolvedProvider.reasoning_efforts` lists the efforts the endpoint accepts for the model: empty when the adapter takes no effort, or for a generic `openai_chat` provider without `supports_reasoning_effort`. `ResolvedProvider.with_reasoning_effort(value)` is the one validation point for a requested effort (CLI `--effort`, TUI `/effort`, web `/api/chat`).
 
 ## Remembered Selection
 

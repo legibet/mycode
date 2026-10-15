@@ -8,7 +8,6 @@ import json
 import os
 from base64 import b64encode
 from collections.abc import AsyncIterator
-from dataclasses import replace
 from functools import partial
 from pathlib import Path
 from typing import Annotated, Any, cast
@@ -39,9 +38,7 @@ from mycode_cli.config import (
     ResolvedProvider,
     Settings,
     get_settings,
-    normalize_reasoning_effort,
     provider_models,
-    resolve_configured_model_metadata,
     resolve_provider,
     resolve_provider_choices,
 )
@@ -218,13 +215,11 @@ def _validate_rewind_request(
 async def chat(chat: ChatRequest, store: StoreDep, runs: RunManagerDep) -> ChatResponse:
     cwd = resolve_workspace_cwd(chat.cwd)
     settings = await asyncio.to_thread(get_settings, cwd)
-    resolved = resolve_provider(
-        settings,
-        provider_name=chat.provider,
-        model=chat.model,
-        api_key=chat.api_key,
-        api_base=chat.api_base,
-    )
+    resolved = resolve_provider(settings, provider_name=chat.provider, model=chat.model)
+    try:
+        request_provider = resolved.with_reasoning_effort(chat.reasoning_effort)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     session_id = chat.session_id or "default"
     jobs = runs.jobs_for(session_id)
     user_message, uploads = await _build_user_message(
@@ -233,42 +228,7 @@ async def chat(chat: ChatRequest, store: StoreDep, runs: RunManagerDep) -> ChatR
 
     # Capability check before any disk mutation — a failed check must not
     # leave an empty session on disk or land a premature rewind marker.
-    model_config = resolved.model_config
-    model_meta = resolve_configured_model_metadata(
-        provider=resolved.provider,
-        model=resolved.model,
-        model_config=model_config,
-    )
-    _check_input_support(user_message, model_meta)
-
-    reasoning_effort = resolved.reasoning_effort
-    if "reasoning_effort" in chat.model_fields_set:
-        try:
-            reasoning_effort = normalize_reasoning_effort(chat.reasoning_effort)
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-        if reasoning_effort is not None:
-            if not resolved.supports_reasoning_effort:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"provider {resolved.provider!r} does not support reasoning effort",
-                )
-            if not resolved.reasoning_efforts:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"model {resolved.model!r} does not support reasoning effort",
-                )
-            if reasoning_effort not in resolved.reasoning_efforts:
-                supported = ", ".join(resolved.reasoning_efforts)
-                raise HTTPException(
-                    status_code=400,
-                    detail=(
-                        f"reasoning effort {reasoning_effort!r} is not supported by model {resolved.model!r}; "
-                        f"supported efforts: {supported}"
-                    ),
-                )
-
-    request_provider = replace(resolved, reasoning_effort=reasoning_effort)
+    _check_input_support(user_message, resolved.metadata)
 
     async with runs.session_operation(session_id):
         active = await runs.active_run_info(session_id)
@@ -635,45 +595,17 @@ async def get_config(cwd: Annotated[str | None, Query()] = None) -> dict[str, An
 
     providers_info: dict[str, Any] = {}
     for provider in resolve_provider_choices(settings):
-        provider_config = settings.providers.get(provider.provider_name)
-        models = provider_models(settings, provider)
-
-        info: dict[str, Any] = {
+        models = [
+            resolve_provider(settings, provider_name=provider.provider_name, model=model)
+            for model in provider_models(settings, provider)
+        ]
+        providers_info[provider.provider_name] = {
             "name": provider.provider_name,
-            "provider": provider.provider,
-            "type": provider.provider,
-            "models": models,
-            "base_url": provider.api_base or "",
-            "has_api_key": True,
+            "models": [model.model for model in models],
+            "reasoning_efforts": {model.model: list(model.reasoning_efforts) for model in models},
+            "image_input_models": [model.model for model in models if model.metadata.supports_image_input],
+            "pdf_input_models": [model.model for model in models if model.metadata.supports_pdf_input],
         }
-
-        image_models: list[str] = []
-        pdf_models: list[str] = []
-        reasoning_efforts: dict[str, list[str]] = {}
-        for model in models:
-            model_config = provider_config.models.get(model) if provider_config else None
-            model_meta = resolve_configured_model_metadata(
-                provider=provider.provider,
-                model=model,
-                model_config=model_config,
-            )
-            efforts = list(model_meta.reasoning_efforts or ())
-            reasoning_efforts[model] = efforts
-            if model_meta.supports_image_input:
-                image_models.append(model)
-            if model_meta.supports_pdf_input:
-                pdf_models.append(model)
-
-        if provider.supports_reasoning_effort:
-            info["supports_reasoning_effort"] = True
-            info["reasoning_efforts"] = reasoning_efforts
-
-        info["supports_image_input"] = bool(image_models)
-        info["image_input_models"] = image_models
-        info["supports_pdf_input"] = bool(pdf_models)
-        info["pdf_input_models"] = pdf_models
-
-        providers_info[provider.provider_name] = info
 
     default_payload = (
         {"provider": resolved.provider_name, "model": resolved.model}

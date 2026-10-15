@@ -71,8 +71,6 @@ class ChatRequest(UserInputRequest):
     provider: str | None = None  # provider id, or a configured provider alias
     model: str | None = None
     cwd: str | None = None
-    api_key: str | None = None
-    api_base: str | None = None
     reasoning_effort: str | None = None
     rewind_to: int | None = Field(default=None, description="Visible message index for rewind.")
 

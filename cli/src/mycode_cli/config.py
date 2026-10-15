@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import os
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Literal, cast
 
@@ -106,18 +106,35 @@ class Settings:
 
 @dataclass(frozen=True)
 class ResolvedProvider:
-    """Resolved provider ready for Agent construction."""
+    """A provider endpoint and model ready for Agent construction."""
 
     provider_name: str
     provider: str
     model: str
     api_key: str | None
     api_base: str | None
-    reasoning_effort: str | None
-    model_config: ModelConfig | None = None
-    supports_reasoning_effort: bool = False
-    legacy_max_tokens: bool = False
+    # Catalog metadata with the model's config overrides applied.
+    metadata: ModelMetadata
+    # Efforts this endpoint accepts for the model; empty when effort is not configurable.
     reasoning_efforts: tuple[str, ...] = ()
+    legacy_max_tokens: bool = False
+    reasoning_effort: str | None = None
+
+    def with_reasoning_effort(self, value: str | None) -> ResolvedProvider:
+        """Return a copy that requests ``value``; ``None`` or ``auto`` leaves effort to the provider.
+
+        Raises ``ValueError`` for an unknown effort or one the model does not accept.
+        """
+
+        effort = normalize_reasoning_effort(value)
+        if effort is not None and effort not in self.reasoning_efforts:
+            if not self.reasoning_efforts:
+                raise ValueError(f"model {self.model!r} does not support reasoning effort")
+            supported = ", ".join(self.reasoning_efforts)
+            raise ValueError(
+                f"reasoning effort {effort!r} is not supported by model {self.model!r}; supported efforts: {supported}"
+            )
+        return replace(self, reasoning_effort=effort)
 
 
 def resolve_mycode_home() -> Path:
@@ -224,25 +241,6 @@ def normalize_reasoning_efforts(value: Any) -> tuple[str, ...] | None:
             raise ValueError("reasoning_efforts cannot include auto or default")
         efforts.append(effort)
     return tuple(dict.fromkeys(efforts))
-
-
-def resolve_configured_model_metadata(
-    *,
-    provider: str,
-    model: str,
-    model_config: ModelConfig | None = None,
-) -> ModelMetadata:
-    """Resolve catalog metadata with the selected model's config overrides."""
-
-    return resolve_model_metadata(
-        provider=provider,
-        model=model,
-        context_window=model_config.context_window if model_config else None,
-        max_output_tokens=model_config.max_output_tokens if model_config else None,
-        reasoning_efforts=model_config.reasoning_efforts if model_config else None,
-        supports_image_input=model_config.supports_image_input if model_config else None,
-        supports_pdf_input=model_config.supports_pdf_input if model_config else None,
-    )
 
 
 def normalize_permission_level(value: Any) -> PermissionLevel:
@@ -653,12 +651,11 @@ def resolve_provider(
     *,
     provider_name: str | None = None,
     model: str | None = None,
-    api_key: str | None = None,
-    api_base: str | None = None,
 ) -> ResolvedProvider:
-    """Resolve provider, model, api_key, and api_base from settings and overrides.
+    """Resolve a provider and model to a runnable endpoint, without a reasoning effort.
 
-    Without a provider name, the first available provider is used.
+    Without a provider name, the first available provider is used; without a
+    model, the provider's first configured or default model.
     """
 
     selected_name = (provider_name or "").strip()
@@ -679,13 +676,7 @@ def resolve_provider(
             )
         selected_name = refs[0]
 
-    return _resolve_provider_runtime(
-        settings,
-        selected_name=selected_name,
-        model=model,
-        api_key=api_key,
-        api_base=api_base,
-    )
+    return _resolve_provider_runtime(settings, selected_name=selected_name, model=model)
 
 
 def resolve_provider_choices(settings: Settings) -> list[ResolvedProvider]:
@@ -735,8 +726,6 @@ def _resolve_provider_runtime(
     *,
     selected_name: str,
     model: str | None = None,
-    api_key: str | None = None,
-    api_base: str | None = None,
 ) -> ResolvedProvider:
     """Resolve one configured alias or raw provider id into a runnable config."""
 
@@ -755,15 +744,16 @@ def _resolve_provider_runtime(
             raise ValueError(f"provider {selected_name!r} does not define any default models")
         resolved_model = defaults[0]
 
-    resolved_api_base = api_base or (provider_config.base_url if provider_config else None)
-
-    model_config = provider_config.models.get(resolved_model) if provider_config else None
-    meta = resolve_configured_model_metadata(
+    model_config = (provider_config.models.get(resolved_model) if provider_config else None) or ModelConfig()
+    metadata = resolve_model_metadata(
         provider=provider_type,
         model=resolved_model,
-        model_config=model_config,
+        context_window=model_config.context_window,
+        max_output_tokens=model_config.max_output_tokens,
+        reasoning_efforts=model_config.reasoning_efforts,
+        supports_image_input=model_config.supports_image_input,
+        supports_pdf_input=model_config.supports_pdf_input,
     )
-    reasoning_efforts = meta.reasoning_efforts or ()
     # Whether this endpoint accepts the effort knob: the adapter declares it
     # natively, or a generic openai_chat provider opts in via config.
     supports_effort = adapter.supports_reasoning_effort or bool(
@@ -771,8 +761,8 @@ def _resolve_provider_runtime(
     )
     # The legacy max_tokens opt-in only applies to generic openai_chat providers.
     legacy_max_tokens = bool(provider_config and provider_config.legacy_max_tokens and provider_type == "openai_chat")
-    resolved_api_key = api_key
-    if not resolved_api_key and provider_config:
+    resolved_api_key: str | None = None
+    if provider_config:
         if env_name := provider_config.api_key_env_var:
             resolved_api_key = (os.environ.get(env_name) or "").strip()
             if not resolved_api_key:
@@ -793,10 +783,8 @@ def _resolve_provider_runtime(
         provider=provider_type,
         model=resolved_model,
         api_key=resolved_api_key,
-        api_base=resolved_api_base,
-        reasoning_effort=None,
-        model_config=model_config,
-        supports_reasoning_effort=supports_effort,
+        api_base=provider_config.base_url if provider_config else None,
+        metadata=metadata,
+        reasoning_efforts=(metadata.reasoning_efforts or ()) if supports_effort else (),
         legacy_max_tokens=legacy_max_tokens,
-        reasoning_efforts=reasoning_efforts,
     )

@@ -446,27 +446,6 @@ class TestResolveProvider:
         assert resolved.api_key == "config-key"
         assert resolved.api_base == "https://config.example/v1"
 
-    def test_explicit_api_key_override_wins_over_configured_key(
-        self, workspace: Path, config_home: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        monkeypatch.setenv("ANTHROPIC_API_KEY", "env-key")
-        write_json(
-            config_home / "config.json",
-            {
-                "providers": {
-                    "claude": {
-                        "type": "anthropic",
-                        "api_key": "config-key",
-                        "models": {"claude-sonnet-4-6": {}},
-                    }
-                },
-            },
-        )
-
-        resolved = resolve_provider(get_settings(str(workspace.resolve())), api_key="request-key")
-
-        assert resolved.api_key == "request-key"
-
     def test_legacy_max_tokens_only_applies_to_generic_openai_chat(
         self, workspace: Path, config_home: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

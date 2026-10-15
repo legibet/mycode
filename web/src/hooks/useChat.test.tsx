@@ -114,13 +114,10 @@ describe("useChat", () => {
         providers: {
           anthropic: {
             name: "anthropic",
-            provider: "anthropic",
-            type: "anthropic",
             models: ["claude-sonnet-5"],
-            base_url: "",
-            has_api_key: true,
-            supports_reasoning_effort: true,
             reasoning_efforts: { "claude-sonnet-5": ["low"] },
+            image_input_models: [],
+            pdf_input_models: [],
           },
         },
       },

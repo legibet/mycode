@@ -19,7 +19,6 @@ from mycode_cli.config import (
     ResolvedProvider,
     Settings,
     get_settings,
-    normalize_reasoning_effort,
     parse_permission,
     resolve_sessions_dir,
 )
@@ -161,17 +160,8 @@ def _bootstrap(
         state = load_state()
         resolved_provider = resolve_remembered_provider(settings, state, provider_name=provider, model=model)
         if reasoning_effort is None:
-            resolved_effort = state.effort_for(resolved_provider)
-        elif (resolved_effort := normalize_reasoning_effort(reasoning_effort)) is not None:
-            if not resolved_provider.supports_reasoning_effort:
-                raise ValueError(f"provider {resolved_provider.provider!r} does not support reasoning effort")
-            if resolved_effort not in resolved_provider.reasoning_efforts:
-                supported = ", ".join(resolved_provider.reasoning_efforts)
-                raise ValueError(
-                    f"reasoning effort {resolved_effort!r} is not supported by model {resolved_provider.model!r}; "
-                    + f"supported efforts: {supported}"
-                )
-        resolved_provider = replace(resolved_provider, reasoning_effort=resolved_effort)
+            reasoning_effort = state.effort_for(resolved_provider)
+        resolved_provider = resolved_provider.with_reasoning_effort(reasoning_effort)
         resolved_session = asyncio.run(
             resolve_session(
                 store=store,

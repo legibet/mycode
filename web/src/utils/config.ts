@@ -22,10 +22,7 @@ export function getReasoningEffortOptions(
   providerName: string,
   model: string,
 ): ReasoningEffort[] {
-  const providerInfo = remoteConfig?.providers?.[providerName];
-  if (!providerInfo?.supports_reasoning_effort) return [];
-
-  const efforts = providerInfo.reasoning_efforts?.[model] || [];
+  const efforts = remoteConfig?.providers?.[providerName]?.reasoning_efforts[model] || [];
   return efforts.length ? [...efforts.toReversed(), "auto"] : [];
 }
 

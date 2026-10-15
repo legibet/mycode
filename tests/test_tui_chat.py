@@ -21,6 +21,7 @@ from prompt_toolkit.output import DummyOutput
 from mycode import CancelledEvent, ErrorEvent, Event, TextEvent, UserMessageEvent
 from mycode.agent import Agent
 from mycode.messages import ConversationMessage, TextBlock, build_message, merge_user_messages, text_block
+from mycode.models import ModelMetadata
 from mycode.providers import get_provider_adapter, list_env_discoverable_providers
 from mycode.providers.base import MessageDone, ProviderStreamEvent
 from mycode_cli.background import BackgroundJob
@@ -54,7 +55,7 @@ PROVIDER = ResolvedProvider(
     model="claude-sonnet-4-6",
     api_key=None,
     api_base=None,
-    reasoning_effort=None,
+    metadata=ModelMetadata(provider="anthropic", model="claude-sonnet-4-6"),
 )
 
 

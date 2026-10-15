@@ -72,8 +72,8 @@ function modelSupports(
   const info = remoteConfig?.providers?.[key];
   const m = model || remoteConfig?.default?.model || "";
   return {
-    image: Boolean(info?.supports_image_input && info.image_input_models?.includes(m)),
-    pdf: Boolean(info?.supports_pdf_input && info.pdf_input_models?.includes(m)),
+    image: Boolean(info?.image_input_models.includes(m)),
+    pdf: Boolean(info?.pdf_input_models.includes(m)),
   };
 }
 

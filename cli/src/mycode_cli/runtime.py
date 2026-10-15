@@ -40,7 +40,7 @@ def build_agent(
     the store; callers never pass messages explicitly.
     """
 
-    model_config = resolved_provider.model_config
+    metadata = resolved_provider.metadata
     hooks = build_permission_hooks(settings, review=review)
     return Agent(
         model=resolved_provider.model,
@@ -51,10 +51,10 @@ def build_agent(
         api_base=resolved_provider.api_base,
         reasoning_effort=resolved_provider.reasoning_effort,
         legacy_max_tokens=resolved_provider.legacy_max_tokens,
-        max_tokens=model_config.max_output_tokens if model_config else None,
-        context_window=model_config.context_window if model_config else None,
-        supports_image_input=model_config.supports_image_input if model_config else None,
-        supports_pdf_input=model_config.supports_pdf_input if model_config else None,
+        max_tokens=metadata.max_output_tokens,
+        context_window=metadata.context_window,
+        supports_image_input=metadata.supports_image_input,
+        supports_pdf_input=metadata.supports_pdf_input,
         compact_threshold=settings.compact_threshold,
         max_turns=max_turns,
         system=build_system_prompt(cwd, settings),

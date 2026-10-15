@@ -30,9 +30,7 @@ class CliState:
         """Return the remembered effort for a resolved model, if the model still supports it."""
 
         effort = self.efforts.get(f"{resolved.provider_name}/{resolved.model}")
-        if effort and resolved.supports_reasoning_effort and effort in resolved.reasoning_efforts:
-            return effort
-        return None
+        return effort if effort in resolved.reasoning_efforts else None
 
     def set_effort(self, provider_name: str, model: str, effort: str | None) -> None:
         key = f"{provider_name}/{model}"
