@@ -27,9 +27,10 @@ from mycode.messages import ConversationMessage, merge_user_messages
 from mycode_cli.background import BackgroundJobs, is_job_message
 from mycode_cli.permissions import ToolReviewDecision
 from mycode_cli.server.schemas import RunKind, RunStatus, StreamEvent
-from mycode_cli.sessions import SessionTotals, sum_session_totals
+from mycode_cli.sessions import SessionLock, SessionTotals, sum_session_totals
 
 RunCompletionCallback = Callable[[str], Awaitable[None]]
+QueuedTurnCallback = Callable[[ConversationMessage], Awaitable[None]]
 FINISHED_RUN_TTL_SECONDS = 300
 RUN_EVENT_BUFFER_SIZE = 2000
 RUN_TOOL_OUTPUT_BUFFER_BYTES = 1_000_000
@@ -84,6 +85,8 @@ class RunState:
     user_message: ConversationMessage | None = None
     # Started by the session's job registry to deliver background results.
     wake: bool = False
+    # The session's cross-process claim, released with the active slot.
+    lock: SessionLock | None = None
     # Queued messages the current turn continues from, until their merged
     # message is announced; snapshots list them as still queued.
     delivering: list[ConversationMessage] = field(default_factory=list)
@@ -99,6 +102,8 @@ class RunState:
     session_base: SessionTotals = field(default_factory=SessionTotals)
     session_totals: SessionTotals = field(default_factory=SessionTotals)
     on_complete: RunCompletionCallback | None = None
+    # Records a queued turn in the session catalog once the run takes it.
+    on_queued_turn: QueuedTurnCallback | None = None
     status: RunStatus = "running"
     error: str | None = None
     events: list[dict[str, Any]] = field(default_factory=list)
@@ -194,6 +199,8 @@ class RunManager:
         agent: RunAgent,
         session_base: SessionTotals | None = None,
         wake: bool = False,
+        lock: SessionLock | None = None,
+        on_queued_turn: QueuedTurnCallback | None = None,
     ) -> dict[str, Any]:
         return await self._start(
             session_id=session_id,
@@ -204,6 +211,8 @@ class RunManager:
             agent=agent,
             session_base=session_base,
             wake=wake,
+            lock=lock,
+            on_queued_turn=on_queued_turn,
         )
 
     async def start_compact(
@@ -215,6 +224,7 @@ class RunManager:
         agent: RunAgent,
         session_base: SessionTotals | None = None,
         on_complete: RunCompletionCallback | None = None,
+        lock: SessionLock | None = None,
     ) -> dict[str, Any]:
         return await self._start(
             session_id=session_id,
@@ -225,6 +235,7 @@ class RunManager:
             agent=agent,
             session_base=session_base,
             on_complete=on_complete,
+            lock=lock,
         )
 
     async def _start(
@@ -239,6 +250,8 @@ class RunManager:
         session_base: SessionTotals | None = None,
         on_complete: RunCompletionCallback | None = None,
         wake: bool = False,
+        lock: SessionLock | None = None,
+        on_queued_turn: QueuedTurnCallback | None = None,
     ) -> dict[str, Any]:
         await self._prune_finished_runs()
         session_base = session_base or SessionTotals()
@@ -260,6 +273,8 @@ class RunManager:
                 agent=agent,
                 on_complete=on_complete,
                 wake=wake,
+                lock=lock,
+                on_queued_turn=on_queued_turn,
             )
             state.task = asyncio.create_task(self._run(state), name=f"mycode-run-{state.id}")
             self._active_by_session[session_id] = state
@@ -561,6 +576,10 @@ class RunManager:
                         # The queued turn continues on the same agent and model.
                         state.delivering = queued
                         message = merge_user_messages(queued, steer=False)
+                    # Recorded while the run still holds the session's claim;
+                    # an item removed from the queue first never touches the catalog.
+                    if state.on_queued_turn is not None:
+                        await state.on_queued_turn(message)
         except asyncio.CancelledError:
             # Manual compaction and external task cancellation both end the run.
             cancelled = True
@@ -658,12 +677,15 @@ class RunManager:
         ``agent.messages`` holds only committed records, so the blocks found
         there are delivered and the rest return to pending. A user stop, or a
         wake whose own message never committed, holds the next wake until the
-        user's next message.
+        user's next message. The session's claim goes with the slot, so the
+        next run can take it.
         """
 
         if self._active_by_session.get(state.session_id) is not state:
             return
         del self._active_by_session[state.session_id]
+        if state.lock is not None:
+            state.lock.release()
         jobs = self._jobs.get(state.session_id)
         if jobs is None:
             return

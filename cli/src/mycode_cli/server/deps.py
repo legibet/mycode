@@ -11,6 +11,9 @@ from mycode_cli.config import resolve_cwd
 from mycode_cli.server.run_manager import RunManager
 from mycode_cli.sessions import SessionStore
 
+# How a session claimed by this server is named to the processes it refuses.
+LOCK_HOLDER = "the web server"
+
 
 def resolve_workspace_cwd(raw: str | None) -> str:
     """Resolve a request cwd to an absolute path, rejecting a non-directory."""

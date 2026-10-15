@@ -7,6 +7,7 @@ import io
 import json
 from base64 import b64encode
 from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from functools import partial
 from pathlib import Path
 from typing import Annotated, cast
@@ -41,7 +42,7 @@ from mycode_cli.config import (
 )
 from mycode_cli.permissions import ToolReviewCallback, ToolReviewDecision, ToolReviewRequest
 from mycode_cli.runtime import build_agent
-from mycode_cli.server.deps import RunManagerDep, StoreDep, resolve_workspace_cwd
+from mycode_cli.server.deps import LOCK_HOLDER, RunManagerDep, StoreDep, resolve_workspace_cwd
 from mycode_cli.server.run_manager import RunAgent, RunManager
 from mycode_cli.server.schemas import (
     CancelRunResponse,
@@ -55,7 +56,7 @@ from mycode_cli.server.schemas import (
     StatusResponse,
     UserInputRequest,
 )
-from mycode_cli.sessions import SessionData, SessionStore, display_text
+from mycode_cli.sessions import SessionData, SessionLock, SessionStore, display_text
 from mycode_cli.system_prompt import build_skill_snapshot_blocks
 from mycode_cli.tools import read_text_window
 from mycode_cli.workspace import resolve_path
@@ -205,6 +206,29 @@ def _validate_rewind_request(data: SessionData | None, rewind_to: int) -> None:
         raise HTTPException(status_code=400, detail="rewind_to must reference a real user message")
 
 
+@asynccontextmanager
+async def _claim_for_run(store: SessionStore, session_id: str) -> AsyncIterator[SessionLock]:
+    """Claim the session for a run being started, before any of its disk writes.
+
+    The started run owns the claim and releases it when it ends; a start that
+    fails first releases it here. Another process holding the session raises
+    ``SessionLockedError``, which the app answers with ``409``.
+    """
+
+    lock = await asyncio.to_thread(store.lock, session_id, LOCK_HOLDER)
+    try:
+        yield lock
+    except BaseException:
+        lock.release()
+        raise
+
+
+async def _record_queued_turn(store: SessionStore, session_id: str, cwd: str, message: ConversationMessage) -> None:
+    """Register a queued turn in the catalog when the run takes it, as ``/api/chat`` does for its own."""
+
+    await store.record_user_turn(session_id, cwd=cwd, text=display_text(message))
+
+
 async def _ensure_idle(runs: RunManager, session_id: str) -> None:
     """Refuse a new run while the session has one.
 
@@ -236,66 +260,69 @@ async def chat(chat: ChatRequest, store: StoreDep, runs: RunManagerDep) -> ChatR
     async with runs.session_operation(session_id):
         await _ensure_idle(runs, session_id)
 
-        if chat.rewind_to is not None:
-            _validate_rewind_request(await store.load_session(session_id), chat.rewind_to)
+        async with _claim_for_run(store, session_id) as lock:
+            if chat.rewind_to is not None:
+                _validate_rewind_request(await store.load_session(session_id), chat.rewind_to)
 
-        # All validation passed. Save uploads, land the rewind marker (if any)
-        # and register the user turn in the catalog: first turn creates the
-        # entry and sets the title, later turns bump updated_at.
-        await asyncio.to_thread(_write_uploads, uploads)
-        if chat.rewind_to is not None:
-            # A result for a tool call that is no longer in the history would confuse the model.
-            await jobs.close()
-            await store.append_rewind(session_id, chat.rewind_to)
-        session = await store.record_user_turn(
-            session_id,
-            cwd=cwd,
-            text=display_text(user_message),
-        )
-
-        async def review(request: ToolReviewRequest) -> ToolReviewDecision:
-            # Bridge before_tool review waits to SSE events on the active run.
-            return await runs.request_decision(
-                session_id=session_id,
-                tool_call_id=request.tool_call_id,
-                tool_name=request.tool_name,
-                preview=request.preview,
+            # All validation passed. Save uploads, land the rewind marker (if any)
+            # and register the user turn in the catalog: first turn creates the
+            # entry and sets the title, later turns bump updated_at.
+            await asyncio.to_thread(_write_uploads, uploads)
+            if chat.rewind_to is not None:
+                # A result for a tool call that is no longer in the history would confuse the model.
+                await jobs.close()
+                await store.append_rewind(session_id, chat.rewind_to)
+            session = await store.record_user_turn(
+                session_id,
+                cwd=cwd,
+                text=display_text(user_message),
             )
 
-        agent = await asyncio.to_thread(
-            build_agent,
-            store=store,
-            settings=settings,
-            resolved_provider=request_provider,
-            session_id=session_id,
-            review=review,
-            jobs=jobs,
-        )
-        # A wake reuses this request's configuration until the next request replaces it.
-        jobs.deliver = partial(
-            _deliver_job_results,
-            runs=runs,
-            store=store,
-            jobs=jobs,
-            session_id=session_id,
-            settings=settings,
-            resolved_provider=request_provider,
-            review=review,
-        )
+            async def review(request: ToolReviewRequest) -> ToolReviewDecision:
+                # Bridge before_tool review waits to SSE events on the active run.
+                return await runs.request_decision(
+                    session_id=session_id,
+                    tool_call_id=request.tool_call_id,
+                    tool_name=request.tool_name,
+                    preview=request.preview,
+                )
 
-        session_base = await store.load_totals(session_id)
-        # The user's message ends a Stop and carries the results that waited
-        # for it. Taken last: a run that fails to start leaves nothing in flight.
-        jobs.suspended = False
-        user_message["content"] = [*jobs.take_pending(), *user_message["content"]]
-        run = await runs.start_run(
-            session_id=session_id,
-            cwd=cwd,
-            user_message=user_message,
-            base_messages=agent.messages,
-            agent=agent,
-            session_base=session_base,
-        )
+            agent = await asyncio.to_thread(
+                build_agent,
+                store=store,
+                settings=settings,
+                resolved_provider=request_provider,
+                session_id=session_id,
+                review=review,
+                jobs=jobs,
+            )
+            # A wake reuses this request's configuration until the next request replaces it.
+            jobs.deliver = partial(
+                _deliver_job_results,
+                runs=runs,
+                store=store,
+                jobs=jobs,
+                session_id=session_id,
+                settings=settings,
+                resolved_provider=request_provider,
+                review=review,
+            )
+
+            session_base = await store.load_totals(session_id)
+            # The user's message ends a Stop and carries the results that waited
+            # for it. Taken last: a run that fails to start leaves nothing in flight.
+            jobs.suspended = False
+            user_message["content"] = [*jobs.take_pending(), *user_message["content"]]
+            run = await runs.start_run(
+                session_id=session_id,
+                cwd=cwd,
+                user_message=user_message,
+                base_messages=agent.messages,
+                agent=agent,
+                session_base=session_base,
+                lock=lock,
+                on_queued_turn=partial(_record_queued_turn, store, session_id, cwd),
+            )
 
     return ChatResponse(run=RunInfo.model_validate(run), session=session, message=user_message)
 
@@ -323,31 +350,35 @@ async def _deliver_job_results(
         if state is None:
             if jobs.suspended or not jobs.deliverable():
                 return
-            # A wake that cannot start holds the next one, like one that never committed.
+            # A wake that cannot start, the session open in another process
+            # included, holds the next one, like one that never committed.
             try:
-                agent = await asyncio.to_thread(
-                    build_agent,
-                    store=store,
-                    settings=settings,
-                    resolved_provider=resolved_provider,
-                    session_id=session_id,
-                    review=review,
-                    jobs=jobs,
-                )
-                await store.touch(session_id)
-                session_base = await store.load_totals(session_id)
+                async with _claim_for_run(store, session_id) as lock:
+                    agent = await asyncio.to_thread(
+                        build_agent,
+                        store=store,
+                        settings=settings,
+                        resolved_provider=resolved_provider,
+                        session_id=session_id,
+                        review=review,
+                        jobs=jobs,
+                    )
+                    await store.touch(session_id)
+                    session_base = await store.load_totals(session_id)
+                    await runs.start_run(
+                        session_id=session_id,
+                        cwd=settings.cwd,
+                        user_message=build_message("user", jobs.take_pending()),
+                        base_messages=agent.messages,
+                        agent=agent,
+                        session_base=session_base,
+                        wake=True,
+                        lock=lock,
+                        on_queued_turn=partial(_record_queued_turn, store, session_id, settings.cwd),
+                    )
             except Exception:
                 jobs.suspended = True
                 raise
-            await runs.start_run(
-                session_id=session_id,
-                cwd=settings.cwd,
-                user_message=build_message("user", jobs.take_pending()),
-                base_messages=agent.messages,
-                agent=agent,
-                session_base=session_base,
-                wake=True,
-            )
         elif state.kind == "chat":
             blocks = jobs.take_pending()
             if blocks:
@@ -434,31 +465,33 @@ async def compact_session(
     async with runs.session_operation(session_id):
         await _ensure_idle(runs, session_id)
 
-        data = await store.load_session(session_id)
-        if data is None:
-            raise HTTPException(status_code=404, detail="session not found")
-        if not has_compactable_history(data["messages"]):
-            raise HTTPException(status_code=400, detail="nothing to compact")
+        async with _claim_for_run(store, session_id) as lock:
+            data = await store.load_session(session_id)
+            if data is None:
+                raise HTTPException(status_code=404, detail="session not found")
+            if not has_compactable_history(data["messages"]):
+                raise HTTPException(status_code=400, detail="nothing to compact")
 
-        settings = await asyncio.to_thread(get_settings, data["session"]["cwd"])
-        resolved = resolve_provider(settings, provider_name=body.provider, model=body.model)
+            settings = await asyncio.to_thread(get_settings, data["session"]["cwd"])
+            resolved = resolve_provider(settings, provider_name=body.provider, model=body.model)
 
-        agent = await asyncio.to_thread(
-            build_agent,
-            store=store,
-            settings=settings,
-            resolved_provider=resolved,
-            session_id=session_id,
-        )
+            agent = await asyncio.to_thread(
+                build_agent,
+                store=store,
+                settings=settings,
+                resolved_provider=resolved,
+                session_id=session_id,
+            )
 
-        run = await runs.start_compact(
-            session_id=session_id,
-            cwd=settings.cwd,
-            base_messages=agent.messages,
-            agent=agent,
-            session_base=data["totals"],
-            on_complete=store.touch,
-        )
+            run = await runs.start_compact(
+                session_id=session_id,
+                cwd=settings.cwd,
+                base_messages=agent.messages,
+                agent=agent,
+                session_base=data["totals"],
+                on_complete=store.touch,
+                lock=lock,
+            )
 
     return RunResponse(run=RunInfo.model_validate(run))
 
@@ -507,11 +540,6 @@ async def queue_message(
     if not await runs.enqueue(state, message):
         await asyncio.to_thread(_remove_uploads, uploads)
         raise HTTPException(status_code=409, detail={"message": "session has no running chat to queue on"})
-    await store.record_user_turn(
-        session_id,
-        cwd=state.cwd,
-        text=display_text(message),
-    )
     return RunResponse(run=RunInfo.model_validate(state.info()))
 
 

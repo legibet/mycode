@@ -629,6 +629,27 @@ async def test_queue_endpoints_remove_and_move_pending_input(tmp_path: Path, mon
         await run.finish()
 
 
+async def test_queued_turns_reach_the_catalog_only_when_the_run_takes_them(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async with _gated_run(tmp_path, monkeypatch) as run:
+        client = run.client
+        before = await run.store.load_metadata("s1")
+        queued = await asyncio.gather(
+            *(client.post("/api/sessions/s1/queue", json={"message": f"q{i}", "input_id": f"q{i}"}) for i in range(5))
+        )
+        assert [response.status_code for response in queued] == [200] * 5
+        for i in range(1, 5):
+            assert (await client.delete(f"/api/sessions/s1/queue/q{i}")).status_code == 200
+        assert await run.store.load_metadata("s1") == before
+        await run.finish()
+
+    after = await run.store.load_metadata("s1")
+    assert before is not None
+    assert after is not None
+    assert after["updated_at"] > before["updated_at"]
+
+
 async def test_steers_and_queue_are_delivered_and_persisted(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     async with _gated_run(tmp_path, monkeypatch) as run:
         client, state = run.client, run.state
@@ -766,6 +787,44 @@ def test_compact_endpoint_conflicts_and_cancel_write_no_marker(
         session = client.get("/api/sessions/s1").json()
 
     assert [message["role"] for message in session["messages"]] == ["user", "assistant"]
+
+
+def test_session_open_in_another_process_refuses_writes_until_released(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    monkeypatch.setenv("MYCODE_HOME", str(tmp_path / "home"))
+    monkeypatch.setattr("mycode.agent.get_provider_adapter", lambda _provider: _CaptureAdapter())
+    store = SessionStore(data_dir=tmp_path / "sessions")
+    runs = RunManager()
+    app = create_api_app()
+    app.dependency_overrides[get_store] = lambda: store
+    app.dependency_overrides[get_run_manager] = lambda: runs
+    _seed_session(store, "s1", str(tmp_path))
+
+    with TestClient(app) as client:
+        with store.lock("s1", "the terminal UI"):
+            refused = [
+                client.post("/api/chat", json={"session_id": "s1", "message": "hi"}),
+                client.post("/api/sessions/s1/compact", json={}),
+                client.delete("/api/sessions/s1"),
+            ]
+            # Reading needs no claim.
+            session = client.get("/api/sessions/s1").json()
+
+        for response in refused:
+            assert response.status_code == 409
+            assert response.json()["detail"]["message"].startswith("session s1 is in use by the terminal UI (pid ")
+        assert [message["role"] for message in session["messages"]] == ["user", "assistant"]
+
+        run = client.post("/api/chat", json={"session_id": "s1", "message": "hi"}).json()["run"]
+        with client.stream("GET", f"/api/runs/{run['id']}/stream") as stream:
+            list(stream.iter_lines())
+
+        # The finished run released its claim.
+        with store.lock("s1", "the terminal UI"):
+            pass
 
 
 # Sessions API

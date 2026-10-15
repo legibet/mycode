@@ -12,6 +12,7 @@ On disk:
     meta.json        # catalog entry: cwd, title, created_at, updated_at
     messages.jsonl   # SDK-owned message timeline
     tool-output/     # scratch area for large tool outputs
+    lock             # flock(2) target naming the process that has the session open
 
 ``updated_at`` tracks user-visible session changes (new user turn, rewind,
 manual compact), not every persisted message.
@@ -20,14 +21,17 @@ manual compact), not every persisted message.
 from __future__ import annotations
 
 import asyncio
+import fcntl
 import json
+import os
 import re
 import shutil
 from collections.abc import Iterable
+from contextlib import suppress
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, TypedDict
+from typing import IO, Any, Self, TypedDict
 
 from mycode.messages import ConversationMessage, RewindMarker
 from mycode.session import SessionStore as TimelineStore
@@ -37,6 +41,7 @@ from mycode_cli.config import resolve_cwd
 
 DEFAULT_SESSION_TITLE = "New chat"
 _META_FIELDS = ("cwd", "title", "created_at", "updated_at")
+_LOCK_FILE = "lock"
 
 
 class SessionInfo(TypedDict):
@@ -94,6 +99,45 @@ def sum_session_totals(records: Iterable[ConversationMessage | RewindMarker]) ->
     return totals
 
 
+class SessionLockedError(Exception):
+    """The session is open in another process."""
+
+
+class SessionLock:
+    """This process's exclusive claim on one session, held as ``flock(2)`` on its lock file.
+
+    The kernel drops the lock when the process exits, so a crash leaves no stale claim.
+    """
+
+    def __init__(self, handle: IO[str]) -> None:
+        self._handle = handle
+
+    def release(self) -> None:
+        """Drop the claim; idempotent.
+
+        A session left with only its lock file (never written, or deleted) is
+        removed: the lock file while still held, then the directory, which a
+        new holder may already have taken over. Nothing else is removed after
+        the lock file, so a new holder's files survive.
+        """
+
+        if self._handle.closed:
+            return
+        path = Path(self._handle.name)
+        with suppress(FileNotFoundError):
+            if os.listdir(path.parent) == [path.name]:
+                path.unlink()
+                with suppress(OSError):
+                    path.parent.rmdir()
+        self._handle.close()
+
+    def __enter__(self) -> Self:
+        return self
+
+    def __exit__(self, *exc_info: object) -> None:
+        self.release()
+
+
 def _now() -> str:
     return datetime.now(UTC).isoformat()
 
@@ -145,6 +189,40 @@ class SessionStore(TimelineStore):
 
         return self.session_dir(session_id) / "tool-output"
 
+    def lock(self, session_id: str, holder: str) -> SessionLock:
+        """Claim ``session_id`` for this process, or raise ``SessionLockedError`` naming its holder.
+
+        Every writer holds the claim while it may write: the TUI while the
+        session is open, ``mycode run`` for its process, the web server for a
+        run. ``holder`` names the claiming process to the ones refused.
+        """
+
+        path = self.session_dir(session_id) / _LOCK_FILE
+        while True:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                handle = path.open("a+", encoding="utf-8")
+            except FileNotFoundError:
+                # The directory was removed between mkdir and open.
+                continue
+            try:
+                fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                handle.seek(0)
+                owner = handle.read().strip() or "another process"
+                handle.close()
+                raise SessionLockedError(f"session {session_id} is in use by {owner}") from None
+            # A releasing holder may have removed the file after we opened it;
+            # the claim counts only on the file the path still names.
+            with suppress(FileNotFoundError):
+                if os.path.samestat(os.fstat(handle.fileno()), path.stat()):
+                    break
+            handle.close()
+        handle.truncate(0)
+        handle.write(f"{holder} (pid {os.getpid()})")
+        handle.flush()
+        return SessionLock(handle)
+
     def _read_meta(self, session_id: str) -> SessionInfo | None:
         """Read a catalog entry; a missing or malformed ``meta.json`` means no entry."""
 
@@ -166,7 +244,10 @@ class SessionStore(TimelineStore):
         path = self.meta_path(session["id"])
         path.parent.mkdir(parents=True, exist_ok=True)
         meta = {key: value for key, value in session.items() if key != "id"}
-        path.write_text(json.dumps(meta, indent=2, ensure_ascii=False), encoding="utf-8")
+        # Replaced whole, so a reader in another process never sees a partial file.
+        temp = path.with_name(f"{path.name}.tmp")
+        temp.write_text(json.dumps(meta, indent=2, ensure_ascii=False), encoding="utf-8")
+        temp.replace(path)
 
     def _new_session(self, session_id: str, *, cwd: str, title: str) -> SessionInfo:
         now = _now()
@@ -214,10 +295,25 @@ class SessionStore(TimelineStore):
         await asyncio.to_thread(bump)
 
     async def delete_session(self, session_id: str) -> None:
-        """Delete the whole session directory: catalog, timeline, tool output."""
+        """Delete the session's catalog, timeline, and tool output.
+
+        The caller holds the session's lock. The lock file stays, so releasing
+        the lock removes it and then the directory (``SessionLock.release``).
+        """
 
         self._search_texts.pop(session_id, None)
-        await asyncio.to_thread(shutil.rmtree, self.session_dir(session_id), True)
+
+        def delete() -> None:
+            with suppress(FileNotFoundError):
+                for entry in self.session_dir(session_id).iterdir():
+                    if entry.name == _LOCK_FILE:
+                        continue
+                    if entry.is_dir() and not entry.is_symlink():
+                        shutil.rmtree(entry)
+                    else:
+                        entry.unlink()
+
+        await asyncio.to_thread(delete)
 
     # ------------------------------------------------------------------
     # Listing and loading
