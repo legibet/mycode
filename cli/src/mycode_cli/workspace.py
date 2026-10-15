@@ -27,6 +27,16 @@ class CliDeps:
         return cls(cwd=Path(cwd), tool_output_dir=data_dir / session_id / "tool-output", jobs=jobs)
 
 
+def resolve_cwd(path: str | Path) -> str:
+    """Normalize a workspace directory: absolute, with ``~`` and symlinks resolved.
+
+    Settings, the session catalog, and tool context all use this form, so the
+    TUI and the web server agree on which sessions belong to a workspace.
+    """
+
+    return str(Path(path).expanduser().resolve(strict=False))
+
+
 def resolve_path(path: str | Path, *, cwd: str | Path) -> Path:
     """Resolve ``path`` against ``cwd``; absolute and ``~`` paths pass through."""
 

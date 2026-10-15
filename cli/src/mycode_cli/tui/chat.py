@@ -327,7 +327,6 @@ class TerminalChat:
 
         return build_agent(
             store=self.store,
-            cwd=self.settings.cwd,
             settings=self.settings,
             resolved_provider=resolved_provider,
             session_id=session_id,

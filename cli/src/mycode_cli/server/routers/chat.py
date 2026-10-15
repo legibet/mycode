@@ -263,7 +263,6 @@ async def chat(chat: ChatRequest, store: StoreDep, runs: RunManagerDep) -> ChatR
         agent = await asyncio.to_thread(
             build_agent,
             store=store,
-            cwd=cwd,
             settings=settings,
             resolved_provider=request_provider,
             session_id=session_id,
@@ -277,7 +276,6 @@ async def chat(chat: ChatRequest, store: StoreDep, runs: RunManagerDep) -> ChatR
             store=store,
             jobs=jobs,
             session_id=session_id,
-            cwd=cwd,
             settings=settings,
             resolved_provider=request_provider,
             review=review,
@@ -313,7 +311,6 @@ async def _deliver_job_results(
     store: SessionStore,
     jobs: BackgroundJobs,
     session_id: str,
-    cwd: str,
     settings: Settings,
     resolved_provider: ResolvedProvider,
     review: ToolReviewCallback,
@@ -336,7 +333,6 @@ async def _deliver_job_results(
                 agent = await asyncio.to_thread(
                     build_agent,
                     store=store,
-                    cwd=cwd,
                     settings=settings,
                     resolved_provider=resolved_provider,
                     session_id=session_id,
@@ -350,7 +346,7 @@ async def _deliver_job_results(
                 raise
             await runs.start_run(
                 session_id=session_id,
-                cwd=cwd,
+                cwd=settings.cwd,
                 user_message=build_message("user", jobs.take_pending()),
                 base_messages=agent.messages,
                 agent=agent,
@@ -454,14 +450,12 @@ async def compact_session(
         if not has_compactable_history(data["messages"]):
             raise HTTPException(status_code=400, detail="nothing to compact")
 
-        cwd = data["session"]["cwd"]
-        settings = await asyncio.to_thread(get_settings, cwd)
+        settings = await asyncio.to_thread(get_settings, data["session"]["cwd"])
         resolved = resolve_provider(settings, provider_name=body.provider, model=body.model)
 
         agent = await asyncio.to_thread(
             build_agent,
             store=store,
-            cwd=cwd,
             settings=settings,
             resolved_provider=resolved,
             session_id=session_id,
@@ -470,7 +464,7 @@ async def compact_session(
         try:
             run = await runs.start_compact(
                 session_id=session_id,
-                cwd=cwd,
+                cwd=settings.cwd,
                 base_messages=agent.messages,
                 agent=agent,
                 session_base=data["totals"],
@@ -576,9 +570,8 @@ async def steer_queued_message(
 
 @router.get("/config")
 async def get_config(cwd: Annotated[str | None, Query()] = None) -> dict[str, Any]:
-    resolved_cwd = os.path.abspath(cwd or os.getcwd())
-    settings = await asyncio.to_thread(get_settings, resolved_cwd)
-    skills = await asyncio.to_thread(discover_slash_skills, resolved_cwd)
+    settings = await asyncio.to_thread(get_settings, cwd)
+    skills = await asyncio.to_thread(discover_slash_skills, settings.cwd)
     resolved: ResolvedProvider | None = None
     setup_error: dict[str, str] | None = None
     try:
@@ -609,8 +602,8 @@ async def get_config(cwd: Annotated[str | None, Query()] = None) -> dict[str, An
     return {
         "providers": providers_info,
         "default": default_payload,
-        "cwd": resolved_cwd,
-        "cwd_exists": os.path.isdir(resolved_cwd),
+        "cwd": settings.cwd,
+        "cwd_exists": os.path.isdir(settings.cwd),
         "project": settings.project,
         "config_paths": settings.config_paths,
         # Effective for this cwd; 0 disables automatic compaction.

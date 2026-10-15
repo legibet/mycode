@@ -16,7 +16,6 @@ from mycode_cli.workspace import CliDeps
 def build_agent(
     *,
     store: SessionStore,
-    cwd: str,
     settings: Settings,
     resolved_provider: ResolvedProvider,
     session_id: str,
@@ -47,8 +46,8 @@ def build_agent(
         supports_pdf_input=metadata.supports_pdf_input,
         compact_threshold=settings.compact_threshold,
         max_turns=max_turns,
-        system=build_system_prompt(cwd, settings),
+        system=build_system_prompt(settings.cwd, settings),
         tools=[*DEFAULT_TOOLS, *build_web_tools(settings.web)],
         hooks=hooks,
-        deps=CliDeps.for_session(cwd=cwd, data_dir=store.data_dir, session_id=session_id, jobs=jobs),
+        deps=CliDeps.for_session(cwd=settings.cwd, data_dir=store.data_dir, session_id=session_id, jobs=jobs),
     )

@@ -31,10 +31,9 @@ def patch_catalog(monkeypatch: pytest.MonkeyPatch, entries: dict[str, dict[str, 
     monkeypatch.setattr("mycode.models.load_models_catalog", lambda: catalog)
 
 
-def build_test_agent(tmp_path: Path, cwd: Path, settings, resolved):
+def build_test_agent(tmp_path: Path, settings, resolved):
     return build_agent(
         store=SessionStore(data_dir=tmp_path / "sessions"),
-        cwd=str(cwd),
         settings=settings,
         resolved_provider=resolved,
         session_id="test",
@@ -135,7 +134,7 @@ class TestGetSettings:
         config: dict[str, object] = {"providers": {"openai": {"api_key": "sk-test"}}}
         write_json(config_home / "config.json", config)
         settings = get_settings(str(workspace))
-        agent = build_test_agent(tmp_path, workspace, settings, resolve_provider(settings))
+        agent = build_test_agent(tmp_path, settings, resolve_provider(settings))
 
         assert agent.tools.get("webfetch") is not None
         assert agent.tools.get("websearch") is None
@@ -143,7 +142,7 @@ class TestGetSettings:
         config["web"] = {"search": "tavily"}
         write_json(config_home / "config.json", config)
         settings = get_settings(str(workspace))
-        agent = build_test_agent(tmp_path, workspace, settings, resolve_provider(settings))
+        agent = build_test_agent(tmp_path, settings, resolve_provider(settings))
 
         assert agent.tools.get("webfetch") is not None
         assert agent.tools.get("websearch") is not None
@@ -637,7 +636,7 @@ class TestAgentCapabilities:
 
         settings = get_settings(str(workspace.resolve()))
         resolved = resolve_provider(settings)
-        agent = build_test_agent(tmp_path, workspace, settings, resolved)
+        agent = build_test_agent(tmp_path, settings, resolved)
 
         assert agent.max_tokens == 32_768
         assert agent.context_window == 1_000_000
@@ -678,7 +677,7 @@ class TestAgentCapabilities:
 
         settings = get_settings(str(workspace.resolve()))
         resolved = resolve_provider(settings)
-        agent = build_test_agent(tmp_path, workspace, settings, resolved)
+        agent = build_test_agent(tmp_path, settings, resolved)
 
         assert agent.context_window == 500_000
         assert agent.max_tokens == 64_000

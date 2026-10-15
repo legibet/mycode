@@ -21,7 +21,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import os
 import re
 import shutil
 from collections.abc import Iterable
@@ -34,6 +33,7 @@ from mycode.messages import ConversationMessage, RewindMarker
 from mycode.session import SessionStore as TimelineStore
 from mycode.session import apply_rewind
 from mycode.usage import Cost, Usage, add_cost, add_usage
+from mycode_cli.workspace import resolve_cwd
 
 DEFAULT_SESSION_TITLE = "New chat"
 _META_FIELDS = ("cwd", "title", "created_at", "updated_at")
@@ -165,7 +165,7 @@ class SessionStore(TimelineStore):
 
     def _new_session(self, session_id: str, *, cwd: str, title: str) -> SessionInfo:
         now = _now()
-        return {"id": session_id, "cwd": os.path.abspath(cwd), "title": title, "created_at": now, "updated_at": now}
+        return {"id": session_id, "cwd": resolve_cwd(cwd), "title": title, "created_at": now, "updated_at": now}
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -221,7 +221,7 @@ class SessionStore(TimelineStore):
     async def list_sessions(self, *, cwd: str | None = None) -> list[SessionInfo]:
         """List cataloged sessions under ``data_dir``, newest first."""
 
-        normalized = os.path.abspath(cwd) if cwd else None
+        normalized = resolve_cwd(cwd) if cwd else None
 
         def load_all() -> list[SessionInfo]:
             sessions = [
@@ -230,7 +230,8 @@ class SessionStore(TimelineStore):
                 if entry.is_dir() and (session := self._read_meta(entry.name)) is not None
             ]
             if normalized:
-                sessions = [session for session in sessions if os.path.abspath(session["cwd"]) == normalized]
+                # Entries written before cwd was symlink-resolved still match.
+                sessions = [session for session in sessions if resolve_cwd(session["cwd"]) == normalized]
             return sorted(sessions, key=lambda session: session["updated_at"], reverse=True)
 
         return await asyncio.to_thread(load_all)

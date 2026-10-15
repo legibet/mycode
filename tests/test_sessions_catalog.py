@@ -18,14 +18,15 @@ def store(tmp_path: Path) -> SessionStore:
     return SessionStore(data_dir=tmp_path / "sessions")
 
 
-async def test_session_lifecycle_preserves_metadata_and_messages(store: SessionStore) -> None:
+async def test_session_lifecycle_preserves_metadata_and_messages(store: SessionStore, tmp_path: Path) -> None:
     assert await store.list_sessions() == []
     assert await store.load_session("s1") is None
+    cwd = str(tmp_path.resolve())
 
-    session = await store.create_session("s1", cwd="/home/user/project")
+    session = await store.create_session("s1", cwd=cwd)
 
     assert session["id"] == "s1"
-    assert session["cwd"] == "/home/user/project"
+    assert session["cwd"] == cwd
     assert session["title"] == "New chat"
     assert "created_at" in session
     assert "updated_at" in session
@@ -37,7 +38,7 @@ async def test_session_lifecycle_preserves_metadata_and_messages(store: SessionS
     ]
     for message in messages:
         await store.append_message("s1", message)
-    await store.record_user_turn("s1", cwd="/home/user/project", text="How do I write a Python function?")
+    await store.record_user_turn("s1", cwd=cwd, text="How do I write a Python function?")
 
     loaded = await store.load_session("s1")
     assert loaded is not None
@@ -49,13 +50,14 @@ async def test_session_lifecycle_preserves_metadata_and_messages(store: SessionS
     assert await store.list_sessions() == []
 
 
-async def test_record_user_turn_creates_catalog_entry_and_keeps_title(store: SessionStore) -> None:
-    first = await store.record_user_turn("s1", cwd="/tmp", text="first question\nwith newline")
+async def test_record_user_turn_creates_catalog_entry_and_keeps_title(store: SessionStore, tmp_path: Path) -> None:
+    cwd = str(tmp_path.resolve())
+    first = await store.record_user_turn("s1", cwd=cwd, text="first question\nwith newline")
 
     assert first["title"] == "first question with newline"
-    assert first["cwd"] == "/tmp"
+    assert first["cwd"] == cwd
 
-    second = await store.record_user_turn("s1", cwd="/tmp", text="second question")
+    second = await store.record_user_turn("s1", cwd=cwd, text="second question")
 
     assert second["title"] == "first question with newline"
     assert str(second["updated_at"]) >= str(first["updated_at"])
@@ -84,6 +86,20 @@ async def test_session_listing_filters_and_orders_by_recent_activity(store: Sess
     assert latest is not None
     assert latest["id"] == "first"
     assert {session["id"] for session in await store.list_sessions()} == {"first", "second", "other"}
+
+
+async def test_session_listing_matches_a_workspace_reached_through_a_symlink(
+    store: SessionStore, tmp_path: Path
+) -> None:
+    real = tmp_path / "project"
+    real.mkdir()
+    link = tmp_path / "link"
+    link.symlink_to(real, target_is_directory=True)
+    await store.create_session("via-link", cwd=str(link))
+    await store.create_session("via-real", cwd=str(real))
+
+    for cwd in (link, real):
+        assert {session["id"] for session in await store.list_sessions(cwd=str(cwd))} == {"via-link", "via-real"}
 
 
 async def test_listing_skips_sessions_without_a_valid_catalog_entry(store: SessionStore) -> None:

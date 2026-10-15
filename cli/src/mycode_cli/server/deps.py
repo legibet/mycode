@@ -9,12 +9,13 @@ from fastapi import Depends, HTTPException, Request
 
 from mycode_cli.server.run_manager import RunManager
 from mycode_cli.sessions import SessionStore
+from mycode_cli.workspace import resolve_cwd
 
 
 def resolve_workspace_cwd(raw: str | None) -> str:
     """Resolve a request cwd to an absolute path, rejecting a non-directory."""
 
-    cwd = os.path.abspath(raw or os.getcwd())
+    cwd = resolve_cwd(raw or os.getcwd())
     if not os.path.isdir(cwd):
         raise HTTPException(status_code=400, detail=f"Working directory does not exist: {cwd}")
     return cwd

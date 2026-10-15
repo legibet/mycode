@@ -17,6 +17,7 @@ from mycode.providers import (
     list_env_discoverable_providers,
     list_supported_providers,
 )
+from mycode_cli.workspace import resolve_cwd
 
 _DEFAULT_MYCODE_HOME = "~/.mycode"
 _API_KEY_ENV_REF_RE = re.compile(r"^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$")
@@ -466,7 +467,7 @@ def _validate_model_config_entries(name: str, raw: Any) -> dict[str, dict[str, A
 def get_settings(cwd: str | None = None) -> Settings:
     """Load settings from global and project config files."""
 
-    resolved_cwd = str(Path(cwd or os.getcwd()).expanduser().resolve(strict=False))
+    resolved_cwd = resolve_cwd(cwd or os.getcwd())
     resolved_project = str(resolve_project(resolved_cwd))
 
     raw_providers: dict[str, dict[str, Any]] = {}

@@ -27,7 +27,7 @@ The SDK timeline appears on the first persisted message. The CLI normally create
 }
 ```
 
-- `cwd` — CLI workspace, used for session filtering and restoration
+- `cwd` — CLI workspace, used for session filtering and restoration; stored and compared with `~` and symlinks resolved (`workspace.resolve_cwd`), so the TUI and web agree on a workspace reached through a symlink
 - `title` — first readable user text, flattened and truncated to 48 characters; `"New chat"` until then
 - `created_at` / `updated_at` — CLI catalog timestamps
 

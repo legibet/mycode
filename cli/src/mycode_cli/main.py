@@ -25,6 +25,7 @@ from mycode_cli.config import (
 from mycode_cli.permissions import PERMISSION_DENIED_BY_USER_OUTPUT, PERMISSION_DENIED_OUTPUT
 from mycode_cli.sessions import SessionStore
 from mycode_cli.state import load_state, resolve_remembered_provider
+from mycode_cli.workspace import resolve_cwd
 
 from .runtime import build_agent
 
@@ -119,10 +120,9 @@ def _bootstrap(
     if session and continue_last:
         raise typer.BadParameter("--session and --continue are mutually exclusive")
 
-    cwd = os.path.abspath(os.getcwd())
     store = SessionStore(data_dir=resolve_sessions_dir())
     try:
-        settings = get_settings(cwd)
+        settings = get_settings()
         if permission is not None:
             settings = replace(settings, permission=parse_permission(permission, settings.permission))
         state = load_state()
@@ -131,7 +131,7 @@ def _bootstrap(
             reasoning_effort = state.effort_for(resolved_provider)
         resolved_provider = resolved_provider.with_reasoning_effort(reasoning_effort)
         session_id = asyncio.run(
-            resolve_session_id(store=store, cwd=cwd, requested_session_id=session, continue_last=continue_last)
+            resolve_session_id(store=store, cwd=settings.cwd, requested_session_id=session, continue_last=continue_last)
         )
     except ValueError as exc:
         from .tui.render import console, error_line
@@ -226,7 +226,6 @@ def run(
     )
     agent = build_agent(
         store=setup.store,
-        cwd=setup.settings.cwd,
         settings=setup.settings,
         resolved_provider=setup.resolved_provider,
         session_id=setup.session_id,
@@ -278,7 +277,7 @@ def session_list(
 
     from .tui.render import console, session_list_table
 
-    cwd = os.path.abspath(os.getcwd())
+    cwd = resolve_cwd(os.getcwd())
     store = SessionStore(data_dir=resolve_sessions_dir())
 
     sessions = asyncio.run(store.list_sessions(cwd=None if all_workspaces else cwd))
