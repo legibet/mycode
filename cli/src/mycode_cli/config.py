@@ -7,7 +7,7 @@ import os
 import re
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Any, Literal, cast
+from typing import Any, Literal, cast, get_args
 
 from mycode.models import ModelMetadata, resolve_model_metadata
 from mycode.providers import (
@@ -25,8 +25,6 @@ _API_KEY_ENV_REF_RE = re.compile(r"^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$")
 # "auto" means "do not send an explicit effort to the provider"; after
 # normalization it is represented as None.
 REASONING_EFFORT_OPTIONS = ("auto", "none", "minimal", "low", "medium", "high", "xhigh", "max")
-PERMISSION_LEVEL_OPTIONS = ("readonly", "safe", "standard", "yolo")
-PERMISSION_MODE_OPTIONS = ("ask", "deny")
 MODEL_OVERRIDE_KEYS = (
     "context_window",
     "max_output_tokens",
@@ -41,6 +39,8 @@ PermissionLevel = Literal["readonly", "safe", "standard", "yolo"]
 PermissionMode = Literal["ask", "deny"]
 WebFetchProvider = Literal["local", "tavily", "exa"]
 WebSearchProvider = Literal["off", "tavily", "exa"]
+PERMISSION_LEVEL_OPTIONS: tuple[PermissionLevel, ...] = get_args(PermissionLevel)
+PERMISSION_MODE_OPTIONS: tuple[PermissionMode, ...] = get_args(PermissionMode)
 
 WEB_PROVIDER_ENV_VARS = {
     "tavily": "TAVILY_API_KEY",
@@ -96,7 +96,6 @@ class WebConfig:
 @dataclass(frozen=True)
 class Settings:
     providers: dict[str, ProviderConfig]
-    port: int
     cwd: str
     project: str
     compact_threshold: float | None = None
@@ -184,28 +183,11 @@ def _candidate_config_paths(cwd: str, project: str | Path) -> list[Path]:
     return paths
 
 
-def is_api_key_env_ref(value: str) -> str | None:
-    """Return the env var name when ``value`` is a ``${NAME}`` reference."""
+def api_key_env_ref(value: str) -> str | None:
+    """Return the env var name when ``value`` is a ``${NAME}`` reference, else ``None``."""
 
     match = _API_KEY_ENV_REF_RE.fullmatch(value.strip())
     return match.group(1) if match else None
-
-
-def parse_compact_threshold(value: Any) -> float | None:
-    """Parse compact_threshold from config."""
-
-    if value is None:
-        return None
-    if value is False:
-        return 0.0
-
-    if not isinstance(value, (int, float)) or isinstance(value, bool):
-        return None
-    threshold = float(value)
-
-    if not 0 <= threshold <= 1:
-        return None
-    return threshold
 
 
 def normalize_reasoning_effort(value: Any) -> str | None:
@@ -298,14 +280,15 @@ def _clean_config_layer(data: Any) -> dict[str, Any]:
 
     out: dict[str, Any] = {}
 
+    # ``false`` disables automatic compaction and is kept as written.
     compact_threshold = data.get("compact_threshold")
     if compact_threshold is False:
         out["compact_threshold"] = False
     elif compact_threshold is not None:
-        parsed = None if isinstance(compact_threshold, bool) else parse_compact_threshold(compact_threshold)
-        if parsed is None:
+        is_number = isinstance(compact_threshold, int | float) and not isinstance(compact_threshold, bool)
+        if not is_number or not 0 <= compact_threshold <= 1:
             raise ValueError("compact_threshold must be a number in [0, 1] or false")
-        out["compact_threshold"] = parsed
+        out["compact_threshold"] = float(compact_threshold)
 
     if data.get("permission") is not None:
         out["permission"] = _validate_permission_config(data["permission"])
@@ -361,10 +344,7 @@ def _validate_web_config(raw: Any) -> dict[str, Any]:
         raise ValueError("web must be an object")
 
     out: dict[str, Any] = {}
-    options = {
-        "fetch": ("local", "tavily", "exa"),
-        "search": ("off", "tavily", "exa"),
-    }
+    options = {"fetch": get_args(WebFetchProvider), "search": get_args(WebSearchProvider)}
     for key, supported in options.items():
         if key not in raw:
             continue
@@ -485,52 +465,32 @@ def get_settings(cwd: str | None = None) -> Settings:
         if resolved_path not in config_paths:
             config_paths.append(resolved_path)
 
+        # Layers are cleaned by ``_load_config``; a later layer overrides the keys it sets.
         for name, raw in data.get("providers", {}).items():
-            merged = dict(raw_providers.get(name, {}))
-
-            if "type" in raw:
-                merged["type"] = raw["type"]
-            if "models" in raw:
-                merged["models"] = raw["models"]
+            merged = raw_providers.setdefault(name, {})
+            merged |= raw
             if "api_key" in raw:
-                api_key, api_key_env_var = _parse_config_api_key(raw["api_key"])
-                merged["api_key"] = api_key
-                merged["api_key_env_var"] = api_key_env_var
-            if "base_url" in raw:
-                merged["base_url"] = raw["base_url"]
-            if "supports_reasoning_effort" in raw:
-                merged["supports_reasoning_effort"] = raw["supports_reasoning_effort"]
-            if "legacy_max_tokens" in raw:
-                merged["legacy_max_tokens"] = raw["legacy_max_tokens"]
-
-            raw_providers[name] = merged
+                merged["api_key"], merged["api_key_env_var"] = _split_api_key(raw["api_key"])
 
         if "compact_threshold" in data:
             compact_threshold = float(data["compact_threshold"])
 
         if "permission" in data:
-            permission = parse_permission(data.get("permission"), permission)
+            permission = parse_permission(data["permission"], permission)
 
         if "web" in data:
             web = data["web"]
-            for key in ("fetch", "search"):
-                if key in web:
-                    raw_web[key] = web[key]
-            for provider in ("tavily", "exa"):
-                entry = web.get(provider)
-                if entry:
-                    api_key, api_key_env_var = _parse_config_api_key(entry["api_key"])
-                    raw_web[provider] = {
-                        "api_key": api_key,
-                        "api_key_env_var": api_key_env_var,
-                    }
+            raw_web |= {key: web[key] for key in ("fetch", "search") if key in web}
+            for provider in WEB_PROVIDER_ENV_VARS:
+                if provider in web:
+                    api_key, api_key_env_var = _split_api_key(web[provider]["api_key"])
+                    raw_web[provider] = WebProviderConfig(api_key=api_key, api_key_env_var=api_key_env_var)
 
     return Settings(
         providers=_build_providers(raw_providers),
         compact_threshold=compact_threshold,
         permission=permission,
-        web=_build_web_config(raw_web),
-        port=int(os.environ.get("PORT", "8000")),
+        web=WebConfig(**raw_web),
         cwd=resolved_cwd,
         project=resolved_project,
         config_paths=config_paths,
@@ -556,20 +516,11 @@ def _load_config(path: Path) -> dict[str, Any] | None:
     return cleaned
 
 
-def _parse_config_api_key(value: Any) -> tuple[str | None, str | None]:
-    """Return a literal API key or an env var reference from config."""
+def _split_api_key(value: str) -> tuple[str | None, str | None]:
+    """Split a cleaned config ``api_key`` into ``(literal key, env var name)``; one of them is set."""
 
-    if not isinstance(value, str):
-        return None, None
-
-    cleaned = value.strip()
-    if not cleaned:
-        return None, None
-
-    env_name = is_api_key_env_ref(cleaned)
-    if env_name:
-        return None, env_name
-    return cleaned, None
+    env_name = api_key_env_ref(value)
+    return (None, env_name) if env_name else (value, None)
 
 
 def _build_providers(raw_providers: dict[str, dict[str, Any]]) -> dict[str, ProviderConfig]:
@@ -578,49 +529,29 @@ def _build_providers(raw_providers: dict[str, dict[str, Any]]) -> dict[str, Prov
     providers: dict[str, ProviderConfig] = {}
 
     for name, raw in raw_providers.items():
-        raw_type = raw.get("type")
-        if raw_type:
-            provider_type = str(raw_type)
+        if "type" in raw:
+            provider_type = raw["type"]
         elif is_supported_provider(name):
             # Built-in providers can be overridden by name without repeating type.
             provider_type = name
         else:
             raise ValueError(f"provider {name!r} must set 'type'")
 
-        raw_models = cast(dict[str, dict[str, Any]] | None, raw.get("models"))
-        models = {model: ModelConfig(**config) for model, config in (raw_models or {}).items()}
+        models = {model: ModelConfig(**config) for model, config in raw.get("models", {}).items()}
         if not models:
             models = {model: ModelConfig() for model in get_provider_adapter(provider_type).default_models}
         providers[name] = ProviderConfig(
             name=name,
             type=provider_type,
             models=models,
-            api_key=raw.get("api_key") or None,
-            api_key_env_var=raw.get("api_key_env_var") or None,
-            base_url=raw.get("base_url") or None,
-            supports_reasoning_effort=raw.get("supports_reasoning_effort") is True,
-            legacy_max_tokens=raw.get("legacy_max_tokens") is True,
+            api_key=raw.get("api_key"),
+            api_key_env_var=raw.get("api_key_env_var"),
+            base_url=raw.get("base_url"),
+            supports_reasoning_effort=raw.get("supports_reasoning_effort", False),
+            legacy_max_tokens=raw.get("legacy_max_tokens", False),
         )
 
     return providers
-
-
-def _build_web_config(raw: dict[str, Any]) -> WebConfig:
-    def provider(name: str) -> WebProviderConfig:
-        entry = raw.get(name)
-        if not isinstance(entry, dict):
-            return WebProviderConfig()
-        return WebProviderConfig(
-            api_key=entry.get("api_key") or None,
-            api_key_env_var=entry.get("api_key_env_var") or None,
-        )
-
-    return WebConfig(
-        fetch=cast(WebFetchProvider, raw.get("fetch") or "local"),
-        search=cast(WebSearchProvider, raw.get("search") or "off"),
-        tavily=provider("tavily"),
-        exa=provider("exa"),
-    )
 
 
 def resolve_web_api_key(web: WebConfig, provider: Literal["tavily", "exa"]) -> str | None:

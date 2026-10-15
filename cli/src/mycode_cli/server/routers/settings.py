@@ -26,8 +26,8 @@ from mycode_cli.config import (
     PERMISSION_MODE_OPTIONS,
     WEB_PROVIDER_ENV_VARS,
     ResolvedProvider,
+    api_key_env_ref,
     get_settings,
-    is_api_key_env_ref,
     provider_models,
     resolve_mycode_home,
     resolve_provider,
@@ -84,7 +84,7 @@ def _present_config(raw: dict[str, Any]) -> dict[str, Any]:
 def _mask_api_key(entry: dict[str, Any]) -> None:
     api_key = entry.get("api_key")
     if isinstance(api_key, str) and api_key.strip():
-        if is_api_key_env_ref(api_key):
+        if api_key_env_ref(api_key):
             entry["api_key_saved"] = False
         else:
             entry["api_key"] = None
@@ -107,14 +107,14 @@ def _env_presence(raw: dict[str, Any]) -> dict[str, bool]:
         if isinstance(entry, dict):
             api_key = entry.get("api_key")
             if isinstance(api_key, str):
-                ref = is_api_key_env_ref(api_key)
+                ref = api_key_env_ref(api_key)
                 if ref:
                     names.add(ref)
 
     for entry in (raw.get("web") or {}).values():
         if isinstance(entry, dict):
             api_key = entry.get("api_key")
-            if isinstance(api_key, str) and (ref := is_api_key_env_ref(api_key)):
+            if isinstance(api_key, str) and (ref := api_key_env_ref(api_key)):
                 names.add(ref)
 
     return {name: bool((os.environ.get(name) or "").strip()) for name in sorted(names)}

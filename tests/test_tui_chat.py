@@ -41,7 +41,6 @@ from mycode_cli.workspace import CliDeps
 def settings_for(cwd: str) -> Settings:
     return Settings(
         providers={},
-        port=8000,
         cwd=cwd,
         project=cwd,
         config_paths=[],

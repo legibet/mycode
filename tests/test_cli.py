@@ -8,7 +8,6 @@ from typing import Any, cast
 import pytest
 
 from mycode import ErrorEvent, ReasoningEvent, TextEvent, ToolDoneEvent
-from mycode_cli.config import Settings
 from mycode_cli.main import app, resolve_session_id, run_noninteractive
 from mycode_cli.permissions import PERMISSION_DENIED_BY_USER_OUTPUT, PERMISSION_DENIED_OUTPUT
 from mycode_cli.sessions import SessionStore
@@ -171,25 +170,12 @@ def test_web_dev_enables_backend_reload(monkeypatch: pytest.MonkeyPatch, tmp_pat
     import uvicorn
     from typer.testing import CliRunner
 
-    import mycode_cli.main as main_module
-
     run_args: dict[str, Any] = {}
 
     def fake_run(app_ref: Any, **kwargs: Any) -> None:
         run_args.update({"app_ref": app_ref, **kwargs})
 
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(
-        main_module,
-        "get_settings",
-        lambda cwd: Settings(
-            providers={},
-            port=8000,
-            cwd=cwd,
-            project=cwd,
-            config_paths=[],
-        ),
-    )
     monkeypatch.setattr(uvicorn, "run", fake_run)
 
     result = CliRunner().invoke(app, ["web", "--dev", "--port", "8765"])

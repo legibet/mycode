@@ -706,7 +706,6 @@ async def test_request_decision_deny_returns_deny(tmp_path: Path, monkeypatch: p
 
     settings = Settings(
         providers={},
-        port=8000,
         cwd=str(tmp_path),
         project=str(tmp_path),
         config_paths=[],

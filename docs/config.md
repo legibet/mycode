@@ -157,4 +157,4 @@ Config, instructions, and skill discovery walk from `project` to `cwd`, so neare
 
 ## Port
 
-Server port: `PORT` env var → `settings.port` (default `8000`). Overridden by `--port` CLI flag.
+Server port: the `--port` CLI flag, else the `PORT` env var, else `8000`.

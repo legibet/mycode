@@ -244,9 +244,7 @@ def web(
 ) -> None:
     """Start the web server."""
 
-    cwd = os.path.abspath(os.getcwd())
-    settings = get_settings(cwd)
-    resolved_port = port or settings.port
+    resolved_port = port or int(os.environ.get("PORT", "8000"))
 
     import uvicorn
     from uvicorn.config import LOGGING_CONFIG
