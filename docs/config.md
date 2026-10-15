@@ -132,7 +132,7 @@ Controls how much thinking a model does.
 
 Available values come from the selected model's metadata or its `reasoning_efforts` override. TUI and Web prepend `auto`; models without values show no effort control. Without an explicit request or a remembered choice for the model, effort is `auto`.
 
-- `mycode run --effort <level>` overrides effort for one run
+- `mycode --effort <level>` and `mycode run --effort <level>` override effort for one session or run without remembering it
 - TUI `/effort` and the Web input control remember effort per provider/model: the CLI in `~/.mycode/cli.json` (see Remembered Selection), the Web UI in `localStorage`
 - See `docs/providers.md` for per-adapter mapping details
 

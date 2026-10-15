@@ -20,7 +20,7 @@ mycode
 Web UI (default at `http://localhost:8000`):
 
 ```bash
-mycode web [--port <port>] [--hostname <hostname>]
+mycode web [--port <port>] [--host <host>]
 ```
 
 Single message, non-interactive:
@@ -111,12 +111,16 @@ Slash commands: `/new` (alias `/clear`) `/resume` `/rewind` `/model` `/effort` `
 mycode                            start interactive session (new)
 mycode --continue                 resume the most recent session
 mycode --session <id>             resume a specific session
-mycode run "..."                  send one message, non-interactive
-mycode run --effort high "..."     set effort for one run
-mycode web                        start web server (default port 8000)
-mycode web --dev                  API only, no static files
-mycode session list               list saved sessions
+mycode --effort high              set effort for this session
+mycode run "..."                  send one prompt, print the reply, exit
+git diff | mycode run "review"    piped stdin is appended to the prompt
+mycode web                        start web server (default port 8000, or $PORT)
+mycode web --dev                  API only, with hot reload
+mycode session list [--all]       list saved sessions
+mycode -h                         help; also works on every subcommand
 ```
+
+Options before a subcommand configure the interactive session only; pass `run` options after `run`.
 
 ## License
 

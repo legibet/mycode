@@ -16,6 +16,8 @@ from mycode.agent import Agent
 from mycode.messages import ConversationMessage, flatten_message_text
 from mycode_cli import __version__
 from mycode_cli.config import (
+    PERMISSION_LEVEL_OPTIONS,
+    PermissionLevel,
     ResolvedProvider,
     Settings,
     get_settings,
@@ -29,9 +31,25 @@ from mycode_cli.state import load_state, resolve_remembered_provider
 
 from .runtime import build_agent
 
-app = typer.Typer(add_completion=False, pretty_exceptions_enable=False)
-session_app = typer.Typer(help="Session management")
+app = typer.Typer(
+    add_completion=False,
+    pretty_exceptions_enable=False,
+    context_settings={"help_option_names": ["-h", "--help"]},
+)
+session_app = typer.Typer(help="Manage saved sessions.", no_args_is_help=True)
 app.add_typer(session_app, name="session")
+
+# Options shared by the interactive session and `run`.
+ProviderOption = Annotated[str | None, typer.Option(metavar="NAME", help="Provider id or configured alias")]
+ModelOption = Annotated[str | None, typer.Option(metavar="NAME", help="Model name")]
+EffortOption = Annotated[str | None, typer.Option("--effort", metavar="LEVEL", help="Reasoning effort")]
+MaxTurnsOption = Annotated[int | None, typer.Option(min=1, metavar="N", help="Limit agent loop turns")]
+PermissionOption = Annotated[
+    PermissionLevel | None,
+    typer.Option(metavar="LEVEL", help=f"Tool permission level: {', '.join(PERMISSION_LEVEL_OPTIONS)}"),
+]
+SessionOption = Annotated[str | None, typer.Option(metavar="ID", help="Resume a specific session")]
+ContinueOption = Annotated[bool, typer.Option("--continue", "-c", help="Resume the most recent session")]
 
 
 async def resolve_session_id(
@@ -113,7 +131,7 @@ def _bootstrap(
     session: str | None,
     continue_last: bool,
     permission: str | None,
-    reasoning_effort: str | None = None,
+    reasoning_effort: str | None,
 ) -> _BootstrapContext:
     """Shared setup for the chat and run commands."""
 
@@ -153,15 +171,13 @@ def _bootstrap(
 @app.callback(invoke_without_command=True)
 def chat(
     ctx: typer.Context,
-    provider: Annotated[str | None, typer.Option(help="Provider id or configured alias")] = None,
-    model: Annotated[str | None, typer.Option(help="Model name (overrides default)")] = None,
-    max_turns: Annotated[int | None, typer.Option(min=1, help="Limit agent loop turns")] = None,
-    permission: Annotated[
-        str | None,
-        typer.Option("--permission", help="Permission level: readonly, safe, standard, yolo"),
-    ] = None,
-    session: Annotated[str | None, typer.Option(help="Resume a specific session id")] = None,
-    continue_last: Annotated[bool, typer.Option("--continue", "-c", help="Resume the most recent session")] = False,
+    provider: ProviderOption = None,
+    model: ModelOption = None,
+    reasoning_effort: EffortOption = None,
+    max_turns: MaxTurnsOption = None,
+    permission: PermissionOption = None,
+    session: SessionOption = None,
+    continue_last: ContinueOption = False,
     version: Annotated[
         bool,
         typer.Option(
@@ -173,11 +189,20 @@ def chat(
         ),
     ] = False,
 ) -> None:
-    """Interactive coding agent."""
+    """Minimal coding agent. Without a command, start an interactive session."""
 
     del version  # Consumed by the eager --version callback before the body runs.
 
     if ctx.invoked_subcommand is not None:
+        # These options configure the interactive session only; silently dropping them would
+        # run a subcommand with settings the user did not ask for.
+        command = ctx.invoked_subcommand
+        if continue_last or any(
+            v is not None for v in (provider, model, reasoning_effort, max_turns, permission, session)
+        ):
+            ctx.fail(
+                f"Options before '{command}' only apply to the interactive session; put command options after '{command}'."
+            )
         return
 
     from .tui.chat import TerminalChat
@@ -188,6 +213,7 @@ def chat(
         session=session,
         continue_last=continue_last,
         permission=permission,
+        reasoning_effort=reasoning_effort,
     )
 
     terminal_chat = TerminalChat(
@@ -202,19 +228,28 @@ def chat(
 
 @app.command()
 def run(
-    message: Annotated[list[str], typer.Argument(help="Prompt to send")],
-    provider: Annotated[str | None, typer.Option(help="Provider id or configured alias")] = None,
-    model: Annotated[str | None, typer.Option(help="Model name (overrides default)")] = None,
-    reasoning_effort: Annotated[str | None, typer.Option("--effort", help="Reasoning effort for this run")] = None,
-    max_turns: Annotated[int | None, typer.Option(min=1, help="Limit agent loop turns")] = None,
-    permission: Annotated[
-        str | None,
-        typer.Option("--permission", help="Permission level: readonly, safe, standard, yolo"),
+    prompt: Annotated[
+        list[str] | None, typer.Argument(metavar="PROMPT", help="Prompt to send", show_default=False)
     ] = None,
-    session: Annotated[str | None, typer.Option(help="Resume a specific session id")] = None,
-    continue_last: Annotated[bool, typer.Option("--continue", "-c", help="Resume the most recent session")] = False,
+    provider: ProviderOption = None,
+    model: ModelOption = None,
+    reasoning_effort: EffortOption = None,
+    max_turns: MaxTurnsOption = None,
+    permission: PermissionOption = None,
+    session: SessionOption = None,
+    continue_last: ContinueOption = False,
 ) -> None:
-    """Send one message and exit."""
+    """Send one prompt, print the final reply, and exit.
+
+    Piped stdin is appended to the prompt, or used as the prompt when none is given.
+    """
+
+    message = " ".join(prompt or []).strip()
+    if not sys.stdin.isatty():
+        piped = sys.stdin.read().strip()
+        message = f"{message}\n\n{piped}" if message and piped else message or piped
+    if not message:
+        raise typer.BadParameter("provide a prompt as an argument or on stdin", param_hint="PROMPT")
 
     setup = _bootstrap(
         provider=provider,
@@ -232,19 +267,19 @@ def run(
         max_turns=max_turns,
     )
 
-    code = asyncio.run(run_noninteractive(agent, " ".join(message).strip(), store=setup.store, cwd=setup.settings.cwd))
+    code = asyncio.run(run_noninteractive(agent, message, store=setup.store, cwd=setup.settings.cwd))
     raise SystemExit(code)
 
 
 @app.command()
 def web(
-    hostname: Annotated[str, typer.Option(help="Hostname to listen on")] = "127.0.0.1",
-    port: Annotated[int | None, typer.Option(help="Port to listen on")] = None,
-    dev: Annotated[bool, typer.Option(help="API-only backend with hot reload for web UI dev workflows")] = False,
+    host: Annotated[str, typer.Option(help="Address to listen on")] = "127.0.0.1",
+    port: Annotated[int, typer.Option(envvar="PORT", help="Port to listen on")] = 8000,
+    dev: Annotated[
+        bool, typer.Option("--dev", help="Serve the API only, with hot reload, for web UI development")
+    ] = False,
 ) -> None:
-    """Start the web server."""
-
-    resolved_port = port or int(os.environ.get("PORT", "8000"))
+    """Start the web UI server."""
 
     import uvicorn
     from uvicorn.config import LOGGING_CONFIG
@@ -255,8 +290,8 @@ def web(
 
     uvicorn.run(
         app_factory,
-        host=hostname,
-        port=resolved_port,
+        host=host,
+        port=port,
         reload=dev,
         factory=True,
         timeout_graceful_shutdown=5,

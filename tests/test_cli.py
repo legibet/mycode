@@ -60,6 +60,13 @@ class _PermissionDeniedThenReplyAgent:
             )
 
 
+class _FakeSetup:
+    store = None
+    settings = type("Settings", (), {"cwd": "."})()
+    resolved_provider = None
+    session_id = "session"
+
+
 class TestRunNoninteractive:
     @pytest.mark.asyncio
     async def test_prints_only_final_reply(self, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
@@ -181,3 +188,52 @@ def test_web_dev_enables_backend_reload(monkeypatch: pytest.MonkeyPatch, tmp_pat
     assert run_args["app_ref"] == "mycode_cli.server.app:create_api_app"
     assert run_args["reload"] is True
     assert run_args["factory"] is True
+
+
+def test_cli_rejects_session_options_before_subcommand() -> None:
+    from typer.testing import CliRunner
+
+    result = CliRunner().invoke(app, ["--model", "foo", "run", "hello"])
+
+    assert result.exit_code == 2
+    assert "only apply to the interactive session" in result.output
+
+
+@pytest.mark.parametrize(
+    ("args", "stdin", "expected"),
+    [
+        (["review", "this"], "", "review this"),
+        ([], "piped prompt\n", "piped prompt"),
+        (["review", "this"], "diff --git a b\n", "review this\n\ndiff --git a b"),
+    ],
+)
+def test_run_reads_prompt_from_args_and_stdin(
+    monkeypatch: pytest.MonkeyPatch, args: list[str], stdin: str, expected: str
+) -> None:
+    from typer.testing import CliRunner
+
+    import mycode_cli.main as main
+
+    sent: list[str] = []
+
+    async def fake_run(agent: Any, message: str, **kwargs: Any) -> int:
+        sent.append(message)
+        return 0
+
+    monkeypatch.setattr(main, "build_agent", lambda **kwargs: None)
+    monkeypatch.setattr(main, "run_noninteractive", fake_run)
+    monkeypatch.setattr(main, "_bootstrap", lambda **kwargs: _FakeSetup())
+
+    result = CliRunner().invoke(app, ["run", *args], input=stdin)
+
+    assert result.exit_code == 0, result.output
+    assert sent == [expected]
+
+
+def test_run_requires_a_prompt() -> None:
+    from typer.testing import CliRunner
+
+    result = CliRunner().invoke(app, ["run"], input="")
+
+    assert result.exit_code == 2
+    assert "provide a prompt" in result.output
