@@ -666,7 +666,7 @@ class TerminalChat:
         return True
 
     def _print_done(self, action: str, value: str = "") -> None:
-        """Print a ``⏺ action value`` confirmation."""
+        """Print a ``● action value`` confirmation."""
 
         text = Text(f"{TOOL_MARKER} ", style=SUCCESS)
         text.append(action, style=MUTED)

@@ -10,7 +10,7 @@ from collections.abc import Callable
 from contextlib import aclosing
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from rich.cells import cell_len
 from rich.console import Console, Group, RenderableType
@@ -33,7 +33,7 @@ from mycode.events import (
     UsageEvent,
     UserMessageEvent,
 )
-from mycode.messages import ConversationMessage, TextBlock
+from mycode.messages import ConversationMessage, TextBlock, ToolResultBlock, ToolUseBlock
 from mycode_cli.background import job_id
 from mycode_cli.sessions import DEFAULT_SESSION_TITLE, SessionInfo, SessionTotals, display_text
 
@@ -58,6 +58,8 @@ from .theme import (
 console = Console(highlight=False, markup=False, theme=MARKDOWN_THEME)
 
 _TOOL_OUTPUT_MAX_LINES = 5
+# Characters kept of one line in a tool result or a background job card.
+_RESULT_LINE_MAX_CHARS = 500
 # The spinner frame and the space rich puts after it.
 _SPINNER_CELLS = 2
 # Reasoning text kept for the rolling one-line preview.
@@ -111,16 +113,23 @@ def _display_line(line: str) -> str:
     return _ANSI_ESCAPE.sub("", line).rstrip("\r").rsplit("\r", 1)[-1]
 
 
+def _split_notices(output: str) -> tuple[str, list[str]]:
+    """Split the notices bash appends as separate paragraphs off ``output``; return the rest and the notices."""
+
+    paragraphs = output.split("\n\n")
+    notices: list[str] = []
+    while paragraphs and paragraphs[-1].startswith(_BASH_NOTICES):
+        notices.insert(0, paragraphs.pop())
+    return "\n\n".join(paragraphs), notices
+
+
 def _result_status(output: str, *, is_error: bool) -> list[str]:
     """Return the result lines shown under a finished tool: bash notices, or the error of a failed tool.
 
     Lines of the command's own output are never picked; its last lines are shown already.
     """
 
-    paragraphs = output.split("\n\n")
-    notices: list[str] = []
-    while paragraphs and paragraphs[-1].startswith(_BASH_NOTICES):
-        notices.insert(0, paragraphs.pop())
+    _, notices = _split_notices(output)
     if notices or not is_error:
         return notices
     # Without notices, a failed tool's output is its error message.
@@ -204,8 +213,21 @@ def tool_label(name: str) -> str:
     return _BUILTIN_TOOLS[name][0] if name in _BUILTIN_TOOLS else name
 
 
+def _title_line(title: str, preview: str, width: int, *, keep_end: bool = False) -> Text:
+    """Build ``Title  preview`` in at most ``width`` cells; only the preview is shortened.
+
+    ``keep_end`` cuts the preview at its start instead, so a path keeps its file name.
+    """
+
+    text = Text(title, style=TOOL_NAME)
+    room = width - text.cell_len - 2
+    if room > 1 and preview:
+        text.append(f"  {_last_cells(preview, room) if keep_end else shorten(preview, room)}", style=MUTED)
+    return text
+
+
 def _tool_title(name: str, args: dict[str, Any], width: int, *, suffix: Text | None = None) -> Text:
-    """Build ``Name  preview  [suffix]`` on one line of ``width`` cells; only the preview is shortened.
+    """Build ``Name  preview  [suffix]`` on one line of ``width`` cells.
 
     The preview is the tool's main argument, or the first one for tools that are not built in.
     """
@@ -213,18 +235,11 @@ def _tool_title(name: str, args: dict[str, Any], width: int, *, suffix: Text | N
     key = _BUILTIN_TOOLS[name][1] if name in _BUILTIN_TOOLS else ""
     raw = args.get(key) if key else next(iter(args.values()), "")
     preview = " ".join(str(raw or "").split())
-    text = Text(tool_label(name), style=TOOL_NAME)
     tail = Text("  ").append_text(suffix) if suffix else Text()
-    room = width - text.cell_len - tail.cell_len - 2
-    if room > 1 and preview:
-        # A path keeps its end, where the file name is.
-        text.append(f"  {_last_cells(preview, room) if key == 'path' else shorten(preview, room)}", style=MUTED)
-    return text.append_text(tail)
+    return _title_line(tool_label(name), preview, width - tail.cell_len, keep_end=key == "path").append_text(tail)
 
 
-def _tool_header(
-    name: str, args: dict[str, Any], width: int, *, failed: bool, metadata: dict[str, Any] | None = None
-) -> Text:
+def _tool_header(name: str, args: dict[str, Any], width: int, *, failed: bool, metadata: dict[str, Any] | None) -> Text:
     """Build the ``● Name  preview  [suffix]`` line of a finished tool call; the suffix shows on success."""
 
     marker = Text(f"{TOOL_MARKER} ", style=ERROR if failed else SUCCESS, no_wrap=True, overflow="ellipsis")
@@ -244,36 +259,40 @@ def job_lines(block: TextBlock, width: int) -> list[Text]:
     The header names the event rather than the tool, so it does not read as a second ``Bash`` call.
     """
 
-    job = block.get("meta", {}).get("job") or {}
-    exit_code = job.get("exit_code") or 0
+    job = block["meta"]["job"]
+    exit_code = job["exit_code"]
     marker = Text(f"{TOOL_MARKER} ", style=ERROR if exit_code else SUCCESS, no_wrap=True, overflow="ellipsis")
-    title = Text("Background finished", style=TOOL_NAME)
     tail = Text(f"  exit {exit_code}", style=ERROR if exit_code else MUTED)
-    room = width - marker.cell_len - title.cell_len - tail.cell_len - 2
-    label = str(job.get("label") or "")
-    if room > 1 and label:
-        title.append(f"  {shorten(label, room)}", style=MUTED)
+    title = _title_line("Background finished", job["label"], width - marker.cell_len - tail.cell_len)
     lines = [marker.append_text(title).append_text(tail)]
 
     # The text is the header, a blank line, the output tail, then any bash notices.
     _, _, body = block["text"].partition("\n\n")
-    paragraphs = body.split("\n\n")
-    notices: list[str] = []
-    while paragraphs and paragraphs[-1].startswith(_BASH_NOTICES):
-        notices.insert(0, paragraphs.pop())
-    output = [line for line in "\n\n".join(paragraphs).split("\n") if line.strip() and line != "(empty)"]
-    if len(output) > _TOOL_OUTPUT_MAX_LINES:
-        lines.append(Text(f"  … +{len(output) - _TOOL_OUTPUT_MAX_LINES} lines", style=MUTED))
-        output = output[-_TOOL_OUTPUT_MAX_LINES:]
-    lines.extend(Text(f"  {_display_line(line)[:500]}", style=MUTED) for line in output)
-    lines.extend(Text(f"  {_display_line(notice)[:500]}", style=MUTED) for notice in notices)
+    output, notices = _split_notices(body)
+    output_lines = [line for line in output.split("\n") if line.strip() and line != "(empty)"]
+    if len(output_lines) > _TOOL_OUTPUT_MAX_LINES:
+        lines.append(Text(f"  … +{len(output_lines) - _TOOL_OUTPUT_MAX_LINES} lines", style=MUTED))
+        output_lines = output_lines[-_TOOL_OUTPUT_MAX_LINES:]
+    lines.extend(
+        Text(f"  {_display_line(line)[:_RESULT_LINE_MAX_CHARS]}", style=MUTED) for line in [*output_lines, *notices]
+    )
     return lines
 
 
-def _history_turns(messages: list[ConversationMessage], *, limit: int = 3) -> list[list[tuple[str, Any]]]:
+# One piece of a turn in the history preview: user text, assistant markdown, a
+# background job card, a tool call with its result (if any), or the compacted divider.
+type _HistoryPart = (
+    tuple[Literal["user", "text"], str]
+    | tuple[Literal["job"], TextBlock]
+    | tuple[Literal["tool"], ToolUseBlock, ToolResultBlock | None]
+    | tuple[Literal["compact"]]
+)
+
+
+def _history_turns(messages: list[ConversationMessage], *, limit: int = 3) -> list[list[_HistoryPart]]:
     """Return the last few readable conversation turns for resumed sessions."""
 
-    turns: list[list[tuple[str, Any]]] = []
+    turns: list[list[_HistoryPart]] = []
     results = {
         block["tool_use_id"]: block
         for message in messages
@@ -286,27 +305,26 @@ def _history_turns(messages: list[ConversationMessage], *, limit: int = 3) -> li
         role = message["role"]
 
         if role == "compact":
-            turns.append([("compact", None)])
+            turns.append([("compact",)])
             continue
 
+        parts: list[_HistoryPart] = []
         if role == "user":
             # display_text keeps payload blocks out of the readable history
             # preview; background results print as tools.
-            parts: list[tuple[str, Any]] = [("job", block) for block in _job_blocks(message)]
+            parts.extend(("job", block) for block in _job_blocks(message))
             if text := display_text(message):
                 parts.append(("user", text))
             if parts:
                 turns.append(parts)
             continue
 
-        parts: list[tuple[str, Any]] = []
         for block in message["content"]:
             if block["type"] == "text":
                 if text := block["text"].strip():
                     parts.append(("text", text))
             elif block["type"] == "tool_use":
-                result = results.get(block["id"]) or {}
-                parts.append(("tool", (block["name"] or "tool", block["input"], result)))
+                parts.append(("tool", block, results.get(block["id"])))
 
         if not parts:
             continue
@@ -327,22 +345,20 @@ def history_preview(messages: list[ConversationMessage], *, width: int) -> list[
     lines: list[RenderableType] = [Text("recent", style=MUTED)]
     for turn in turns:
         lines.append(Text())
-        for kind, content in turn:
-            if kind == "user":
-                lines.append(user_echo(str(content)))
-            elif kind == "job":
-                lines.extend(job_lines(content, width))
-            elif kind == "text":
-                lines.append(MarkdownBlock(str(content)))
-            elif kind == "compact":
-                lines.append(compact_marker())
-            else:
-                name, args, result = content
-                lines.append(
-                    _tool_header(
-                        name, args, width, failed=bool(result.get("is_error")), metadata=result.get("metadata")
-                    )
-                )
+        for part in turn:
+            match part:
+                case ("user", text):
+                    lines.append(user_echo(text))
+                case ("text", text):
+                    lines.append(MarkdownBlock(text))
+                case ("job", block):
+                    lines.extend(job_lines(block, width))
+                case ("tool", call, result):
+                    failed = result is not None and result["is_error"]
+                    metadata = result.get("metadata") if result is not None else None
+                    lines.append(_tool_header(call["name"], call["input"], width, failed=failed, metadata=metadata))
+                case ("compact",):
+                    lines.append(compact_marker())
     return lines
 
 
@@ -358,7 +374,6 @@ def session_list_table(
         return [Text("no sessions found", style=MUTED)]
 
     title_limit = 32 if include_cwd else 48
-    cwd_limit = 32 if include_cwd else 48
 
     table = Table(box=None, show_header=False, padding=(0, 2, 0, 0), expand=False)
     table.add_column(no_wrap=True)  # index
@@ -376,7 +391,7 @@ def session_list_table(
             Text(shorten(session["title"], title_limit)),
         ]
         if include_cwd:
-            row.append(Text(shorten(session["cwd"], cwd_limit), style=MUTED))
+            row.append(Text(shorten(session["cwd"], 32), style=MUTED))
         table.add_row(*row)
 
     return [Text(f"{heading} ({len(sessions)})", style=MUTED), Text(), table]
@@ -491,7 +506,6 @@ class TurnRenderer:
         # Reasoning phase
         self._reasoning_text = ""
         self._thinking_start_time: float | None = None
-        self._thinking_duration_ms: int | None = None
         # Text phase
         self._stream = MarkdownStream()
         self._text_active = False
@@ -519,7 +533,7 @@ class TurnRenderer:
                         case ReasoningEvent():
                             self._reasoning(event)
                         case ReasoningDoneEvent():
-                            self._thinking_duration_ms = event.duration_ms
+                            self._end_reasoning(event.duration_ms)
                         case TextEvent():
                             self._text(event)
                         case ToolStartEvent():
@@ -600,7 +614,7 @@ class TurnRenderer:
             _tool_header(tool.name, tool.args, self._terminal.width, failed=event.is_error, metadata=event.metadata),
             *tool.output(),
             *(
-                Text(f"  {_display_line(line)[:500]}", style=style)
+                Text(f"  {_display_line(line)[:_RESULT_LINE_MAX_CHARS]}", style=style)
                 for line in _result_status(event.output, is_error=event.is_error)
             ),
             joined=self._last_tool,
@@ -722,18 +736,21 @@ class TurnRenderer:
         self._end_reasoning()
         self._end_text()
 
-    def _end_reasoning(self) -> None:
-        """Collapse an active reasoning phase into a one-line summary."""
+    def _end_reasoning(self, duration_ms: int | None = None) -> None:
+        """Collapse an active reasoning phase into a one-line summary.
+
+        The duration comes from the agent's ``reasoning_done`` event; reasoning
+        that ends without one (a stop mid-thought, or thinking again after text
+        in the same response) is timed by the local clock.
+        """
 
         if self._thinking_start_time is None:
             return
-        duration_ms = self._thinking_duration_ms
         if duration_ms is None:
             duration_ms = int((time.monotonic() - self._thinking_start_time) * 1000)
         self._print(Text(f"{THINKING_SYMBOL} thought · {duration_ms / 1000:.1f}s", style=THINKING))
         self._reasoning_text = ""
         self._thinking_start_time = None
-        self._thinking_duration_ms = None
 
     def _end_text(self) -> None:
         """Print whatever is left of an active text phase."""

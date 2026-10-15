@@ -75,7 +75,7 @@ def _render_trimmed(renderable: RenderableType, console: Console, options: Conso
 
 
 class _LeftMarkdown(Markdown):
-    """Markdown subclass with left-aligned headings and clean code blocks."""
+    """Markdown subclass with left-aligned headings, clean code blocks, and edgeless tables."""
 
     elements: ClassVar[dict[str, type[Any]]] = {
         **Markdown.elements,
@@ -87,7 +87,7 @@ class _LeftMarkdown(Markdown):
 
 
 class MarkdownBlock:
-    """Render one markdown chunk with left-aligned headings and clean code blocks,
+    """Render one markdown chunk with left-aligned headings, clean code blocks, and edgeless tables,
     with leading and trailing blank lines removed."""
 
     def __init__(self, source: str) -> None:
@@ -339,7 +339,7 @@ class MarkdownStream:
         return chunks + self._split_words(width, height)
 
     def _split_at_line(self, lines: list[str], owners: list[int | None], split: int) -> Chunk:
-        is_list = any(_is_list_line(line, owner) for line, owner in zip(lines[:split], owners, strict=False))
+        is_list = any(_is_list_line(line, owner) for line, owner in zip(lines[:split], owners[:split], strict=True))
         return self._emit(_trimmed(lines[:split]), "\n".join(lines[split:]), is_list=is_list)
 
     def _split_words(self, width: int, height: int) -> list[Chunk]:
