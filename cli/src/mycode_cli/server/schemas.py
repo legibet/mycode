@@ -8,8 +8,10 @@ from pydantic import BaseModel, Field, model_validator
 
 from mycode.messages import CompactTrigger
 from mycode.usage import Cost
+from mycode_cli.sessions import SessionInfo
 
 RunKind = Literal["chat", "compact"]
+RunStatus = Literal["running", "completed", "failed", "cancelled"]
 
 
 class ChatInputBlock(BaseModel):
@@ -71,8 +73,6 @@ class ChatRequest(UserInputRequest):
     provider: str | None = None  # provider id, or a configured provider alias
     model: str | None = None
     cwd: str | None = None
-    api_key: str | None = None
-    api_base: str | None = None
     reasoning_effort: str | None = None
     rewind_to: int | None = Field(default=None, description="Visible message index for rewind.")
 
@@ -144,7 +144,7 @@ class RunInfo(BaseModel):
     id: str
     session_id: str
     kind: RunKind
-    status: Literal["running", "completed", "failed", "cancelled"]
+    status: RunStatus
     last_seq: int
     error: str | None = None
 
@@ -160,7 +160,7 @@ class ChatResponse(BaseModel):
     """Response for POST /chat."""
 
     run: RunInfo
-    session: dict[str, Any]
+    session: SessionInfo
     # The user message as the run received it: finished background results
     # that waited for this message ride ahead of its own blocks.
     message: dict[str, Any]

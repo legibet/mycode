@@ -11,6 +11,7 @@ from threading import Barrier, Lock, local
 import pytest
 
 from mycode.tools import ToolContext, ToolExecutor
+from mycode_cli.config import WebConfig
 from mycode_cli.tools import DEFAULT_MAX_BYTES, DEFAULT_TOOLS, READ_MAX_LINE_CHARS, _atomic_write_text
 from mycode_cli.workspace import CliDeps
 
@@ -33,6 +34,7 @@ def _ctx(
         deps=CliDeps(
             cwd=Path(cwd),
             tool_output_dir=tool_output_dir if tool_output_dir is not None else Path(cwd),
+            web=WebConfig(),
         ),
         supports_image_input=supports_image_input,
     )

@@ -11,7 +11,8 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
-from collections.abc import Awaitable, Callable, Iterable, Sequence
+from collections.abc import Awaitable, Callable, Iterable, Iterator, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass
 from io import StringIO
 from typing import Literal, cast, override
@@ -156,11 +157,11 @@ class Terminal:
         input: Input | None = None,
         output: Output | None = None,
     ) -> None:
-        self.on_cancel: Callable[[], None] | None = None
-        # While busy, submitted text goes here with whether Ctrl+Q queued it; it returns whether it took the text.
-        self.on_submit: Callable[[str, bool], bool] | None = None
-        self.on_take_back: Callable[[], None] | None = None
+        # Set while a run is active; see ``running``.
         self._busy = False
+        self._on_cancel: Callable[[], None] | None = None
+        self._on_submit: Callable[[str, bool], bool] | None = None
+        self._on_take_back: Callable[[], None] | None = None
         self._animation: asyncio.Task[None] | None = None
         # Inputs submitted while idle; None marks Ctrl+D.
         self._inputs: asyncio.Queue[str | None] = asyncio.Queue()
@@ -282,17 +283,38 @@ class Terminal:
 
         return self._busy
 
-    @busy.setter
-    def busy(self, value: bool) -> None:
-        self._busy = value
-        if not value:
-            self._tail_rows = 0
-        if self._animation is not None:
-            self._animation.cancel()
-            self._animation = None
-        if value and self._app.is_running:
+    @contextmanager
+    def running(
+        self,
+        *,
+        on_cancel: Callable[[], None],
+        on_submit: Callable[[str, bool], bool] | None = None,
+        on_take_back: Callable[[], None] | None = None,
+    ) -> Iterator[None]:
+        """Mark a run as active for the duration of the block.
+
+        Esc and Ctrl+C call ``on_cancel``, and Alt+Up calls ``on_take_back``.
+        Submitted text goes to ``on_submit`` with whether Ctrl+Q queued it; it
+        returns whether it took the text; without it, submitted text stays in the input.
+        """
+
+        self._busy = True
+        self._on_cancel = on_cancel
+        self._on_submit = on_submit
+        self._on_take_back = on_take_back
+        if self._app.is_running:
             self._animation = self._app.create_background_task(self._animate())
         self._app.invalidate()
+        try:
+            yield
+        finally:
+            self._busy = False
+            self._on_cancel = self._on_submit = self._on_take_back = None
+            self._tail_rows = 0
+            if self._animation is not None:
+                self._animation.cancel()
+                self._animation = None
+            self._app.invalidate()
 
     @property
     def width(self) -> int:
@@ -547,7 +569,7 @@ class Terminal:
             text.append("type to filter · ↑↓ select · enter confirm · esc cancel", style=MUTED)
         else:
             text = Text("esc to interrupt", style=MUTED)
-            if self.on_submit is not None:
+            if self._on_submit is not None:
                 text.append(" · ctrl+q queue", style=MUTED)
             if self._pending_input:
                 text.append(" · alt+↑ take back", style=MUTED)
@@ -578,7 +600,7 @@ class Terminal:
             return False
         if self._busy:
             # Without a taker (e.g. during /compact) the text stays in the input.
-            return self.on_submit is None or not self.on_submit(text, queue)
+            return self._on_submit is None or not self._on_submit(text, queue)
         self._inputs.put_nowait(text)
         return False
 
@@ -616,20 +638,20 @@ class Terminal:
 
         @kb.add("escape", filter=busy)
         def _cancel(_event: KeyPressEvent) -> None:
-            if self.on_cancel is not None:
-                self.on_cancel()
+            if self._on_cancel is not None:
+                self._on_cancel()
 
         @kb.add("escape", "up", filter=busy)
         def _take_back(_event: KeyPressEvent) -> None:
-            if self.on_take_back is not None:
-                self.on_take_back()
+            if self._on_take_back is not None:
+                self._on_take_back()
 
         @kb.add("c-c")
         @kb.add("<sigint>")
         def _interrupt(_event: KeyPressEvent) -> None:
             if self._busy:
-                if self.on_cancel is not None:
-                    self.on_cancel()
+                if self._on_cancel is not None:
+                    self._on_cancel()
             else:
                 self._buffer.reset()
 

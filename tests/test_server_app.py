@@ -28,7 +28,6 @@ from mycode.models import ModelMetadata
 from mycode.providers.base import MessageDone, ProviderRequest, ProviderStreamEvent, TextDelta
 from mycode.session import SessionStore as TimelineStore
 from mycode_cli.background import BackgroundJobs
-from mycode_cli.runtime import load_session_totals
 from mycode_cli.server.app import create_api_app, create_app
 from mycode_cli.server.deps import get_run_manager, get_store
 from mycode_cli.server.run_manager import RunManager, RunState
@@ -258,7 +257,7 @@ def test_chat_capability_failure_does_not_create_session(
 ) -> None:
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
     monkeypatch.setattr(
-        "mycode_cli.server.routers.chat.resolve_configured_model_metadata",
+        "mycode_cli.config.resolve_model_metadata",
         lambda **_: ModelMetadata(
             provider="anthropic",
             model="claude-sonnet-4-6",
@@ -386,15 +385,22 @@ def test_chat_bounds_text_attachments_and_saves_large_uploads(tmp_path: Path, mo
 
 
 @pytest.mark.parametrize(
-    ("opt_in", "effort", "expected_status"),
-    [(True, "low", 200), (False, "low", 400), (True, "high", 400)],
+    ("opt_in", "effort", "expected_status", "expected_effort"),
+    [
+        (True, "low", 200, "low"),
+        (True, "auto", 200, None),
+        (True, None, 200, None),
+        (False, "low", 400, None),
+        (True, "high", 400, None),
+    ],
 )
-def test_chat_rejects_unsupported_reasoning_effort(
+def test_chat_reasoning_effort(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     opt_in: bool,
-    effort: str,
+    effort: str | None,
     expected_status: int,
+    expected_effort: str | None,
 ) -> None:
     home = tmp_path / "home" / ".mycode"
     home.mkdir(parents=True)
@@ -418,13 +424,16 @@ def test_chat_rejects_unsupported_reasoning_effort(
     )
     adapter = _CaptureAdapter()
     monkeypatch.setattr("mycode.agent.get_provider_adapter", lambda _provider: adapter)
-    store = SessionStore(data_dir=tmp_path / "sessions")
-    runs = RunManager()
     app = create_api_app()
-    app.dependency_overrides[get_store] = lambda: store
+    app.dependency_overrides[get_store] = lambda: SessionStore(data_dir=tmp_path / "sessions")
+    runs = RunManager()
     app.dependency_overrides[get_run_manager] = lambda: runs
 
     with TestClient(app) as client:
+        # An endpoint that does not take effort offers none.
+        provider_info = client.get("/api/config", params={"cwd": str(tmp_path)}).json()["providers"]["custom"]
+        assert provider_info["reasoning_efforts"] == {"grok-4.5": ["low"] if opt_in else []}
+
         response = client.post(
             "/api/chat",
             json={
@@ -444,8 +453,7 @@ def test_chat_rejects_unsupported_reasoning_effort(
         else:
             assert "reasoning effort" in response.json()["detail"]
 
-    if expected_status == 200:
-        assert adapter.reasoning_effort == "low"
+    assert adapter.reasoning_effort == expected_effort
 
 
 def test_chat_legacy_max_tokens_reaches_provider_request(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -493,65 +501,6 @@ def test_chat_legacy_max_tokens_reaches_provider_request(tmp_path: Path, monkeyp
             list(stream.iter_lines())
 
     assert adapter.legacy_max_tokens is True
-
-
-@pytest.mark.parametrize(
-    ("include_effort", "effort", "expected_effort"),
-    [(False, None, None), (True, "auto", None), (True, None, None)],
-)
-def test_model_effort_request_override(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    include_effort: bool,
-    effort: str | None,
-    expected_effort: str | None,
-) -> None:
-    home = tmp_path / "home" / ".mycode"
-    home.mkdir(parents=True)
-    monkeypatch.setenv("XAI_API_KEY", "test-key")
-    monkeypatch.setenv("MYCODE_HOME", str(home))
-    home.joinpath("config.json").write_text(
-        json.dumps(
-            {
-                "providers": {
-                    "custom": {
-                        "type": "openai_chat",
-                        "api_key": "${XAI_API_KEY}",
-                        "supports_reasoning_effort": True,
-                        "models": {"custom-model": {"reasoning_efforts": ["low", "high"]}},
-                    }
-                }
-            }
-        ),
-        encoding="utf-8",
-    )
-    adapter = _CaptureAdapter()
-    monkeypatch.setattr("mycode.agent.get_provider_adapter", lambda _provider: adapter)
-    app = create_api_app()
-    app.dependency_overrides[get_store] = lambda: SessionStore(data_dir=tmp_path / "sessions")
-    runs = RunManager()
-    app.dependency_overrides[get_run_manager] = lambda: runs
-
-    with TestClient(app) as client:
-        provider_info = client.get("/api/config", params={"cwd": str(tmp_path)}).json()["providers"]["custom"]
-        assert provider_info["reasoning_efforts"] == {"custom-model": ["low", "high"]}
-
-        payload: dict[str, object] = {
-            "session_id": "effort-config-session",
-            "cwd": str(tmp_path),
-            "provider": "custom",
-            "model": "custom-model",
-            "message": "hi",
-        }
-        if include_effort:
-            payload["reasoning_effort"] = effort
-        response = client.post("/api/chat", json=payload)
-        assert response.status_code == 200
-        run_id = response.json()["run"]["id"]
-        with client.stream("GET", f"/api/runs/{run_id}/stream") as stream:
-            list(stream.iter_lines())
-
-    assert adapter.reasoning_effort == expected_effort
 
 
 # Compact API
@@ -1244,14 +1193,15 @@ async def test_a_wake_that_cannot_start_holds_the_result_for_the_next_message(
 
     async with _job_app(tmp_path, monkeypatch, adapter) as app:
         await app.wait(await app.chat("build in the background"))
-        monkeypatch.setattr("mycode_cli.server.routers.chat.load_session_totals", failing_totals)
+        load_totals = SessionStore.load_totals
+        monkeypatch.setattr(SessionStore, "load_totals", failing_totals)
         await app.finish_job(gate)
         assert await app.runs.get_active_run("s1") is None
         assert app.jobs.suspended is True
         assert app.jobs.in_flight == set()
         assert _job_ids(build_message("user", app.jobs.pending)) == ["toolu_bg"]
 
-        monkeypatch.setattr("mycode_cli.server.routers.chat.load_session_totals", load_session_totals)
+        monkeypatch.setattr(SessionStore, "load_totals", load_totals)
         await app.wait(await app.chat("what happened?"))
         assert app.jobs.pending == []
 

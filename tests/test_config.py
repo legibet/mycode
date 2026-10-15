@@ -31,10 +31,9 @@ def patch_catalog(monkeypatch: pytest.MonkeyPatch, entries: dict[str, dict[str, 
     monkeypatch.setattr("mycode.models.load_models_catalog", lambda: catalog)
 
 
-def build_test_agent(tmp_path: Path, cwd: Path, settings, resolved):
+def build_test_agent(tmp_path: Path, settings, resolved):
     return build_agent(
         store=SessionStore(data_dir=tmp_path / "sessions"),
-        cwd=str(cwd),
         settings=settings,
         resolved_provider=resolved,
         session_id="test",
@@ -135,7 +134,7 @@ class TestGetSettings:
         config: dict[str, object] = {"providers": {"openai": {"api_key": "sk-test"}}}
         write_json(config_home / "config.json", config)
         settings = get_settings(str(workspace))
-        agent = build_test_agent(tmp_path, workspace, settings, resolve_provider(settings))
+        agent = build_test_agent(tmp_path, settings, resolve_provider(settings))
 
         assert agent.tools.get("webfetch") is not None
         assert agent.tools.get("websearch") is None
@@ -143,7 +142,7 @@ class TestGetSettings:
         config["web"] = {"search": "tavily"}
         write_json(config_home / "config.json", config)
         settings = get_settings(str(workspace))
-        agent = build_test_agent(tmp_path, workspace, settings, resolve_provider(settings))
+        agent = build_test_agent(tmp_path, settings, resolve_provider(settings))
 
         assert agent.tools.get("webfetch") is not None
         assert agent.tools.get("websearch") is not None
@@ -258,7 +257,7 @@ class TestGetSettings:
 
         settings = get_settings(str(workspace.resolve()))
 
-        assert list(settings.providers["moonshotai"].models) == ["kimi-k3", "kimi-k2.6"]
+        assert tuple(settings.providers["moonshotai"].models) == get_provider_adapter("moonshotai").default_models
 
     def test_builtin_provider_alias_can_omit_type(
         self, workspace: Path, config_home: Path, monkeypatch: pytest.MonkeyPatch
@@ -397,8 +396,14 @@ class TestResolveProvider:
         ("provider_name", "env_name", "env_value", "model", "expected_model"),
         [
             ("moonshotai", "MOONSHOT_API_KEY", "moonshot-env-key", "kimi-k2-thinking", "kimi-k2-thinking"),
-            ("google", "GEMINI_API_KEY", "gemini-env-key", None, "gemini-3.8-flash"),
-            ("alibaba", "DASHSCOPE_API_KEY", "dashscope-env-key", None, "qwen3.8-max"),
+            ("google", "GEMINI_API_KEY", "gemini-env-key", None, get_provider_adapter("google").default_models[0]),
+            (
+                "alibaba",
+                "DASHSCOPE_API_KEY",
+                "dashscope-env-key",
+                None,
+                get_provider_adapter("alibaba").default_models[0],
+            ),
         ],
     )
     def test_accepts_raw_supported_providers(
@@ -445,27 +450,6 @@ class TestResolveProvider:
         assert resolved.model == "claude-sonnet-4-6"
         assert resolved.api_key == "config-key"
         assert resolved.api_base == "https://config.example/v1"
-
-    def test_explicit_api_key_override_wins_over_configured_key(
-        self, workspace: Path, config_home: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        monkeypatch.setenv("ANTHROPIC_API_KEY", "env-key")
-        write_json(
-            config_home / "config.json",
-            {
-                "providers": {
-                    "claude": {
-                        "type": "anthropic",
-                        "api_key": "config-key",
-                        "models": {"claude-sonnet-4-6": {}},
-                    }
-                },
-            },
-        )
-
-        resolved = resolve_provider(get_settings(str(workspace.resolve())), api_key="request-key")
-
-        assert resolved.api_key == "request-key"
 
     def test_legacy_max_tokens_only_applies_to_generic_openai_chat(
         self, workspace: Path, config_home: Path, monkeypatch: pytest.MonkeyPatch
@@ -552,7 +536,7 @@ class TestResolveProvider:
 
         assert resolved.provider_name == "openai"
         assert resolved.provider == "openai"
-        assert resolved.model == "gpt-6-astra"
+        assert resolved.model == get_provider_adapter("openai").default_models[0]
         assert resolved.api_key == "openai-env-key"
 
     def test_auto_discovery_prefers_configured_provider_with_credentials(
@@ -589,7 +573,7 @@ class TestResolveProvider:
 
         assert resolved.provider_name == "deepseek"
         assert resolved.provider == "deepseek"
-        assert resolved.model == "deepseek-flash"
+        assert resolved.model == get_provider_adapter("deepseek").default_models[0]
         assert resolved.api_key == "deepseek-env-key"
 
     def test_explicit_provider_name_does_not_fall_back(
@@ -658,7 +642,7 @@ class TestAgentCapabilities:
 
         settings = get_settings(str(workspace.resolve()))
         resolved = resolve_provider(settings)
-        agent = build_test_agent(tmp_path, workspace, settings, resolved)
+        agent = build_test_agent(tmp_path, settings, resolved)
 
         assert agent.max_tokens == 32_768
         assert agent.context_window == 1_000_000
@@ -699,7 +683,7 @@ class TestAgentCapabilities:
 
         settings = get_settings(str(workspace.resolve()))
         resolved = resolve_provider(settings)
-        agent = build_test_agent(tmp_path, workspace, settings, resolved)
+        agent = build_test_agent(tmp_path, settings, resolved)
 
         assert agent.context_window == 500_000
         assert agent.max_tokens == 64_000

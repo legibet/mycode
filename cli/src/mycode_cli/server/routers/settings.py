@@ -1,32 +1,41 @@
-"""Global config read/write API.
+"""Config API: the effective config for a workspace, and the global config file.
 
-Reads and writes ``~/.mycode/config.json`` only. Project-level
-``.mycode/config.json`` files are not modified by this endpoint, and they
-continue to override the global file at runtime.
+``GET /config`` reports what a workspace runs with: available providers and
+models, skills, and the compaction threshold. ``/settings`` reads and writes
+``~/.mycode/config.json`` only. Project-level ``.mycode/config.json`` files are
+not modified, and they continue to override the global file at runtime.
 """
 
 from __future__ import annotations
 
+import asyncio
 import copy
 import json
 import os
 import tempfile
 from contextlib import suppress
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 
+from mycode.compact import DEFAULT_COMPACT_THRESHOLD
 from mycode.providers import get_provider_adapter, list_env_discoverable_providers, list_supported_providers
 from mycode_cli.config import (
     PERMISSION_LEVEL_OPTIONS,
     PERMISSION_MODE_OPTIONS,
     WEB_PROVIDER_ENV_VARS,
-    is_api_key_env_ref,
+    ResolvedProvider,
+    api_key_env_ref,
+    get_settings,
+    provider_models,
     resolve_mycode_home,
+    resolve_provider,
+    resolve_provider_choices,
     validate_global_config,
 )
 from mycode_cli.server.schemas import SettingsRequest
+from mycode_cli.system_prompt import discover_slash_skills
 
 router = APIRouter()
 
@@ -75,7 +84,7 @@ def _present_config(raw: dict[str, Any]) -> dict[str, Any]:
 def _mask_api_key(entry: dict[str, Any]) -> None:
     api_key = entry.get("api_key")
     if isinstance(api_key, str) and api_key.strip():
-        if is_api_key_env_ref(api_key):
+        if api_key_env_ref(api_key):
             entry["api_key_saved"] = False
         else:
             entry["api_key"] = None
@@ -98,14 +107,14 @@ def _env_presence(raw: dict[str, Any]) -> dict[str, bool]:
         if isinstance(entry, dict):
             api_key = entry.get("api_key")
             if isinstance(api_key, str):
-                ref = is_api_key_env_ref(api_key)
+                ref = api_key_env_ref(api_key)
                 if ref:
                     names.add(ref)
 
     for entry in (raw.get("web") or {}).values():
         if isinstance(entry, dict):
             api_key = entry.get("api_key")
-            if isinstance(api_key, str) and (ref := is_api_key_env_ref(api_key)):
+            if isinstance(api_key, str) and (ref := api_key_env_ref(api_key)):
                 names.add(ref)
 
     return {name: bool((os.environ.get(name) or "").strip()) for name in sorted(names)}
@@ -191,3 +200,50 @@ def put_settings_endpoint(payload: SettingsRequest) -> dict[str, Any]:
 
     _atomic_write(path, cleaned)
     return _build_response(path)
+
+
+@router.get("/config")
+async def get_config(cwd: Annotated[str | None, Query()] = None) -> dict[str, Any]:
+    settings = await asyncio.to_thread(get_settings, cwd)
+    skills = await asyncio.to_thread(discover_slash_skills, settings.cwd)
+    resolved: ResolvedProvider | None = None
+    setup_error: dict[str, str] | None = None
+    try:
+        resolved = resolve_provider(settings)
+    except ValueError as exc:
+        setup_error = {"message": str(exc)}
+
+    providers_info: dict[str, Any] = {}
+    for provider in resolve_provider_choices(settings):
+        models = [
+            resolve_provider(settings, provider_name=provider.provider_name, model=model)
+            for model in provider_models(settings, provider)
+        ]
+        providers_info[provider.provider_name] = {
+            "name": provider.provider_name,
+            "models": [model.model for model in models],
+            "reasoning_efforts": {model.model: list(model.reasoning_efforts) for model in models},
+            "image_input_models": [model.model for model in models if model.metadata.supports_image_input],
+            "pdf_input_models": [model.model for model in models if model.metadata.supports_pdf_input],
+        }
+
+    default_payload = (
+        {"provider": resolved.provider_name, "model": resolved.model}
+        if resolved is not None
+        else {"provider": "", "model": ""}
+    )
+
+    return {
+        "providers": providers_info,
+        "default": default_payload,
+        "cwd": settings.cwd,
+        "cwd_exists": os.path.isdir(settings.cwd),
+        "project": settings.project,
+        "config_paths": settings.config_paths,
+        # Effective for this cwd; 0 disables automatic compaction.
+        "compact_threshold": (
+            settings.compact_threshold if settings.compact_threshold is not None else DEFAULT_COMPACT_THRESHOLD
+        ),
+        "skills": [{"name": skill.name, "description": skill.description} for skill in skills],
+        "setup_error": setup_error,
+    }

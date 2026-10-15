@@ -8,18 +8,12 @@ from typing import Any, cast
 import pytest
 
 from mycode import ErrorEvent, ReasoningEvent, TextEvent, ToolDoneEvent
-from mycode.messages import ConversationMessage
-from mycode_cli.config import Settings
-from mycode_cli.main import app, resolve_session, run_noninteractive
+from mycode_cli.main import app, resolve_session_id, run_noninteractive
 from mycode_cli.permissions import PERMISSION_DENIED_BY_USER_OUTPUT, PERMISSION_DENIED_OUTPUT
-from mycode_cli.runtime import load_session_totals
 from mycode_cli.sessions import SessionStore
 
 
 class _FakeAgent:
-    provider = "anthropic"
-    model = "claude-sonnet-4-6"
-    api_base = None
     session_id = "session"
 
     async def achat(self, message: str, *, on_persist=None):
@@ -120,121 +114,45 @@ class TestRunNoninteractive:
 
 
 @pytest.mark.asyncio
-class TestResolveSession:
+class TestResolveSessionId:
     async def test_defaults_to_new_session(self, tmp_path: Path) -> None:
         store = SessionStore(data_dir=tmp_path / "sessions")
 
-        resolved = await resolve_session(
+        session_id = await resolve_session_id(
             store=store,
             cwd=str(tmp_path),
             requested_session_id=None,
             continue_last=False,
         )
 
-        assert resolved.mode == "new"
-        assert resolved.messages == []
-        assert resolved.session_id
+        assert session_id
+        assert await store.load_metadata(session_id) is None
         assert await store.list_sessions() == []
 
     async def test_continue_reuses_latest_session(self, tmp_path: Path) -> None:
         store = SessionStore(data_dir=tmp_path / "sessions")
         await store.create_session("first", cwd=str(tmp_path))
         await store.create_session("second", cwd=str(tmp_path))
-        await store.append_message(
-            "second",
-            {"role": "user", "content": [{"type": "text", "text": "hello"}]},
-        )
 
-        resolved = await resolve_session(
+        session_id = await resolve_session_id(
             store=store,
             cwd=str(tmp_path),
             requested_session_id=None,
             continue_last=True,
         )
 
-        assert resolved.mode == "resumed"
-        assert resolved.session_id == "second"
-        assert resolved.messages[0]["content"] == [{"type": "text", "text": "hello"}]
+        assert session_id == "second"
 
     async def test_explicit_missing_session_errors(self, tmp_path: Path) -> None:
         store = SessionStore(data_dir=tmp_path / "sessions")
 
         with pytest.raises(ValueError, match="Unknown session"):
-            await resolve_session(
+            await resolve_session_id(
                 store=store,
                 cwd=str(tmp_path),
                 requested_session_id="missing",
                 continue_last=False,
             )
-
-
-class TestLoadSessionTotals:
-    @pytest.mark.asyncio
-    async def test_folds_the_raw_timeline_including_rewound_turns(self, tmp_path: Path) -> None:
-        store = SessionStore(data_dir=tmp_path)
-        await store.create_session("s1", cwd="/tmp")
-        records: list[ConversationMessage] = [
-            {"role": "user", "content": [{"type": "text", "text": "hi"}]},
-            {
-                "role": "assistant",
-                "content": [],
-                "meta": {
-                    "provider": "p",
-                    "model": "m",
-                    "usage": {"input_tokens": 100, "cache_read_tokens": 80, "output_tokens": 10},
-                    "cost": {"input": 0.01, "output": 0.01, "total": 0.02},
-                },
-            },
-            {
-                "role": "compact",
-                "content": [],
-                "meta": {
-                    "provider": "p",
-                    "model": "m",
-                    "usage": {"input_tokens": 50, "output_tokens": 5},
-                    "cost": {"input": 0.003, "output": 0.002, "total": 0.005},
-                },
-            },
-        ]
-        for record in records:
-            await store.append_message("s1", record)
-        await store.append_rewind("s1", 0)
-
-        totals = await load_session_totals(store, "s1")
-        assert totals.usage == {"input_tokens": 150, "cache_read_tokens": 80, "output_tokens": 15}
-        assert totals.cost == pytest.approx({"input": 0.013, "output": 0.012, "total": 0.025})
-
-    @pytest.mark.asyncio
-    async def test_skips_records_without_usage_or_cost(self, tmp_path: Path) -> None:
-        store = SessionStore(data_dir=tmp_path)
-        await store.create_session("s1", cwd="/tmp")
-        await store.append_message(
-            "s1",
-            {
-                "role": "assistant",
-                "content": [],
-                "meta": {"provider": "p", "model": "m", "cost": {"total": 0.02}},
-            },
-        )
-        # A cancelled stream without cost must not hide known session costs.
-        await store.append_message("s1", {"role": "assistant", "content": [], "meta": {"provider": "p", "model": "m"}})
-
-        totals = await load_session_totals(store, "s1")
-        assert totals.usage == {}
-        assert totals.cost == pytest.approx({"total": 0.02})
-
-        await store.create_session("s2", cwd="/tmp")
-        await store.append_message(
-            "s2",
-            {
-                "role": "assistant",
-                "content": [],
-                "meta": {"provider": "unknown", "model": "unknown", "usage": {"input_tokens": 10, "output_tokens": 5}},
-            },
-        )
-        totals = await load_session_totals(store, "s2")
-        assert totals.usage == {"input_tokens": 10, "output_tokens": 5}
-        assert totals.cost is None
 
 
 def test_cli_rejects_non_positive_max_turns() -> None:
@@ -249,25 +167,12 @@ def test_web_dev_enables_backend_reload(monkeypatch: pytest.MonkeyPatch, tmp_pat
     import uvicorn
     from typer.testing import CliRunner
 
-    import mycode_cli.main as main_module
-
     run_args: dict[str, Any] = {}
 
     def fake_run(app_ref: Any, **kwargs: Any) -> None:
         run_args.update({"app_ref": app_ref, **kwargs})
 
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(
-        main_module,
-        "get_settings",
-        lambda cwd: Settings(
-            providers={},
-            port=8000,
-            cwd=cwd,
-            project=cwd,
-            config_paths=[],
-        ),
-    )
     monkeypatch.setattr(uvicorn, "run", fake_run)
 
     result = CliRunner().invoke(app, ["web", "--dev", "--port", "8765"])

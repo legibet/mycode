@@ -706,19 +706,17 @@ async def test_request_decision_deny_returns_deny(tmp_path: Path, monkeypatch: p
 
     settings = Settings(
         providers={},
-        port=8000,
         cwd=str(tmp_path),
         project=str(tmp_path),
         config_paths=[],
         permission=PermissionConfig(level="readonly", mode="ask"),
     )
-    monkeypatch.setattr("mycode_cli.permissions.discover_skills", lambda _: [])
     agent = Agent(
         model="test",
         provider="openai",
         tools=[probe],
         max_turns=1,
-        hooks=build_permission_hooks(settings, review=review),
+        hooks=build_permission_hooks(settings, skills=[], review=review),
     )
 
     class Adapter:

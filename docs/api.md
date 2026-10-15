@@ -26,8 +26,6 @@ Request body (`ChatRequest`, `cli/src/mycode_cli/server/schemas.py`):
   "provider": "anthropic",
   "model": "claude-sonnet-5",
   "cwd": "/path/to/workspace",
-  "api_key": null,
-  "api_base": null,
   "reasoning_effort": "medium",
   "rewind_to": null
 }
@@ -80,7 +78,7 @@ Response:
 Error responses:
 
 - `422` — invalid request shape, such as missing `message`/`input`, both `message` and `input`, or invalid inline media fields; body is FastAPI validation detail (`{"detail": [...]}`)
-- `400` — unsupported `reasoning_effort`; body explains whether the provider, model, or value is unsupported
+- `400` — unsupported `reasoning_effort`; body explains whether the model takes no effort or which values it supports
 - `400` — invalid `rewind_to`; body is `{"detail": "..."}`
 - `400` — missing or invalid `cwd`; body is `{"detail": "Working directory does not exist: ..."}`
 - `409` — session already has a running task; body is `{"detail": {"message": "...", "run": {...}}}`
@@ -222,16 +220,9 @@ Response:
   "providers": {
     "<provider_name>": {
       "name": "...",
-      "provider": "anthropic",
-      "type": "anthropic",
       "models": ["claude-sonnet-5"],
-      "base_url": "",
-      "has_api_key": true,
-      "supports_reasoning_effort": true,
       "reasoning_efforts": {"claude-sonnet-5": ["low", "medium", "high"]},
-      "supports_image_input": true,
       "image_input_models": ["claude-sonnet-5"],
-      "supports_pdf_input": true,
       "pdf_input_models": ["claude-sonnet-5"]
     }
   },
@@ -246,7 +237,7 @@ Response:
 }
 ```
 
-`reasoning_efforts` maps each model to its available effort values; an empty list means the model has no effort selector. `skills` lists the name and description used by slash completion. Skill paths and contents stay on the server. `compact_threshold` is the effective automatic-compaction threshold for `cwd`; `0` means disabled. `image_input_models` lists models with image input. `pdf_input_models` lists models with PDF input. `default` is the first available provider and its first model. A provider setup error returns status `200`, an empty `providers` object, empty `default` fields, and `setup_error: {"message": "..."}`. A ready setup returns `setup_error: null`.
+`reasoning_efforts` maps each model to the effort values its endpoint accepts; an empty list means the model has no effort selector (including a generic `openai_chat` provider without `supports_reasoning_effort`). `skills` lists the name and description used by slash completion. Skill paths and contents stay on the server. `compact_threshold` is the effective automatic-compaction threshold for `cwd`; `0` means disabled. `image_input_models` lists models with image input. `pdf_input_models` lists models with PDF input. `default` is the first available provider and its first model. A provider setup error returns status `200`, an empty `providers` object, empty `default` fields, and `setup_error: {"message": "..."}`. A ready setup returns `setup_error: null`.
 
 ## Settings
 
@@ -517,7 +508,7 @@ Every event also carries `seq: int` for reconnect support. The web UI uses `afte
 
 `cli/src/mycode_cli/server/run_manager.py` manages concurrent runs:
 
-- One active run per session (enforced by `ActiveRunError` on conflict, regardless of kind)
+- One active run per session, regardless of kind: routes check under `session_operation(session_id)`, which every run start holds, and answer `409`; `ActiveRunError` guards the invariant inside the manager
 - Two run kinds share the lifecycle: `start_run()` iterates `agent.achat(user_message)`; `start_compact()` awaits `agent.acompact()` and emits one `compact` event with `trigger: "manual"` after the marker is persisted
 - Compact runs carry no `user_message`; snapshots return `base_messages` unchanged
 - `RunState` tracks a bounded reconnect event buffer and condition variable for streaming

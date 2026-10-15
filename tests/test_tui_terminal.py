@@ -83,13 +83,10 @@ async def test_enter_and_ctrl_q_while_busy_go_to_the_run(harness: TerminalHarnes
         return text != "refused"
 
     async def main() -> None:
-        terminal.busy = True
-        terminal.on_submit = on_submit
-        # Ctrl+Q is XON on a tty; prompt_toolkit's raw mode turns flow control off.
-        pipe.send_text("one\rtwo\x11refused\r")
-        await asyncio.sleep(0.2)
-        terminal.busy = False
-        terminal.on_submit = None
+        with terminal.running(on_cancel=lambda: None, on_submit=on_submit):
+            # Ctrl+Q is XON on a tty; prompt_toolkit's raw mode turns flow control off.
+            pipe.send_text("one\rtwo\x11refused\r")
+            await asyncio.sleep(0.2)
         # A refused text stays in the input; idle, Ctrl+Q submits like Enter.
         pipe.send_text(" kept\x11")
         results.append(await terminal.read())
@@ -105,10 +102,9 @@ async def test_enter_while_busy_without_a_taker_keeps_the_input(harness: Termina
     results: list[str] = []
 
     async def main() -> None:
-        terminal.busy = True
-        pipe.send_text("later\r")
-        await asyncio.sleep(0.2)
-        terminal.busy = False
+        with terminal.running(on_cancel=lambda: None):
+            pipe.send_text("later\r")
+            await asyncio.sleep(0.2)
         pipe.send_text("\r")
         results.append(await terminal.read())
 
@@ -121,14 +117,11 @@ async def test_enter_while_busy_without_a_taker_keeps_the_input(harness: Termina
 async def test_alt_up_takes_back_while_busy(harness: TerminalHarness, keys: str) -> None:
     terminal, pipe = harness.terminal, harness.pipe
     calls: list[str] = []
-    terminal.on_take_back = lambda: calls.append("take back")
-    terminal.on_cancel = lambda: calls.append("cancel")
 
     async def main() -> None:
-        terminal.busy = True
-        pipe.send_text(keys)
-        await asyncio.sleep(ESC_WAIT)
-        terminal.busy = False
+        with terminal.running(on_cancel=lambda: calls.append("cancel"), on_take_back=lambda: calls.append("take back")):
+            pipe.send_text(keys)
+            await asyncio.sleep(ESC_WAIT)
 
     await terminal.run(main)
 
@@ -138,16 +131,14 @@ async def test_alt_up_takes_back_while_busy(harness: TerminalHarness, keys: str)
 async def test_esc_cancels_only_while_busy(harness: TerminalHarness) -> None:
     terminal, pipe = harness.terminal, harness.pipe
     cancels: list[str] = []
-    terminal.on_cancel = lambda: cancels.append("cancel")
 
     async def main() -> None:
         pipe.send_text("\x1b")
         await asyncio.sleep(ESC_WAIT)
         assert cancels == []
-        terminal.busy = True
-        pipe.send_text("\x1b")
-        await asyncio.sleep(ESC_WAIT)
-        terminal.busy = False
+        with terminal.running(on_cancel=lambda: cancels.append("cancel")):
+            pipe.send_text("\x1b")
+            await asyncio.sleep(ESC_WAIT)
 
     await terminal.run(main)
 
@@ -157,14 +148,12 @@ async def test_esc_cancels_only_while_busy(harness: TerminalHarness) -> None:
 async def test_ctrl_c_cancels_while_busy_and_clears_input_otherwise(harness: TerminalHarness) -> None:
     terminal, pipe = harness.terminal, harness.pipe
     cancels: list[str] = []
-    terminal.on_cancel = lambda: cancels.append("cancel")
     results: list[str] = []
 
     async def main() -> None:
-        terminal.busy = True
-        pipe.send_text("\x03")
-        await asyncio.sleep(0.2)
-        terminal.busy = False
+        with terminal.running(on_cancel=lambda: cancels.append("cancel")):
+            pipe.send_text("\x03")
+            await asyncio.sleep(0.2)
         pipe.send_text("draft\x03kept\r")
         results.append(await terminal.read())
 
@@ -295,11 +284,9 @@ async def test_toolbar_and_pending_lines_while_busy(harness: TerminalHarness) ->
     terminal = harness.terminal
 
     async def main() -> None:
-        terminal.on_submit = lambda _text, _queue: True
         terminal.set_pending([Text("steer use sqlite"), Text("queued run the tests")])
-        terminal.busy = True
-        await asyncio.sleep(0.2)
-        terminal.busy = False
+        with terminal.running(on_cancel=lambda: None, on_submit=lambda _text, _queue: True):
+            await asyncio.sleep(0.2)
 
     await terminal.run(main)
 
@@ -365,11 +352,10 @@ async def test_completion_menu_fits_a_short_terminal(tmp_path: Path) -> None:
         )
 
         async def main() -> None:
-            terminal.busy = True
-            terminal.set_tail(Text("a\nb\nc\nd"))
-            pipe.send_text("/")
-            await asyncio.sleep(0.2)
-            terminal.busy = False
+            with terminal.running(on_cancel=lambda: None):
+                terminal.set_tail(Text("a\nb\nc\nd"))
+                pipe.send_text("/")
+                await asyncio.sleep(0.2)
 
         await terminal.run(main)
 

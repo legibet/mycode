@@ -10,12 +10,13 @@ from mycode import build_message, text_block
 from mycode.messages import TextBlock
 from mycode.tools import ToolContext, ToolExecutor
 from mycode_cli.background import BackgroundJob, BackgroundJobs
+from mycode_cli.config import WebConfig
 from mycode_cli.tools import DEFAULT_TOOLS
 from mycode_cli.workspace import CliDeps
 
 
 def _ctx(tmp_path: Path, jobs: BackgroundJobs | None, tool_call_id: str = "toolu_1") -> ToolContext[CliDeps]:
-    deps = CliDeps(cwd=tmp_path, tool_output_dir=tmp_path / "tool-output", jobs=jobs)
+    deps = CliDeps(cwd=tmp_path, tool_output_dir=tmp_path / "tool-output", web=WebConfig(), jobs=jobs)
     return ToolContext(executor=ToolExecutor(DEFAULT_TOOLS), deps=deps, tool_call_id=tool_call_id)
 
 

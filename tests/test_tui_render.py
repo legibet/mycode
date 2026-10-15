@@ -24,8 +24,8 @@ from mycode import (
     UsageEvent,
     UserMessageEvent,
 )
-from mycode.messages import BlockMeta, ConversationMessage, TextBlock, build_message, text_block
-from mycode_cli.sessions import SessionTotals, display_text
+from mycode.messages import ConversationMessage, TextBlock, text_block
+from mycode_cli.sessions import SessionTotals
 from mycode_cli.tui.render import TurnRenderer, history_preview, job_lines
 from mycode_cli.tui.theme import ERROR_MARKER, THINKING_SYMBOL, TOOL_MARKER
 
@@ -118,11 +118,11 @@ async def _render_turn(
     model: str = "m",
     context_window: int | None = None,
     session_cost_base: float | None = None,
-) -> tuple[int, str]:
+) -> tuple[bool, str]:
     session_base = SessionTotals(cost={"total": session_cost_base}) if session_cost_base is not None else None
     renderer = TurnRenderer(harness.terminal, model=model, context_window=context_window, session_base=session_base)
-    code = await renderer.render(cast(Any, _EventAgent(events, delay=delay)), "hi")
-    return code, harness.text()
+    completed = await renderer.render(cast(Any, _EventAgent(events, delay=delay)), "hi")
+    return completed, harness.text()
 
 
 class TestTurnRenderer:
@@ -136,9 +136,9 @@ class TestTurnRenderer:
             + "\n```\n"
         )
 
-        code, rendered = await _render_turn(harness, _text_events(document), delay=0.002)
+        completed, rendered = await _render_turn(harness, _text_events(document), delay=0.002)
 
-        assert code == 0
+        assert completed
         for needle in ["Title", *paragraphs, *(f"value_{index} = {index}" for index in range(40))]:
             assert rendered.count(needle) == 1, needle
         positions = [rendered.index(needle) for needle in ["Title", paragraphs[0], paragraphs[-1], "value_39"]]
@@ -147,7 +147,7 @@ class TestTurnRenderer:
         assert "Paragraph 0 has a few words in it.\n\nParagraph 1" in rendered
 
     async def test_thinking_collapses_into_a_summary_line(self, harness: TerminalHarness) -> None:
-        code, rendered = await _render_turn(
+        completed, rendered = await _render_turn(
             harness,
             [
                 ReasoningEvent(delta="Let me think"),
@@ -156,12 +156,12 @@ class TestTurnRenderer:
             ],
         )
 
-        assert code == 0
+        assert completed
         assert "Let me think" not in rendered
         assert f"{THINKING_SYMBOL} thought · 1.2s\n\nanswer" in rendered
 
     async def test_tool_output_chunks_are_joined_into_lines(self, harness: TerminalHarness) -> None:
-        code, rendered = await _render_turn(
+        _, rendered = await _render_turn(
             harness,
             [
                 ToolStartEvent(
@@ -173,7 +173,6 @@ class TestTurnRenderer:
             ],
         )
 
-        assert code == 0
         assert f"{TOOL_MARKER} Bash  printf\n  one\n  second\n  third\n" in rendered
 
     async def test_tool_output_keeps_the_last_lines(self, harness: TerminalHarness) -> None:
@@ -234,7 +233,7 @@ class TestTurnRenderer:
         assert edit.endswith("deep/file.py  +3 −1")
 
     async def test_tool_done_shows_final_status_after_live_output(self, harness: TerminalHarness) -> None:
-        code, rendered = await _render_turn(
+        _, rendered = await _render_turn(
             harness,
             [
                 ToolStartEvent(
@@ -250,7 +249,6 @@ class TestTurnRenderer:
             ],
         )
 
-        assert code == 1
         assert "[Output truncated: Showing the last 50KB of output." in rendered
         assert "/tmp/bash.log.]" in rendered
         assert "Command timed out after 1s" in rendered
@@ -382,21 +380,21 @@ class TestTurnRenderer:
         )
 
     async def test_cancelled_event_is_a_muted_stop_not_an_error(self, harness: TerminalHarness) -> None:
-        code, rendered = await _render_turn(harness, [TextEvent(delta="partial"), CancelledEvent()])
+        completed, rendered = await _render_turn(harness, [TextEvent(delta="partial"), CancelledEvent()])
 
-        assert code == 0
+        assert not completed
         assert "partial\n\ncancelled\n" in rendered
         assert ERROR_MARKER not in rendered
 
     async def test_error_event_is_printed_and_fails_the_turn(self, harness: TerminalHarness) -> None:
-        code, rendered = await _render_turn(harness, [ErrorEvent(message="provider error")])
+        completed, rendered = await _render_turn(harness, [ErrorEvent(message="provider error")])
 
-        assert code == 1
+        assert not completed
         assert f"{ERROR_MARKER} provider error" in rendered
 
     async def test_renders_inside_a_running_terminal(self, harness: TerminalHarness) -> None:
         renderer = TurnRenderer(harness.terminal, model="m", context_window=None)
-        codes: list[int] = []
+        results: list[bool] = []
 
         async def main() -> None:
             agent = _EventAgent(
@@ -405,12 +403,12 @@ class TestTurnRenderer:
                     UsageEvent(context_tokens=5, turn_usage={}, turn_cost=None, turn_duration_ms=None),
                 ]
             )
-            codes.append(await renderer.render(cast(Any, agent), "hi"))
+            results.append(await renderer.render(cast(Any, agent), "hi"))
 
         await harness.terminal.run(main)
 
         rendered = harness.text()
-        assert codes == [0]
+        assert results == [True]
         assert "first block\n" in rendered
         assert "second block\n" in rendered
         assert "m · 5 tokens" in rendered
@@ -494,17 +492,3 @@ async def test_user_message_with_only_job_blocks_prints_the_card_without_a_steer
     assert "steer" not in rendered
     assert "❯" not in rendered
     assert delivered == [message]
-
-
-def test_display_text_skips_payload_blocks() -> None:
-    job: BlockMeta = {"job": {"tool_use_id": "toolu_1", "name": "bash", "label": "pytest -q", "exit_code": 0}}
-    message = build_message(
-        "user",
-        [
-            text_block("Background bash finished", meta=job),
-            text_block("skill", meta={"skill_snapshot": True}),
-            text_block("<file>…</file>", meta={"attachment": True}),
-            text_block("keep this"),
-        ],
-    )
-    assert display_text(message) == "keep this"

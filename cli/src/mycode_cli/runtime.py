@@ -1,32 +1,23 @@
-"""Agent construction and session-level helpers shared by the TUI and the web server."""
+"""Agent construction shared by the TUI, ``mycode run``, and the web server."""
 
 from __future__ import annotations
+
+from pathlib import Path
 
 from mycode.agent import Agent
 from mycode_cli.background import BackgroundJobs
 from mycode_cli.config import ResolvedProvider, Settings
 from mycode_cli.permissions import ToolReviewCallback, build_permission_hooks
-from mycode_cli.sessions import SessionStore, SessionTotals, sum_session_totals
-from mycode_cli.system_prompt import build_system_prompt
+from mycode_cli.sessions import SessionStore
+from mycode_cli.system_prompt import build_system_prompt, discover_skills
 from mycode_cli.tools import DEFAULT_TOOLS
 from mycode_cli.web_tools import build_web_tools
 from mycode_cli.workspace import CliDeps
 
 
-async def load_session_totals(store: SessionStore, session_id: str) -> SessionTotals:
-    """Load the session's cumulative usage and USD cost from its raw JSONL timeline.
-
-    Counts tool loops, compact summaries, and turns discarded by rewind.
-    Records without usage or cost contribute nothing to that total.
-    """
-
-    return sum_session_totals(await store.load_raw_messages(session_id))
-
-
 def build_agent(
     *,
     store: SessionStore,
-    cwd: str,
     settings: Settings,
     resolved_provider: ResolvedProvider,
     session_id: str,
@@ -40,8 +31,8 @@ def build_agent(
     the store; callers never pass messages explicitly.
     """
 
-    model_config = resolved_provider.model_config
-    hooks = build_permission_hooks(settings, review=review)
+    metadata = resolved_provider.metadata
+    skills = discover_skills(settings.cwd)
     return Agent(
         model=resolved_provider.model,
         provider=resolved_provider.provider,
@@ -51,14 +42,16 @@ def build_agent(
         api_base=resolved_provider.api_base,
         reasoning_effort=resolved_provider.reasoning_effort,
         legacy_max_tokens=resolved_provider.legacy_max_tokens,
-        max_tokens=model_config.max_output_tokens if model_config else None,
-        context_window=model_config.context_window if model_config else None,
-        supports_image_input=model_config.supports_image_input if model_config else None,
-        supports_pdf_input=model_config.supports_pdf_input if model_config else None,
+        max_tokens=metadata.max_output_tokens,
+        context_window=metadata.context_window,
+        supports_image_input=metadata.supports_image_input,
+        supports_pdf_input=metadata.supports_pdf_input,
         compact_threshold=settings.compact_threshold,
         max_turns=max_turns,
-        system=build_system_prompt(cwd, settings),
+        system=build_system_prompt(settings.cwd, skills),
         tools=[*DEFAULT_TOOLS, *build_web_tools(settings.web)],
-        hooks=hooks,
-        deps=CliDeps.for_session(cwd=cwd, data_dir=store.data_dir, session_id=session_id, jobs=jobs),
+        hooks=build_permission_hooks(settings, skills=skills, review=review),
+        deps=CliDeps(
+            cwd=Path(settings.cwd), tool_output_dir=store.tool_output_dir(session_id), web=settings.web, jobs=jobs
+        ),
     )

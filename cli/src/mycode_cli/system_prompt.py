@@ -20,7 +20,7 @@ from pathlib import Path
 import yaml
 
 from mycode.messages import ContentBlock, text_block
-from mycode_cli.config import Settings, get_settings, project_dirs, resolve_mycode_home, resolve_project
+from mycode_cli.config import project_dirs, resolve_mycode_home
 
 logger = logging.getLogger(__name__)
 
@@ -61,23 +61,20 @@ You are mycode, a coding agent working in the user's workspace.
 # ---------------------------------------------------------------------
 
 
-def build_system_prompt(cwd: str, settings: Settings | None = None) -> str:
-    """Build the full runtime system prompt for the current directory."""
-
-    resolved_cwd = str(Path(cwd).resolve(strict=False))
-    resolved_settings = settings or get_settings(resolved_cwd)
+def build_system_prompt(cwd: str, skills: list[Skill]) -> str:
+    """Build the full runtime system prompt for the workspace ``cwd`` and its discovered ``skills``."""
 
     parts = [_BASE_PROMPT]
 
-    instructions_prompt = load_instructions_prompt(resolved_cwd, resolved_settings)
+    instructions_prompt = load_instructions_prompt(cwd)
     if instructions_prompt:
         parts.append(instructions_prompt)
 
-    skills_prompt = load_skills_prompt(resolved_cwd)
+    skills_prompt = format_skills_prompt(skills)
     if skills_prompt:
         parts.append(skills_prompt)
 
-    parts.append(f"Current working directory: {resolved_cwd}\nCurrent date: {date.today().strftime('%Y-%m-%d')}")
+    parts.append(f"Current working directory: {cwd}\nCurrent date: {date.today().strftime('%Y-%m-%d')}")
     return "\n\n".join(parts)
 
 
@@ -86,11 +83,9 @@ def build_system_prompt(cwd: str, settings: Settings | None = None) -> str:
 # ---------------------------------------------------------------------
 
 
-def discover_instruction_files(cwd: str, settings: Settings | None = None) -> list[Path]:
+def discover_instruction_files(cwd: str) -> list[Path]:
     """Discover global AGENTS.md and project AGENTS.md files."""
 
-    resolved_cwd = settings.cwd if settings else cwd
-    project = settings.project if settings else str(resolve_project(resolved_cwd))
     home = Path.home().resolve(strict=False)
     mycode_home = resolve_mycode_home()
     files: list[Path] = []
@@ -102,7 +97,7 @@ def discover_instruction_files(cwd: str, settings: Settings | None = None) -> li
     elif compat_global_candidate.is_file():
         files.append(compat_global_candidate)
 
-    for directory in project_dirs(resolved_cwd, project):
+    for directory in project_dirs(cwd):
         local_candidate = directory / "AGENTS.md"
         if local_candidate.is_file():
             files.append(local_candidate)
@@ -110,13 +105,12 @@ def discover_instruction_files(cwd: str, settings: Settings | None = None) -> li
     return files
 
 
-def load_instructions_prompt(cwd: str, settings: Settings | None = None) -> str:
+def load_instructions_prompt(cwd: str) -> str:
     """Load AGENTS.md files into one prompt block ordered by specificity."""
 
-    resolved = settings or get_settings(cwd)
     sections: list[str] = []
 
-    for path in discover_instruction_files(cwd, resolved):
+    for path in discover_instruction_files(cwd):
         try:
             text = path.read_text(encoding="utf-8").strip()
         except (OSError, UnicodeError):
@@ -140,18 +134,17 @@ def load_instructions_prompt(cwd: str, settings: Settings | None = None) -> str:
     )
 
 
+# ---------------------------------------------------------------------
+# Skill discovery from SKILL.md
+# ---------------------------------------------------------------------
+
+
 @dataclass(frozen=True)
 class Skill:
     name: str
     description: str
     path: str
-    source: str
     body: str
-
-
-# ---------------------------------------------------------------------
-# Skill discovery from SKILL.md
-# ---------------------------------------------------------------------
 
 
 def _parse_frontmatter(text: str) -> tuple[dict[str, object], str] | None:
@@ -180,7 +173,7 @@ def _parse_frontmatter(text: str) -> tuple[dict[str, object], str] | None:
     return parsed, "\n".join(lines[closing_index + 1 :]).strip()
 
 
-def _parse_skill_md(path: Path, source: str, fallback_name: str | None = None) -> Skill | None:
+def _parse_skill_md(path: Path, fallback_name: str) -> Skill | None:
     """Parse a SKILL.md file and return a Skill, or None if invalid."""
 
     try:
@@ -223,19 +216,17 @@ def _parse_skill_md(path: Path, source: str, fallback_name: str | None = None) -
         name=name,
         description=description,
         path=str(path.resolve()),
-        source=source,
         body=body,
     )
 
 
-def _scan_skill_root(root: Path, source: str) -> list[Skill]:
+def _scan_skill_root(root: Path) -> list[Skill]:
     """Scan one skills root for direct markdown skills and nested SKILL.md files."""
 
     if not root.is_dir():
         return []
 
     skills: list[Skill] = []
-    seen_paths: set[str] = set()
 
     try:
         root_entries = [entry for entry in sorted(root.iterdir()) if not entry.name.startswith(".")]
@@ -246,12 +237,7 @@ def _scan_skill_root(root: Path, source: str) -> list[Skill]:
     for entry in root_entries:
         if not entry.is_file() or entry.suffix != ".md":
             continue
-        real_path = str(entry.resolve())
-        if real_path in seen_paths:
-            continue
-        seen_paths.add(real_path)
-
-        skill = _parse_skill_md(entry, source, fallback_name=entry.stem)
+        skill = _parse_skill_md(entry, fallback_name=entry.stem)
         if skill:
             skills.append(skill)
 
@@ -264,12 +250,9 @@ def _scan_skill_root(root: Path, source: str) -> list[Skill]:
 
         skill_md = current / "SKILL.md"
         if skill_md.is_file():
-            real_path = str(skill_md.resolve())
-            if real_path not in seen_paths:
-                seen_paths.add(real_path)
-                skill = _parse_skill_md(skill_md, source, fallback_name=current.name)
-                if skill:
-                    skills.append(skill)
+            skill = _parse_skill_md(skill_md, fallback_name=current.name)
+            if skill:
+                skills.append(skill)
 
         if current.is_symlink() or depth >= _MAX_SCAN_DEPTH:
             continue
@@ -298,27 +281,22 @@ def discover_skills(cwd: str) -> list[Skill]:
 
     # Later roots win, so native mycode paths override compat paths and
     # nearer project config overrides global and parent project config.
-    roots: list[tuple[Path, str]] = [
-        (home / ".agents" / "skills", "global"),
-        (mycode_home / "skills", "global"),
-    ]
+    roots = [home / ".agents" / "skills", mycode_home / "skills"]
     for directory in project_dirs(cwd):
-        roots.append((directory / ".agents" / "skills", "project"))
-        roots.append((directory / ".mycode" / "skills", "project"))
+        roots.append(directory / ".agents" / "skills")
+        roots.append(directory / ".mycode" / "skills")
 
     skills_by_name: dict[str, Skill] = {}
+    # A file reachable twice (symlinks, overlapping roots) loads once, from its first root.
     seen_paths: set[str] = set()
 
-    for root, source in roots:
-        for skill in _scan_skill_root(root, source):
+    for root in roots:
+        for skill in _scan_skill_root(root):
             if skill.path in seen_paths:
                 continue
             seen_paths.add(skill.path)
             if skill.name in skills_by_name:
-                previous = skills_by_name[skill.name]
-                logger.debug(
-                    "Skill %r from %s overrides %s (%s)", skill.name, skill.path, previous.path, previous.source
-                )
+                logger.debug("Skill %r from %s overrides %s", skill.name, skill.path, skills_by_name[skill.name].path)
             skills_by_name[skill.name] = skill
 
     return sorted(skills_by_name.values(), key=lambda skill: skill.name)
@@ -353,10 +331,9 @@ def build_skill_snapshot_blocks(text: str, cwd: str) -> list[ContentBlock]:
     return blocks
 
 
-def load_skills_prompt(cwd: str) -> str:
-    """Discover skills and format them as an <available_skills> block."""
+def format_skills_prompt(skills: list[Skill]) -> str:
+    """Format skills as an <available_skills> block."""
 
-    skills = discover_skills(cwd)
     if not skills:
         return ""
     logger.info("Discovered %d skill(s): %s", len(skills), ", ".join(skill.name for skill in skills))

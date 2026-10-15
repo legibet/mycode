@@ -18,17 +18,11 @@ export interface LocalConfig {
 
 export interface ProviderInfo {
   name: string;
-  provider: string;
-  type: string;
   models: string[];
-  base_url: string;
-  has_api_key: boolean;
-  supports_reasoning_effort?: boolean;
-  reasoning_efforts?: Record<string, ReasoningEffort[]>;
-  supports_image_input?: boolean;
-  image_input_models?: string[];
-  supports_pdf_input?: boolean;
-  pdf_input_models?: string[];
+  /** Efforts each model accepts; empty when effort is not configurable. */
+  reasoning_efforts: Record<string, ReasoningEffort[]>;
+  image_input_models: string[];
+  pdf_input_models: string[];
 }
 
 export interface SkillInfo {

@@ -33,7 +33,7 @@ Applies a list of `{oldText, newText}` replacements. All entries match against t
 Runs `bash -c <command>` in the CLI workspace (`CliDeps.cwd`), using the first `bash` on `PATH`. bash starts non-interactive and non-login, so the command sees the CLI process environment as-is; no profile or rc file is sourced. stdout and stderr are combined; stdin is `/dev/null`. On POSIX the command runs in its own process group, and every kill below targets the group.
 
 - **Streaming**: output is emitted as display deltas while the command runs. Delta boundaries do not imply line boundaries.
-- **Truncation**: the result is a bounded tail — at most 2000 lines and 50KB, whichever cuts first. When output exceeds either limit, the full raw bytes are written to `<tool_output_dir>/bash-<tool_call_id>.log` (see `docs/sessions.md`) and the result appends an `[Output truncated: ...]` notice citing that path.
+- **Truncation**: the result is a bounded tail — at most 2000 lines and 50KB, whichever cuts first. Lines end at `\n` only, so `\r` progress updates stay on their line, and the 50KB counts the text shown, without line terminators. When the raw output exceeds either limit, the full raw bytes are written to `<tool_output_dir>/bash-<tool_call_id>.log` (see `docs/sessions.md`); when the tail drops output, the result appends an `[Output truncated: ...]` notice citing that path.
 - **Timeout**: default 120s, overridden by the `timeout` argument. On expiry the process group is killed and the result is the captured tail plus `[Command timed out after <N>s]` with `is_error=true`.
 - **Cancellation**: bash handles task cancellation itself — it kills the process group, drains remaining output, and returns the captured tail plus `error: cancelled` with `is_error=true`.
 - **Exit code**: non-zero exit appends `[exit code: N]` and sets `is_error=true`. Empty output renders as `(empty)`.
@@ -88,6 +88,6 @@ Both interactive surfaces (TUI and web) prompt for approval when `mode: "ask"` a
 
 The shell checks are intentionally simple and conservative. Project commands such as tests, builds, formatters, package scripts, and task runners are `standard` because they execute project-defined code. Compound commands (`&&`, `||`, `;`, pipes, redirection, command substitution) and obvious destructive commands (`rm`, `sudo`, `chmod`, `git reset`, `git clean`, `git push --force`, etc.) fall outside `readonly`/`safe`/`standard` and require `yolo` or `mode: "ask"` approval.
 
-`webfetch` and `websearch` are `standard`. Their permission previews show the initial URL and query respectively. Reads inside the current session's `tool_output_dir` are `readonly`, including follow-up reads of truncated webfetch output.
+`webfetch` and `websearch` are `standard`. Their permission previews show the initial URL and query respectively. Reads inside the current session's `tool_output_dir` or a discovered skill's directory are `readonly`, including follow-up reads of truncated webfetch output.
 
 Local webfetch intentionally does not block localhost, private address ranges, or cloud metadata endpoints. The machine is the trust boundary. The permission prompt displays the initial URL only; redirects are followed up to five times without another prompt, so a public URL can redirect to a private or metadata address.

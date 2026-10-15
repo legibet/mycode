@@ -27,7 +27,7 @@ The SDK timeline appears on the first persisted message. The CLI normally create
 }
 ```
 
-- `cwd` — CLI workspace, used for session filtering and restoration
+- `cwd` — CLI workspace, used for session filtering and restoration; stored and compared with `~` and symlinks resolved (`config.resolve_cwd`), so the TUI and web agree on a workspace reached through a symlink
 - `title` — first readable user text, flattened and truncated to 48 characters; `"New chat"` until then
 - `created_at` / `updated_at` — CLI catalog timestamps
 
@@ -181,7 +181,7 @@ Rewind indices refer to the visible history, which now includes pre-compact turn
 
 ## tool-output/ Logs
 
-The CLI creates `CliDeps(cwd, tool_output_dir)` for each agent and passes it through `Agent(deps=...)`. Bash writes output exceeding its 2000-line or 50KB display limit as raw combined stdout/stderr to `<tool_output_dir>/bash-<tool_call_id>.log`; webfetch uses the same directory for truncated converted content. Tool results cite the saved path. The web server saves an uploaded text attachment larger than one `read` window as `<tool_output_dir>/upload-<id>`, and the attachment cites it.
+The CLI creates `CliDeps(cwd, tool_output_dir, web, jobs)` for each agent, with `tool_output_dir` from `SessionStore.tool_output_dir(session_id)`, and passes it through `Agent(deps=...)`. Bash writes output exceeding its 2000-line or 50KB display limit as raw combined stdout/stderr to `<tool_output_dir>/bash-<tool_call_id>.log`; webfetch uses the same directory for truncated converted content. Tool results cite the saved path. The web server saves an uploaded text attachment larger than one `read` window as `<tool_output_dir>/upload-<id>`, and the attachment cites it.
 
 The CLI sets `tool_output_dir` to `<data_dir>/<session_id>/tool-output/`. It is created only when something spills. The SDK has no output-directory policy.
 
@@ -198,13 +198,14 @@ SDK `SessionStore` (`mycode/src/mycode/session.py`) manages only the timeline:
 - `append_message(session_id, message)` — append one line, creating the session directory lazily
 - `append_rewind(session_id, rewind_to)` — append a rewind marker
 
-CLI `SessionStore` (`cli/src/mycode_cli/sessions.py`) extends the SDK store with catalog and application lifecycle operations:
+CLI `SessionStore` (`cli/src/mycode_cli/sessions.py`) extends the SDK store with catalog and application lifecycle operations. A catalog entry is a `SessionInfo` (`id`, `cwd`, `title`, `created_at`, `updated_at`); a missing or unreadable `meta.json` means the session has no entry:
 
 - `create_session(session_id, *, cwd)` — create a `"New chat"` catalog entry without creating a timeline
 - `record_user_turn(session_id, *, cwd, text)` — lazily create metadata, derive the first title, and update activity time
 - `touch(session_id)` — update activity time after rewind or successful manual compact
 - `load_metadata(session_id)` — load catalog metadata without reading the timeline
 - `load_session(session_id)` — load catalog metadata, visible messages, and cumulative cost from one raw timeline read
+- `load_totals(session_id)` — cumulative usage and cost from the raw timeline, including compact summaries and rewound turns
 - `list_sessions(*, cwd=None)` / `latest_session(...)` — scan and sort the catalog
 - `search_sessions(query, *, cwd=None, limit=50)` — case-insensitive substring search over catalog titles and visible user/assistant text, returning each hit with a one-line snippet of the first body match. The per-session body text is cached in memory and re-derived when `messages.jsonl` changes (`mtime_ns` + size), so the JSONL stays the only source of truth
 - `delete_session(session_id)` — remove catalog, timeline, and tool output together

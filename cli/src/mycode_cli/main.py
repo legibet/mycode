@@ -7,7 +7,7 @@ import os
 import sys
 from contextlib import aclosing
 from dataclasses import dataclass, replace
-from typing import Annotated, Any, Literal
+from typing import Annotated
 from uuid import uuid4
 
 import typer
@@ -19,8 +19,8 @@ from mycode_cli.config import (
     ResolvedProvider,
     Settings,
     get_settings,
-    normalize_reasoning_effort,
     parse_permission,
+    resolve_cwd,
     resolve_sessions_dir,
 )
 from mycode_cli.permissions import PERMISSION_DENIED_BY_USER_OUTPUT, PERMISSION_DENIED_OUTPUT
@@ -34,55 +34,23 @@ session_app = typer.Typer(help="Session management")
 app.add_typer(session_app, name="session")
 
 
-@dataclass
-class ResolvedSession:
-    """The session selected for the current CLI run.
-
-    `mode` is either `"new"` or `"resumed"`.
-    """
-
-    session_id: str
-    session: dict[str, Any]
-    messages: list[ConversationMessage]
-    mode: Literal["new", "resumed"]
-
-
-async def resolve_session(
+async def resolve_session_id(
     *,
     store: SessionStore,
     cwd: str,
     requested_session_id: str | None,
     continue_last: bool,
-) -> ResolvedSession:
-    """Resolve which session the CLI should load before starting."""
+) -> str:
+    """Return the session to open: the requested one, the latest in ``cwd``, or a new id."""
 
     if requested_session_id:
-        data = await store.load_session(requested_session_id)
-        if data is None:
+        if await store.load_metadata(requested_session_id) is None:
             raise ValueError(f"Unknown session: {requested_session_id}")
-        return ResolvedSession(
-            requested_session_id,
-            data["session"],
-            data["messages"],
-            "resumed",
-        )
-
-    if continue_last:
-        latest = await store.latest_session(cwd=cwd)
-        if latest:
-            session_id = str(latest["id"])
-            data = await store.load_session(session_id)
-            if data is None:
-                raise ValueError(f"Unknown session: {session_id}")
-            return ResolvedSession(
-                session_id,
-                data["session"],
-                data["messages"],
-                "resumed",
-            )
-
+        return requested_session_id
+    if continue_last and (latest := await store.latest_session(cwd=cwd)):
+        return latest["id"]
     # The catalog and timeline are both created lazily on the first user turn.
-    return ResolvedSession(uuid4().hex, {}, [], "new")
+    return uuid4().hex
 
 
 def _show_version(value: bool) -> None:
@@ -135,7 +103,7 @@ class _BootstrapContext:
     store: SessionStore
     settings: Settings
     resolved_provider: ResolvedProvider
-    resolved_session: ResolvedSession
+    session_id: str
 
 
 def _bootstrap(
@@ -152,33 +120,18 @@ def _bootstrap(
     if session and continue_last:
         raise typer.BadParameter("--session and --continue are mutually exclusive")
 
-    cwd = os.path.abspath(os.getcwd())
     store = SessionStore(data_dir=resolve_sessions_dir())
     try:
-        settings = get_settings(cwd)
+        settings = get_settings()
         if permission is not None:
             settings = replace(settings, permission=parse_permission(permission, settings.permission))
         state = load_state()
         resolved_provider = resolve_remembered_provider(settings, state, provider_name=provider, model=model)
         if reasoning_effort is None:
-            resolved_effort = state.effort_for(resolved_provider)
-        elif (resolved_effort := normalize_reasoning_effort(reasoning_effort)) is not None:
-            if not resolved_provider.supports_reasoning_effort:
-                raise ValueError(f"provider {resolved_provider.provider!r} does not support reasoning effort")
-            if resolved_effort not in resolved_provider.reasoning_efforts:
-                supported = ", ".join(resolved_provider.reasoning_efforts)
-                raise ValueError(
-                    f"reasoning effort {resolved_effort!r} is not supported by model {resolved_provider.model!r}; "
-                    + f"supported efforts: {supported}"
-                )
-        resolved_provider = replace(resolved_provider, reasoning_effort=resolved_effort)
-        resolved_session = asyncio.run(
-            resolve_session(
-                store=store,
-                cwd=cwd,
-                requested_session_id=session,
-                continue_last=continue_last,
-            )
+            reasoning_effort = state.effort_for(resolved_provider)
+        resolved_provider = resolved_provider.with_reasoning_effort(reasoning_effort)
+        session_id = asyncio.run(
+            resolve_session_id(store=store, cwd=settings.cwd, requested_session_id=session, continue_last=continue_last)
         )
     except ValueError as exc:
         from .tui.render import console, error_line
@@ -190,7 +143,7 @@ def _bootstrap(
         store=store,
         settings=settings,
         resolved_provider=resolved_provider,
-        resolved_session=resolved_session,
+        session_id=session_id,
     )
 
 
@@ -241,11 +194,8 @@ def chat(
         settings=setup.settings,
         store=setup.store,
         resolved_provider=setup.resolved_provider,
-        session_id=setup.resolved_session.session_id,
+        session_id=setup.session_id,
         max_turns=max_turns,
-        session=setup.resolved_session.session,
-        mode=setup.resolved_session.mode,
-        messages=setup.resolved_session.messages,
     )
     asyncio.run(terminal_chat.run())
 
@@ -276,10 +226,9 @@ def run(
     )
     agent = build_agent(
         store=setup.store,
-        cwd=setup.settings.cwd,
         settings=setup.settings,
         resolved_provider=setup.resolved_provider,
-        session_id=setup.resolved_session.session_id,
+        session_id=setup.session_id,
         max_turns=max_turns,
     )
 
@@ -295,9 +244,7 @@ def web(
 ) -> None:
     """Start the web server."""
 
-    cwd = os.path.abspath(os.getcwd())
-    settings = get_settings(cwd)
-    resolved_port = port or settings.port
+    resolved_port = port or int(os.environ.get("PORT", "8000"))
 
     import uvicorn
     from uvicorn.config import LOGGING_CONFIG
@@ -328,7 +275,7 @@ def session_list(
 
     from .tui.render import console, session_list_table
 
-    cwd = os.path.abspath(os.getcwd())
+    cwd = resolve_cwd(os.getcwd())
     store = SessionStore(data_dir=resolve_sessions_dir())
 
     sessions = asyncio.run(store.list_sessions(cwd=None if all_workspaces else cwd))

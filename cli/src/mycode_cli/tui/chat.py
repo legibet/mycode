@@ -7,9 +7,8 @@ import re
 import shlex
 from collections.abc import Iterable
 from contextlib import suppress
-from dataclasses import replace
 from pathlib import Path
-from typing import Any, Literal, override
+from typing import override
 from uuid import uuid4
 
 from prompt_toolkit.application import get_app
@@ -43,15 +42,14 @@ from mycode_cli.config import (
     ResolvedProvider,
     Settings,
     get_settings,
-    normalize_reasoning_effort,
     provider_models,
     resolve_mycode_home,
     resolve_provider,
     resolve_provider_choices,
 )
 from mycode_cli.permissions import ToolReviewDecision, ToolReviewRequest
-from mycode_cli.runtime import build_agent, load_session_totals
-from mycode_cli.sessions import SessionStore, display_text
+from mycode_cli.runtime import build_agent
+from mycode_cli.sessions import SessionInfo, SessionStore, display_text
 from mycode_cli.state import load_state, save_state
 from mycode_cli.system_prompt import build_skill_snapshot_blocks, discover_slash_skills
 from mycode_cli.tools import read_text_window
@@ -297,9 +295,6 @@ class TerminalChat:
         resolved_provider: ResolvedProvider,
         session_id: str,
         max_turns: int | None = None,
-        session: dict[str, Any] | None = None,
-        mode: Literal["new", "resumed"] = "new",
-        messages: list[ConversationMessage] | None = None,
     ) -> None:
         self.settings = settings
         self.store = store
@@ -307,9 +302,6 @@ class TerminalChat:
         self.session_id = session_id
         self.max_turns = max_turns
         self.state = load_state()
-        self._session = session or {}
-        self._mode: Literal["new", "resumed"] = mode
-        self._messages = messages or []
         # Input submitted during a turn: steers the agent holds, and the queue for the next turn.
         self._steers: list[ConversationMessage] = []
         self._queue: list[ConversationMessage] = []
@@ -335,7 +327,6 @@ class TerminalChat:
 
         return build_agent(
             store=self.store,
-            cwd=self.settings.cwd,
             settings=self.settings,
             resolved_provider=resolved_provider,
             session_id=session_id,
@@ -374,9 +365,11 @@ class TerminalChat:
             await self.jobs.close()
 
     async def _main(self) -> None:
-        self._print_header(self._session, mode=self._mode, message_count=len(self._messages))
-        if self._mode == "resumed":
-            self._print_history(self._messages)
+        # A session id without a catalog entry is a new session.
+        session = await self.store.load_metadata(self.session_id)
+        self._print_header(session)
+        if session is not None:
+            self._print_history(self.agent.messages)
 
         while True:
             if self.jobs.pending and not self.jobs.suspended:
@@ -393,14 +386,9 @@ class TerminalChat:
                 continue
             self.terminal.print(Text(), user_echo(user_input))
 
-            result = await self._handle_command(user_input)
-            if result == "exit":
-                return
-            if isinstance(result, str):
-                # The command prefills the next input (e.g. /rewind).
-                self.terminal.set_input(result)
-                continue
-            if result:
+            if _is_command(user_input):
+                if not await self._run_command(user_input):
+                    return
                 continue
 
             self.terminal.print()
@@ -451,39 +439,34 @@ class TerminalChat:
         batch = [message]
         # The agent's history grows by the committed message before anything else.
         history_before = len(self.agent.messages)
-        self.terminal.busy = True
-        self.terminal.on_cancel = self._interrupt
-        self.terminal.on_submit = self._submit_pending
-        self.terminal.on_take_back = self._take_back
         try:
-            renderer = await self._turn_renderer()
-            if user_input is None:
-                await self.store.touch(self.session_id)
-            else:
-                await self.store.record_user_turn(self.session_id, cwd=self.settings.cwd, text=user_input)
-            while True:
-                await renderer.render(self.agent, message)
-                if renderer.stopped or not self._queue:
-                    return
-                # The queue stays where Esc and Alt+Up reach it while the next
-                # turn is prepared; it is taken only once the turn can start.
+            with self.terminal.running(
+                on_cancel=self._interrupt, on_submit=self._submit_pending, on_take_back=self._take_back
+            ):
                 renderer = await self._turn_renderer()
-                text = "\n\n".join(display_text(item) for item in self._queue)
-                await self.store.record_user_turn(self.session_id, cwd=self.settings.cwd, text=text)
-                if not self._queue:
-                    return
-                batch, self._queue = self._queue, []
-                self._show_pending()
-                message = merge_user_messages(batch, steer=False)
-                history_before = len(self.agent.messages)
-                self.terminal.print(Text())
-                self._attach_results(message)
-                self.terminal.print(user_echo(text), Text())
+                if user_input is None:
+                    await self.store.touch(self.session_id)
+                else:
+                    await self.store.record_user_turn(self.session_id, cwd=self.settings.cwd, text=user_input)
+                while True:
+                    completed = await renderer.render(self.agent, message)
+                    if not completed or not self._queue:
+                        return
+                    # The queue stays where Esc and Alt+Up reach it while the next
+                    # turn is prepared; it is taken only once the turn can start.
+                    renderer = await self._turn_renderer()
+                    text = "\n\n".join(display_text(item) for item in self._queue)
+                    await self.store.record_user_turn(self.session_id, cwd=self.settings.cwd, text=text)
+                    if not self._queue:
+                        return
+                    batch, self._queue = self._queue, []
+                    self._show_pending()
+                    message = merge_user_messages(batch, steer=False)
+                    history_before = len(self.agent.messages)
+                    self.terminal.print(Text())
+                    self._attach_results(message)
+                    self.terminal.print(user_echo(text), Text())
         finally:
-            self.terminal.busy = False
-            self.terminal.on_cancel = None
-            self.terminal.on_submit = None
-            self.terminal.on_take_back = None
             # A message that never reached the session (its commit failed, or
             # the stop came first) returns to the editor with the pending input.
             # A wake that never committed holds further wakes instead: its
@@ -493,6 +476,7 @@ class TerminalChat:
                     self.jobs.suspended = True
                 else:
                     self._queue[:0] = batch
+            # Outside ``running``, so every steer still pending comes back too.
             self._take_back()
             # The results this turn committed are done; the rest are free for the next delivery.
             self.jobs.reconcile(self.agent.messages)
@@ -512,7 +496,7 @@ class TerminalChat:
             self.terminal,
             model=self.agent.model,
             context_window=self.agent.context_window,
-            session_base=await load_session_totals(self.store, self.session_id),
+            session_base=await self.store.load_totals(self.session_id),
             on_user_message=self._steer_delivered,
         )
         return self._renderer
@@ -571,16 +555,18 @@ class TerminalChat:
             + [Text(shorten(f"queued {display_text(item)}", width), style=MUTED) for item in self._queue]
         )
 
-    def _print_header(self, session: dict[str, Any], *, mode: str, message_count: int) -> None:
+    def _print_header(self, session: SessionInfo | None) -> None:
+        """Print the session header; ``session`` is the resumed catalog entry, ``None`` for a new session."""
+
         self.terminal.print(
             Text(),
             *header_lines(
                 provider=self.resolved_provider.provider_name,
                 model=self.resolved_provider.model,
-                session=session,
-                mode=mode,
-                message_count=message_count,
                 reasoning_effort=self.resolved_provider.reasoning_effort,
+                session_id=self.session_id,
+                resumed=session,
+                message_count=len(self.agent.messages),
             ),
         )
 
@@ -634,11 +620,8 @@ class TerminalChat:
 
         return build_message("user", blocks)
 
-    async def _handle_command(self, text: str) -> str | bool:
-        """Handle a built-in command. Returns "exit" to quit, True if consumed, False otherwise."""
-
-        if not _is_command(text):
-            return False
+    async def _run_command(self, text: str) -> bool:
+        """Run a built-in command; return ``False`` when it quits the chat."""
 
         command, _, argument = text.partition(" ")
         argument = argument.strip()
@@ -647,15 +630,13 @@ class TerminalChat:
         match resolve_slash_command(command) or command:
             case "/quit" | "/exit" | "exit" | "quit":
                 self.terminal.print(Text("bye", style=MUTED))
-                return "exit"
+                return False
             case "/compact":
                 await self._compact_session()
             case "/new" | "/clear":
                 await self._start_new_session()
             case "/rewind":
-                prefill = await self._rewind()
-                if prefill:
-                    return prefill
+                await self._rewind()
             case "/resume":
                 await self._resume_session()
             case "/model":
@@ -665,13 +646,11 @@ class TerminalChat:
                     self._apply_effort_change(argument)
                 else:
                     await self._switch_effort()
-            case _:
-                return False
 
         return True
 
     def _print_done(self, action: str, value: str = "") -> None:
-        """Print a ``⏺ action value`` confirmation."""
+        """Print a ``● action value`` confirmation."""
 
         text = Text(f"{TOOL_MARKER} ", style=SUCCESS)
         text.append(action, style=MUTED)
@@ -679,18 +658,10 @@ class TerminalChat:
             text.append(f" {value}")
         self.terminal.print(text)
 
-    def _print_runtime_status(self, action: str, value: str, *, changed: bool) -> None:
-        """Print the result of a runtime-only change."""
-
-        if changed:
-            self._print_done(f"{action} →", value)
-        else:
-            self._print_done("already using", value)
-
     def _supports_effort_or_warn(self) -> bool:
         """Return whether the current model supports reasoning effort."""
 
-        if self.resolved_provider.supports_reasoning_effort and self.resolved_provider.reasoning_efforts:
+        if self.resolved_provider.reasoning_efforts:
             return True
         self.terminal.print(Text("current model does not support reasoning effort", style=MUTED))
         return False
@@ -698,37 +669,33 @@ class TerminalChat:
     async def _compact_session(self) -> None:
         """Compact the conversation now and print the ``compacted`` divider."""
 
-        self.terminal.busy = True
-        self.terminal.on_cancel = self.agent.cancel
-        self.terminal.set_tail(Spinner("dots", text=Text("Compacting…", style=MUTED), style=MUTED))
-        try:
-            await self.agent.acompact()
-        except NothingToCompactError:
-            self.terminal.print(Text("nothing to compact", style=MUTED))
-            return
-        except asyncio.CancelledError:
-            task = asyncio.current_task()
-            if task is not None and task.cancelling():
-                raise
-            # The agent reports a user stop (Esc / Ctrl+C) as CancelledError.
-            self.terminal.print(Text("cancelled", style=MUTED))
-            return
-        except Exception as exc:
-            self.terminal.print(error_line(str(exc)))
-            return
-        finally:
-            self.terminal.set_tail(None)
-            self.terminal.busy = False
-            self.terminal.on_cancel = None
+        with self.terminal.running(on_cancel=self.agent.cancel):
+            self.terminal.set_tail(Spinner("dots", text=Text("Compacting…", style=MUTED), style=MUTED))
+            try:
+                await self.agent.acompact()
+            except NothingToCompactError:
+                self.terminal.print(Text("nothing to compact", style=MUTED))
+                return
+            except asyncio.CancelledError:
+                task = asyncio.current_task()
+                if task is not None and task.cancelling():
+                    raise
+                # The agent reports a user stop (Esc / Ctrl+C) as CancelledError.
+                self.terminal.print(Text("cancelled", style=MUTED))
+                return
+            except Exception as exc:
+                self.terminal.print(error_line(str(exc)))
+                return
+            finally:
+                self.terminal.set_tail(None)
         await self.store.touch(self.session_id)
         self.terminal.print(compact_marker())
 
     async def _start_new_session(self) -> None:
         """Start a fresh session while keeping the current runtime settings."""
 
-        if not await self._leave_session(uuid4().hex):
-            return
-        self._print_header({"id": self.session_id, "title": "New chat"}, mode="new", message_count=0)
+        if await self._leave_session(uuid4().hex):
+            self._print_header(None)
 
     async def _leave_session(self, session_id: str) -> bool:
         """Move to ``session_id`` with a new agent, stopping this session's background jobs.
@@ -752,89 +719,77 @@ class TerminalChat:
         self.agent = agent
         return True
 
-    async def _rewind(self) -> str | None:
+    async def _rewind(self) -> None:
         """Rewind the conversation to a chosen user message.
 
         Shows an interactive selector of all real user text messages.
         Selecting one truncates the in-memory conversation to the slice before
         that user message index and appends a rewind marker to the session log.
-        Returns the original message text to prefill the next prompt.
+        The message text goes back into the input.
         """
         messages = self.agent.messages
         if not messages:
             self.terminal.print(Text("nothing to rewind", style=MUTED))
-            return None
+            return
 
-        # Collect real user text turns; display_text skips tool results and
-        # payload blocks (same view as the history preview).
-        user_turns: dict[int, str] = {}  # message_index -> text
-        for i, msg in enumerate(messages):
-            if msg["role"] != "user":
-                continue
-            text = display_text(msg)
-            if text:
-                user_turns[i] = text
-
-        if not user_turns:
+        # Real user text turns, most recent first; display_text skips tool
+        # results and payload blocks (same view as the history preview).
+        turns = [
+            (index, text)
+            for index, message in reversed(list(enumerate(messages)))
+            if message["role"] == "user" and (text := display_text(message))
+        ]
+        if not turns:
             self.terminal.print(Text("no user messages to rewind to", style=MUTED))
-            return None
+            return
 
-        # Build selector options — most recent first.
-        options: list[tuple[int, str]] = []
-        for msg_index, text in reversed(list(user_turns.items())):
-            options.append((msg_index, shorten(text, 60)))
-
-        selected = await self.terminal.choose(options)
+        selected = await self.terminal.choose([(turn, shorten(turn[1], 60)) for turn in turns])
         if selected is None:
-            return None
-
-        original_text = user_turns[selected]
+            return
+        index, text = selected
 
         # A result for a call that is no longer in the history would confuse the model.
         await self.jobs.close()
         # Persist the rewind event and truncate in-memory messages.
-        await self.store.append_rewind(self.session_id, selected)
+        await self.store.append_rewind(self.session_id, index)
         await self.store.touch(self.session_id)
-        self.agent.messages = messages[:selected]
+        self.agent.messages = messages[:index]
 
         self._print_done("rewound")
         if self.agent.messages:
             self._print_history(self.agent.messages)
         else:
             self.terminal.print(Text("conversation is now empty", style=MUTED))
-
-        return original_text
+        self.terminal.set_input(text)
 
     async def _resume_session(self) -> None:
         """Switch to another saved session in the current workspace."""
 
         sessions = await self.store.list_sessions(cwd=self.settings.cwd)
-        sessions = [s for s in sessions if s.get("id") != self.session_id]
-        if not sessions:
+        options = [
+            (
+                session,
+                f"{shorten(session['title'], 40)}  {format_local_timestamp(session['updated_at'], '%m-%d %H:%M')}",
+            )
+            for session in sessions
+            if session["id"] != self.session_id
+        ]
+        if not options:
             self.terminal.print(Text("no other sessions in this workspace", style=MUTED))
             return
 
-        options: list[tuple[dict[str, Any], str]] = []
-        for s in sessions:
-            title = shorten(str(s.get("title") or "New chat"), 40)
-            ts = format_local_timestamp(str(s.get("updated_at") or ""), "%m-%d %H:%M")
-            label = f"{title}  {ts}" if ts else title
-            options.append((s, label))
-
-        session = await self.terminal.choose(options)
+        selected = await self.terminal.choose(options)
+        if selected is None:
+            return
+        # The picker can stay open while the web UI deletes the session.
+        session = await self.store.load_metadata(selected["id"])
         if session is None:
+            self.terminal.print(error_line("session no longer exists"))
             return
-
-        session_id = str(session["id"])
-        data = await self.store.load_session(session_id)
-        if data is None:
-            self.terminal.print(error_line("failed to load session"))
+        if not await self._leave_session(session["id"]):
             return
-        messages = data["messages"]
-        if not await self._leave_session(session_id):
-            return
-        self._print_header(data["session"], mode="resumed", message_count=len(messages))
-        self._print_history(messages)
+        self._print_header(session)
+        self._print_history(self.agent.messages)
 
     async def _switch_model(self, query: str) -> None:
         """Pick a model from every available provider and rebuild the agent with it.
@@ -879,7 +834,7 @@ class TerminalChat:
         except ValueError as exc:
             self.terminal.print(error_line(str(exc)))
             return
-        resolved = replace(resolved, reasoning_effort=self.state.effort_for(resolved))
+        resolved = resolved.with_reasoning_effort(self.state.effort_for(resolved))
 
         try:
             agent = self._build_agent(resolved, self.session_id, self.jobs)
@@ -895,7 +850,7 @@ class TerminalChat:
         label = f"{provider_name} / {model}"
         if resolved.reasoning_effort:
             label += f" [effort: {resolved.reasoning_effort}]"
-        self._print_runtime_status("model", label, changed=changed)
+        self._print_done("model →" if changed else "already using", label)
 
     async def _switch_effort(self) -> None:
         """Prompt for a reasoning effort level."""
@@ -915,28 +870,16 @@ class TerminalChat:
         if not self._supports_effort_or_warn():
             return
 
-        try:
-            normalized = normalize_reasoning_effort(effort)
-        except ValueError as exc:
-            self.terminal.print(error_line(str(exc)))
-            return
-
         current = self.resolved_provider
-        if normalized is not None and normalized not in current.reasoning_efforts:
-            supported = ", ".join(current.reasoning_efforts)
-            message = f"reasoning effort {normalized!r} is not supported by model {current.model!r}"
-            message += f"; supported efforts: {supported}"
-            self.terminal.print(error_line(message))
-            return
-
-        resolved = replace(current, reasoning_effort=normalized)
         try:
+            resolved = current.with_reasoning_effort(effort)
             agent = self._build_agent(resolved, self.session_id, self.jobs)
         except (OSError, ValueError) as exc:
             self.terminal.print(error_line(str(exc)))
             return
         self.resolved_provider = resolved
         self.agent = agent
-        self.state.set_effort(current.provider_name, current.model, normalized)
+        self.state.set_effort(current.provider_name, current.model, resolved.reasoning_effort)
         save_state(self.state)
-        self._print_runtime_status("effort", normalized or "auto", changed=normalized != current.reasoning_effort)
+        changed = resolved.reasoning_effort != current.reasoning_effort
+        self._print_done("effort →" if changed else "already using", resolved.reasoning_effort or "auto")

@@ -18,15 +18,15 @@ from prompt_toolkit.completion import Completer, DummyCompleter
 from prompt_toolkit.input.defaults import create_pipe_input
 from prompt_toolkit.output import DummyOutput
 
-from mycode import CancelledEvent, ErrorEvent, Event, TextEvent, UserMessageEvent
+from mycode import CancelledEvent, ErrorEvent, Event, TextEvent, ToolDoneEvent, ToolStartEvent, UserMessageEvent
 from mycode.agent import Agent
 from mycode.messages import ConversationMessage, TextBlock, build_message, merge_user_messages, text_block
+from mycode.models import ModelMetadata
 from mycode.providers import get_provider_adapter, list_env_discoverable_providers
 from mycode.providers.base import MessageDone, ProviderStreamEvent
 from mycode_cli.background import BackgroundJob
 from mycode_cli.config import PermissionConfig, ResolvedProvider, Settings, WebConfig, get_settings, resolve_provider
 from mycode_cli.permissions import ToolReviewRequest
-from mycode_cli.runtime import load_session_totals
 from mycode_cli.sessions import SessionStore
 from mycode_cli.tui.chat import (
     TerminalChat,
@@ -41,7 +41,6 @@ from mycode_cli.workspace import CliDeps
 def settings_for(cwd: str) -> Settings:
     return Settings(
         providers={},
-        port=8000,
         cwd=cwd,
         project=cwd,
         config_paths=[],
@@ -54,7 +53,7 @@ PROVIDER = ResolvedProvider(
     model="claude-sonnet-4-6",
     api_key=None,
     api_base=None,
-    reasoning_effort=None,
+    metadata=ModelMetadata(provider="anthropic", model="claude-sonnet-4-6"),
 )
 
 
@@ -99,9 +98,30 @@ async def test_new_session_keeps_configured_tools_and_uses_the_new_session_direc
 
     assert "websearch" in tools
     assert [spec.name for spec in chat.agent.tools.specs] == tools
-    assert chat.agent.deps == CliDeps.for_session(
-        cwd=tmp_path, data_dir=store.data_dir, session_id="new", jobs=chat.jobs
+    assert chat.agent.deps == CliDeps(
+        cwd=tmp_path, tool_output_dir=store.tool_output_dir("new"), web=settings.web, jobs=chat.jobs
     )
+
+
+async def test_resume_stays_put_when_the_picked_session_was_deleted(harness: TerminalHarness, tmp_path: Path) -> None:
+    chat = _chat(_AttachmentAgent(), tmp_path, harness)
+    await chat.store.create_session("other", cwd=str(tmp_path))
+
+    async def main() -> None:
+        async def delete_then_pick() -> None:
+            await asyncio.sleep(0.1)
+            # The web UI deletes the session while the picker is open.
+            await chat.store.delete_session("other")
+            harness.pipe.send_text("\r")
+
+        task = asyncio.create_task(delete_then_pick())
+        await chat._resume_session()
+        await task
+
+    await chat.terminal.run(main)
+
+    assert chat.session_id == "s"
+    assert "session no longer exists" in harness.text()
 
 
 @pytest.fixture
@@ -319,6 +339,7 @@ class TestToolReview:
         cancelled: bool,
     ) -> None:
         cancels: list[str] = []
+        results: list[str] = []
 
         class _ReviewAgent(_AttachmentAgent):
             context_window = None
@@ -327,8 +348,15 @@ class TestToolReview:
             def cancel(self) -> None:
                 cancels.append("cancel")
 
+            async def achat(self, message: str, *, on_persist: object = None) -> AsyncIterator[Event]:
+                yield ToolStartEvent(
+                    tool_call={"type": "tool_use", "id": "call-1", "name": "bash", "input": {"command": "rm -rf build"}}
+                )
+                request = ToolReviewRequest("call-1", "bash", "rm -rf build", PermissionConfig())
+                results.append(await chat._review_tool_call(request))
+                yield ToolDoneEvent(tool_use_id="call-1", output="", is_error=False)
+
         chat = _chat(_ReviewAgent(), tmp_path, harness)
-        results: list[str] = []
 
         async def main() -> None:
             async def drive_input() -> None:
@@ -338,10 +366,7 @@ class TestToolReview:
 
             task = asyncio.create_task(drive_input())
             renderer = await chat._turn_renderer()
-            renderer.tool_start("call-1", "bash", {"command": "rm -rf build"})
-            request = ToolReviewRequest("call-1", "bash", "rm -rf build", PermissionConfig())
-            results.append(await chat._review_tool_call(request))
-            renderer.tool_done("call-1", "", is_error=False)
+            await renderer.render(chat.agent, "rm the build")
             await task
 
         await chat.terminal.run(main)
@@ -359,7 +384,6 @@ class _TurnAgent(_AttachmentAgent):
     """Fake agent whose first turn waits for ``finish`` or a cancel, then delivers pending steers."""
 
     context_window = None
-    reasoning_effort = None
 
     def __init__(self, *, accepting: bool = True, fail_commit: bool = False) -> None:
         super().__init__()
@@ -672,13 +696,15 @@ class TestMidTurnInput:
         preparing = asyncio.Event()
         release = asyncio.Event()
 
+        load_totals = SessionStore.load_totals
+
         async def gated(store: SessionStore, session_id: str) -> Any:
             if preparing.is_set():
                 await release.wait()
             preparing.set()
-            return await load_session_totals(store, session_id)
+            return await load_totals(store, session_id)
 
-        monkeypatch.setattr("mycode_cli.tui.chat.load_session_totals", gated)
+        monkeypatch.setattr(SessionStore, "load_totals", gated)
         chat = _chat(agent, tmp_path, harness)
         read: list[str] = []
 

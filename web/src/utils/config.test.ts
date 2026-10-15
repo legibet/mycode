@@ -7,13 +7,10 @@ const remoteConfig: RemoteConfig = {
   providers: {
     openai: {
       name: "openai",
-      provider: "openai",
-      type: "openai",
       models: ["gpt-5"],
-      base_url: "",
-      has_api_key: true,
-      supports_reasoning_effort: true,
       reasoning_efforts: { "gpt-5": ["low", "high"] },
+      image_input_models: [],
+      pdf_input_models: [],
     },
   },
 };

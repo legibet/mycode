@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from mycode_cli.background import BackgroundJobs
+from mycode_cli.config import WebConfig
 
 
 @dataclass(frozen=True)
@@ -13,18 +14,13 @@ class CliDeps:
     """Application context injected into tools/hooks via ``Agent(deps=...)``."""
 
     cwd: Path
-    # Scratch area for large tool outputs (bash spill files, webfetch dumps).
+    # Scratch area for large tool outputs (bash spill files, webfetch dumps):
+    # ``SessionStore.tool_output_dir`` for the session.
     tool_output_dir: Path
+    # Providers for the webfetch and websearch tools.
+    web: WebConfig
     # The session's background job registry; ``None`` when the host cannot deliver results.
     jobs: BackgroundJobs | None = None
-
-    @classmethod
-    def for_session(
-        cls, *, cwd: str | Path, data_dir: Path, session_id: str, jobs: BackgroundJobs | None = None
-    ) -> CliDeps:
-        """Build the deps for one session; tool output lands next to its JSONL."""
-
-        return cls(cwd=Path(cwd), tool_output_dir=data_dir / session_id / "tool-output", jobs=jobs)
 
 
 def resolve_path(path: str | Path, *, cwd: str | Path) -> Path:
