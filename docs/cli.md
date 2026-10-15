@@ -20,7 +20,7 @@ mycode session list [--all]      list saved sessions for the current workspace, 
 | option                    | meaning                                                                                |
 | ------------------------- | -------------------------------------------------------------------------------------- |
 | `--provider NAME`         | provider id or configured alias                                                        |
-| `--model NAME`            | model name                                                                             |
+| `--model NAME`            | model name, or `provider/model`; see Model selection                                   |
 | `--effort LEVEL`          | reasoning effort                                                                       |
 | `--permission LEVEL`      | tool permission level: `readonly`, `safe`, `standard`, `yolo`                          |
 | `--max-turns N`           | limit provider requests per user turn                                                  |
@@ -28,6 +28,16 @@ mycode session list [--all]      list saved sessions for the current workspace, 
 | `-c`, `--continue`        | resume the most recent session in the current workspace, or start a new one if none    |
 
 `--session` and `--continue` are mutually exclusive. Without either, a new session starts. `--provider`, `--model`, and `--effort` start from the remembered selection and are not saved (`docs/config.md`, Remembered Selection); `--permission` overrides the configured level and keeps the configured `permission.mode`.
+
+### Model selection
+
+`--model` takes a model reference, the same one TUI `/model` takes:
+
+1. A model id an available provider lists (`docs/config.md`, `providers.<name>.models`, else the adapter defaults) selects that provider, preferring the remembered one (for `/model`, the current one). Listed ids may contain `/`: `--model openrouter/auto`.
+2. Otherwise `provider/model` splits at the first `/` and selects that model of that provider (id or configured alias), listed or not: `--model deepseek/deepseek-v4-pro`, `--model openrouter/anthropic/claude-sonnet-4`.
+3. Otherwise the reference is an error; `/model` opens the picker filtered by it instead.
+
+With `--provider`, `--model` is the literal model id of that provider and is not split: `--provider openrouter --model anthropic/claude-sonnet-4`. `--provider` alone uses that provider's remembered or first model.
 
 Options belong to the command they follow. Session options placed before `run`, `web`, or `session` are a usage error instead of being ignored: `mycode run --model x "..."`, not `mycode --model x run "..."`.
 

@@ -767,6 +767,7 @@ class TestModelSwitch:
             pytest.param("", ["\x1b[B", "\x1b[B", "\r"], ("beta", "b1", "http://beta"), id="every-provider"),
             # Esc would cancel a picker, so the switch proves none opened.
             pytest.param("a2", ["\x1b"], ("alpha", "a2", "http://alpha"), id="exact-name"),
+            pytest.param("beta/b9", ["\x1b"], ("beta", "b9", "http://beta"), id="provider-slash-model"),
             pytest.param("bet", ["\r"], ("beta", "b1", "http://beta"), id="filtered-picker"),
         ],
     )

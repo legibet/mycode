@@ -44,6 +44,7 @@ See [cli/README.md](cli/README.md) for the full provider table and configuration
 mycode                            start interactive session (new)
 mycode --continue                 resume the most recent session
 mycode --session <id>             resume a specific session
+mycode --model provider/model     select provider and model
 mycode --effort high              set effort for this session
 mycode run "..."                  send one prompt, print the reply, exit
 git diff | mycode run "review"    piped stdin is appended to the prompt

@@ -12,6 +12,7 @@ from pathlib import Path
 from mycode_cli.config import (
     ResolvedProvider,
     Settings,
+    find_model,
     provider_models,
     resolve_mycode_home,
     resolve_provider,
@@ -88,16 +89,25 @@ def resolve_remembered_provider(
 ) -> ResolvedProvider:
     """Resolve the provider to start with: explicit choices first, then the remembered one.
 
-    A remembered provider that is no longer available is skipped; a remembered
-    model the provider no longer lists falls back to the provider's first model.
+    With an explicit provider, ``model`` is a literal model id; without one, it is a
+    model reference (``find_model``). A remembered provider that is no longer available
+    is skipped; a remembered model the provider no longer lists falls back to the
+    provider's first model.
     """
 
-    if not provider_name:
+    if model and not provider_name:
+        selected = find_model(settings, model, prefer=state.provider)
+        if selected is None:
+            raise ValueError(
+                f"model {model!r} is not listed by any available provider; use provider/model to select it"
+            )
+        provider_name, model = selected
+    elif not provider_name:
         remembered = next(
             (choice for choice in resolve_provider_choices(settings) if choice.provider_name == state.provider), None
         )
         if remembered is not None:
             provider_name = state.provider
-            if not model and state.model in provider_models(settings, remembered):
+            if state.model in provider_models(settings, remembered):
                 model = state.model
     return resolve_provider(settings, provider_name=provider_name, model=model)

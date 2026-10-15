@@ -45,7 +45,7 @@ app.add_typer(session_app, name="session")
 
 # Options shared by the interactive session and `run`.
 ProviderOption = Annotated[str | None, typer.Option(metavar="NAME", help="Provider id or configured alias")]
-ModelOption = Annotated[str | None, typer.Option(metavar="NAME", help="Model name")]
+ModelOption = Annotated[str | None, typer.Option(metavar="NAME", help="Model name, or provider/model")]
 EffortOption = Annotated[str | None, typer.Option("--effort", metavar="LEVEL", help="Reasoning effort")]
 MaxTurnsOption = Annotated[int | None, typer.Option(min=1, metavar="N", help="Limit agent loop turns")]
 PermissionOption = Annotated[

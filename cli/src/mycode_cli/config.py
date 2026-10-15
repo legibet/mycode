@@ -316,6 +316,9 @@ def _clean_config_layer(data: Any) -> dict[str, Any]:
             if not isinstance(name, str) or not name.strip():
                 raise ValueError("provider name must be a non-empty string")
             provider_name = name.strip()
+            if "/" in provider_name:
+                # `provider/model` model references split at the first slash.
+                raise ValueError(f"provider name {provider_name!r} must not contain '/'")
             providers[provider_name] = _validate_provider_config(provider_name, raw)
         if providers:
             out["providers"] = providers
@@ -639,6 +642,29 @@ def provider_models(settings: Settings, provider: ResolvedProvider) -> list[str]
     if provider_config and provider_config.models:
         return list(provider_config.models)
     return list(get_provider_adapter(provider.provider).default_models) or [provider.model]
+
+
+def find_model(settings: Settings, query: str, *, prefer: str | None = None) -> tuple[str, str] | None:
+    """Return the ``(provider name, model)`` a model reference selects, or ``None`` if nothing matches.
+
+    A model listed by an available provider selects that provider, preferring ``prefer``;
+    listed ids may contain slashes (``openrouter/auto``). Otherwise ``provider/model``
+    splits at the first slash and names the model directly, listed or not.
+    """
+
+    names = [
+        choice.provider_name
+        for choice in resolve_provider_choices(settings)
+        if query in provider_models(settings, choice)
+    ]
+    if names:
+        return (prefer if prefer in names else names[0]), query
+    provider_name, slash, model = query.partition("/")
+    if not slash:
+        return None
+    if not provider_name or not model:
+        raise ValueError(f"invalid model reference {query!r}; expected provider/model")
+    return provider_name, model
 
 
 def _available_provider_references(settings: Settings) -> list[str]:

@@ -41,6 +41,7 @@ from mycode_cli.background import BackgroundJobs
 from mycode_cli.config import (
     ResolvedProvider,
     Settings,
+    find_model,
     get_settings,
     provider_models,
     resolve_mycode_home,
@@ -794,30 +795,29 @@ class TerminalChat:
     async def _switch_model(self, query: str) -> None:
         """Pick a model from every available provider and rebuild the agent with it.
 
-        A query naming a listed model exactly switches to it directly, preferring
-        the current provider; any other query opens the picker filtered by it.
-        Providers resolve against freshly loaded config; the agent keeps the
-        session's settings, including a ``--permission`` override.
+        A model reference that ``find_model`` resolves (``provider/model``, or a
+        listed model name, preferring the current provider) switches to it
+        directly, as ``--model`` does; any other query opens the picker filtered
+        by it. Providers resolve against freshly loaded config; the agent keeps
+        the session's settings, including a ``--permission`` override.
         """
 
         settings = get_settings(self.settings.cwd)
         current_name = self.resolved_provider.provider_name
         current_model = self.resolved_provider.model
         current = (current_name, current_model)
-        groups: list[tuple[str, list[str]]] = []
-        for provider in resolve_provider_choices(settings):
-            name = provider.provider_name
-            models = provider_models(settings, provider)
-            if name == current_name and current_model not in models:
-                models.append(current_model)
-            groups.append((name, models))
-
-        matches = [(name, model) for name, models in groups for model in models if model == query]
-        if matches:
-            selected = current if current in matches else matches[0]
-        else:
+        try:
+            selected = find_model(settings, query, prefer=current_name)
+        except ValueError as exc:
+            self.terminal.print(error_line(str(exc)))
+            return
+        if selected is None:
             options: list[tuple[tuple[str, str], Text] | str] = []
-            for name, models in groups:
+            for provider in resolve_provider_choices(settings):
+                name = provider.provider_name
+                models = provider_models(settings, provider)
+                if name == current_name and current_model not in models:
+                    models.append(current_model)
                 options.append(name)
                 for model in models:
                     label = Text(model)

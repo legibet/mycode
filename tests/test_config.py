@@ -298,6 +298,13 @@ class TestGetSettings:
         with pytest.raises(ValueError, match="provider 'custom-provider' must set 'type'"):
             get_settings(str(workspace.resolve()))
 
+    def test_rejects_provider_names_with_slash(self, workspace: Path, config_home: Path) -> None:
+        # A slash would make `provider/model` references ambiguous.
+        write_json(config_home / "config.json", {"providers": {"team/openai": {"type": "openai"}}})
+
+        with pytest.raises(ValueError, match="must not contain '/'"):
+            get_settings(str(workspace.resolve()))
+
     def test_loads_permission_config(self, workspace: Path, config_home: Path) -> None:
         write_json(
             config_home / "config.json",

@@ -45,7 +45,7 @@ mycode run "explain how the session store works"
 | xAI               | `xai`         | `XAI_API_KEY`        |
 | OpenAI-compatible | `openai_chat` | -                    |
 
-Run `/model` in the TUI to see available models.
+Run `/model` in the TUI to see available models. `--model` takes a listed model id or `provider/model` (for example `--model deepseek/deepseek-v4-pro`); see [docs/cli.md](https://github.com/legibet/mycode/blob/main/docs/cli.md#model-selection).
 
 ## Configuration
 

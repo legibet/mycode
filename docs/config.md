@@ -64,6 +64,7 @@ file and adapts it for the UI.
 - `web.fetch` — `local`, `tavily`, or `exa`; default `local`. `webfetch` is always registered.
 - `web.search` — `off`, `tavily`, or `exa`; default `off`. `websearch` is registered only when a provider is selected. Use explicit `off` in a project config to override a provider inherited from the global config.
 - `web.tavily.api_key` / `web.exa.api_key` — literal value or `${ENV_NAME}` reference, shared by fetch and search for that provider
+- `providers.<name>` — a provider name must not contain `/`, which separates provider and model in a `provider/model` reference (`docs/cli.md`, Model selection)
 - `providers.<name>.type` — internal adapter id (see `docs/providers.md`). Required for custom aliases. Built-in providers can omit `type` when the key matches their adapter id.
 - `providers.<name>.models` — model map. Keys are model ids shown in UI. Values can override the bundled model metadata for that exact model.
 - `providers.<name>.models.<model>.context_window` — override the model context window
@@ -118,7 +119,7 @@ Auto-discovery is narrower: only providers with `auto_discoverable=True` and a b
 
 ## Remembered Selection
 
-`~/.mycode/cli.json` stores the provider and model last chosen with TUI `/model`, and the effort chosen with `/effort` for each provider/model. `mycode` and `mycode run` start from them; `--provider`, `--model`, and `--effort` override them for one run and are not saved.
+`~/.mycode/cli.json` stores the provider and model last chosen with TUI `/model`, and the effort chosen with `/effort` for each provider/model. `mycode` and `mycode run` start from them; `--provider`, `--model`, and `--effort` override them for one run and are not saved. A `--model` id that several providers list prefers the remembered provider (`docs/cli.md`, Model selection).
 
 When a remembered value is no longer valid:
 
