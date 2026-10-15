@@ -219,7 +219,8 @@ def _title_line(title: str, preview: str, width: int, *, keep_end: bool = False)
     ``keep_end`` cuts the preview at its start instead, so a path keeps its file name.
     """
 
-    text = Text(title, style=TOOL_NAME)
+    # Styles go on spans: a base style would carry over to everything appended after it.
+    text = Text().append(title, style=TOOL_NAME)
     room = width - text.cell_len - 2
     if room > 1 and preview:
         text.append(f"  {_last_cells(preview, room) if keep_end else shorten(preview, room)}", style=MUTED)
@@ -242,7 +243,7 @@ def _tool_title(name: str, args: dict[str, Any], width: int, *, suffix: Text | N
 def _tool_header(name: str, args: dict[str, Any], width: int, *, failed: bool, metadata: dict[str, Any] | None) -> Text:
     """Build the ``● Name  preview  [suffix]`` line of a finished tool call; the suffix shows on success."""
 
-    marker = Text(f"{TOOL_MARKER} ", style=ERROR if failed else SUCCESS, no_wrap=True, overflow="ellipsis")
+    marker = Text(no_wrap=True, overflow="ellipsis").append(f"{TOOL_MARKER} ", style=ERROR if failed else SUCCESS)
     suffix = None if failed else _tool_suffix(name, args, metadata)
     return marker.append_text(_tool_title(name, args, width - marker.cell_len, suffix=suffix))
 
@@ -261,7 +262,7 @@ def job_lines(block: TextBlock, width: int) -> list[Text]:
 
     job = block["meta"]["job"]
     exit_code = job["exit_code"]
-    marker = Text(f"{TOOL_MARKER} ", style=ERROR if exit_code else SUCCESS, no_wrap=True, overflow="ellipsis")
+    marker = Text(no_wrap=True, overflow="ellipsis").append(f"{TOOL_MARKER} ", style=ERROR if exit_code else SUCCESS)
     tail = Text(f"  exit {exit_code}", style=ERROR if exit_code else MUTED)
     title = _title_line("Background finished", job["label"], width - marker.cell_len - tail.cell_len)
     lines = [marker.append_text(title).append_text(tail)]
