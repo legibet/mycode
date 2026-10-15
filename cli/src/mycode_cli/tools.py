@@ -12,6 +12,7 @@ import asyncio
 import codecs
 import locale
 import os
+import re
 import shlex
 import shutil
 import signal
@@ -22,7 +23,7 @@ from datetime import UTC, datetime
 from difflib import SequenceMatcher, unified_diff
 from functools import partial
 from pathlib import Path
-from typing import BinaryIO, TextIO
+from typing import BinaryIO, Literal, TextIO
 from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -527,28 +528,34 @@ def edit_tool(ctx: ToolContext[CliDeps], path: str, edits: list[EditEntry]) -> T
 
 @dataclass(frozen=True)
 class Truncation:
-    # "lines" or "bytes"; None when nothing was cut.
-    truncated_by: str | None
+    # What was cut: earlier lines over the line limit, earlier output over the
+    # byte limit, or the start of a final line over the byte limit; None when nothing was.
+    truncated_by: Literal["lines", "bytes", "final_line"] | None
     output_lines: int
 
 
 def truncate_tail(text: str) -> tuple[str, Truncation]:
-    """Keep the trailing lines that fit the display line and byte limits."""
+    """Keep the trailing lines that fit the display line and byte limits.
 
-    raw_lines = text.splitlines(keepends=True)
-    lines = [raw_line.rstrip("\r\n") for raw_line in raw_lines]
+    Lines end at ``\\n`` only, as in the bash line counts, so ``\\r`` progress
+    updates stay on their line.
+    """
+
+    lines = [raw_line.rstrip("\r\n") for raw_line in re.findall(r"[^\n]*\n|[^\n]+", text)]
     out_lines: list[str] = []
     out_bytes = 0
     sliced = False
 
-    for line, raw_line in zip(reversed(lines), reversed(raw_lines), strict=True):
+    for line in reversed(lines):
         if len(out_lines) >= DEFAULT_MAX_LINES:
             break
-        line_bytes = len(raw_line.encode("utf-8"))
+        # Bytes as shown: the line plus the "\n" joining it to the lines kept after it.
+        sep = 1 if out_lines else 0
+        line_bytes = len(line.encode("utf-8")) + sep
         if out_bytes + line_bytes > DEFAULT_MAX_BYTES:
             # An oversized line is sliced rather than dropped whole, so the
             # result carries the full byte budget even when one line dominates.
-            budget = DEFAULT_MAX_BYTES - out_bytes
+            budget = DEFAULT_MAX_BYTES - out_bytes - sep
             if budget > 0:
                 encoded = line.encode("utf-8")
                 out_lines.append(encoded[-budget:].decode("utf-8", errors="ignore"))
@@ -560,9 +567,9 @@ def truncate_tail(text: str) -> tuple[str, Truncation]:
     out_lines.reverse()
     content = "\n".join(out_lines)
 
-    truncated_by: str | None
+    truncated_by: Literal["lines", "bytes", "final_line"] | None
     if sliced:
-        truncated_by = "bytes"
+        truncated_by = "final_line" if len(out_lines) == 1 else "bytes"
     elif len(out_lines) == len(lines):
         truncated_by = None
     elif len(out_lines) == DEFAULT_MAX_LINES:
@@ -578,12 +585,16 @@ class _BashOutputSnapshot:
     content: str
     truncation: Truncation
     total_lines: int
-    last_line_partial: bool
     full_output_path: Path | None
 
 
 class _BashOutputAccumulator:
-    """Capture raw command output while keeping a bounded display tail."""
+    """Capture raw command output while keeping a bounded display tail.
+
+    The log is written once the decoded output, line terminators included,
+    exceeds the line or byte limit. ``truncate_tail`` counts only the text it
+    shows, which is never more, so a truncated result always has a log.
+    """
 
     def __init__(self, tool_output_dir: Path, log_path: Path):
         self.tool_output_dir = tool_output_dir
@@ -593,11 +604,8 @@ class _BashOutputAccumulator:
         self.raw_chunks: list[bytes] = []
         self.tail_text = ""
         self.tail_bytes = 0
-        self.total_raw_bytes = 0
         self.total_bytes = 0
         self.completed_lines = 0
-        self.current_line_bytes = 0
-        self.last_completed_line_bytes = 0
         self.has_open_line = False
         self.log_file: BinaryIO | None = None
         self.finished = False
@@ -606,7 +614,6 @@ class _BashOutputAccumulator:
         if self.finished:
             raise RuntimeError("cannot append after bash output is finished")
 
-        self.total_raw_bytes += len(chunk)
         text = self.decoder.decode(chunk)
         self._append_text(text)
 
@@ -632,20 +639,10 @@ class _BashOutputAccumulator:
 
     def snapshot(self) -> _BashOutputSnapshot:
         content, truncation = truncate_tail(self.tail_text)
-        truncated = self._needs_full_log() or truncation.truncated_by is not None
-        truncated_by = truncation.truncated_by
-        if truncated and truncated_by is None:
-            truncated_by = (
-                "bytes" if self.total_raw_bytes > DEFAULT_MAX_BYTES or self.total_bytes > DEFAULT_MAX_BYTES else "lines"
-            )
-            truncation = Truncation(truncated_by=truncated_by, output_lines=truncation.output_lines)
-
-        last_line_bytes = self.current_line_bytes if self.has_open_line else self.last_completed_line_bytes
         return _BashOutputSnapshot(
             content=content,
             truncation=truncation,
             total_lines=self.completed_lines + int(self.has_open_line),
-            last_line_partial=last_line_bytes > DEFAULT_MAX_BYTES and truncated_by == "bytes",
             full_output_path=self.log_path if self.log_file is not None else None,
         )
 
@@ -666,18 +663,8 @@ class _BashOutputAccumulator:
         if self.tail_bytes > DEFAULT_MAX_BYTES * 4:
             self._trim_tail()
 
-        segments = text.split("\n")
-        for segment in segments[:-1]:
-            self.current_line_bytes += len(segment.encode("utf-8"))
-            self.completed_lines += 1
-            self.last_completed_line_bytes = self.current_line_bytes
-            self.current_line_bytes = 0
-        trailing = segments[-1]
-        if len(segments) > 1:
-            self.current_line_bytes = len(trailing.encode("utf-8"))
-        else:
-            self.current_line_bytes += len(trailing.encode("utf-8"))
-        self.has_open_line = bool(trailing)
+        self.completed_lines += text.count("\n")
+        self.has_open_line = not text.endswith("\n")
 
     def _trim_tail(self) -> None:
         encoded = self.tail_text.encode("utf-8")
@@ -689,9 +676,7 @@ class _BashOutputAccumulator:
 
     def _needs_full_log(self) -> bool:
         return (
-            self.total_raw_bytes > DEFAULT_MAX_BYTES
-            or self.total_bytes > DEFAULT_MAX_BYTES
-            or self.completed_lines + int(self.has_open_line) > DEFAULT_MAX_LINES
+            self.total_bytes > DEFAULT_MAX_BYTES or self.completed_lines + int(self.has_open_line) > DEFAULT_MAX_LINES
         )
 
     def open_log(self) -> None:
@@ -711,15 +696,16 @@ def _format_bash_output(snapshot: _BashOutputSnapshot) -> str:
     if truncated_by is None:
         return result
 
-    if snapshot.last_line_partial:
-        summary = "Showing the last 50KB of the final output line."
-        action = "Use Bash byte-range commands to inspect the complete line."
-    elif truncated_by == "lines":
-        summary = f"Showing the last {snapshot.truncation.output_lines} of {snapshot.total_lines} lines."
-        action = "Use read with offset to inspect earlier lines."
-    else:
-        summary = "Showing the last 50KB of output."
-        action = "Use read to inspect omitted output."
+    match truncated_by:
+        case "final_line":
+            summary = "Showing the last 50KB of the final output line."
+            action = "Use Bash byte-range commands to inspect the complete line."
+        case "lines":
+            summary = f"Showing the last {snapshot.truncation.output_lines} of {snapshot.total_lines} lines."
+            action = "Use read with offset to inspect earlier lines."
+        case "bytes":
+            summary = "Showing the last 50KB of output."
+            action = "Use read to inspect omitted output."
 
     path = f" Full output: {snapshot.full_output_path}." if snapshot.full_output_path is not None else ""
     return f"{result}\n\n[Output truncated: {summary}{path} {action}]"

@@ -100,13 +100,14 @@ class TestBashTimeout:
 
 
 class TestBashTruncation:
-    def test_bash_output_at_byte_limit_is_not_truncated(self):
+    # The limit counts the text shown; the log is decided on the raw output, terminator included.
+    @pytest.mark.parametrize(("end", "logged"), [("", False), ("\\n", True)])
+    def test_bash_output_at_byte_limit_is_not_truncated(self, end: str, logged: bool):
         with tempfile.TemporaryDirectory() as tmpdir:
-            result = _bash(_ctx(tmpdir, tool_call_id="byte-limit"), "python3 -c \"print('x' * 51200, end='')\"")
+            result = _bash(_ctx(tmpdir, tool_call_id="byte-limit"), f"python3 -c \"print('x' * 51200, end='{end}')\"")
 
-            assert len(result.output) == 51200
-            assert "Output truncated:" not in result.output
-            assert not (Path(tmpdir) / "bash-byte-limit.log").exists()
+            assert result.output == "x" * 51200
+            assert (Path(tmpdir) / "bash-byte-limit.log").exists() is logged
 
     def test_bash_large_output_truncated_by_lines(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -130,6 +131,17 @@ class TestBashTruncation:
 
             assert "last 2000 of 3000 lines" in result.output
             assert (Path(tmpdir) / "bash-blank-lines.log").read_bytes() == b"\n" * 3000
+
+    def test_bash_carriage_return_progress_counts_as_one_line(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            result = _bash(
+                _ctx(tmpdir, tool_call_id="progress"),
+                "python3 -c \"for i in range(3000): print(f'\\r{i}', end='')\"",
+            )
+
+            assert "Output truncated:" not in result.output
+            assert result.output.endswith("\r2999")
+            assert not (Path(tmpdir) / "bash-progress.log").exists()
 
     def test_bash_multiline_output_truncated_by_bytes(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -162,6 +174,19 @@ class TestBashTruncation:
             assert body.startswith("x")
             assert body.endswith("\nEND")
             assert len(body.encode("utf-8")) == 50 * 1024
+            assert "Showing the last 50KB of output" in notice
+            assert "final output line" not in notice
+
+    @pytest.mark.parametrize("end", ["", "\\n", "\\r\\n"])
+    def test_bash_final_line_that_fills_the_limit_is_not_reported_cut(self, end: str):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            result = _bash(
+                _ctx(tmpdir, tool_call_id="full-line"),
+                f"python3 -c \"print('head'); print('x' * 51200, end='{end}')\"",
+            )
+
+            body, _, notice = result.output.partition("\n\n[Output truncated:")
+            assert body == "x" * 51200
             assert "Showing the last 50KB of output" in notice
             assert "final output line" not in notice
 
