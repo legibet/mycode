@@ -3,17 +3,21 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import sys
+import time
 from contextlib import aclosing
 from dataclasses import dataclass, replace
-from typing import Annotated
+from typing import Annotated, Any, Literal, get_args
 from uuid import uuid4
 
 import typer
 
 from mycode.agent import Agent
-from mycode.messages import ConversationMessage, flatten_message_text
+from mycode.events import ErrorEvent, ToolDoneEvent, ToolStartEvent, UsageEvent
+from mycode.messages import ConversationMessage, ToolUseBlock, flatten_message_text
+from mycode.usage import Cost, Usage
 from mycode_cli import __version__
 from mycode_cli.config import (
     PERMISSION_LEVEL_OPTIONS,
@@ -51,6 +55,8 @@ PermissionOption = Annotated[
 SessionOption = Annotated[str | None, typer.Option(metavar="ID", help="Resume a specific session")]
 ContinueOption = Annotated[bool, typer.Option("--continue", "-c", help="Resume the most recent session")]
 
+OutputFormat = Literal["text", "json", "jsonl"]
+
 
 async def resolve_session_id(
     *,
@@ -78,10 +84,70 @@ def _show_version(value: bool) -> None:
     raise typer.Exit()
 
 
-async def run_noninteractive(agent: Agent, message: str, *, store: SessionStore, cwd: str) -> int:
-    """Run one message non-interactively and print only the final assistant reply."""
+def _write_json(record: dict[str, Any]) -> None:
+    sys.stdout.write(json.dumps(record, ensure_ascii=False) + "\n")
+    sys.stdout.flush()
 
-    await store.record_user_turn(agent.session_id, cwd=cwd, text=message)
+
+def _result_record(
+    *,
+    error: str | None,
+    reply: str = "",
+    session_id: str | None = None,
+    provider: str | None = None,
+    model: str | None = None,
+    duration_ms: int = 0,
+    usage: Usage | None = None,
+    cost: Cost | None = None,
+    permission_denials: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Build the closing ``result`` record of the json and jsonl formats; see docs/cli.md."""
+
+    return {
+        "type": "result",
+        "is_error": error is not None,
+        "result": reply,
+        "error": error,
+        "session_id": session_id,
+        "provider": provider,
+        "model": model,
+        "duration_ms": duration_ms,
+        "usage": usage or {},
+        "cost": cost,
+        "permission_denials": permission_denials or [],
+    }
+
+
+async def run_noninteractive(
+    agent: Agent,
+    message: str,
+    *,
+    store: SessionStore,
+    settings: Settings,
+    provider_name: str,
+    output_format: OutputFormat = "text",
+) -> int:
+    """Run one message non-interactively and print its outcome in ``output_format``.
+
+    ``text`` prints only the final assistant reply; ``json`` prints the ``result``
+    record; ``jsonl`` streams an ``init`` record, the agent events, then ``result``.
+    """
+
+    started = time.monotonic()
+    if output_format == "jsonl":
+        _write_json(
+            {
+                "type": "init",
+                "session_id": agent.session_id,
+                "cwd": settings.cwd,
+                "provider": provider_name,
+                "model": agent.model,
+                "effort": agent.reasoning_effort,
+                "permission": settings.permission.level,
+                "version": __version__,
+            }
+        )
+
     latest_assistant: ConversationMessage | None = None
 
     async def track(payload: ConversationMessage) -> None:
@@ -89,31 +155,66 @@ async def run_noninteractive(agent: Agent, message: str, *, store: SessionStore,
         if payload["role"] == "assistant":
             latest_assistant = payload
 
-    error_message = ""
-    async with aclosing(agent.achat(message, on_persist=track)) as stream:
-        async for event in stream:
-            if event.type == "error":
-                error_message = event.message or "agent error"
-            elif (
-                event.type == "tool_done"
-                and event.is_error
-                and event.output in {PERMISSION_DENIED_OUTPUT, PERMISSION_DENIED_BY_USER_OUTPUT}
-            ):
-                error_message = event.output
+    error_message: str | None = None
+    tool_calls: dict[str, ToolUseBlock] = {}
+    permission_denials: list[dict[str, Any]] = []
+    usage: Usage | None = None
+    cost: Cost | None = None
+    try:
+        await store.record_user_turn(agent.session_id, cwd=settings.cwd, text=message)
+        async with aclosing(agent.achat(message, on_persist=track)) as stream:
+            async for event in stream:
+                match event:
+                    case ErrorEvent():
+                        error_message = event.message or "agent error"
+                    case ToolStartEvent():
+                        tool_calls[event.tool_call["id"]] = event.tool_call
+                    case ToolDoneEvent(is_error=True) if event.output in {
+                        PERMISSION_DENIED_OUTPUT,
+                        PERMISSION_DENIED_BY_USER_OUTPUT,
+                    }:
+                        error_message = event.output
+                        call = tool_calls[event.tool_use_id]
+                        permission_denials.append(
+                            {"tool_use_id": call["id"], "name": call["name"], "input": call["input"]}
+                        )
+                    case UsageEvent():
+                        usage, cost = event.turn_usage, event.turn_cost
+                if output_format == "jsonl":
+                    record = event.to_dict()
+                    # Multimodal tool content (e.g. base64 images) stays in the session, as over SSE.
+                    record.pop("content", None)
+                    _write_json(record)
+    except Exception as exc:
+        # The SDK raises session persistence failures instead of yielding an error event;
+        # report them like any run error so json and jsonl output still end with a result.
+        error_message = str(exc) or type(exc).__name__
 
     reply = flatten_message_text(latest_assistant) if latest_assistant else ""
 
-    if reply:
-        sys.stdout.write(reply)
-        if not reply.endswith("\n"):
-            sys.stdout.write("\n")
-
-    if error_message:
-        if not reply:
+    if output_format == "text":
+        if reply:
+            sys.stdout.write(reply)
+            if not reply.endswith("\n"):
+                sys.stdout.write("\n")
+        if error_message and not reply:
             print(error_message, file=sys.stderr)
-        return 1
+    else:
+        _write_json(
+            _result_record(
+                error=error_message,
+                reply=reply,
+                session_id=agent.session_id,
+                provider=provider_name,
+                model=agent.model,
+                duration_ms=round((time.monotonic() - started) * 1000),
+                usage=usage,
+                cost=cost,
+                permission_denials=permission_denials,
+            )
+        )
 
-    return 0
+    return 1 if error_message else 0
 
 
 @dataclass
@@ -133,30 +234,23 @@ def _bootstrap(
     permission: str | None,
     reasoning_effort: str | None,
 ) -> _BootstrapContext:
-    """Shared setup for the chat and run commands."""
+    """Shared setup for the chat and run commands; raises ``ValueError`` for bad settings or input."""
 
     if session and continue_last:
         raise typer.BadParameter("--session and --continue are mutually exclusive")
 
     store = SessionStore(data_dir=resolve_sessions_dir())
-    try:
-        settings = get_settings()
-        if permission is not None:
-            settings = replace(settings, permission=parse_permission(permission, settings.permission))
-        state = load_state()
-        resolved_provider = resolve_remembered_provider(settings, state, provider_name=provider, model=model)
-        if reasoning_effort is None:
-            reasoning_effort = state.effort_for(resolved_provider)
-        resolved_provider = resolved_provider.with_reasoning_effort(reasoning_effort)
-        session_id = asyncio.run(
-            resolve_session_id(store=store, cwd=settings.cwd, requested_session_id=session, continue_last=continue_last)
-        )
-    except ValueError as exc:
-        from .tui.render import console, error_line
-
-        console.print(error_line(str(exc)))
-        raise SystemExit(1) from exc
-
+    settings = get_settings()
+    if permission is not None:
+        settings = replace(settings, permission=parse_permission(permission, settings.permission))
+    state = load_state()
+    resolved_provider = resolve_remembered_provider(settings, state, provider_name=provider, model=model)
+    if reasoning_effort is None:
+        reasoning_effort = state.effort_for(resolved_provider)
+    resolved_provider = resolved_provider.with_reasoning_effort(reasoning_effort)
+    session_id = asyncio.run(
+        resolve_session_id(store=store, cwd=settings.cwd, requested_session_id=session, continue_last=continue_last)
+    )
     return _BootstrapContext(
         store=store,
         settings=settings,
@@ -206,15 +300,20 @@ def chat(
         return
 
     from .tui.chat import TerminalChat
+    from .tui.render import console, error_line
 
-    setup = _bootstrap(
-        provider=provider,
-        model=model,
-        session=session,
-        continue_last=continue_last,
-        permission=permission,
-        reasoning_effort=reasoning_effort,
-    )
+    try:
+        setup = _bootstrap(
+            provider=provider,
+            model=model,
+            session=session,
+            continue_last=continue_last,
+            permission=permission,
+            reasoning_effort=reasoning_effort,
+        )
+    except ValueError as exc:
+        console.print(error_line(str(exc)))
+        raise SystemExit(1) from exc
 
     terminal_chat = TerminalChat(
         settings=setup.settings,
@@ -238,6 +337,10 @@ def run(
     permission: PermissionOption = None,
     session: SessionOption = None,
     continue_last: ContinueOption = False,
+    output_format: Annotated[
+        OutputFormat,
+        typer.Option("--format", metavar="FORMAT", help=f"Output format: {', '.join(get_args(OutputFormat))}"),
+    ] = "text",
 ) -> None:
     """Send one prompt, print the final reply, and exit.
 
@@ -251,23 +354,39 @@ def run(
     if not message:
         raise typer.BadParameter("provide a prompt as an argument or on stdin", param_hint="PROMPT")
 
-    setup = _bootstrap(
-        provider=provider,
-        model=model,
-        session=session,
-        continue_last=continue_last,
-        permission=permission,
-        reasoning_effort=reasoning_effort,
-    )
-    agent = build_agent(
-        store=setup.store,
-        settings=setup.settings,
-        resolved_provider=setup.resolved_provider,
-        session_id=setup.session_id,
-        max_turns=max_turns,
-    )
+    try:
+        setup = _bootstrap(
+            provider=provider,
+            model=model,
+            session=session,
+            continue_last=continue_last,
+            permission=permission,
+            reasoning_effort=reasoning_effort,
+        )
+        agent = build_agent(
+            store=setup.store,
+            settings=setup.settings,
+            resolved_provider=setup.resolved_provider,
+            session_id=setup.session_id,
+            max_turns=max_turns,
+        )
+    except (OSError, ValueError) as exc:
+        if output_format == "text":
+            print(exc, file=sys.stderr)
+        else:
+            _write_json(_result_record(error=str(exc)))
+        raise SystemExit(1) from exc
 
-    code = asyncio.run(run_noninteractive(agent, message, store=setup.store, cwd=setup.settings.cwd))
+    code = asyncio.run(
+        run_noninteractive(
+            agent,
+            message,
+            store=setup.store,
+            settings=setup.settings,
+            provider_name=setup.resolved_provider.provider_name,
+            output_format=output_format,
+        )
+    )
     raise SystemExit(code)
 
 

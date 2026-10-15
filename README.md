@@ -47,13 +47,14 @@ mycode --session <id>             resume a specific session
 mycode --effort high              set effort for this session
 mycode run "..."                  send one prompt, print the reply, exit
 git diff | mycode run "review"    piped stdin is appended to the prompt
+mycode run --format json "..."    machine-readable result (also: jsonl)
 mycode web                        start web server (default port 8000, or $PORT)
 mycode web --dev                  API only, with hot reload
 mycode session list [--all]       list saved sessions
 mycode -h                         help; also works on every subcommand
 ```
 
-Options before a subcommand configure the interactive session only; pass `run` options after `run`.
+Options before a subcommand configure the interactive session only; pass `run` options after `run`. Full reference, output formats, and exit codes: [docs/cli.md](docs/cli.md).
 
 Interactive slash commands: `/new` (alias `/clear`) `/resume` `/rewind` `/model` `/effort` `/compact` `/quit` (alias `/exit`)
 

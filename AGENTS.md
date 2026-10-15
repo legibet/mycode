@@ -30,7 +30,7 @@ mycode/src/mycode/        # SDK package
     openai_chat.py        # alibaba, openai_chat, deepseek, zai, openrouter
 
 cli/src/mycode_cli/       # CLI + FastAPI web server
-  main.py                 # Typer entrypoint, slash commands, session resolution
+  main.py                 # Typer entrypoint: commands, options, `run` output formats
   runtime.py              # build_agent() shared by TUI and server
   sessions.py             # CLI session catalog and lifecycle
   workspace.py            # CLI workspace/tool dependency context
@@ -85,6 +85,7 @@ Read the relevant doc before related changes.
 | `mycode/src/mycode/agent.py`, `events.py`, `messages.py`, `tools.py`, `hooks.py`, `models.py`, `usage.py`    | `docs/sdk.md`                                 |
 | `mycode/src/mycode/session.py`, `cli/src/mycode_cli/sessions.py`, anything touching JSONL / compact / rewind | `docs/sessions.md`                            |
 | `mycode/src/mycode/providers/*`                                                                              | `docs/providers.md`                           |
+| `cli/src/mycode_cli/main.py` (commands, options, `run` output)                                               | `docs/cli.md`                                 |
 | `cli/src/mycode_cli/tools.py`, `web_tools.py`, `permissions.py`                                              | `docs/tools.md`                               |
 | `cli/src/mycode_cli/server/**` or any SSE event / route                                                      | `docs/api.md`                                 |
 | `cli/src/mycode_cli/config.py`, `state.py`                                                                   | `docs/config.md`                              |

@@ -2,20 +2,28 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, cast
 
 import pytest
 
-from mycode import ErrorEvent, ReasoningEvent, TextEvent, ToolDoneEvent
+from mycode import ErrorEvent, ReasoningEvent, TextEvent, ToolDoneEvent, ToolStartEvent, UsageEvent
 from mycode_cli.main import app, resolve_session_id, run_noninteractive
 from mycode_cli.permissions import PERMISSION_DENIED_BY_USER_OUTPUT, PERMISSION_DENIED_OUTPUT
 from mycode_cli.sessions import SessionStore
 
+_TOOL_CALL = {"type": "tool_use", "id": "call-1", "name": "bash", "input": {"command": "rm -rf build"}}
 
-class _FakeAgent:
+
+class _BaseAgent:
     session_id = "session"
+    model = "test-model"
+    reasoning_effort = None
 
+
+class _FakeAgent(_BaseAgent):
     async def achat(self, message: str, *, on_persist=None):
         if on_persist:
             await on_persist({"role": "user", "content": [{"type": "text", "text": message}]})
@@ -27,29 +35,31 @@ class _FakeAgent:
             )
         yield ReasoningEvent(delta="Hidden reasoning")
         yield TextEvent(delta="Streamed answer should stay hidden")
+        yield UsageEvent(
+            context_tokens=10,
+            turn_usage={"input_tokens": 8, "output_tokens": 2},
+            turn_cost={"total": 0.01},
+            turn_duration_ms=5,
+        )
 
 
-class _ErrorAgent:
-    session_id = "session"
-
+class _ErrorAgent(_BaseAgent):
     async def achat(self, message: str, *, on_persist=None):
         yield ErrorEvent(message="provider error")
 
 
-class _PermissionDeniedAgent:
-    session_id = "session"
-
+class _PermissionDeniedAgent(_BaseAgent):
     def __init__(self, output: str) -> None:
         self.output = output
 
     async def achat(self, message: str, *, on_persist=None):
+        yield ToolStartEvent(tool_call=cast(Any, _TOOL_CALL))
         yield ToolDoneEvent(tool_use_id="call-1", output=self.output, is_error=True)
 
 
-class _PermissionDeniedThenReplyAgent:
-    session_id = "session"
-
+class _PermissionDeniedThenReplyAgent(_BaseAgent):
     async def achat(self, message: str, *, on_persist=None):
+        yield ToolStartEvent(tool_call=cast(Any, _TOOL_CALL))
         yield ToolDoneEvent(tool_use_id="call-1", output=PERMISSION_DENIED_OUTPUT, is_error=True)
         if on_persist:
             await on_persist(
@@ -60,19 +70,25 @@ class _PermissionDeniedThenReplyAgent:
             )
 
 
-class _FakeSetup:
-    store = None
-    settings = type("Settings", (), {"cwd": "."})()
-    resolved_provider = None
-    session_id = "session"
+def _settings(tmp_path: Path) -> Any:
+    return SimpleNamespace(cwd=str(tmp_path), permission=SimpleNamespace(level="safe"))
+
+
+async def _run(agent: Any, tmp_path: Path, output_format: Any = "text") -> int:
+    return await run_noninteractive(
+        agent,
+        "hello",
+        store=SessionStore(tmp_path),
+        settings=_settings(tmp_path),
+        provider_name="test",
+        output_format=output_format,
+    )
 
 
 class TestRunNoninteractive:
     @pytest.mark.asyncio
     async def test_prints_only_final_reply(self, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-        code = await run_noninteractive(
-            cast(Any, _FakeAgent()), "hello", store=SessionStore(tmp_path), cwd=str(tmp_path)
-        )
+        code = await _run(_FakeAgent(), tmp_path)
 
         captured = capsys.readouterr()
         assert code == 0
@@ -81,9 +97,7 @@ class TestRunNoninteractive:
 
     @pytest.mark.asyncio
     async def test_prints_errors_to_stderr(self, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-        code = await run_noninteractive(
-            cast(Any, _ErrorAgent()), "hello", store=SessionStore(tmp_path), cwd=str(tmp_path)
-        )
+        code = await _run(_ErrorAgent(), tmp_path)
 
         captured = capsys.readouterr()
         assert code == 1
@@ -94,9 +108,7 @@ class TestRunNoninteractive:
     async def test_prints_permission_denials_to_stderr(
         self, output: str, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        code = await run_noninteractive(
-            cast(Any, _PermissionDeniedAgent(output)), "hello", store=SessionStore(tmp_path), cwd=str(tmp_path)
-        )
+        code = await _run(_PermissionDeniedAgent(output), tmp_path)
 
         captured = capsys.readouterr()
         assert code == 1
@@ -107,17 +119,65 @@ class TestRunNoninteractive:
     async def test_prints_final_reply_after_permission_denial(
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        code = await run_noninteractive(
-            cast(Any, _PermissionDeniedThenReplyAgent()),
-            "hello",
-            store=SessionStore(tmp_path),
-            cwd=str(tmp_path),
-        )
+        code = await _run(_PermissionDeniedThenReplyAgent(), tmp_path)
 
         captured = capsys.readouterr()
         assert code == 1
         assert captured.out == "Permission was denied. Use --permission standard.\n"
         assert captured.err == ""
+
+    @pytest.mark.asyncio
+    async def test_jsonl_streams_init_events_and_result(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        code = await _run(_FakeAgent(), tmp_path, "jsonl")
+
+        records = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
+        assert code == 0
+        assert [record["type"] for record in records] == ["init", "reasoning", "text", "usage", "result"]
+        assert records[0]["session_id"] == "session"
+        result = records[-1]
+        assert result["is_error"] is False
+        assert result["result"] == "Persisted final answer"
+        assert result["usage"] == {"input_tokens": 8, "output_tokens": 2}
+        assert result["cost"] == {"total": 0.01}
+
+    @pytest.mark.asyncio
+    async def test_json_reports_permission_denials(self, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+        code = await _run(_PermissionDeniedThenReplyAgent(), tmp_path, "json")
+
+        (line,) = capsys.readouterr().out.splitlines()
+        result = json.loads(line)
+        assert code == 1
+        assert result["is_error"] is True
+        assert result["error"] == PERMISSION_DENIED_OUTPUT
+        assert result["result"] == "Permission was denied. Use --permission standard."
+        assert result["permission_denials"] == [
+            {"tool_use_id": "call-1", "name": "bash", "input": {"command": "rm -rf build"}}
+        ]
+
+    @pytest.mark.asyncio
+    async def test_json_reports_session_write_failures(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        class _ReadOnlyStore:
+            async def record_user_turn(self, *args: Any, **kwargs: Any) -> None:
+                raise OSError("Read-only file system")
+
+        code = await run_noninteractive(
+            cast(Any, _FakeAgent()),
+            "hello",
+            store=cast(Any, _ReadOnlyStore()),
+            settings=_settings(tmp_path),
+            provider_name="test",
+            output_format="json",
+        )
+
+        result = json.loads(capsys.readouterr().out)
+        assert code == 1
+        assert result["is_error"] is True
+        assert result["error"] == "Read-only file system"
+        assert result["session_id"] == "session"
 
 
 @pytest.mark.asyncio
@@ -222,7 +282,13 @@ def test_run_reads_prompt_from_args_and_stdin(
 
     monkeypatch.setattr(main, "build_agent", lambda **kwargs: None)
     monkeypatch.setattr(main, "run_noninteractive", fake_run)
-    monkeypatch.setattr(main, "_bootstrap", lambda **kwargs: _FakeSetup())
+    monkeypatch.setattr(
+        main,
+        "_bootstrap",
+        lambda **kwargs: SimpleNamespace(
+            store=None, settings=None, resolved_provider=SimpleNamespace(provider_name="test"), session_id="s"
+        ),
+    )
 
     result = CliRunner().invoke(app, ["run", *args], input=stdin)
 
@@ -237,3 +303,22 @@ def test_run_requires_a_prompt() -> None:
 
     assert result.exit_code == 2
     assert "provide a prompt" in result.output
+
+
+def test_run_reports_startup_errors_as_json(monkeypatch: pytest.MonkeyPatch) -> None:
+    from typer.testing import CliRunner
+
+    import mycode_cli.main as main
+
+    def fail(**kwargs: Any) -> Any:
+        raise ValueError("Unknown session: nope")
+
+    monkeypatch.setattr(main, "_bootstrap", fail)
+
+    result = CliRunner().invoke(app, ["run", "--format", "json", "hello"], input="")
+
+    assert result.exit_code == 1
+    record = json.loads(result.stdout)
+    assert record["is_error"] is True
+    assert record["error"] == "Unknown session: nope"
+    assert record["session_id"] is None
