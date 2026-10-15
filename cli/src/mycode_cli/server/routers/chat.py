@@ -36,6 +36,7 @@ from mycode_cli.background import BackgroundJobs
 from mycode_cli.config import (
     ResolvedProvider,
     Settings,
+    WebConfig,
     get_settings,
     resolve_provider,
 )
@@ -227,7 +228,7 @@ async def chat(chat: ChatRequest, store: StoreDep, runs: RunManagerDep) -> ChatR
     session_id = chat.session_id or "default"
     jobs = runs.jobs_for(session_id)
     user_message, uploads = await _build_user_message(
-        chat, CliDeps.for_session(cwd=cwd, data_dir=store.data_dir, session_id=session_id)
+        chat, CliDeps.for_session(cwd=cwd, data_dir=store.data_dir, session_id=session_id, web=settings.web)
     )
 
     # Capability check before any disk mutation — a failed check must not
@@ -474,7 +475,8 @@ async def steer_run(
     if state is None:
         raise HTTPException(status_code=404, detail="run not found")
     message, uploads = await _build_user_message(
-        body, CliDeps.for_session(cwd=state.cwd, data_dir=store.data_dir, session_id=state.session_id)
+        body,
+        CliDeps.for_session(cwd=state.cwd, data_dir=store.data_dir, session_id=state.session_id, web=WebConfig()),
     )
     message["meta"] = {"input_id": body.input_id}
     _check_input_support(message, state.agent)
@@ -502,7 +504,7 @@ async def queue_message(
     if state is None:
         raise HTTPException(status_code=409, detail={"message": "session has no running chat to queue on"})
     message, uploads = await _build_user_message(
-        body, CliDeps.for_session(cwd=state.cwd, data_dir=store.data_dir, session_id=session_id)
+        body, CliDeps.for_session(cwd=state.cwd, data_dir=store.data_dir, session_id=session_id, web=WebConfig())
     )
     message["meta"] = {"input_id": body.input_id}
     _check_input_support(message, state.agent)

@@ -44,7 +44,7 @@ async def _call(
     executor = ToolExecutor(build_web_tools(web))
     ctx = ToolContext(
         executor=executor,
-        deps=CliDeps(cwd=tmp_path, tool_output_dir=tmp_path / "tool-output"),
+        deps=CliDeps(cwd=tmp_path, tool_output_dir=tmp_path / "tool-output", web=web),
         tool_call_id="call-1",
     )
     return await executor.aexecute(name, args, ctx)

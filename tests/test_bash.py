@@ -19,6 +19,7 @@ from mycode import (
 )
 from mycode.providers.base import MessageDone, ProviderStreamEvent
 from mycode.tools import ToolContext, ToolExecutor
+from mycode_cli.config import WebConfig
 from mycode_cli.tools import DEFAULT_TOOLS, bash_tool
 from mycode_cli.workspace import CliDeps
 
@@ -36,6 +37,7 @@ def _ctx(
         deps=CliDeps(
             cwd=Path(cwd),
             tool_output_dir=tool_output_dir if tool_output_dir is not None else Path(cwd),
+            web=WebConfig(),
         ),
         tool_call_id=tool_call_id,
         emit=on_output,
@@ -288,7 +290,7 @@ def _bash_agent(tmp_path: Path) -> Agent:
         session_dir=tmp_path,
         session_id="session",
         tools=[bash_tool],
-        deps=CliDeps.for_session(cwd=tmp_path, data_dir=tmp_path, session_id="session"),
+        deps=CliDeps.for_session(cwd=tmp_path, data_dir=tmp_path, session_id="session", web=WebConfig()),
     )
 
 

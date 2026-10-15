@@ -49,5 +49,7 @@ def build_agent(
         system=build_system_prompt(settings.cwd, skills),
         tools=[*DEFAULT_TOOLS, *build_web_tools(settings.web)],
         hooks=build_permission_hooks(settings, skills=skills, review=review),
-        deps=CliDeps.for_session(cwd=settings.cwd, data_dir=store.data_dir, session_id=session_id, jobs=jobs),
+        deps=CliDeps.for_session(
+            cwd=settings.cwd, data_dir=store.data_dir, session_id=session_id, web=settings.web, jobs=jobs
+        ),
     )

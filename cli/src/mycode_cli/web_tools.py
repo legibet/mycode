@@ -1,4 +1,4 @@
-"""Configurable web fetch and search tools for mycode-cli."""
+"""The CLI's web tools: ``webfetch`` and ``websearch``, using the providers set in ``CliDeps.web``."""
 
 from __future__ import annotations
 
@@ -39,12 +39,11 @@ _BROWSER_USER_AGENT = (
     "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
 )
 
-type Recency = Literal["day", "week", "month", "year"]
-type SearchDepth = Literal["fast", "balanced", "deep"]
-
-
-class _ResponseTooLarge(Exception):
-    pass
+# Plain aliases, not ``type`` statements, so tool schemas inline the enums: a
+# named alias becomes a ``$ref``, which strict OpenAI schemas reject next to
+# the parameter's ``default`` and ``description``.
+Recency = Literal["day", "week", "month", "year"]
+SearchDepth = Literal["fast", "balanced", "deep"]
 
 
 class _WebToolError(Exception):
@@ -52,83 +51,30 @@ class _WebToolError(Exception):
 
 
 def build_web_tools(web: WebConfig) -> list[ToolSpec]:
-    """Build the web tools for one resolved settings snapshot."""
+    """Return the web tools ``web`` enables: ``webfetch``, plus ``websearch`` when a search provider is set."""
 
-    @tool(
-        name="webfetch",
-        description="Read the content of a URL.",
-        parameters={
-            "url": "HTTP or HTTPS URL to read.",
-            "timeout": (
-                f"Whole-call timeout in seconds. Defaults to {DEFAULT_TIMEOUT_SECONDS}; maximum {MAX_TIMEOUT_SECONDS}."
-            ),
-        },
-        parallel_safe=True,
-    )
-    async def webfetch(
-        ctx: ToolContext[CliDeps],
-        url: str,
-        timeout: int | None = None,  # noqa: ASYNC109
-    ) -> ToolExecutionResult:
-        return await _run_webfetch(ctx, web, url, timeout)
-
-    tools = [webfetch]
-    if web.search == "off":
-        return tools
-
-    @tool(
-        name="websearch",
-        description=(
-            "Search the web and return matching pages with short excerpts. Use webfetch to read a page's full content."
-        ),
-        parameters={
-            "query": "Search query.",
-            "max_results": f"Maximum results. Defaults to {DEFAULT_MAX_RESULTS}; maximum {MAX_RESULTS}.",
-            "recency": "Optional publication recency filter.",
-            "include_domains": "Only include results from these domains.",
-            "exclude_domains": "Exclude results from these domains.",
-            "search_depth": "Use deep only when a normal search is insufficient.",
-        },
-        parallel_safe=True,
-    )
-    async def websearch(
-        query: str,
-        max_results: int | None = None,
-        recency: Recency | None = None,
-        include_domains: list[str] | None = None,
-        exclude_domains: list[str] | None = None,
-        search_depth: SearchDepth | None = None,
-    ) -> ToolExecutionResult:
-        return await _run_websearch(
-            web,
-            query,
-            max_results,
-            recency,
-            include_domains,
-            exclude_domains,
-            search_depth,
-        )
-
-    tools.append(websearch)
-    return tools
+    return [webfetch_tool] if web.search == "off" else [webfetch_tool, websearch_tool]
 
 
-async def _run_webfetch(
+@tool(
+    name="webfetch",
+    description="Read the content of a URL.",
+    parameters={
+        "url": "HTTP or HTTPS URL to read.",
+        "timeout": f"Whole-call timeout in seconds. Defaults to {DEFAULT_TIMEOUT_SECONDS}; maximum {MAX_TIMEOUT_SECONDS}.",
+    },
+    parallel_safe=True,
+)
+async def webfetch_tool(
     ctx: ToolContext[CliDeps],
-    web: WebConfig,
     url: str,
-    requested_timeout: int | None,
+    timeout: int = DEFAULT_TIMEOUT_SECONDS,  # noqa: ASYNC109
 ) -> ToolExecutionResult:
     if urlsplit(url).scheme.lower() not in {"http", "https"}:
         return _error("URL must start with http:// or https://")
 
-    budget = max(
-        1,
-        min(
-            requested_timeout if requested_timeout is not None else DEFAULT_TIMEOUT_SECONDS,
-            MAX_TIMEOUT_SECONDS,
-        ),
-    )
+    web = ctx.deps.web
+    budget = max(1, min(timeout, MAX_TIMEOUT_SECONDS))
     provider = web.fetch
     try:
         async with asyncio.timeout(budget):
@@ -144,8 +90,6 @@ async def _run_webfetch(
             f"request timed out after {budget}s; retry with a larger timeout "
             + f"(max {MAX_TIMEOUT_SECONDS}) if the site is slow"
         )
-    except _ResponseTooLarge:
-        return _error("response too large (over 5MB)")
     except (_WebToolError, ValueError) as exc:
         return _error(str(exc))
     except httpx2.RequestError as exc:
@@ -153,28 +97,46 @@ async def _run_webfetch(
         return _error(f"{prefix}: {exc}")
 
 
-async def _run_websearch(
-    web: WebConfig,
+@tool(
+    name="websearch",
+    description=(
+        "Search the web and return matching pages with short excerpts. Use webfetch to read a page's full content."
+    ),
+    parameters={
+        "query": "Search query.",
+        "max_results": f"Maximum results. Defaults to {DEFAULT_MAX_RESULTS}; maximum {MAX_RESULTS}.",
+        "recency": "Optional publication recency filter.",
+        "include_domains": "Only include results from these domains.",
+        "exclude_domains": "Exclude results from these domains.",
+        "search_depth": "Use deep only when a normal search is insufficient.",
+    },
+    parallel_safe=True,
+)
+async def websearch_tool(
+    ctx: ToolContext[CliDeps],
     query: str,
-    max_results: int | None,
-    recency: Recency | None,
-    include_domains: list[str] | None,
-    exclude_domains: list[str] | None,
-    search_depth: SearchDepth | None,
+    max_results: int = DEFAULT_MAX_RESULTS,
+    recency: Recency | None = None,
+    include_domains: list[str] | None = None,
+    exclude_domains: list[str] | None = None,
+    search_depth: SearchDepth = "balanced",
 ) -> ToolExecutionResult:
+    web = ctx.deps.web
     provider = web.search
-    count = max(1, min(max_results if max_results is not None else DEFAULT_MAX_RESULTS, MAX_RESULTS))
-    depth = search_depth or "balanced"
+    search = _search_tavily if provider == "tavily" else _search_exa
     try:
         async with asyncio.timeout(DEFAULT_TIMEOUT_SECONDS):
-            if provider == "tavily":
-                results = await _search_tavily(web, query, count, recency, include_domains, exclude_domains, depth)
-            else:
-                results = await _search_exa(web, query, count, recency, include_domains, exclude_domains, depth)
+            results = await search(
+                web,
+                query=query,
+                max_results=max(1, min(max_results, MAX_RESULTS)),
+                recency=recency,
+                include_domains=include_domains,
+                exclude_domains=exclude_domains,
+                depth=search_depth,
+            )
     except (TimeoutError, httpx2.TimeoutException):
         return _error(f"request timed out after {DEFAULT_TIMEOUT_SECONDS}s")
-    except _ResponseTooLarge:
-        return _error("response too large (over 5MB)")
     except (_WebToolError, ValueError) as exc:
         return _error(str(exc))
     except httpx2.RequestError as exc:
@@ -260,6 +222,7 @@ async def _fetch_exa(web: WebConfig, url: str, budget: int) -> tuple[str, str]:
 
 async def _search_tavily(
     web: WebConfig,
+    *,
     query: str,
     max_results: int,
     recency: Recency | None,
@@ -307,6 +270,7 @@ async def _search_tavily(
 
 async def _search_exa(
     web: WebConfig,
+    *,
     query: str,
     max_results: int,
     recency: Recency | None,
@@ -371,14 +335,19 @@ async def _post_json(
         client.stream("POST", url, json=payload, headers=headers) as response,
     ):
         body = await _read_body(response)
+    if response.status_code >= 400:
+        if provider == "tavily" and keyless and response.status_code == 429:
+            raise _WebToolError("tavily rate limit exceeded; set web.tavily.api_key to raise limits")
         try:
-            data = json.loads(body)
-        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-            raise _WebToolError(f"{provider} request failed: invalid JSON response") from exc
-        if response.status_code >= 400:
-            if provider == "tavily" and keyless and response.status_code == 429:
-                raise _WebToolError("tavily rate limit exceeded; set web.tavily.api_key to raise limits")
-            raise _WebToolError(f"{provider} request failed: {_short_message(data)}")
+            message = _short_message(json.loads(body))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            # Gateways and rate limiters often answer with HTML or plain text.
+            message = f"HTTP {response.status_code} {response.reason_phrase}"
+        raise _WebToolError(f"{provider} request failed: {message}")
+    try:
+        data = json.loads(body)
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise _WebToolError(f"{provider} request failed: invalid JSON response") from exc
     if not isinstance(data, dict):
         raise _WebToolError(f"{provider} request failed: invalid JSON response")
     return data
@@ -387,24 +356,26 @@ async def _post_json(
 async def _read_body(response: httpx2.Response) -> bytes:
     content_length = response.headers.get("content-length")
     if content_length and content_length.isdigit() and int(content_length) > MAX_RESPONSE_BYTES:
-        raise _ResponseTooLarge
+        raise _WebToolError("response too large (over 5MB)")
 
     body = bytearray()
     async for chunk in response.aiter_bytes():
         body.extend(chunk)
         if len(body) > MAX_RESPONSE_BYTES:
-            raise _ResponseTooLarge
+            raise _WebToolError("response too large (over 5MB)")
     return bytes(body)
 
 
 def _convert_response(response: httpx2.Response, body: bytes) -> str:
     content_type = response.headers.get("content-type", "")
     mime = content_type.split(";", 1)[0].strip().lower()
-    text_mimes = {"application/json", "application/xml"}
     is_text = (
-        not mime or mime.startswith("text/") or mime in text_mimes or mime.endswith("+json") or mime.endswith("+xml")
+        not mime
+        or mime.startswith("text/")
+        or mime in {"application/json", "application/xml"}
+        or mime.endswith(("+json", "+xml"))
     )
-    if mime not in {"text/html", "application/xhtml+xml"} and not is_text:
+    if not is_text:
         raise _WebToolError(f"unsupported content type: {mime}")
 
     text = body.decode(response.encoding or "utf-8", errors="replace")

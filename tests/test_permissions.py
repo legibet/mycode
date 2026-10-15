@@ -10,7 +10,7 @@ import pytest
 from mycode import Agent, SessionStore, ToolHookContext, tool
 from mycode.providers.base import MessageDone
 from mycode.tools import ToolExecutionResult, ToolSpec
-from mycode_cli.config import PermissionConfig, Settings
+from mycode_cli.config import PermissionConfig, Settings, WebConfig
 from mycode_cli.permissions import (
     PERMISSION_DENIED_BY_USER_OUTPUT,
     PERMISSION_DENIED_OUTPUT,
@@ -34,7 +34,7 @@ def _ctx(name: str, tool_input: dict[str, object], *, cwd: Path | None = None) -
     cwd = cwd or Path("/tmp")
     return ToolHookContext(
         session_id="s",
-        deps=CliDeps(cwd=cwd, tool_output_dir=cwd / "tool-output"),
+        deps=CliDeps(cwd=cwd, tool_output_dir=cwd / "tool-output", web=WebConfig()),
         provider="openai",
         model="gpt-5.5",
         tool_call_id="call-1",

@@ -99,7 +99,7 @@ async def test_new_session_keeps_configured_tools_and_uses_the_new_session_direc
     assert "websearch" in tools
     assert [spec.name for spec in chat.agent.tools.specs] == tools
     assert chat.agent.deps == CliDeps.for_session(
-        cwd=tmp_path, data_dir=store.data_dir, session_id="new", jobs=chat.jobs
+        cwd=tmp_path, data_dir=store.data_dir, session_id="new", web=settings.web, jobs=chat.jobs
     )
 
 
