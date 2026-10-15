@@ -80,7 +80,7 @@ See [docs/config.md](https://github.com/legibet/mycode/blob/main/docs/config.md)
 The CLI assembles the system prompt from instructions files and discovered skills.
 
 - `AGENTS.md` files are injected as project instructions: `~/.mycode/AGENTS.md` (fallback `~/.agents/AGENTS.md`), then every `AGENTS.md` from the project root down to the current directory. Later files take precedence.
-- Skills are directories containing a `SKILL.md`. Scan roots, lowest to highest priority: `~/.agents/skills/`, `~/.mycode/skills/`, then `.agents/skills/` and `.mycode/skills/` from the project root down to the current directory. Later roots override earlier ones by skill name. `SKILL.md` needs YAML frontmatter with `name` and `description`.
+- A skill is a directory containing a `SKILL.md`, up to three levels below a scan root, or a `.md` file directly in a scan root. Scan roots, lowest to highest priority: `~/.agents/skills/`, `~/.mycode/skills/`, then `.agents/skills/` and `.mycode/skills/` from the project root down to the current directory. Later roots override earlier ones by skill name. The file needs YAML frontmatter with a `description`; `name` defaults to the directory or file name and may contain only letters, digits, `-`, and `_` (at most 64 characters).
 - A standalone `/<skill-name>` token in a message loads the matching skill, e.g. `Use /fastapi to review this route`. Names matching built-in slash commands are reserved.
 
 ## Terminal UI

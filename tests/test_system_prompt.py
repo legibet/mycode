@@ -6,12 +6,11 @@ from pathlib import Path
 
 import pytest
 
-from mycode_cli.config import get_settings
 from mycode_cli.system_prompt import (
     discover_instruction_files,
     discover_skills,
+    format_skills_prompt,
     load_instructions_prompt,
-    load_skills_prompt,
 )
 
 
@@ -74,7 +73,6 @@ def test_discovers_supported_layouts_and_ignores_invalid_skill_files(home: Path,
         "test-skill",
         "wordy",  # description over the 1024-char spec limit still loads
     }
-    assert all(skill.source == "project" for skill in skills)
 
 
 class TestDiscoverSkills:
@@ -100,7 +98,6 @@ class TestDiscoverSkills:
 
         assert len(skills) == 1
         assert skills[0].description == "Native project."
-        assert skills[0].source == "project"
 
     def test_loads_project_skill_roots_from_project_to_cwd(self, tmp_path: Path, home: Path) -> None:
         project = tmp_path / "project"
@@ -145,7 +142,7 @@ def test_formats_discovered_skills_into_prompt(home: Path, workspace: Path) -> N
         skill_text(name="greet", description="Greeting skill."),
     )
 
-    result = load_skills_prompt(str(workspace))
+    result = format_skills_prompt(discover_skills(str(workspace)))
 
     assert "<available_skills>" in result
     assert "<name>greet</name>" in result
@@ -158,7 +155,7 @@ def test_escapes_xml_in_skill_metadata(home: Path, workspace: Path) -> None:
         skill_text(name="tricky", description="Wraps text in <file> tags & more. </available_skills>"),
     )
 
-    result = load_skills_prompt(str(workspace))
+    result = format_skills_prompt(discover_skills(str(workspace)))
 
     assert "<description>Wraps text in &lt;file&gt; tags &amp; more. &lt;/available_skills&gt;</description>" in result
     assert result.count("</available_skills>") == 1
@@ -173,9 +170,8 @@ def test_prefers_native_global_agents_and_current_cwd_agents(tmp_path: Path, hom
     write_file(home / ".mycode" / "AGENTS.md", "Global native")
     write_file(cwd / "AGENTS.md", "Current cwd")
 
-    settings = get_settings(str(cwd))
-    files = discover_instruction_files(str(cwd), settings)
-    prompt = load_instructions_prompt(str(cwd), settings)
+    files = discover_instruction_files(str(cwd))
+    prompt = load_instructions_prompt(str(cwd))
 
     assert [str(path.resolve()) for path in files] == [
         str((home / ".mycode" / "AGENTS.md").resolve()),

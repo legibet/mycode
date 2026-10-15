@@ -7,7 +7,7 @@ from mycode_cli.background import BackgroundJobs
 from mycode_cli.config import ResolvedProvider, Settings
 from mycode_cli.permissions import ToolReviewCallback, build_permission_hooks
 from mycode_cli.sessions import SessionStore
-from mycode_cli.system_prompt import build_system_prompt
+from mycode_cli.system_prompt import build_system_prompt, discover_skills
 from mycode_cli.tools import DEFAULT_TOOLS
 from mycode_cli.web_tools import build_web_tools
 from mycode_cli.workspace import CliDeps
@@ -30,7 +30,7 @@ def build_agent(
     """
 
     metadata = resolved_provider.metadata
-    hooks = build_permission_hooks(settings, review=review)
+    skills = discover_skills(settings.cwd)
     return Agent(
         model=resolved_provider.model,
         provider=resolved_provider.provider,
@@ -46,8 +46,8 @@ def build_agent(
         supports_pdf_input=metadata.supports_pdf_input,
         compact_threshold=settings.compact_threshold,
         max_turns=max_turns,
-        system=build_system_prompt(settings.cwd, settings),
+        system=build_system_prompt(settings.cwd, skills),
         tools=[*DEFAULT_TOOLS, *build_web_tools(settings.web)],
-        hooks=hooks,
+        hooks=build_permission_hooks(settings, skills=skills, review=review),
         deps=CliDeps.for_session(cwd=settings.cwd, data_dir=store.data_dir, session_id=session_id, jobs=jobs),
     )

@@ -88,6 +88,6 @@ Both interactive surfaces (TUI and web) prompt for approval when `mode: "ask"` a
 
 The shell checks are intentionally simple and conservative. Project commands such as tests, builds, formatters, package scripts, and task runners are `standard` because they execute project-defined code. Compound commands (`&&`, `||`, `;`, pipes, redirection, command substitution) and obvious destructive commands (`rm`, `sudo`, `chmod`, `git reset`, `git clean`, `git push --force`, etc.) fall outside `readonly`/`safe`/`standard` and require `yolo` or `mode: "ask"` approval.
 
-`webfetch` and `websearch` are `standard`. Their permission previews show the initial URL and query respectively. Reads inside the current session's `tool_output_dir` are `readonly`, including follow-up reads of truncated webfetch output.
+`webfetch` and `websearch` are `standard`. Their permission previews show the initial URL and query respectively. Reads inside the current session's `tool_output_dir` or a discovered skill's directory are `readonly`, including follow-up reads of truncated webfetch output.
 
 Local webfetch intentionally does not block localhost, private address ranges, or cloud metadata endpoints. The machine is the trust boundary. The permission prompt displays the initial URL only; redirects are followed up to five times without another prompt, so a public URL can redirect to a private or metadata address.

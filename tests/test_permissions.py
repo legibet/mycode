@@ -218,19 +218,18 @@ def test_background_bash_keeps_its_level_and_marks_the_preview(tmp_path: Path) -
 
 
 @pytest.mark.asyncio
-async def test_permission_hook_denies_without_interactive_review_without_cancelling(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setattr("mycode_cli.permissions.discover_skills", lambda _cwd: [])
-    hooks = build_permission_hooks(_settings(tmp_path, permission=PermissionConfig(level="safe", mode="ask")))
+async def test_permission_hook_denies_without_interactive_review_without_cancelling(tmp_path: Path) -> None:
+    hooks = build_permission_hooks(
+        _settings(tmp_path, permission=PermissionConfig(level="safe", mode="ask")),
+        skills=[],
+    )
     result = await hooks._run_before_tool(_ctx("bash", {"command": "pnpm install"}), lambda: None)
 
     assert result == ToolExecutionResult(output=PERMISSION_DENIED_OUTPUT, is_error=True)
 
 
 @pytest.mark.asyncio
-async def test_permission_hook_allows_interactive_approval(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("mycode_cli.permissions.discover_skills", lambda _cwd: [])
+async def test_permission_hook_allows_interactive_approval(tmp_path: Path) -> None:
     reviewed: list[ToolReviewRequest] = []
 
     async def review(request: ToolReviewRequest) -> ToolReviewDecision:
@@ -239,6 +238,7 @@ async def test_permission_hook_allows_interactive_approval(tmp_path: Path, monke
 
     hooks = build_permission_hooks(
         _settings(tmp_path, permission=PermissionConfig(level="safe", mode="ask")),
+        skills=[],
         review=review,
     )
     result = await hooks._run_before_tool(_ctx("bash", {"command": "pnpm install"}), lambda: None)
@@ -249,7 +249,6 @@ async def test_permission_hook_allows_interactive_approval(tmp_path: Path, monke
 
 @pytest.mark.asyncio
 async def test_permission_hook_distinguishes_user_denial(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("mycode_cli.permissions.discover_skills", lambda _cwd: [])
     calls: list[str] = []
 
     @tool
@@ -265,6 +264,7 @@ async def test_permission_hook_distinguishes_user_denial(tmp_path: Path, monkeyp
 
     hooks = build_permission_hooks(
         _settings(tmp_path, permission=PermissionConfig(level="safe", mode="ask")),
+        skills=[],
         review=review,
     )
     agent = Agent(model="test", provider="openai", tools=[probe], hooks=hooks, session_dir=tmp_path, max_turns=1)

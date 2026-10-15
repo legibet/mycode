@@ -10,7 +10,7 @@ from typing import Literal, NamedTuple
 
 from mycode import Hooks, ToolExecutionResult, ToolHookContext
 from mycode_cli.config import PermissionConfig, PermissionLevel, Settings
-from mycode_cli.system_prompt import discover_skills
+from mycode_cli.system_prompt import Skill
 from mycode_cli.workspace import CliDeps, resolve_path
 
 PermissionDecision = Literal["allow", "ask", "deny"]
@@ -71,10 +71,13 @@ ToolReviewCallback = Callable[[ToolReviewRequest], Awaitable[ToolReviewDecision]
 def build_permission_hooks(
     settings: Settings,
     *,
+    skills: list[Skill],
     review: ToolReviewCallback | None = None,
 ) -> Hooks:
+    """Build the ``before_tool`` hook; reads inside the ``skills`` directories are ``readonly``."""
+
     hooks = Hooks()
-    skill_roots = [Path(s.path).parent.resolve(strict=False) for s in discover_skills(settings.cwd)]
+    skill_roots = [Path(skill.path).parent for skill in skills]
 
     @hooks.before_tool
     async def check_permission(ctx: ToolHookContext[CliDeps]) -> ToolExecutionResult | None:
