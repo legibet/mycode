@@ -172,8 +172,8 @@ def _skip_line(file: TextIO) -> None:
 def read_tool(
     ctx: ToolContext[CliDeps],
     path: str,
-    offset: int | None = None,
-    limit: int | None = None,
+    offset: int = 1,
+    limit: int = DEFAULT_MAX_LINES,
 ) -> ToolExecutionResult:
     """Read a UTF-8 text file or a supported image file.
 
@@ -204,8 +204,8 @@ def read_tool(
             ],
         )
 
-    start_line = offset if offset is not None and offset > 0 else 1
-    line_limit = limit if limit is not None and limit > 0 else DEFAULT_MAX_LINES
+    start_line = max(offset, 1)
+    line_limit = limit if limit > 0 else DEFAULT_MAX_LINES
     try:
         with file_path.open("r", encoding="utf-8") as f:
             window = read_text_window(f, offset=start_line, limit=line_limit)
@@ -232,13 +232,11 @@ def read_tool(
 # ---------------------------------------------------------------------------
 
 
-def _atomic_write_text(path: Path, content: str, *, newline: str | None = None) -> None:
-    if newline is not None:
-        content = content.replace("\r\n", "\n")
-        if newline == "\r\n":
-            content = content.replace("\n", "\r\n")
+def _atomic_write_text(path: Path, content: str, *, crlf: bool = False) -> None:
+    if crlf:
+        content = content.replace("\r\n", "\n").replace("\n", "\r\n")
     tmp = path.with_name(f".{uuid4().hex}.tmp")
-    file = tmp.open("x", encoding="utf-8", newline=None if newline is None else "")
+    file = tmp.open("x", encoding="utf-8", newline="" if crlf else None)
     try:
         with file:
             file.write(content)
@@ -406,11 +404,8 @@ def edit_tool(ctx: ToolContext[CliDeps], path: str, edits: list[EditEntry]) -> T
     except Exception as exc:
         return ToolExecutionResult(output=f"error: failed to read file: {exc}", is_error=True)
 
-    newline = "\r\n" if "\r\n" in text else None
-
     matches: list[tuple[int, int, str, int]] = []
-    norm_text: str | None = None
-    norm_imap: list[int] | None = None
+    normalized: tuple[str, list[int]] | None = None
 
     for i, entry in enumerate(edits):
         old_text = entry.old_text
@@ -428,8 +423,9 @@ def edit_tool(ctx: ToolContext[CliDeps], path: str, edits: list[EditEntry]) -> T
                 is_error=True,
             )
 
-        if norm_text is None:
-            norm_text, norm_imap = _normalize_text(text)
+        if normalized is None:
+            normalized = _normalize_text(text)
+        norm_text, norm_imap = normalized
         norm_old, _ = _normalize_text(old_text)
 
         norm_count = norm_text.count(norm_old)
@@ -449,7 +445,6 @@ def edit_tool(ctx: ToolContext[CliDeps], path: str, edits: list[EditEntry]) -> T
             )
 
         idx = norm_text.find(norm_old)
-        assert norm_imap is not None
         # Normalized matching tolerates whitespace drift; replacement still
         # uses original offsets so untouched content is preserved exactly.
         orig_start = norm_imap[idx]
@@ -484,7 +479,7 @@ def edit_tool(ctx: ToolContext[CliDeps], path: str, edits: list[EditEntry]) -> T
                 output="error: file changed while editing; read it again and retry",
                 is_error=True,
             )
-        _atomic_write_text(file_path, updated, newline=newline)
+        _atomic_write_text(file_path, updated, crlf="\r\n" in text)
     except Exception as exc:
         return ToolExecutionResult(output=f"error: failed to write file: {exc}", is_error=True)
 
@@ -596,8 +591,7 @@ class _BashOutputAccumulator:
     shows, which is never more, so a truncated result always has a log.
     """
 
-    def __init__(self, tool_output_dir: Path, log_path: Path):
-        self.tool_output_dir = tool_output_dir
+    def __init__(self, log_path: Path):
         self.log_path = log_path
         encoding = locale.getpreferredencoding(False)
         self.decoder = codecs.getincrementaldecoder(encoding)(errors="replace")
@@ -682,7 +676,7 @@ class _BashOutputAccumulator:
     def open_log(self) -> None:
         """Start writing raw output to the log file, beginning with what was captured so far."""
 
-        self.tool_output_dir.mkdir(parents=True, exist_ok=True)
+        self.log_path.parent.mkdir(parents=True, exist_ok=True)
         self.log_file = self.log_path.open("wb")
         for chunk in self.raw_chunks:
             self.log_file.write(chunk)
@@ -709,13 +703,6 @@ def _format_bash_output(snapshot: _BashOutputSnapshot) -> str:
 
     path = f" Full output: {snapshot.full_output_path}." if snapshot.full_output_path is not None else ""
     return f"{result}\n\n[Output truncated: {summary}{path} {action}]"
-
-
-def _cancelled_bash_result(snapshot: _BashOutputSnapshot) -> ToolExecutionResult:
-    return ToolExecutionResult(
-        output=f"{_format_bash_output(snapshot)}\n\nerror: cancelled",
-        is_error=True,
-    )
 
 
 def _kill_proc_tree(proc: asyncio.subprocess.Process) -> None:
@@ -752,7 +739,7 @@ def _kill_proc_tree(proc: asyncio.subprocess.Process) -> None:
 async def bash_tool(
     ctx: ToolContext[CliDeps],
     command: str,
-    timeout: int | None = None,  # noqa: ASYNC109
+    timeout: int = BASH_TIMEOUT_SECONDS,  # noqa: ASYNC109
     background: bool = False,
 ) -> ToolExecutionResult:
     """Run a command with ``bash -c`` and return combined stdout/stderr text."""
@@ -766,7 +753,7 @@ async def bash_tool(
 
     tool_use_id = ctx.tool_call_id or "call"
     log_path = ctx.deps.tool_output_dir / f"bash-{tool_use_id}.log"
-    output = _BashOutputAccumulator(ctx.deps.tool_output_dir, log_path)
+    output = _BashOutputAccumulator(log_path)
     try:
         proc = await asyncio.create_subprocess_exec(
             bash,
@@ -783,8 +770,7 @@ async def bash_tool(
         return ToolExecutionResult(output=f"error: {exc}", is_error=True)
 
     if not background:
-        timeout_seconds = timeout if timeout is not None and timeout > 0 else BASH_TIMEOUT_SECONDS
-        return await _run_foreground(ctx, proc, output, timeout_seconds)
+        return await _run_foreground(ctx, proc, output, timeout if timeout > 0 else BASH_TIMEOUT_SECONDS)
 
     assert jobs is not None
     try:
@@ -868,7 +854,9 @@ async def _run_foreground(
         task.uncancel()
         await terminate_and_drain()
         emit_output(output.finish())
-        return _cancelled_bash_result(output.snapshot())
+        return ToolExecutionResult(
+            output=f"{_format_bash_output(output.snapshot())}\n\nerror: cancelled", is_error=True
+        )
     except Exception as exc:
         return ToolExecutionResult(output=f"error: {exc}", is_error=True)
     finally:
@@ -924,4 +912,4 @@ async def _finish_background(
     )
 
 
-DEFAULT_TOOLS: list[ToolSpec] = [read_tool, write_tool, edit_tool, bash_tool]
+DEFAULT_TOOLS: tuple[ToolSpec, ...] = (read_tool, write_tool, edit_tool, bash_tool)
