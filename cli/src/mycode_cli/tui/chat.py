@@ -386,14 +386,9 @@ class TerminalChat:
                 continue
             self.terminal.print(Text(), user_echo(user_input))
 
-            result = await self._handle_command(user_input)
-            if result == "exit":
-                return
-            if isinstance(result, str):
-                # The command prefills the next input (e.g. /rewind).
-                self.terminal.set_input(result)
-                continue
-            if result:
+            if _is_command(user_input):
+                if not await self._run_command(user_input):
+                    return
                 continue
 
             self.terminal.print()
@@ -625,11 +620,8 @@ class TerminalChat:
 
         return build_message("user", blocks)
 
-    async def _handle_command(self, text: str) -> str | bool:
-        """Handle a built-in command. Returns "exit" to quit, True if consumed, False otherwise."""
-
-        if not _is_command(text):
-            return False
+    async def _run_command(self, text: str) -> bool:
+        """Run a built-in command; return ``False`` when it quits the chat."""
 
         command, _, argument = text.partition(" ")
         argument = argument.strip()
@@ -638,15 +630,13 @@ class TerminalChat:
         match resolve_slash_command(command) or command:
             case "/quit" | "/exit" | "exit" | "quit":
                 self.terminal.print(Text("bye", style=MUTED))
-                return "exit"
+                return False
             case "/compact":
                 await self._compact_session()
             case "/new" | "/clear":
                 await self._start_new_session()
             case "/rewind":
-                prefill = await self._rewind()
-                if prefill:
-                    return prefill
+                await self._rewind()
             case "/resume":
                 await self._resume_session()
             case "/model":
@@ -656,8 +646,6 @@ class TerminalChat:
                     self._apply_effort_change(argument)
                 else:
                     await self._switch_effort()
-            case _:
-                return False
 
         return True
 
@@ -669,14 +657,6 @@ class TerminalChat:
         if value:
             text.append(f" {value}")
         self.terminal.print(text)
-
-    def _print_runtime_status(self, action: str, value: str, *, changed: bool) -> None:
-        """Print the result of a runtime-only change."""
-
-        if changed:
-            self._print_done(f"{action} →", value)
-        else:
-            self._print_done("already using", value)
 
     def _supports_effort_or_warn(self) -> bool:
         """Return whether the current model supports reasoning effort."""
@@ -739,58 +719,48 @@ class TerminalChat:
         self.agent = agent
         return True
 
-    async def _rewind(self) -> str | None:
+    async def _rewind(self) -> None:
         """Rewind the conversation to a chosen user message.
 
         Shows an interactive selector of all real user text messages.
         Selecting one truncates the in-memory conversation to the slice before
         that user message index and appends a rewind marker to the session log.
-        Returns the original message text to prefill the next prompt.
+        The message text goes back into the input.
         """
         messages = self.agent.messages
         if not messages:
             self.terminal.print(Text("nothing to rewind", style=MUTED))
-            return None
+            return
 
-        # Collect real user text turns; display_text skips tool results and
-        # payload blocks (same view as the history preview).
-        user_turns: dict[int, str] = {}  # message_index -> text
-        for i, msg in enumerate(messages):
-            if msg["role"] != "user":
-                continue
-            text = display_text(msg)
-            if text:
-                user_turns[i] = text
-
-        if not user_turns:
+        # Real user text turns, most recent first; display_text skips tool
+        # results and payload blocks (same view as the history preview).
+        turns = [
+            (index, text)
+            for index, message in reversed(list(enumerate(messages)))
+            if message["role"] == "user" and (text := display_text(message))
+        ]
+        if not turns:
             self.terminal.print(Text("no user messages to rewind to", style=MUTED))
-            return None
+            return
 
-        # Build selector options — most recent first.
-        options: list[tuple[int, str]] = []
-        for msg_index, text in reversed(list(user_turns.items())):
-            options.append((msg_index, shorten(text, 60)))
-
-        selected = await self.terminal.choose(options)
+        selected = await self.terminal.choose([(turn, shorten(turn[1], 60)) for turn in turns])
         if selected is None:
-            return None
-
-        original_text = user_turns[selected]
+            return
+        index, text = selected
 
         # A result for a call that is no longer in the history would confuse the model.
         await self.jobs.close()
         # Persist the rewind event and truncate in-memory messages.
-        await self.store.append_rewind(self.session_id, selected)
+        await self.store.append_rewind(self.session_id, index)
         await self.store.touch(self.session_id)
-        self.agent.messages = messages[:selected]
+        self.agent.messages = messages[:index]
 
         self._print_done("rewound")
         if self.agent.messages:
             self._print_history(self.agent.messages)
         else:
             self.terminal.print(Text("conversation is now empty", style=MUTED))
-
-        return original_text
+        self.terminal.set_input(text)
 
     async def _resume_session(self) -> None:
         """Switch to another saved session in the current workspace."""
@@ -880,7 +850,7 @@ class TerminalChat:
         label = f"{provider_name} / {model}"
         if resolved.reasoning_effort:
             label += f" [effort: {resolved.reasoning_effort}]"
-        self._print_runtime_status("model", label, changed=changed)
+        self._print_done("model →" if changed else "already using", label)
 
     async def _switch_effort(self) -> None:
         """Prompt for a reasoning effort level."""
@@ -911,6 +881,5 @@ class TerminalChat:
         self.agent = agent
         self.state.set_effort(current.provider_name, current.model, resolved.reasoning_effort)
         save_state(self.state)
-        self._print_runtime_status(
-            "effort", resolved.reasoning_effort or "auto", changed=resolved.reasoning_effort != current.reasoning_effort
-        )
+        changed = resolved.reasoning_effort != current.reasoning_effort
+        self._print_done("effort →" if changed else "already using", resolved.reasoning_effort or "auto")
