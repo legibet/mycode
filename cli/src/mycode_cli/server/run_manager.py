@@ -9,7 +9,7 @@ from collections.abc import AsyncGenerator, AsyncIterator, Awaitable, Callable
 from contextlib import aclosing, asynccontextmanager
 from dataclasses import dataclass, field
 from functools import partial
-from typing import Any, Literal, Protocol
+from typing import Any, Protocol
 from uuid import uuid4
 from weakref import WeakValueDictionary
 
@@ -26,11 +26,9 @@ from mycode.events import (
 from mycode.messages import ConversationMessage, merge_user_messages
 from mycode_cli.background import BackgroundJobs, is_job_message
 from mycode_cli.permissions import ToolReviewDecision
-from mycode_cli.server.schemas import StreamEvent
+from mycode_cli.server.schemas import RunKind, RunStatus, StreamEvent
 from mycode_cli.sessions import SessionTotals, sum_session_totals
 
-RunStatus = Literal["running", "completed", "failed", "cancelled"]
-RunKind = Literal["chat", "compact"]
 RunCompletionCallback = Callable[[str], Awaitable[None]]
 FINISHED_RUN_TTL_SECONDS = 300
 RUN_EVENT_BUFFER_SIZE = 2000

@@ -11,6 +11,7 @@ from mycode.usage import Cost
 from mycode_cli.sessions import SessionInfo
 
 RunKind = Literal["chat", "compact"]
+RunStatus = Literal["running", "completed", "failed", "cancelled"]
 
 
 class ChatInputBlock(BaseModel):
@@ -143,7 +144,7 @@ class RunInfo(BaseModel):
     id: str
     session_id: str
     kind: RunKind
-    status: Literal["running", "completed", "failed", "cancelled"]
+    status: RunStatus
     last_seq: int
     error: str | None = None
 

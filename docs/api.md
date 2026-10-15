@@ -508,7 +508,7 @@ Every event also carries `seq: int` for reconnect support. The web UI uses `afte
 
 `cli/src/mycode_cli/server/run_manager.py` manages concurrent runs:
 
-- One active run per session (enforced by `ActiveRunError` on conflict, regardless of kind)
+- One active run per session, regardless of kind: routes check under `session_operation(session_id)`, which every run start holds, and answer `409`; `ActiveRunError` guards the invariant inside the manager
 - Two run kinds share the lifecycle: `start_run()` iterates `agent.achat(user_message)`; `start_compact()` awaits `agent.acompact()` and emits one `compact` event with `trigger: "manual"` after the marker is persisted
 - Compact runs carry no `user_message`; snapshots return `base_messages` unchanged
 - `RunState` tracks a bounded reconnect event buffer and condition variable for streaming

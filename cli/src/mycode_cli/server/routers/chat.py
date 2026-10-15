@@ -5,12 +5,11 @@ from __future__ import annotations
 import asyncio
 import io
 import json
-import os
 from base64 import b64encode
 from collections.abc import AsyncIterator
 from functools import partial
 from pathlib import Path
-from typing import Annotated, Any, cast
+from typing import Annotated, cast
 from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException, Query, Request
@@ -23,7 +22,7 @@ from mycode.attachments import (
     detect_document_mime_type,
     detect_image_mime_type,
 )
-from mycode.compact import DEFAULT_COMPACT_THRESHOLD, has_compactable_history
+from mycode.compact import has_compactable_history
 from mycode.messages import (
     ContentBlock,
     ConversationMessage,
@@ -38,14 +37,12 @@ from mycode_cli.config import (
     ResolvedProvider,
     Settings,
     get_settings,
-    provider_models,
     resolve_provider,
-    resolve_provider_choices,
 )
 from mycode_cli.permissions import ToolReviewCallback, ToolReviewDecision, ToolReviewRequest
 from mycode_cli.runtime import build_agent
 from mycode_cli.server.deps import RunManagerDep, StoreDep, resolve_workspace_cwd
-from mycode_cli.server.run_manager import ActiveRunError, RunAgent, RunManager
+from mycode_cli.server.run_manager import RunAgent, RunManager
 from mycode_cli.server.schemas import (
     CancelRunResponse,
     ChatRequest,
@@ -59,7 +56,7 @@ from mycode_cli.server.schemas import (
     UserInputRequest,
 )
 from mycode_cli.sessions import SessionData, SessionStore, display_text
-from mycode_cli.system_prompt import build_skill_snapshot_blocks, discover_slash_skills
+from mycode_cli.system_prompt import build_skill_snapshot_blocks
 from mycode_cli.tools import read_text_window
 from mycode_cli.workspace import CliDeps, resolve_path
 
@@ -207,6 +204,17 @@ def _validate_rewind_request(data: SessionData | None, rewind_to: int) -> None:
         raise HTTPException(status_code=400, detail="rewind_to must reference a real user message")
 
 
+async def _ensure_idle(runs: RunManager, session_id: str) -> None:
+    """Refuse a new run while the session has one.
+
+    Called under ``runs.session_operation``, which every run start holds, so
+    the session stays idle until the caller starts its run.
+    """
+
+    if active := await runs.active_run_info(session_id):
+        raise HTTPException(status_code=409, detail={"message": "session already has a running task", "run": active})
+
+
 @router.post("/chat")
 async def chat(chat: ChatRequest, store: StoreDep, runs: RunManagerDep) -> ChatResponse:
     cwd = resolve_workspace_cwd(chat.cwd)
@@ -227,12 +235,7 @@ async def chat(chat: ChatRequest, store: StoreDep, runs: RunManagerDep) -> ChatR
     _check_input_support(user_message, resolved.metadata)
 
     async with runs.session_operation(session_id):
-        active = await runs.active_run_info(session_id)
-        if active:
-            raise HTTPException(
-                status_code=409,
-                detail={"message": "session already has a running task", "run": active},
-            )
+        await _ensure_idle(runs, session_id)
 
         if chat.rewind_to is not None:
             _validate_rewind_request(await store.load_session(session_id), chat.rewind_to)
@@ -286,21 +289,14 @@ async def chat(chat: ChatRequest, store: StoreDep, runs: RunManagerDep) -> ChatR
         # for it. Taken last: a run that fails to start leaves nothing in flight.
         jobs.suspended = False
         user_message["content"] = [*jobs.take_pending(), *user_message["content"]]
-        try:
-            run = await runs.start_run(
-                session_id=session_id,
-                cwd=cwd,
-                user_message=user_message,
-                base_messages=agent.messages,
-                agent=agent,
-                session_base=session_base,
-            )
-        except ActiveRunError as exc:
-            existing = await runs.get_run(exc.run_id)
-            detail: dict[str, Any] = {"message": "session already has a running task"}
-            if existing:
-                detail["run"] = existing.info()
-            raise HTTPException(status_code=409, detail=detail) from exc
+        run = await runs.start_run(
+            session_id=session_id,
+            cwd=cwd,
+            user_message=user_message,
+            base_messages=agent.messages,
+            agent=agent,
+            session_base=session_base,
+        )
 
     return ChatResponse(run=RunInfo.model_validate(run), session=session, message=user_message)
 
@@ -437,12 +433,7 @@ async def compact_session(
     """Start a compact run: summarize the session and append one compact marker."""
 
     async with runs.session_operation(session_id):
-        active = await runs.active_run_info(session_id)
-        if active:
-            raise HTTPException(
-                status_code=409,
-                detail={"message": "session already has a running task", "run": active},
-            )
+        await _ensure_idle(runs, session_id)
 
         data = await store.load_session(session_id)
         if data is None:
@@ -461,21 +452,14 @@ async def compact_session(
             session_id=session_id,
         )
 
-        try:
-            run = await runs.start_compact(
-                session_id=session_id,
-                cwd=settings.cwd,
-                base_messages=agent.messages,
-                agent=agent,
-                session_base=data["totals"],
-                on_complete=store.touch,
-            )
-        except ActiveRunError as exc:
-            existing = await runs.get_run(exc.run_id)
-            detail: dict[str, Any] = {"message": "session already has a running task"}
-            if existing:
-                detail["run"] = existing.info()
-            raise HTTPException(status_code=409, detail=detail) from exc
+        run = await runs.start_compact(
+            session_id=session_id,
+            cwd=settings.cwd,
+            base_messages=agent.messages,
+            agent=agent,
+            session_base=data["totals"],
+            on_complete=store.touch,
+        )
 
     return RunResponse(run=RunInfo.model_validate(run))
 
@@ -566,50 +550,3 @@ async def steer_queued_message(
             detail={"message": "run is not accepting steers", "run": state.info()},
         )
     return RunResponse(run=RunInfo.model_validate(state.info()))
-
-
-@router.get("/config")
-async def get_config(cwd: Annotated[str | None, Query()] = None) -> dict[str, Any]:
-    settings = await asyncio.to_thread(get_settings, cwd)
-    skills = await asyncio.to_thread(discover_slash_skills, settings.cwd)
-    resolved: ResolvedProvider | None = None
-    setup_error: dict[str, str] | None = None
-    try:
-        resolved = resolve_provider(settings)
-    except ValueError as exc:
-        setup_error = {"message": str(exc)}
-
-    providers_info: dict[str, Any] = {}
-    for provider in resolve_provider_choices(settings):
-        models = [
-            resolve_provider(settings, provider_name=provider.provider_name, model=model)
-            for model in provider_models(settings, provider)
-        ]
-        providers_info[provider.provider_name] = {
-            "name": provider.provider_name,
-            "models": [model.model for model in models],
-            "reasoning_efforts": {model.model: list(model.reasoning_efforts) for model in models},
-            "image_input_models": [model.model for model in models if model.metadata.supports_image_input],
-            "pdf_input_models": [model.model for model in models if model.metadata.supports_pdf_input],
-        }
-
-    default_payload = (
-        {"provider": resolved.provider_name, "model": resolved.model}
-        if resolved is not None
-        else {"provider": "", "model": ""}
-    )
-
-    return {
-        "providers": providers_info,
-        "default": default_payload,
-        "cwd": settings.cwd,
-        "cwd_exists": os.path.isdir(settings.cwd),
-        "project": settings.project,
-        "config_paths": settings.config_paths,
-        # Effective for this cwd; 0 disables automatic compaction.
-        "compact_threshold": (
-            settings.compact_threshold if settings.compact_threshold is not None else DEFAULT_COMPACT_THRESHOLD
-        ),
-        "skills": [{"name": skill.name, "description": skill.description} for skill in skills],
-        "setup_error": setup_error,
-    }

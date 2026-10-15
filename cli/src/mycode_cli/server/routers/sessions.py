@@ -68,9 +68,8 @@ async def load_session(
     """Load a session, overlaying any active in-memory run state."""
 
     async with runs.session_operation(session_id):
-        active = await runs.snapshot_session(session_id)
         jobs = runs.live_jobs(session_id)
-        if active:
+        if active := await runs.snapshot_session(session_id):
             return {
                 "session": await store.load_metadata(session_id),
                 "messages": _redact_document_data(active["messages"]),
@@ -80,24 +79,15 @@ async def load_session(
                 "pending": {kind: _redact_document_data(messages) for kind, messages in active["pending"].items()},
                 "jobs": jobs,
             }
-
         data = await store.load_session(session_id)
 
-    if data is None:
-        return {
-            "session": None,
-            "messages": [],
-            **SessionTotals().payload(),
-            "active_run": None,
-            "pending_events": [],
-            "pending": {"steers": [], "queue": []},
-            "jobs": jobs,
-        }
-
+    session, messages, totals = (
+        (data["session"], data["messages"], data["totals"]) if data else (None, [], SessionTotals())
+    )
     return {
-        "session": data["session"],
-        "messages": _redact_document_data(data["messages"]),
-        **data["totals"].payload(),
+        "session": session,
+        "messages": _redact_document_data(messages),
+        **totals.payload(),
         "active_run": None,
         "pending_events": [],
         "pending": {"steers": [], "queue": []},
