@@ -14,9 +14,6 @@ from mycode_cli.sessions import SessionStore
 
 
 class _FakeAgent:
-    provider = "anthropic"
-    model = "claude-sonnet-4-6"
-    api_base = None
     session_id = "session"
 
     async def achat(self, message: str, *, on_persist=None):

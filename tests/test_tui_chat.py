@@ -384,7 +384,6 @@ class _TurnAgent(_AttachmentAgent):
     """Fake agent whose first turn waits for ``finish`` or a cancel, then delivers pending steers."""
 
     context_window = None
-    reasoning_effort = None
 
     def __init__(self, *, accepting: bool = True, fail_commit: bool = False) -> None:
         super().__init__()

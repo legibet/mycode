@@ -7,10 +7,8 @@ from typing import Literal
 
 import pytest
 
-from mycode.messages import ConversationMessage
-from mycode_cli.sessions import SessionStore
-
-pytestmark = pytest.mark.asyncio
+from mycode.messages import BlockMeta, ConversationMessage, build_message, text_block
+from mycode_cli.sessions import SessionStore, display_text
 
 
 @pytest.fixture
@@ -189,6 +187,20 @@ async def test_load_totals_skips_records_without_usage_or_cost(store: SessionSto
     totals = await store.load_totals("s2")
     assert totals.usage == {"input_tokens": 10, "output_tokens": 5}
     assert totals.cost is None
+
+
+def test_display_text_skips_payload_blocks() -> None:
+    job: BlockMeta = {"job": {"tool_use_id": "toolu_1", "name": "bash", "label": "pytest -q", "exit_code": 0}}
+    message = build_message(
+        "user",
+        [
+            text_block("Background bash finished", meta=job),
+            text_block("skill", meta={"skill_snapshot": True}),
+            text_block("<file>…</file>", meta={"attachment": True}),
+            text_block("keep this"),
+        ],
+    )
+    assert display_text(message) == "keep this"
 
 
 # Search

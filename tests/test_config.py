@@ -257,7 +257,7 @@ class TestGetSettings:
 
         settings = get_settings(str(workspace.resolve()))
 
-        assert list(settings.providers["moonshotai"].models) == ["kimi-k3", "kimi-k2.6"]
+        assert tuple(settings.providers["moonshotai"].models) == get_provider_adapter("moonshotai").default_models
 
     def test_builtin_provider_alias_can_omit_type(
         self, workspace: Path, config_home: Path, monkeypatch: pytest.MonkeyPatch
@@ -396,8 +396,14 @@ class TestResolveProvider:
         ("provider_name", "env_name", "env_value", "model", "expected_model"),
         [
             ("moonshotai", "MOONSHOT_API_KEY", "moonshot-env-key", "kimi-k2-thinking", "kimi-k2-thinking"),
-            ("google", "GEMINI_API_KEY", "gemini-env-key", None, "gemini-3.8-flash"),
-            ("alibaba", "DASHSCOPE_API_KEY", "dashscope-env-key", None, "qwen3.8-max"),
+            ("google", "GEMINI_API_KEY", "gemini-env-key", None, get_provider_adapter("google").default_models[0]),
+            (
+                "alibaba",
+                "DASHSCOPE_API_KEY",
+                "dashscope-env-key",
+                None,
+                get_provider_adapter("alibaba").default_models[0],
+            ),
         ],
     )
     def test_accepts_raw_supported_providers(
@@ -530,7 +536,7 @@ class TestResolveProvider:
 
         assert resolved.provider_name == "openai"
         assert resolved.provider == "openai"
-        assert resolved.model == "gpt-6-astra"
+        assert resolved.model == get_provider_adapter("openai").default_models[0]
         assert resolved.api_key == "openai-env-key"
 
     def test_auto_discovery_prefers_configured_provider_with_credentials(
@@ -567,7 +573,7 @@ class TestResolveProvider:
 
         assert resolved.provider_name == "deepseek"
         assert resolved.provider == "deepseek"
-        assert resolved.model == "deepseek-flash"
+        assert resolved.model == get_provider_adapter("deepseek").default_models[0]
         assert resolved.api_key == "deepseek-env-key"
 
     def test_explicit_provider_name_does_not_fall_back(

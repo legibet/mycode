@@ -24,8 +24,8 @@ from mycode import (
     UsageEvent,
     UserMessageEvent,
 )
-from mycode.messages import BlockMeta, ConversationMessage, TextBlock, build_message, text_block
-from mycode_cli.sessions import SessionTotals, display_text
+from mycode.messages import ConversationMessage, TextBlock, text_block
+from mycode_cli.sessions import SessionTotals
 from mycode_cli.tui.render import TurnRenderer, history_preview, job_lines
 from mycode_cli.tui.theme import ERROR_MARKER, THINKING_SYMBOL, TOOL_MARKER
 
@@ -492,17 +492,3 @@ async def test_user_message_with_only_job_blocks_prints_the_card_without_a_steer
     assert "steer" not in rendered
     assert "❯" not in rendered
     assert delivered == [message]
-
-
-def test_display_text_skips_payload_blocks() -> None:
-    job: BlockMeta = {"job": {"tool_use_id": "toolu_1", "name": "bash", "label": "pytest -q", "exit_code": 0}}
-    message = build_message(
-        "user",
-        [
-            text_block("Background bash finished", meta=job),
-            text_block("skill", meta={"skill_snapshot": True}),
-            text_block("<file>…</file>", meta={"attachment": True}),
-            text_block("keep this"),
-        ],
-    )
-    assert display_text(message) == "keep this"
