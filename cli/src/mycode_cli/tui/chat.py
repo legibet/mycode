@@ -455,8 +455,8 @@ class TerminalChat:
             else:
                 await self.store.record_user_turn(self.session_id, cwd=self.settings.cwd, text=user_input)
             while True:
-                await renderer.render(self.agent, message)
-                if renderer.stopped or not self._queue:
+                completed = await renderer.render(self.agent, message)
+                if not completed or not self._queue:
                     return
                 # The queue stays where Esc and Alt+Up reach it while the next
                 # turn is prepared; it is taken only once the turn can start.

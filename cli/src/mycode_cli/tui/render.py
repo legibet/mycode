@@ -489,7 +489,7 @@ class TurnRenderer:
         # Whether the last printed block is a tool; consecutive tools are not separated.
         self._last_tool = False
         # Reasoning phase
-        self._reasoning = ""
+        self._reasoning_text = ""
         self._thinking_start_time: float | None = None
         self._thinking_duration_ms: int | None = None
         # Text phase
@@ -500,8 +500,6 @@ class TurnRenderer:
         self._tools: dict[str, _RunningTool] = {}
         # Stats reported by the agent's `usage` event for the latest request.
         self._stats: UsageEvent | None = None
-        # Whether the turn ended on a cancel or an error rather than completing.
-        self.stopped = False
 
     async def render(
         self,
@@ -509,108 +507,101 @@ class TurnRenderer:
         message: str | ConversationMessage,
         *,
         on_persist: PersistCallback | None = None,
-    ) -> int:
-        """Stream one assistant turn to the terminal and return its exit code."""
+    ) -> bool:
+        """Stream one assistant turn to the terminal; return ``False`` when it ended on a cancel or an error."""
 
-        exit_code = 0
-        self._stats = None
+        completed = True
         self._show_spinner(Text())
         try:
             async with aclosing(agent.achat(message, on_persist=on_persist)) as stream:
                 async for event in stream:
                     match event:
                         case ReasoningEvent():
-                            self.reasoning(event.delta)
+                            self._reasoning(event)
                         case ReasoningDoneEvent():
                             self._thinking_duration_ms = event.duration_ms
                         case TextEvent():
-                            self.text(event.delta)
+                            self._text(event)
                         case ToolStartEvent():
-                            tool_call = event.tool_call
-                            self.tool_start(tool_call["id"], tool_call["name"], tool_call["input"])
+                            self._tool_start(event)
                         case ToolOutputEvent():
-                            self.tool_output(event.tool_use_id, event.output)
+                            self._tool_output(event)
                         case ToolDoneEvent():
-                            self.tool_done(
-                                event.tool_use_id, event.output, is_error=event.is_error, metadata=event.metadata
-                            )
-                            if event.is_error:
-                                exit_code = 1
+                            self._tool_done(event)
                         case RetryEvent():
-                            self.retry(attempt=event.attempt, max_attempts=event.max_attempts, reason=event.reason)
+                            self._retry(event)
                         case UsageEvent():
                             self._stats = event
                         case CompactEvent():
-                            self.compact()
+                            self._compact()
                         case UserMessageEvent():
-                            self.user_message(event.message)
+                            self._user_message(event)
                         case CancelledEvent():
-                            self.cancel()
-                            return 0
+                            self._cancel()
+                            return False
                         case ErrorEvent():
-                            exit_code = 1
-                            self.error(event.message)
-            self.finish()
-            return exit_code
+                            completed = False
+                            self._error(event)
+            self._finish()
+            return completed
         finally:
             self._cancel_tick()
             self._terminal.set_tail(None)
 
-    def reasoning(self, delta: str) -> None:
-        """Handle one streamed reasoning delta: a spinner with a rolling preview."""
+    def print_block(self, *renderables: RenderableType) -> None:
+        """Print a block from outside the event stream, such as a decided tool review."""
+
+        self._print(*renderables)
+
+    # -- Event handlers ------------------------------------------------------
+
+    def _reasoning(self, event: ReasoningEvent) -> None:
+        """Show a spinner with a rolling preview of the reasoning so far."""
 
         self._end_text()
         if self._thinking_start_time is None:
             self._thinking_start_time = time.monotonic()
-        self._reasoning = (self._reasoning + delta)[-_REASONING_KEEP_CHARS:]
+        self._reasoning_text = (self._reasoning_text + event.delta)[-_REASONING_KEEP_CHARS:]
 
-        content = " ".join(self._reasoning.split())
+        content = " ".join(self._reasoning_text.split())
         preview = _last_cells(content, self._terminal.width - _SPINNER_CELLS) if content else "thinking…"
         self._show_spinner(Text(preview, style=THINKING))
 
-    def text(self, delta: str) -> None:
-        """Handle one streamed text delta; commits happen on a short coalescing tick."""
+    def _text(self, event: TextEvent) -> None:
+        """Feed streamed text to the markdown stream; commits happen on a short coalescing tick."""
 
         self._end_reasoning()
         self._text_active = True
-        self._stream.feed(delta)
+        self._stream.feed(event.delta)
         if self._tick is None:
             self._tick = asyncio.get_running_loop().create_task(self._text_tick())
 
-    def tool_start(self, tool_id: str, name: str, args: dict[str, Any]) -> None:
+    def _tool_start(self, event: ToolStartEvent) -> None:
         """Show a running tool in the tail; it reaches the scrollback once it finishes."""
 
         self._end_phase()
-        self._tools[tool_id] = _RunningTool(name, args)
+        tool_call = event.tool_call
+        self._tools[tool_call["id"]] = _RunningTool(tool_call["name"], tool_call["input"])
         self._show_tools()
 
-    def tool_output(self, tool_id: str, delta: str) -> None:
-        """Append streamed tool output to its running tool."""
-
-        self._tools[tool_id].feed(delta)
+    def _tool_output(self, event: ToolOutputEvent) -> None:
+        self._tools[event.tool_use_id].feed(event.output)
         self._show_tools()
 
-    def tool_done(
-        self,
-        tool_id: str,
-        output: str,
-        *,
-        is_error: bool,
-        metadata: dict[str, Any] | None = None,
-    ) -> None:
+    def _tool_done(self, event: ToolDoneEvent) -> None:
         """Print the finished tool: its header, last output lines, and result status.
 
         Parallel tools print in the order they finish; the others stay in the tail.
         """
 
-        tool = self._tools.pop(tool_id)
-        style = ERROR if is_error else MUTED
+        tool = self._tools.pop(event.tool_use_id)
+        style = ERROR if event.is_error else MUTED
         self._print(
-            _tool_header(tool.name, tool.args, self._terminal.width, failed=is_error, metadata=metadata),
+            _tool_header(tool.name, tool.args, self._terminal.width, failed=event.is_error, metadata=event.metadata),
             *tool.output(),
             *(
                 Text(f"  {_display_line(line)[:500]}", style=style)
-                for line in _result_status(output, is_error=is_error)
+                for line in _result_status(event.output, is_error=event.is_error)
             ),
             joined=self._last_tool,
         )
@@ -621,31 +612,25 @@ class TurnRenderer:
             # Waiting for the next model response.
             self._show_spinner(Text())
 
-    def print_block(self, *renderables: RenderableType) -> None:
-        """Print a block from outside the event stream, such as a decided tool review."""
-
-        self._print(*renderables)
-
-    def retry(self, *, attempt: int, max_attempts: int, reason: str) -> None:
+    def _retry(self, event: RetryEvent) -> None:
         """Show the retry status in the tail until the next event replaces it."""
 
-        self._show_spinner(Text(f"retry {attempt}/{max_attempts} · {reason}", style=WARNING))
+        self._show_spinner(Text(f"retry {event.attempt}/{event.max_attempts} · {event.reason}", style=WARNING))
 
-    def compact(self) -> None:
-        """Render an inline ``compacted`` divider during streaming."""
-
+    def _compact(self) -> None:
         self._end_phase()
         self._print(compact_marker())
         self._show_spinner(Text())
 
-    def user_message(self, message: ConversationMessage) -> None:
+    def _user_message(self, event: UserMessageEvent) -> None:
         """Close the segment a delivered steer ends and show the steer; the turn goes on.
 
         Background results print like finished tools; the user's text, when
         there is any, is echoed with a ``steer`` tag.
         """
 
-        self.finish()
+        message = event.message
+        self._finish()
         for block in _job_blocks(message):
             self._print(*job_lines(block, self._terminal.width), joined=self._last_tool)
             self._last_tool = True
@@ -660,21 +645,15 @@ class TurnRenderer:
             self._on_user_message(message)
         self._show_spinner(Text())
 
-    def error(self, message: str) -> None:
-        """Render a terminal-visible error message for the current turn."""
-
+    def _error(self, event: ErrorEvent) -> None:
         self._end_phase()
-        self._print(error_line(message))
-        self.stopped = True
+        self._print(error_line(event.message))
 
-    def cancel(self) -> None:
-        """Render a cancellation marker."""
-
+    def _cancel(self) -> None:
         self._end_phase()
         self._print(Text("cancelled", style=MUTED))
-        self.stopped = True
 
-    def finish(self) -> None:
+    def _finish(self) -> None:
         """Flush the current segment and print its stats line."""
 
         self._end_phase()
@@ -752,7 +731,7 @@ class TurnRenderer:
         if duration_ms is None:
             duration_ms = int((time.monotonic() - self._thinking_start_time) * 1000)
         self._print(Text(f"{THINKING_SYMBOL} thought · {duration_ms / 1000:.1f}s", style=THINKING))
-        self._reasoning = ""
+        self._reasoning_text = ""
         self._thinking_start_time = None
         self._thinking_duration_ms = None
 

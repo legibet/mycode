@@ -18,7 +18,7 @@ from prompt_toolkit.completion import Completer, DummyCompleter
 from prompt_toolkit.input.defaults import create_pipe_input
 from prompt_toolkit.output import DummyOutput
 
-from mycode import CancelledEvent, ErrorEvent, Event, TextEvent, UserMessageEvent
+from mycode import CancelledEvent, ErrorEvent, Event, TextEvent, ToolDoneEvent, ToolStartEvent, UserMessageEvent
 from mycode.agent import Agent
 from mycode.messages import ConversationMessage, TextBlock, build_message, merge_user_messages, text_block
 from mycode.models import ModelMetadata
@@ -339,6 +339,7 @@ class TestToolReview:
         cancelled: bool,
     ) -> None:
         cancels: list[str] = []
+        results: list[str] = []
 
         class _ReviewAgent(_AttachmentAgent):
             context_window = None
@@ -347,8 +348,15 @@ class TestToolReview:
             def cancel(self) -> None:
                 cancels.append("cancel")
 
+            async def achat(self, message: str, *, on_persist: object = None) -> AsyncIterator[Event]:
+                yield ToolStartEvent(
+                    tool_call={"type": "tool_use", "id": "call-1", "name": "bash", "input": {"command": "rm -rf build"}}
+                )
+                request = ToolReviewRequest("call-1", "bash", "rm -rf build", PermissionConfig())
+                results.append(await chat._review_tool_call(request))
+                yield ToolDoneEvent(tool_use_id="call-1", output="", is_error=False)
+
         chat = _chat(_ReviewAgent(), tmp_path, harness)
-        results: list[str] = []
 
         async def main() -> None:
             async def drive_input() -> None:
@@ -358,10 +366,7 @@ class TestToolReview:
 
             task = asyncio.create_task(drive_input())
             renderer = await chat._turn_renderer()
-            renderer.tool_start("call-1", "bash", {"command": "rm -rf build"})
-            request = ToolReviewRequest("call-1", "bash", "rm -rf build", PermissionConfig())
-            results.append(await chat._review_tool_call(request))
-            renderer.tool_done("call-1", "", is_error=False)
+            await renderer.render(chat.agent, "rm the build")
             await task
 
         await chat.terminal.run(main)
