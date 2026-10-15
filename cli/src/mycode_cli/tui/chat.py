@@ -50,7 +50,7 @@ from mycode_cli.config import (
 )
 from mycode_cli.permissions import ToolReviewDecision, ToolReviewRequest
 from mycode_cli.runtime import build_agent
-from mycode_cli.sessions import SessionInfo, SessionStore, display_text
+from mycode_cli.sessions import SessionInfo, SessionLockedError, SessionStore, display_text
 from mycode_cli.state import load_state, save_state
 from mycode_cli.system_prompt import build_skill_snapshot_blocks, discover_slash_skills
 from mycode_cli.tools import read_text_window
@@ -70,6 +70,8 @@ from .render import (
 )
 from .terminal import Terminal
 from .theme import MUTED, SUCCESS, TOOL_MARKER, WARNING
+
+_LOCK_HOLDER = "the terminal UI"
 
 _COMMANDS = (
     ("/compact", "Compact conversation context"),
@@ -317,6 +319,9 @@ class TerminalChat:
             completer=_PromptCompleter(cwd=self.settings.cwd),
             key_bindings=_build_chat_key_bindings(),
         )
+        # The open session stays claimed while its history lives in ``self.agent``;
+        # raises ``SessionLockedError`` when another process has it open.
+        self._lock = store.lock(session_id, _LOCK_HOLDER)
         self.agent = self._build_agent(resolved_provider, session_id, self.jobs)
 
     def _build_agent(self, resolved_provider: ResolvedProvider, session_id: str, jobs: BackgroundJobs) -> Agent:
@@ -364,6 +369,7 @@ class TerminalChat:
             await self.terminal.run(self._main)
         finally:
             await self.jobs.close()
+            self._lock.release()
 
     async def _main(self) -> None:
         # A session id without a catalog entry is a new session.
@@ -701,13 +707,20 @@ class TerminalChat:
     async def _leave_session(self, session_id: str) -> bool:
         """Move to ``session_id`` with a new agent, stopping this session's background jobs.
 
-        Returns ``False``, staying in the current session, when the agent cannot be built.
+        Returns ``False``, staying in the current session, when another process
+        has ``session_id`` open or the agent cannot be built.
         """
 
         jobs = BackgroundJobs()
         try:
+            lock = self.store.lock(session_id, _LOCK_HOLDER)
+        except SessionLockedError as exc:
+            self.terminal.print(error_line(str(exc)))
+            return False
+        try:
             agent = self._build_agent(self.resolved_provider, session_id, jobs)
         except (OSError, ValueError) as exc:
+            lock.release()
             self.terminal.print(error_line(str(exc)))
             return False
         count = len(self.jobs.jobs)
@@ -715,6 +728,8 @@ class TerminalChat:
         if count:
             self._print_done("stopped", f"{count} background job{'s' if count > 1 else ''}")
         jobs.deliver = self._deliver_jobs
+        self._lock.release()
+        self._lock = lock
         self.session_id = session_id
         self.jobs = jobs
         self.agent = agent

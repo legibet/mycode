@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Annotated, Any
 from uuid import uuid4
 
@@ -9,7 +10,7 @@ from fastapi import APIRouter, HTTPException, Query
 from fastapi import Path as PathParam
 
 from mycode.messages import ContentBlock, ConversationMessage
-from mycode_cli.server.deps import RunManagerDep, StoreDep, resolve_workspace_cwd
+from mycode_cli.server.deps import LOCK_HOLDER, RunManagerDep, StoreDep, resolve_workspace_cwd
 from mycode_cli.server.schemas import SessionCreateRequest, StatusResponse
 from mycode_cli.sessions import SessionTotals
 
@@ -115,6 +116,7 @@ async def delete_session(
     async with runs.session_operation(session_id):
         if await runs.has_active_run(session_id):
             raise HTTPException(status_code=409, detail="session has a running task")
-        await runs.close_jobs(session_id)
-        await store.delete_session(session_id)
+        with await asyncio.to_thread(store.lock, session_id, LOCK_HOLDER):
+            await runs.close_jobs(session_id)
+            await store.delete_session(session_id)
     return StatusResponse(status="ok")

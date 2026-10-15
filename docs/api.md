@@ -82,6 +82,7 @@ Error responses:
 - `400` — invalid `rewind_to`; body is `{"detail": "..."}`
 - `400` — missing or invalid `cwd`; body is `{"detail": "Working directory does not exist: ..."}`
 - `409` — session already has a running task; body is `{"detail": {"message": "...", "run": {...}}}`
+- `409` — another process has the session open (`docs/sessions.md`, Session Lock); body is `{"detail": {"message": "..."}}` with no `run`
 - `500` — provider resolution errors currently bubble up as internal server error in this route
 
 A user message ends a Stop: wakes held by a cancelled run are allowed again, and the results of background commands waiting in the session are prepended to the message as job notification blocks (`docs/sessions.md`, `docs/tools.md`), ahead of skill snapshots and attachments. The response `message` shows them. The results are taken right before the run starts, so a request that fails earlier leaves them for the next one. The request's provider, model, effort and `cwd` become the configuration of this session's later wake runs.
@@ -159,7 +160,7 @@ Pending steers merge into one user message with `meta.steer: true`, announced by
 
 ### `POST /api/sessions/{session_id}/queue`
 
-Queue a user message for the next turn of the session's running chat. Same body and `400` rules as the steer endpoint, checked against the running agent. When the current turn ends normally, all queued messages merge into one user message (`meta.input_ids`, no `meta.steer`), a `user_message` event announces it, and the run continues on the same agent with the run's provider, model, and effort. The user turn is recorded in the session catalog at enqueue.
+Queue a user message for the next turn of the session's running chat. Same body and `400` rules as the steer endpoint, checked against the running agent. When the current turn ends normally, all queued messages merge into one user message (`meta.input_ids`, no `meta.steer`), a `user_message` event announces it, and the run continues on the same agent with the run's provider, model, and effort. The turn is recorded in the session catalog when the run takes the queue, so a message removed before then never touches it.
 
 Response (`RunResponse`): `{"run": {...}}`.
 
@@ -206,6 +207,7 @@ Error responses:
 - `404` — session not found
 - `400` — `{"detail": "nothing to compact"}` when no new user/assistant message follows the latest compact marker
 - `409` — session already has a running task; body is `{"detail": {"message": "...", "run": {...}}}`
+- `409` — another process has the session open; body is `{"detail": {"message": "..."}}` with no `run`
 
 Cancellation during the summary request writes no marker. A marker commit already in progress finishes before cancellation is reported. User stop emits `cancelled` with `status: "cancelled"`; failures emit `error` with `status: "failed"`.
 
@@ -407,7 +409,7 @@ Assistant and compact messages return their persisted per-request `meta.usage` a
 
 ### `DELETE /api/sessions/{id}`
 
-Delete session. Returns `409` if session has a running task. Kills the session's background commands first.
+Delete session. Returns `409` if session has a running task, or if another process has it open (`{"detail": {"message": "..."}}`). Kills the session's background commands first.
 
 ### `DELETE /api/sessions/{id}/jobs/{tool_use_id}`
 
@@ -509,6 +511,7 @@ Every event also carries `seq: int` for reconnect support. The web UI uses `afte
 `cli/src/mycode_cli/server/run_manager.py` manages concurrent runs:
 
 - One active run per session, regardless of kind: routes check under `session_operation(session_id)`, which every run start holds, and answer `409`; `ActiveRunError` guards the invariant inside the manager
+- `session_operation` covers this process only. Across processes, each run holds the session lock (`docs/sessions.md`, Session Lock) from before its first disk write until it frees the session's active slot; a refused claim answers `409`
 - Two run kinds share the lifecycle: `start_run()` iterates `agent.achat(user_message)`; `start_compact()` awaits `agent.acompact()` and emits one `compact` event with `trigger: "manual"` after the marker is persisted
 - Compact runs carry no `user_message`; snapshots return `base_messages` unchanged
 - `RunState` tracks a bounded reconnect event buffer and condition variable for streaming
@@ -518,11 +521,11 @@ Every event also carries `seq: int` for reconnect support. The web UI uses `afte
 - `aclose()` cancels unfinished runs, awaits their cleanup, and releases cached state
 - Finished runs pruned after 300 seconds (`FINISHED_RUN_TTL_SECONDS`)
 - `snapshot_session()` returns reconnect data for active runs: the history through the run's last committed user message, the buffered events after it, pending steers and queue, and current cost. The run records its commits through `achat(on_persist=...)`; a steer or queued message joins the history at its `user_message` event, the point clients start its segment from
-- A chat run keeps a queue of messages. When `achat()` completes normally, the run takes the queue; if it is not empty and no stop was requested, it merges the items and calls `achat()` again on the same agent, until the queue is empty
+- A chat run keeps a queue of messages. When `achat()` completes normally, the run takes the queue; if it is not empty and no stop was requested, it merges the items, records the merged turn in the catalog, and calls `achat()` again on the same agent, until the queue is empty
 - `user_message` for the merged message is emitted at the first event of that call, since `achat()` commits its user message before yielding anything; a failed commit surfaces as `error` with no `user_message`
 - The final take and leaving the session's active slot happen together, so no enqueue is accepted and then dropped
 - A cancelled or failed run drops its queue; the SDK discards pending steers. The client still holds those items and restores them
-- `jobs_for(session_id)` returns the session's `BackgroundJobs` registry (`cli/src/mycode_cli/background.py`). It outlives runs: the agent is rebuilt per request, the registry is not. A finished background command appends its notification block to the registry and calls the deliver callback the last `POST /api/chat` installed. Under the session operation, the callback steers the block into an active chat run, queues it when the run refuses steers, starts a wake run (`RunState.wake`) when the session is idle and not suspended, and does nothing during a compact run or while a chat run is closing. The results are taken right before the run starts; a wake whose preparation fails sets `suspended` and leaves nothing in flight
+- `jobs_for(session_id)` returns the session's `BackgroundJobs` registry (`cli/src/mycode_cli/background.py`). It outlives runs: the agent is rebuilt per request, the registry is not. A finished background command appends its notification block to the registry and calls the deliver callback the last `POST /api/chat` installed. Under the session operation, the callback steers the block into an active chat run, queues it when the run refuses steers, starts a wake run (`RunState.wake`) when the session is idle and not suspended, and does nothing during a compact run or while a chat run is closing. The results are taken right before the run starts; a wake whose preparation fails, including a session another process has open, sets `suspended` and leaves nothing in flight
 - A run frees the session's active slot and reconciles the registry in the same step (`_release_session`), at the chat loop's final take or when the run finishes, because a free slot lets a wake start and take the pending results. The reconcile checks `agent.messages`, the committed records: blocks found there are dropped, the rest return to pending. A cancelled run, or a wake run that committed nothing, sets `suspended`, which holds wakes until the next `POST /api/chat`; a result that arrived during a wake and missed it is not a reason to suspend. Once the run has finished, anything still pending is offered again through `deliver_pending`, which logs a failing callback and keeps the blocks, so a completion during a compact run is delivered when the compact ends
 - Every run's start and end is published to `GET /api/events` subscribers as `run_started` and `run_finished`; the registry's `on_change` publishes `job_started` and `job_finished` the same way
 - `live_jobs(session_id)` describes the running jobs for the session snapshot; `kill_job(session_id, tool_use_id)` kills one and leaves its drain task to deliver the result

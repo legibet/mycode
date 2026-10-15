@@ -27,7 +27,7 @@ from mycode.providers.base import MessageDone, ProviderStreamEvent
 from mycode_cli.background import BackgroundJob
 from mycode_cli.config import PermissionConfig, ResolvedProvider, Settings, WebConfig, get_settings, resolve_provider
 from mycode_cli.permissions import ToolReviewRequest
-from mycode_cli.sessions import SessionStore
+from mycode_cli.sessions import SessionLockedError, SessionStore
 from mycode_cli.tui.chat import (
     TerminalChat,
     _build_chat_key_bindings,
@@ -101,6 +101,29 @@ async def test_new_session_keeps_configured_tools_and_uses_the_new_session_direc
     assert chat.agent.deps == CliDeps(
         cwd=tmp_path, tool_output_dir=store.tool_output_dir("new"), web=settings.web, jobs=chat.jobs
     )
+
+
+async def test_switching_sessions_moves_the_claim_and_refuses_one_open_elsewhere(
+    harness: TerminalHarness, tmp_path: Path, cli_home: Path
+) -> None:
+    chat = _chat(_AttachmentAgent(), tmp_path, harness)
+    store = chat.store
+    with pytest.raises(SessionLockedError):
+        store.lock("s", "the web server")
+
+    async def main() -> None:
+        with store.lock("busy", "the web server"):
+            assert not await chat._leave_session("busy")
+        assert await chat._leave_session("new")
+
+    await chat.terminal.run(main)
+
+    assert "session busy is in use by the web server" in harness.text()
+    assert chat.session_id == "new"
+    with store.lock("s", "the web server"):
+        pass
+    with pytest.raises(SessionLockedError):
+        store.lock("new", "the web server")
 
 
 async def test_resume_stays_put_when_the_picked_session_was_deleted(harness: TerminalHarness, tmp_path: Path) -> None:

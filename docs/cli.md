@@ -27,7 +27,7 @@ mycode session list [--all]      list saved sessions for the current workspace, 
 | `--session ID`            | resume a session; an unknown id is an error                                            |
 | `-c`, `--continue`        | resume the most recent session in the current workspace, or start a new one if none    |
 
-`--session` and `--continue` are mutually exclusive. Without either, a new session starts. `--provider`, `--model`, and `--effort` start from the remembered selection and are not saved (`docs/config.md`, Remembered Selection); `--permission` overrides the configured level and keeps the configured `permission.mode`.
+`--session` and `--continue` are mutually exclusive. Without either, a new session starts. A session open in another mycode process is refused with an error naming that process (`docs/sessions.md`, Session Lock); `/resume` to it stays in the current session. `--provider`, `--model`, and `--effort` start from the remembered selection and are not saved (`docs/config.md`, Remembered Selection); `--permission` overrides the configured level and keeps the configured `permission.mode`.
 
 ### Model selection
 

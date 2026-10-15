@@ -10,11 +10,28 @@ Sources: `mycode/src/mycode/session.py`, `cli/src/mycode_cli/sessions.py`
     meta.json      # CLI-owned catalog entry
     messages.jsonl # SDK-owned append-only timeline
     tool-output/   # CLI tool spill files, created lazily
+    lock           # CLI flock(2) target; holds the claiming process's name and pid
 ```
 
-The SDK owns only `messages.jsonl` and does not know about workspaces, titles, catalog timestamps, or tool output. Applications may keep their own files beside the timeline. The CLI adds `meta.json` and `tool-output/` and resolves `data_dir` to `$MYCODE_HOME/sessions/` (default `~/.mycode/sessions/`).
+The SDK owns only `messages.jsonl` and does not know about workspaces, titles, catalog timestamps, or tool output. Applications may keep their own files beside the timeline. The CLI adds `meta.json`, `tool-output/`, and `lock` and resolves `data_dir` to `$MYCODE_HOME/sessions/` (default `~/.mycode/sessions/`).
 
 The SDK timeline appears on the first persisted message. The CLI normally creates its catalog entry on the first user turn; the explicit `POST /api/sessions` endpoint creates an empty `"New chat"` entry immediately.
+
+## Session Lock
+
+One process writes a session at a time. An `Agent` keeps its loaded history in memory, so two writers would interleave records and append rewind markers that refer to different histories. The SDK takes no lock; the CLI makes every writer claim the session with `SessionStore.lock(session_id, holder)`, an exclusive `flock(2)` on `<session_dir>/lock`:
+
+- The TUI holds the claim while the session is open, from before its history loads until `/new`, `/resume`, or exit.
+- `mycode run` holds it for the whole process.
+- The web server holds it for each run (chat, compact, wake) from before the run's first write until the run frees the session, and while deleting a session. It rebuilds the agent from disk for every run, so it holds nothing between runs.
+
+A refused claim raises `SessionLockedError` naming the holder, e.g. `session <id> is in use by the terminal UI (pid 4242)`; the CLI reports it and the server answers `409`. Readers take no claim. The kernel drops the lock when its process exits, so a crash leaves no stale claim.
+
+A session left with only its lock file, never written or deleted, is removed when its claim is released. The removal deletes the lock file last among the session's files and while still holding it, and a claim checks that it locked the file the path still names, so no two processes ever hold the same session.
+
+Known limitation: when server shutdown cancels a request that is still preparing a run, the request releases its claim at once, while a disk write it already started may still finish.
+
+POSIX only.
 
 ## meta.json
 
@@ -208,6 +225,7 @@ CLI `SessionStore` (`cli/src/mycode_cli/sessions.py`) extends the SDK store with
 - `load_totals(session_id)` — cumulative usage and cost from the raw timeline, including compact summaries and rewound turns
 - `list_sessions(*, cwd=None)` / `latest_session(...)` — scan and sort the catalog
 - `search_sessions(query, *, cwd=None, limit=50)` — case-insensitive substring search over catalog titles and visible user/assistant text, returning each hit with a one-line snippet of the first body match. The per-session body text is cached in memory and re-derived when `messages.jsonl` changes (`mtime_ns` + size), so the JSONL stays the only source of truth
-- `delete_session(session_id)` — remove catalog, timeline, and tool output together
+- `delete_session(session_id)` — remove catalog, timeline, and tool output together; the caller holds the session's lock, and releasing it removes the directory
+- `lock(session_id, holder)` — claim the session for this process (Session Lock), returning a `SessionLock` to `release()` or use as a context manager; raises `SessionLockedError` naming the current holder
 
-All file I/O is offloaded to `asyncio.to_thread()`.
+All async methods offload file I/O to `asyncio.to_thread()`; `lock` is synchronous.

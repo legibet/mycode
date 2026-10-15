@@ -2,18 +2,95 @@
 
 from __future__ import annotations
 
+import asyncio
+import fcntl
+import os
+import subprocess
+import sys
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 import pytest
 
 from mycode.messages import BlockMeta, ConversationMessage, build_message, text_block
-from mycode_cli.sessions import SessionStore, display_text
+from mycode_cli.sessions import SessionLock, SessionLockedError, SessionStore, display_text
 
 
 @pytest.fixture
 def store(tmp_path: Path) -> SessionStore:
     return SessionStore(data_dir=tmp_path / "sessions")
+
+
+async def test_lock_admits_one_holder_and_names_it_to_the_others(store: SessionStore, tmp_path: Path) -> None:
+    lock = store.lock("s1", "the terminal UI")
+    with pytest.raises(SessionLockedError, match=rf"^session s1 is in use by the terminal UI \(pid {os.getpid()}\)$"):
+        store.lock("s1", "the web server")
+
+    await store.record_user_turn("s1", cwd=str(tmp_path), text="hi")
+    lock.release()
+    lock.release()
+
+    with store.lock("s1", "the web server"):
+        pass
+    # A written session keeps its directory.
+    assert [session["id"] for session in await store.list_sessions()] == ["s1"]
+
+
+def test_releasing_the_lock_of_an_untouched_session_removes_its_directory(store: SessionStore) -> None:
+    with store.lock("fresh", "the terminal UI"):
+        assert store.session_dir("fresh").is_dir()
+
+    assert not store.session_dir("fresh").exists()
+
+
+def test_lock_taken_on_a_lock_file_its_holder_removed_is_retried(
+    store: SessionStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    holder = store.lock("fresh", "the web server")
+    flock = fcntl.flock
+    released = False
+
+    def release_then_flock(handle: Any, operation: int) -> None:
+        # The file is open; the holder releases its untouched session before the flock.
+        nonlocal released
+        if not released:
+            released = True
+            holder.release()
+        flock(handle, operation)
+
+    monkeypatch.setattr(fcntl, "flock", release_then_flock)
+    lock = store.lock("fresh", "the terminal UI")
+    monkeypatch.setattr(fcntl, "flock", flock)
+
+    with pytest.raises(SessionLockedError, match="in use by the terminal UI"):
+        store.lock("fresh", "the web server")
+    lock.release()
+
+
+def test_lock_held_by_another_process_is_dropped_when_it_exits(store: SessionStore) -> None:
+    script = (
+        "import sys\n"
+        "from pathlib import Path\n"
+        "from mycode_cli.sessions import SessionStore\n"
+        "lock = SessionStore(data_dir=Path(sys.argv[1])).lock('s1', 'mycode run')\n"
+        "print('locked', flush=True)\n"
+        "sys.stdin.read()\n"
+    )
+    holder = subprocess.Popen(
+        [sys.executable, "-c", script, str(store.data_dir)], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True
+    )
+    try:
+        assert holder.stdout is not None
+        assert holder.stdout.readline() == "locked\n"
+        with pytest.raises(SessionLockedError, match=rf"in use by mycode run \(pid {holder.pid}\)"):
+            store.lock("s1", "the terminal UI")
+    finally:
+        # A killed holder never releases; the kernel drops its lock.
+        holder.kill()
+        holder.wait()
+
+    with store.lock("s1", "the terminal UI"):
+        pass
 
 
 async def test_session_lifecycle_preserves_metadata_and_messages(store: SessionStore, tmp_path: Path) -> None:
@@ -114,14 +191,43 @@ async def test_listing_skips_sessions_without_a_valid_catalog_entry(store: Sessi
     assert await store.load_session("null-field") is None
 
 
-async def test_delete_session_removes_the_whole_directory(store: SessionStore) -> None:
+async def test_delete_session_under_its_lock_removes_the_whole_directory(store: SessionStore) -> None:
     await store.create_session("s1", cwd="/tmp")
     await store.append_message("s1", {"role": "user", "content": [{"type": "text", "text": "hi"}]})
     (store.session_dir("s1") / "tool-output").mkdir()
 
-    await store.delete_session("s1")
+    with store.lock("s1", "the web server"):
+        await store.delete_session("s1")
 
     assert not store.session_dir("s1").exists()
+
+
+def test_a_holder_arriving_while_a_delete_removes_the_lock_file_keeps_its_session(
+    store: SessionStore, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    asyncio.run(store.record_user_turn("s1", cwd=str(tmp_path), text="old"))
+    rmdir = Path.rmdir
+    arrived: list[SessionLock] = []
+
+    def arrive_then_rmdir(path: Path) -> None:
+        # The deleting holder has removed the lock file but not yet the directory.
+        lock = store.lock("s1", "the terminal UI")
+        arrived.append(lock)
+        asyncio.run(store.record_user_turn("s1", cwd=str(tmp_path), text="new"))
+        rmdir(path)
+
+    monkeypatch.setattr(Path, "rmdir", arrive_then_rmdir)
+    with store.lock("s1", "the web server"):
+        asyncio.run(store.delete_session("s1"))
+    monkeypatch.setattr(Path, "rmdir", rmdir)
+
+    [lock] = arrived
+    with pytest.raises(SessionLockedError, match="in use by the terminal UI"):
+        store.lock("s1", "the web server")
+    session = asyncio.run(store.load_metadata("s1"))
+    assert session is not None
+    assert session["title"] == "new"
+    lock.release()
 
 
 async def test_load_totals_folds_the_raw_timeline_including_rewound_turns(store: SessionStore) -> None:

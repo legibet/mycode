@@ -7,7 +7,7 @@ import json
 import os
 import sys
 import time
-from contextlib import aclosing
+from contextlib import ExitStack, aclosing
 from dataclasses import dataclass, replace
 from typing import Annotated, Any, Literal, get_args
 from uuid import uuid4
@@ -30,7 +30,7 @@ from mycode_cli.config import (
     resolve_sessions_dir,
 )
 from mycode_cli.permissions import PERMISSION_DENIED_BY_USER_OUTPUT, PERMISSION_DENIED_OUTPUT
-from mycode_cli.sessions import SessionStore
+from mycode_cli.sessions import SessionLockedError, SessionStore
 from mycode_cli.state import load_state, resolve_remembered_provider
 
 from .runtime import build_agent
@@ -311,17 +311,17 @@ def chat(
             permission=permission,
             reasoning_effort=reasoning_effort,
         )
-    except ValueError as exc:
+        terminal_chat = TerminalChat(
+            settings=setup.settings,
+            store=setup.store,
+            resolved_provider=setup.resolved_provider,
+            session_id=setup.session_id,
+            max_turns=max_turns,
+        )
+    except (ValueError, SessionLockedError) as exc:
         console.print(error_line(str(exc)))
         raise SystemExit(1) from exc
 
-    terminal_chat = TerminalChat(
-        settings=setup.settings,
-        store=setup.store,
-        resolved_provider=setup.resolved_provider,
-        session_id=setup.session_id,
-        max_turns=max_turns,
-    )
     asyncio.run(terminal_chat.run())
 
 
@@ -354,39 +354,42 @@ def run(
     if not message:
         raise typer.BadParameter("provide a prompt as an argument or on stdin", param_hint="PROMPT")
 
-    try:
-        setup = _bootstrap(
-            provider=provider,
-            model=model,
-            session=session,
-            continue_last=continue_last,
-            permission=permission,
-            reasoning_effort=reasoning_effort,
-        )
-        agent = build_agent(
-            store=setup.store,
-            settings=setup.settings,
-            resolved_provider=setup.resolved_provider,
-            session_id=setup.session_id,
-            max_turns=max_turns,
-        )
-    except (OSError, ValueError) as exc:
-        if output_format == "text":
-            print(exc, file=sys.stderr)
-        else:
-            _write_json(_result_record(error=str(exc)))
-        raise SystemExit(1) from exc
+    with ExitStack() as stack:
+        try:
+            setup = _bootstrap(
+                provider=provider,
+                model=model,
+                session=session,
+                continue_last=continue_last,
+                permission=permission,
+                reasoning_effort=reasoning_effort,
+            )
+            # Held until exit, before the history loads: no other process writes the session meanwhile.
+            stack.enter_context(setup.store.lock(setup.session_id, "mycode run"))
+            agent = build_agent(
+                store=setup.store,
+                settings=setup.settings,
+                resolved_provider=setup.resolved_provider,
+                session_id=setup.session_id,
+                max_turns=max_turns,
+            )
+        except (OSError, ValueError, SessionLockedError) as exc:
+            if output_format == "text":
+                print(exc, file=sys.stderr)
+            else:
+                _write_json(_result_record(error=str(exc)))
+            raise SystemExit(1) from exc
 
-    code = asyncio.run(
-        run_noninteractive(
-            agent,
-            message,
-            store=setup.store,
-            settings=setup.settings,
-            provider_name=setup.resolved_provider.provider_name,
-            output_format=output_format,
+        code = asyncio.run(
+            run_noninteractive(
+                agent,
+                message,
+                store=setup.store,
+                settings=setup.settings,
+                provider_name=setup.resolved_provider.provider_name,
+                output_format=output_format,
+            )
         )
-    )
     raise SystemExit(code)
 
 

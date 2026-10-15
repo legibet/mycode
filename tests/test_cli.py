@@ -268,7 +268,7 @@ def test_cli_rejects_session_options_before_subcommand() -> None:
     ],
 )
 def test_run_reads_prompt_from_args_and_stdin(
-    monkeypatch: pytest.MonkeyPatch, args: list[str], stdin: str, expected: str
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, args: list[str], stdin: str, expected: str
 ) -> None:
     from typer.testing import CliRunner
 
@@ -286,7 +286,10 @@ def test_run_reads_prompt_from_args_and_stdin(
         main,
         "_bootstrap",
         lambda **kwargs: SimpleNamespace(
-            store=None, settings=None, resolved_provider=SimpleNamespace(provider_name="test"), session_id="s"
+            store=SessionStore(tmp_path),
+            settings=None,
+            resolved_provider=SimpleNamespace(provider_name="test"),
+            session_id="s",
         ),
     )
 
@@ -294,6 +297,28 @@ def test_run_reads_prompt_from_args_and_stdin(
 
     assert result.exit_code == 0, result.output
     assert sent == [expected]
+
+
+def test_run_refuses_a_session_open_in_another_process(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    from typer.testing import CliRunner
+
+    import mycode_cli.main as main
+
+    store = SessionStore(tmp_path)
+    monkeypatch.setattr(
+        main,
+        "_bootstrap",
+        lambda **kwargs: SimpleNamespace(
+            store=store, settings=None, resolved_provider=SimpleNamespace(provider_name="test"), session_id="s"
+        ),
+    )
+
+    with store.lock("s", "the terminal UI"):
+        result = CliRunner().invoke(app, ["run", "--format", "json", "hello"], input="")
+
+    assert result.exit_code == 1
+    record = json.loads(result.stdout)
+    assert record["error"].startswith("session s is in use by the terminal UI (pid ")
 
 
 def test_run_requires_a_prompt() -> None:

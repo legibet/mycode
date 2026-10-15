@@ -6,8 +6,9 @@ from collections.abc import AsyncGenerator, Sequence
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from mycode_cli.config import resolve_sessions_dir
@@ -16,7 +17,7 @@ from mycode_cli.server.routers.sessions import router as sessions_router
 from mycode_cli.server.routers.settings import router as settings_router
 from mycode_cli.server.routers.workspaces import router as workspaces_router
 from mycode_cli.server.run_manager import RunManager
-from mycode_cli.sessions import SessionStore
+from mycode_cli.sessions import SessionLockedError, SessionStore
 
 logger = logging.getLogger(__name__)
 DEV_CORS_ORIGINS = ("http://localhost:5173", "http://127.0.0.1:5173")
@@ -50,6 +51,11 @@ def create_app(*, serve_web: bool = True, cors_origins: Sequence[str] = ()) -> F
             allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
             allow_headers=["Content-Type", "Authorization"],
         )
+
+    @application.exception_handler(SessionLockedError)
+    async def session_locked(_request: Request, exc: SessionLockedError) -> JSONResponse:
+        # Another process (the TUI, `mycode run`, another server) has the session open.
+        return JSONResponse(status_code=409, content={"detail": {"message": str(exc)}})
 
     # Mount API routers
     application.include_router(chat_router, prefix="/api")
