@@ -444,39 +444,34 @@ class TerminalChat:
         batch = [message]
         # The agent's history grows by the committed message before anything else.
         history_before = len(self.agent.messages)
-        self.terminal.busy = True
-        self.terminal.on_cancel = self._interrupt
-        self.terminal.on_submit = self._submit_pending
-        self.terminal.on_take_back = self._take_back
         try:
-            renderer = await self._turn_renderer()
-            if user_input is None:
-                await self.store.touch(self.session_id)
-            else:
-                await self.store.record_user_turn(self.session_id, cwd=self.settings.cwd, text=user_input)
-            while True:
-                completed = await renderer.render(self.agent, message)
-                if not completed or not self._queue:
-                    return
-                # The queue stays where Esc and Alt+Up reach it while the next
-                # turn is prepared; it is taken only once the turn can start.
+            with self.terminal.running(
+                on_cancel=self._interrupt, on_submit=self._submit_pending, on_take_back=self._take_back
+            ):
                 renderer = await self._turn_renderer()
-                text = "\n\n".join(display_text(item) for item in self._queue)
-                await self.store.record_user_turn(self.session_id, cwd=self.settings.cwd, text=text)
-                if not self._queue:
-                    return
-                batch, self._queue = self._queue, []
-                self._show_pending()
-                message = merge_user_messages(batch, steer=False)
-                history_before = len(self.agent.messages)
-                self.terminal.print(Text())
-                self._attach_results(message)
-                self.terminal.print(user_echo(text), Text())
+                if user_input is None:
+                    await self.store.touch(self.session_id)
+                else:
+                    await self.store.record_user_turn(self.session_id, cwd=self.settings.cwd, text=user_input)
+                while True:
+                    completed = await renderer.render(self.agent, message)
+                    if not completed or not self._queue:
+                        return
+                    # The queue stays where Esc and Alt+Up reach it while the next
+                    # turn is prepared; it is taken only once the turn can start.
+                    renderer = await self._turn_renderer()
+                    text = "\n\n".join(display_text(item) for item in self._queue)
+                    await self.store.record_user_turn(self.session_id, cwd=self.settings.cwd, text=text)
+                    if not self._queue:
+                        return
+                    batch, self._queue = self._queue, []
+                    self._show_pending()
+                    message = merge_user_messages(batch, steer=False)
+                    history_before = len(self.agent.messages)
+                    self.terminal.print(Text())
+                    self._attach_results(message)
+                    self.terminal.print(user_echo(text), Text())
         finally:
-            self.terminal.busy = False
-            self.terminal.on_cancel = None
-            self.terminal.on_submit = None
-            self.terminal.on_take_back = None
             # A message that never reached the session (its commit failed, or
             # the stop came first) returns to the editor with the pending input.
             # A wake that never committed holds further wakes instead: its
@@ -486,6 +481,7 @@ class TerminalChat:
                     self.jobs.suspended = True
                 else:
                     self._queue[:0] = batch
+            # Outside ``running``, so every steer still pending comes back too.
             self._take_back()
             # The results this turn committed are done; the rest are free for the next delivery.
             self.jobs.reconcile(self.agent.messages)
@@ -693,28 +689,25 @@ class TerminalChat:
     async def _compact_session(self) -> None:
         """Compact the conversation now and print the ``compacted`` divider."""
 
-        self.terminal.busy = True
-        self.terminal.on_cancel = self.agent.cancel
-        self.terminal.set_tail(Spinner("dots", text=Text("Compacting…", style=MUTED), style=MUTED))
-        try:
-            await self.agent.acompact()
-        except NothingToCompactError:
-            self.terminal.print(Text("nothing to compact", style=MUTED))
-            return
-        except asyncio.CancelledError:
-            task = asyncio.current_task()
-            if task is not None and task.cancelling():
-                raise
-            # The agent reports a user stop (Esc / Ctrl+C) as CancelledError.
-            self.terminal.print(Text("cancelled", style=MUTED))
-            return
-        except Exception as exc:
-            self.terminal.print(error_line(str(exc)))
-            return
-        finally:
-            self.terminal.set_tail(None)
-            self.terminal.busy = False
-            self.terminal.on_cancel = None
+        with self.terminal.running(on_cancel=self.agent.cancel):
+            self.terminal.set_tail(Spinner("dots", text=Text("Compacting…", style=MUTED), style=MUTED))
+            try:
+                await self.agent.acompact()
+            except NothingToCompactError:
+                self.terminal.print(Text("nothing to compact", style=MUTED))
+                return
+            except asyncio.CancelledError:
+                task = asyncio.current_task()
+                if task is not None and task.cancelling():
+                    raise
+                # The agent reports a user stop (Esc / Ctrl+C) as CancelledError.
+                self.terminal.print(Text("cancelled", style=MUTED))
+                return
+            except Exception as exc:
+                self.terminal.print(error_line(str(exc)))
+                return
+            finally:
+                self.terminal.set_tail(None)
         await self.store.touch(self.session_id)
         self.terminal.print(compact_marker())
 
