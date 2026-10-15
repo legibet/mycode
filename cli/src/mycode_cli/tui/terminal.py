@@ -24,7 +24,10 @@ from prompt_toolkit.data_structures import Point
 from prompt_toolkit.filters import Condition, has_focus
 from prompt_toolkit.formatted_text import ANSI, StyleAndTextTuples, to_formatted_text
 from prompt_toolkit.history import FileHistory
-from prompt_toolkit.input import Input
+from prompt_toolkit.input import Input, create_input
+from prompt_toolkit.input.ansi_escape_sequences import ANSI_SEQUENCES
+from prompt_toolkit.input.vt100 import Vt100Input
+from prompt_toolkit.input.vt100_parser import Vt100Parser
 from prompt_toolkit.key_binding import ConditionalKeyBindings, KeyBindings, merge_key_bindings
 from prompt_toolkit.key_binding.defaults import load_key_bindings
 from prompt_toolkit.key_binding.key_processor import KeyPressEvent
@@ -53,6 +56,15 @@ _KEY_SEQUENCE_TIMEOUT = 0.4
 _MENU_RESERVED_LINES = 8
 # OSC 8 hyperlink sequences from rich; prompt_toolkit's ANSI parser does not understand them.
 _HYPERLINK = re.compile("\x1b]8;.*?\x1b\\\\")
+# Kitty keyboard protocol, "disambiguate escape codes" level, so that keys such as
+# Shift+Enter arrive as distinct ``CSI code;modifiers u`` sequences.
+# https://sw.kovidgoyal.net/kitty/keyboard-protocol/
+_KITTY_KEYS_ON = "\x1b[>1u"
+_KITTY_KEYS_OFF = "\x1b[<u"
+_KITTY_KEY = re.compile(r"\x1b\[(\d+)(?:;(\d+))?u")
+_SHIFT, _ALT, _CTRL = 1, 2, 4
+_CAPS_LOCK, _NUM_LOCK = 64, 128
+_KP_ENTER = 0xE046
 
 
 def _render(renderables: Iterable[RenderableType], width: int, *, end: str = "\n") -> str:
@@ -75,6 +87,38 @@ def _render(renderables: Iterable[RenderableType], width: int, *, end: str = "\n
         else:
             console.print(renderable, end=end)
     return file.getvalue()
+
+
+class _KittyKeyParser(Vt100Parser):
+    """Parse kitty ``CSI u`` key sequences into the keys their legacy encodings stand for.
+
+    Shift+Enter becomes Esc+Enter, the newline key. prompt_toolkit already waits
+    for the rest of any ``CSI digits;digits`` prefix, so sequences arrive whole.
+    """
+
+    @override
+    def _get_match(self, prefix: str) -> None | Keys | tuple[Keys, ...]:
+        match = _KITTY_KEY.fullmatch(prefix)
+        if match is None:
+            return super()._get_match(prefix)
+        code = 13 if int(match[1]) == _KP_ENTER else int(match[1])
+        mods = (int(match[2] or 1) - 1) & ~(_CAPS_LOCK | _NUM_LOCK)
+        if code == 13 and mods & (_SHIFT | _ALT):
+            return (Keys.Escape, Keys.ControlM)
+        if code == 9 and mods == _SHIFT:
+            return Keys.BackTab
+        # Super/Hyper/Meta combinations and keys without a legacy encoding (private-use codes).
+        if mods & ~(_SHIFT | _ALT | _CTRL) or 0xE000 <= code <= 0xF8FF:
+            return Keys.Ignore
+
+        char = chr(code)
+        if mods & _CTRL and ("a" <= char <= "z" or char in "@[\\]^_ "):
+            char = chr(ord(char.upper()) & 0x1F)
+        elif mods & _SHIFT:
+            char = char.upper()
+        # Control characters map to their keys; printable characters are their own key.
+        key = cast(Keys, ANSI_SEQUENCES.get(char, char))
+        return (Keys.Escape, key) if mods & _ALT else key
 
 
 @dataclass(frozen=True)
@@ -247,6 +291,9 @@ class Terminal:
             ]
         )
 
+        input = input or create_input()
+        if isinstance(input, Vt100Input):
+            input.vt100_parser = _KittyKeyParser(input.vt100_parser.feed_key_callback)
         output = output or create_output()
         if isinstance(output, Vt100_Output):
             # A cursor position report makes prompt_toolkit size its frame to
@@ -352,10 +399,17 @@ class Terminal:
             nonlocal task
             task = asyncio.create_task(body())
 
+        output = self._app.output
+        kitty_keys = isinstance(self._app.input, Vt100Input)
         logging.getLogger().addHandler(handler)
         try:
+            if kitty_keys:
+                output.write_raw(_KITTY_KEYS_ON)
             await self._app.run_async(pre_run=start)
         finally:
+            if kitty_keys:
+                output.write_raw(_KITTY_KEYS_OFF)
+                output.flush()
             logging.getLogger().removeHandler(handler)
             if task is not None and not task.done():
                 task.cancel()

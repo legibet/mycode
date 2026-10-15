@@ -58,14 +58,17 @@ async def test_run_propagates_errors_from_main(harness: TerminalHarness) -> None
         await harness.terminal.run(main)
 
 
-async def test_enter_submits_and_esc_enter_inserts_newline(harness: TerminalHarness) -> None:
+@pytest.mark.parametrize(
+    "newline", ["\x1b\r", "\x1b[13;2u", "\x1b[13;3u"], ids=["esc-enter", "kitty-shift-enter", "kitty-alt-enter"]
+)
+async def test_enter_submits_and_newline_keys_insert_newline(harness: TerminalHarness, newline: str) -> None:
     terminal, pipe = harness.terminal, harness.pipe
     results: list[str] = []
 
     async def main() -> None:
         pipe.send_text("first\r")
         results.append(await terminal.read())
-        pipe.send_text("two\x1b\rlines\r")
+        pipe.send_text(f"two{newline}lines\r")
         results.append(await terminal.read())
 
     await terminal.run(main)
@@ -128,16 +131,17 @@ async def test_alt_up_takes_back_while_busy(harness: TerminalHarness, keys: str)
     assert calls == ["take back"]
 
 
-async def test_esc_cancels_only_while_busy(harness: TerminalHarness) -> None:
+@pytest.mark.parametrize("esc", ["\x1b", "\x1b[27u"], ids=["legacy", "kitty"])
+async def test_esc_cancels_only_while_busy(harness: TerminalHarness, esc: str) -> None:
     terminal, pipe = harness.terminal, harness.pipe
     cancels: list[str] = []
 
     async def main() -> None:
-        pipe.send_text("\x1b")
+        pipe.send_text(esc)
         await asyncio.sleep(ESC_WAIT)
         assert cancels == []
         with terminal.running(on_cancel=lambda: cancels.append("cancel")):
-            pipe.send_text("\x1b")
+            pipe.send_text(esc)
             await asyncio.sleep(ESC_WAIT)
 
     await terminal.run(main)
@@ -145,22 +149,46 @@ async def test_esc_cancels_only_while_busy(harness: TerminalHarness) -> None:
     assert cancels == ["cancel"]
 
 
-async def test_ctrl_c_cancels_while_busy_and_clears_input_otherwise(harness: TerminalHarness) -> None:
+@pytest.mark.parametrize("ctrl_c", ["\x03", "\x1b[99;5u"], ids=["legacy", "kitty"])
+async def test_ctrl_c_cancels_while_busy_and_clears_input_otherwise(harness: TerminalHarness, ctrl_c: str) -> None:
     terminal, pipe = harness.terminal, harness.pipe
     cancels: list[str] = []
     results: list[str] = []
 
     async def main() -> None:
         with terminal.running(on_cancel=lambda: cancels.append("cancel")):
-            pipe.send_text("\x03")
+            pipe.send_text(ctrl_c)
             await asyncio.sleep(0.2)
-        pipe.send_text("draft\x03kept\r")
+        pipe.send_text(f"draft{ctrl_c}kept\r")
         results.append(await terminal.read())
 
     await terminal.run(main)
 
     assert cancels == ["cancel"]
     assert results == ["kept"]
+
+
+async def test_kitty_keys_edit_like_their_legacy_keys(harness: TerminalHarness) -> None:
+    terminal, pipe = harness.terminal, harness.pipe
+    results: list[str] = []
+
+    async def main() -> None:
+        # Alt+Backspace deletes a word, Super+A is ignored, keypad Enter submits.
+        pipe.send_text("one two\x1b[127;3u\x1b[97;9uthree\x1b[57414u")
+        results.append(await terminal.read())
+
+    await terminal.run(main)
+
+    assert results == ["one three"]
+
+
+async def test_run_turns_the_kitty_keyboard_protocol_on_and_off(harness: TerminalHarness) -> None:
+    async def main() -> None:
+        assert "\x1b[>1u" in harness.output.getvalue()
+
+    await harness.terminal.run(main)
+
+    assert harness.output.getvalue().endswith("\x1b[<u")
 
 
 async def test_ctrl_d_on_empty_input_raises_eof(harness: TerminalHarness) -> None:

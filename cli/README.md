@@ -90,7 +90,7 @@ The CLI assembles the system prompt from instructions files and discovered skill
 | Enter                        | Send the message (steer while a reply runs); with a completion menu open, accept it    |
 | Ctrl+Q                       | Queue the message for after the reply; otherwise send it                               |
 | Alt+Up                       | Take back pending steers and queued messages into the input                            |
-| Esc then Enter, or Alt+Enter | Insert a newline                                                                       |
+| Shift+Enter or Alt+Enter     | Insert a newline (Esc then Enter also works)                                           |
 | Esc                          | Take back pending messages and interrupt the reply; close a selection list             |
 | Ctrl+C                       | Take back pending messages and interrupt the reply; otherwise clear the input          |
 | Ctrl+D                       | Exit (empty input only)                                                                |
