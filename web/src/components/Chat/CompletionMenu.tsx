@@ -50,7 +50,7 @@ export function CompletionMenu({
         id={menuId}
         role="listbox"
         aria-label="Completions"
-        className="max-h-60 overflow-y-auto rounded-lg border border-border bg-popover p-1 shadow-md"
+        className="max-h-60 overflow-y-auto rounded-md bg-popover p-1 text-popover-foreground shadow-overlay"
       >
         {items.map((item, index) => (
           // Options in an aria-activedescendant listbox; the textarea keeps focus and handles keys.

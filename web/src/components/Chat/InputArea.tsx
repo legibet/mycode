@@ -29,6 +29,9 @@ import {
   useState,
 } from "react";
 
+import { Button } from "@/components/ui/button";
+import { SimpleTooltip } from "@/components/ui/tooltip";
+
 import type {
   AttachedFile,
   BackgroundJobInfo,
@@ -50,9 +53,6 @@ import { EffortTrigger, ModelTrigger } from "./InputPills";
 import { hasUsageRows, StatsPopover, StatsText, UsageGrid } from "./StatsCard";
 
 const EMPTY_SKILLS: SkillInfo[] = [];
-
-const QUEUED_ACTION_CLASS =
-  "flex h-6 items-center justify-center rounded-md hover:bg-background/70 hover:text-foreground active:scale-95 transition-[color,background-color,scale] duration-150";
 
 // File pickers only understand MIME types and extensions, so keep the text
 // allowlist explicit here.
@@ -572,18 +572,15 @@ export const InputArea = memo(function InputArea({
                     <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
                       {formatDuration(Math.max(0, now - Date.parse(job.started_at)))}
                     </span>
-                    <button
-                      type="button"
+                    <Button
+                      variant="ghost"
+                      size="xs"
                       title="Stop the command"
                       onClick={() => onStopJob?.(job.tool_use_id)}
-                      className={cn(
-                        QUEUED_ACTION_CLASS,
-                        "gap-1 px-1.5 text-xs text-muted-foreground",
-                      )}
                     >
-                      <Square className="size-3 fill-current" />
+                      <Square data-icon="inline-start" className="size-3 fill-current" />
                       Stop
-                    </button>
+                    </Button>
                   </li>
                 ))}
               </ul>
@@ -618,36 +615,38 @@ export const InputArea = memo(function InputArea({
                         {attachmentCount}
                       </span>
                     )}
-                    <span className="flex shrink-0 items-center gap-0.5 text-muted-foreground">
-                      <button
-                        type="button"
+                    <span className="flex shrink-0 items-center gap-0.5">
+                      <Button
+                        variant="ghost"
+                        size="xs"
                         title="Steer the current turn"
                         onClick={() => onSteerQueued?.(item.id)}
-                        className={cn(QUEUED_ACTION_CLASS, "gap-1 px-1.5 text-xs")}
                       >
-                        <ArrowUpToLine className="size-3.5" />
+                        <ArrowUpToLine data-icon="inline-start" className="size-3.5" />
                         Steer
-                      </button>
+                      </Button>
                       {!item.partial && (
-                        <button
-                          type="button"
-                          aria-label="Edit"
-                          title="Edit"
-                          onClick={() => handleEditQueued(item.id)}
-                          className={cn(QUEUED_ACTION_CLASS, "w-6")}
-                        >
-                          <Pencil className="size-3.5" />
-                        </button>
+                        <SimpleTooltip label="Edit">
+                          <Button
+                            variant="ghost"
+                            size="icon-xs"
+                            aria-label="Edit"
+                            onClick={() => handleEditQueued(item.id)}
+                          >
+                            <Pencil className="size-3.5" />
+                          </Button>
+                        </SimpleTooltip>
                       )}
-                      <button
-                        type="button"
-                        aria-label="Remove"
-                        title="Remove"
-                        onClick={() => onRemoveQueued?.(item.id)}
-                        className={cn(QUEUED_ACTION_CLASS, "w-6")}
-                      >
-                        <Trash2 className="size-3.5" />
-                      </button>
+                      <SimpleTooltip label="Remove">
+                        <Button
+                          variant="ghost"
+                          size="icon-xs"
+                          aria-label="Remove"
+                          onClick={() => onRemoveQueued?.(item.id)}
+                        >
+                          <Trash2 className="size-3.5" />
+                        </Button>
+                      </SimpleTooltip>
                     </span>
                   </li>
                 );
@@ -695,17 +694,17 @@ export const InputArea = memo(function InputArea({
                     </div>
                   </div>
                 )}
-                <button
-                  type="button"
+                <Button
+                  size="icon-xs"
                   onClick={() => {
                     showInputNotice(null);
                     onRemoveFile?.(file.id);
                   }}
                   aria-label={`Remove ${file.name}`}
-                  className="absolute -top-1 -right-1 flex size-4 items-center justify-center rounded-full bg-foreground text-background opacity-0 transition-opacity group-hover/thumb:opacity-100 max-md:opacity-100"
+                  className="absolute -top-1 -right-1 size-4 rounded-full border-0 bg-foreground text-background opacity-0 transition-[background-color,opacity,scale] group-hover/thumb:opacity-100 hover:bg-foreground/85 focus-visible:opacity-100 max-md:opacity-100"
                 >
                   <X className="size-2.5" />
-                </button>
+                </Button>
               </div>
             ))}
           </div>
@@ -740,21 +739,17 @@ export const InputArea = memo(function InputArea({
 
         {/* Bottom row: attach + model · effort + send */}
         <div className="flex items-center gap-1 px-1.5 pb-1.5">
-          <button
-            type="button"
-            aria-label="Attach file"
-            disabled={disabled || compacting}
-            onClick={() => fileInputRef.current?.click()}
-            className={cn(
-              "flex size-7 shrink-0 items-center justify-center rounded-md transition-colors",
-              disabled || compacting
-                ? "text-muted-foreground/20"
-                : "text-muted-foreground/60 hover:bg-muted/70 hover:text-foreground",
-            )}
-            title="Attach file"
-          >
-            <Paperclip className="size-3.5" />
-          </button>
+          <SimpleTooltip label="Attach file">
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label="Attach file"
+              disabled={disabled || compacting}
+              onClick={() => fileInputRef.current?.click()}
+            >
+              <Paperclip className="size-3.5" />
+            </Button>
+          </SimpleTooltip>
 
           <div className="flex min-w-0 flex-1 items-center gap-0.5 overflow-hidden">
             <div className={cn("min-w-0", inputNotice && "max-w-[45%] max-md:max-w-24")}>
@@ -797,31 +792,31 @@ export const InputArea = memo(function InputArea({
           />
 
           {loading && !canSend ? (
-            <button
-              type="button"
-              aria-label="Stop generating"
-              onClick={onCancel}
-              className="flex size-7 shrink-0 items-center justify-center rounded-md text-destructive/70 transition-[color,background-color,scale] duration-150 hover:bg-destructive/10 hover:text-destructive active:scale-95"
-              title="Stop · Esc"
-            >
-              <Square className="size-3 fill-current" />
-            </button>
+            <SimpleTooltip label="Stop · Esc">
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                aria-label="Stop generating"
+                onClick={onCancel}
+                className="text-destructive/70 hover:bg-destructive/10 hover:text-destructive"
+              >
+                <Square className="size-3 fill-current" />
+              </Button>
+            </SimpleTooltip>
           ) : (
-            <button
-              type="button"
-              aria-label="Send message"
-              onClick={(e) => composerRef.current?.submit(e.metaKey || e.ctrlKey)}
-              disabled={!canSend}
-              className={cn(
-                "flex size-7 shrink-0 items-center justify-center rounded-md transition-[color,background-color,filter,scale] duration-150",
-                canSend
-                  ? "bg-primary text-primary-foreground hover:brightness-105 hover:saturate-[.9] active:scale-95"
-                  : "bg-muted/40 text-muted-foreground/30",
-              )}
-              title={loading ? `Steer · Enter, queue · ${isMac ? "⌘" : "Ctrl+"}Enter` : "Send"}
+            <SimpleTooltip
+              label={loading ? `Steer · Enter, queue · ${isMac ? "⌘" : "Ctrl+"}Enter` : "Send"}
             >
-              <ArrowUp className="size-3.5" strokeWidth={2.5} />
-            </button>
+              <Button
+                variant={canSend ? "default" : "secondary"}
+                size="icon-sm"
+                aria-label="Send message"
+                onClick={(e) => composerRef.current?.submit(e.metaKey || e.ctrlKey)}
+                disabled={!canSend}
+              >
+                <ArrowUp className="size-3.5" strokeWidth={2.5} />
+              </Button>
+            </SimpleTooltip>
           )}
         </div>
 

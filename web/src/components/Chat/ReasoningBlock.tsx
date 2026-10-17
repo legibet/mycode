@@ -7,6 +7,8 @@
 
 import { memo, useState } from "react";
 
+import { Collapse } from "@/components/ui/collapse";
+
 import { cn } from "../../utils/cn";
 
 interface ReasoningBlockProps {
@@ -44,7 +46,7 @@ export const ReasoningBlock = memo(function ReasoningBlock({
     <div className="group/thinking">
       <button
         type="button"
-        className="block cursor-pointer text-left select-none"
+        className="block cursor-pointer rounded-sm text-left select-none focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none focus-visible:ring-inset"
         aria-expanded={expanded}
         onClick={() => setExpandedOverride(!expanded)}
       >
@@ -58,19 +60,11 @@ export const ReasoningBlock = memo(function ReasoningBlock({
         </span>
       </button>
 
-      <div
-        data-expanded={expanded}
-        className={cn(
-          "grid transition-[grid-template-rows,opacity] duration-300 ease-in-out",
-          expanded ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0",
-        )}
-      >
-        <div className="overflow-hidden">
-          <div className="mt-2 border-l border-border pl-3 text-[13px] leading-relaxed whitespace-pre-wrap text-muted-foreground">
-            {content}
-          </div>
+      <Collapse open={expanded}>
+        <div className="mt-2 border-l border-border pl-3 text-[13px] leading-relaxed whitespace-pre-wrap text-muted-foreground">
+          {content}
         </div>
-      </div>
+      </Collapse>
     </div>
   );
 });

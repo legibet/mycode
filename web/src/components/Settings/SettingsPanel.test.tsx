@@ -6,7 +6,7 @@ import type { SettingsResponse } from "../../types";
 import { SettingsPanel } from "./SettingsPanel";
 
 vi.mock("../../hooks/useMediaQuery", () => ({
-  useMediaQuery: () => true,
+  useIsDesktop: () => true,
 }));
 
 vi.mock("../ThemeProvider", () => ({

@@ -8,6 +8,8 @@
 import { ChevronRight } from "lucide-react";
 import { type ReactNode, useLayoutEffect, useRef, useState } from "react";
 
+import { Collapse } from "@/components/ui/collapse";
+
 import type { Interruption, MessageBlock } from "../../types";
 import { cn } from "../../utils/cn";
 import { formatDuration } from "../../utils/format";
@@ -90,7 +92,7 @@ function SummaryRow({ lead, tools, failed, expanded, fadeIn, onToggle }: Summary
       ref={rowRef}
       type="button"
       className={cn(
-        "relative flex max-w-full cursor-pointer items-center gap-1 overflow-hidden text-left text-[12px] select-none",
+        "relative flex max-w-full cursor-pointer items-center gap-1 overflow-hidden rounded-sm text-left text-[12px] select-none focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none focus-visible:ring-inset",
         // The row fades in over the work folding beneath it.
         fadeIn && "transition-opacity duration-300 starting:opacity-0",
       )}
@@ -172,17 +174,9 @@ export function WorkSection({
         />
       )}
 
-      <div
-        inert={!open}
-        className={cn(
-          "grid transition-[grid-template-rows,opacity] duration-300 ease-in-out",
-          open ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0",
-        )}
-      >
-        <div className="overflow-hidden">
-          {mounted && <div className={cn("flex flex-col gap-3", folded && "pt-3")}>{children}</div>}
-        </div>
-      </div>
+      <Collapse open={open}>
+        {mounted && <div className={cn("flex flex-col gap-3", folded && "pt-3")}>{children}</div>}
+      </Collapse>
     </div>
   );
 }

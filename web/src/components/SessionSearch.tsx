@@ -16,9 +16,7 @@ import {
   CommandItem,
   CommandList,
 } from "@/components/ui/command";
-import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
-import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
-import { useMediaQuery } from "@/hooks/useMediaQuery";
+import { ResponsiveDialog } from "@/components/ui/responsive-dialog";
 
 import type { SessionSearchHit, SessionSearchResponse } from "../types";
 import { formatShortDate, parseDate } from "../utils/format";
@@ -43,56 +41,27 @@ export function SessionSearch({
   activeSessionId,
   onSelect,
 }: SessionSearchProps) {
-  const isDesktop = useMediaQuery("(min-width: 640px)");
   const inputRef = useRef<HTMLInputElement | null>(null);
 
-  const handleOpenChange = (next: boolean) => {
-    if (!next) onClose();
-  };
-
   // The popup unmounts on close, so the panel's query state resets on reopen.
-  const panel = (
-    <SearchPanel
-      inputRef={inputRef}
-      cwd={cwd}
-      activeSessionId={activeSessionId}
-      onSelect={(id) => {
-        onSelect(id);
-        onClose();
-      }}
-    />
-  );
-
-  if (isDesktop) {
-    return (
-      <Dialog open={open} onOpenChange={handleOpenChange}>
-        <DialogContent
-          showCloseButton={false}
-          initialFocus={inputRef}
-          className="flex max-h-[min(32.5rem,100dvh-2rem)] w-110 max-w-[calc(100vw-2rem)] flex-col gap-0 p-0 sm:max-w-[calc(100vw-2rem)]"
-        >
-          <DialogTitle className="sr-only">Search chats</DialogTitle>
-          {panel}
-        </DialogContent>
-      </Dialog>
-    );
-  }
-
   return (
-    <Sheet open={open} onOpenChange={handleOpenChange}>
-      <SheetContent
-        side="bottom"
-        showCloseButton={false}
-        initialFocus={inputRef}
-        className="flex max-h-[82vh] flex-col gap-0 rounded-t-2xl p-0"
-      >
-        <SheetTitle className="sr-only">Search chats</SheetTitle>
-        <div className="flex shrink-0 justify-center pt-2.5 pb-1" aria-hidden="true">
-          <div className="h-0.75 w-10 rounded-full bg-border/60" />
-        </div>
-        {panel}
-      </SheetContent>
-    </Sheet>
+    <ResponsiveDialog
+      open={open}
+      onClose={onClose}
+      title="Search chats"
+      initialFocus={inputRef}
+      className="max-h-[min(32.5rem,100dvh-2rem)] w-110"
+    >
+      <SearchPanel
+        inputRef={inputRef}
+        cwd={cwd}
+        activeSessionId={activeSessionId}
+        onSelect={(id) => {
+          onSelect(id);
+          onClose();
+        }}
+      />
+    </ResponsiveDialog>
   );
 }
 

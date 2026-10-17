@@ -9,6 +9,8 @@
 import { Terminal } from "lucide-react";
 import { memo, type ReactNode, useMemo, useState } from "react";
 
+import { Collapse } from "@/components/ui/collapse";
+
 import { cn } from "../../utils/cn";
 import { type HunkContext, hunksFromEdits, parsePatch } from "../../utils/diff";
 import { EditDiff } from "./EditDiff";
@@ -312,7 +314,7 @@ function EditBody({
 
   if (hunks.length) {
     return (
-      <div className="space-y-2">
+      <div className="flex flex-col gap-2">
         <EditDiff path={asString((args as PathArgs | undefined)?.path)} hunks={hunks} />
         {isError && <ToolSurface body={display} />}
       </div>
@@ -382,7 +384,7 @@ export const ToolCard = memo(function ToolCard({
     <div className="group/tool">
       <button
         type="button"
-        className="flex w-full cursor-pointer items-center gap-1.5 text-left select-none"
+        className="flex w-full cursor-pointer items-center gap-1.5 rounded-sm text-left select-none focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none focus-visible:ring-inset"
         aria-expanded={expanded}
         onClick={() => setExpanded((current) => !current)}
       >
@@ -409,19 +411,11 @@ export const ToolCard = memo(function ToolCard({
         <CollapsedSuffix name={name} args={args} metadata={metadata} />
       </button>
 
-      <div
-        data-expanded={expanded}
-        className={cn(
-          "grid transition-[grid-template-rows,opacity] duration-300 ease-in-out",
-          expanded ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0",
-        )}
-      >
-        <div className="overflow-hidden">
-          {/* Plain indent: the body is already a bounded surface, so a rail
-              beside it would just be a second parallel line. */}
-          <div className="mt-2 ml-5">{body}</div>
-        </div>
-      </div>
+      <Collapse open={expanded}>
+        {/* Plain indent: the body is already a bounded surface, so a rail
+            beside it would just be a second parallel line. */}
+        <div className="mt-2 ml-5">{body}</div>
+      </Collapse>
     </div>
   );
 });

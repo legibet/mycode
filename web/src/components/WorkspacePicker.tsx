@@ -10,9 +10,8 @@ import { Clock, Folder, FolderOpen, Search, X } from "lucide-react";
 import { type KeyboardEvent, type ReactNode, useCallback, useMemo, useRef, useState } from "react";
 import useSWR from "swr";
 
-import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
-import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
-import { useMediaQuery } from "@/hooks/useMediaQuery";
+import { Button } from "@/components/ui/button";
+import { ResponsiveDialog } from "@/components/ui/responsive-dialog";
 
 import type { WorkspaceBrowseResponse, WorkspaceEntry, WorkspaceRootsResponse } from "../types";
 import { cn } from "../utils/cn";
@@ -99,6 +98,25 @@ function getInitialTarget(
 
 // ─── component ──────────────────────────────────────────────────────────────
 
+const crumbClass = cn(
+  "shrink-0 rounded-sm px-1.5 py-0.5 font-mono text-xs whitespace-nowrap",
+  "transition-[color,background-color,scale] duration-150 hover:bg-muted/60 hover:text-foreground active:scale-95",
+  "focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none",
+);
+
+const rowClass =
+  "group flex min-h-11 w-full items-center gap-3 px-4 py-2 text-left transition-colors hover:bg-muted/50 focus-visible:bg-muted/50 focus-visible:outline-none active:bg-muted/70";
+
+function SectionLabel({ children }: { children: ReactNode }) {
+  return (
+    <div className="px-4 pt-3 pb-1.5">
+      <span className="text-[10px] font-semibold tracking-widest text-muted-foreground/40 uppercase select-none">
+        {children}
+      </span>
+    </div>
+  );
+}
+
 interface WorkspacePickerProps {
   open: boolean;
   openedWithKeyboard: boolean;
@@ -118,8 +136,6 @@ export function WorkspacePicker({
   onSelect,
   onMissingHistory,
 }: WorkspacePickerProps) {
-  const isDesktop = useMediaQuery("(min-width: 640px)");
-
   const {
     data: roots = [],
     error: rootsError,
@@ -272,15 +288,16 @@ export function WorkspacePicker({
     (!rootsLoading && roots.length === 0 ? "No workspace roots configured." : "");
   const showRoots = Boolean(browseError) && roots.length > 0 && !filter.trim();
 
-  const body: ReactNode = (
-    <>
-      {/* Drag handle — mobile only */}
-      {!isDesktop && (
-        <div className="flex shrink-0 justify-center pt-2.5 pb-1" aria-hidden="true">
-          <div className="h-0.75 w-10 rounded-full bg-border/60" />
-        </div>
-      )}
+  const initialFocus = shouldAutoFocusTextInputOnOpen(openedWithKeyboard) ? inputRef : undefined;
 
+  return (
+    <ResponsiveDialog
+      open={open}
+      onClose={onClose}
+      title="Select workspace"
+      initialFocus={initialFocus}
+      className="max-h-130 w-110"
+    >
       {/* Breadcrumb header */}
       <div className="flex min-h-11 shrink-0 items-center gap-1 border-b border-border/30 px-4">
         <div className="flex min-w-0 flex-1 scrollbar-none items-center gap-0.5 overflow-x-auto">
@@ -288,8 +305,7 @@ export function WorkspacePicker({
             type="button"
             onClick={() => root && browseTo(root, "")}
             className={cn(
-              "shrink-0 rounded-sm px-1.5 py-0.5 font-mono text-xs",
-              "transition-[color,background-color,scale] duration-150 hover:bg-muted/60 hover:text-foreground active:scale-95",
+              crumbClass,
               pathSegments.length === 0 ? "font-medium text-foreground" : "text-muted-foreground",
             )}
           >
@@ -306,8 +322,7 @@ export function WorkspacePicker({
                   type="button"
                   onClick={() => browseTo(root, crumbPath)}
                   className={cn(
-                    "rounded-sm px-1.5 py-0.5 font-mono text-xs whitespace-nowrap",
-                    "transition-[color,background-color,scale] duration-150 hover:bg-muted/60 hover:text-foreground active:scale-95",
+                    crumbClass,
                     index === pathSegments.length - 1
                       ? "font-medium text-foreground"
                       : "text-muted-foreground",
@@ -320,19 +335,9 @@ export function WorkspacePicker({
           })}
         </div>
 
-        <button
-          type="button"
-          onClick={onClose}
-          className={cn(
-            "flex size-8 shrink-0 items-center justify-center rounded-lg",
-            "text-muted-foreground/50 transition-[color,background-color,scale] duration-150 active:scale-95",
-            "hover:bg-muted/70 hover:text-foreground",
-            "focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
-          )}
-          aria-label="Close"
-        >
+        <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close">
           <X className="size-3.5" />
-        </button>
+        </Button>
       </div>
 
       {/* Filter input */}
@@ -353,14 +358,15 @@ export function WorkspacePicker({
           aria-label="Filter directories or enter a path"
         />
         {filter && (
-          <button
-            type="button"
+          <Button
+            variant="ghost"
+            size="icon-xs"
             onClick={() => setFilter("")}
-            className="shrink-0 text-muted-foreground/40 transition-[color,scale] duration-150 hover:text-muted-foreground active:scale-95"
+            className="-my-0.5"
             aria-label="Clear filter"
           >
-            <X className="size-3" />
-          </button>
+            <X />
+          </Button>
         )}
       </div>
 
@@ -400,17 +406,13 @@ export function WorkspacePicker({
             {/* Recent */}
             {showRecent && (
               <>
-                <div className="px-4 pt-3 pb-1.5">
-                  <span className="text-[10px] font-semibold tracking-widest text-muted-foreground/40 uppercase select-none">
-                    Recent
-                  </span>
-                </div>
+                <SectionLabel>Recent</SectionLabel>
                 {recentPaths.map((p) => (
                   <button
                     type="button"
                     key={p}
                     onClick={() => void handleSelectRecent(p)}
-                    className="group flex min-h-11 w-full items-center gap-3 px-4 py-2 text-left transition-colors hover:bg-muted/50 focus-visible:bg-muted/50 focus-visible:outline-none active:bg-muted/70"
+                    className={rowClass}
                   >
                     <Clock className="size-3.5 shrink-0 text-muted-foreground/35 transition-colors group-hover:text-primary/60" />
                     <span className="truncate font-mono text-xs text-muted-foreground transition-colors group-hover:text-foreground/80">
@@ -426,17 +428,13 @@ export function WorkspacePicker({
 
             {showRoots && (
               <>
-                <div className="px-4 pt-3 pb-1.5">
-                  <span className="text-[10px] font-semibold tracking-widest text-muted-foreground/40 uppercase select-none">
-                    Roots
-                  </span>
-                </div>
+                <SectionLabel>Roots</SectionLabel>
                 {roots.map((workspaceRoot) => (
                   <button
                     type="button"
                     key={workspaceRoot}
                     onClick={() => browseTo(workspaceRoot, "")}
-                    className="group flex min-h-11 w-full items-center gap-3 px-4 py-2 text-left transition-colors hover:bg-muted/50 focus-visible:bg-muted/50 focus-visible:outline-none active:bg-muted/70"
+                    className={rowClass}
                   >
                     <FolderOpen className="size-3.5 shrink-0 text-muted-foreground/35 transition-colors group-hover:text-primary/60" />
                     <span className="truncate font-mono text-xs text-muted-foreground transition-colors group-hover:text-foreground/80">
@@ -462,7 +460,7 @@ export function WorkspacePicker({
                 type="button"
                 key={entry.path}
                 onClick={() => browseTo(root, entry.path)}
-                className="group flex min-h-11 w-full items-center gap-3 px-4 py-2 text-left transition-colors hover:bg-muted/50 focus-visible:bg-muted/50 focus-visible:outline-none active:bg-muted/70"
+                className={rowClass}
               >
                 <Folder className="size-3.5 shrink-0 text-primary/40 transition-colors group-hover:text-primary/70" />
                 <span className="truncate font-mono text-sm text-foreground/70 transition-colors group-hover:text-foreground">
@@ -483,57 +481,15 @@ export function WorkspacePicker({
         >
           {current || "—"}
         </span>
-        <button
-          type="button"
+        <Button
+          size="sm"
           onClick={handleSelect}
           disabled={!current}
-          className={cn(
-            "h-7 shrink-0 rounded-md px-3.5 text-xs font-semibold",
-            "transition-[color,background-color,border-color,scale] duration-150 active:scale-95",
-            "border border-primary/20 bg-primary/15 text-primary",
-            "hover:border-primary/40 hover:bg-primary/25 active:bg-primary/30",
-            "focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
-            "disabled:cursor-not-allowed disabled:opacity-25",
-          )}
+          className="px-3.5 text-xs font-semibold"
         >
           Open
-        </button>
+        </Button>
       </div>
-    </>
-  );
-
-  const handleOpenChange = (next: boolean) => {
-    if (!next) onClose();
-  };
-
-  const initialFocus = shouldAutoFocusTextInputOnOpen(openedWithKeyboard) ? inputRef : undefined;
-
-  if (isDesktop) {
-    return (
-      <Dialog open={open} onOpenChange={handleOpenChange}>
-        <DialogContent
-          showCloseButton={false}
-          initialFocus={initialFocus}
-          className="flex max-h-130 w-110 max-w-[calc(100vw-2rem)] flex-col gap-0 p-0 sm:max-w-[calc(100vw-2rem)]"
-        >
-          <DialogTitle className="sr-only">Select workspace</DialogTitle>
-          {body}
-        </DialogContent>
-      </Dialog>
-    );
-  }
-
-  return (
-    <Sheet open={open} onOpenChange={handleOpenChange}>
-      <SheetContent
-        side="bottom"
-        showCloseButton={false}
-        initialFocus={initialFocus}
-        className="flex max-h-[82vh] flex-col gap-0 rounded-t-2xl p-0"
-      >
-        <SheetTitle className="sr-only">Select workspace</SheetTitle>
-        {body}
-      </SheetContent>
-    </Sheet>
+    </ResponsiveDialog>
   );
 }

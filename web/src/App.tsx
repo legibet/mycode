@@ -9,7 +9,8 @@ import useSWR from "swr";
 
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
-import { useMediaQuery } from "@/hooks/useMediaQuery";
+import { TooltipProvider } from "@/components/ui/tooltip";
+import { useIsDesktop } from "@/hooks/useMediaQuery";
 
 import { InputArea, type InputAreaHandle } from "./components/Chat/InputArea";
 import { MessageList } from "./components/Chat/MessageList";
@@ -137,7 +138,7 @@ function AppContent() {
     setSidebarWidth(SIDEBAR_DEFAULT_WIDTH);
   }, []);
 
-  const isDesktop = useMediaQuery("(min-width: 768px)");
+  const isDesktop = useIsDesktop();
 
   const displayedSidebarWidth = Math.max(
     SIDEBAR_MIN_WIDTH,
@@ -476,7 +477,9 @@ function AppContent() {
 export default function App() {
   return (
     <ThemeProvider>
-      <AppContent />
+      <TooltipProvider delay={500}>
+        <AppContent />
+      </TooltipProvider>
     </ThemeProvider>
   );
 }

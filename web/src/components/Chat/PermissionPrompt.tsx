@@ -8,6 +8,8 @@
 import { CornerDownLeft, Terminal } from "lucide-react";
 import { type KeyboardEvent, memo, useCallback } from "react";
 
+import { Button } from "@/components/ui/button";
+
 import type { PermissionRequest } from "../../types";
 import { cn } from "../../utils/cn";
 import { TOOL_ICON } from "./toolIcons";
@@ -102,18 +104,15 @@ export const PermissionPrompt = memo(function PermissionPrompt({
         {request.preview && <Payload toolName={request.tool_name} preview={request.preview} />}
 
         <div className="flex items-center justify-end gap-1">
-          <button
-            type="button"
-            onClick={() => onDecide("allow")}
-            className="inline-flex h-7 items-center gap-1.5 rounded-md bg-primary px-3 text-[12.5px] font-medium text-primary-foreground transition-[filter,scale] duration-150 hover:brightness-105 hover:saturate-[.9] active:scale-95"
-          >
+          <Button size="sm" className="text-[12.5px]" onClick={() => onDecide("allow")}>
             Allow
             <CornerDownLeft className="size-3 opacity-70" aria-hidden="true" />
-          </button>
-          <button
-            type="button"
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="bg-muted/70 text-[12.5px] font-normal hover:bg-muted"
             onClick={() => onDecide("deny")}
-            className="inline-flex h-7 items-center gap-1.5 rounded-md bg-muted/70 px-3 text-[12.5px] text-muted-foreground transition-[color,background-color,scale] duration-150 hover:bg-muted hover:text-foreground active:scale-95"
           >
             Deny
             {/* No color of its own: it inherits the button's, so the hint
@@ -121,7 +120,7 @@ export const PermissionPrompt = memo(function PermissionPrompt({
             <span className="text-[10px] tracking-wider uppercase" aria-hidden="true">
               esc
             </span>
-          </button>
+          </Button>
         </div>
       </div>
     </div>

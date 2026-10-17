@@ -8,6 +8,9 @@ import type { ComponentPropsWithoutRef } from "react";
 import { useEffect, useRef, useState } from "react";
 import type { ExtraProps } from "react-markdown";
 
+import { Button } from "@/components/ui/button";
+import { SimpleTooltip } from "@/components/ui/tooltip";
+
 import { copyText } from "../../utils/clipboard";
 import { cn } from "../../utils/cn";
 import HighlightedCode from "./HighlightedCode";
@@ -72,20 +75,22 @@ export function CodeBlock({ className, children, ...props }: CodeBlockProps) {
         </span>
       )}
 
-      <button
-        type="button"
-        aria-label="Copy code"
-        onClick={handleCopy}
-        className={cn(
-          "absolute top-1 right-1 z-10 flex size-7 items-center justify-center rounded-md transition-[color,background-color,opacity,scale] duration-150 active:scale-95",
-          copied
-            ? "text-primary opacity-100"
-            : "text-muted-foreground/40 opacity-0 group-hover/code:opacity-100 hover:bg-muted/20 hover:text-foreground/60 max-md:opacity-60",
-        )}
-        title="Copy"
-      >
-        {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
-      </button>
+      <SimpleTooltip label="Copy">
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          aria-label="Copy code"
+          onClick={handleCopy}
+          className={cn(
+            "absolute top-1 right-1 z-10 transition-[color,background-color,opacity,scale]",
+            copied
+              ? "text-primary opacity-100 hover:text-primary"
+              : "opacity-0 group-hover/code:opacity-100 focus-visible:opacity-100 max-md:opacity-60",
+          )}
+        >
+          {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
+        </Button>
+      </SimpleTooltip>
 
       <div className="scrollbar-subtle overflow-x-auto">
         <div className={cn("px-3 pb-2.5", language ? "pt-6" : "pt-2")}>

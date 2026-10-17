@@ -10,9 +10,11 @@
 import { Laptop, Loader2, Moon, Plus, Sun, X } from "lucide-react";
 import { type ReactNode, useCallback, useMemo, useState } from "react";
 
-import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
-import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
-import { useMediaQuery } from "@/hooks/useMediaQuery";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
+import { ResponsiveDialog } from "@/components/ui/responsive-dialog";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 
 import type {
   GlobalConfig,
@@ -28,8 +30,7 @@ import type {
 import { cn } from "../../utils/cn";
 import { prettifyPath } from "../../utils/format";
 import { useTheme } from "../ThemeProvider";
-import { Field, NativeSelect, Section, Segmented, TextInput } from "./controls";
-import { ProviderCard, type ProviderDraft } from "./ProviderCard";
+import { Field, ProviderCard, type ProviderDraft } from "./ProviderCard";
 
 interface SettingsPanelProps {
   open: boolean;
@@ -93,19 +94,6 @@ const PERMISSION_MODE_OPTIONS: { value: PermissionMode; label: string }[] = [
   { value: "ask", label: "ask" },
   { value: "deny", label: "deny" },
 ];
-
-const CANCEL_BTN_CLASS = cn(
-  "inline-flex items-center justify-center rounded-md text-[13px]",
-  "text-muted-foreground transition-[color,background-color,scale] duration-150 hover:bg-muted/60 hover:text-foreground active:scale-95",
-  "focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none",
-);
-
-const SAVE_BTN_CLASS = cn(
-  "inline-flex items-center justify-center gap-1.5 rounded-md text-[13px] font-medium",
-  "bg-primary text-primary-foreground transition-[color,filter,scale] duration-150 hover:brightness-105 hover:saturate-[.9] active:scale-95",
-  "disabled:pointer-events-none disabled:opacity-40",
-  "focus-visible:ring-2 focus-visible:ring-primary/50 focus-visible:outline-none",
-);
 
 const THEME_OPTIONS: { value: Theme; label: string; icon: ReactNode }[] = [
   {
@@ -263,6 +251,15 @@ function webKeyHint(
   return "optional; requests use Tavily keyless access when unset";
 }
 
+function Section({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <section className="flex flex-col gap-3.5">
+      <h3 className="text-[14px] font-semibold text-foreground select-none">{title}</h3>
+      <div className="flex flex-col gap-2.5">{children}</div>
+    </section>
+  );
+}
+
 export function SettingsPanel({
   open,
   onClose,
@@ -271,7 +268,6 @@ export function SettingsPanel({
   onSettingsSaved,
   projectConfigPaths,
 }: SettingsPanelProps) {
-  const isDesktop = useMediaQuery("(min-width: 768px)");
   const { theme, setTheme } = useTheme();
   const [draft, setDraft] = useState<DraftState>(() =>
     settings ? buildDraft(settings) : INITIAL_DRAFT,
@@ -406,19 +402,15 @@ export function SettingsPanel({
         )}
       >
         <h2 className="text-[14px] font-semibold text-foreground">Settings</h2>
-        <button
-          type="button"
+        <Button
+          variant="ghost"
+          size="icon"
           onClick={onClose}
           aria-label="Close"
-          className={cn(
-            "-mr-1 inline-flex items-center justify-center rounded-sm",
-            "size-8",
-            "text-muted-foreground/70 transition-[color,background-color,scale] duration-150 hover:bg-muted/60 hover:text-foreground active:scale-95",
-            "focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none",
-          )}
+          className="-mr-1 rounded-sm text-muted-foreground/70"
         >
           <X className="size-4" />
-        </button>
+        </Button>
       </div>
 
       {/* Body */}
@@ -447,12 +439,20 @@ export function SettingsPanel({
 
             <Section title="Appearance">
               <Field label="Theme">
-                <Segmented<Theme>
-                  value={theme}
-                  options={THEME_OPTIONS}
-                  onChange={setTheme}
-                  ariaLabel="Theme"
-                />
+                <ToggleGroup
+                  aria-label="Theme"
+                  value={[theme]}
+                  onValueChange={([next]) => {
+                    if (next) setTheme(next);
+                  }}
+                >
+                  {THEME_OPTIONS.map((opt) => (
+                    <ToggleGroupItem key={opt.value} value={opt.value}>
+                      {opt.icon}
+                      {opt.label}
+                    </ToggleGroupItem>
+                  ))}
+                </ToggleGroup>
               </Field>
             </Section>
 
@@ -495,7 +495,7 @@ export function SettingsPanel({
                   )
                 }
               >
-                <TextInput
+                <Input
                   type="number"
                   min={0}
                   max={1}
@@ -509,6 +509,7 @@ export function SettingsPanel({
                       compact_threshold: e.target.value,
                     }))
                   }
+                  className="font-mono"
                 />
               </Field>
             </Section>
@@ -524,10 +525,11 @@ export function SettingsPanel({
                       web_fetch: e.target.value as WebFetchProvider,
                     }))
                   }
+                  className="font-mono"
                 >
-                  <option value="local">local</option>
-                  <option value="tavily">Tavily</option>
-                  <option value="exa">Exa</option>
+                  <NativeSelectOption value="local">local</NativeSelectOption>
+                  <NativeSelectOption value="tavily">Tavily</NativeSelectOption>
+                  <NativeSelectOption value="exa">Exa</NativeSelectOption>
                 </NativeSelect>
               </Field>
               <Field label="Search">
@@ -540,10 +542,11 @@ export function SettingsPanel({
                       web_search: e.target.value as WebSearchProvider,
                     }))
                   }
+                  className="font-mono"
                 >
-                  <option value="off">Off</option>
-                  <option value="tavily">Tavily</option>
-                  <option value="exa">Exa</option>
+                  <NativeSelectOption value="off">Off</NativeSelectOption>
+                  <NativeSelectOption value="tavily">Tavily</NativeSelectOption>
+                  <NativeSelectOption value="exa">Exa</NativeSelectOption>
                 </NativeSelect>
               </Field>
               {(["tavily", "exa"] as const).map((provider) => {
@@ -558,7 +561,7 @@ export function SettingsPanel({
                     hint={webKeyHint(provider, key, envByName)}
                   >
                     <div className="flex items-center gap-2">
-                      <TextInput
+                      <Input
                         aria-label={`${label} API key`}
                         value={key.api_key_input}
                         onChange={(e) =>
@@ -576,21 +579,23 @@ export function SettingsPanel({
                         autoCorrect="off"
                         autoCapitalize="off"
                         autoComplete="off"
+                        className="font-mono"
                       />
                       {key.api_key_saved && !key.api_key_dirty && (
-                        <button
-                          type="button"
+                        <Button
+                          variant="ghost"
+                          size="lg"
                           onClick={() =>
                             updateWebKey(provider, {
                               api_key_input: "",
                               api_key_dirty: true,
                             })
                           }
-                          className="h-9 shrink-0 px-2 text-[12px] text-muted-foreground/70 transition-[color,scale] duration-150 hover:text-destructive active:scale-95"
+                          className="px-2 text-[12px] font-normal text-muted-foreground/70 hover:text-destructive"
                           aria-label={`Clear saved ${provider} API key`}
                         >
                           clear
-                        </button>
+                        </Button>
                       )}
                     </div>
                   </Field>
@@ -610,37 +615,47 @@ export function SettingsPanel({
                         permission_level: e.target.value as PermissionLevel,
                       }))
                     }
+                    className="font-mono"
                   >
                     {PERMISSION_LEVEL_OPTIONS.map((opt) => (
-                      <option key={opt.value} value={opt.value}>
+                      <NativeSelectOption key={opt.value} value={opt.value}>
                         {opt.label}
-                      </option>
+                      </NativeSelectOption>
                     ))}
                   </NativeSelect>
                 </div>
                 <div className="max-md:hidden">
-                  <Segmented<PermissionLevel>
-                    value={draft.permission_level}
-                    onChange={(value) =>
-                      setDraft((prev) => ({
-                        ...prev,
-                        permission_level: value,
-                      }))
-                    }
-                    options={PERMISSION_LEVEL_OPTIONS}
-                    ariaLabel="Permission level"
+                  <ToggleGroup
+                    aria-label="Permission level"
                     size="sm"
-                  />
+                    value={[draft.permission_level]}
+                    onValueChange={([next]) => {
+                      if (next) setDraft((prev) => ({ ...prev, permission_level: next }));
+                    }}
+                  >
+                    {PERMISSION_LEVEL_OPTIONS.map((opt) => (
+                      <ToggleGroupItem key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </ToggleGroupItem>
+                    ))}
+                  </ToggleGroup>
                 </div>
               </Field>
               <Field label="Mode">
-                <Segmented<PermissionMode>
-                  value={draft.permission_mode}
-                  onChange={(value) => setDraft((prev) => ({ ...prev, permission_mode: value }))}
-                  options={PERMISSION_MODE_OPTIONS}
-                  ariaLabel="Permission mode"
+                <ToggleGroup
+                  aria-label="Permission mode"
                   size="sm"
-                />
+                  value={[draft.permission_mode]}
+                  onValueChange={([next]) => {
+                    if (next) setDraft((prev) => ({ ...prev, permission_mode: next }));
+                  }}
+                >
+                  {PERMISSION_MODE_OPTIONS.map((opt) => (
+                    <ToggleGroupItem key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </ToggleGroupItem>
+                  ))}
+                </ToggleGroup>
               </Field>
             </Section>
 
@@ -660,19 +675,15 @@ export function SettingsPanel({
                     onRemove={removeProvider}
                   />
                 ))}
-                <button
-                  type="button"
+                <Button
+                  variant="ghost"
+                  size="lg"
                   onClick={addProvider}
-                  className={cn(
-                    "inline-flex h-9 items-center justify-center gap-1.5 rounded-lg",
-                    "border border-dashed border-border/50 text-muted-foreground/80",
-                    "transition-[color,background-color,border-color,scale] duration-150 hover:border-border hover:bg-muted/30 hover:text-foreground active:scale-95",
-                    "text-[13px]",
-                  )}
+                  className="border-dashed border-border/50 text-[13px] font-normal text-muted-foreground/80 hover:border-border hover:bg-muted/30"
                 >
                   <Plus className="size-4" />
                   Add provider
-                </button>
+                </Button>
               </div>
             </Section>
           </div>
@@ -690,18 +701,23 @@ export function SettingsPanel({
         <div className="flex flex-col gap-2 px-4 py-3 md:hidden">
           {error && <div className="text-[12px] leading-relaxed text-destructive/90">{error}</div>}
           <div className="flex items-center gap-2">
-            <button type="button" onClick={onClose} className={cn(CANCEL_BTN_CLASS, "h-9 flex-1")}>
+            <Button
+              variant="ghost"
+              size="lg"
+              onClick={onClose}
+              className="flex-1 text-[13px] font-normal"
+            >
               Cancel
-            </button>
-            <button
-              type="button"
+            </Button>
+            <Button
+              size="lg"
               onClick={() => void handleSave()}
               disabled={!settings || saving || hasInvalidProvider}
-              className={cn(SAVE_BTN_CLASS, "h-9 flex-2")}
+              className="flex-2 text-[13px]"
             >
               {saving && <Loader2 className="size-3.5 animate-spin" />}
               Save
-            </button>
+            </Button>
           </div>
         </div>
 
@@ -711,52 +727,32 @@ export function SettingsPanel({
             {error ? <span className="text-destructive/90">{error}</span> : editsPath}
           </div>
           <div className="flex shrink-0 items-center gap-2">
-            <button type="button" onClick={onClose} className={cn(CANCEL_BTN_CLASS, "h-8 px-3.5")}>
+            <Button variant="ghost" onClick={onClose} className="px-3.5 text-[13px] font-normal">
               Cancel
-            </button>
-            <button
-              type="button"
+            </Button>
+            <Button
               onClick={() => void handleSave()}
               disabled={!settings || saving || hasInvalidProvider}
-              className={cn(SAVE_BTN_CLASS, "h-8 px-4")}
+              className="px-4 text-[13px]"
             >
               {saving && <Loader2 className="size-3.5 animate-spin" />}
               Save
-            </button>
+            </Button>
           </div>
         </div>
       </div>
     </>
   );
 
-  const handleOpenChange = (next: boolean) => {
-    if (!next) onClose();
-  };
-
-  if (isDesktop) {
-    return (
-      <Dialog open={open} onOpenChange={handleOpenChange}>
-        <DialogContent
-          showCloseButton={false}
-          className="flex max-h-[82vh] w-160 max-w-[calc(100vw-2rem)] flex-col gap-0 p-0 sm:max-w-[calc(100vw-2rem)]"
-        >
-          <DialogTitle className="sr-only">Settings</DialogTitle>
-          {body}
-        </DialogContent>
-      </Dialog>
-    );
-  }
-
   return (
-    <Sheet open={open} onOpenChange={handleOpenChange}>
-      <SheetContent
-        side="bottom"
-        showCloseButton={false}
-        className="flex h-dvh flex-col gap-0 rounded-none p-0"
-      >
-        <SheetTitle className="sr-only">Settings</SheetTitle>
-        {body}
-      </SheetContent>
-    </Sheet>
+    <ResponsiveDialog
+      open={open}
+      onClose={onClose}
+      title="Settings"
+      fullScreen
+      className="max-h-[82vh] w-160"
+    >
+      {body}
+    </ResponsiveDialog>
   );
 }

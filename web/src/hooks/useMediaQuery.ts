@@ -16,3 +16,8 @@ export function useMediaQuery(query: string): boolean {
     () => false,
   );
 }
+
+/** Tailwind's `md` breakpoint: the sidebar docks and overlays open as dialogs. */
+export function useIsDesktop(): boolean {
+  return useMediaQuery("(min-width: 768px)");
+}

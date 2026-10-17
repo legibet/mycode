@@ -19,6 +19,9 @@ import {
   useState,
 } from "react";
 
+import { Button } from "@/components/ui/button";
+import { SimpleTooltip } from "@/components/ui/tooltip";
+
 import type { PendingInput, RenderMessage } from "../../types";
 import { isChatMessage, isCompactMarker } from "../../types";
 import { cn } from "../../utils/cn";
@@ -486,19 +489,21 @@ function WindowedMessages({
         </SettleAnchor>
       </div>
       {messages.length > 0 && (
-        <button
-          type="button"
-          aria-label="Scroll to latest"
-          title="Scroll to latest"
-          inert={!awayFromBottom}
-          onClick={jumpToLatest}
-          className={cn(
-            "absolute bottom-3 left-1/2 flex size-8 -translate-x-1/2 items-center justify-center rounded-full border border-border/60 bg-background text-muted-foreground shadow-sm transition-[color,opacity,scale] duration-150 hover:text-foreground active:scale-95",
-            !awayFromBottom && "scale-90 opacity-0",
-          )}
-        >
-          <ArrowDown className="size-4" />
-        </button>
+        <SimpleTooltip label="Scroll to latest">
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label="Scroll to latest"
+            inert={!awayFromBottom}
+            onClick={jumpToLatest}
+            className={cn(
+              "absolute bottom-3 left-1/2 -translate-x-1/2 rounded-full border-border/60 bg-background shadow-sm transition-[color,background-color,opacity,scale] hover:bg-muted",
+              !awayFromBottom && "scale-90 opacity-0",
+            )}
+          >
+            <ArrowDown className="size-4" />
+          </Button>
+        </SimpleTooltip>
       )}
     </div>
   );

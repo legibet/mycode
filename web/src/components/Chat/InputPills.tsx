@@ -3,6 +3,7 @@
 import { Check, ChevronDown } from "lucide-react";
 import { memo, useMemo, useState } from "react";
 
+import { Button } from "@/components/ui/button";
 import {
   Command,
   CommandEmpty,
@@ -27,12 +28,7 @@ import {
   reasoningEffortKey,
 } from "../../utils/config";
 
-const TRIGGER_BTN =
-  "inline-flex items-center gap-0.5 h-6 px-1.5 rounded-sm text-[12px] leading-4 " +
-  "text-muted-foreground hover:text-foreground hover:bg-muted/60 " +
-  "transition-[color,background-color] duration-150 " +
-  "focus-visible:outline-none focus-visible:bg-muted/60 " +
-  "disabled:opacity-40 disabled:cursor-not-allowed";
+const TRIGGER_BTN = "gap-0.5 px-1.5 font-normal";
 
 const POPOVER_CONTENT_CLASS = "p-0 gap-0";
 
@@ -91,7 +87,12 @@ export const ModelTrigger = memo(function ModelTrigger({
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger
         render={
-          <button type="button" className={cn(TRIGGER_BTN, "max-w-full min-w-0")} title={label}>
+          <Button
+            variant="ghost"
+            size="xs"
+            className={cn(TRIGGER_BTN, "max-w-full min-w-0")}
+            title={label}
+          >
             <span className="truncate font-mono">{label}</span>
             <ChevronDown
               className={cn(
@@ -99,7 +100,7 @@ export const ModelTrigger = memo(function ModelTrigger({
                 open && "rotate-180",
               )}
             />
-          </button>
+          </Button>
         }
       />
       <PopoverContent
@@ -176,7 +177,12 @@ export const EffortTrigger = memo(function EffortTrigger({
     <DropdownMenu open={open} onOpenChange={setOpen}>
       <DropdownMenuTrigger
         render={
-          <button type="button" className={TRIGGER_BTN} title={`Reasoning effort: ${current}`}>
+          <Button
+            variant="ghost"
+            size="xs"
+            className={TRIGGER_BTN}
+            title={`Reasoning effort: ${current}`}
+          >
             <span className="font-mono">{current}</span>
             <ChevronDown
               className={cn(
@@ -184,7 +190,7 @@ export const EffortTrigger = memo(function EffortTrigger({
                 open && "rotate-180",
               )}
             />
-          </button>
+          </Button>
         }
       />
       <DropdownMenuContent side="top" align="start" sideOffset={6} className="min-w-35">

@@ -3,12 +3,15 @@
  * holds the array of these in the panel state and merges into the PUT payload.
  */
 
-import { Checkbox } from "@base-ui/react/checkbox";
-import { Check, Plus, X } from "lucide-react";
+import { Plus, X } from "lucide-react";
 import { type KeyboardEvent, memo, type ReactNode, useId, useState } from "react";
 
+import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Input } from "@/components/ui/input";
+import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
+
 import { cn } from "../../utils/cn";
-import { Field, NativeSelect, TextInput } from "./controls";
 
 export interface ProviderDraft {
   id: string;
@@ -108,51 +111,54 @@ export const ProviderCard = memo(function ProviderCard({
         "transition-colors hover:border-border/60",
       )}
     >
-      <button
-        type="button"
+      <Button
+        variant="ghost"
+        size="icon-sm"
         onClick={() => onRemove(draft.id)}
         aria-label={`Remove provider ${draft.name || "untitled"}`}
-        className={cn(
-          "absolute top-2 right-2 inline-flex size-7 items-center justify-center rounded-sm",
-          "text-muted-foreground/50 transition-[color,background-color,scale] duration-150 hover:bg-destructive/10 hover:text-destructive active:scale-95",
-          "focus-visible:ring-1 focus-visible:ring-destructive/60 focus-visible:outline-none",
-        )}
+        className="absolute top-2 right-2 text-muted-foreground/50 hover:bg-destructive/10 hover:text-destructive"
       >
         <X className="size-3.5" />
-      </button>
+      </Button>
 
       <div className="flex flex-col gap-2.5 pr-8">
         <Field label="Name" hint={renderNameHint(draft, usedTypesByOthers, duplicateName)}>
-          <TextInput
+          <Input
             value={draft.name}
             onChange={(e) => update({ name: e.target.value })}
             placeholder="e.g. anthropic"
             spellCheck={false}
             autoCorrect="off"
             autoCapitalize="off"
-            invalid={duplicateName || !draft.name.trim()}
+            aria-invalid={duplicateName || !draft.name.trim()}
+            className="font-mono"
           />
           {duplicateName && <span className="text-[12px] text-destructive/80">duplicate name</span>}
         </Field>
 
         <Field label="Type">
-          <NativeSelect value={draft.type} onChange={(e) => handleTypeChange(e.target.value)}>
+          <NativeSelect
+            value={draft.type}
+            onChange={(e) => handleTypeChange(e.target.value)}
+            className="font-mono"
+          >
             {providerTypes.map((t) => (
-              <option key={t} value={t}>
+              <NativeSelectOption key={t} value={t}>
                 {t}
-              </option>
+              </NativeSelectOption>
             ))}
           </NativeSelect>
         </Field>
 
         <Field label="Base URL">
-          <TextInput
+          <Input
             value={draft.base_url}
             onChange={(e) => update({ base_url: e.target.value })}
             placeholder="(provider default)"
             spellCheck={false}
             autoCorrect="off"
             autoCapitalize="off"
+            className="font-mono"
           />
         </Field>
 
@@ -161,28 +167,21 @@ export const ProviderCard = memo(function ProviderCard({
             label="Reasoning effort"
             hint="Enable if this endpoint accepts a reasoning effort level."
           >
-            <Checkbox.Root
-              checked={draft.supports_reasoning_effort}
-              onCheckedChange={(checked) => update({ supports_reasoning_effort: checked })}
-              aria-label="Reasoning effort supported"
-              className={cn(
-                "group flex h-9 cursor-pointer items-center gap-2.5 px-2 select-none",
-                "focus-visible:ring-1 focus-visible:ring-primary/60 focus-visible:outline-none",
-              )}
-            >
-              <span className="flex size-4 shrink-0 items-center justify-center rounded-lg border border-border/60 transition-colors group-hover:border-border group-data-checked:border-primary group-data-checked:bg-primary">
-                <Checkbox.Indicator>
-                  <Check className="size-3 text-primary-foreground" strokeWidth={3} />
-                </Checkbox.Indicator>
+            <label className="flex h-9 w-fit items-center gap-2.5 px-2 select-none">
+              <Checkbox
+                checked={draft.supports_reasoning_effort}
+                onCheckedChange={(checked) => update({ supports_reasoning_effort: checked })}
+              />
+              <span className="text-[13px] text-foreground/90">
+                <span className="sr-only">Reasoning effort </span>Supported
               </span>
-              <span className="text-[13px] text-foreground/90">Supported</span>
-            </Checkbox.Root>
+            </label>
           </Field>
         )}
 
         <Field label="API key" hint={apiKeyHint}>
           <div className="flex items-center gap-2">
-            <TextInput
+            <Input
               id={inputId}
               value={draft.api_key_input}
               onChange={(e) => update({ api_key_input: e.target.value, api_key_dirty: true })}
@@ -196,20 +195,18 @@ export const ProviderCard = memo(function ProviderCard({
               autoCapitalize="off"
               autoComplete="off"
               type="text"
+              className="font-mono"
             />
             {draft.api_key_saved && !draft.api_key_dirty && (
-              <button
-                type="button"
+              <Button
+                variant="ghost"
+                size="lg"
                 onClick={() => update({ api_key_input: "", api_key_dirty: true })}
-                className={cn(
-                  "shrink-0 text-[12px]",
-                  "text-muted-foreground/70 transition-[color,scale] duration-150 hover:text-destructive active:scale-95",
-                  "h-9 px-2",
-                )}
+                className="px-2 text-[12px] font-normal text-muted-foreground/70 hover:text-destructive"
                 aria-label="Clear saved API key"
               >
                 clear
-              </button>
+              </Button>
             )}
           </div>
         </Field>
@@ -234,23 +231,21 @@ export const ProviderCard = memo(function ProviderCard({
                     )}
                   >
                     {model}
-                    <button
-                      type="button"
+                    <Button
+                      variant="ghost"
+                      size="icon-xs"
                       onClick={() => removeModel(model)}
-                      className={cn(
-                        "inline-flex size-5 items-center justify-center rounded-sm",
-                        "text-muted-foreground/60 transition-[color,scale] duration-150 hover:text-destructive active:scale-95",
-                      )}
+                      className="size-5 rounded-sm text-muted-foreground/60 hover:bg-transparent hover:text-destructive"
                       aria-label={`Remove model ${model}`}
                     >
                       <X className="size-3" />
-                    </button>
+                    </Button>
                   </span>
                 ))}
               </div>
             )}
             <div className="flex items-center gap-2">
-              <input
+              <Input
                 value={modelInput}
                 onChange={(e) => setModelInput(e.target.value)}
                 onKeyDown={handleModelKeyDown}
@@ -259,27 +254,12 @@ export const ProviderCard = memo(function ProviderCard({
                 spellCheck={false}
                 autoCorrect="off"
                 autoCapitalize="off"
-                className={cn(
-                  "h-9 min-w-0 flex-1 bg-transparent px-2",
-                  "font-mono text-[13px]",
-                  "border-b border-border/60",
-                  "transition-colors",
-                  "placeholder:text-muted-foreground/50",
-                  "hover:border-border focus:border-primary focus:outline-none",
-                )}
+                className="flex-1 font-mono"
               />
               {modelInput && (
-                <button
-                  type="button"
-                  onClick={addModel}
-                  className={cn(
-                    "inline-flex size-9 shrink-0 items-center justify-center rounded-sm",
-                    "text-muted-foreground/70 transition-[color,background-color,scale] duration-150 hover:bg-muted/50 hover:text-foreground active:scale-95",
-                  )}
-                  aria-label="Add model"
-                >
+                <Button variant="ghost" size="icon-lg" onClick={addModel} aria-label="Add model">
                   <Plus className="size-4" />
-                </button>
+                </Button>
               )}
             </div>
           </div>
@@ -385,5 +365,32 @@ function renderDefaultModelsHint(defaults: string[] | undefined): ReactNode {
         </span>
       ))}
     </>
+  );
+}
+
+interface FieldProps {
+  label: string;
+  hint?: ReactNode;
+  children: ReactNode;
+}
+
+/** Labelled settings row, shared with SettingsPanel. */
+export function Field({ label, hint, children }: FieldProps) {
+  // Desktop: 110px label column on the left, control + hint stacked on the right.
+  // Mobile: everything stacked top-to-bottom because there's no horizontal room
+  // for a label column on a 375px screen.
+  return (
+    <div
+      className={cn(
+        "flex flex-col gap-1.5",
+        "md:grid md:grid-cols-[110px_1fr] md:items-start md:gap-x-3 md:gap-y-0",
+      )}
+    >
+      <div className="text-[12px] text-muted-foreground/80 select-none md:pt-2">{label}</div>
+      <div className="flex min-w-0 flex-col gap-1.5">
+        {children}
+        {hint && <div className="text-[12px] leading-relaxed text-muted-foreground/70">{hint}</div>}
+      </div>
+    </div>
   );
 }

@@ -7,6 +7,7 @@ import type { UsageTotals } from "../../types";
 import { cn } from "../../utils/cn";
 import { formatCost } from "../../utils/format";
 import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover";
+import { Separator } from "../ui/separator";
 
 const MUTED_TEXT = "cursor-default text-xs tabular-nums text-muted-foreground/50";
 
@@ -120,7 +121,7 @@ export function UsageGrid({
   const breakdown = cost?.input !== undefined && cost.output !== undefined;
 
   return (
-    <span
+    <div
       className={cn(
         "grid items-baseline gap-x-5 gap-y-1",
         cost
@@ -135,7 +136,7 @@ export function UsageGrid({
         </Fragment>
       ))}
       {summary.length > 0 && rows.length > 0 ? (
-        <span aria-hidden className="col-span-full mt-1 mb-0.5 border-t border-border/50" />
+        <Separator className="col-span-full mt-1 mb-0.5 bg-border/50" />
       ) : null}
       {rows.map((row) => (
         <Fragment key={row.label}>
@@ -160,6 +161,6 @@ export function UsageGrid({
           {cost ? <span className="text-right tabular-nums">{formatCost(cost.total)}</span> : null}
         </span>
       ) : null}
-    </span>
+    </div>
   );
 }

@@ -18,6 +18,9 @@ import {
   useState,
 } from "react";
 
+import { Button } from "@/components/ui/button";
+import { SimpleTooltip } from "@/components/ui/tooltip";
+
 import type {
   ChatMessage,
   DocumentBlock,
@@ -391,26 +394,18 @@ export const MessageBubble = memo(function MessageBubble({
               className="max-h-75 w-full resize-none rounded-lg border border-border/60 bg-muted px-3.5 py-2 text-base leading-relaxed text-foreground focus:border-primary/60 focus:outline-none md:text-sm"
             />
             <div className="flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={cancelEdit}
-                className="rounded-lg px-3 py-1 text-xs text-muted-foreground transition-[color,scale] duration-150 hover:text-foreground active:scale-95"
-              >
+              <Button variant="ghost" size="xs" className="font-normal" onClick={cancelEdit}>
                 Cancel
-              </button>
-              <button
-                type="button"
+              </Button>
+              <Button
+                variant={editText.trim() ? "default" : "ghost"}
+                size="xs"
+                className="font-normal"
                 onClick={submitEdit}
                 disabled={!editText.trim()}
-                className={cn(
-                  "rounded-lg px-3 py-1 text-xs transition-[color,background-color,filter,scale] duration-150",
-                  editText.trim()
-                    ? "bg-primary text-primary-foreground hover:brightness-105 hover:saturate-[.9] active:scale-95"
-                    : "text-muted-foreground/40",
-                )}
               >
                 Send
-              </button>
+              </Button>
             </div>
           </div>
         </div>
@@ -420,15 +415,17 @@ export const MessageBubble = memo(function MessageBubble({
     return (
       <div className="group/user flex justify-end px-5 max-md:px-4">
         {canEdit && (
-          <button
-            type="button"
-            aria-label="Edit message"
-            onClick={startEdit}
-            className="mr-2 mb-0.5 flex size-6 items-center justify-center self-end rounded-sm text-muted-foreground/50 opacity-0 transition-[color,opacity,scale] duration-150 group-hover/user:opacity-100 hover:text-foreground active:scale-95 max-md:opacity-60"
-            title="Edit & resend"
-          >
-            <Pencil className="size-3" />
-          </button>
+          <SimpleTooltip label="Edit & resend">
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              aria-label="Edit message"
+              onClick={startEdit}
+              className="mr-2 mb-0.5 self-end opacity-0 transition-[color,background-color,opacity,scale] group-hover/user:opacity-100 focus-visible:opacity-100 max-md:opacity-60"
+            >
+              <Pencil className="size-3" />
+            </Button>
+          </SimpleTooltip>
         )}
         <div className="flex max-w-[85%] flex-col items-end gap-1.5">
           {imageBlocks.length > 0 && (
@@ -567,19 +564,18 @@ export const MessageBubble = memo(function MessageBubble({
       </div>
 
       {!isUser && textContent && !isStreaming && (
-        <div className="mt-2 flex items-center gap-2 opacity-0 transition-opacity duration-150 group-hover/msg:opacity-100 max-md:opacity-60">
-          <button
-            type="button"
-            aria-label="Copy to clipboard"
-            onClick={handleCopy}
-            className={cn(
-              "flex size-6 items-center justify-center rounded-sm transition-[color,scale] duration-150 active:scale-95",
-              copied ? "text-primary" : "text-muted-foreground/50 hover:text-foreground",
-            )}
-            title="Copy"
-          >
-            {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
-          </button>
+        <div className="mt-2 flex items-center gap-2 opacity-0 transition-opacity duration-150 group-hover/msg:opacity-100 focus-within:opacity-100 max-md:opacity-60">
+          <SimpleTooltip label="Copy">
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              aria-label="Copy to clipboard"
+              onClick={handleCopy}
+              className={cn(copied && "text-primary hover:text-primary")}
+            >
+              {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
+            </Button>
+          </SimpleTooltip>
           {(model || stats) && <TurnStatsFooter model={model} stats={stats} />}
         </div>
       )}

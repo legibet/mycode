@@ -9,8 +9,9 @@
 import { Terminal } from "lucide-react";
 import { useState } from "react";
 
+import { Collapse } from "@/components/ui/collapse";
+
 import type { JobResult } from "../../types";
-import { cn } from "../../utils/cn";
 import { BashBody, StatusPill } from "./ToolCard";
 
 export function JobMarker({ jobs }: { jobs: JobResult[] }) {
@@ -31,7 +32,7 @@ function JobRow({ job }: { job: JobResult }) {
     <div className="group/tool">
       <button
         type="button"
-        className="flex w-full cursor-pointer items-center gap-1.5 text-left select-none"
+        className="flex w-full cursor-pointer items-center gap-1.5 rounded-sm text-left select-none focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none focus-visible:ring-inset"
         aria-expanded={expanded}
         onClick={() => setExpanded((current) => !current)}
       >
@@ -45,20 +46,12 @@ function JobRow({ job }: { job: JobResult }) {
         <StatusPill tone={failed ? "error" : "muted"}>exit {job.exit_code}</StatusPill>
       </button>
 
-      <div
-        data-expanded={expanded}
-        className={cn(
-          "grid transition-[grid-template-rows,opacity] duration-300 ease-in-out",
-          expanded ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0",
-        )}
-      >
-        <div className="overflow-hidden">
-          <div className="mt-2 ml-5">
-            {/* The row already names the command; the body is the output alone. */}
-            <BashBody args={{}} display={job.output} />
-          </div>
+      <Collapse open={expanded}>
+        <div className="mt-2 ml-5">
+          {/* The row already names the command; the body is the output alone. */}
+          <BashBody args={{}} display={job.output} />
         </div>
-      </div>
+      </Collapse>
     </div>
   );
 }

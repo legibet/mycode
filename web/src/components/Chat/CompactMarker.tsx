@@ -4,12 +4,14 @@
  * divider settles in place when compaction finishes.
  */
 
+import { Separator } from "@/components/ui/separator";
+
 import { cn } from "../../utils/cn";
 
 export function CompactMarker({ pending = false }: { pending?: boolean }) {
   return (
     <div className="flex items-center gap-3 px-2 py-1 select-none">
-      <div className="h-px flex-1 bg-border/40" />
+      <Separator className="flex-1 bg-border/40" />
       <span
         className={cn(
           "text-[10px] tracking-[0.18em] text-muted-foreground/50 uppercase",
@@ -18,7 +20,7 @@ export function CompactMarker({ pending = false }: { pending?: boolean }) {
       >
         {pending ? "compacting…" : "compacted"}
       </span>
-      <div className="h-px flex-1 bg-border/40" />
+      <Separator className="flex-1 bg-border/40" />
     </div>
   );
 }

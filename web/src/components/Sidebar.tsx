@@ -11,6 +11,9 @@
 import { Plus, Search, Settings as SettingsIcon, Terminal, Trash2 } from "lucide-react";
 import { type CSSProperties, memo, useMemo, useState } from "react";
 
+import { Button } from "@/components/ui/button";
+import { SimpleTooltip } from "@/components/ui/tooltip";
+
 import type { LocalConfig, RemoteConfig, SessionSummary } from "../types";
 import { cn } from "../utils/cn";
 import { formatShortDate, parseDate, prettifyPath } from "../utils/format";
@@ -53,12 +56,6 @@ function bucketOf(date: Date, now: Date): Bucket {
 }
 
 // ─── component ──────────────────────────────────────────────────────────────
-
-const headerButtonClass = cn(
-  "flex size-6 items-center justify-center rounded-sm",
-  "text-muted-foreground transition-[color,background-color,scale] duration-150 hover:bg-muted/60 hover:text-foreground active:scale-95",
-  "focus-visible:bg-muted/60 focus-visible:outline-none",
-);
 
 interface SidebarProps {
   className?: string;
@@ -155,7 +152,7 @@ function SidebarResizer({
           "absolute inset-y-0 right-0.75 w-px transition-colors",
           dragging
             ? "bg-primary"
-            : "bg-transparent group-hover/resizer:bg-primary/60 group-focus-visible/resizer:bg-primary/60",
+            : "bg-transparent group-hover/resizer:bg-primary/60 group-focus-visible/resizer:bg-primary",
         )}
       />
     </div>
@@ -237,8 +234,8 @@ export const Sidebar = memo(function Sidebar({
             title={resolvedCwd}
             aria-label={`Workspace: ${resolvedCwd}. Click to switch.`}
             className={cn(
-              "group/ws flex min-w-0 flex-1 flex-col items-start gap-0.5 text-left",
-              "focus-visible:outline-none",
+              "group/ws flex min-w-0 flex-1 flex-col items-start gap-0.5 rounded-sm text-left",
+              "focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar focus-visible:outline-none",
             )}
           >
             <span className="max-w-full truncate font-mono text-[13px] leading-snug text-foreground/90 transition-colors group-hover/ws:text-foreground">
@@ -256,24 +253,26 @@ export const Sidebar = memo(function Sidebar({
             )}
           </button>
           <div className="mt-0.5 flex shrink-0 items-center gap-0.5">
-            <button
-              type="button"
-              onClick={onOpenSearch}
-              aria-label="Search chats"
-              title={`Search chats (${isMac ? "⌘K" : "Ctrl+K"})`}
-              className={headerButtonClass}
-            >
-              <Search className="size-3.5" />
-            </button>
-            <button
-              type="button"
-              onClick={onCreateSession}
-              aria-label="New chat"
-              title="New chat"
-              className={headerButtonClass}
-            >
-              <Plus className="size-3.5" />
-            </button>
+            <SimpleTooltip label={`Search chats (${isMac ? "⌘K" : "Ctrl+K"})`}>
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                onClick={onOpenSearch}
+                aria-label="Search chats"
+              >
+                <Search className="size-3.5" />
+              </Button>
+            </SimpleTooltip>
+            <SimpleTooltip label="New chat">
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                onClick={onCreateSession}
+                aria-label="New chat"
+              >
+                <Plus className="size-3.5" />
+              </Button>
+            </SimpleTooltip>
           </div>
         </div>
       </div>
@@ -324,6 +323,7 @@ export const Sidebar = memo(function Sidebar({
                       aria-current={isActive ? "true" : undefined}
                       className={cn(
                         "relative z-10 flex w-full items-center gap-2 py-1.5 pr-9 pl-5 text-left text-[13px] transition-colors",
+                        "focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none focus-visible:ring-inset",
                         isActive
                           ? "text-foreground"
                           : "text-muted-foreground hover:text-foreground",
@@ -344,22 +344,24 @@ export const Sidebar = memo(function Sidebar({
                         </span>
                       )}
                     </button>
-                    <button
-                      type="button"
-                      aria-label="Delete session"
-                      title="Delete"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        void onDeleteSession(session.id);
-                      }}
-                      className={cn(
-                        "absolute top-1/2 right-3 z-20 flex size-5 -translate-y-1/2 items-center justify-center rounded-sm",
-                        "opacity-0 group-hover:opacity-100 max-md:opacity-100",
-                        "text-muted-foreground/60 transition-[color,background-color,scale] duration-150 hover:bg-destructive/10 hover:text-destructive active:scale-95",
-                      )}
-                    >
-                      <Trash2 className="size-3" />
-                    </button>
+                    <SimpleTooltip label="Delete">
+                      <Button
+                        variant="ghost"
+                        size="icon-xs"
+                        aria-label="Delete session"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          void onDeleteSession(session.id);
+                        }}
+                        className={cn(
+                          "absolute top-1/2 right-3 z-20 size-5 -translate-y-1/2",
+                          "group-hover:opacity-100 group-has-focus-visible:opacity-100 [@media(hover:hover)]:opacity-0",
+                          "text-muted-foreground/60 hover:bg-destructive/10 hover:text-destructive",
+                        )}
+                      >
+                        <Trash2 className="size-3" />
+                      </Button>
+                    </SimpleTooltip>
                   </div>
                 );
               })}
@@ -370,19 +372,16 @@ export const Sidebar = memo(function Sidebar({
 
       {/* Footer — single settings entry */}
       <div className="flex shrink-0 items-center p-3">
-        <button
-          type="button"
-          onClick={onOpenSettings}
-          aria-label="Open settings"
-          title="Settings"
-          className={cn(
-            "flex size-7 items-center justify-center rounded-md transition-[color,background-color,scale] duration-150 active:scale-95",
-            "text-muted-foreground hover:bg-muted/50 hover:text-foreground",
-            "focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none",
-          )}
-        >
-          <SettingsIcon className="size-3.5" />
-        </button>
+        <SimpleTooltip label="Settings">
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={onOpenSettings}
+            aria-label="Open settings"
+          >
+            <SettingsIcon className="size-3.5" />
+          </Button>
+        </SimpleTooltip>
       </div>
 
       {onResize && onResizeReset && (
