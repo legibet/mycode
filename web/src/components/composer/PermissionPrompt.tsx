@@ -67,7 +67,8 @@ export const PermissionPrompt = memo(function PermissionPrompt({
   }, []);
 
   const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (event.key === "Enter") {
+    // Enter on a focused button is that button's own click.
+    if (event.key === "Enter" && event.target === event.currentTarget) {
       event.preventDefault();
       onDecide("allow");
     } else if (event.key === "Escape") {

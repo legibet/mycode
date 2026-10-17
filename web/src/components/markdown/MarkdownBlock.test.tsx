@@ -25,6 +25,16 @@ describe("MarkdownBlock", () => {
     expect(imageDone.container.querySelector("img")?.getAttribute("alt")).toBe("diagram");
   });
 
+  it("keeps react-markdown's node prop off the DOM", () => {
+    const { container } = render(
+      <MarkdownBlock
+        content={"Run `ls`\n\n| a |\n| - |\n| b |\n\n![d](https://example.com/d.png)"}
+      />,
+    );
+    expect(container.querySelector("[node]")).toBeNull();
+    expect(container.querySelectorAll("code, table, img")).toHaveLength(3);
+  });
+
   it("renders inline and display math", () => {
     const { container } = render(
       <MarkdownBlock content={"Inline $x$ and \\(y\\)\n\n$$z^2$$\n\n\\[w^2\\]"} />,

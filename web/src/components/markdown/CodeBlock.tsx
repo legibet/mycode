@@ -17,7 +17,7 @@ import { cn } from "@/utils/cn";
 const LANGUAGE_RE = /language-([a-z0-9+#-]+)/i;
 type CodeBlockProps = ComponentPropsWithoutRef<"code"> & ExtraProps;
 
-export function CodeBlock({ className, children, ...props }: CodeBlockProps) {
+export function CodeBlock({ node: _node, className, children, ...props }: CodeBlockProps) {
   const [copied, setCopied] = useState(false);
   const resetCopiedTimeoutRef = useRef<number | null>(null);
 

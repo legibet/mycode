@@ -417,6 +417,8 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
           "error",
           event.message || "Unknown error",
         );
+        // The run is over, so no tool call is waiting for a decision any more.
+        return { ...state, rawMessages, toolRuntimeById, permissions: [] };
       } else if (event.type === "cancelled") {
         for (const [id, runtime] of Object.entries(toolRuntimeById)) {
           if (runtime.pending) {

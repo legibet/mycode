@@ -351,7 +351,7 @@ export function WorkspacePicker({
           autoComplete="off"
           autoCorrect="off"
           autoCapitalize="off"
-          className="w-full bg-transparent font-mono text-base text-foreground caret-primary placeholder:text-muted-foreground/30 focus-visible:outline-none sm:text-sm"
+          className="w-full bg-transparent font-mono text-base text-foreground caret-primary placeholder:text-muted-foreground/30 focus-visible:outline-none md:text-sm"
           aria-label="Filter directories or enter a path"
         />
         {filter && (

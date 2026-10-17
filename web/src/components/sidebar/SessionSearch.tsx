@@ -141,7 +141,7 @@ function SearchPanel({
         autoComplete="off"
         autoCorrect="off"
         autoCapitalize="off"
-        className="text-base caret-primary placeholder:text-muted-foreground/40 sm:text-sm"
+        className="text-base caret-primary placeholder:text-muted-foreground/40 md:text-sm"
       />
       <CommandList className="mt-1 max-h-none min-h-0 flex-1 overscroll-contain">
         {status && (

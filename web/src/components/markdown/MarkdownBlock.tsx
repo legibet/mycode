@@ -41,14 +41,14 @@ const REMEND_OPTIONS = { linkMode: "text-only", singleTilde: false } as const;
 const MARKDOWN_COMPONENTS: Components = {
   pre: ({ children }: MarkdownPreProps) => children,
   code: CodeBlock,
-  table: ({ children, ...props }: MarkdownTableProps) => (
+  table: ({ node: _node, children, ...props }: MarkdownTableProps) => (
     <div className="scrollbar-subtle my-4 overflow-x-auto">
       <table {...props}>{children}</table>
     </div>
   ),
   // remend completes an unfinished image to a placeholder URL that the protocol
   // filter empties; render nothing until the real URL has streamed in.
-  img: ({ src, alt = "", ...props }: MarkdownImgProps) =>
+  img: ({ node: _node, src, alt = "", ...props }: MarkdownImgProps) =>
     src ? <img src={src} alt={alt} {...props} /> : null,
 };
 
