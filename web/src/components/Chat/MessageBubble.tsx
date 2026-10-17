@@ -236,7 +236,7 @@ function FileCard({ label, value }: { label: string; value: string }) {
   return (
     <div className="max-w-xs min-w-32 rounded-lg border border-border/40 bg-muted/50 px-3 py-2 text-sm text-foreground/80">
       <div className="flex items-center gap-2">
-        <FileText className="size-4 shrink-0 text-accent/80" />
+        <FileText className="size-4 shrink-0 text-primary/80" />
         <span className="font-medium">{label}</span>
       </div>
       <div className="mt-1 text-xs break-all text-muted-foreground">{value}</div>
@@ -388,7 +388,7 @@ export const MessageBubble = memo(function MessageBubble({
                 e.target.style.height = `${Math.min(e.target.scrollHeight, 300)}px`;
               }}
               onKeyDown={handleEditKeyDown}
-              className="max-h-75 w-full resize-none rounded-lg border border-border/60 bg-muted px-3.5 py-2 text-base leading-relaxed text-foreground focus:border-accent/60 focus:outline-none md:text-sm"
+              className="max-h-75 w-full resize-none rounded-lg border border-border/60 bg-muted px-3.5 py-2 text-base leading-relaxed text-foreground focus:border-primary/60 focus:outline-none md:text-sm"
             />
             <div className="flex justify-end gap-2">
               <button
@@ -405,7 +405,7 @@ export const MessageBubble = memo(function MessageBubble({
                 className={cn(
                   "rounded-lg px-3 py-1 text-xs transition-[color,background-color,filter,scale] duration-150",
                   editText.trim()
-                    ? "bg-accent text-accent-foreground hover:brightness-105 hover:saturate-[.9] active:scale-95"
+                    ? "bg-primary text-primary-foreground hover:brightness-105 hover:saturate-[.9] active:scale-95"
                     : "text-muted-foreground/40",
                 )}
               >
@@ -475,7 +475,7 @@ export const MessageBubble = memo(function MessageBubble({
                 // The sidebar's running dot: the message is waiting for the step.
                 <span
                   aria-hidden="true"
-                  className="size-1.5 shrink-0 animate-breathing rounded-full bg-accent"
+                  className="size-1.5 shrink-0 animate-breathing rounded-full bg-primary"
                 />
               )}
               <div
@@ -574,7 +574,7 @@ export const MessageBubble = memo(function MessageBubble({
             onClick={handleCopy}
             className={cn(
               "flex size-6 items-center justify-center rounded-sm transition-[color,scale] duration-150 active:scale-95",
-              copied ? "text-accent" : "text-muted-foreground/50 hover:text-foreground",
+              copied ? "text-primary" : "text-muted-foreground/50 hover:text-foreground",
             )}
             title="Copy"
           >

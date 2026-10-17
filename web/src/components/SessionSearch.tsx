@@ -175,7 +175,7 @@ function SearchPanel({
         autoComplete="off"
         autoCorrect="off"
         autoCapitalize="off"
-        className="text-base caret-accent placeholder:text-muted-foreground/40 sm:text-sm"
+        className="text-base caret-primary placeholder:text-muted-foreground/40 sm:text-sm"
       />
       <CommandList className="mt-1 max-h-none min-h-0 flex-1 overscroll-contain">
         {status && (
@@ -200,7 +200,7 @@ function SearchPanel({
             >
               {isActive && (
                 <span
-                  className="absolute top-2 bottom-2 left-0 w-0.5 rounded-r bg-accent"
+                  className="absolute top-2 bottom-2 left-0 w-0.5 rounded-r bg-primary"
                   aria-hidden="true"
                 />
               )}
@@ -219,7 +219,7 @@ function SearchPanel({
                   {snippet.before.length > BEFORE_MAX
                     ? `…${snippet.before.slice(-BEFORE_MAX)}`
                     : snippet.before}
-                  <mark className="bg-transparent text-accent">{snippet.match}</mark>
+                  <mark className="bg-transparent text-primary">{snippet.match}</mark>
                   {snippet.after}
                 </div>
               )}

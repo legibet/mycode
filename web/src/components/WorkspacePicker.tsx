@@ -349,7 +349,7 @@ export function WorkspacePicker({
           autoComplete="off"
           autoCorrect="off"
           autoCapitalize="off"
-          className="w-full bg-transparent font-mono text-base text-foreground caret-accent placeholder:text-muted-foreground/30 focus-visible:outline-none sm:text-sm"
+          className="w-full bg-transparent font-mono text-base text-foreground caret-primary placeholder:text-muted-foreground/30 focus-visible:outline-none sm:text-sm"
           aria-label="Filter directories or enter a path"
         />
         {filter && (
@@ -412,7 +412,7 @@ export function WorkspacePicker({
                     onClick={() => void handleSelectRecent(p)}
                     className="group flex min-h-11 w-full items-center gap-3 px-4 py-2 text-left transition-colors hover:bg-muted/50 focus-visible:bg-muted/50 focus-visible:outline-none active:bg-muted/70"
                   >
-                    <Clock className="size-3.5 shrink-0 text-muted-foreground/35 transition-colors group-hover:text-accent/60" />
+                    <Clock className="size-3.5 shrink-0 text-muted-foreground/35 transition-colors group-hover:text-primary/60" />
                     <span className="truncate font-mono text-xs text-muted-foreground transition-colors group-hover:text-foreground/80">
                       {p}
                     </span>
@@ -438,7 +438,7 @@ export function WorkspacePicker({
                     onClick={() => browseTo(workspaceRoot, "")}
                     className="group flex min-h-11 w-full items-center gap-3 px-4 py-2 text-left transition-colors hover:bg-muted/50 focus-visible:bg-muted/50 focus-visible:outline-none active:bg-muted/70"
                   >
-                    <FolderOpen className="size-3.5 shrink-0 text-muted-foreground/35 transition-colors group-hover:text-accent/60" />
+                    <FolderOpen className="size-3.5 shrink-0 text-muted-foreground/35 transition-colors group-hover:text-primary/60" />
                     <span className="truncate font-mono text-xs text-muted-foreground transition-colors group-hover:text-foreground/80">
                       {workspaceRoot}
                     </span>
@@ -464,7 +464,7 @@ export function WorkspacePicker({
                 onClick={() => browseTo(root, entry.path)}
                 className="group flex min-h-11 w-full items-center gap-3 px-4 py-2 text-left transition-colors hover:bg-muted/50 focus-visible:bg-muted/50 focus-visible:outline-none active:bg-muted/70"
               >
-                <Folder className="size-3.5 shrink-0 text-accent/40 transition-colors group-hover:text-accent/70" />
+                <Folder className="size-3.5 shrink-0 text-primary/40 transition-colors group-hover:text-primary/70" />
                 <span className="truncate font-mono text-sm text-foreground/70 transition-colors group-hover:text-foreground">
                   {entry.name}
                 </span>
@@ -490,8 +490,8 @@ export function WorkspacePicker({
           className={cn(
             "h-7 shrink-0 rounded-md px-3.5 text-xs font-semibold",
             "transition-[color,background-color,border-color,scale] duration-150 active:scale-95",
-            "border border-accent/20 bg-accent/15 text-accent",
-            "hover:border-accent/40 hover:bg-accent/25 active:bg-accent/30",
+            "border border-primary/20 bg-primary/15 text-primary",
+            "hover:border-primary/40 hover:bg-primary/25 active:bg-primary/30",
             "focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
             "disabled:cursor-not-allowed disabled:opacity-25",
           )}

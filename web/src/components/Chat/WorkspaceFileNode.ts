@@ -20,7 +20,7 @@ import {
 
 import type { WorkspaceFileReference } from "../../types";
 
-const PILL_CLASS = "rounded bg-accent/15 text-accent px-0.5 font-mono text-[0.92em]";
+const PILL_CLASS = "rounded bg-primary/15 text-primary px-0.5 font-mono text-[0.92em]";
 
 export type SerializedWorkspaceFileNode = Spread<WorkspaceFileReference, SerializedTextNode>;
 

@@ -102,9 +102,9 @@ const CANCEL_BTN_CLASS = cn(
 
 const SAVE_BTN_CLASS = cn(
   "inline-flex items-center justify-center gap-1.5 rounded-md text-[13px] font-medium",
-  "bg-accent text-accent-foreground transition-[color,filter,scale] duration-150 hover:brightness-105 hover:saturate-[.9] active:scale-95",
+  "bg-primary text-primary-foreground transition-[color,filter,scale] duration-150 hover:brightness-105 hover:saturate-[.9] active:scale-95",
   "disabled:pointer-events-none disabled:opacity-40",
-  "focus-visible:ring-2 focus-visible:ring-accent/50 focus-visible:outline-none",
+  "focus-visible:ring-2 focus-visible:ring-primary/50 focus-visible:outline-none",
 );
 
 const THEME_OPTIONS: { value: Theme; label: string; icon: ReactNode }[] = [
@@ -471,7 +471,7 @@ export function SettingsPanel({
                             compact_threshold: "",
                           }))
                         }
-                        className="text-accent hover:underline focus-visible:underline focus-visible:outline-none"
+                        className="text-primary hover:underline focus-visible:underline focus-visible:outline-none"
                       >
                         Enable
                       </button>
@@ -487,7 +487,7 @@ export function SettingsPanel({
                             compact_threshold: "disabled",
                           }))
                         }
-                        className="text-accent hover:underline focus-visible:underline focus-visible:outline-none"
+                        className="text-primary hover:underline focus-visible:underline focus-visible:outline-none"
                       >
                         Disable
                       </button>

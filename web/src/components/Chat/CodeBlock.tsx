@@ -54,7 +54,7 @@ export function CodeBlock({ className, children, ...props }: CodeBlockProps) {
     return (
       <code
         className={cn(
-          "rounded-sm bg-code px-1.5 py-0.5 font-mono text-[13px] font-medium text-accent",
+          "rounded-sm bg-code px-1.5 py-0.5 font-mono text-[13px] font-medium text-primary",
           className,
         )}
         {...props}
@@ -79,7 +79,7 @@ export function CodeBlock({ className, children, ...props }: CodeBlockProps) {
         className={cn(
           "absolute top-1 right-1 z-10 flex size-7 items-center justify-center rounded-md transition-[color,background-color,opacity,scale] duration-150 active:scale-95",
           copied
-            ? "text-accent opacity-100"
+            ? "text-primary opacity-100"
             : "text-muted-foreground/40 opacity-0 group-hover/code:opacity-100 hover:bg-muted/20 hover:text-foreground/60 max-md:opacity-60",
         )}
         title="Copy"

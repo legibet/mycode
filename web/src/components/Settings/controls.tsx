@@ -88,7 +88,7 @@ export function Segmented<T extends string>({
               active
                 ? "bg-background text-foreground"
                 : "text-muted-foreground/80 hover:text-foreground",
-              "focus-visible:ring-1 focus-visible:ring-accent/60 focus-visible:outline-none",
+              "focus-visible:ring-1 focus-visible:ring-primary/60 focus-visible:outline-none",
             )}
           >
             {opt.icon}
@@ -115,7 +115,7 @@ export function TextInput({ className, invalid, ...props }: TextInputProps) {
         "transition-colors",
         "placeholder:text-muted-foreground/50",
         "hover:border-border",
-        "focus:border-accent focus:outline-none",
+        "focus:border-primary focus:outline-none",
         "disabled:opacity-50 disabled:hover:border-border/60",
         invalid && "border-destructive/70 focus:border-destructive",
         className,
@@ -139,7 +139,7 @@ export function NativeSelect({
           "border-b border-border/60",
           "transition-colors",
           "hover:border-border",
-          "focus:border-accent focus:outline-none",
+          "focus:border-primary focus:outline-none",
           className,
         )}
       >

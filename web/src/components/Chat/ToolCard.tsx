@@ -330,7 +330,7 @@ function EditBody({
 function GenericArgs({ args }: { args: Record<string, unknown> }) {
   return Object.entries(args).map(([key, value]) => (
     <div key={key}>
-      <span className="text-accent/80">{key}: </span>
+      <span className="text-primary/80">{key}: </span>
       <span className="break-all whitespace-pre-wrap text-foreground/75">
         {typeof value === "string" ? value : JSON.stringify(value, null, 2)}
       </span>
@@ -412,7 +412,7 @@ export const ToolCard = memo(function ToolCard({
       <div
         data-expanded={expanded}
         className={cn(
-          "chat-collapsible-body grid transition-[grid-template-rows,opacity] duration-300 ease-in-out",
+          "grid transition-[grid-template-rows,opacity] duration-300 ease-in-out",
           expanded ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0",
         )}
       >

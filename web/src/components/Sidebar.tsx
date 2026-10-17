@@ -154,8 +154,8 @@ function SidebarResizer({
         className={cn(
           "absolute inset-y-0 right-0.75 w-px transition-colors",
           dragging
-            ? "bg-accent"
-            : "bg-transparent group-hover/resizer:bg-accent/60 group-focus-visible/resizer:bg-accent/60",
+            ? "bg-primary"
+            : "bg-transparent group-hover/resizer:bg-primary/60 group-focus-visible/resizer:bg-primary/60",
         )}
       />
     </div>
@@ -210,7 +210,7 @@ export const Sidebar = memo(function Sidebar({
   return (
     <div
       className={cn(
-        "relative flex w-64 flex-col border-r border-border/50 bg-sidebar-bg md:w-(--sidebar-width)",
+        "relative flex w-64 flex-col border-r border-border/50 bg-sidebar md:w-(--sidebar-width)",
         className,
       )}
       style={{ "--sidebar-width": `${width}px` } as CSSProperties}
@@ -308,14 +308,14 @@ export const Sidebar = memo(function Sidebar({
                     <span
                       className={cn(
                         "pointer-events-none absolute inset-y-0 right-2 left-0",
-                        isActive ? "bg-accent/10" : "bg-transparent",
+                        isActive ? "bg-primary/10" : "bg-transparent",
                       )}
                       aria-hidden="true"
                     />
                     <span
                       className={cn(
                         "absolute top-1.5 bottom-1.5 left-0 z-10 w-0.5 rounded-r",
-                        isActive ? "bg-accent" : "bg-transparent",
+                        isActive ? "bg-primary" : "bg-transparent",
                       )}
                       aria-hidden="true"
                     />
@@ -333,7 +333,7 @@ export const Sidebar = memo(function Sidebar({
                       <span className="flex-1 truncate">{session.title || "New Chat"}</span>
                       {isRunning && (
                         <span
-                          className="size-1.5 shrink-0 animate-breathing rounded-full bg-accent"
+                          className="size-1.5 shrink-0 animate-breathing rounded-full bg-primary"
                           role="img"
                           aria-label="Running"
                         />

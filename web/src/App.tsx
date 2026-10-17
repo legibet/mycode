@@ -386,11 +386,7 @@ function AppContent() {
           </div>
         ) : (
           <Sheet open={sidebarOpen} onOpenChange={setSidebarOpen}>
-            <SheetContent
-              side="left"
-              showCloseButton={false}
-              className="w-65 gap-0 bg-sidebar-bg p-0"
-            >
+            <SheetContent side="left" showCloseButton={false} className="w-65 gap-0 bg-sidebar p-0">
               <SheetTitle className="sr-only">Navigation</SheetTitle>
               <Sidebar {...sidebarProps} width={260} className="h-full" />
             </SheetContent>

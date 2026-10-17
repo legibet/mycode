@@ -402,7 +402,7 @@ function WindowedMessages({
               <div className="flex flex-1 flex-col items-center justify-center p-8 text-center">
                 <h1 className="font-display text-3xl tracking-[-0.022em] text-foreground/70">
                   mycode
-                  <span className="ml-0.5 inline-block h-6 w-0.5 animate-cursor-blink bg-accent/60 align-middle" />
+                  <span className="ml-0.5 inline-block h-6 w-0.5 animate-cursor-blink bg-primary/60 align-middle" />
                 </h1>
                 {emptyStateFooter && <div className="mt-8">{emptyStateFooter}</div>}
               </div>

@@ -93,7 +93,7 @@ export const PermissionPrompt = memo(function PermissionPrompt({
         <div className="flex items-center gap-2">
           {/* Gives the header row enough weight to hold its end of the panel,
               and says which tool is asking. */}
-          <span className="grid size-6 shrink-0 place-items-center rounded-md bg-accent/10 text-accent">
+          <span className="grid size-6 shrink-0 place-items-center rounded-md bg-primary/10 text-primary">
             <Icon className="size-3.5" aria-hidden="true" />
           </span>
           <span className="text-sm text-foreground/90">{title}</span>
@@ -105,7 +105,7 @@ export const PermissionPrompt = memo(function PermissionPrompt({
           <button
             type="button"
             onClick={() => onDecide("allow")}
-            className="inline-flex h-7 items-center gap-1.5 rounded-md bg-accent px-3 text-[12.5px] font-medium text-accent-foreground transition-[filter,scale] duration-150 hover:brightness-105 hover:saturate-[.9] active:scale-95"
+            className="inline-flex h-7 items-center gap-1.5 rounded-md bg-primary px-3 text-[12.5px] font-medium text-primary-foreground transition-[filter,scale] duration-150 hover:brightness-105 hover:saturate-[.9] active:scale-95"
           >
             Allow
             <CornerDownLeft className="size-3 opacity-70" aria-hidden="true" />

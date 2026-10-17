@@ -660,8 +660,8 @@ export const InputArea = memo(function InputArea({
         role="presentation"
         className={cn(
           "relative rounded-lg bg-card transition-[background-color,box-shadow] duration-200",
-          "focus-within:shadow-card-accent",
-          dragging ? "bg-accent/5 shadow-card-accent" : "shadow-card",
+          "focus-within:shadow-card-focus",
+          dragging ? "bg-primary/5 shadow-card-focus" : "shadow-card",
         )}
         onDragEnter={handleDragEnter}
         onDragLeave={handleDragLeave}
@@ -686,7 +686,7 @@ export const InputArea = memo(function InputArea({
                   />
                 ) : (
                   <div className="flex h-14 min-w-28 items-center gap-2 rounded-lg border border-border/30 bg-muted/30 px-3 text-xs text-foreground/80">
-                    <FileText className="size-4 shrink-0 text-accent/80" />
+                    <FileText className="size-4 shrink-0 text-primary/80" />
                     <div className="min-w-0">
                       <div className="text-[10px] tracking-[0.16em] text-muted-foreground/70 uppercase">
                         {file.kind === "document" ? "PDF" : "Text"}
@@ -815,7 +815,7 @@ export const InputArea = memo(function InputArea({
               className={cn(
                 "flex size-7 shrink-0 items-center justify-center rounded-md transition-[color,background-color,filter,scale] duration-150",
                 canSend
-                  ? "bg-accent text-accent-foreground hover:brightness-105 hover:saturate-[.9] active:scale-95"
+                  ? "bg-primary text-primary-foreground hover:brightness-105 hover:saturate-[.9] active:scale-95"
                   : "bg-muted/40 text-muted-foreground/30",
               )}
               title={loading ? `Steer · Enter, queue · ${isMac ? "⌘" : "Ctrl+"}Enter` : "Send"}
@@ -826,8 +826,8 @@ export const InputArea = memo(function InputArea({
         </div>
 
         {dragging && (
-          <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-lg bg-accent/5">
-            <span className="text-sm font-medium text-accent">Drop file here</span>
+          <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-lg bg-primary/5">
+            <span className="text-sm font-medium text-primary">Drop file here</span>
           </div>
         )}
       </div>

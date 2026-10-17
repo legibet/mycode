@@ -167,12 +167,12 @@ export const ProviderCard = memo(function ProviderCard({
               aria-label="Reasoning effort supported"
               className={cn(
                 "group flex h-9 cursor-pointer items-center gap-2.5 px-2 select-none",
-                "focus-visible:ring-1 focus-visible:ring-accent/60 focus-visible:outline-none",
+                "focus-visible:ring-1 focus-visible:ring-primary/60 focus-visible:outline-none",
               )}
             >
-              <span className="flex size-4 shrink-0 items-center justify-center rounded-lg border border-border/60 transition-colors group-hover:border-border group-data-checked:border-accent group-data-checked:bg-accent">
+              <span className="flex size-4 shrink-0 items-center justify-center rounded-lg border border-border/60 transition-colors group-hover:border-border group-data-checked:border-primary group-data-checked:bg-primary">
                 <Checkbox.Indicator>
-                  <Check className="size-3 text-accent-foreground" strokeWidth={3} />
+                  <Check className="size-3 text-primary-foreground" strokeWidth={3} />
                 </Checkbox.Indicator>
               </span>
               <span className="text-[13px] text-foreground/90">Supported</span>
@@ -265,7 +265,7 @@ export const ProviderCard = memo(function ProviderCard({
                   "border-b border-border/60",
                   "transition-colors",
                   "placeholder:text-muted-foreground/50",
-                  "hover:border-border focus:border-accent focus:outline-none",
+                  "hover:border-border focus:border-primary focus:outline-none",
                 )}
               />
               {modelInput && (
