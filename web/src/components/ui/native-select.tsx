@@ -20,7 +20,7 @@ function NativeSelect({ className, size = "default", ...props }: NativeSelectPro
       <select
         data-slot="native-select"
         data-size={size}
-        className="h-9 w-full min-w-0 appearance-none border-b border-border/60 bg-transparent pr-7 pl-2 text-[13px] transition-colors outline-none select-none hover:border-border focus:border-primary disabled:pointer-events-none disabled:cursor-not-allowed aria-invalid:border-destructive/70 aria-invalid:focus:border-destructive data-[size=sm]:h-7"
+        className="h-9 w-full min-w-0 appearance-none border-b border-border/60 bg-transparent pr-7 pl-2 text-ui transition-colors outline-none select-none hover:border-border focus:border-primary disabled:pointer-events-none disabled:cursor-not-allowed aria-invalid:border-destructive/70 aria-invalid:focus:border-destructive data-[size=sm]:h-7"
         {...props}
       />
       <ChevronDownIcon

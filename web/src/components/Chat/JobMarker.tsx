@@ -37,10 +37,10 @@ function JobRow({ job }: { job: JobResult }) {
         onClick={() => setExpanded((current) => !current)}
       >
         <Terminal className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
-        <span className="shrink-0 text-[13px] tracking-tight text-foreground/90 transition-colors duration-200 group-hover/tool:text-foreground">
+        <span className="shrink-0 text-ui tracking-tight text-foreground/90 transition-colors duration-200 group-hover/tool:text-foreground">
           Background finished
         </span>
-        <span className="min-w-0 truncate font-mono text-[13px] text-muted-foreground/60">
+        <span className="min-w-0 truncate font-mono text-ui text-muted-foreground/60">
           {job.label}
         </span>
         <StatusPill tone={failed ? "error" : "muted"}>exit {job.exit_code}</StatusPill>

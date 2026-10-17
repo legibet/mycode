@@ -57,7 +57,7 @@ export function CodeBlock({ className, children, ...props }: CodeBlockProps) {
     return (
       <code
         className={cn(
-          "rounded-sm bg-code px-1.5 py-0.5 font-mono text-[13px] font-medium text-primary",
+          "rounded-sm bg-code px-1.5 py-0.5 font-mono text-ui font-medium text-primary",
           className,
         )}
         {...props}
@@ -70,7 +70,7 @@ export function CodeBlock({ className, children, ...props }: CodeBlockProps) {
   return (
     <div data-code-block className="group/code relative my-3 rounded-md bg-code shadow-hairline">
       {language && (
-        <span className="pointer-events-none absolute top-1.5 left-3 z-10 font-mono text-[11px] tracking-wider text-muted-foreground/50 uppercase select-none">
+        <span className="pointer-events-none absolute top-1.5 left-3 z-10 font-mono text-2xs tracking-wider text-muted-foreground/50 uppercase select-none">
           {language}
         </span>
       )}

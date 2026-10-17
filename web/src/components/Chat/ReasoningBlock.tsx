@@ -52,7 +52,7 @@ export const ReasoningBlock = memo(function ReasoningBlock({
       >
         <span
           className={cn(
-            "text-[12px] text-muted-foreground transition-colors duration-200 group-hover/thinking:text-foreground/80",
+            "text-xs text-muted-foreground transition-colors duration-200 group-hover/thinking:text-foreground/80",
             isStreaming && "animate-thinking",
           )}
         >
@@ -61,7 +61,7 @@ export const ReasoningBlock = memo(function ReasoningBlock({
       </button>
 
       <Collapse open={expanded}>
-        <div className="mt-2 border-l border-border pl-3 text-[13px] leading-relaxed whitespace-pre-wrap text-muted-foreground">
+        <div className="mt-2 border-l border-border pl-3 text-ui leading-relaxed whitespace-pre-wrap text-muted-foreground">
           {content}
         </div>
       </Collapse>

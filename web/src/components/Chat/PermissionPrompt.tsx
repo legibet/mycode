@@ -47,7 +47,7 @@ function Payload({ toolName, preview }: { toolName: string; preview: string }) {
     <div
       className={cn(
         "rounded-md bg-code px-3 py-2 leading-normal text-foreground/80",
-        isQuery ? "text-[13px]" : "font-mono text-[12.5px]",
+        isQuery ? "text-ui" : "font-mono text-xs",
         isCommand &&
           "scrollbar-subtle max-h-24 overflow-y-auto wrap-break-word whitespace-pre-wrap",
         !isCommand && !isQuery && "break-all",
@@ -104,20 +104,20 @@ export const PermissionPrompt = memo(function PermissionPrompt({
         {request.preview && <Payload toolName={request.tool_name} preview={request.preview} />}
 
         <div className="flex items-center justify-end gap-1">
-          <Button size="sm" className="text-[12.5px]" onClick={() => onDecide("allow")}>
+          <Button size="sm" className="text-xs" onClick={() => onDecide("allow")}>
             Allow
             <CornerDownLeft className="size-3 opacity-70" aria-hidden="true" />
           </Button>
           <Button
             variant="ghost"
             size="sm"
-            className="bg-muted/70 text-[12.5px] font-normal hover:bg-muted"
+            className="bg-muted/70 text-xs font-normal hover:bg-muted"
             onClick={() => onDecide("deny")}
           >
             Deny
             {/* No color of its own: it inherits the button's, so the hint
                 lightens together with the label on hover. */}
-            <span className="text-[10px] tracking-wider uppercase" aria-hidden="true">
+            <span className="text-2xs tracking-wider uppercase" aria-hidden="true">
               esc
             </span>
           </Button>

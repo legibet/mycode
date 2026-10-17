@@ -73,7 +73,7 @@ export function CompletionMenu({
             onClick={() => onSelect(index)}
             onPointerMove={() => onHighlight(index)}
           >
-            <span className="truncate font-mono text-[13px] text-foreground">{item.label}</span>
+            <span className="truncate font-mono text-ui text-foreground">{item.label}</span>
             {item.hint && (
               <span className="max-w-xl truncate text-left text-xs text-muted-foreground">
                 {item.hint}

@@ -238,16 +238,16 @@ export const Sidebar = memo(function Sidebar({
               "focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar focus-visible:outline-none",
             )}
           >
-            <span className="max-w-full truncate font-mono text-[13px] leading-snug text-foreground/90 transition-colors group-hover/ws:text-foreground">
+            <span className="max-w-full truncate font-mono text-ui leading-snug text-foreground/90 transition-colors group-hover/ws:text-foreground">
               {wsName}
             </span>
             {wsPath && (
-              <span className="font-mono text-[11px] leading-snug break-all text-muted-foreground/60 transition-colors group-hover/ws:text-muted-foreground/85">
+              <span className="font-mono text-2xs leading-snug break-all text-muted-foreground/60 transition-colors group-hover/ws:text-muted-foreground/85">
                 {wsPath}
               </span>
             )}
             {workspaceMissing && (
-              <span className="font-mono text-[10px] leading-snug text-muted-foreground/55">
+              <span className="font-mono text-2xs leading-snug text-muted-foreground/55">
                 missing
               </span>
             )}
@@ -291,11 +291,11 @@ export const Sidebar = memo(function Sidebar({
       {/* Session list */}
       <div className="scrollbar-subtle flex-1 overflow-y-auto">
         {groups.length === 0 ? (
-          <div className="px-5 py-12 text-[12px] text-muted-foreground/50">no history yet</div>
+          <div className="px-5 py-12 text-xs text-muted-foreground/50">no history yet</div>
         ) : (
           groups.map(({ bucket, items }, gi) => (
             <div key={bucket} className={cn(gi > 0 && "mt-4")}>
-              <div className="px-5 pb-1 text-[11px] tracking-wide text-muted-foreground/55 lowercase">
+              <div className="px-5 pb-1 text-2xs tracking-wide text-muted-foreground/55 lowercase">
                 {BUCKET_LABEL[bucket]}
               </div>
               {items.map(({ session, date }) => {
@@ -322,7 +322,7 @@ export const Sidebar = memo(function Sidebar({
                       type="button"
                       aria-current={isActive ? "true" : undefined}
                       className={cn(
-                        "relative z-10 flex w-full items-center gap-2 py-1.5 pr-9 pl-5 text-left text-[13px] transition-colors",
+                        "relative z-10 flex w-full items-center gap-2 py-1.5 pr-9 pl-5 text-left text-ui transition-colors",
                         "focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none focus-visible:ring-inset",
                         isActive
                           ? "text-foreground"
@@ -339,7 +339,7 @@ export const Sidebar = memo(function Sidebar({
                         />
                       )}
                       {showOlderDate && !isRunning && (
-                        <span className="shrink-0 font-mono text-[10px] text-muted-foreground/45">
+                        <span className="shrink-0 font-mono text-2xs text-muted-foreground/45">
                           {formatShortDate(date)}
                         </span>
                       )}

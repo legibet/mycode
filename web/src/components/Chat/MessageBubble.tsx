@@ -423,7 +423,7 @@ export const MessageBubble = memo(function MessageBubble({
               onClick={startEdit}
               className="mr-2 mb-0.5 self-end opacity-0 transition-[color,background-color,opacity,scale] group-hover/user:opacity-100 focus-visible:opacity-100 max-md:opacity-60"
             >
-              <Pencil className="size-3" />
+              <Pencil className="size-3.5" />
             </Button>
           </SimpleTooltip>
         )}

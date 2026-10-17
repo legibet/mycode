@@ -14,7 +14,7 @@ export function CompactMarker({ pending = false }: { pending?: boolean }) {
       <Separator className="flex-1 bg-border/40" />
       <span
         className={cn(
-          "text-[10px] tracking-[0.18em] text-muted-foreground/50 uppercase",
+          "text-2xs tracking-[0.18em] text-muted-foreground/50 uppercase",
           pending && "animate-pulse",
         )}
       >

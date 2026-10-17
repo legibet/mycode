@@ -92,7 +92,7 @@ function SummaryRow({ lead, tools, failed, expanded, fadeIn, onToggle }: Summary
       ref={rowRef}
       type="button"
       className={cn(
-        "relative flex max-w-full cursor-pointer items-center gap-1 overflow-hidden rounded-sm text-left text-[12px] select-none focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none focus-visible:ring-inset",
+        "relative flex max-w-full cursor-pointer items-center gap-1 overflow-hidden rounded-sm text-left text-xs select-none focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none focus-visible:ring-inset",
         // The row fades in over the work folding beneath it.
         fadeIn && "transition-opacity duration-300 starting:opacity-0",
       )}

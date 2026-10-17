@@ -555,7 +555,7 @@ export const InputArea = memo(function InputArea({
         <div className="mx-4 -mb-3 divide-y divide-border/40 rounded-t-lg bg-card pb-3 shadow-hairline">
           {jobs.length > 0 && (
             <div className="pt-2">
-              <div className="flex items-center gap-1.5 px-3.5 pb-0.5 text-[11px] leading-4 text-muted-foreground">
+              <div className="flex items-center gap-1.5 px-3.5 pb-0.5 text-2xs leading-4 text-muted-foreground">
                 <Terminal aria-hidden="true" className="size-3" />
                 Background
                 <span className="text-muted-foreground/60 tabular-nums">{jobs.length}</span>
@@ -668,7 +668,7 @@ export const InputArea = memo(function InputArea({
         onDrop={handleDrop}
       >
         {disabledReason && (
-          <div className="border-b border-border/30 px-3.5 py-2 text-[11px] leading-relaxed text-muted-foreground">
+          <div className="border-b border-border/30 px-3.5 py-2 text-2xs leading-relaxed text-muted-foreground">
             {disabledReason}
           </div>
         )}
@@ -687,7 +687,7 @@ export const InputArea = memo(function InputArea({
                   <div className="flex h-14 min-w-28 items-center gap-2 rounded-lg border border-border/30 bg-muted/30 px-3 text-xs text-foreground/80">
                     <FileText className="size-4 shrink-0 text-primary/80" />
                     <div className="min-w-0">
-                      <div className="text-[10px] tracking-[0.16em] text-muted-foreground/70 uppercase">
+                      <div className="text-2xs tracking-[0.16em] text-muted-foreground/70 uppercase">
                         {file.kind === "document" ? "PDF" : "Text"}
                       </div>
                       <div className="line-clamp-2 break-all">{file.name}</div>
@@ -764,7 +764,7 @@ export const InputArea = memo(function InputArea({
                 role="status"
                 aria-live="polite"
                 title={noticeText}
-                className="flex min-w-0 flex-1 items-center gap-1 px-1.5 text-[12px] leading-4 text-destructive/80"
+                className="flex min-w-0 flex-1 items-center gap-1 px-1.5 text-xs leading-4 text-destructive/80"
               >
                 <CircleAlert className="size-3 shrink-0" />
                 {inputNotice.blocking ? (

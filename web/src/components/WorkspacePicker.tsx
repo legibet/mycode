@@ -110,7 +110,7 @@ const rowClass =
 function SectionLabel({ children }: { children: ReactNode }) {
   return (
     <div className="px-4 pt-3 pb-1.5">
-      <span className="text-[10px] font-semibold tracking-widest text-muted-foreground/40 uppercase select-none">
+      <span className="text-2xs font-semibold tracking-widest text-muted-foreground/40 uppercase select-none">
         {children}
       </span>
     </div>
@@ -398,7 +398,7 @@ export function WorkspacePicker({
         {!loading && !blockingErrorMessage && (
           <div className="py-1">
             {noticeMessage && (
-              <div className="mx-4 my-2 rounded-md border border-border/30 bg-muted/20 px-3 py-2 text-[11px] leading-relaxed text-muted-foreground">
+              <div className="mx-4 my-2 rounded-md border border-border/30 bg-muted/20 px-3 py-2 text-2xs leading-relaxed text-muted-foreground">
                 {noticeMessage}
               </div>
             )}

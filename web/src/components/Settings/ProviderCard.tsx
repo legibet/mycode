@@ -133,7 +133,7 @@ export const ProviderCard = memo(function ProviderCard({
             aria-invalid={duplicateName || !draft.name.trim()}
             className="font-mono"
           />
-          {duplicateName && <span className="text-[12px] text-destructive/80">duplicate name</span>}
+          {duplicateName && <span className="text-xs text-destructive/80">duplicate name</span>}
         </Field>
 
         <Field label="Type">
@@ -172,7 +172,7 @@ export const ProviderCard = memo(function ProviderCard({
                 checked={draft.supports_reasoning_effort}
                 onCheckedChange={(checked) => update({ supports_reasoning_effort: checked })}
               />
-              <span className="text-[13px] text-foreground/90">
+              <span className="text-ui text-foreground/90">
                 <span className="sr-only">Reasoning effort </span>Supported
               </span>
             </label>
@@ -202,7 +202,7 @@ export const ProviderCard = memo(function ProviderCard({
                 variant="ghost"
                 size="lg"
                 onClick={() => update({ api_key_input: "", api_key_dirty: true })}
-                className="px-2 text-[12px] font-normal text-muted-foreground/70 hover:text-destructive"
+                className="px-2 text-xs font-normal text-muted-foreground/70 hover:text-destructive"
                 aria-label="Clear saved API key"
               >
                 clear
@@ -227,7 +227,7 @@ export const ProviderCard = memo(function ProviderCard({
                     key={model}
                     className={cn(
                       "group inline-flex h-7 items-center gap-1 rounded-sm pr-1 pl-2.5",
-                      "bg-muted/60 font-mono text-[12px] text-foreground/90",
+                      "bg-muted/60 font-mono text-xs text-foreground/90",
                     )}
                   >
                     {model}
@@ -386,10 +386,10 @@ export function Field({ label, hint, children }: FieldProps) {
         "md:grid md:grid-cols-[110px_1fr] md:items-start md:gap-x-3 md:gap-y-0",
       )}
     >
-      <div className="text-[12px] text-muted-foreground/80 select-none md:pt-2">{label}</div>
+      <div className="text-xs text-muted-foreground/80 select-none md:pt-2">{label}</div>
       <div className="flex min-w-0 flex-col gap-1.5">
         {children}
-        {hint && <div className="text-[12px] leading-relaxed text-muted-foreground/70">{hint}</div>}
+        {hint && <div className="text-xs leading-relaxed text-muted-foreground/70">{hint}</div>}
       </div>
     </div>
   );

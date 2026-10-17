@@ -148,10 +148,10 @@ function SearchPanel({
       />
       <CommandList className="mt-1 max-h-none min-h-0 flex-1 overscroll-contain">
         {status && (
-          <div className="px-2 py-6 text-center text-[12px] text-muted-foreground/60">{status}</div>
+          <div className="px-2 py-6 text-center text-xs text-muted-foreground/60">{status}</div>
         )}
         {query && !loading && !failed && (
-          <CommandEmpty className="py-6 text-[12px] text-muted-foreground/60">
+          <CommandEmpty className="py-6 text-xs text-muted-foreground/60">
             No matching chats
           </CommandEmpty>
         )}
@@ -174,17 +174,17 @@ function SearchPanel({
                 />
               )}
               <div className="flex min-w-0 items-center gap-2">
-                <span className="flex-1 truncate text-[13px] text-foreground">
+                <span className="flex-1 truncate text-ui text-foreground">
                   {session.title || "New Chat"}
                 </span>
                 {date && (
-                  <span className="shrink-0 font-mono text-[10px] text-muted-foreground/55">
+                  <span className="shrink-0 font-mono text-2xs text-muted-foreground/55">
                     {formatShortDate(date)}
                   </span>
                 )}
               </div>
               {snippet && (
-                <div className="truncate text-[12px] text-muted-foreground">
+                <div className="truncate text-xs text-muted-foreground">
                   {snippet.before.length > BEFORE_MAX
                     ? `…${snippet.before.slice(-BEFORE_MAX)}`
                     : snippet.before}

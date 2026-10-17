@@ -57,6 +57,11 @@
   --font-mono: "Source Code Pro", ui-monospace, "PingFang SC", "Microsoft YaHei", monospace;
   --font-display: "Source Code Pro", ui-monospace, "PingFang SC", "Microsoft YaHei", monospace;
 
+  /* Type scale: 2xs micro labels · xs secondary · ui rows and controls · sm content.
+     The app sizes inherit the body line height. */
+  --text-2xs: 0.6875rem;
+  --text-ui: 0.8125rem;
+
   /* Elevation: a hairline ring is layer one, blur stacks on top of it.
      The hairline belongs to recessed code wells, so it takes its colour from
      --code-border rather than the card's --border. */
@@ -294,7 +299,7 @@
   @apply m-0 bg-transparent;
 }
 .prose pre code {
-  @apply rounded-none bg-transparent p-0 font-mono text-[13px] leading-relaxed font-normal text-foreground;
+  @apply rounded-none bg-transparent p-0 font-mono text-ui leading-relaxed font-normal text-foreground;
 }
 .prose .katex {
   font-size: 1.05em;

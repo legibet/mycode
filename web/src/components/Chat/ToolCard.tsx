@@ -127,7 +127,7 @@ interface ToolCardProps {
 function ToolSurface({ head, body }: { head?: ReactNode; body?: ReactNode }) {
   if (!head && !body) return null;
   return (
-    <div className="overflow-hidden rounded-md bg-code font-mono text-[13px] shadow-hairline">
+    <div className="overflow-hidden rounded-md bg-code font-mono text-ui shadow-hairline">
       {head && (
         <div className="scrollbar-subtle max-h-60 overflow-auto px-3 py-2 leading-normal">
           {head}
@@ -203,7 +203,7 @@ export function StatusPill({
   return (
     <span
       className={cn(
-        "shrink-0 rounded px-1.5 py-px text-[11px] leading-4 tabular-nums",
+        "shrink-0 rounded px-1.5 py-px text-2xs leading-4 tabular-nums",
         tone === "error" ? "bg-destructive/10 text-destructive" : "bg-muted text-muted-foreground",
         pulse && "animate-thinking",
       )}
@@ -218,7 +218,7 @@ function CollapsedSuffix({ name, args, metadata }: { name: string; args: Args; m
     const stats = getEditStats(metadata);
     if (!stats || (stats.added === 0 && stats.removed === 0)) return null;
     return (
-      <span className="shrink-0 font-mono text-[12px] tabular-nums">
+      <span className="shrink-0 font-mono text-xs tabular-nums">
         <span className="text-diff-added">+{stats.added}</span>
         <span className="ml-1 text-diff-removed">−{stats.removed}</span>
       </span>
@@ -244,7 +244,7 @@ function CollapsedSuffix({ name, args, metadata }: { name: string; args: Args; m
     const results = asNumber((metadata as WebSearchMeta | null | undefined)?.results);
     if (results == null) return null;
     return (
-      <span className="shrink-0 font-mono text-[12px] text-muted-foreground/60 tabular-nums">
+      <span className="shrink-0 font-mono text-xs text-muted-foreground/60 tabular-nums">
         {results} results
       </span>
     );
@@ -253,9 +253,7 @@ function CollapsedSuffix({ name, args, metadata }: { name: string; args: Args; m
   const hint = name === "read" ? getReadHint(args) : name === "write" ? getWriteHint(args) : "";
   if (!hint) return null;
   return (
-    <span className="shrink-0 font-mono text-[12px] text-muted-foreground/60 tabular-nums">
-      {hint}
-    </span>
+    <span className="shrink-0 font-mono text-xs text-muted-foreground/60 tabular-nums">{hint}</span>
   );
 }
 
@@ -392,7 +390,7 @@ export const ToolCard = memo(function ToolCard({
 
         <span
           className={cn(
-            "shrink-0 text-[13px] tracking-tight transition-colors duration-200",
+            "shrink-0 text-ui tracking-tight transition-colors duration-200",
             status === "error"
               ? "text-destructive/90 group-hover/tool:text-destructive"
               : "text-foreground/90 group-hover/tool:text-foreground",
@@ -403,7 +401,7 @@ export const ToolCard = memo(function ToolCard({
         </span>
 
         {preview && (
-          <span className="min-w-0 truncate font-mono text-[13px] text-muted-foreground/60">
+          <span className="min-w-0 truncate font-mono text-ui text-muted-foreground/60">
             {preview}
           </span>
         )}

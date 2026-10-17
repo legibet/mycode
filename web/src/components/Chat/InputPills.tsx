@@ -129,7 +129,7 @@ export const ModelTrigger = memo(function ModelTrigger({
                       keywords={[item.providerName, item.model]}
                       onSelect={() => select(item)}
                     >
-                      <span className="flex-1 truncate font-mono text-[13px]">{item.model}</span>
+                      <span className="flex-1 truncate font-mono text-ui">{item.model}</span>
                       {active && <Check className="size-3 shrink-0 text-primary" />}
                     </CommandItem>
                   );
@@ -198,7 +198,7 @@ export const EffortTrigger = memo(function EffortTrigger({
           const active = opt === current;
           return (
             <DropdownMenuItem key={opt} onClick={() => select(opt)}>
-              <span className="flex-1 font-mono text-[13px]">{opt || "auto"}</span>
+              <span className="flex-1 font-mono text-ui">{opt || "auto"}</span>
               {active && <Check className="size-3 shrink-0 text-primary" />}
             </DropdownMenuItem>
           );

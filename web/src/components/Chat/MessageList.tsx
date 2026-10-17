@@ -468,7 +468,7 @@ function WindowedMessages({
                 title={compactError}
                 className="flex items-center justify-center px-2 py-1 select-none"
               >
-                <span className="text-[10px] tracking-[0.18em] text-muted-foreground/50 uppercase">
+                <span className="text-2xs tracking-[0.18em] text-muted-foreground/50 uppercase">
                   {compactError === "nothing to compact"
                     ? "nothing to compact"
                     : "compaction failed"}

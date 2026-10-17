@@ -102,7 +102,7 @@ export function EditDiff({ path, hunks }: EditDiffProps) {
 
   return (
     <div className="overflow-hidden rounded-md bg-code shadow-hairline">
-      <div className="scrollbar-subtle max-h-60 overflow-auto py-1.5 font-mono text-[13px] leading-normal">
+      <div className="scrollbar-subtle max-h-60 overflow-auto py-1.5 font-mono text-ui leading-normal">
         <div className="w-max min-w-full whitespace-pre">
           {hunks.map((hunk, h) => (
             <Fragment key={h}>
