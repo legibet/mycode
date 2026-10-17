@@ -1033,8 +1033,8 @@ export function useChat(
           return false;
         }
 
-        pendingRequestTokenRef.current = 0;
         if (!isCurrentRequest) return false;
+        pendingRequestTokenRef.current = 0;
 
         const chatData = data as ChatResponse;
         dispatch({ type: "accept_turn", message: chatData.message });

@@ -537,6 +537,91 @@ describe("useChat", () => {
     );
   });
 
+  it("reloads and reattaches when the stream drops before [DONE]", async () => {
+    saveActiveSession("/workspace/a", "session-2");
+    const snapshot = (lastSeq: number, pendingEvents: unknown[]) =>
+      createJsonResponse({
+        session: { id: "session-2", title: "Running" },
+        messages: [{ role: "user", content: [{ type: "text", text: "run" }] }],
+        active_run: {
+          id: "run-2",
+          session_id: "session-2",
+          kind: "chat",
+          status: "running",
+          last_seq: lastSeq,
+        },
+        pending_events: pendingEvents,
+      });
+    const session = vi
+      .fn()
+      .mockReturnValueOnce(snapshot(0, []))
+      .mockReturnValue(
+        snapshot(2, [
+          { type: "text", delta: "hel", seq: 1 },
+          { type: "text", delta: "lo", seq: 2 },
+        ]),
+      );
+    mockFetch({
+      "/api/sessions?cwd=": createJsonResponse({
+        sessions: [{ id: "session-2", title: "Running" }],
+      }),
+      "/api/sessions/session-2": () => session(),
+      "/api/runs/run-2/stream?after=0": new Response(
+        `data: ${JSON.stringify({ type: "text", delta: "hel", seq: 1 })}\n\n`,
+        { status: 200, headers: { "Content-Type": "text/event-stream" } },
+      ),
+      "/api/runs/run-2/stream?after=2": new Response("data: [DONE]\n\n", {
+        status: 200,
+        headers: { "Content-Type": "text/event-stream" },
+      }),
+    });
+
+    const { result } = renderChatHook();
+
+    await waitFor(() => expect(session).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(expectChat(result.current.messages[1]).content).toEqual([
+      expect.objectContaining({ type: "text", text: "hello" }),
+    ]);
+  });
+
+  it("marks the turn failed when the dropped stream cannot be recovered", async () => {
+    saveActiveSession("/workspace/a", "session-2");
+    const session = vi
+      .fn()
+      .mockReturnValueOnce(
+        createJsonResponse({
+          session: { id: "session-2", title: "Running" },
+          messages: [{ role: "user", content: [{ type: "text", text: "run" }] }],
+          active_run: {
+            id: "run-2",
+            session_id: "session-2",
+            kind: "chat",
+            status: "running",
+            last_seq: 0,
+          },
+          pending_events: [],
+        }),
+      )
+      .mockReturnValue(createJsonResponse({ detail: "boom" }, 500));
+    mockFetch({
+      "/api/sessions?cwd=": createJsonResponse({
+        sessions: [{ id: "session-2", title: "Running" }],
+      }),
+      "/api/sessions/session-2": () => session(),
+      "/api/runs/run-2/stream?after=0": () => Promise.reject(new TypeError("network down")),
+    });
+
+    const { result } = renderChatHook();
+
+    await waitFor(() => expect(session).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(expectChat(result.current.messages.at(-1)).meta).toMatchObject({
+      stop_reason: "error",
+      error: "Stream disconnected. Reload the session to resume.",
+    });
+  });
+
   it("appends all tool output deltas without inserting separators", async () => {
     const largeDelta = "x".repeat(110 * 1024);
     globalThis.localStorage.setItem(
@@ -1625,6 +1710,48 @@ describe("useChat", () => {
     await waitFor(() => expect(cancelled()).toBe(true));
     await waitFor(() => expect(result.current.loading).toBe(false));
     expect(result.current.messages).toHaveLength(1);
+  });
+
+  it("follows a send that started after an abandoned one, whichever answers first", async () => {
+    const responders: Array<() => void> = [];
+    const chatResponse = (runId: string, sessionId: string) =>
+      createJsonResponse({
+        run: { id: runId, session_id: sessionId, kind: "chat", status: "running", last_seq: 0 },
+        session: { id: sessionId, title: "Draft" },
+        message: acceptedMessage,
+      });
+    mockFetch({
+      "/api/sessions?cwd=": createJsonResponse({ sessions: [] }),
+      "/api/chat": (init) => {
+        const sessionId = JSON.parse(String(init?.body)).session_id as string;
+        const runId = `run-${responders.length + 1}`;
+        return new Promise<Response>((resolve) => {
+          responders.push(() => resolve(chatResponse(runId, sessionId)));
+        });
+      },
+      "/api/runs/run-1/stream": () => new Promise<Response>(() => {}),
+      "/api/runs/run-2/stream": new Response("data: [DONE]\n\n", {
+        status: 200,
+        headers: { "Content-Type": "text/event-stream" },
+      }),
+    });
+    const { result } = renderChatHook();
+    await waitFor(() => expect(result.current.sessionLoading).toBe(false));
+
+    act(() => {
+      void result.current.send({ text: "first", workspaceFiles: [] });
+    });
+    act(() => result.current.createSession());
+    let second!: Promise<boolean>;
+    act(() => {
+      second = result.current.send({ text: "second", workspaceFiles: [] });
+    });
+
+    await act(async () => responders[0]?.());
+    await act(async () => responders[1]?.());
+
+    await expect(second).resolves.toBe(true);
+    await waitFor(() => expect(result.current.loading).toBe(false));
   });
 
   it("finishes a replayed compact cancellation and reloads idle history", async () => {
