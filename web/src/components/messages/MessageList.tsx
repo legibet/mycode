@@ -54,7 +54,7 @@ interface MessageListProps {
 export function EmptyState({ children }: { children?: ReactNode }) {
   return (
     <div className="flex flex-1 flex-col items-center justify-center p-8 text-center">
-      <h1 className="font-display text-3xl tracking-[-0.022em] text-foreground/70">
+      <h1 className="font-mono text-3xl tracking-[-0.022em] text-foreground/70">
         mycode
         <span className="ml-0.5 inline-block h-6 w-0.5 animate-cursor-blink bg-primary/60 align-middle" />
       </h1>
@@ -385,11 +385,11 @@ function WindowedMessages({
             inert={!awayFromBottom}
             onClick={jumpToLatest}
             className={cn(
-              "absolute bottom-3 left-1/2 -translate-x-1/2 rounded-full border-border/60 bg-background shadow-sm transition-[color,background-color,opacity,scale] hover:bg-muted",
+              "absolute bottom-3 left-1/2 -translate-x-1/2 rounded-full border-border/60 bg-background shadow-sm hover:bg-muted",
               !awayFromBottom && "scale-90 opacity-0",
             )}
           >
-            <ArrowDown className="size-4" />
+            <ArrowDown />
           </Button>
         </SimpleTooltip>
       )}

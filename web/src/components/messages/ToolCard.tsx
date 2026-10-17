@@ -2,8 +2,7 @@
  * Tool execution display.
  * Zero container. Two-tier typography: tool name (sans medium, foreground)
  * vs everything else (mono regular, muted-foreground). Click the row text
- * to toggle. Per-tool bodies (bash / read / write / edit / generic) are
- * preserved.
+ * to toggle the per-tool body (bash / read / write / edit / generic).
  */
 
 import { type LucideIcon, Terminal } from "lucide-react";

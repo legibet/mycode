@@ -163,7 +163,7 @@ export const MarkdownBlock = memo(function MarkdownBlock({
 }) {
   const source = streaming ? remend(content, REMEND_OPTIONS) : content;
   return (
-    <div className="prose max-w-none">
+    <div className="prose">
       <ReactMarkdown
         remarkPlugins={REMARK_PLUGINS}
         rehypePlugins={REHYPE_PLUGINS}

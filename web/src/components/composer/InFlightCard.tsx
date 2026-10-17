@@ -23,11 +23,11 @@ import { formatDuration } from "@/utils/format";
 
 interface InFlightCardProps {
   jobs: BackgroundJobInfo[];
-  onStopJob?: ((toolUseId: string) => void) | undefined;
+  onStopJob: (toolUseId: string) => void;
   queued: PendingInput[];
-  onSteerQueued?: ((id: string) => void) | undefined;
+  onSteerQueued: (id: string) => void;
   onEditQueued: (id: string) => void;
-  onRemoveQueued?: ((id: string) => void) | undefined;
+  onRemoveQueued: (id: string) => void;
 }
 
 export function InFlightCard({
@@ -73,7 +73,7 @@ export function InFlightCard({
                     variant="ghost"
                     size="xs"
                     title="Steer the current turn"
-                    onClick={() => onSteerQueued?.(item.id)}
+                    onClick={() => onSteerQueued(item.id)}
                   >
                     <ArrowUpToLine data-icon="inline-start" className="size-3.5" />
                     Steer
@@ -95,7 +95,7 @@ export function InFlightCard({
                       variant="ghost"
                       size="icon-xs"
                       aria-label="Remove"
-                      onClick={() => onRemoveQueued?.(item.id)}
+                      onClick={() => onRemoveQueued(item.id)}
                     >
                       <Trash2 className="size-3.5" />
                     </Button>
@@ -116,7 +116,7 @@ function BackgroundJobs({
   onStop,
 }: {
   jobs: BackgroundJobInfo[];
-  onStop: ((toolUseId: string) => void) | undefined;
+  onStop: (toolUseId: string) => void;
 }) {
   // Running times tick once a second.
   const [now, setNow] = useState(Date.now);
@@ -148,9 +148,9 @@ function BackgroundJobs({
               variant="ghost"
               size="xs"
               title="Stop the command"
-              onClick={() => onStop?.(job.tool_use_id)}
+              onClick={() => onStop(job.tool_use_id)}
             >
-              <Square data-icon="inline-start" className="size-3 fill-current" />
+              <Square data-icon="inline-start" className="fill-current" />
               Stop
             </Button>
           </li>

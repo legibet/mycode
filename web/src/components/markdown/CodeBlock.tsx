@@ -1,6 +1,6 @@
 /**
  * Syntax-highlighted code block.
- * Language label and copy button float over code. No border.
+ * Language label and copy button float over code on a hairline-ringed well.
  */
 
 import { Check, Copy } from "lucide-react";
@@ -8,7 +8,7 @@ import type { ComponentPropsWithoutRef } from "react";
 import { useEffect, useRef, useState } from "react";
 import type { ExtraProps } from "react-markdown";
 
-import HighlightedCode from "@/components/markdown/HighlightedCode";
+import { HighlightedCode } from "@/components/markdown/HighlightedCode";
 import { Button } from "@/components/ui/button";
 import { SimpleTooltip } from "@/components/ui/tooltip";
 import { copyText } from "@/utils/clipboard";
@@ -67,7 +67,7 @@ export function CodeBlock({ node: _node, className, children, ...props }: CodeBl
   }
 
   return (
-    <div data-code-block className="group/code relative my-3 rounded-md bg-code shadow-hairline">
+    <div className="group/code relative my-3 rounded-md bg-code shadow-hairline">
       {language && (
         <span className="pointer-events-none absolute top-1.5 left-3 z-10 font-mono text-2xs tracking-wider text-muted-foreground/50 uppercase select-none">
           {language}
@@ -81,7 +81,7 @@ export function CodeBlock({ node: _node, className, children, ...props }: CodeBl
           aria-label="Copy code"
           onClick={handleCopy}
           className={cn(
-            "absolute top-1 right-1 z-10 transition-[color,background-color,opacity,scale]",
+            "absolute top-1 right-1 z-10",
             copied
               ? "text-primary opacity-100 hover:text-primary"
               : "opacity-0 group-hover/code:opacity-100 focus-visible:opacity-100 max-md:opacity-60",

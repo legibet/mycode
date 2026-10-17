@@ -85,86 +85,99 @@ export const ProviderCard = memo(function ProviderCard({
   const apiKeyHint = computeApiKeyHint(draft, envByName, providerTypeEnvVars);
 
   return (
-    <div
-      className={cn(
-        "relative rounded-lg bg-card px-4 py-3.5 shadow-card",
-        "transition-colors hover:border-border/60",
-      )}
-    >
+    <div className="relative rounded-lg bg-card px-4 py-3.5 shadow-card">
       <Button
-        variant="ghost"
+        variant="ghost-destructive"
         size="icon-sm"
         onClick={() => onRemove(draft.id)}
         aria-label={`Remove provider ${draft.name || "untitled"}`}
-        className="absolute top-2 right-2 text-muted-foreground/50 hover:bg-destructive/10 hover:text-destructive"
+        className="absolute top-2 right-2"
       >
         <X className="size-3.5" />
       </Button>
 
       <div className="flex flex-col gap-2.5 pr-8">
         <Field label="Name" hint={renderNameHint(draft, usedTypesByOthers, duplicateName)}>
-          <Input
-            value={draft.name}
-            onChange={(e) => update({ name: e.target.value })}
-            placeholder="e.g. anthropic"
-            spellCheck={false}
-            autoCorrect="off"
-            autoCapitalize="off"
-            aria-invalid={duplicateName || !draft.name.trim()}
-            className="font-mono"
-          />
-          {duplicateName && <span className="text-xs text-destructive/80">duplicate name</span>}
+          {(id) => (
+            <>
+              <Input
+                id={id}
+                value={draft.name}
+                onChange={(e) => update({ name: e.target.value })}
+                placeholder="e.g. anthropic"
+                spellCheck={false}
+                autoCorrect="off"
+                autoCapitalize="off"
+                aria-invalid={duplicateName || !draft.name.trim()}
+                className="font-mono"
+              />
+              {duplicateName && <span className="text-xs text-destructive/80">duplicate name</span>}
+            </>
+          )}
         </Field>
 
         <Field label="Type">
-          <NativeSelect
-            value={draft.type}
-            onChange={(e) => handleTypeChange(e.target.value)}
-            className="font-mono"
-          >
-            {providerTypes.map((t) => (
-              <NativeSelectOption key={t} value={t}>
-                {t}
-              </NativeSelectOption>
-            ))}
-          </NativeSelect>
+          {(id) => (
+            <NativeSelect
+              id={id}
+              value={draft.type}
+              onChange={(e) => handleTypeChange(e.target.value)}
+              className="font-mono"
+            >
+              {providerTypes.map((t) => (
+                <NativeSelectOption key={t} value={t}>
+                  {t}
+                </NativeSelectOption>
+              ))}
+            </NativeSelect>
+          )}
         </Field>
 
         <Field label="Base URL">
-          <Input
-            value={draft.base_url}
-            onChange={(e) => update({ base_url: e.target.value })}
-            placeholder="(provider default)"
-            spellCheck={false}
-            autoCorrect="off"
-            autoCapitalize="off"
-            className="font-mono"
-          />
+          {(id) => (
+            <Input
+              id={id}
+              value={draft.base_url}
+              onChange={(e) => update({ base_url: e.target.value })}
+              placeholder="(provider default)"
+              spellCheck={false}
+              autoCorrect="off"
+              autoCapitalize="off"
+              className="font-mono"
+            />
+          )}
         </Field>
 
+        {/* The checkbox's own label carries the field name, so the row label names nothing. */}
         {draft.type === "openai_chat" && (
           <Field
             label="Reasoning effort"
             hint="Enable if this endpoint accepts a reasoning effort level."
+            group
           >
-            <label className="flex h-9 w-fit items-center gap-2.5 px-2 select-none">
-              <Checkbox
-                checked={draft.supports_reasoning_effort}
-                onCheckedChange={(checked) => update({ supports_reasoning_effort: checked })}
-              />
-              <span className="text-ui text-foreground/90">
-                <span className="sr-only">Reasoning effort </span>Supported
-              </span>
-            </label>
+            {() => (
+              <label className="flex h-9 w-fit items-center gap-2.5 px-2 select-none">
+                <Checkbox
+                  checked={draft.supports_reasoning_effort}
+                  onCheckedChange={(checked) => update({ supports_reasoning_effort: checked })}
+                />
+                <span className="text-ui text-foreground/90">
+                  <span className="sr-only">Reasoning effort </span>Supported
+                </span>
+              </label>
+            )}
           </Field>
         )}
 
         <Field label="API key" hint={apiKeyHint}>
-          <ApiKeyInput
-            draft={draft}
-            onInput={(text) => update({ api_key_input: text, api_key_dirty: true })}
-            clearLabel="Clear saved API key"
-          />
+          {(id) => (
+            <ApiKeyInput
+              id={id}
+              draft={draft}
+              onInput={(text) => update({ api_key_input: text, api_key_dirty: true })}
+              clearLabel="Clear saved API key"
+            />
+          )}
         </Field>
 
         <Field
@@ -174,51 +187,53 @@ export const ProviderCard = memo(function ProviderCard({
               ? renderDefaultModelsHint(providerTypeDefaultModels[draft.type])
               : undefined
           }
+          group
         >
-          <div className="flex flex-col gap-2.5">
-            {draft.models.length > 0 && (
-              <div className="flex flex-wrap gap-1.5">
-                {draft.models.map((model) => (
-                  <span
-                    key={model}
-                    className={cn(
-                      "group inline-flex h-7 items-center gap-1 rounded-sm pr-1 pl-2.5",
-                      "bg-muted/60 font-mono text-xs text-foreground/90",
-                    )}
-                  >
-                    {model}
-                    <Button
-                      variant="ghost"
-                      size="icon-xs"
-                      onClick={() => removeModel(model)}
-                      className="size-5 rounded-sm text-muted-foreground/60 hover:bg-transparent hover:text-destructive"
-                      aria-label={`Remove model ${model}`}
+          {(id) => (
+            <div role="group" aria-labelledby={id} className="flex flex-col gap-2.5">
+              {draft.models.length > 0 && (
+                <div className="flex flex-wrap gap-1.5">
+                  {draft.models.map((model) => (
+                    <span
+                      key={model}
+                      className={cn(
+                        "inline-flex h-7 items-center gap-1 rounded-sm pr-1 pl-2.5",
+                        "bg-muted/60 font-mono text-xs text-foreground/90",
+                      )}
                     >
-                      <X className="size-3" />
-                    </Button>
-                  </span>
-                ))}
-              </div>
-            )}
-            <div className="flex items-center gap-2">
-              <Input
-                value={modelInput}
-                onChange={(e) => setModelInput(e.target.value)}
-                onKeyDown={handleModelKeyDown}
-                aria-label="Add model"
-                placeholder={draft.models.length === 0 ? "add a model id…" : "add another…"}
-                spellCheck={false}
-                autoCorrect="off"
-                autoCapitalize="off"
-                className="flex-1 font-mono"
-              />
-              {modelInput && (
-                <Button variant="ghost" size="icon-lg" onClick={addModel} aria-label="Add model">
-                  <Plus className="size-4" />
-                </Button>
+                      {model}
+                      <Button
+                        variant="ghost-destructive"
+                        size="icon-xs"
+                        onClick={() => removeModel(model)}
+                        aria-label={`Remove model ${model}`}
+                      >
+                        <X />
+                      </Button>
+                    </span>
+                  ))}
+                </div>
               )}
+              <div className="flex items-center gap-2">
+                <Input
+                  value={modelInput}
+                  onChange={(e) => setModelInput(e.target.value)}
+                  onKeyDown={handleModelKeyDown}
+                  aria-label="Add model"
+                  placeholder={draft.models.length === 0 ? "add a model id…" : "add another…"}
+                  spellCheck={false}
+                  autoCorrect="off"
+                  autoCapitalize="off"
+                  className="flex-1 font-mono"
+                />
+                {modelInput && (
+                  <Button variant="ghost" size="icon-lg" onClick={addModel} aria-label="Add model">
+                    <Plus />
+                  </Button>
+                )}
+              </div>
             </div>
-          </div>
+          )}
         </Field>
       </div>
     </div>

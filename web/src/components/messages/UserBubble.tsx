@@ -7,6 +7,7 @@ import { FileText, Pencil } from "lucide-react";
 import { type KeyboardEvent, useCallback, useState } from "react";
 
 import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
 import { SimpleTooltip } from "@/components/ui/tooltip";
 import type { DocumentBlock, ImageBlock, MessageBlock, TextBlock } from "@/types";
 import { cn } from "@/utils/cn";
@@ -67,12 +68,7 @@ export function UserBubble({
     !isLoading &&
     onRewindAndSend;
 
-  const setEditElement = useCallback((el: HTMLTextAreaElement | null) => {
-    if (!el) return;
-    el.focus();
-    el.style.height = "auto";
-    el.style.height = `${el.scrollHeight}px`;
-  }, []);
+  const focusEditElement = useCallback((el: HTMLTextAreaElement | null) => el?.focus(), []);
 
   const submitEdit = () => {
     const trimmed = editText.trim();
@@ -96,18 +92,14 @@ export function UserBubble({
     return (
       <div className="flex justify-end px-5 max-md:px-4">
         <div className="flex w-full max-w-[85%] flex-col gap-2">
-          <textarea
-            ref={setEditElement}
+          <Textarea
+            ref={focusEditElement}
             name="edit-message"
             aria-label="Edit message"
             value={editText}
-            onChange={(e) => {
-              setEditText(e.target.value);
-              e.target.style.height = "auto";
-              e.target.style.height = `${Math.min(e.target.scrollHeight, 300)}px`;
-            }}
+            onChange={(e) => setEditText(e.target.value)}
             onKeyDown={handleEditKeyDown}
-            className="max-h-75 w-full resize-none rounded-lg border border-border/60 bg-muted px-3.5 py-2 text-base leading-relaxed text-foreground focus:border-primary/60 focus:outline-none md:text-sm"
+            className="max-h-75 resize-none bg-muted px-3.5 leading-relaxed"
           />
           <div className="flex justify-end gap-2">
             <Button
@@ -145,7 +137,7 @@ export function UserBubble({
               setEditText(textContent);
               setEditing(true);
             }}
-            className="mr-2 mb-0.5 self-end opacity-0 transition-[color,background-color,opacity,scale] group-hover/user:opacity-100 focus-visible:opacity-100 max-md:opacity-60"
+            className="mr-2 mb-0.5 self-end opacity-0 group-hover/user:opacity-100 focus-visible:opacity-100 max-md:opacity-60"
           >
             <Pencil className="size-3.5" />
           </Button>

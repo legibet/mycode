@@ -9,7 +9,14 @@
  */
 
 import { Plus, Search, Settings as SettingsIcon, Terminal, Trash2 } from "lucide-react";
-import { memo, useMemo, useState, useSyncExternalStore } from "react";
+import {
+  type KeyboardEvent,
+  memo,
+  type PointerEvent as ReactPointerEvent,
+  useMemo,
+  useState,
+  useSyncExternalStore,
+} from "react";
 
 import type { RemoteConfig } from "@/api";
 import { WorkspacePicker } from "@/components/sidebar/WorkspacePicker";
@@ -91,7 +98,7 @@ function SidebarResizer({
 }) {
   const [dragging, setDragging] = useState(false);
 
-  const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+  const handlePointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
     if (e.button !== 0) return;
     e.preventDefault();
     const startX = e.clientX;
@@ -118,7 +125,7 @@ function SidebarResizer({
     window.addEventListener("pointerup", onUp);
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+  const handleKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
     const step = e.shiftKey ? 32 : 8;
     if (e.key === "ArrowLeft") {
       e.preventDefault();
@@ -208,7 +215,7 @@ export const Sidebar = memo(function Sidebar({
       {/* Brand */}
       <div className="flex shrink-0 items-center gap-2.5 px-5 pt-5 pb-5">
         <Terminal className="size-4 text-foreground" aria-hidden="true" />
-        <span className="font-display text-[15px] leading-none font-medium tracking-tight text-foreground">
+        <span className="font-mono text-[15px] leading-none font-medium tracking-tight text-foreground">
           mycode
         </span>
       </div>
@@ -339,7 +346,7 @@ export const Sidebar = memo(function Sidebar({
                     </button>
                     <SimpleTooltip label="Delete">
                       <Button
-                        variant="ghost"
+                        variant="ghost-destructive"
                         size="icon-xs"
                         aria-label="Delete session"
                         onClick={(e) => {
@@ -347,12 +354,11 @@ export const Sidebar = memo(function Sidebar({
                           void onDeleteSession(session.id);
                         }}
                         className={cn(
-                          "absolute top-1/2 right-3 z-20 size-5 -translate-y-1/2",
+                          "absolute top-1/2 right-3 z-20 -translate-y-1/2",
                           "group-hover:opacity-100 group-has-focus-visible:opacity-100 [@media(hover:hover)]:opacity-0",
-                          "text-muted-foreground/60 hover:bg-destructive/10 hover:text-destructive",
                         )}
                       >
-                        <Trash2 className="size-3" />
+                        <Trash2 />
                       </Button>
                     </SimpleTooltip>
                   </div>

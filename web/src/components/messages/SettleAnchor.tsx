@@ -60,7 +60,7 @@ export class SettleAnchor extends Component<SettleAnchorProps> {
     const el = this.props.containerRef.current;
     if (!el || !snapshot?.work.isConnected) return;
     const { work, pin } = snapshot;
-    // A turn that stopped or failed stays open, so nothing moves.
+    // Work that stays open, such as a turn without tools, doesn't move.
     if (work.getAttribute("data-work") !== "folded") return;
     const { followOutputRef } = this.props;
 

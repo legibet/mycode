@@ -55,7 +55,6 @@
     "Source Sans 3", -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB",
     "Microsoft YaHei", "Noto Sans SC", system-ui, sans-serif;
   --font-mono: "Source Code Pro", ui-monospace, "PingFang SC", "Microsoft YaHei", monospace;
-  --font-display: "Source Code Pro", ui-monospace, "PingFang SC", "Microsoft YaHei", monospace;
 
   /* Type scale: 2xs micro labels · xs secondary · ui rows and controls · sm content.
      The app sizes inherit the body line height. */
@@ -63,8 +62,8 @@
   --text-ui: 0.8125rem;
 
   /* Elevation: a hairline ring is layer one, blur stacks on top of it.
-     The hairline belongs to recessed code wells, so it takes its colour from
-     --code-border rather than the card's --border. */
+     The hairline marks quiet surfaces (code wells, the in-flight card, a
+     pending message), so it takes the softer --code-border rather than --border. */
   --shadow-hairline: var(--elevation-hairline);
   --shadow-card: var(--elevation-card);
   --shadow-card-focus: var(--elevation-card-focus);
@@ -250,7 +249,7 @@
 
 /* ── Prose / Markdown ── */
 .prose {
-  @apply max-w-none text-foreground;
+  @apply text-foreground;
 }
 /* The bubble's flex gap owns spacing between blocks. */
 .prose > :first-child {
@@ -293,13 +292,6 @@
 .prose li {
   @apply leading-relaxed;
   overflow-wrap: anywhere;
-}
-/* CodeBlock owns the code surface; the inner <pre> stays bare. */
-.prose pre {
-  @apply m-0 bg-transparent;
-}
-.prose pre code {
-  @apply rounded-none bg-transparent p-0 font-mono text-ui leading-relaxed font-normal text-foreground;
 }
 .prose .katex {
   font-size: 1.05em;
@@ -366,11 +358,6 @@
   font-style: var(--shiki-dark-font-style);
   font-weight: var(--shiki-dark-font-weight);
   text-decoration: var(--shiki-dark-text-decoration);
-}
-.shiki-wrapper pre.shiki {
-  margin: 0;
-  padding: 0;
-  overflow: visible;
 }
 
 /* ── Diff backgrounds ── */

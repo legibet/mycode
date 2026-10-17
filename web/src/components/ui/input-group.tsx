@@ -44,6 +44,7 @@ function InputGroupAddon({
   ...props
 }: React.ComponentProps<"div"> & VariantProps<typeof inputGroupAddonVariants>) {
   return (
+    // oxlint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- clicking the addon focuses the input; keyboard users reach the input directly
     <div
       role="group"
       data-slot="input-group-addon"

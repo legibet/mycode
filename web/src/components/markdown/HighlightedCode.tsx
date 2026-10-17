@@ -1,27 +1,22 @@
-import { type CSSProperties, startTransition, useEffect, useState } from "react";
+import { startTransition, useEffect, useState } from "react";
 
 // Safety note: shiki codeToHtml generates HTML from a tokenized AST,
 // producing only <pre>/<code>/<span> elements with inline styles.
 // It does not pass through raw user input, so the output is safe.
 
 // Start the shiki chunk download at module-eval, not on first effect.
-const highlighterModulePromise = import("../../utils/highlighter");
+const highlighterModulePromise = import("@/utils/highlighter");
 
-const MONO_STYLE = {
-  margin: 0,
-  padding: 0,
-  fontFamily: "var(--font-mono)",
-  fontSize: "13px",
-  lineHeight: "1.5",
-  fontWeight: 400,
-} satisfies CSSProperties;
+// Preflight leaves <pre> bare and sizes its <code> at 1em, so this one class
+// list types both the plain fallback and shiki's <pre class="shiki">.
+const CODE_TYPE = "font-mono text-ui leading-relaxed";
 
 interface HighlightedCodeProps {
   code: string;
   language: string;
 }
 
-export default function HighlightedCode({ code, language }: HighlightedCodeProps) {
+export function HighlightedCode({ code, language }: HighlightedCodeProps) {
   const [highlight, setHighlight] = useState<{
     code: string;
     language: string;
@@ -55,13 +50,11 @@ export default function HighlightedCode({ code, language }: HighlightedCodeProps
 
   if (!html) {
     return (
-      <pre style={MONO_STYLE}>
+      <pre className={CODE_TYPE}>
         <code>{code}</code>
       </pre>
     );
   }
 
-  return (
-    <div className="shiki-wrapper" style={MONO_STYLE} dangerouslySetInnerHTML={{ __html: html }} />
-  );
+  return <div className={CODE_TYPE} dangerouslySetInnerHTML={{ __html: html }} />;
 }

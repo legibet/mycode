@@ -7,7 +7,7 @@
  * query loads.
  */
 
-import { useEffect, useRef, useState } from "react";
+import { type RefObject, useEffect, useRef, useState } from "react";
 
 import { fetchJson, type SessionSearchHit, type SessionSearchResponse } from "@/api";
 import {
@@ -76,7 +76,7 @@ function SearchPanel({
   activeSessionId,
   onSelect,
 }: {
-  inputRef: React.RefObject<HTMLInputElement | null>;
+  inputRef: RefObject<HTMLInputElement | null>;
   cwd: string;
   activeSessionId: string | undefined;
   onSelect: (id: string) => void;

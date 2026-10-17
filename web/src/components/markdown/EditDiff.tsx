@@ -11,7 +11,7 @@ import { cn } from "@/utils/cn";
 import type { DiffHunk, DiffLine } from "@/utils/diff";
 
 // Start the shiki chunk download at module-eval, not on first effect.
-const highlighterModulePromise = import("../../utils/highlighter");
+const highlighterModulePromise = import("@/utils/highlighter");
 
 type LineTokens = ThemedToken[] | undefined;
 

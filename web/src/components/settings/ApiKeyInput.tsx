@@ -11,21 +11,16 @@ interface ApiKeyInputProps {
   /** Typing and clearing both mark the key dirty with the new text. */
   onInput: (text: string) => void;
   clearLabel: string;
-  "aria-label"?: string | undefined;
+  id: string;
 }
 
 /** Key input that stands in for a saved secret until the user types or clears it. */
-export function ApiKeyInput({
-  draft,
-  onInput,
-  clearLabel,
-  "aria-label": ariaLabel,
-}: ApiKeyInputProps) {
+export function ApiKeyInput({ draft, onInput, clearLabel, id }: ApiKeyInputProps) {
   const showsSaved = draft.api_key_saved && !draft.api_key_dirty;
   return (
     <div className="flex items-center gap-2">
       <Input
-        aria-label={ariaLabel}
+        id={id}
         value={draft.api_key_input}
         onChange={(e) => onInput(e.target.value)}
         placeholder={
@@ -39,10 +34,10 @@ export function ApiKeyInput({
       />
       {showsSaved && (
         <Button
-          variant="ghost"
+          variant="ghost-destructive"
           size="lg"
           onClick={() => onInput("")}
-          className="px-2 text-xs font-normal text-muted-foreground/70 hover:text-destructive"
+          className="px-2 text-xs font-normal"
           aria-label={clearLabel}
         >
           clear

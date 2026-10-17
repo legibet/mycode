@@ -18,6 +18,7 @@ import {
 } from "@/api";
 import { Button } from "@/components/ui/button";
 import { ResponsiveDialog } from "@/components/ui/responsive-dialog";
+import { Separator } from "@/components/ui/separator";
 import { cn } from "@/utils/cn";
 import { shouldAutoFocusTextInputOnOpen } from "@/utils/focus";
 
@@ -75,10 +76,6 @@ function buildBrowseKey(target: { root: string; path: string } | null): string |
   const params = new URLSearchParams({ root: target.root });
   if (target.path) params.set("path", target.path);
   return `/api/workspaces/browse?${params.toString()}`;
-}
-
-function getErrorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : "Unknown error";
 }
 
 function getInitialTarget(
@@ -139,7 +136,7 @@ export function WorkspacePicker({
     data: roots = [],
     error: rootsError,
     isLoading: rootsLoading,
-  } = useSWR<string[]>("/api/workspaces/roots", rootsFetcher, SWR_OPTS);
+  } = useSWR<string[], Error>("/api/workspaces/roots", rootsFetcher, SWR_OPTS);
 
   const [targetOverride, setTargetOverride] = useState<{
     root: string;
@@ -281,7 +278,7 @@ export function WorkspacePicker({
   const noticeMessage =
     uiError || (browseError ? "Workspace no longer exists. Choose another workspace." : "");
   const blockingErrorMessage =
-    (rootsError ? getErrorMessage(rootsError) : "") ||
+    rootsError?.message ||
     (!rootsLoading && roots.length === 0 ? "No workspace roots configured." : "");
   const showRoots = Boolean(browseError) && roots.length > 0 && !filter.trim();
 
@@ -297,7 +294,7 @@ export function WorkspacePicker({
     >
       {/* Breadcrumb header */}
       <div className="flex min-h-11 shrink-0 items-center gap-1 border-b border-border/30 px-4">
-        <div className="flex min-w-0 flex-1 scrollbar-none items-center gap-0.5 overflow-x-auto">
+        <div className="no-scrollbar flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto">
           <button
             type="button"
             onClick={() => root && browseTo(root, "")}
@@ -388,7 +385,7 @@ export function WorkspacePicker({
 
         {!loading && blockingErrorMessage && (
           <div className="flex h-36 items-center justify-center px-6 text-center">
-            <p className="text-xs leading-relaxed text-destructive">{blockingErrorMessage}</p>
+            <p className="text-xs leading-relaxed text-destructive/80">{blockingErrorMessage}</p>
           </div>
         )}
 
@@ -418,7 +415,7 @@ export function WorkspacePicker({
                   </button>
                 ))}
                 {(filteredEntries.length > 0 || showRoots) && (
-                  <div className="mx-4 mt-1 mb-1 border-b border-border/20" />
+                  <Separator className="mx-4 my-1 bg-border/20 data-horizontal:w-auto" />
                 )}
               </>
             )}
@@ -440,7 +437,7 @@ export function WorkspacePicker({
                   </button>
                 ))}
                 {filteredEntries.length > 0 && (
-                  <div className="mx-4 mt-1 mb-1 border-b border-border/20" />
+                  <Separator className="mx-4 my-1 bg-border/20 data-horizontal:w-auto" />
                 )}
               </>
             )}

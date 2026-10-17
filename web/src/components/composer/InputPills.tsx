@@ -63,10 +63,8 @@ export const ModelTrigger = memo(function ModelTrigger({
           >
             <span className="truncate font-mono">{label}</span>
             <ChevronDown
-              className={cn(
-                "size-3 shrink-0 opacity-60 transition-transform",
-                open && "rotate-180",
-              )}
+              data-icon="inline-end"
+              className={cn("opacity-60 transition-transform", open && "rotate-180")}
             />
           </Button>
         }
@@ -146,10 +144,8 @@ export const EffortTrigger = memo(function EffortTrigger({
           >
             <span className="font-mono">{current}</span>
             <ChevronDown
-              className={cn(
-                "size-3 shrink-0 opacity-60 transition-transform",
-                open && "rotate-180",
-              )}
+              data-icon="inline-end"
+              className={cn("opacity-60 transition-transform", open && "rotate-180")}
             />
           </Button>
         }
@@ -159,7 +155,7 @@ export const EffortTrigger = memo(function EffortTrigger({
           const active = opt === current;
           return (
             <DropdownMenuItem key={opt} onClick={() => select(opt)}>
-              <span className="flex-1 font-mono text-ui">{opt || "auto"}</span>
+              <span className="flex-1 font-mono text-ui">{opt}</span>
               {active && <Check className="size-3 shrink-0 text-primary" />}
             </DropdownMenuItem>
           );

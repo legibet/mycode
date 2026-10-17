@@ -56,9 +56,9 @@ describe("SettingsPanel", () => {
     const user = userEvent.setup();
     const { fetchMock } = renderSettings();
 
-    await user.selectOptions(screen.getByRole("combobox", { name: "Web search provider" }), "exa");
+    await user.selectOptions(screen.getByLabelText("Search"), "exa");
     expect(screen.getByText("key required")).toBeInTheDocument();
-    await user.type(screen.getByRole("textbox", { name: "Exa API key" }), "exa-key");
+    await user.type(screen.getByLabelText("Exa key"), "exa-key");
     await saveSettings(user);
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
@@ -67,6 +67,22 @@ describe("SettingsPanel", () => {
       search: "exa",
       exa: { api_key: "exa-key" },
     });
+  });
+
+  it("names each control by its row label", async () => {
+    const user = userEvent.setup();
+    renderSettings();
+    await user.click(screen.getByRole("button", { name: "Add provider" }));
+
+    for (const label of ["Compact", "Fetch", "Search", "Name", "Type", "Base URL", "API key"]) {
+      expect(screen.getByLabelText(label)).toBeInTheDocument();
+    }
+    // Rows holding several controls name them as a group.
+    for (const label of ["Theme", "Level", "Mode", "Models"]) {
+      expect(screen.getByRole("group", { name: label })).toBeInTheDocument();
+    }
+    // The mobile permission select shares the Level label.
+    expect(screen.getByRole("combobox", { name: "Level" })).toBeInTheDocument();
   });
 
   it("drafts from the loaded settings, keeps edits through a refetch and resets on reopen", async () => {

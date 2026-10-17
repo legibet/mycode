@@ -37,6 +37,10 @@ describe("InputArea", () => {
         loading={false}
         onSubmit={onSubmit}
         onCancel={() => {}}
+        onSteerQueued={() => {}}
+        onEditQueued={() => {}}
+        onRemoveQueued={() => {}}
+        onStopJob={() => {}}
         supportsImages={false}
         config={{
           provider: "anthropic",
@@ -85,6 +89,10 @@ describe("InputArea", () => {
           loading={false}
           onSubmit={vi.fn()}
           onCancel={() => {}}
+          onSteerQueued={() => {}}
+          onEditQueued={() => {}}
+          onRemoveQueued={() => {}}
+          onStopJob={() => {}}
           config={{
             provider: "anthropic",
             model: "m",
@@ -127,6 +135,10 @@ describe("InputArea", () => {
   const runningProps = {
     loading: true,
     onCancel: () => {},
+    onSteerQueued: () => {},
+    onEditQueued: () => {},
+    onRemoveQueued: () => {},
+    onStopJob: () => {},
     config: {
       provider: "anthropic",
       model: "m",

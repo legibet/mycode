@@ -38,6 +38,7 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import type { Theme } from "@/types";
 import { cn } from "@/utils/cn";
 import { prettifyPath } from "@/utils/format";
+import { randomId } from "@/utils/id";
 
 interface SettingsPanelProps {
   open: boolean;
@@ -202,7 +203,7 @@ function SettingsContent({
       const type = providerTypes[0] ?? "";
       const taken = prev.providers.some((p) => p.type === type);
       const next: ProviderDraft = {
-        id: `p-new-${Math.random().toString(36).slice(2, 8)}`,
+        id: randomId(),
         name: taken ? "" : type,
         original_name: "",
         type,
@@ -254,13 +255,7 @@ function SettingsContent({
         )}
       >
         <h2 className="text-sm font-semibold text-foreground">Settings</h2>
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={onClose}
-          aria-label="Close"
-          className="-mr-1 rounded-sm text-muted-foreground/70"
-        >
+        <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close" className="-mr-1">
           <X className="size-3.5" />
         </Button>
       </div>
@@ -276,7 +271,7 @@ function SettingsContent({
             {projectOverrides.length > 0 && (
               <div className="rounded-md border border-border/40 bg-muted/20 px-3.5 py-2.5 text-xs leading-relaxed">
                 <div className="text-foreground/80">Project-level config in effect:</div>
-                <ul className="mt-1.5 ml-4 list-disc space-y-0.5 text-muted-foreground/80 marker:text-muted-foreground/40">
+                <ul className="mt-1.5 ml-4 flex list-disc flex-col gap-0.5 text-muted-foreground/80 marker:text-muted-foreground/40">
                   {projectOverrides.map((p) => (
                     <li key={p} className="truncate font-mono">
                       {prettifyPath(p)}
@@ -290,21 +285,23 @@ function SettingsContent({
             )}
 
             <Section title="Appearance">
-              <Field label="Theme">
-                <ToggleGroup
-                  aria-label="Theme"
-                  value={[theme]}
-                  onValueChange={([next]) => {
-                    if (next) setTheme(next);
-                  }}
-                >
-                  {THEME_OPTIONS.map((opt) => (
-                    <ToggleGroupItem key={opt.value} value={opt.value}>
-                      {opt.icon}
-                      {opt.label}
-                    </ToggleGroupItem>
-                  ))}
-                </ToggleGroup>
+              <Field label="Theme" group>
+                {(id) => (
+                  <ToggleGroup
+                    aria-labelledby={id}
+                    value={[theme]}
+                    onValueChange={([next]) => {
+                      if (next) setTheme(next);
+                    }}
+                  >
+                    {THEME_OPTIONS.map((opt) => (
+                      <ToggleGroupItem key={opt.value} value={opt.value}>
+                        {opt.icon}
+                        {opt.label}
+                      </ToggleGroupItem>
+                    ))}
+                  </ToggleGroup>
+                )}
               </Field>
             </Section>
 
@@ -331,59 +328,66 @@ function SettingsContent({
                   </>
                 }
               >
-                <Input
-                  type="number"
-                  min={0}
-                  max={1}
-                  step={0.05}
-                  value={compactDisabled ? "" : draft.compact_threshold}
-                  placeholder="0.8"
-                  disabled={compactDisabled}
-                  onChange={(e) =>
-                    setDraft((prev) => ({
-                      ...prev,
-                      compact_threshold: e.target.value,
-                    }))
-                  }
-                  className="font-mono"
-                />
+                {(id) => (
+                  <Input
+                    id={id}
+                    type="number"
+                    min={0}
+                    max={1}
+                    step={0.05}
+                    value={compactDisabled ? "" : draft.compact_threshold}
+                    placeholder="0.8"
+                    disabled={compactDisabled}
+                    onChange={(e) =>
+                      setDraft((prev) => ({
+                        ...prev,
+                        compact_threshold: e.target.value,
+                      }))
+                    }
+                    className="font-mono"
+                  />
+                )}
               </Field>
             </Section>
 
             <Section title="Web access">
               <Field label="Fetch">
-                <NativeSelect
-                  aria-label="Web fetch provider"
-                  value={draft.web_fetch}
-                  onChange={(e) =>
-                    setDraft((prev) => ({
-                      ...prev,
-                      web_fetch: e.target.value as WebFetchProvider,
-                    }))
-                  }
-                  className="font-mono"
-                >
-                  <NativeSelectOption value="local">local</NativeSelectOption>
-                  <NativeSelectOption value="tavily">Tavily</NativeSelectOption>
-                  <NativeSelectOption value="exa">Exa</NativeSelectOption>
-                </NativeSelect>
+                {(id) => (
+                  <NativeSelect
+                    id={id}
+                    value={draft.web_fetch}
+                    onChange={(e) =>
+                      setDraft((prev) => ({
+                        ...prev,
+                        web_fetch: e.target.value as WebFetchProvider,
+                      }))
+                    }
+                    className="font-mono"
+                  >
+                    <NativeSelectOption value="local">local</NativeSelectOption>
+                    <NativeSelectOption value="tavily">Tavily</NativeSelectOption>
+                    <NativeSelectOption value="exa">Exa</NativeSelectOption>
+                  </NativeSelect>
+                )}
               </Field>
               <Field label="Search">
-                <NativeSelect
-                  aria-label="Web search provider"
-                  value={draft.web_search}
-                  onChange={(e) =>
-                    setDraft((prev) => ({
-                      ...prev,
-                      web_search: e.target.value as WebSearchProvider,
-                    }))
-                  }
-                  className="font-mono"
-                >
-                  <NativeSelectOption value="off">Off</NativeSelectOption>
-                  <NativeSelectOption value="tavily">Tavily</NativeSelectOption>
-                  <NativeSelectOption value="exa">Exa</NativeSelectOption>
-                </NativeSelect>
+                {(id) => (
+                  <NativeSelect
+                    id={id}
+                    value={draft.web_search}
+                    onChange={(e) =>
+                      setDraft((prev) => ({
+                        ...prev,
+                        web_search: e.target.value as WebSearchProvider,
+                      }))
+                    }
+                    className="font-mono"
+                  >
+                    <NativeSelectOption value="off">Off</NativeSelectOption>
+                    <NativeSelectOption value="tavily">Tavily</NativeSelectOption>
+                    <NativeSelectOption value="exa">Exa</NativeSelectOption>
+                  </NativeSelect>
+                )}
               </Field>
               {(["tavily", "exa"] as const).map((provider) => {
                 const selected = draft.web_fetch === provider || draft.web_search === provider;
@@ -396,70 +400,79 @@ function SettingsContent({
                     label={`${label} key`}
                     hint={webKeyHint(provider, key, envByName)}
                   >
-                    <ApiKeyInput
-                      draft={key}
-                      onInput={(text) => updateWebKey(provider, text)}
-                      aria-label={`${label} API key`}
-                      clearLabel={`Clear saved ${provider} API key`}
-                    />
+                    {(id) => (
+                      <ApiKeyInput
+                        id={id}
+                        draft={key}
+                        onInput={(text) => updateWebKey(provider, text)}
+                        clearLabel={`Clear saved ${provider} API key`}
+                      />
+                    )}
                   </Field>
                 );
               })}
             </Section>
 
             <Section title="Permissions">
-              <Field label="Level">
-                {/* Mobile: 4 options compress to a select; desktop: segmented */}
-                <div className="md:hidden">
-                  <NativeSelect
-                    value={draft.permission_level}
-                    onChange={(e) =>
-                      setDraft((prev) => ({
-                        ...prev,
-                        permission_level: e.target.value as PermissionLevel,
-                      }))
-                    }
-                    className="font-mono"
-                  >
-                    {PERMISSION_LEVEL_OPTIONS.map((opt) => (
-                      <NativeSelectOption key={opt.value} value={opt.value}>
-                        {opt.label}
-                      </NativeSelectOption>
-                    ))}
-                  </NativeSelect>
-                </div>
-                <div className="max-md:hidden">
+              <Field label="Level" group>
+                {(id) => (
+                  <>
+                    {/* Mobile: 4 options compress to a select; desktop: segmented */}
+                    <div className="md:hidden">
+                      <NativeSelect
+                        aria-labelledby={id}
+                        value={draft.permission_level}
+                        onChange={(e) =>
+                          setDraft((prev) => ({
+                            ...prev,
+                            permission_level: e.target.value as PermissionLevel,
+                          }))
+                        }
+                        className="font-mono"
+                      >
+                        {PERMISSION_LEVEL_OPTIONS.map((opt) => (
+                          <NativeSelectOption key={opt.value} value={opt.value}>
+                            {opt.label}
+                          </NativeSelectOption>
+                        ))}
+                      </NativeSelect>
+                    </div>
+                    <div className="max-md:hidden">
+                      <ToggleGroup
+                        aria-labelledby={id}
+                        size="sm"
+                        value={[draft.permission_level]}
+                        onValueChange={([next]) => {
+                          if (next) setDraft((prev) => ({ ...prev, permission_level: next }));
+                        }}
+                      >
+                        {PERMISSION_LEVEL_OPTIONS.map((opt) => (
+                          <ToggleGroupItem key={opt.value} value={opt.value}>
+                            {opt.label}
+                          </ToggleGroupItem>
+                        ))}
+                      </ToggleGroup>
+                    </div>
+                  </>
+                )}
+              </Field>
+              <Field label="Mode" group>
+                {(id) => (
                   <ToggleGroup
-                    aria-label="Permission level"
+                    aria-labelledby={id}
                     size="sm"
-                    value={[draft.permission_level]}
+                    value={[draft.permission_mode]}
                     onValueChange={([next]) => {
-                      if (next) setDraft((prev) => ({ ...prev, permission_level: next }));
+                      if (next) setDraft((prev) => ({ ...prev, permission_mode: next }));
                     }}
                   >
-                    {PERMISSION_LEVEL_OPTIONS.map((opt) => (
+                    {PERMISSION_MODE_OPTIONS.map((opt) => (
                       <ToggleGroupItem key={opt.value} value={opt.value}>
                         {opt.label}
                       </ToggleGroupItem>
                     ))}
                   </ToggleGroup>
-                </div>
-              </Field>
-              <Field label="Mode">
-                <ToggleGroup
-                  aria-label="Permission mode"
-                  size="sm"
-                  value={[draft.permission_mode]}
-                  onValueChange={([next]) => {
-                    if (next) setDraft((prev) => ({ ...prev, permission_mode: next }));
-                  }}
-                >
-                  {PERMISSION_MODE_OPTIONS.map((opt) => (
-                    <ToggleGroupItem key={opt.value} value={opt.value}>
-                      {opt.label}
-                    </ToggleGroupItem>
-                  ))}
-                </ToggleGroup>
+                )}
               </Field>
             </Section>
 
@@ -485,7 +498,7 @@ function SettingsContent({
                   onClick={addProvider}
                   className="border-dashed border-border/50 text-ui font-normal text-muted-foreground/80 hover:border-border hover:bg-muted/30"
                 >
-                  <Plus className="size-4" />
+                  <Plus data-icon="inline-start" />
                   Add provider
                 </Button>
               </div>
@@ -503,7 +516,7 @@ function SettingsContent({
       >
         {/* Mobile: error stacked above buttons; no path (would truncate uselessly) */}
         <div className="flex flex-col gap-2 px-4 py-3 md:hidden">
-          {error && <div className="text-xs leading-relaxed text-destructive/90">{error}</div>}
+          {error && <div className="text-xs leading-relaxed text-destructive/80">{error}</div>}
           <div className="flex items-center gap-2">
             <Button
               variant="ghost"
@@ -519,7 +532,7 @@ function SettingsContent({
               disabled={!canSave}
               className="flex-2 text-ui"
             >
-              {saving && <Loader2 className="size-3.5 animate-spin" />}
+              {saving && <Loader2 data-icon="inline-start" className="size-3.5 animate-spin" />}
               Save
             </Button>
           </div>
@@ -528,14 +541,14 @@ function SettingsContent({
         {/* Desktop: path on the left, buttons on the right */}
         <div className="flex items-center justify-between gap-3 px-6 py-3 max-md:hidden">
           <div className="min-w-0 flex-1 truncate text-xs text-muted-foreground/70">
-            {error ? <span className="text-destructive/90">{error}</span> : editsPath}
+            {error ? <span className="text-destructive/80">{error}</span> : editsPath}
           </div>
           <div className="flex shrink-0 items-center gap-2">
             <Button variant="ghost" onClick={onClose} className="px-3.5 text-ui font-normal">
               Cancel
             </Button>
             <Button onClick={() => void handleSave()} disabled={!canSave} className="px-4 text-ui">
-              {saving && <Loader2 className="size-3.5 animate-spin" />}
+              {saving && <Loader2 data-icon="inline-start" className="size-3.5 animate-spin" />}
               Save
             </Button>
           </div>

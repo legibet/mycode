@@ -69,13 +69,13 @@ interface InputAreaProps {
   onCancel: () => void;
   /** Messages queued for the running chat's next turn. */
   queued?: PendingInput[];
-  onSteerQueued?: (id: string) => void;
+  onSteerQueued: (id: string) => void;
   /** Called only while the composer is empty. */
-  onEditQueued?: (id: string) => void;
-  onRemoveQueued?: (id: string) => void;
+  onEditQueued: (id: string) => void;
+  onRemoveQueued: (id: string) => void;
   /** Background commands running in the session. */
   jobs?: BackgroundJobInfo[];
-  onStopJob?: (toolUseId: string) => void;
+  onStopJob: (toolUseId: string) => void;
   supportsImages?: boolean;
   supportsDocuments?: boolean;
   config: LocalConfig;
@@ -345,7 +345,7 @@ export const InputArea = memo(function InputArea({
       showInputNotice({ kind: "edit", blocking: false }, 2500);
       return;
     }
-    onEditQueued?.(id);
+    onEditQueued(id);
   };
 
   const [fullNoticeText, compactNoticeText] = inputNotice ? NOTICE_TEXT[inputNotice.kind] : [];
@@ -407,7 +407,7 @@ export const InputArea = memo(function InputArea({
                     setFiles((prev) => prev.filter((f) => f.id !== file.id));
                   }}
                   aria-label={`Remove ${file.name}`}
-                  className="absolute -top-1 -right-1 size-4 rounded-full border-0 bg-foreground text-background opacity-0 transition-[background-color,opacity,scale] group-hover/thumb:opacity-100 hover:bg-foreground/85 focus-visible:opacity-100 max-md:opacity-100"
+                  className="absolute -top-1 -right-1 size-4 rounded-full border-0 bg-foreground text-background opacity-0 group-hover/thumb:opacity-100 hover:bg-foreground/85 focus-visible:opacity-100 max-md:opacity-100"
                 >
                   <X className="size-2.5" />
                 </Button>

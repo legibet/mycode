@@ -106,17 +106,20 @@ export const PermissionPrompt = memo(function PermissionPrompt({
         <div className="flex items-center justify-end gap-1">
           <Button size="sm" className="text-xs" onClick={() => onDecide("allow")}>
             Allow
-            <CornerDownLeft className="size-3 opacity-70" aria-hidden="true" />
+            <CornerDownLeft
+              data-icon="inline-end"
+              className="size-3 opacity-70"
+              aria-hidden="true"
+            />
           </Button>
           <Button
-            variant="ghost"
+            variant="secondary"
             size="sm"
-            className="bg-muted/70 text-xs font-normal hover:bg-muted"
+            className="text-xs font-normal"
             onClick={() => onDecide("deny")}
           >
             Deny
-            {/* No color of its own: it inherits the button's, so the hint
-                lightens together with the label on hover. */}
+            {/* No color of its own: it inherits the label's. */}
             <span className="text-2xs tracking-wider uppercase" aria-hidden="true">
               esc
             </span>
