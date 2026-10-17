@@ -1,7 +1,7 @@
 /** Triggers shown inside the input box bottom row: model, effort. */
 
 import { Check, ChevronDown } from "lucide-react";
-import { memo, useMemo, useState } from "react";
+import { memo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -19,62 +19,34 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import type { LocalConfig, ProviderInfo, ReasoningEffort, RemoteConfig } from "@/types";
+import type { LocalConfig, ReasoningEffort, RemoteConfig } from "@/types";
 import { cn } from "@/utils/cn";
 import { getReasoningEffort, getReasoningEffortOptions, reasoningEffortKey } from "@/utils/config";
 
 const TRIGGER_BTN = "gap-0.5 px-1.5 font-normal";
-
-const POPOVER_CONTENT_CLASS = "p-0 gap-0";
 
 // Skip auto-focus on touch/pen so the soft keyboard doesn't pop up just
 // from opening the picker. `openType` is Base UI's `InteractionType`.
 const initialFocusByOpenType = (openType: string) =>
   openType === "mouse" || openType === "keyboard";
 
-interface ModelTriggerProps {
+interface TriggerProps {
   config: LocalConfig;
   remoteConfig: RemoteConfig | null;
   onUpdateConfig: (config: LocalConfig) => void;
-}
-
-interface ModelItem {
-  providerKey: string;
-  providerName: string;
-  model: string;
 }
 
 export const ModelTrigger = memo(function ModelTrigger({
   config,
   remoteConfig,
   onUpdateConfig,
-}: ModelTriggerProps) {
+}: TriggerProps) {
   const [open, setOpen] = useState(false);
-
-  const groups = useMemo(() => {
-    const providers = remoteConfig?.providers || {};
-    const entries: Array<[string, ProviderInfo]> = Object.entries(providers).filter(
-      (e): e is [string, ProviderInfo] => e[1] !== undefined,
-    );
-    return entries.map(([providerKey, info]) => ({
-      providerKey,
-      providerName: info.name,
-      items: (info.models || []).map<ModelItem>((model) => ({
-        providerKey,
-        providerName: info.name,
-        model,
-      })),
-    }));
-  }, [remoteConfig]);
 
   const label = config.model || "no-model";
 
-  const select = (item: ModelItem) => {
-    onUpdateConfig({
-      ...config,
-      provider: item.providerKey,
-      model: item.model,
-    });
+  const select = (provider: string, model: string) => {
+    onUpdateConfig({ ...config, provider, model });
     setOpen(false);
   };
 
@@ -103,7 +75,7 @@ export const ModelTrigger = memo(function ModelTrigger({
         align="start"
         sideOffset={6}
         initialFocus={initialFocusByOpenType}
-        className={cn(POPOVER_CONTENT_CLASS, "w-80 max-w-[calc(100vw-1rem)]")}
+        className="w-80 max-w-[calc(100vw-1rem)] gap-0 p-0"
       >
         <Command
           defaultValue={`${config.provider}:${config.model}`}
@@ -112,19 +84,18 @@ export const ModelTrigger = memo(function ModelTrigger({
           <CommandInput placeholder="Filter models…" />
           <CommandList>
             <CommandEmpty>No matches</CommandEmpty>
-            {groups.map((group) => (
-              <CommandGroup key={group.providerKey} heading={group.providerName}>
-                {group.items.map((item) => {
-                  const active =
-                    item.providerKey === config.provider && item.model === config.model;
+            {Object.entries(remoteConfig?.providers ?? {}).map(([providerKey, provider]) => (
+              <CommandGroup key={providerKey} heading={provider.name}>
+                {provider.models.map((model) => {
+                  const active = providerKey === config.provider && model === config.model;
                   return (
                     <CommandItem
-                      key={`${item.providerKey}:${item.model}`}
-                      value={`${item.providerKey}:${item.model}`}
-                      keywords={[item.providerName, item.model]}
-                      onSelect={() => select(item)}
+                      key={`${providerKey}:${model}`}
+                      value={`${providerKey}:${model}`}
+                      keywords={[provider.name, model]}
+                      onSelect={() => select(providerKey, model)}
                     >
-                      <span className="flex-1 truncate font-mono text-ui">{item.model}</span>
+                      <span className="flex-1 truncate font-mono text-ui">{model}</span>
                       {active && <Check className="size-3 shrink-0 text-primary" />}
                     </CommandItem>
                   );
@@ -138,17 +109,11 @@ export const ModelTrigger = memo(function ModelTrigger({
   );
 });
 
-interface EffortTriggerProps {
-  config: LocalConfig;
-  remoteConfig: RemoteConfig | null;
-  onUpdateConfig: (config: LocalConfig) => void;
-}
-
 export const EffortTrigger = memo(function EffortTrigger({
   config,
   remoteConfig,
   onUpdateConfig,
-}: EffortTriggerProps) {
+}: TriggerProps) {
   const [open, setOpen] = useState(false);
 
   const options = getReasoningEffortOptions(remoteConfig, config.provider, config.model);

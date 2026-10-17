@@ -6,104 +6,24 @@
  * preserved.
  */
 
-import { Terminal } from "lucide-react";
+import { type LucideIcon, Terminal } from "lucide-react";
 import { memo, type ReactNode, useMemo, useState } from "react";
 
 import { EditDiff } from "@/components/markdown/EditDiff";
+import {
+  asNumber,
+  asString,
+  getEditHunks,
+  getEditStats,
+  getPreview,
+  getReadHint,
+  getWriteHint,
+  type ToolArgs,
+  type ToolMeta,
+} from "@/components/messages/toolArgs";
 import { TOOL_ICON } from "@/components/messages/toolIcons";
 import { Collapse } from "@/components/ui/collapse";
 import { cn } from "@/utils/cn";
-import { type HunkContext, hunksFromEdits, parsePatch } from "@/utils/diff";
-
-// Tool inputs/outputs are JSON from the model; treat fields as `unknown` and
-// type-check at the read site instead of trusting the shape with `as`.
-type Args = Record<string, unknown> | undefined;
-type Meta = Record<string, unknown> | null | undefined;
-
-interface BashArgs {
-  command?: unknown;
-}
-interface BashMeta {
-  background?: unknown;
-  /** The started job's state, added by the projection: running, or its exit code. */
-  running?: unknown;
-  exit_code?: unknown;
-}
-interface PathArgs {
-  path?: unknown;
-}
-interface ReadArgs {
-  offset?: unknown;
-  limit?: unknown;
-}
-interface WriteArgs {
-  content?: unknown;
-}
-interface EditArgs {
-  edits?: unknown;
-}
-interface EditEntry {
-  oldText?: unknown;
-  newText?: unknown;
-}
-interface HighlightContextEntry {
-  old?: unknown;
-  new?: unknown;
-}
-interface EditMeta {
-  patch?: unknown;
-  highlight_context?: unknown;
-  added_lines?: unknown;
-  removed_lines?: unknown;
-}
-interface WebFetchArgs {
-  url?: unknown;
-}
-interface WebSearchArgs {
-  query?: unknown;
-}
-interface WebSearchMeta {
-  results?: unknown;
-}
-
-function asString(value: unknown): string {
-  return typeof value === "string" ? value : "";
-}
-
-function asNumber(value: unknown): number | null {
-  return typeof value === "number" ? value : null;
-}
-
-function getEdits(args: Args): { oldText: string; newText: string }[] {
-  const edits = (args as EditArgs | undefined)?.edits;
-  if (!Array.isArray(edits)) return [];
-  return edits.map((edit: EditEntry | null | undefined) => ({
-    oldText: asString(edit?.oldText),
-    newText: asString(edit?.newText),
-  }));
-}
-
-function getEditPatch(metadata: Meta): string | null {
-  const patch = (metadata as EditMeta | null | undefined)?.patch;
-  return typeof patch === "string" && patch ? patch : null;
-}
-
-function getHighlightContext(metadata: Meta): HunkContext[] {
-  const context = (metadata as EditMeta | null | undefined)?.highlight_context;
-  if (!Array.isArray(context)) return [];
-  return context.map((entry: HighlightContextEntry | null | undefined) => ({
-    old: asString(entry?.old),
-    new: asString(entry?.new),
-  }));
-}
-
-function getEditStats(metadata: Meta): { added: number; removed: number } | null {
-  const meta = metadata as EditMeta | null | undefined;
-  const added = asNumber(meta?.added_lines);
-  const removed = asNumber(meta?.removed_lines);
-  if (added == null || removed == null) return null;
-  return { added, removed };
-}
 
 interface ToolCardProps {
   name: string;
@@ -123,7 +43,7 @@ interface ToolCardProps {
 // Diffs get their own surface (EditDiff.tsx): tinted rows run edge to edge.
 // ---------------------------------------------------------------------------
 
-function ToolSurface({ head, body }: { head?: ReactNode; body?: ReactNode }) {
+export function ToolSurface({ head, body }: { head?: ReactNode; body?: ReactNode }) {
   if (!head && !body) return null;
   return (
     <div className="overflow-hidden rounded-md bg-code font-mono text-ui shadow-hairline">
@@ -142,49 +62,9 @@ function ToolSurface({ head, body }: { head?: ReactNode; body?: ReactNode }) {
 }
 
 // ---------------------------------------------------------------------------
-// Helpers for trigger-line previews and collapsed suffixes
+// The row: icon, label, mono preview, suffix; it toggles the body below it.
+// JobMarker builds its rows from the same parts.
 // ---------------------------------------------------------------------------
-
-function getPreview(name: string, args: Args): string {
-  if (!args) return "";
-  switch (name) {
-    case "bash":
-      return asString((args as BashArgs).command);
-    case "read":
-    case "write":
-    case "edit":
-      return asString((args as PathArgs).path);
-    case "webfetch":
-      return asString((args as WebFetchArgs).url);
-    case "websearch":
-      return asString((args as WebSearchArgs).query);
-    default: {
-      const values: string[] = [];
-      for (const [key, value] of Object.entries(args)) {
-        if (key === "content" || key === "prompt") continue;
-        if (typeof value === "string") values.push(value);
-        else values.push(typeof value === "object" ? "…" : JSON.stringify(value));
-      }
-      return values.join(" ");
-    }
-  }
-}
-
-function getReadHint(args: Args): string {
-  const a = args as ReadArgs | undefined;
-  const offset = asNumber(a?.offset);
-  const limit = asNumber(a?.limit);
-  if (offset != null && limit != null) return `:${offset}-${offset + limit}`;
-  if (offset != null) return `:${offset}`;
-  if (limit != null) return `:1-${limit}`;
-  return "";
-}
-
-function getWriteHint(args: Args): string {
-  const content = asString((args as WriteArgs | undefined)?.content);
-  if (!content) return "";
-  return `${content.split("\n").length} lines`;
-}
 
 /**
  * A status beside a mono preview. Sans type on a muted fill keeps it apart
@@ -212,170 +92,23 @@ export function StatusPill({
   );
 }
 
-function CollapsedSuffix({ name, args, metadata }: { name: string; args: Args; metadata: Meta }) {
-  if (name === "edit") {
-    const stats = getEditStats(metadata);
-    if (!stats || (stats.added === 0 && stats.removed === 0)) return null;
-    return (
-      <span className="shrink-0 font-mono text-xs tabular-nums">
-        <span className="text-diff-added">+{stats.added}</span>
-        <span className="ml-1 text-diff-removed">−{stats.removed}</span>
-      </span>
-    );
-  }
-
-  if (name === "bash") {
-    const meta = metadata as BashMeta | null | undefined;
-    if (meta?.background !== true) return null;
-    const exitCode = asNumber(meta.exit_code);
-    return (
-      <StatusPill tone={exitCode ? "error" : "muted"} pulse={meta.running === true}>
-        {exitCode != null
-          ? `background · exit ${exitCode}`
-          : meta.running === true
-            ? "background · running"
-            : "background"}
-      </StatusPill>
-    );
-  }
-
-  if (name === "websearch") {
-    const results = asNumber((metadata as WebSearchMeta | null | undefined)?.results);
-    if (results == null) return null;
-    return (
-      <span className="shrink-0 font-mono text-xs text-muted-foreground/60 tabular-nums">
-        {results} results
-      </span>
-    );
-  }
-
-  const hint = name === "read" ? getReadHint(args) : name === "write" ? getWriteHint(args) : "";
-  if (!hint) return null;
-  return (
-    <span className="shrink-0 font-mono text-xs text-muted-foreground/60 tabular-nums">{hint}</span>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Expanded body components — one per tool type
-// ---------------------------------------------------------------------------
-
-export function BashBody({ args, display }: { args: Args; display: string }) {
-  const command = asString((args as BashArgs | undefined)?.command);
-
-  return (
-    <ToolSurface
-      head={
-        command && (
-          <>
-            <span className="text-muted-foreground/40 select-none">$ </span>
-            <span className="break-all whitespace-pre-wrap text-foreground">{command}</span>
-          </>
-        )
-      }
-      body={display}
-    />
-  );
-}
-
-function WriteBody({ args, display, isError }: { args: Args; display: string; isError: boolean }) {
-  const content = asString((args as WriteArgs | undefined)?.content);
-
-  return (
-    <ToolSurface
-      head={content && <span className="whitespace-pre-wrap text-foreground/75">{content}</span>}
-      body={isError ? display : null}
-    />
-  );
-}
-
-function EditBody({
-  args,
-  metadata,
-  display,
-  isError,
+export function ToolRow({
+  icon: Icon,
+  label,
+  status,
+  preview,
+  suffix,
+  children,
 }: {
-  args: Args;
-  metadata: Meta;
-  display: string;
-  isError: boolean;
+  icon: LucideIcon;
+  label: string;
+  status?: "pending" | "error" | undefined;
+  preview: string;
+  suffix?: ReactNode;
+  /** The body the row opens to. */
+  children: ReactNode;
 }) {
-  // The patch exists once the edit has applied; until then (or on failure)
-  // show the requested replacements.
-  const hunks = useMemo(() => {
-    const patch = getEditPatch(metadata);
-    return patch
-      ? parsePatch(patch, getHighlightContext(metadata))
-      : hunksFromEdits(getEdits(args));
-  }, [args, metadata]);
-
-  if (hunks.length) {
-    return (
-      <div className="flex flex-col gap-2">
-        <EditDiff path={asString((args as PathArgs | undefined)?.path)} hunks={hunks} />
-        {isError && <ToolSurface body={display} />}
-      </div>
-    );
-  }
-
-  return (
-    <ToolSurface
-      head={args && Object.keys(args).length > 0 && <GenericArgs args={args} />}
-      body={display}
-    />
-  );
-}
-
-function GenericArgs({ args }: { args: Record<string, unknown> }) {
-  return Object.entries(args).map(([key, value]) => (
-    <div key={key}>
-      <span className="text-primary/80">{key}: </span>
-      <span className="break-all whitespace-pre-wrap text-foreground/75">
-        {typeof value === "string" ? value : JSON.stringify(value, null, 2)}
-      </span>
-    </div>
-  ));
-}
-
-// ---------------------------------------------------------------------------
-// Main component
-// ---------------------------------------------------------------------------
-
-export const ToolCard = memo(function ToolCard({
-  name,
-  args,
-  output,
-  finalOutput,
-  metadata,
-  pending,
-  isError,
-}: ToolCardProps) {
-  const display =
-    typeof finalOutput === "string" ? finalOutput : typeof output === "string" ? output : "";
-  const resolvedIsError =
-    Boolean(isError) || (typeof finalOutput === "string" && finalOutput.startsWith("error:"));
   const [expanded, setExpanded] = useState(false);
-
-  const status = pending ? "pending" : resolvedIsError ? "error" : "success";
-
-  const Icon = TOOL_ICON[name] ?? Terminal;
-  const preview = getPreview(name, args);
-
-  const body =
-    name === "bash" ? (
-      <BashBody args={args} display={display} />
-    ) : name === "read" || name === "webfetch" || name === "websearch" ? (
-      <ToolSurface body={display} />
-    ) : name === "write" ? (
-      <WriteBody args={args} display={display} isError={resolvedIsError} />
-    ) : name === "edit" ? (
-      <EditBody args={args} metadata={metadata} display={display} isError={resolvedIsError} />
-    ) : (
-      <ToolSurface
-        head={args && Object.keys(args).length > 0 && <GenericArgs args={args} />}
-        body={display}
-      />
-    );
 
   return (
     <div className="group/tool">
@@ -396,7 +129,7 @@ export const ToolCard = memo(function ToolCard({
             status === "pending" && "animate-thinking",
           )}
         >
-          {name}
+          {label}
         </span>
 
         {preview && (
@@ -405,14 +138,197 @@ export const ToolCard = memo(function ToolCard({
           </span>
         )}
 
-        <CollapsedSuffix name={name} args={args} metadata={metadata} />
+        {suffix}
       </button>
 
       <Collapse open={expanded}>
         {/* Plain indent: the body is already a bounded surface, so a rail
             beside it would just be a second parallel line. */}
-        <div className="mt-2 ml-5">{body}</div>
+        <div className="mt-2 ml-5">{children}</div>
       </Collapse>
     </div>
+  );
+}
+
+function CollapsedSuffix({
+  name,
+  args,
+  metadata,
+}: {
+  name: string;
+  args: ToolArgs;
+  metadata: ToolMeta;
+}) {
+  if (name === "edit") {
+    const stats = getEditStats(metadata);
+    if (!stats || (stats.added === 0 && stats.removed === 0)) return null;
+    return (
+      <span className="shrink-0 font-mono text-xs tabular-nums">
+        <span className="text-diff-added">+{stats.added}</span>
+        <span className="ml-1 text-diff-removed">−{stats.removed}</span>
+      </span>
+    );
+  }
+
+  if (name === "bash") {
+    if (metadata?.["background"] !== true) return null;
+    // The started job's state, added by the projection: running, or its exit code.
+    const running = metadata["running"] === true;
+    const exitCode = asNumber(metadata["exit_code"]);
+    return (
+      <StatusPill tone={exitCode ? "error" : "muted"} pulse={running}>
+        {exitCode != null
+          ? `background · exit ${exitCode}`
+          : running
+            ? "background · running"
+            : "background"}
+      </StatusPill>
+    );
+  }
+
+  if (name === "websearch") {
+    const results = asNumber(metadata?.["results"]);
+    if (results == null) return null;
+    return (
+      <span className="shrink-0 font-mono text-xs text-muted-foreground/60 tabular-nums">
+        {results} results
+      </span>
+    );
+  }
+
+  const hint = name === "read" ? getReadHint(args) : name === "write" ? getWriteHint(args) : "";
+  if (!hint) return null;
+  return (
+    <span className="shrink-0 font-mono text-xs text-muted-foreground/60 tabular-nums">{hint}</span>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Expanded body components — one per tool type
+// ---------------------------------------------------------------------------
+
+function BashBody({ args, display }: { args: ToolArgs; display: string }) {
+  const command = asString(args?.["command"]);
+
+  return (
+    <ToolSurface
+      head={
+        command && (
+          <>
+            <span className="text-muted-foreground/40 select-none">$ </span>
+            <span className="break-all whitespace-pre-wrap text-foreground">{command}</span>
+          </>
+        )
+      }
+      body={display}
+    />
+  );
+}
+
+function WriteBody({
+  args,
+  display,
+  isError,
+}: {
+  args: ToolArgs;
+  display: string;
+  isError: boolean;
+}) {
+  const content = asString(args?.["content"]);
+
+  return (
+    <ToolSurface
+      head={content && <span className="whitespace-pre-wrap text-foreground/75">{content}</span>}
+      body={isError ? display : null}
+    />
+  );
+}
+
+function EditBody({
+  args,
+  metadata,
+  display,
+  isError,
+}: {
+  args: ToolArgs;
+  metadata: ToolMeta;
+  display: string;
+  isError: boolean;
+}) {
+  const hunks = useMemo(() => getEditHunks(args, metadata), [args, metadata]);
+
+  if (hunks.length) {
+    return (
+      <div className="flex flex-col gap-2">
+        <EditDiff path={asString(args?.["path"])} hunks={hunks} />
+        {isError && <ToolSurface body={display} />}
+      </div>
+    );
+  }
+
+  return <GenericBody args={args} display={display} />;
+}
+
+function GenericBody({ args, display }: { args: ToolArgs; display: string }) {
+  return (
+    <ToolSurface
+      head={
+        args &&
+        Object.keys(args).length > 0 &&
+        Object.entries(args).map(([key, value]) => (
+          <div key={key}>
+            <span className="text-primary/80">{key}: </span>
+            <span className="break-all whitespace-pre-wrap text-foreground/75">
+              {typeof value === "string" ? value : JSON.stringify(value, null, 2)}
+            </span>
+          </div>
+        ))
+      }
+      body={display}
+    />
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Main component
+// ---------------------------------------------------------------------------
+
+export const ToolCard = memo(function ToolCard({
+  name,
+  args,
+  output,
+  finalOutput,
+  metadata,
+  pending,
+  isError,
+}: ToolCardProps) {
+  const display =
+    typeof finalOutput === "string" ? finalOutput : typeof output === "string" ? output : "";
+  const resolvedIsError =
+    Boolean(isError) || (typeof finalOutput === "string" && finalOutput.startsWith("error:"));
+
+  const body =
+    name === "bash" ? (
+      <BashBody args={args} display={display} />
+    ) : name === "read" || name === "webfetch" || name === "websearch" ? (
+      <ToolSurface body={display} />
+    ) : name === "write" ? (
+      <WriteBody args={args} display={display} isError={resolvedIsError} />
+    ) : name === "edit" ? (
+      <EditBody args={args} metadata={metadata} display={display} isError={resolvedIsError} />
+    ) : (
+      <GenericBody args={args} display={display} />
+    );
+
+  return (
+    <ToolRow
+      icon={TOOL_ICON[name] ?? Terminal}
+      label={name}
+      status={pending ? "pending" : resolvedIsError ? "error" : undefined}
+      preview={getPreview(name, args)}
+      suffix={<CollapsedSuffix name={name} args={args} metadata={metadata} />}
+    >
+      {body}
+    </ToolRow>
   );
 });

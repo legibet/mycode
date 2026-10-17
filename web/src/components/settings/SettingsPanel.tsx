@@ -10,7 +10,17 @@
 import { Laptop, Loader2, Moon, Plus, Sun, X } from "lucide-react";
 import { type ReactNode, useCallback, useMemo, useState } from "react";
 
-import { Field, ProviderCard, type ProviderDraft } from "@/components/settings/ProviderCard";
+import { ApiKeyInput, envRefHint } from "@/components/settings/ApiKeyInput";
+import { Field } from "@/components/settings/Field";
+import { ProviderCard } from "@/components/settings/ProviderCard";
+import {
+  type ApiKeyDraft,
+  buildDraft,
+  buildPayload,
+  type ProviderDraft,
+  type SettingsDraft,
+  type WebKeyProvider,
+} from "@/components/settings/settingsDraft";
 import { useTheme } from "@/components/ThemeProvider";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -18,14 +28,11 @@ import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select"
 import { ResponsiveDialog } from "@/components/ui/responsive-dialog";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import type {
-  GlobalConfig,
-  GlobalProviderEntry,
   PermissionLevel,
   PermissionMode,
   SettingsResponse,
   Theme,
   WebFetchProvider,
-  WebProviderEntry,
   WebSearchProvider,
 } from "@/types";
 import { cn } from "@/utils/cn";
@@ -43,44 +50,6 @@ interface SettingsPanelProps {
 }
 
 const FALLBACK_CONFIG_PATH = "~/.mycode/config.json";
-
-interface DraftState {
-  compact_threshold: string; // form-friendly; '' means unset, 'disabled' for false
-  permission_level: PermissionLevel;
-  permission_mode: PermissionMode;
-  web_fetch: WebFetchProvider;
-  web_search: WebSearchProvider;
-  web_tavily: WebKeyDraft;
-  web_exa: WebKeyDraft;
-  providers: ProviderDraft[];
-}
-
-interface WebKeyDraft {
-  api_key_input: string;
-  api_key_dirty: boolean;
-  api_key_saved: boolean;
-}
-
-const INITIAL_DRAFT: DraftState = {
-  compact_threshold: "",
-  permission_level: "safe",
-  permission_mode: "ask",
-  web_fetch: "local",
-  web_search: "off",
-  web_tavily: {
-    api_key_input: "",
-    api_key_dirty: false,
-    api_key_saved: false,
-  },
-  web_exa: {
-    api_key_input: "",
-    api_key_dirty: false,
-    api_key_saved: false,
-  },
-  providers: [],
-};
-
-const ENV_REF_RE = /^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$/;
 
 const PERMISSION_LEVEL_OPTIONS: { value: PermissionLevel; label: string }[] = [
   { value: "readonly", label: "readonly" },
@@ -104,135 +73,13 @@ const THEME_OPTIONS: { value: Theme; label: string; icon: ReactNode }[] = [
   { value: "dark", label: "dark", icon: <Moon className="size-3.5" /> },
 ];
 
-function buildDraft(response: SettingsResponse): DraftState {
-  const { config } = response;
-  const fallbackType = response.options.provider_types[0] ?? "";
-  const draft: DraftState = { ...INITIAL_DRAFT };
-
-  const ct = config.compact_threshold;
-  if (ct === false) draft.compact_threshold = "disabled";
-  else if (typeof ct === "number") draft.compact_threshold = String(ct);
-
-  const perm = config.permission;
-  if (typeof perm === "string") {
-    draft.permission_level = perm;
-  } else if (perm) {
-    if (perm.level) draft.permission_level = perm.level;
-    if (perm.mode) draft.permission_mode = perm.mode;
-  }
-
-  draft.web_fetch = config.web?.fetch ?? "local";
-  draft.web_search = config.web?.search ?? "off";
-  draft.web_tavily = buildWebKeyDraft(config.web?.tavily);
-  draft.web_exa = buildWebKeyDraft(config.web?.exa);
-
-  draft.providers = Object.entries(config.providers ?? {}).map(([name, entry], i) => ({
-    id: `p-${i}-${name}`,
-    name,
-    original_name: name,
-    type: entry.type ?? name ?? fallbackType,
-    models: Array.isArray(entry.models) ? entry.models : Object.keys(entry.models ?? {}),
-    model_overrides: entry.model_overrides ?? {},
-    base_url: entry.base_url ?? "",
-    supports_reasoning_effort: Boolean(entry.supports_reasoning_effort),
-    api_key_input: typeof entry.api_key === "string" ? entry.api_key : "",
-    api_key_dirty: false,
-    api_key_saved: Boolean(entry.api_key_saved),
-  }));
-
-  return draft;
-}
-
-function buildWebKeyDraft(entry: WebProviderEntry | undefined): WebKeyDraft {
-  return {
-    api_key_input: typeof entry?.api_key === "string" ? entry.api_key : "",
-    api_key_dirty: false,
-    api_key_saved: Boolean(entry?.api_key_saved),
-  };
-}
-
-function buildPayload(draft: DraftState): GlobalConfig {
-  const config: GlobalConfig = {};
-
-  if (draft.compact_threshold === "disabled") {
-    config.compact_threshold = false;
-  } else if (draft.compact_threshold.trim()) {
-    const num = Number(draft.compact_threshold);
-    if (Number.isFinite(num)) config.compact_threshold = num;
-  }
-
-  config.permission = {
-    level: draft.permission_level,
-    mode: draft.permission_mode,
-  };
-
-  const web: NonNullable<GlobalConfig["web"]> = {
-    fetch: draft.web_fetch,
-    search: draft.web_search,
-  };
-  for (const provider of ["tavily", "exa"] as const) {
-    const key = provider === "tavily" ? draft.web_tavily : draft.web_exa;
-    if (key.api_key_saved || key.api_key_input.trim()) {
-      web[provider] = {
-        api_key: key.api_key_dirty ? key.api_key_input.trim() : null,
-      };
-    }
-  }
-  config.web = web;
-
-  const providers: Record<string, GlobalProviderEntry> = {};
-  for (const p of draft.providers) {
-    const name = p.name.trim();
-    if (!name) continue;
-    const entry: GlobalProviderEntry = {};
-    if (p.type) entry.type = p.type;
-    if (p.models.length) {
-      const overrides: Record<string, Record<string, unknown>> = {};
-      for (const id of p.models) {
-        const o = p.model_overrides[id];
-        if (o && Object.keys(o).length) overrides[id] = o;
-      }
-      if (Object.keys(overrides).length) {
-        entry.models = Object.fromEntries(p.models.map((id) => [id, overrides[id] ?? {}]));
-      } else {
-        entry.models = p.models;
-      }
-    }
-    if (p.base_url.trim()) entry.base_url = p.base_url.trim();
-    if (p.type === "openai_chat" && p.supports_reasoning_effort)
-      entry.supports_reasoning_effort = true;
-    // api_key three-state: dirty → string (incl. empty=clear); not dirty → null=keep.
-    // Renaming severs the on-disk lookup the server uses to preserve secrets, so
-    // we send the current input verbatim (env-refs survive; literal "saved" keys
-    // become empty, which forces the user to re-enter — better than silent loss).
-    const renamed = p.original_name !== "" && p.original_name !== name;
-    entry.api_key = p.api_key_dirty || renamed ? p.api_key_input.trim() : null;
-    providers[name] = entry;
-  }
-  if (Object.keys(providers).length) config.providers = providers;
-
-  return config;
-}
-
-const EMPTY_PROVIDER_TYPES: string[] = [];
-
 function webKeyHint(
-  provider: "tavily" | "exa",
-  draft: WebKeyDraft,
+  provider: WebKeyProvider,
+  draft: ApiKeyDraft,
   envByName: Record<string, boolean>,
 ): ReactNode {
-  const ref = draft.api_key_input.trim().match(ENV_REF_RE)?.[1];
-  if (ref) {
-    return envByName[ref] ? (
-      <>
-        env <code className="font-mono">{ref}</code> is set
-      </>
-    ) : (
-      <span className="text-destructive/80">
-        env <code className="font-mono">{ref}</code> is not set
-      </span>
-    );
-  }
+  const refHint = envRefHint(draft.api_key_input, envByName);
+  if (refHint) return refHint;
   if (draft.api_key_saved && !draft.api_key_dirty) return "saved key";
   if (draft.api_key_input.trim()) return undefined;
 
@@ -268,13 +115,11 @@ export function SettingsPanel({
   projectConfigPaths,
 }: SettingsPanelProps) {
   const { theme, setTheme } = useTheme();
-  const [draft, setDraft] = useState<DraftState>(() =>
-    settings ? buildDraft(settings) : INITIAL_DRAFT,
-  );
+  const [draft, setDraft] = useState<SettingsDraft>(() => buildDraft(settings?.config ?? {}));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const providerTypes = settings?.options.provider_types ?? EMPTY_PROVIDER_TYPES;
+  const providerTypes = settings?.options.provider_types ?? [];
   const envByName = settings?.env ?? {};
   const providerTypeEnvVars = settings?.provider_type_env_vars ?? {};
   const providerTypeDefaultModels = settings?.provider_type_default_models ?? {};
@@ -307,6 +152,7 @@ export function SettingsPanel({
 
   const hasInvalidProvider =
     duplicateNames.size > 0 || draft.providers.some((p) => !p.name.trim() || !p.type);
+  const canSave = settings !== null && !saving && !hasInvalidProvider;
 
   const compactDisabled = draft.compact_threshold === "disabled";
 
@@ -317,13 +163,15 @@ export function SettingsPanel({
     }));
   }, []);
 
-  const updateWebKey = useCallback((provider: "tavily" | "exa", patch: Partial<WebKeyDraft>) => {
-    setDraft((prev) =>
-      provider === "tavily"
-        ? { ...prev, web_tavily: { ...prev.web_tavily, ...patch } }
-        : { ...prev, web_exa: { ...prev.web_exa, ...patch } },
-    );
-  }, []);
+  const updateWebKey = (provider: WebKeyProvider, text: string) => {
+    setDraft((prev) => ({
+      ...prev,
+      web_keys: {
+        ...prev.web_keys,
+        [provider]: { ...prev.web_keys[provider], api_key_input: text, api_key_dirty: true },
+      },
+    }));
+  };
 
   const removeProvider = useCallback((id: string) => {
     setDraft((prev) => ({
@@ -332,7 +180,7 @@ export function SettingsPanel({
     }));
   }, []);
 
-  const addProvider = useCallback(() => {
+  const addProvider = () => {
     setDraft((prev) => {
       const type = providerTypes[0] ?? "";
       const taken = prev.providers.some((p) => p.type === type);
@@ -351,19 +199,17 @@ export function SettingsPanel({
       };
       return { ...prev, providers: [...prev.providers, next] };
     });
-  }, [providerTypes]);
+  };
 
   const handleSave = async () => {
-    if (!settings || hasInvalidProvider || saving) return;
+    if (!canSave) return;
     setSaving(true);
     setError(null);
     try {
       const res = await fetch("/api/settings", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          config: buildPayload(draft),
-        }),
+        body: JSON.stringify({ config: buildPayload(draft) }),
       });
       if (!res.ok) {
         let message = `Save failed (${res.status})`;
@@ -374,7 +220,7 @@ export function SettingsPanel({
         throw new Error(message);
       }
       const updated = (await res.json()) as SettingsResponse;
-      setDraft(buildDraft(updated));
+      setDraft(buildDraft(updated.config));
       onSettingsSaved?.(updated);
       onClose();
     } catch (e) {
@@ -388,8 +234,14 @@ export function SettingsPanel({
 
   const editsPath = `Edits ${prettifyPath(settings?.path ?? FALLBACK_CONFIG_PATH)}`;
 
-  const body: ReactNode = (
-    <>
+  return (
+    <ResponsiveDialog
+      open={open}
+      onClose={onClose}
+      title="Settings"
+      fullScreen
+      className="max-h-[82vh] w-160"
+    >
       {/* Header */}
       <div
         className={cn(
@@ -459,39 +311,23 @@ export function SettingsPanel({
               <Field
                 label="Compact"
                 hint={
-                  compactDisabled ? (
-                    <>
-                      Auto-compaction disabled.{" "}
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setDraft((prev) => ({
-                            ...prev,
-                            compact_threshold: "",
-                          }))
-                        }
-                        className="text-primary hover:underline focus-visible:underline focus-visible:outline-none"
-                      >
-                        Enable
-                      </button>
-                    </>
-                  ) : (
-                    <>
-                      Trigger compaction at this fraction of context window (default 0.8).{" "}
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setDraft((prev) => ({
-                            ...prev,
-                            compact_threshold: "disabled",
-                          }))
-                        }
-                        className="text-primary hover:underline focus-visible:underline focus-visible:outline-none"
-                      >
-                        Disable
-                      </button>
-                    </>
-                  )
+                  <>
+                    {compactDisabled
+                      ? "Auto-compaction disabled."
+                      : "Trigger compaction at this fraction of context window (default 0.8)."}{" "}
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setDraft((prev) => ({
+                          ...prev,
+                          compact_threshold: compactDisabled ? "" : "disabled",
+                        }))
+                      }
+                      className="text-primary hover:underline focus-visible:underline focus-visible:outline-none"
+                    >
+                      {compactDisabled ? "Enable" : "Disable"}
+                    </button>
+                  </>
                 }
               >
                 <Input
@@ -551,7 +387,7 @@ export function SettingsPanel({
               {(["tavily", "exa"] as const).map((provider) => {
                 const selected = draft.web_fetch === provider || draft.web_search === provider;
                 if (!selected) return null;
-                const key = provider === "tavily" ? draft.web_tavily : draft.web_exa;
+                const key = draft.web_keys[provider];
                 const label = provider === "tavily" ? "Tavily" : "Exa";
                 return (
                   <Field
@@ -559,44 +395,12 @@ export function SettingsPanel({
                     label={`${label} key`}
                     hint={webKeyHint(provider, key, envByName)}
                   >
-                    <div className="flex items-center gap-2">
-                      <Input
-                        aria-label={`${label} API key`}
-                        value={key.api_key_input}
-                        onChange={(e) =>
-                          updateWebKey(provider, {
-                            api_key_input: e.target.value,
-                            api_key_dirty: true,
-                          })
-                        }
-                        placeholder={
-                          key.api_key_saved && !key.api_key_dirty
-                            ? "•••••• saved · type to replace"
-                            : "paste a key, or use ${ENV_VAR}"
-                        }
-                        spellCheck={false}
-                        autoCorrect="off"
-                        autoCapitalize="off"
-                        autoComplete="off"
-                        className="font-mono"
-                      />
-                      {key.api_key_saved && !key.api_key_dirty && (
-                        <Button
-                          variant="ghost"
-                          size="lg"
-                          onClick={() =>
-                            updateWebKey(provider, {
-                              api_key_input: "",
-                              api_key_dirty: true,
-                            })
-                          }
-                          className="px-2 text-xs font-normal text-muted-foreground/70 hover:text-destructive"
-                          aria-label={`Clear saved ${provider} API key`}
-                        >
-                          clear
-                        </Button>
-                      )}
-                    </div>
+                    <ApiKeyInput
+                      draft={key}
+                      onInput={(text) => updateWebKey(provider, text)}
+                      aria-label={`${label} API key`}
+                      clearLabel={`Clear saved ${provider} API key`}
+                    />
                   </Field>
                 );
               })}
@@ -711,7 +515,7 @@ export function SettingsPanel({
             <Button
               size="lg"
               onClick={() => void handleSave()}
-              disabled={!settings || saving || hasInvalidProvider}
+              disabled={!canSave}
               className="flex-2 text-ui"
             >
               {saving && <Loader2 className="size-3.5 animate-spin" />}
@@ -729,29 +533,13 @@ export function SettingsPanel({
             <Button variant="ghost" onClick={onClose} className="px-3.5 text-ui font-normal">
               Cancel
             </Button>
-            <Button
-              onClick={() => void handleSave()}
-              disabled={!settings || saving || hasInvalidProvider}
-              className="px-4 text-ui"
-            >
+            <Button onClick={() => void handleSave()} disabled={!canSave} className="px-4 text-ui">
               {saving && <Loader2 className="size-3.5 animate-spin" />}
               Save
             </Button>
           </div>
         </div>
       </div>
-    </>
-  );
-
-  return (
-    <ResponsiveDialog
-      open={open}
-      onClose={onClose}
-      title="Settings"
-      fullScreen
-      className="max-h-[82vh] w-160"
-    >
-      {body}
     </ResponsiveDialog>
   );
 }

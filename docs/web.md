@@ -9,18 +9,14 @@ web/src/
   App.tsx                    # root layout, config loading, session init
   types.ts                   # API, message, and UI types
   components/
-    Chat/
-      Composer.tsx             # Lexical input, slash commands, and @ completion
-      InputArea.tsx            # composer controls and uploads
-      MessageList.tsx          # message windowing and scroll behavior
-      MessageBubble.tsx        # message block rendering
-      WorkSection.tsx          # folded turn work and its summary row
-      ToolCard.tsx             # tool execution rendering
-    Settings/                  # provider configuration editor
-    ui/                        # shared UI primitives
-    Sidebar.tsx                # sessions, workspace, and settings entry
-    WorkspacePicker.tsx        # workspace browser
-    SessionSearch.tsx          # ⌘K / Ctrl+K search over the workspace's sessions
+    composer/                # InputArea (composer controls, uploads, in-flight card), Lexical Composer, pickers, PermissionPrompt
+    messages/                # MessageList (windowing, scroll), MessageBubble, WorkSection, ToolCard, markers, StatsCard
+    markdown/                # MarkdownBlock, CodeBlock, Shiki highlighting, EditDiff
+    settings/                # SettingsPanel and ProviderCard; settingsDraft.ts maps config ⇄ form draft
+    sidebar/                 # Sidebar, WorkspacePicker, SessionSearch (⌘K / Ctrl+K)
+    ui/                      # shadcn primitives plus Collapse and ResponsiveDialog
+    MobileHeader.tsx
+    ThemeProvider.tsx
   hooks/
     useChat.ts                 # chat state and SSE streaming
     useWorkspaceFiles.ts       # @ completion candidates
@@ -72,7 +68,7 @@ The reducer runs eagerly into a ref that mirrors React state, so request and str
 - `null` means unknown and is omitted by the UI. The Web never resolves model pricing.
 - A delivered steer starts a new turn in the projection. Its `user_message` appends a fresh assistant, and `usage` events patch the latest assistant with cumulative values, so the new segment's stats come only from the events after it. Reconnect replay rebuilds the same shape from the snapshot's history and `pending_events` without summing anything twice.
 
-Usage stats (`components/Chat/StatsCard.tsx`):
+Usage stats (`components/messages/StatsCard.tsx`):
 
 - The composer shows `context % · session cost`; each assistant footer shows `model · turn cost`. On mobile the composer drops the cost when a percentage is shown.
 - Either opens a card on hover or tap. `UsageGrid` lists Input (excluding cache), Cache read, Cache write, Output (including reasoning), and Total. A known cost adds a cost column: filled per row when the cost has a breakdown, always on Total.

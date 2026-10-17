@@ -4,19 +4,7 @@
  * the upload strip, drag-and-drop, and the bottom action row.
  */
 
-import {
-  ArrowUp,
-  ArrowUpToLine,
-  CircleAlert,
-  CornerDownRight,
-  FileText,
-  Paperclip,
-  Pencil,
-  Square,
-  Terminal,
-  Trash2,
-  X,
-} from "lucide-react";
+import { ArrowUp, CircleAlert, FileText, Paperclip, Square, X } from "lucide-react";
 import {
   type ChangeEvent,
   type DragEvent,
@@ -30,8 +18,15 @@ import {
 } from "react";
 
 import { Composer, type ComposerHandle } from "@/components/composer/Composer";
+import { InFlightCard } from "@/components/composer/InFlightCard";
 import { EffortTrigger, ModelTrigger } from "@/components/composer/InputPills";
-import { hasUsageRows, StatsPopover, StatsText, UsageGrid } from "@/components/messages/StatsCard";
+import { SessionStats } from "@/components/composer/SessionStats";
+import {
+  readUploads,
+  type UnsupportedMedia,
+  unsupportedMedia,
+  uploadAccept,
+} from "@/components/composer/uploads";
 import { Button } from "@/components/ui/button";
 import { SimpleTooltip } from "@/components/ui/tooltip";
 import type {
@@ -46,81 +41,10 @@ import type {
 } from "@/types";
 import { cn } from "@/utils/cn";
 import type { SlashCommand } from "@/utils/completion";
-import { formatCost, formatDuration } from "@/utils/format";
-import { randomId } from "@/utils/id";
 import { isMac } from "@/utils/platform";
 import { addPromptHistory, loadPromptHistory, savePromptHistory } from "@/utils/storage";
 
 const EMPTY_SKILLS: SkillInfo[] = [];
-
-// File pickers only understand MIME types and extensions, so keep the text
-// allowlist explicit here.
-const TEXT_FILE_ACCEPT = [
-  "text/*",
-  ".txt",
-  ".md",
-  ".mdx",
-  ".rst",
-  ".json",
-  ".jsonl",
-  ".yaml",
-  ".yml",
-  ".toml",
-  ".ini",
-  ".cfg",
-  ".conf",
-  ".xml",
-  ".html",
-  ".htm",
-  ".css",
-  ".scss",
-  ".sass",
-  ".less",
-  ".js",
-  ".jsx",
-  ".mjs",
-  ".cjs",
-  ".ts",
-  ".tsx",
-  ".mts",
-  ".cts",
-  ".py",
-  ".rb",
-  ".php",
-  ".go",
-  ".rs",
-  ".java",
-  ".kt",
-  ".swift",
-  ".c",
-  ".cc",
-  ".cpp",
-  ".cxx",
-  ".h",
-  ".hh",
-  ".hpp",
-  ".m",
-  ".mm",
-  ".sh",
-  ".bash",
-  ".zsh",
-  ".fish",
-  ".ps1",
-  ".sql",
-  ".graphql",
-  ".gql",
-  ".proto",
-  ".csv",
-  ".tsv",
-  ".log",
-  ".env",
-  ".gitignore",
-  ".gitattributes",
-  ".editorconfig",
-  ".npmrc",
-  ".yarnrc",
-  ".pnpmrc",
-].join(",");
 
 export interface InputAreaHandle {
   /** Put submissions back ahead of the draft. */
@@ -164,147 +88,17 @@ interface InputAreaProps {
 
 interface InputNotice {
   /** `edit`: a queued message cannot go back into a composer with content. */
-  kind: "image" | "document" | "mixed" | "edit";
+  kind: UnsupportedMedia | "edit";
   blocking: boolean;
 }
 
-function readFileAsBase64(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const result = reader.result as string;
-      resolve(result.split(",")[1] ?? "");
-    };
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
-}
-
-async function readFileAsUtf8(file: File): Promise<string | null> {
-  try {
-    return new TextDecoder("utf-8", { fatal: true }).decode(await file.arrayBuffer());
-  } catch {
-    return null;
-  }
-}
-
-async function processFiles(
-  files: File[],
-  { supportsImages, supportsDocuments }: { supportsImages: boolean; supportsDocuments: boolean },
-): Promise<{
-  attachments: AttachedFile[];
-  unsupported: Array<"image" | "document">;
-}> {
-  const unsupported = new Set<"image" | "document">();
-  const attachedFiles = await Promise.all(
-    files.map(async (file) => {
-      if (file.type.startsWith("image/")) {
-        if (!supportsImages) {
-          unsupported.add("image");
-          return null;
-        }
-        return {
-          id: randomId(),
-          kind: "image" as const,
-          data: await readFileAsBase64(file),
-          mime_type: file.type,
-          name: file.name,
-          preview: URL.createObjectURL(file),
-        };
-      }
-
-      const isPdfFile = file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
-      if (isPdfFile) {
-        if (!supportsDocuments) {
-          unsupported.add("document");
-          return null;
-        }
-        return {
-          id: randomId(),
-          kind: "document" as const,
-          data: await readFileAsBase64(file),
-          mime_type: "application/pdf" as const,
-          name: file.name,
-        };
-      }
-
-      const text = await readFileAsUtf8(file);
-      if (text === null) return null;
-      return {
-        id: randomId(),
-        kind: "text" as const,
-        text,
-        name: file.name,
-      };
-    }),
-  );
-  return {
-    attachments: attachedFiles.filter((file) => file !== null),
-    unsupported: [...unsupported],
-  };
-}
-
-/** Session state cluster: `27% · $0.42`, context and session usage in a card.
- * Mobile keeps only the context percentage; the card still has the cost. */
-function SessionStats({
-  currentContext,
-  sessionUsage,
-  compactThreshold,
-}: {
-  currentContext: { tokens: number; window: number } | null;
-  sessionUsage: UsageTotals | null;
-  compactThreshold: number | undefined;
-}) {
-  const percent = currentContext
-    ? Math.round((currentContext.tokens / currentContext.window) * 100)
-    : null;
-  const cost = sessionUsage?.cost ? formatCost(sessionUsage.cost.total) : null;
-  if (percent === null && !cost) return null;
-
-  // Warn shortly before auto-compact, or near the window when it is off.
-  const warn = percent !== null && percent >= Math.round((compactThreshold || 1) * 90);
-  const trigger = (
-    <>
-      {percent !== null && (
-        <span className={warn ? "text-destructive/70" : undefined}>{percent}%</span>
-      )}
-      {cost && (
-        <span className={percent !== null ? "max-md:hidden" : undefined}>
-          {percent !== null ? ` · ${cost}` : cost}
-        </span>
-      )}
-    </>
-  );
-
-  const summary: { label: string; value: string }[] = [];
-  if (currentContext) {
-    summary.push({
-      label: "Context",
-      value: `${currentContext.tokens.toLocaleString()} / ${currentContext.window.toLocaleString()}`,
-    });
-  }
-  // Share of all input served from cache; only when the provider reports caching.
-  const cacheRead = sessionUsage?.cache_read_tokens ?? 0;
-  const cacheWrite = sessionUsage?.cache_write_tokens ?? 0;
-  if (sessionUsage?.input_tokens && (cacheRead || cacheWrite)) {
-    summary.push({
-      label: "Cache hit",
-      value: `${Math.round((cacheRead / sessionUsage.input_tokens) * 100)}%`,
-    });
-  }
-
-  return (
-    <span className="mr-2 shrink-0">
-      {summary.length > 0 || hasUsageRows(sessionUsage) ? (
-        <StatsPopover trigger={trigger} align="end">
-          <UsageGrid summary={summary} usage={sessionUsage} />
-        </StatsPopover>
-      ) : (
-        <StatsText>{trigger}</StatsText>
-      )}
-    </span>
-  );
-}
+// Full and compact wording; a non-blocking notice uses the compact one.
+const NOTICE_TEXT: Record<InputNotice["kind"], [full: string, compact: string]> = {
+  edit: ["Clear the composer to edit", "Clear the composer to edit"],
+  mixed: ["Remove attachments or switch model", "Attachments unsupported"],
+  image: ["Remove image or switch model", "Image unsupported"],
+  document: ["Remove PDF or switch model", "PDF unsupported"],
+};
 
 export const InputArea = memo(function InputArea({
   ref,
@@ -340,15 +134,6 @@ export const InputArea = memo(function InputArea({
   const [hasContent, setHasContent] = useState(false);
   const [inputNotice, setInputNotice] = useState<InputNotice | null>(null);
   const [promptHistory, setPromptHistory] = useState(() => loadPromptHistory(config.cwd));
-  // Running times tick once a second while any background command runs.
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    if (jobs.length === 0) return;
-    // oxlint-disable-next-line react/set-state-in-effect -- resync the clock, which went stale while no job ran
-    setNow(Date.now());
-    const timer = window.setInterval(() => setNow(Date.now()), 1000);
-    return () => window.clearInterval(timer);
-  }, [jobs.length]);
 
   const disabled = disabledProp || Boolean(disabledReason);
 
@@ -388,22 +173,14 @@ export const InputArea = memo(function InputArea({
       if (!submission.text.trim() && submission.workspaceFiles.length === 0 && files.length === 0) {
         return false;
       }
-      const unsupportedImage =
+      const unsupported = unsupportedMedia(
         !supportsImages &&
-        (hasImageUpload || submission.workspaceFiles.some((ref) => ref.kind === "image"));
-      const unsupportedDocument =
+          (hasImageUpload || submission.workspaceFiles.some((ref) => ref.kind === "image")),
         !supportsDocuments &&
-        (hasDocumentUpload || submission.workspaceFiles.some((ref) => ref.kind === "document"));
-      if (unsupportedImage || unsupportedDocument) {
-        showInputNotice({
-          kind:
-            unsupportedImage && unsupportedDocument
-              ? "mixed"
-              : unsupportedImage
-                ? "image"
-                : "document",
-          blocking: true,
-        });
+          (hasDocumentUpload || submission.workspaceFiles.some((ref) => ref.kind === "document")),
+      );
+      if (unsupported) {
+        showInputNotice({ kind: unsupported, blocking: true });
         return false;
       }
       showInputNotice(null);
@@ -451,27 +228,12 @@ export const InputArea = memo(function InputArea({
   const attachFiles = useCallback(
     async (incoming: File[]) => {
       if (disabled) return;
-      const result = await processFiles(incoming, {
+      const { attachments, unsupported } = await readUploads(incoming, {
         supportsImages,
         supportsDocuments,
       });
-      if (result.unsupported.length) {
-        showInputNotice(
-          {
-            kind:
-              result.unsupported.length > 1
-                ? "mixed"
-                : result.unsupported.includes("image")
-                  ? "image"
-                  : "document",
-            blocking: false,
-          },
-          2500,
-        );
-      } else {
-        showInputNotice(null);
-      }
-      if (result.attachments.length) onAttachFiles?.(result.attachments);
+      showInputNotice(unsupported ? { kind: unsupported, blocking: false } : null, 2500);
+      if (attachments.length) onAttachFiles?.(attachments);
     },
     [disabled, onAttachFiles, showInputNotice, supportsDocuments, supportsImages],
   );
@@ -526,134 +288,19 @@ export const InputArea = memo(function InputArea({
     onEditQueued?.(id);
   };
 
-  // Full and compact wording per notice; a non-blocking notice uses the compact one.
-  const [fullNoticeText, compactNoticeText] = !inputNotice
-    ? ["", ""]
-    : inputNotice.kind === "edit"
-      ? ["Clear the composer to edit", "Clear the composer to edit"]
-      : inputNotice.kind === "mixed"
-        ? ["Remove attachments or switch model", "Attachments unsupported"]
-        : inputNotice.kind === "image"
-          ? ["Remove image or switch model", "Image unsupported"]
-          : ["Remove PDF or switch model", "PDF unsupported"];
+  const [fullNoticeText, compactNoticeText] = inputNotice ? NOTICE_TEXT[inputNotice.kind] : [];
   const noticeText = inputNotice?.blocking ? fullNoticeText : compactNoticeText;
-  const accept = [
-    TEXT_FILE_ACCEPT,
-    supportsImages ? "image/*" : null,
-    supportsDocuments ? ".pdf,application/pdf" : null,
-  ]
-    .filter(Boolean)
-    .join(",");
 
   return (
     <div className="mx-auto max-w-4xl px-5 max-md:max-w-none max-md:px-3 max-md:pb-2">
-      {(jobs.length > 0 || queued.length > 0) && (
-        // What the session has in flight besides the composer: background
-        // commands, then the next turn. One card behind the composer, showing
-        // above its top edge.
-        <div className="mx-4 -mb-3 divide-y divide-border/40 rounded-t-lg bg-card pb-3 shadow-hairline">
-          {jobs.length > 0 && (
-            <div className="pt-2">
-              <div className="flex items-center gap-1.5 px-3.5 pb-0.5 text-2xs leading-4 text-muted-foreground">
-                <Terminal aria-hidden="true" className="size-3" />
-                Background
-                <span className="text-muted-foreground/60 tabular-nums">{jobs.length}</span>
-              </div>
-              <ul aria-label="Background commands">
-                {jobs.map((job) => (
-                  <li key={job.tool_use_id} className="flex items-center gap-2.5 px-3.5 py-1">
-                    <span
-                      className="min-w-0 flex-1 truncate font-mono text-xs text-foreground/75"
-                      title={job.label}
-                    >
-                      {job.label}
-                    </span>
-                    <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
-                      {formatDuration(Math.max(0, now - Date.parse(job.started_at)))}
-                    </span>
-                    <Button
-                      variant="ghost"
-                      size="xs"
-                      title="Stop the command"
-                      onClick={() => onStopJob?.(job.tool_use_id)}
-                    >
-                      <Square data-icon="inline-start" className="size-3 fill-current" />
-                      Stop
-                    </Button>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-          {queued.length > 0 && (
-            <ul aria-label="Queued messages" className="divide-y divide-border/40">
-              {queued.map((item) => {
-                const attachmentCount =
-                  item.attachments.length + item.submission.workspaceFiles.length;
-                return (
-                  <li
-                    key={item.id}
-                    className="flex items-center gap-2.5 px-3.5 py-2 text-sm leading-5"
-                  >
-                    <CornerDownRight
-                      aria-hidden="true"
-                      className="size-3.5 shrink-0 text-muted-foreground/70"
-                    />
-                    <span
-                      className="min-w-0 flex-1 truncate text-foreground"
-                      title={item.submission.text}
-                    >
-                      {item.submission.text.split("\n", 1)[0]}
-                    </span>
-                    {attachmentCount > 0 && (
-                      <span
-                        className="flex shrink-0 items-center gap-0.5 text-xs text-muted-foreground"
-                        title={`${attachmentCount} attachment${attachmentCount === 1 ? "" : "s"}`}
-                      >
-                        <Paperclip className="size-3" />
-                        {attachmentCount}
-                      </span>
-                    )}
-                    <span className="flex shrink-0 items-center gap-0.5">
-                      <Button
-                        variant="ghost"
-                        size="xs"
-                        title="Steer the current turn"
-                        onClick={() => onSteerQueued?.(item.id)}
-                      >
-                        <ArrowUpToLine data-icon="inline-start" className="size-3.5" />
-                        Steer
-                      </Button>
-                      {!item.partial && (
-                        <SimpleTooltip label="Edit">
-                          <Button
-                            variant="ghost"
-                            size="icon-xs"
-                            aria-label="Edit"
-                            onClick={() => handleEditQueued(item.id)}
-                          >
-                            <Pencil className="size-3.5" />
-                          </Button>
-                        </SimpleTooltip>
-                      )}
-                      <SimpleTooltip label="Remove">
-                        <Button
-                          variant="ghost"
-                          size="icon-xs"
-                          aria-label="Remove"
-                          onClick={() => onRemoveQueued?.(item.id)}
-                        >
-                          <Trash2 className="size-3.5" />
-                        </Button>
-                      </SimpleTooltip>
-                    </span>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </div>
-      )}
+      <InFlightCard
+        jobs={jobs}
+        onStopJob={onStopJob}
+        queued={queued}
+        onSteerQueued={onSteerQueued}
+        onEditQueued={handleEditQueued}
+        onRemoveQueued={onRemoveQueued}
+      />
       <div
         role="presentation"
         className={cn(
@@ -712,7 +359,7 @@ export const InputArea = memo(function InputArea({
         <input
           ref={fileInputRef}
           type="file"
-          accept={accept}
+          accept={uploadAccept({ supportsImages, supportsDocuments })}
           multiple
           aria-label="Attach files"
           className="hidden"

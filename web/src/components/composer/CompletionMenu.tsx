@@ -1,6 +1,6 @@
 /**
  * Controlled listbox rendered above the input area for slash / @ completion.
- * The textarea keeps focus and drives all keyboard state; this component only
+ * The editor keeps focus and drives all keyboard state; this component only
  * renders items and reports pointer interactions.
  */
 
@@ -24,7 +24,7 @@ interface CompletionMenuProps {
   menuId: string;
   items: CompletionItem[];
   activeIndex: number;
-  /** Muted status row below the list (e.g. "N more matches…"). */
+  /** Muted status row below the list (e.g. "Loading…"). */
   footer?: string | undefined;
   onSelect: (index: number) => void;
   onHighlight: (index: number) => void;
@@ -53,7 +53,7 @@ export function CompletionMenu({
         className="max-h-60 overflow-y-auto rounded-md bg-popover p-1 text-popover-foreground shadow-overlay"
       >
         {items.map((item, index) => (
-          // Options in an aria-activedescendant listbox; the textarea keeps focus and handles keys.
+          // Options in an aria-activedescendant listbox; the editor keeps focus and handles keys.
           // oxlint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/interactive-supports-focus
           <div
             key={item.id}
@@ -66,7 +66,7 @@ export function CompletionMenu({
               index === activeIndex && "bg-muted",
               item.disabled && "cursor-default opacity-50",
             )}
-            // Keep the textarea focused (and the soft keyboard open) when
+            // Keep the editor focused (and the soft keyboard open) when
             // tapping an item.
             onPointerDown={(e) => e.preventDefault()}
             onMouseDown={(e) => e.preventDefault()}

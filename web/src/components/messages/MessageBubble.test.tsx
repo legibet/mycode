@@ -234,3 +234,34 @@ describe("run error row", () => {
     expect(screen.getByText(error)).toBeInTheDocument();
   });
 });
+
+describe("streaming tool output", () => {
+  it("re-renders a tool call as its runtime output grows", () => {
+    // The projection keeps the input reference across deltas.
+    const input = { command: "make" };
+    const toolBlocks = (output: string): MessageBlock[] => [
+      {
+        type: "tool_use",
+        id: "call-1",
+        name: "bash",
+        input,
+        renderKey: "tool:call-1",
+        runtime: { pending: true, output, finalOutput: null, metadata: null, isError: false },
+      },
+    ];
+    const { container, rerender } = render(
+      <MessageBubble role="assistant" blocks={toolBlocks("first line")} isLoading isStreaming />,
+    );
+    expect(container).toHaveTextContent("first line");
+
+    rerender(
+      <MessageBubble
+        role="assistant"
+        blocks={toolBlocks("first line\nsecond line")}
+        isLoading
+        isStreaming
+      />,
+    );
+    expect(container).toHaveTextContent("second line");
+  });
+});

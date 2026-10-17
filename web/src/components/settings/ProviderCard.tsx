@@ -4,32 +4,16 @@
  */
 
 import { Plus, X } from "lucide-react";
-import { type KeyboardEvent, memo, type ReactNode, useId, useState } from "react";
+import { type KeyboardEvent, memo, type ReactNode, useState } from "react";
 
+import { ApiKeyInput, envRefHint } from "@/components/settings/ApiKeyInput";
+import { Field } from "@/components/settings/Field";
+import type { ProviderDraft } from "@/components/settings/settingsDraft";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
 import { cn } from "@/utils/cn";
-
-export interface ProviderDraft {
-  id: string;
-  name: string;
-  /** Original on-disk name; '' for entries the user just added. Drives the
-   * "renamed → re-send api_key" rule in buildPayload (see SettingsPanel). */
-  original_name: string;
-  type: string;
-  models: string[];
-  /** Per-model metadata overrides (context_window, etc) preserved opaquely so
-   * loading + saving doesn't drop them. UI doesn't currently edit these. */
-  model_overrides: Record<string, Record<string, unknown>>;
-  base_url: string;
-  /** Opt-in for generic openai_chat endpoints that accept reasoning_effort. */
-  supports_reasoning_effort: boolean;
-  api_key_input: string;
-  api_key_dirty: boolean;
-  api_key_saved: boolean;
-}
 
 interface ProviderCardProps {
   draft: ProviderDraft;
@@ -44,8 +28,6 @@ interface ProviderCardProps {
   onRemove: (id: string) => void;
 }
 
-const ENV_REF_RE = /^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$/;
-
 export const ProviderCard = memo(function ProviderCard({
   draft,
   providerTypes,
@@ -58,7 +40,6 @@ export const ProviderCard = memo(function ProviderCard({
   onRemove,
 }: ProviderCardProps) {
   const [modelInput, setModelInput] = useState("");
-  const inputId = useId();
 
   const update = (patch: Partial<ProviderDraft>) => onChange({ ...draft, ...patch });
 
@@ -179,35 +160,11 @@ export const ProviderCard = memo(function ProviderCard({
         )}
 
         <Field label="API key" hint={apiKeyHint}>
-          <div className="flex items-center gap-2">
-            <Input
-              id={inputId}
-              value={draft.api_key_input}
-              onChange={(e) => update({ api_key_input: e.target.value, api_key_dirty: true })}
-              placeholder={
-                draft.api_key_saved && !draft.api_key_dirty
-                  ? "•••••• saved · type to replace"
-                  : "paste a key, or use ${ENV_VAR}"
-              }
-              spellCheck={false}
-              autoCorrect="off"
-              autoCapitalize="off"
-              autoComplete="off"
-              type="text"
-              className="font-mono"
-            />
-            {draft.api_key_saved && !draft.api_key_dirty && (
-              <Button
-                variant="ghost"
-                size="lg"
-                onClick={() => update({ api_key_input: "", api_key_dirty: true })}
-                className="px-2 text-xs font-normal text-muted-foreground/70 hover:text-destructive"
-                aria-label="Clear saved API key"
-              >
-                clear
-              </Button>
-            )}
-          </div>
+          <ApiKeyInput
+            draft={draft}
+            onInput={(text) => update({ api_key_input: text, api_key_dirty: true })}
+            clearLabel="Clear saved API key"
+          />
         </Field>
 
         <Field
@@ -283,20 +240,8 @@ function computeApiKeyHint(
     );
   }
 
-  const refMatch = draft.api_key_input.trim().match(ENV_REF_RE);
-  if (refMatch) {
-    const envName = refMatch[1] as string;
-    const set = envByName[envName] ?? false;
-    return set ? (
-      <>
-        env <code className="font-mono">{envName}</code> is set
-      </>
-    ) : (
-      <span className="text-destructive/80">
-        env <code className="font-mono">{envName}</code> is not set
-      </span>
-    );
-  }
+  const refHint = envRefHint(draft.api_key_input, envByName);
+  if (refHint) return refHint;
 
   if (!draft.api_key_input.trim() && !draft.api_key_saved) {
     const builtins = providerTypeEnvVars[draft.type] || [];
@@ -364,32 +309,5 @@ function renderDefaultModelsHint(defaults: string[] | undefined): ReactNode {
         </span>
       ))}
     </>
-  );
-}
-
-interface FieldProps {
-  label: string;
-  hint?: ReactNode;
-  children: ReactNode;
-}
-
-/** Labelled settings row, shared with SettingsPanel. */
-export function Field({ label, hint, children }: FieldProps) {
-  // Desktop: 110px label column on the left, control + hint stacked on the right.
-  // Mobile: everything stacked top-to-bottom because there's no horizontal room
-  // for a label column on a 375px screen.
-  return (
-    <div
-      className={cn(
-        "flex flex-col gap-1.5",
-        "md:grid md:grid-cols-[110px_1fr] md:items-start md:gap-x-3 md:gap-y-0",
-      )}
-    >
-      <div className="text-xs text-muted-foreground/80 select-none md:pt-2">{label}</div>
-      <div className="flex min-w-0 flex-col gap-1.5">
-        {children}
-        {hint && <div className="text-xs leading-relaxed text-muted-foreground/70">{hint}</div>}
-      </div>
-    </div>
   );
 }

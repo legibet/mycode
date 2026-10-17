@@ -1,40 +1,24 @@
 /**
  * Message display.
  * No role labels — layout conveys who is speaking.
- * User: right-aligned compact bubble with hover edit button.
+ * User: right-aligned compact bubble (UserBubble).
  * Assistant: left-aligned, full-width, content-first.
  */
 
-import { Check, Copy, FileText, Pencil } from "lucide-react";
-import {
-  Component,
-  type KeyboardEvent,
-  memo,
-  type ReactNode,
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { Check, Copy } from "lucide-react";
+import { Component, memo, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 
 import { MarkdownBlock } from "@/components/markdown/MarkdownBlock";
+import { blockListsEqual, turnStatsEqual } from "@/components/messages/bubbleEquality";
 import { CompactMarker } from "@/components/messages/CompactMarker";
 import { ReasoningBlock } from "@/components/messages/ReasoningBlock";
 import { hasUsageRows, StatsPopover, StatsText, UsageGrid } from "@/components/messages/StatsCard";
 import { ToolCard } from "@/components/messages/ToolCard";
+import { UserBubble } from "@/components/messages/UserBubble";
 import { WorkSection } from "@/components/messages/WorkSection";
 import { Button } from "@/components/ui/button";
 import { SimpleTooltip } from "@/components/ui/tooltip";
-import type {
-  ChatMessage,
-  DocumentBlock,
-  ImageBlock,
-  Interruption,
-  MessageBlock,
-  TextBlock,
-  TurnStats,
-} from "@/types";
+import type { ChatMessage, Interruption, MessageBlock, TurnStats } from "@/types";
 import { copyText } from "@/utils/clipboard";
 import { cn } from "@/utils/cn";
 import { formatCost } from "@/utils/format";
@@ -57,143 +41,66 @@ interface MessageBubbleProps {
   onRewindAndSend?: ((rewindTo: number, input: string) => Promise<void>) | undefined;
 }
 
-interface RenderErrorBoundaryProps {
-  children: ReactNode;
-  fallback: ReactNode;
-}
-
-interface RenderErrorBoundaryState {
-  hasError: boolean;
-}
-
-interface AttachmentMeta {
-  attachment?: boolean;
-  path?: string;
-}
-
-function getDurationMs(block: MessageBlock): number | undefined {
-  const durationMs = block.meta?.["duration_ms"];
-  return typeof durationMs === "number" ? durationMs : undefined;
-}
-
-function getAttachmentMeta(block: MessageBlock): AttachmentMeta | undefined {
-  return block.meta as AttachmentMeta | undefined;
-}
-
-function blocksEqual(prev: MessageBlock, next: MessageBlock): boolean {
-  if (prev === next) return true;
-  if (prev.type !== next.type) return false;
-
-  if (prev.type === "text" && next.type === "text") {
-    return (
-      prev.text === next.text &&
-      getAttachmentMeta(prev)?.attachment === getAttachmentMeta(next)?.attachment &&
-      getAttachmentMeta(prev)?.path === getAttachmentMeta(next)?.path
-    );
-  }
-
-  if (prev.type === "thinking" && next.type === "thinking") {
-    return prev.text === next.text && getDurationMs(prev) === getDurationMs(next);
-  }
-
-  if (prev.type === "tool_use" && next.type === "tool_use") {
-    const prevRuntime = prev.runtime;
-    const nextRuntime = next.runtime;
-    return (
-      prev.id === next.id &&
-      prev.name === next.name &&
-      prev.input === next.input &&
-      prevRuntime?.pending === nextRuntime?.pending &&
-      prevRuntime?.output === nextRuntime?.output &&
-      prevRuntime?.finalOutput === nextRuntime?.finalOutput &&
-      prevRuntime?.metadata === nextRuntime?.metadata &&
-      prevRuntime?.isError === nextRuntime?.isError
-    );
-  }
-
-  if (prev.type === "image" && next.type === "image") {
-    return prev.data === next.data && prev.mime_type === next.mime_type && prev.name === next.name;
-  }
-
-  if (prev.type === "document" && next.type === "document") {
-    return prev.data === next.data && prev.mime_type === next.mime_type && prev.name === next.name;
-  }
-
-  if (prev.type === "compact" && next.type === "compact") return true;
-
-  if (prev.type === "tool_result" && next.type === "tool_result") {
-    return (
-      prev.tool_use_id === next.tool_use_id &&
-      prev.output === next.output &&
-      prev.metadata === next.metadata &&
-      prev.is_error === next.is_error
-    );
-  }
-
-  return false;
-}
-
-function blockListsEqual(prev: MessageBlock[], next: MessageBlock[]): boolean {
-  if (prev === next) return true;
-  if (prev.length !== next.length) return false;
-  for (let i = 0; i < prev.length; i++) {
-    const prevBlock = prev[i];
-    const nextBlock = next[i];
-    if (!prevBlock || !nextBlock || !blocksEqual(prevBlock, nextBlock)) {
-      return false;
-    }
-  }
-  return true;
-}
-
-// Stats objects are rebuilt on every projection, so compare by value.
-function turnStatsEqual(prev: TurnStats | undefined, next: TurnStats | undefined): boolean {
-  if (prev === next) return true;
-  if (!prev || !next) return false;
+function messageBubblePropsEqual(prev: MessageBubbleProps, next: MessageBubbleProps): boolean {
   return (
-    prev.input_tokens === next.input_tokens &&
-    prev.total_tokens === next.total_tokens &&
-    prev.output_tokens === next.output_tokens &&
-    prev.cache_read_tokens === next.cache_read_tokens &&
-    prev.cache_write_tokens === next.cache_write_tokens &&
-    prev.reasoning_tokens === next.reasoning_tokens &&
-    prev.context_tokens === next.context_tokens &&
-    prev.context_window === next.context_window &&
-    prev.cost?.total === next.cost?.total &&
-    prev.cost?.input === next.cost?.input &&
-    prev.cost?.cache_read === next.cost?.cache_read &&
-    prev.cost?.cache_write === next.cost?.cache_write &&
-    prev.cost?.output === next.cost?.output &&
-    prev.cost?.reasoning === next.cost?.reasoning &&
-    prev.duration_ms === next.duration_ms
+    prev.role === next.role &&
+    prev.sourceIndex === next.sourceIndex &&
+    prev.isStreaming === next.isStreaming &&
+    // Only the user bubble reads it: editing waits for the run to end.
+    (prev.role !== "user" || prev.isLoading === next.isLoading) &&
+    prev.model === next.model &&
+    prev.interruption === next.interruption &&
+    prev.error === next.error &&
+    prev.pending === next.pending &&
+    prev.onRewindAndSend === next.onRewindAndSend &&
+    turnStatsEqual(prev.stats, next.stats) &&
+    blockListsEqual(prev.blocks, next.blocks)
   );
 }
 
-function messageBubblePropsEqual(prev: MessageBubbleProps, next: MessageBubbleProps): boolean {
-  if (
-    prev.role !== next.role ||
-    prev.sourceIndex !== next.sourceIndex ||
-    prev.isStreaming !== next.isStreaming ||
-    prev.model !== next.model ||
-    prev.interruption !== next.interruption ||
-    prev.error !== next.error ||
-    !turnStatsEqual(prev.stats, next.stats) ||
-    prev.onRewindAndSend !== next.onRewindAndSend
-  ) {
-    return false;
+export const MessageBubble = memo(function MessageBubble({
+  role,
+  blocks,
+  sourceIndex,
+  isStreaming,
+  isLoading,
+  model,
+  stats,
+  interruption,
+  error,
+  pending = false,
+  onRewindAndSend,
+}: MessageBubbleProps) {
+  if (role === "user") {
+    return (
+      <UserBubble
+        blocks={blocks}
+        sourceIndex={sourceIndex}
+        isLoading={isLoading}
+        pending={pending}
+        onRewindAndSend={onRewindAndSend}
+      />
+    );
   }
+  return (
+    <AssistantBubble
+      blocks={blocks}
+      isStreaming={isStreaming}
+      model={model}
+      stats={stats}
+      interruption={interruption}
+      error={error}
+    />
+  );
+}, messageBubblePropsEqual);
 
-  if (prev.role === "user" && prev.isLoading !== next.isLoading) {
-    return false;
-  }
+class RenderErrorBoundary extends Component<
+  { children: ReactNode; fallback: ReactNode },
+  { hasError: boolean }
+> {
+  state = { hasError: false };
 
-  return blockListsEqual(prev.blocks, next.blocks);
-}
-
-class RenderErrorBoundary extends Component<RenderErrorBoundaryProps, RenderErrorBoundaryState> {
-  state: RenderErrorBoundaryState = { hasError: false };
-
-  static getDerivedStateFromError(): RenderErrorBoundaryState {
+  static getDerivedStateFromError() {
     return { hasError: true };
   }
 
@@ -233,36 +140,18 @@ function TurnStatsFooter({
   );
 }
 
-/** Attachment card in a user bubble: a labelled file reference. */
-function FileCard({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="max-w-xs min-w-32 rounded-lg border border-border/40 bg-muted/50 px-3 py-2 text-sm text-foreground/80">
-      <div className="flex items-center gap-2">
-        <FileText className="size-4 shrink-0 text-primary/80" />
-        <span className="font-medium">{label}</span>
-      </div>
-      <div className="mt-1 text-xs break-all text-muted-foreground">{value}</div>
-    </div>
-  );
-}
-
-export const MessageBubble = memo(function MessageBubble({
-  role,
+function AssistantBubble({
   blocks,
-  sourceIndex,
   isStreaming,
-  isLoading,
   model,
   stats,
   interruption,
   error,
-  pending = false,
-  onRewindAndSend,
-}: MessageBubbleProps) {
-  const isUser = role === "user";
+}: Pick<
+  MessageBubbleProps,
+  "blocks" | "isStreaming" | "model" | "stats" | "interruption" | "error"
+>) {
   const [copied, setCopied] = useState(false);
-  const [editing, setEditing] = useState(false);
-  const [editText, setEditText] = useState("");
   const resetCopiedTimeoutRef = useRef<number | null>(null);
 
   const { work, answer, afterAnswer } = useMemo(() => splitTurn(blocks), [blocks]);
@@ -275,32 +164,10 @@ export const MessageBubble = memo(function MessageBubble({
 
   // Copy takes the visible text: a folded turn copies only its answer.
   const copyBlocks = folded ? answer : blocks;
-  const { textContent, textAttachmentBlocks, imageBlocks, documentBlocks } = useMemo(() => {
-    const visibleText: string[] = [];
-    const textAttachmentBlocks: TextBlock[] = [];
-    const imageBlocks: ImageBlock[] = [];
-    const documentBlocks: DocumentBlock[] = [];
-    for (const block of copyBlocks) {
-      if (!block) continue;
-      if (block.type === "text") {
-        if (getAttachmentMeta(block)?.attachment) {
-          textAttachmentBlocks.push(block);
-        } else {
-          visibleText.push(block.text);
-        }
-      } else if (block.type === "image") {
-        imageBlocks.push(block);
-      } else if (block.type === "document") {
-        documentBlocks.push(block);
-      }
-    }
-    return {
-      textContent: visibleText.join("\n\n"),
-      textAttachmentBlocks,
-      imageBlocks,
-      documentBlocks,
-    };
-  }, [copyBlocks]);
+  const textContent = useMemo(
+    () => copyBlocks.flatMap((block) => (block.type === "text" ? [block.text] : [])).join("\n\n"),
+    [copyBlocks],
+  );
 
   useEffect(() => {
     return () => {
@@ -310,8 +177,7 @@ export const MessageBubble = memo(function MessageBubble({
     };
   }, []);
 
-  const handleCopy = useCallback(async () => {
-    if (!textContent) return;
+  const handleCopy = async () => {
     try {
       await copyText(textContent);
       setCopied(true);
@@ -325,176 +191,13 @@ export const MessageBubble = memo(function MessageBubble({
     } catch {
       /* ignore */
     }
-  }, [textContent]);
-
-  const canEdit =
-    isUser &&
-    !!textContent &&
-    imageBlocks.length === 0 &&
-    documentBlocks.length === 0 &&
-    textAttachmentBlocks.length === 0 &&
-    typeof sourceIndex === "number" &&
-    !isLoading &&
-    onRewindAndSend;
-
-  const startEdit = useCallback(() => {
-    setEditText(textContent);
-    setEditing(true);
-  }, [textContent]);
-
-  const setEditElement = useCallback((el: HTMLTextAreaElement | null) => {
-    if (!el) return;
-    el.focus();
-    el.style.height = "auto";
-    el.style.height = `${el.scrollHeight}px`;
-  }, []);
-
-  const submitEdit = useCallback(() => {
-    const trimmed = editText.trim();
-    if (!trimmed || !onRewindAndSend || typeof sourceIndex !== "number") return;
-    setEditing(false);
-    void onRewindAndSend(sourceIndex, trimmed);
-  }, [editText, onRewindAndSend, sourceIndex]);
-
-  const cancelEdit = useCallback(() => {
-    setEditing(false);
-  }, []);
-
-  const handleEditKeyDown = useCallback(
-    (e: KeyboardEvent<HTMLTextAreaElement>) => {
-      if (e.key === "Enter" && !e.shiftKey) {
-        e.preventDefault();
-        submitEdit();
-      } else if (e.key === "Escape") {
-        // Consumed here, or the App-level Esc handler stops a running turn.
-        e.preventDefault();
-        cancelEdit();
-      }
-    },
-    [submitEdit, cancelEdit],
-  );
-
-  if (isUser) {
-    if (editing) {
-      return (
-        <div className="flex justify-end px-5 max-md:px-4">
-          <div className="flex w-full max-w-[85%] flex-col gap-2">
-            <textarea
-              ref={setEditElement}
-              name="edit-message"
-              aria-label="Edit message"
-              value={editText}
-              onChange={(e) => {
-                setEditText(e.target.value);
-                e.target.style.height = "auto";
-                e.target.style.height = `${Math.min(e.target.scrollHeight, 300)}px`;
-              }}
-              onKeyDown={handleEditKeyDown}
-              className="max-h-75 w-full resize-none rounded-lg border border-border/60 bg-muted px-3.5 py-2 text-base leading-relaxed text-foreground focus:border-primary/60 focus:outline-none md:text-sm"
-            />
-            <div className="flex justify-end gap-2">
-              <Button variant="ghost" size="xs" className="font-normal" onClick={cancelEdit}>
-                Cancel
-              </Button>
-              <Button
-                variant={editText.trim() ? "default" : "ghost"}
-                size="xs"
-                className="font-normal"
-                onClick={submitEdit}
-                disabled={!editText.trim()}
-              >
-                Send
-              </Button>
-            </div>
-          </div>
-        </div>
-      );
-    }
-
-    return (
-      <div className="group/user flex justify-end px-5 max-md:px-4">
-        {canEdit && (
-          <SimpleTooltip label="Edit & resend">
-            <Button
-              variant="ghost"
-              size="icon-xs"
-              aria-label="Edit message"
-              onClick={startEdit}
-              className="mr-2 mb-0.5 self-end opacity-0 transition-[color,background-color,opacity,scale] group-hover/user:opacity-100 focus-visible:opacity-100 max-md:opacity-60"
-            >
-              <Pencil className="size-3.5" />
-            </Button>
-          </SimpleTooltip>
-        )}
-        <div className="flex max-w-[85%] flex-col items-end gap-1.5">
-          {imageBlocks.length > 0 && (
-            <div className="flex flex-wrap justify-end gap-2">
-              {imageBlocks.map((block) =>
-                block.data ? (
-                  <img
-                    key={block.renderKey}
-                    src={`data:${block.mime_type};base64,${block.data}`}
-                    alt={block.name ?? "Image"}
-                    className="max-h-64 max-w-full rounded-lg"
-                  />
-                ) : (
-                  // Workspace image before send: no bytes locally, show a card.
-                  <FileCard key={block.renderKey} label="Image" value={block.name ?? "image"} />
-                ),
-              )}
-            </div>
-          )}
-          {documentBlocks.length > 0 && (
-            <div className="flex flex-wrap justify-end gap-2">
-              {documentBlocks.map((block) => (
-                <FileCard key={block.renderKey} label="PDF" value={block.name ?? "document.pdf"} />
-              ))}
-            </div>
-          )}
-          {textAttachmentBlocks.length > 0 && (
-            <div className="flex flex-wrap justify-end gap-2">
-              {textAttachmentBlocks.map((block) => {
-                const path = getAttachmentMeta(block)?.path;
-                return (
-                  <FileCard
-                    key={block.renderKey}
-                    label="Text"
-                    value={typeof path === "string" ? path : "attached-file"}
-                  />
-                );
-              })}
-            </div>
-          )}
-          {textContent && (
-            <div className="flex max-w-full items-center gap-2">
-              {pending && (
-                // The sidebar's running dot: the message is waiting for the step.
-                <span
-                  aria-hidden="true"
-                  className="size-1.5 shrink-0 animate-breathing rounded-full bg-primary"
-                />
-              )}
-              <div
-                title={pending ? "Waiting for the current step" : undefined}
-                className={cn(
-                  "min-w-0 rounded-lg px-3.5 py-2 text-sm leading-relaxed wrap-anywhere whitespace-pre-wrap",
-                  pending ? "text-foreground/80 shadow-hairline" : "bg-muted text-foreground",
-                )}
-              >
-                {textContent}
-                {pending && <span className="sr-only">Waiting for the current step…</span>}
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-    );
-  }
+  };
 
   const renderBlock = (block: MessageBlock) => {
     if (block.type === "thinking") {
       const renderKey = block.renderKey || `thinking:${block.text || "block"}`;
-      const durationMs = getDurationMs(block);
+      const rawDuration = block.meta?.["duration_ms"];
+      const durationMs = typeof rawDuration === "number" ? rawDuration : undefined;
       return (
         <RenderErrorBoundary key={renderKey} fallback={renderErrorFallback}>
           <ReasoningBlock
@@ -562,7 +265,7 @@ export const MessageBubble = memo(function MessageBubble({
         )}
       </div>
 
-      {!isUser && textContent && !isStreaming && (
+      {textContent && !isStreaming && (
         <div className="mt-2 flex items-center gap-2 opacity-0 transition-opacity duration-150 group-hover/msg:opacity-100 focus-within:opacity-100 max-md:opacity-60">
           <SimpleTooltip label="Copy">
             <Button
@@ -575,9 +278,9 @@ export const MessageBubble = memo(function MessageBubble({
               {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
             </Button>
           </SimpleTooltip>
-          {(model || stats) && <TurnStatsFooter model={model} stats={stats} />}
+          <TurnStatsFooter model={model} stats={stats} />
         </div>
       )}
     </div>
   );
-}, messageBubblePropsEqual);
+}
