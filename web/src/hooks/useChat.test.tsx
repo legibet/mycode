@@ -585,7 +585,17 @@ describe("useChat", () => {
     ]);
   });
 
-  it("marks the turn failed when the dropped stream cannot be recovered", async () => {
+  it.each([
+    ["the stream request fails", () => Promise.reject(new TypeError("network down"))],
+    [
+      "the stream ends without [DONE]",
+      () =>
+        new Response(`data: ${JSON.stringify({ type: "text", delta: "hel", seq: 1 })}\n\n`, {
+          status: 200,
+          headers: { "Content-Type": "text/event-stream" },
+        }),
+    ],
+  ])("marks the turn failed when %s and the session cannot be reloaded", async (_, stream) => {
     saveActiveSession("/workspace/a", "session-2");
     const session = vi
       .fn()
@@ -609,7 +619,7 @@ describe("useChat", () => {
         sessions: [{ id: "session-2", title: "Running" }],
       }),
       "/api/sessions/session-2": () => session(),
-      "/api/runs/run-2/stream?after=0": () => Promise.reject(new TypeError("network down")),
+      "/api/runs/run-2/stream?after=0": stream,
     });
 
     const { result } = renderChatHook();
@@ -1712,7 +1722,7 @@ describe("useChat", () => {
     expect(result.current.messages).toHaveLength(1);
   });
 
-  it("follows a send that started after an abandoned one, whichever answers first", async () => {
+  it("follows a newer send when the abandoned one answers first", async () => {
     const responders: Array<() => void> = [];
     const chatResponse = (runId: string, sessionId: string) =>
       createJsonResponse({

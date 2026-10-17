@@ -697,6 +697,18 @@ export function useChat(
         }
       };
 
+      // The stream ended early and the session could not be reloaded.
+      const markDisconnected = () => {
+        if (!isCurrent()) return;
+        const message = "Stream disconnected. Reload the session to resume.";
+        stopped = true;
+        if (kind === "compact") {
+          setCompactError(message);
+        } else {
+          dispatch({ type: "apply_event", event: { type: "error", message } });
+        }
+      };
+
       try {
         const res = await fetch(`/api/runs/${encodeURIComponent(runId)}/stream?after=${after}`, {
           signal: controller.signal,
@@ -773,26 +785,12 @@ export function useChat(
         }
 
         if (!sawDone) {
-          const recovered = await recoverSession();
-          if (recovered) {
-            return;
-          }
+          if (await recoverSession()) return;
+          markDisconnected();
         }
       } catch (e) {
         if (!(e instanceof Error) || e.name !== "AbortError") {
-          const recovered = await recoverSession();
-          if (!recovered && isCurrent()) {
-            const message = "Stream disconnected. Reload the session to resume.";
-            stopped = true;
-            if (kind === "compact") {
-              setCompactError(message);
-            } else {
-              dispatch({
-                type: "apply_event",
-                event: { type: "error", message },
-              });
-            }
-          }
+          if (!(await recoverSession())) markDisconnected();
         }
       } finally {
         if (streamTokenRef.current === token) {
