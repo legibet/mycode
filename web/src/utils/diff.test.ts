@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { hunksFromEdits, parsePatch } from "./diff";
+import { hunksFromEdits, parsePatch } from "@/utils/diff";
 
 describe("parsePatch", () => {
   it("numbers lines per side and pairs hunks with their highlight context", () => {

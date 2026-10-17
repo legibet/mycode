@@ -1,10 +1,10 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { ChatMessage, RenderMessage } from "../types";
-import { isChatMessage, isCompactMarker } from "../types";
-import { loadActiveSession, saveActiveSession } from "../utils/storage";
-import { useChat } from "./useChat";
+import { useChat } from "@/hooks/useChat";
+import type { ChatMessage, RenderMessage } from "@/types";
+import { isChatMessage, isCompactMarker } from "@/types";
+import { loadActiveSession, saveActiveSession } from "@/utils/storage";
 
 function expectChat(message: RenderMessage | undefined): ChatMessage {
   if (!message || !isChatMessage(message)) {

@@ -20,8 +20,8 @@ import type {
   TurnStats,
   UsageTotals,
   WorkspaceFileReference,
-} from "../types";
-import { isChatMessage } from "../types";
+} from "@/types";
+import { isChatMessage } from "@/types";
 
 interface ToolCall {
   id?: string;

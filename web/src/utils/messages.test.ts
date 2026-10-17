@@ -1,14 +1,14 @@
 import { describe, expect, it } from "vitest";
 
-import type { ChatMessage, RenderMessage } from "../types";
-import { isChatMessage, isCompactMarker } from "../types";
+import type { ChatMessage, RenderMessage } from "@/types";
+import { isChatMessage, isCompactMarker } from "@/types";
 import {
   buildRenderMessages,
   createUserMessage,
   markTailAssistantStopped,
   splitTurn,
   updateLatestThinkingDuration,
-} from "./messages";
+} from "@/utils/messages";
 
 function expectChat(message: RenderMessage | undefined): ChatMessage {
   if (!message || !isChatMessage(message)) {

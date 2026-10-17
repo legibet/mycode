@@ -7,21 +7,19 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import useSWR from "swr";
 
+import { InputArea, type InputAreaHandle } from "@/components/composer/InputArea";
+import { PermissionPrompt } from "@/components/composer/PermissionPrompt";
+import { MessageList } from "@/components/messages/MessageList";
+import { MobileHeader } from "@/components/MobileHeader";
+import { SettingsPanel } from "@/components/settings/SettingsPanel";
+import { SessionSearch } from "@/components/sidebar/SessionSearch";
+import { Sidebar } from "@/components/sidebar/Sidebar";
+import { ThemeProvider } from "@/components/ThemeProvider";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { useChat } from "@/hooks/useChat";
 import { useIsDesktop } from "@/hooks/useMediaQuery";
-
-import { InputArea, type InputAreaHandle } from "./components/Chat/InputArea";
-import { MessageList } from "./components/Chat/MessageList";
-import { PermissionPrompt } from "./components/Chat/PermissionPrompt";
-import { Layout } from "./components/Layout";
-import { MobileHeader } from "./components/MobileHeader";
-import { SessionSearch } from "./components/SessionSearch";
-import { SettingsPanel } from "./components/Settings/SettingsPanel";
-import { Sidebar } from "./components/Sidebar";
-import { ThemeProvider } from "./components/ThemeProvider";
-import { useChat } from "./hooks/useChat";
 import type {
   AttachedFile,
   ComposerSubmission,
@@ -29,16 +27,16 @@ import type {
   PendingInput,
   RemoteConfig,
   SettingsResponse,
-} from "./types";
-import type { SlashCommand } from "./utils/completion";
-import { normalizeConfigWithRemoteDefaults } from "./utils/config";
-import { isMac } from "./utils/platform";
+} from "@/types";
+import type { SlashCommand } from "@/utils/completion";
+import { normalizeConfigWithRemoteDefaults } from "@/utils/config";
+import { isMac } from "@/utils/platform";
 import {
   getMaxSidebarWidth,
   SIDEBAR_DEFAULT_WIDTH,
   SIDEBAR_MAX_WIDTH,
   SIDEBAR_MIN_WIDTH,
-} from "./utils/sidebar";
+} from "@/utils/sidebar";
 import {
   addHistory,
   loadConfig,
@@ -47,7 +45,7 @@ import {
   saveConfig,
   saveHistory,
   saveSidebarWidth,
-} from "./utils/storage";
+} from "@/utils/storage";
 
 async function fetchJson<T>(url: string): Promise<T> {
   const response = await fetch(url);
@@ -372,7 +370,7 @@ function AppContent() {
   };
 
   return (
-    <Layout>
+    <div className="flex h-dvh w-full flex-col overflow-hidden">
       <div className="relative flex h-full min-h-0 overflow-hidden">
         {/* Mounted exclusively to avoid duplicate SWR / WorkspacePicker state. */}
         {isDesktop ? (
@@ -470,7 +468,7 @@ function AppContent() {
         }}
         projectConfigPaths={remoteConfig?.config_paths}
       />
-    </Layout>
+    </div>
   );
 }
 

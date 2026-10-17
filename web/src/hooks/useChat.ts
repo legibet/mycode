@@ -5,6 +5,11 @@
 
 import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import {
+  isCurrentSendRequest,
+  isCurrentWorkspaceRequest,
+  resolveInitialSessionId,
+} from "@/hooks/sessionSelection";
 import type {
   AttachedFile,
   BackgroundJobInfo,
@@ -30,10 +35,10 @@ import type {
   ToolRuntime,
   UsageTotals,
   WorkspaceFileReference,
-} from "../types";
-import { isChatMessage, isCompactMarker } from "../types";
-import { getReasoningEffortOverride } from "../utils/config";
-import { randomId } from "../utils/id";
+} from "@/types";
+import { isChatMessage, isCompactMarker } from "@/types";
+import { getReasoningEffortOverride } from "@/utils/config";
+import { randomId } from "@/utils/id";
 import {
   appendAssistantDelta,
   appendToolResult,
@@ -47,13 +52,8 @@ import {
   readUsageTotals,
   updateLatestAssistantMeta,
   updateLatestThinkingDuration,
-} from "../utils/messages";
-import { loadActiveSession, removeActiveSession, saveActiveSession } from "../utils/storage";
-import {
-  isCurrentSendRequest,
-  isCurrentWorkspaceRequest,
-  resolveInitialSessionId,
-} from "./sessionSelection";
+} from "@/utils/messages";
+import { loadActiveSession, removeActiveSession, saveActiveSession } from "@/utils/storage";
 
 const DEFAULT_SESSION_TITLE = "New chat";
 

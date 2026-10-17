@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import type { LocalConfig, RemoteConfig } from "../types";
-import { getReasoningEffort, getReasoningEffortOverride } from "./config";
+import type { LocalConfig, RemoteConfig } from "@/types";
+import { getReasoningEffort, getReasoningEffortOverride } from "@/utils/config";
 
 const remoteConfig: RemoteConfig = {
   providers: {

@@ -4,7 +4,7 @@ import {
   isCurrentSendRequest,
   isCurrentWorkspaceRequest,
   resolveInitialSessionId,
-} from "./sessionSelection";
+} from "@/hooks/sessionSelection";
 
 describe("sessionSelection", () => {
   it("prefers the previously active session", () => {

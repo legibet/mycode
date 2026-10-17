@@ -2,9 +2,9 @@
  * Local storage utilities for config and history persistence.
  */
 
-import type { LocalConfig } from "../types";
-import { isReasoningEffort } from "./config";
-import { SIDEBAR_DEFAULT_WIDTH, SIDEBAR_MAX_WIDTH, SIDEBAR_MIN_WIDTH } from "./sidebar";
+import type { LocalConfig } from "@/types";
+import { isReasoningEffort } from "@/utils/config";
+import { SIDEBAR_DEFAULT_WIDTH, SIDEBAR_MAX_WIDTH, SIDEBAR_MIN_WIDTH } from "@/utils/sidebar";
 
 const STORAGE_KEY = "mycode_config";
 const HISTORY_KEY = "mycode_cwd_history";

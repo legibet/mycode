@@ -1,0 +1,494 @@
+/**
+ * Workspace folder picker.
+ *
+ * Path input acts as a filter when typing partial names, or navigates
+ * directly when an absolute path is entered. Tab auto-completes and enters
+ * the first matching folder.
+ */
+
+import { Clock, Folder, FolderOpen, Search, X } from "lucide-react";
+import { type KeyboardEvent, type ReactNode, useCallback, useMemo, useRef, useState } from "react";
+import useSWR from "swr";
+
+import { Button } from "@/components/ui/button";
+import { ResponsiveDialog } from "@/components/ui/responsive-dialog";
+import type { WorkspaceBrowseResponse, WorkspaceEntry, WorkspaceRootsResponse } from "@/types";
+import { cn } from "@/utils/cn";
+import { shouldAutoFocusTextInputOnOpen } from "@/utils/focus";
+
+// ─── helpers ────────────────────────────────────────────────────────────────
+
+const normalizeSlashes = (v: string): string => v.replace(/\\/g, "/");
+const isAbsolutePath = (v: string): boolean => /^([a-zA-Z]:[\\/]|\/)/.test(v);
+
+const matchRoot = (roots: string[], value: string, fallback = true): string | undefined => {
+  const normalized = normalizeSlashes(value);
+  const sorted = roots.toSorted((a, b) => b.length - a.length);
+  return (
+    sorted.find((root) => {
+      const normRoot = normalizeSlashes(root).replace(/\/+$/, "");
+      return normalized === normRoot || normalized.startsWith(`${normRoot}/`);
+    }) || (fallback ? roots[0] : undefined)
+  );
+};
+
+const toRelativePath = (root: string, absolutePath: string): string => {
+  const normRoot = normalizeSlashes(root).replace(/\/+$/, "");
+  const normPath = normalizeSlashes(absolutePath);
+  if (normPath === normRoot) return "";
+  const rel = normPath.startsWith(normRoot) ? normPath.slice(normRoot.length) : normPath;
+  return rel.replace(/^\/+/, "");
+};
+
+const EMPTY_HISTORY: string[] = [];
+const EMPTY_ENTRIES: WorkspaceEntry[] = [];
+
+const rootLabel = (value: string): string => {
+  if (!value || value === "/" || value === "\\") return "/";
+  const normalized = value.replace(/[\\/]+$/, "");
+  if (/\/Users\/[^/]+$/.test(normalized) || /\/home\/[^/]+$/.test(normalized)) return "~";
+  const parts = normalized.split(/[/\\]/);
+  return parts[parts.length - 1] || value;
+};
+
+// ─── data fetching ──────────────────────────────────────────────────────────
+
+async function rootsFetcher(url: string): Promise<string[]> {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error("Failed to load roots");
+  const data = (await res.json()) as WorkspaceRootsResponse;
+  return data.roots ?? [];
+}
+
+async function browseFetcher(url: string): Promise<WorkspaceBrowseResponse> {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error("Failed to browse directory");
+  const data = (await res.json()) as WorkspaceBrowseResponse;
+  if (data.error) throw new Error(data.error);
+  return data;
+}
+
+const SWR_OPTS = { revalidateOnFocus: false } as const;
+
+function buildBrowseKey(target: { root: string; path: string } | null): string | null {
+  if (!target?.root) return null;
+  const params = new URLSearchParams({ root: target.root });
+  if (target.path) params.set("path", target.path);
+  return `/api/workspaces/browse?${params.toString()}`;
+}
+
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : "Unknown error";
+}
+
+function getInitialTarget(
+  open: boolean,
+  roots: string[],
+  currentCwd?: string,
+): { root: string; path: string } | null {
+  if (!open || roots.length === 0) return null;
+  const root = currentCwd ? matchRoot(roots, currentCwd) : roots[0];
+  if (!root) return null;
+  return {
+    root,
+    path: currentCwd ? toRelativePath(root, currentCwd) : "",
+  };
+}
+
+// ─── component ──────────────────────────────────────────────────────────────
+
+const crumbClass = cn(
+  "shrink-0 rounded-sm px-1.5 py-0.5 font-mono text-xs whitespace-nowrap",
+  "transition-[color,background-color,scale] duration-150 hover:bg-muted/60 hover:text-foreground active:scale-95",
+  "focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none",
+);
+
+const rowClass =
+  "group flex min-h-11 w-full items-center gap-3 px-4 py-2 text-left transition-colors hover:bg-muted/50 focus-visible:bg-muted/50 focus-visible:outline-none active:bg-muted/70";
+
+function SectionLabel({ children }: { children: ReactNode }) {
+  return (
+    <div className="px-4 pt-3 pb-1.5">
+      <span className="text-2xs font-semibold tracking-widest text-muted-foreground/40 uppercase select-none">
+        {children}
+      </span>
+    </div>
+  );
+}
+
+interface WorkspacePickerProps {
+  open: boolean;
+  openedWithKeyboard: boolean;
+  onClose: () => void;
+  currentCwd?: string;
+  cwdHistory?: string[];
+  onSelect: (cwd: string) => void;
+  onMissingHistory?: (cwd: string) => void;
+}
+
+export function WorkspacePicker({
+  open,
+  openedWithKeyboard,
+  onClose,
+  currentCwd,
+  cwdHistory = EMPTY_HISTORY,
+  onSelect,
+  onMissingHistory,
+}: WorkspacePickerProps) {
+  const {
+    data: roots = [],
+    error: rootsError,
+    isLoading: rootsLoading,
+  } = useSWR<string[]>("/api/workspaces/roots", rootsFetcher, SWR_OPTS);
+
+  const [targetOverride, setTargetOverride] = useState<{
+    root: string;
+    path: string;
+  } | null>(null);
+  const [uiError, setUiError] = useState("");
+  const [filter, setFilter] = useState("");
+
+  const inputRef = useRef<HTMLInputElement | null>(null);
+
+  const initialTarget = useMemo(
+    () => getInitialTarget(open, roots, currentCwd),
+    [open, roots, currentCwd],
+  );
+  const requestedTarget = targetOverride ?? initialTarget;
+  const browseKey = buildBrowseKey(requestedTarget);
+  const { data: browseData, error: browseError } = useSWR<WorkspaceBrowseResponse>(
+    browseKey,
+    browseFetcher,
+    SWR_OPTS,
+  );
+  const activeTarget = browseData
+    ? { root: browseData.root, path: browseData.path }
+    : requestedTarget;
+
+  const root = activeTarget?.root ?? "";
+  const path = activeTarget?.path ?? "";
+  const entries = browseData?.entries ?? EMPTY_ENTRIES;
+  const current = browseData?.current ?? "";
+
+  const loading = rootsLoading || (Boolean(browseKey) && !browseData && !browseError);
+
+  const filteredEntries = useMemo(() => {
+    const trimmed = filter.trim().toLowerCase();
+    if (!trimmed) return entries;
+    return entries.filter((e: WorkspaceEntry) => e.name.toLowerCase().includes(trimmed));
+  }, [filter, entries]);
+
+  const browseTo = useCallback((nextRoot: string, nextPath: string) => {
+    setUiError("");
+    setFilter("");
+    setTargetOverride((prev) =>
+      prev?.root === nextRoot && prev.path === nextPath ? prev : { root: nextRoot, path: nextPath },
+    );
+  }, []);
+
+  const navigateToPath = useCallback(
+    (value: string) => {
+      const trimmed = value.trim();
+      if (!trimmed || roots.length === 0) return;
+      if (isAbsolutePath(trimmed)) {
+        const matched = matchRoot(roots, trimmed, false);
+        if (!matched) {
+          setUiError("Path is outside any configured workspace root.");
+          return;
+        }
+        browseTo(matched, toRelativePath(matched, trimmed));
+      } else if (root) {
+        const base = path ? `${path}/${trimmed}` : trimmed;
+        browseTo(root, base);
+      }
+    },
+    [roots, root, path, browseTo],
+  );
+
+  const handleGoParent = useCallback(() => {
+    if (!root || !path) return;
+    const segments = path.split("/");
+    browseTo(root, segments.slice(0, -1).join("/"));
+  }, [root, path, browseTo]);
+
+  const handleSelect = useCallback(() => {
+    if (current) {
+      onSelect(current);
+      onClose();
+    }
+  }, [current, onSelect, onClose]);
+
+  const checkWorkspace = useCallback(
+    async (cwd: string): Promise<boolean> => {
+      try {
+        const matched = matchRoot(roots, cwd, false);
+        if (!matched) return false;
+        const key = buildBrowseKey({
+          root: matched,
+          path: toRelativePath(matched, cwd),
+        });
+        if (!key) return false;
+        const res = await fetch(key);
+        if (!res.ok) return false;
+        const data = (await res.json()) as WorkspaceBrowseResponse;
+        return Boolean(data.current && !data.error);
+      } catch {
+        return false;
+      }
+    },
+    [roots],
+  );
+
+  const handleSelectRecent = useCallback(
+    async (cwd: string) => {
+      if (!(await checkWorkspace(cwd))) {
+        setUiError("Workspace no longer exists.");
+        onMissingHistory?.(cwd);
+        return;
+      }
+      onSelect(cwd);
+      onClose();
+    },
+    [checkWorkspace, onMissingHistory, onSelect, onClose],
+  );
+
+  const handleInputKeyDown = useCallback(
+    (e: KeyboardEvent<HTMLInputElement>) => {
+      if (e.key === "Enter") {
+        const singleMatch = filteredEntries.length === 1 ? filteredEntries[0] : null;
+        if (singleMatch && root) {
+          browseTo(root, singleMatch.path);
+        } else if (filter.trim()) {
+          navigateToPath(filter);
+        }
+      } else if (e.key === "Tab") {
+        e.preventDefault();
+        const firstEntry = filteredEntries[0];
+        if (firstEntry && root) browseTo(root, firstEntry.path);
+      } else if (e.key === "Escape" && filter) {
+        e.preventDefault();
+        e.stopPropagation();
+        setFilter("");
+      } else if (e.key === "Backspace" && !filter) {
+        handleGoParent();
+      }
+    },
+    [filter, filteredEntries, root, browseTo, navigateToPath, handleGoParent],
+  );
+
+  const pathSegments = path ? path.split("/") : [];
+  const currentPath = current || currentCwd || "";
+  const recentPaths = cwdHistory.filter((p) => p !== currentPath);
+  const showRecent = recentPaths.length > 0 && !filter.trim();
+  const noticeMessage =
+    uiError || (browseError ? "Workspace no longer exists. Choose another workspace." : "");
+  const blockingErrorMessage =
+    (rootsError ? getErrorMessage(rootsError) : "") ||
+    (!rootsLoading && roots.length === 0 ? "No workspace roots configured." : "");
+  const showRoots = Boolean(browseError) && roots.length > 0 && !filter.trim();
+
+  const initialFocus = shouldAutoFocusTextInputOnOpen(openedWithKeyboard) ? inputRef : undefined;
+
+  return (
+    <ResponsiveDialog
+      open={open}
+      onClose={onClose}
+      title="Select workspace"
+      initialFocus={initialFocus}
+      className="max-h-130 w-110"
+    >
+      {/* Breadcrumb header */}
+      <div className="flex min-h-11 shrink-0 items-center gap-1 border-b border-border/30 px-4">
+        <div className="flex min-w-0 flex-1 scrollbar-none items-center gap-0.5 overflow-x-auto">
+          <button
+            type="button"
+            onClick={() => root && browseTo(root, "")}
+            className={cn(
+              crumbClass,
+              pathSegments.length === 0 ? "font-medium text-foreground" : "text-muted-foreground",
+            )}
+          >
+            {rootLabel(root) || "~"}
+          </button>
+          {pathSegments.map((segment, index) => {
+            const crumbPath = pathSegments.slice(0, index + 1).join("/");
+            return (
+              <div key={crumbPath} className="flex shrink-0 items-center">
+                <span className="mx-0.5 text-xs text-border select-none" aria-hidden="true">
+                  /
+                </span>
+                <button
+                  type="button"
+                  onClick={() => browseTo(root, crumbPath)}
+                  className={cn(
+                    crumbClass,
+                    index === pathSegments.length - 1
+                      ? "font-medium text-foreground"
+                      : "text-muted-foreground",
+                  )}
+                >
+                  {segment}
+                </button>
+              </div>
+            );
+          })}
+        </div>
+
+        <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close">
+          <X className="size-3.5" />
+        </Button>
+      </div>
+
+      {/* Filter input */}
+      <div className="flex shrink-0 items-center gap-2.5 border-b border-border/20 px-4 py-2.5">
+        <Search className="size-3.5 shrink-0 text-muted-foreground/30" />
+        <input
+          ref={inputRef}
+          name="workspace-filter"
+          value={filter}
+          onChange={(e) => setFilter(e.target.value)}
+          onKeyDown={handleInputKeyDown}
+          placeholder="Filter or type a path…"
+          spellCheck={false}
+          autoComplete="off"
+          autoCorrect="off"
+          autoCapitalize="off"
+          className="w-full bg-transparent font-mono text-base text-foreground caret-primary placeholder:text-muted-foreground/30 focus-visible:outline-none sm:text-sm"
+          aria-label="Filter directories or enter a path"
+        />
+        {filter && (
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            onClick={() => setFilter("")}
+            className="-my-0.5"
+            aria-label="Clear filter"
+          >
+            <X />
+          </Button>
+        )}
+      </div>
+
+      {/* Content */}
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+        {loading && (
+          <div className="flex h-36 items-center justify-center">
+            <div className="flex items-end gap-1">
+              {[0, 1, 2].map((i) => (
+                <div
+                  key={i}
+                  className="w-0.75 animate-pulse rounded-full bg-muted-foreground/30"
+                  style={{
+                    height: `${12 + i * 4}px`,
+                    animationDelay: `${i * 120}ms`,
+                  }}
+                />
+              ))}
+            </div>
+          </div>
+        )}
+
+        {!loading && blockingErrorMessage && (
+          <div className="flex h-36 items-center justify-center px-6 text-center">
+            <p className="text-xs leading-relaxed text-destructive">{blockingErrorMessage}</p>
+          </div>
+        )}
+
+        {!loading && !blockingErrorMessage && (
+          <div className="py-1">
+            {noticeMessage && (
+              <div className="mx-4 my-2 rounded-md border border-border/30 bg-muted/20 px-3 py-2 text-2xs leading-relaxed text-muted-foreground">
+                {noticeMessage}
+              </div>
+            )}
+
+            {/* Recent */}
+            {showRecent && (
+              <>
+                <SectionLabel>Recent</SectionLabel>
+                {recentPaths.map((p) => (
+                  <button
+                    type="button"
+                    key={p}
+                    onClick={() => void handleSelectRecent(p)}
+                    className={rowClass}
+                  >
+                    <Clock className="size-3.5 shrink-0 text-muted-foreground/35 transition-colors group-hover:text-primary/60" />
+                    <span className="truncate font-mono text-xs text-muted-foreground transition-colors group-hover:text-foreground/80">
+                      {p}
+                    </span>
+                  </button>
+                ))}
+                {(filteredEntries.length > 0 || showRoots) && (
+                  <div className="mx-4 mt-1 mb-1 border-b border-border/20" />
+                )}
+              </>
+            )}
+
+            {showRoots && (
+              <>
+                <SectionLabel>Roots</SectionLabel>
+                {roots.map((workspaceRoot) => (
+                  <button
+                    type="button"
+                    key={workspaceRoot}
+                    onClick={() => browseTo(workspaceRoot, "")}
+                    className={rowClass}
+                  >
+                    <FolderOpen className="size-3.5 shrink-0 text-muted-foreground/35 transition-colors group-hover:text-primary/60" />
+                    <span className="truncate font-mono text-xs text-muted-foreground transition-colors group-hover:text-foreground/80">
+                      {workspaceRoot}
+                    </span>
+                  </button>
+                ))}
+                {filteredEntries.length > 0 && (
+                  <div className="mx-4 mt-1 mb-1 border-b border-border/20" />
+                )}
+              </>
+            )}
+
+            {/* Entries */}
+            {filteredEntries.length === 0 && !showRecent && !showRoots && (
+              <div className="flex h-36 flex-col items-center justify-center gap-3 text-muted-foreground/30">
+                <Folder className="size-10" strokeWidth={1} />
+                <p className="text-xs">{filter.trim() ? "No matches" : "This folder is empty"}</p>
+              </div>
+            )}
+            {filteredEntries.map((entry) => (
+              <button
+                type="button"
+                key={entry.path}
+                onClick={() => browseTo(root, entry.path)}
+                className={rowClass}
+              >
+                <Folder className="size-3.5 shrink-0 text-primary/40 transition-colors group-hover:text-primary/70" />
+                <span className="truncate font-mono text-sm text-foreground/70 transition-colors group-hover:text-foreground">
+                  {entry.name}
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Footer */}
+      <div className="flex h-12 shrink-0 items-center gap-3 border-t border-border/20 px-4">
+        <FolderOpen className="size-3.5 shrink-0 text-muted-foreground/30" />
+        <span
+          className="min-w-0 flex-1 truncate font-mono text-xs text-muted-foreground/60"
+          title={current}
+        >
+          {current || "—"}
+        </span>
+        <Button
+          size="sm"
+          onClick={handleSelect}
+          disabled={!current}
+          className="px-3.5 text-xs font-semibold"
+        >
+          Open
+        </Button>
+      </div>
+    </ResponsiveDialog>
+  );
+}

@@ -13,7 +13,7 @@ import {
   useSyncExternalStore,
 } from "react";
 
-import type { Theme, ThemeContextValue } from "../types";
+import type { Theme, ThemeContextValue } from "@/types";
 
 interface ThemeProviderProps {
   children: ReactNode;
