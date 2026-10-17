@@ -24,7 +24,6 @@ import {
   appendToolUse,
   createAssistantMessage,
   createUserMessage,
-  createUserTextMessage,
   isJobBlock,
   markTailAssistantStopped,
   readUsageTotals,
@@ -32,7 +31,7 @@ import {
   updateLatestThinkingDuration,
 } from "@/utils/messages";
 
-export interface ChatState {
+interface ChatState {
   messageSessionId: string | null;
   rawMessages: ChatMessage[];
   toolRuntimeById: Record<string, ToolRuntime>;
@@ -68,7 +67,7 @@ export type ChatAction =
   | {
       type: "set_messages";
       messages: ChatMessage[];
-      sessionId?: string | null;
+      sessionId: string;
       sessionUsage?: UsageTotals | null;
       replayEvents?: RunEvent[];
       expectedSessionId?: string | null;
@@ -78,8 +77,8 @@ export type ChatAction =
   | {
       type: "start_turn";
       content: string;
-      attachments?: AttachedFile[];
-      workspaceFiles?: WorkspaceFileReference[];
+      attachments: AttachedFile[];
+      workspaceFiles: WorkspaceFileReference[];
     }
   | { type: "rewind_and_start_turn"; rewindTo: number; content: string }
   | { type: "accept_turn"; message: ChatMessage }
@@ -107,15 +106,15 @@ export function createDraftSession(): SessionSummary {
 }
 
 /** The session to open in a workspace: the one last active there, else the latest. */
-export function resolveInitialSessionId(
+export function resolveInitialSession(
   sessions: SessionSummary[],
   preferredSessionId: string,
-): string | null {
-  return (sessions.find((session) => session.id === preferredSessionId) ?? sessions[0])?.id ?? null;
+): SessionSummary | null {
+  return sessions.find((session) => session.id === preferredSessionId) ?? sessions[0] ?? null;
 }
 
 /**
- * Sort a followed run's events, live or replayed from a snapshot: which reach
+ * Route a followed run's events, live or replayed from a snapshot: which reach
  * the chat state, whether the run ended stopped or failed, and a compact
  * run's failure. A compact run surfaces only its marker; its completed stream
  * reloads persisted history and session cost.
@@ -254,7 +253,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
       }
 
       let nextState: ChatState = {
-        messageSessionId: action.sessionId ?? state.messageSessionId,
+        messageSessionId: action.sessionId,
         rawMessages: action.messages,
         toolRuntimeById: {},
         sessionUsage: action.sessionUsage ?? null,
@@ -274,17 +273,14 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
     case "start_turn": {
       const { content, attachments, workspaceFiles } = action;
       // PDFs can be large enough to freeze history rendering after a failed send.
-      const uiAttachments = attachments?.map((attachment) =>
+      const uiAttachments = attachments.map((attachment) =>
         attachment.kind === "document" ? { ...attachment, data: "" } : attachment,
       );
-      const hasBlocks = Boolean(uiAttachments?.length || workspaceFiles?.length);
       return {
         ...state,
         rawMessages: [
           ...state.rawMessages,
-          hasBlocks
-            ? createUserMessage(content, uiAttachments ?? [], workspaceFiles)
-            : createUserTextMessage(content),
+          createUserMessage(content, uiAttachments, workspaceFiles),
           createAssistantMessage([]),
         ],
         preTurnRawMessages: state.rawMessages,
@@ -296,7 +292,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         ...state,
         rawMessages: [
           ...state.rawMessages.slice(0, action.rewindTo),
-          createUserTextMessage(action.content),
+          createUserMessage(action.content, [], []),
           createAssistantMessage([]),
         ],
         toolRuntimeById: {},
@@ -477,7 +473,5 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
 
       return { ...state, rawMessages, toolRuntimeById };
     }
-    default:
-      return state;
   }
 }

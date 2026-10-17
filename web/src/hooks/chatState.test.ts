@@ -1,20 +1,20 @@
 import { describe, expect, it } from "vitest";
 
-import { chatReducer, INITIAL_CHAT_STATE, resolveInitialSessionId } from "@/hooks/chatState";
+import { chatReducer, INITIAL_CHAT_STATE, resolveInitialSession } from "@/hooks/chatState";
 
-describe("resolveInitialSessionId", () => {
+describe("resolveInitialSession", () => {
   it("prefers the previously active session", () => {
     const sessions = [{ id: "latest" }, { id: "previous" }];
 
-    expect(resolveInitialSessionId(sessions, "previous")).toBe("previous");
+    expect(resolveInitialSession(sessions, "previous")).toBe(sessions[1]);
   });
 
   it("falls back to the latest session", () => {
     const sessions = [{ id: "latest" }, { id: "older" }];
 
-    expect(resolveInitialSessionId(sessions, "missing")).toBe("latest");
-    expect(resolveInitialSessionId(sessions, "")).toBe("latest");
-    expect(resolveInitialSessionId([], "missing")).toBeNull();
+    expect(resolveInitialSession(sessions, "missing")).toBe(sessions[0]);
+    expect(resolveInitialSession(sessions, "")).toBe(sessions[0]);
+    expect(resolveInitialSession([], "missing")).toBeNull();
   });
 });
 

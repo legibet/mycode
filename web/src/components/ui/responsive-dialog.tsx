@@ -2,7 +2,7 @@ import type { ReactNode, RefObject } from "react";
 
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
-import { useIsDesktop } from "@/hooks/useMediaQuery";
+import { useIsDesktop } from "@/hooks/useIsDesktop";
 import { cn } from "@/utils/cn";
 
 interface ResponsiveDialogProps {

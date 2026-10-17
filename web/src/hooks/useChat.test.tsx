@@ -20,6 +20,19 @@ function createJsonResponse(data: unknown, status = 200): Response {
   });
 }
 
+/** A `GET /api/sessions/{id}` body; fields a test leaves out take an idle session's values. */
+function createSessionResponse(data: Record<string, unknown>): Response {
+  return createJsonResponse({
+    session_usage: null,
+    session_cost: null,
+    active_run: null,
+    pending_events: [],
+    pending: { steers: [], queue: [] },
+    jobs: [],
+    ...data,
+  });
+}
+
 function renderChatHook(
   overrides?: Partial<Parameters<typeof useChat>[0]>,
   remoteConfig?: Parameters<typeof useChat>[1],
@@ -351,7 +364,7 @@ describe("useChat", () => {
       "/api/sessions?cwd=": createJsonResponse({
         sessions: [{ id: "session-1", title: "Persisted" }],
       }),
-      "/api/sessions/session-1": createJsonResponse({
+      "/api/sessions/session-1": createSessionResponse({
         session: { id: "session-1", title: "Persisted" },
         messages: [
           { role: "user", content: [{ type: "text", text: "original" }] },
@@ -408,7 +421,7 @@ describe("useChat", () => {
       "/api/sessions?cwd=": createJsonResponse({
         sessions: [{ id: "session-1", title: "Persisted" }],
       }),
-      "/api/sessions/session-1": createJsonResponse({
+      "/api/sessions/session-1": createSessionResponse({
         session: { id: "session-1", title: "Persisted" },
         messages: [
           {
@@ -462,7 +475,7 @@ describe("useChat", () => {
       "/api/sessions?cwd=": createJsonResponse({
         sessions: [{ id: "session-2", title: "Running" }],
       }),
-      "/api/sessions/session-2": createJsonResponse({
+      "/api/sessions/session-2": createSessionResponse({
         session: { id: "session-2", title: "Running" },
         messages: [
           {
@@ -511,7 +524,7 @@ describe("useChat", () => {
       "/api/sessions?cwd=": createJsonResponse({
         sessions: [{ id: "session-2", title: "Running" }],
       }),
-      "/api/sessions/session-2": createJsonResponse({
+      "/api/sessions/session-2": createSessionResponse({
         session: { id: "session-2", title: "Running" },
         messages: [{ role: "user", content: [{ type: "text", text: "run" }] }],
         active_run: {
@@ -540,7 +553,7 @@ describe("useChat", () => {
   it("reloads and reattaches when the stream drops before [DONE]", async () => {
     saveActiveSession("/workspace/a", "session-2");
     const snapshot = (lastSeq: number, pendingEvents: unknown[]) =>
-      createJsonResponse({
+      createSessionResponse({
         session: { id: "session-2", title: "Running" },
         messages: [{ role: "user", content: [{ type: "text", text: "run" }] }],
         active_run: {
@@ -600,7 +613,7 @@ describe("useChat", () => {
     const session = vi
       .fn()
       .mockReturnValueOnce(
-        createJsonResponse({
+        createSessionResponse({
           session: { id: "session-2", title: "Running" },
           messages: [{ role: "user", content: [{ type: "text", text: "run" }] }],
           active_run: {
@@ -642,7 +655,7 @@ describe("useChat", () => {
       "/api/sessions?cwd=": createJsonResponse({
         sessions: [{ id: "session-2", title: "Running" }],
       }),
-      "/api/sessions/session-2": createJsonResponse({
+      "/api/sessions/session-2": createSessionResponse({
         session: { id: "session-2", title: "Running" },
         messages: [{ role: "user", content: [{ type: "text", text: "run" }] }],
         active_run: {
@@ -699,7 +712,7 @@ describe("useChat", () => {
       "/api/sessions?cwd=": createJsonResponse({
         sessions: [{ id: "session-2", title: "Running" }],
       }),
-      "/api/sessions/session-2": createJsonResponse({
+      "/api/sessions/session-2": createSessionResponse({
         session: { id: "session-2", title: "Running" },
         messages: [
           { role: "user", content: [{ type: "text", text: "before" }] },
@@ -778,7 +791,7 @@ describe("useChat", () => {
           { id: "session-1", title: "First" },
         ],
       }),
-      "/api/sessions/session-1": createJsonResponse({
+      "/api/sessions/session-1": createSessionResponse({
         session: { id: "session-1", title: "First" },
         messages: [
           {
@@ -811,7 +824,7 @@ describe("useChat", () => {
 
     await act(async () => {
       resolveSession2(
-        createJsonResponse({
+        createSessionResponse({
           session: { id: "session-2", title: "Second" },
           messages: [
             {
@@ -858,7 +871,7 @@ describe("useChat", () => {
           { id: "session-1", title: "First" },
         ],
       }),
-      "/api/sessions/session-1": createJsonResponse({
+      "/api/sessions/session-1": createSessionResponse({
         session: { id: "session-1", title: "First" },
         messages: [
           {
@@ -900,7 +913,7 @@ describe("useChat", () => {
 
     await act(async () => {
       resolveSession2(
-        createJsonResponse({
+        createSessionResponse({
           session: { id: "session-2", title: "Second" },
           messages: [
             {
@@ -921,7 +934,7 @@ describe("useChat", () => {
 
     await act(async () => {
       resolveSession3(
-        createJsonResponse({
+        createSessionResponse({
           session: { id: "session-3", title: "Third" },
           messages: [
             {
@@ -958,7 +971,7 @@ describe("useChat", () => {
           { id: "session-1", title: "First" },
         ],
       }),
-      "/api/sessions/session-1": createJsonResponse({
+      "/api/sessions/session-1": createSessionResponse({
         session: { id: "session-1", title: "First" },
         messages: [
           {
@@ -972,7 +985,7 @@ describe("useChat", () => {
       "/api/sessions/session-2": (init?: RequestInit) =>
         init?.method === "DELETE"
           ? new Response(null, { status: 200 })
-          : createJsonResponse({
+          : createSessionResponse({
               session: { id: "session-2", title: "Second" },
               messages: [
                 {
@@ -1022,7 +1035,7 @@ describe("useChat", () => {
       "/api/sessions/session-1": (init?: RequestInit) =>
         init?.method === "DELETE"
           ? new Response(null, { status: 200 })
-          : createJsonResponse({
+          : createSessionResponse({
               session: { id: "session-1", title: "First" },
               messages: [
                 {
@@ -1033,7 +1046,7 @@ describe("useChat", () => {
               active_run: null,
               pending_events: [],
             }),
-      "/api/sessions/session-2": createJsonResponse({
+      "/api/sessions/session-2": createSessionResponse({
         session: { id: "session-2", title: "Second" },
         messages: [
           {
@@ -1089,7 +1102,7 @@ describe("useChat", () => {
       "/api/sessions?cwd=": createJsonResponse({
         sessions: [{ id: "session-3", title: "Awaiting" }],
       }),
-      "/api/sessions/session-3": createJsonResponse({
+      "/api/sessions/session-3": createSessionResponse({
         session: { id: "session-3", title: "Awaiting" },
         messages: [],
         active_run: {
@@ -1162,7 +1175,7 @@ describe("useChat", () => {
       "/api/sessions?cwd=": createJsonResponse({
         sessions: [{ id: "session-4", title: "Awaiting" }],
       }),
-      "/api/sessions/session-4": createJsonResponse({
+      "/api/sessions/session-4": createSessionResponse({
         session: { id: "session-4", title: "Awaiting" },
         messages: [],
         active_run: {
@@ -1214,7 +1227,7 @@ describe("useChat", () => {
       "/api/sessions/session-1": (init?: RequestInit) =>
         init?.method === "DELETE"
           ? new Response(null, { status: 200 })
-          : createJsonResponse({
+          : createSessionResponse({
               session: { id: "session-1", title: "Only Session" },
               messages: [
                 {
@@ -1266,7 +1279,7 @@ describe("useChat", () => {
 
   function mockCompactSessionRoutes(
     routes: Record<string, MockResponse>,
-    sessionResponse: MockResponse = createJsonResponse(COMPACT_SESSION),
+    sessionResponse: MockResponse = createSessionResponse(COMPACT_SESSION),
   ) {
     saveActiveSession("/workspace/a", "session-c");
     return mockFetch({
@@ -1309,7 +1322,7 @@ describe("useChat", () => {
           });
         },
       },
-      () => createJsonResponse(sessionState),
+      () => createSessionResponse(sessionState),
     );
 
     const { result } = renderChatHook({ provider: "anthropic", model: "m1" });
@@ -1429,7 +1442,7 @@ describe("useChat", () => {
       "/api/sessions?cwd=": createJsonResponse({
         sessions: [{ id: "session-c", title: "Long chat" }],
       }),
-      "/api/sessions/session-c": createJsonResponse({
+      "/api/sessions/session-c": createSessionResponse({
         ...COMPACT_SESSION,
         active_run: {
           id: "run-c",
@@ -1496,7 +1509,7 @@ describe("useChat", () => {
       "/api/sessions?cwd=": createJsonResponse({
         sessions: [{ id: "session-2", title: "Running" }],
       }),
-      "/api/sessions/session-2": createJsonResponse({
+      "/api/sessions/session-2": createSessionResponse({
         session: { id: "session-2", title: "Running" },
         messages: [{ role: "user", content: [{ type: "text", text: "run" }] }],
         active_run: {
@@ -1560,7 +1573,7 @@ describe("useChat", () => {
       "/api/sessions?cwd=": createJsonResponse({
         sessions: [{ id: "session-2", title: "Running" }],
       }),
-      "/api/sessions/session-2": createJsonResponse({
+      "/api/sessions/session-2": createSessionResponse({
         session: { id: "session-2", title: "Running" },
         messages: [{ role: "user", content: [{ type: "text", text: "run" }] }],
         active_run: {
@@ -1711,7 +1724,7 @@ describe("useChat", () => {
     saveActiveSession("/workspace/a", "session-1");
     let respond!: () => void;
     const idle = (messages: unknown[]) =>
-      createJsonResponse({
+      createSessionResponse({
         session: { id: "session-1", title: "Saved" },
         messages,
         active_run: null,
@@ -1810,7 +1823,7 @@ describe("useChat", () => {
     const sessionResponse = vi
       .fn()
       .mockReturnValueOnce(
-        createJsonResponse({
+        createSessionResponse({
           ...COMPACT_SESSION,
           active_run: {
             id: "run-c",
@@ -1822,7 +1835,7 @@ describe("useChat", () => {
           pending_events: [{ type: "cancelled", seq: 1 }],
         }),
       )
-      .mockImplementation(() => createJsonResponse(COMPACT_SESSION));
+      .mockImplementation(() => createSessionResponse(COMPACT_SESSION));
     mockCompactSessionRoutes(
       {
         "/api/runs/run-c/stream?after=1": new Response("data: [DONE]\n\n", {
@@ -1886,9 +1899,9 @@ describe("useChat pending input", () => {
     };
     const session = vi
       .fn()
-      .mockReturnValueOnce(createJsonResponse(running))
+      .mockReturnValueOnce(createSessionResponse(running))
       .mockImplementation(() =>
-        createJsonResponse({
+        createSessionResponse({
           ...running,
           messages: [...running.messages, ...reloaded()],
           active_run: null,
@@ -2280,7 +2293,7 @@ describe("useChat pending input", () => {
     const { session } = mockRunningSession({
       "/api/runs/run-2/steer": createJsonResponse({ run: RUN }),
       "/api/runs/run-2/cancel": createJsonResponse({ status: "ok" }),
-      "/api/sessions/session-1": createJsonResponse({
+      "/api/sessions/session-1": createSessionResponse({
         session: { id: "session-1", title: "Other" },
         messages: [],
         active_run: null,
@@ -2297,7 +2310,7 @@ describe("useChat pending input", () => {
         new Promise<Response>((resolve) => {
           finishReload = () =>
             resolve(
-              createJsonResponse({
+              createSessionResponse({
                 session: { id: "session-2", title: "Running" },
                 messages: [],
                 active_run: null,
@@ -2412,7 +2425,7 @@ describe("useChat server events", () => {
   });
 
   it("opens /api/events on mount and closes it on unmount", async () => {
-    const { source, unmount } = await renderWithSession(() => createJsonResponse(idleSession));
+    const { source, unmount } = await renderWithSession(() => createSessionResponse(idleSession));
 
     expect(source.url).toBe("/api/events");
     expect(source.close).not.toHaveBeenCalled();
@@ -2447,7 +2460,7 @@ describe("useChat server events", () => {
     };
     const session = vi
       .fn()
-      .mockReturnValueOnce(createJsonResponse(idleSession))
+      .mockReturnValueOnce(createSessionResponse(idleSession))
       .mockReturnValue(createJsonResponse(wake));
     const { stream, end } = openStream();
     const { result, fetchMock, source } = await renderWithSession(session, {
@@ -2479,8 +2492,8 @@ describe("useChat server events", () => {
   it("defers the reload until this client's stream ends", async () => {
     const session = vi
       .fn()
-      .mockReturnValueOnce(createJsonResponse({ ...idleSession, active_run: runInfo("run-1") }))
-      .mockReturnValue(createJsonResponse(idleSession));
+      .mockReturnValueOnce(createSessionResponse({ ...idleSession, active_run: runInfo("run-1") }))
+      .mockReturnValue(createSessionResponse(idleSession));
     const { stream, end } = openStream();
     const { result, fetchMock, source } = await renderWithSession(session, {
       "/api/runs/run-1/stream": sseResponse(stream),
@@ -2506,7 +2519,7 @@ describe("useChat server events", () => {
       rejectPost = resolve;
     });
     const { result, fetchMock, source } = await renderWithSession(
-      () => createJsonResponse(idleSession),
+      () => createSessionResponse(idleSession),
       {
         "/api/chat": async () => {
           await posted;
@@ -2534,7 +2547,7 @@ describe("useChat server events", () => {
       resolvePost = resolve;
     });
     const { result, fetchMock, source } = await renderWithSession(
-      () => createJsonResponse(idleSession),
+      () => createSessionResponse(idleSession),
       {
         "/api/chat": async () => {
           await posted;
@@ -2580,7 +2593,7 @@ describe("useChat server events", () => {
         new Promise<Response>((resolve) => {
           responders.push(resolve);
         }),
-      [SESSION_URL]: () => createJsonResponse(idleSession),
+      [SESSION_URL]: () => createSessionResponse(idleSession),
     });
     const { result } = renderChatHook();
     await waitFor(() => expect(calls(fetchMock, SESSION_URL)).toBe(1));
@@ -2626,7 +2639,7 @@ describe("useChat server events", () => {
 
   it("keeps the shown session's running jobs from the snapshot and job events", async () => {
     const { result, source } = await renderWithSession(() =>
-      createJsonResponse({ ...idleSession, jobs: [jobInfo("call-1")] }),
+      createSessionResponse({ ...idleSession, jobs: [jobInfo("call-1")] }),
     );
     expect(result.current.jobs).toEqual([jobInfo("call-1")]);
 
@@ -2659,7 +2672,7 @@ describe("useChat server events", () => {
     const session = (init?: RequestInit) =>
       init?.method === "DELETE"
         ? createJsonResponse({ detail: "background job not found" }, 404)
-        : createJsonResponse({ ...idleSession, jobs: [jobInfo("call-1")] });
+        : createSessionResponse({ ...idleSession, jobs: [jobInfo("call-1")] });
     const { result, fetchMock } = await renderWithSession(() => session(), {
       [SESSION_URL]: session,
     });
@@ -2676,7 +2689,7 @@ describe("useChat server events", () => {
 
   it("shows the results the server attached to the sent message", async () => {
     const { stream } = openStream();
-    const { result } = await renderWithSession(() => createJsonResponse(idleSession), {
+    const { result } = await renderWithSession(() => createSessionResponse(idleSession), {
       "/api/chat": createJsonResponse({
         run: runInfo("run-2"),
         session: { id: "session-1", title: "Saved" },
@@ -2740,7 +2753,7 @@ describe("useChat server events", () => {
 
   it("only refreshes the list for another session and never syncs a draft", async () => {
     const { result, fetchMock, source } = await renderWithSession(() =>
-      createJsonResponse(idleSession),
+      createSessionResponse(idleSession),
     );
     const listCalls = calls(fetchMock, LIST_URL);
 

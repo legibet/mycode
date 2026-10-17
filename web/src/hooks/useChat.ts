@@ -1,6 +1,6 @@
 /**
- * Chat state management hook.
- * Keeps large document payloads out of React state; the request body still sends them.
+ * Sessions and runs for the chat UI: session loading, start requests, the
+ * run stream, steer and queue, and Stop. Message state lives in chatState.
  */
 
 import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -25,7 +25,7 @@ import {
   dedupeWorkspaceFiles,
   INITIAL_CHAT_STATE,
   pendingFromMessage,
-  resolveInitialSessionId,
+  resolveInitialSession,
   routeRunEvents,
 } from "@/hooks/chatState";
 import type {
@@ -42,6 +42,20 @@ import { loadActiveSession, removeActiveSession, saveActiveSession } from "@/uti
 
 function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "Unknown error";
+}
+
+function postPendingInput(url: string, item: PendingInput) {
+  return fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ input: item.input, input_id: item.id }),
+  });
+}
+
+function deleteQueued(sessionId: string, id: string) {
+  return fetch(`/api/sessions/${encodeURIComponent(sessionId)}/queue/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+  });
 }
 
 /**
@@ -71,14 +85,17 @@ export function useChat(
   const [sendError, setSendError] = useState<string | null>(null);
   const loading = runKind !== null;
   const [sessionLoading, setSessionLoading] = useState(false);
+  // Set once the init effect has run for the current cwd, so a rerun
+  // without a cwd change (StrictMode's double mount) does not load twice.
   const initRef = useRef(false);
   const cwdRef = useRef(config.cwd);
   const activeSessionRef = useRef(activeSession);
+  /** Last token handed to a start request. */
   const requestTokenRef = useRef(0);
   /** Token of the start request in flight, `POST /api/chat` or
    * `POST .../compact`; 0 when none. A session switch or a newer request
    * takes over, and the older response is abandoned. */
-  const pendingRequestTokenRef = useRef(0);
+  const startRequestTokenRef = useRef(0);
   /** Token of a start request in flight at Stop; the run its response names
    * is stopped as soon as it arrives. */
   const stoppedRequestTokenRef = useRef(0);
@@ -87,17 +104,11 @@ export function useChat(
   const streamTokenRef = useRef(0);
   const activeRunRef = useRef<RunInfo | null>(null);
   const onRestoreRef = useRef(onRestore);
-  const sendPendingRef = useRef<((items: PendingInput[]) => void) | null>(null);
+  const sendPendingRef = useRef<typeof sendPending | null>(null);
   /** Steer and queue requests in flight. A stream end waits for them before
    * deciding what is still pending. */
   const inflightRef = useRef(new Set<Promise<void>>());
-  const loadSessionRef = useRef<
-    | ((
-        sessionId: string,
-        options?: { requestCwd?: string; requestToken?: number },
-      ) => Promise<SessionResponse | null>)
-    | null
-  >(null);
+  const loadSessionRef = useRef<typeof loadSession | null>(null);
   /** Set when the shown session must be reloaded once this client is quiet:
    * a run started there while a stream or a start request was in flight, or
    * the event stream reconnected. Holds the run id, or `"*"` for a reconnect. */
@@ -134,7 +145,7 @@ export function useChat(
     [dispatch, isPending, restorePending],
   );
 
-  const setActiveSessionSnapshot = useCallback((session: SessionSummary) => {
+  const setActiveSessionSummary = useCallback((session: SessionSummary) => {
     activeSessionRef.current = session;
     setActiveSession(session);
   }, []);
@@ -142,22 +153,10 @@ export function useChat(
   /** Show a new draft session with empty history. */
   const showDraft = useCallback(() => {
     const draft = createDraftSession();
-    setActiveSessionSnapshot(draft);
+    setActiveSessionSummary(draft);
     dispatch({ type: "set_messages", messages: [], sessionId: draft.id });
     return draft;
-  }, [dispatch, setActiveSessionSnapshot]);
-
-  const cancelRun = useCallback(async (runId: string) => {
-    if (!runId) return;
-
-    try {
-      await fetch(`/api/runs/${encodeURIComponent(runId)}/cancel`, {
-        method: "POST",
-      });
-    } catch (e) {
-      console.error("Failed to cancel:", e);
-    }
-  }, []);
+  }, [dispatch, setActiveSessionSummary]);
 
   const fetchSessions = useCallback(async (): Promise<SessionSummary[]> => {
     const requestCwd = config.cwd;
@@ -181,7 +180,7 @@ export function useChat(
 
       const syncedActive = sessionsWithDraft.find((session) => session.id === active.id);
       if (syncedActive && syncedActive !== active) {
-        setActiveSessionSnapshot(syncedActive);
+        setActiveSessionSummary(syncedActive);
       }
 
       return sessionsWithDraft;
@@ -189,11 +188,11 @@ export function useChat(
       console.error("Failed to load sessions:", e);
       return [];
     }
-  }, [config.cwd, setActiveSessionSnapshot]);
+  }, [config.cwd, setActiveSessionSummary]);
 
   const stopStreaming = useCallback(() => {
     streamTokenRef.current += 1;
-    pendingRequestTokenRef.current = 0;
+    startRequestTokenRef.current = 0;
     streamAbortRef.current?.abort();
     streamAbortRef.current = null;
     activeRunRef.current = null;
@@ -202,10 +201,19 @@ export function useChat(
     setSendError(null);
   }, []);
 
+  /** Whether a start request's response may still change the UI. Session and
+   * workspace switches clear the start request token, except the initial
+   * session load, which only changes the shown session. */
+  const isCurrentStartRequest = useCallback(
+    (token: number, sessionId: string) =>
+      startRequestTokenRef.current === token && activeSessionRef.current.id === sessionId,
+    [],
+  );
+
   /** Reload the shown session for a run announced while this client was
    * busy, once nothing of its own is in flight. */
   const resyncIfQuiet = useCallback((sessionId: string) => {
-    if (!resyncRef.current || streamAbortRef.current || pendingRequestTokenRef.current) return;
+    if (!resyncRef.current || streamAbortRef.current || startRequestTokenRef.current) return;
     if (activeSessionRef.current.id !== sessionId) return;
     resyncRef.current = null;
     void loadSessionRef.current?.(sessionId).catch((error) => {
@@ -215,18 +223,15 @@ export function useChat(
 
   const streamRun = useCallback(
     async (run: RunInfo, sessionId: string, after = 0, interrupted = false): Promise<void> => {
-      const runId = run?.id;
-      if (!runId) return;
       // Stopped or failed runs return pending input to the composer; a run
       // that ended normally sends it as the next turn.
       let stopped = interrupted;
       let sawDone = false;
 
-      streamTokenRef.current += 1;
-      const token = streamTokenRef.current;
+      const token = ++streamTokenRef.current;
       streamAbortRef.current?.abort();
       // The run this client was told about is the one it now follows.
-      if (resyncRef.current === runId) resyncRef.current = null;
+      if (resyncRef.current === run.id) resyncRef.current = null;
 
       const controller = new AbortController();
       streamAbortRef.current = controller;
@@ -267,7 +272,7 @@ export function useChat(
       };
 
       try {
-        const res = await fetch(`/api/runs/${encodeURIComponent(runId)}/stream?after=${after}`, {
+        const res = await fetch(`/api/runs/${encodeURIComponent(run.id)}/stream?after=${after}`, {
           signal: controller.signal,
         });
         if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
@@ -349,7 +354,7 @@ export function useChat(
       if (!isStillCurrent() || !session) return null;
       resyncRef.current = null;
 
-      setActiveSessionSnapshot(session);
+      setActiveSessionSummary(session);
       saveActiveSession(requestCwd, session.id);
       const run = data.active_run;
 
@@ -365,10 +370,10 @@ export function useChat(
           replayEvents: replay.apply,
           expectedSessionId: session.id,
           pending: {
-            steers: (data.pending?.steers ?? []).map(pendingFromMessage),
-            queue: (data.pending?.queue ?? []).map(pendingFromMessage),
+            steers: data.pending.steers.map(pendingFromMessage),
+            queue: data.pending.queue.map(pendingFromMessage),
           },
-          jobs: data.jobs ?? [],
+          jobs: data.jobs,
         });
       });
 
@@ -384,7 +389,7 @@ export function useChat(
 
       return data;
     },
-    [config.cwd, dispatch, setActiveSessionSnapshot, streamRun],
+    [config.cwd, dispatch, setActiveSessionSummary, streamRun],
   );
 
   useEffect(() => {
@@ -393,9 +398,9 @@ export function useChat(
 
   const cancel = useCallback(() => {
     const runId = activeRunRef.current?.id;
-    if (!runId && pendingRequestTokenRef.current) {
+    if (!runId && startRequestTokenRef.current) {
       // The run is unknown until the start request returns; it is stopped then.
-      stoppedRequestTokenRef.current = pendingRequestTokenRef.current;
+      stoppedRequestTokenRef.current = startRequestTokenRef.current;
       return;
     }
     const sessionId = activeSessionRef.current.id;
@@ -417,7 +422,11 @@ export function useChat(
     }
 
     void (async () => {
-      await cancelRun(runId);
+      try {
+        await fetch(`/api/runs/${encodeURIComponent(runId)}/cancel`, { method: "POST" });
+      } catch (e) {
+        console.error("Failed to cancel:", e);
+      }
       if (activeSessionRef.current.id !== sessionId) return;
 
       const delivered = new Set<string>();
@@ -437,35 +446,45 @@ export function useChat(
       if (activeSessionRef.current.id !== sessionId) return;
       restorePending(items.filter((item) => !delivered.has(item.id)));
     })();
-  }, [cancelRun, dispatch, fetchSessions, restorePending, takePending]);
+  }, [dispatch, fetchSessions, restorePending, takePending]);
 
-  const postChat = useCallback(
+  /** Optimistic turn plus `POST /api/chat` with the current model settings.
+   * @param pendingItems Pending items this request sends; a rejection returns
+   *   them to the composer instead of attaching to another run. */
+  const startTurn = useCallback(
     async (
-      body: Record<string, unknown>,
-      sessionId: string,
-      requestCwd: string,
-      requestToken: number,
-      // Pending items this request sends; a rejection returns them to the
-      // composer instead of attaching to another run.
+      turn: Extract<ChatAction, { type: "start_turn" | "rewind_and_start_turn" }>,
+      request: { message: string; rewind_to?: number } | { input: Record<string, unknown>[] },
       pendingItems: PendingInput[] = [],
     ): Promise<boolean> => {
-      const isCurrentRequest = () =>
-        pendingRequestTokenRef.current === requestToken &&
-        activeSessionRef.current.id === sessionId &&
-        cwdRef.current === requestCwd;
+      const sessionId = activeSessionRef.current.id;
+      const requestToken = ++requestTokenRef.current;
+      startRequestTokenRef.current = requestToken;
+
+      dispatch(turn);
+      setRunKind("chat");
+      setCompactError(null);
+      setSendError(null);
 
       try {
         const res = await fetch("/api/chat", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
+          body: JSON.stringify({
+            session_id: sessionId,
+            provider: config.provider || undefined,
+            model: config.model || undefined,
+            cwd: config.cwd,
+            reasoning_effort: getReasoningEffortOverride(config, remoteConfig),
+            ...request,
+          }),
         });
 
         if (!res.ok) {
           const error = await readApiError(res, "Failed to start task");
           // Restore original messages on failure (the turn was optimistic).
-          if (isCurrentRequest()) {
-            pendingRequestTokenRef.current = 0;
+          if (isCurrentStartRequest(requestToken, sessionId)) {
+            startRequestTokenRef.current = 0;
             dispatch({ type: "rollback" });
 
             if (res.status === 409 && error.run && pendingItems.length === 0) {
@@ -483,14 +502,14 @@ export function useChat(
         }
 
         const data = (await res.json()) as ChatResponse;
-        if (!isCurrentRequest()) return false;
-        pendingRequestTokenRef.current = 0;
+        if (!isCurrentStartRequest(requestToken, sessionId)) return false;
+        startRequestTokenRef.current = 0;
 
         dispatch({ type: "accept_turn", message: data.message });
 
         // Update active session from backend response (has real title, id, etc.)
-        setActiveSessionSnapshot(data.session);
-        saveActiveSession(requestCwd, data.session.id);
+        setActiveSessionSummary(data.session);
+        saveActiveSession(config.cwd, data.session.id);
 
         // Refresh sidebar immediately so title + is_running are visible
         void fetchSessions();
@@ -498,11 +517,8 @@ export function useChat(
         if (stoppedRequestTokenRef.current === requestToken) cancel();
         return true;
       } catch (e) {
-        if (
-          pendingRequestTokenRef.current === requestToken &&
-          activeSessionRef.current.id === sessionId
-        ) {
-          pendingRequestTokenRef.current = 0;
+        if (isCurrentStartRequest(requestToken, sessionId)) {
+          startRequestTokenRef.current = 0;
           setRunKind(null);
           dispatch({ type: "rollback" });
           restorePending(pendingItems);
@@ -514,50 +530,16 @@ export function useChat(
     },
     [
       cancel,
+      config,
       dispatch,
       fetchSessions,
+      isCurrentStartRequest,
+      remoteConfig,
       restorePending,
       resyncIfQuiet,
-      setActiveSessionSnapshot,
+      setActiveSessionSummary,
       streamRun,
     ],
-  );
-
-  /** Optimistic turn plus `POST /api/chat` with the current model settings. */
-  const startTurn = useCallback(
-    (
-      turn: Extract<ChatAction, { type: "start_turn" | "rewind_and_start_turn" }>,
-      request: { message: string; rewind_to?: number } | { input: Record<string, unknown>[] },
-      pendingItems?: PendingInput[],
-    ) => {
-      const sessionId = activeSessionRef.current.id;
-      const requestCwd = config.cwd;
-      const requestToken = requestTokenRef.current + 1;
-
-      requestTokenRef.current = requestToken;
-      pendingRequestTokenRef.current = requestToken;
-
-      dispatch(turn);
-      setRunKind("chat");
-      setCompactError(null);
-      setSendError(null);
-
-      return postChat(
-        {
-          session_id: sessionId,
-          provider: config.provider || undefined,
-          model: config.model || undefined,
-          cwd: config.cwd,
-          reasoning_effort: getReasoningEffortOverride(config, remoteConfig),
-          ...request,
-        },
-        sessionId,
-        requestCwd,
-        requestToken,
-        pendingItems,
-      );
-    },
-    [config, dispatch, postChat, remoteConfig],
   );
 
   const send = useCallback(
@@ -571,15 +553,7 @@ export function useChat(
         attachments.length || workspaceFiles.length
           ? { input: buildInputBlocks(content, workspaceFiles, attachments) }
           : { message: content };
-      return startTurn(
-        {
-          type: "start_turn",
-          content,
-          ...(attachments.length ? { attachments } : {}),
-          ...(workspaceFiles.length ? { workspaceFiles } : {}),
-        },
-        request,
-      );
+      return startTurn({ type: "start_turn", content, attachments, workspaceFiles }, request);
     },
     [loading, startTurn],
   );
@@ -598,8 +572,8 @@ export function useChat(
             .map((item) => item.submission.text)
             .filter(Boolean)
             .join("\n\n"),
-          ...(attachments.length ? { attachments } : {}),
-          ...(workspaceFiles.length ? { workspaceFiles } : {}),
+          attachments,
+          workspaceFiles,
         },
         { input: items.flatMap((item) => item.input) },
         items,
@@ -611,24 +585,6 @@ export function useChat(
   useEffect(() => {
     sendPendingRef.current = sendPending;
   }, [sendPending]);
-
-  const postPendingInput = useCallback(
-    (url: string, item: PendingInput) =>
-      fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ input: item.input, input_id: item.id }),
-      }),
-    [],
-  );
-
-  const deleteQueued = useCallback(
-    (sessionId: string, id: string) =>
-      fetch(`/api/sessions/${encodeURIComponent(sessionId)}/queue/${encodeURIComponent(id)}`, {
-        method: "DELETE",
-      }),
-    [],
-  );
 
   const track = useCallback((request: Promise<void>) => {
     inflightRef.current.add(request);
@@ -661,7 +617,7 @@ export function useChat(
         failPending(item, getErrorMessage(e));
       }
     },
-    [deleteQueued, failPending, isPending, postPendingInput],
+    [failPending, isPending],
   );
 
   const deliverSteer = useCallback(
@@ -680,7 +636,7 @@ export function useChat(
         failPending(item, getErrorMessage(e));
       }
     },
-    [deliverQueued, dispatch, failPending, isPending, postPendingInput],
+    [deliverQueued, dispatch, failPending, isPending],
   );
 
   /** Hand a message to the running chat: as a steer for its next step
@@ -724,7 +680,7 @@ export function useChat(
         setSendError(getErrorMessage(e));
       }
     },
-    [deleteQueued, dispatch],
+    [dispatch],
   );
 
   /** Take a queued message back for the composer; null when it is already
@@ -743,7 +699,7 @@ export function useChat(
         return null;
       }
     },
-    [deleteQueued, dispatch, isPending],
+    [dispatch, isPending],
   );
 
   /** Move a queued message to the current turn. The server moves the message
@@ -796,13 +752,12 @@ export function useChat(
     }
 
     const sessionId = session.id;
-    const requestToken = requestTokenRef.current + 1;
-    requestTokenRef.current = requestToken;
-    pendingRequestTokenRef.current = requestToken;
+    const requestToken = ++requestTokenRef.current;
+    startRequestTokenRef.current = requestToken;
     setCompactError(null);
     setSendError(null);
     setRunKind("compact");
-    const isCurrentRequest = () => pendingRequestTokenRef.current === requestToken;
+    const isCurrentRequest = () => isCurrentStartRequest(requestToken, sessionId);
 
     try {
       const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/compact`, {
@@ -818,7 +773,7 @@ export function useChat(
         const error = await readApiError(res, "Compaction failed");
         if (isCurrentRequest() && res.status === 409 && error.run) {
           // Another client started a run; attach to it with its own kind.
-          pendingRequestTokenRef.current = 0;
+          startRequestTokenRef.current = 0;
           void streamRun(error.run, sessionId, error.run.last_seq);
           if (stoppedRequestTokenRef.current === requestToken) cancel();
           return false;
@@ -828,14 +783,14 @@ export function useChat(
 
       const data = (await res.json()) as RunResponse;
       if (!isCurrentRequest()) return false;
-      pendingRequestTokenRef.current = 0;
+      startRequestTokenRef.current = 0;
       void fetchSessions();
       void streamRun(data.run, sessionId, 0);
       if (stoppedRequestTokenRef.current === requestToken) cancel();
       return true;
     } catch (e) {
       if (isCurrentRequest()) {
-        pendingRequestTokenRef.current = 0;
+        startRequestTokenRef.current = 0;
         console.error("Failed to start compaction:", e);
         setRunKind(null);
         setCompactError(getErrorMessage(e));
@@ -843,7 +798,16 @@ export function useChat(
       }
       return false;
     }
-  }, [cancel, config.model, config.provider, fetchSessions, loading, resyncIfQuiet, streamRun]);
+  }, [
+    cancel,
+    config.model,
+    config.provider,
+    fetchSessions,
+    isCurrentStartRequest,
+    loading,
+    resyncIfQuiet,
+    streamRun,
+  ]);
 
   const pendingPermission = chatState.permissions[0] ?? null;
 
@@ -877,7 +841,6 @@ export function useChat(
     if (sessionLoading) return;
 
     stopStreaming();
-    initRef.current = true;
     sessionRequestTokenRef.current += 1;
     showDraft();
     // Refresh from server to get accurate is_running, then prepend the new draft
@@ -886,18 +849,16 @@ export function useChat(
 
   const selectSession = useCallback(
     async (sessionId: string) => {
-      if (!sessionId || sessionId === activeSession.id) return;
+      if (sessionId === activeSession.id) return;
 
       stopStreaming();
-      initRef.current = true;
-      const requestToken = sessionRequestTokenRef.current + 1;
-      sessionRequestTokenRef.current = requestToken;
+      const requestToken = ++sessionRequestTokenRef.current;
       const requestCwd = config.cwd;
       setSessionLoading(true);
 
       const summary = sessions.find((session) => session.id === sessionId);
       if (summary) {
-        setActiveSessionSnapshot(summary);
+        setActiveSessionSummary(summary);
       }
       dispatch({ type: "set_messages", messages: [], sessionId });
 
@@ -917,7 +878,7 @@ export function useChat(
       config.cwd,
       fetchSessions,
       loadSession,
-      setActiveSessionSnapshot,
+      setActiveSessionSummary,
       sessions,
       stopStreaming,
       dispatch,
@@ -926,8 +887,6 @@ export function useChat(
 
   const deleteSession = useCallback(
     async (sessionId: string) => {
-      if (!sessionId) return;
-
       const isDeletingActive = sessionId === activeSession.id;
       const deletedIndex = sessions.findIndex((session) => session.id === sessionId);
       const remainingSessions = sessions.filter((session) => session.id !== sessionId);
@@ -949,15 +908,13 @@ export function useChat(
         }
 
         stopStreaming();
-        initRef.current = true;
-        sessionRequestTokenRef.current += 1;
-        const requestToken = sessionRequestTokenRef.current;
+        const requestToken = ++sessionRequestTokenRef.current;
 
         removeActiveSession(config.cwd);
 
         if (fallbackSession && !fallbackSession.isDraft) {
           setSessions(remainingSessions);
-          setActiveSessionSnapshot(fallbackSession);
+          setActiveSessionSummary(fallbackSession);
           dispatch({
             type: "set_messages",
             messages: [],
@@ -983,7 +940,7 @@ export function useChat(
       config.cwd,
       loadSession,
       sessions,
-      setActiveSessionSnapshot,
+      setActiveSessionSummary,
       showDraft,
       stopStreaming,
       dispatch,
@@ -999,16 +956,15 @@ export function useChat(
     if (cwdChanged) {
       stopStreaming();
       cwdRef.current = config.cwd;
-      initRef.current = false;
       setSessions([]);
       showDraft();
+    } else if (initRef.current) {
+      return;
     }
-    if (initRef.current) return;
     initRef.current = true;
 
     const requestCwd = config.cwd;
-    const requestToken = sessionRequestTokenRef.current + 1;
-    sessionRequestTokenRef.current = requestToken;
+    const requestToken = ++sessionRequestTokenRef.current;
     setSessionLoading(true);
 
     const isStillCurrent = () =>
@@ -1016,7 +972,6 @@ export function useChat(
 
     void (async () => {
       try {
-        if (!isStillCurrent()) return;
         const preferredSessionId = loadActiveSession(requestCwd);
         const data = await fetchJson<SessionsResponse>(
           `/api/sessions?cwd=${encodeURIComponent(requestCwd)}`,
@@ -1025,19 +980,16 @@ export function useChat(
 
         const savedSessions = data.sessions;
         setSessions(savedSessions);
-        const initialSessionId = resolveInitialSessionId(savedSessions, preferredSessionId);
+        const initialSession = resolveInitialSession(savedSessions, preferredSessionId);
 
-        if (initialSessionId) {
-          const summary = savedSessions.find((session) => session.id === initialSessionId);
-          if (summary) {
-            setActiveSessionSnapshot(summary);
-          }
+        if (initialSession) {
+          setActiveSessionSummary(initialSession);
           dispatch({
             type: "set_messages",
             messages: [],
-            sessionId: initialSessionId,
+            sessionId: initialSession.id,
           });
-          await loadSessionRef.current?.(initialSessionId, {
+          await loadSessionRef.current?.(initialSession.id, {
             requestCwd,
             requestToken,
           });
@@ -1051,7 +1003,7 @@ export function useChat(
         if (isStillCurrent()) setSessionLoading(false);
       }
     })();
-  }, [config.cwd, setActiveSessionSnapshot, showDraft, stopStreaming, dispatch]);
+  }, [config.cwd, setActiveSessionSummary, showDraft, stopStreaming, dispatch]);
 
   useEffect(() => {
     return () => {
@@ -1071,7 +1023,7 @@ export function useChat(
     const sync = (runId: string) => {
       const session = activeSessionRef.current;
       if (session.isDraft) return;
-      if (streamAbortRef.current || pendingRequestTokenRef.current) {
+      if (streamAbortRef.current || startRequestTokenRef.current) {
         resyncRef.current = runId;
         return;
       }

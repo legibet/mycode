@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { SettingsResponse } from "@/api";
 import { SettingsPanel } from "@/components/settings/SettingsPanel";
 
-vi.mock("@/hooks/useMediaQuery", () => ({
+vi.mock("@/hooks/useIsDesktop", () => ({
   useIsDesktop: () => true,
 }));
 

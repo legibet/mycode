@@ -133,14 +133,10 @@ function createWorkspaceRefBlock(ref: WorkspaceFileReference): MessageBlock {
   return createAttachedTextBlock("", ref.path);
 }
 
-export function createUserTextMessage(text: string): ChatMessage {
-  return createMessage("user", text ? [createTextBlock(text)] : []);
-}
-
 export function createUserMessage(
   text: string,
   attachments: AttachedFile[],
-  workspaceFiles: WorkspaceFileReference[] = [],
+  workspaceFiles: WorkspaceFileReference[],
 ): ChatMessage {
   const blocks: MessageBlock[] = [];
   if (text) blocks.push(createTextBlock(text));
@@ -382,16 +378,16 @@ function readCost(value: unknown): Cost | undefined {
 }
 
 /** Session totals from the server's `session_usage` / `session_cost` pair. */
-export function readUsageTotals(usage: unknown, cost: unknown): UsageTotals | null {
+export function readUsageTotals(
+  usage: Record<string, number> | null | undefined,
+  cost: Cost | null | undefined,
+): UsageTotals | null {
   const totals: UsageTotals = {};
-  if (isObject(usage)) {
-    for (const key of USAGE_TOKEN_KEYS) {
-      const value = usage[key];
-      if (typeof value === "number") totals[key] = value;
-    }
+  for (const key of USAGE_TOKEN_KEYS) {
+    const value = usage?.[key];
+    if (value !== undefined) totals[key] = value;
   }
-  const knownCost = readCost(cost);
-  if (knownCost) totals.cost = knownCost;
+  if (cost) totals.cost = cost;
   return Object.keys(totals).length > 0 ? totals : null;
 }
 

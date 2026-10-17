@@ -20,11 +20,12 @@ import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useChat } from "@/hooks/useChat";
-import { useIsDesktop } from "@/hooks/useMediaQuery";
+import { useIsDesktop } from "@/hooks/useIsDesktop";
 import type { AttachedFile, ComposerSubmission, LocalConfig, PendingInput } from "@/types";
 import type { SlashCommand } from "@/utils/completion";
 import { normalizeConfigWithRemoteDefaults } from "@/utils/config";
 import { isMac } from "@/utils/platform";
+import { SIDEBAR_DEFAULT_WIDTH } from "@/utils/sidebar";
 import { addHistory, loadConfig, loadHistory, saveConfig, saveHistory } from "@/utils/storage";
 
 function modelSupports(
@@ -215,11 +216,11 @@ function AppContent() {
 
   const handleDeleteSession = useCallback(
     async (id: string) => {
-      const isActive = activeSession?.id === id;
+      const isActive = activeSession.id === id;
       await deleteSession(id);
       if (isActive) setSidebarOpen(false);
     },
-    [activeSession?.id, deleteSession],
+    [activeSession.id, deleteSession],
   );
 
   const handleSlashCommand = useCallback(
@@ -257,7 +258,12 @@ function AppContent() {
           <DockedSidebar {...sidebarProps} />
         ) : (
           <Sheet open={sidebarOpen} onOpenChange={setSidebarOpen}>
-            <SheetContent side="left" showCloseButton={false} className="w-65 gap-0 bg-sidebar p-0">
+            <SheetContent
+              side="left"
+              showCloseButton={false}
+              className="gap-0 bg-sidebar p-0"
+              style={{ width: SIDEBAR_DEFAULT_WIDTH }}
+            >
               <SheetTitle className="sr-only">Navigation</SheetTitle>
               <Sidebar {...sidebarProps} />
             </SheetContent>
@@ -268,7 +274,7 @@ function AppContent() {
         <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background">
           {/* Mobile header */}
           <MobileHeader
-            title={activeSession?.title}
+            title={activeSession.title}
             onMenuToggle={() => setSidebarOpen((v) => !v)}
             onCreateSession={handleCreateSession}
           />
@@ -291,7 +297,7 @@ function AppContent() {
             </div>
           ) : (
             <MessageList
-              sessionId={messageSessionId ?? activeSession?.id}
+              sessionId={messageSessionId ?? activeSession.id}
               messages={messages}
               loading={runKind === "chat"}
               compacting={runKind === "compact"}
@@ -339,7 +345,7 @@ function AppContent() {
         open={searchOpen}
         onClose={() => setSearchOpen(false)}
         cwd={config.cwd}
-        activeSessionId={activeSession?.id}
+        activeSessionId={activeSession.id}
         onSelect={handleSelectSession}
       />
 

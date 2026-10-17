@@ -14,7 +14,7 @@ import type {
 
 // ─── config and settings ────────────────────────────────────────────────────
 
-export interface ProviderInfo {
+interface ProviderInfo {
   name: string;
   models: string[];
   /** Efforts each model accepts; empty when effort is not configurable. */
@@ -67,7 +67,7 @@ export interface GlobalProviderEntry {
 export type WebFetchProvider = "local" | "tavily" | "exa";
 export type WebSearchProvider = "off" | "tavily" | "exa";
 
-export interface WebProviderEntry {
+interface WebProviderEntry {
   api_key?: string | null;
   api_key_saved?: boolean;
 }
@@ -173,7 +173,7 @@ export type RunEvent =
     };
 
 /** One event of `GET /api/runs/{id}/stream`, or of a snapshot's `pending_events`. */
-export type StreamEvent = RunEvent & { seq: number };
+type StreamEvent = RunEvent & { seq: number };
 
 /** An undelivered message in a session snapshot; the server sets its id. */
 export type PendingMessage = ChatMessage & { meta: { input_id: string } };
@@ -187,14 +187,15 @@ export interface SessionResponse {
   /** null when the session does not exist. */
   session: SessionSummary | null;
   messages: ChatMessage[];
-  session_usage?: Record<string, number> | null;
-  session_cost?: Cost | null;
+  /** null when unknown. */
+  session_usage: Record<string, number> | null;
+  session_cost: Cost | null;
   active_run: RunInfo | null;
   pending_events: StreamEvent[];
   /** The active run's undelivered steers and queued messages. */
-  pending?: { steers: PendingMessage[]; queue: PendingMessage[] };
+  pending: { steers: PendingMessage[]; queue: PendingMessage[] };
   /** Background commands still running in this session. */
-  jobs?: BackgroundJobInfo[];
+  jobs: BackgroundJobInfo[];
 }
 
 export interface SessionSearchHit {
@@ -256,7 +257,7 @@ export interface WorkspaceFilesResponse {
 // ─── requests ───────────────────────────────────────────────────────────────
 
 /** A non-OK response: the server's message and, for a busy session, its running run. */
-export class ApiError extends Error {
+class ApiError extends Error {
   constructor(
     message: string,
     readonly status: number,
