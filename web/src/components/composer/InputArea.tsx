@@ -1,7 +1,8 @@
 /**
  * Chat input area: Lexical composer plus upload attachments (image/PDF/text).
  * Inline @workspace references live inside the composer; this component owns
- * the upload strip, drag-and-drop, and the bottom action row.
+ * the uploads of the shown session (strip, drag-and-drop, paste) and the
+ * bottom action row.
  */
 
 import { ArrowUp, CircleAlert, FileText, Paperclip, Square, X } from "lucide-react";
@@ -45,8 +46,9 @@ import { addPromptHistory, loadPromptHistory, savePromptHistory } from "@/utils/
 const EMPTY_SKILLS: SkillInfo[] = [];
 
 export interface InputAreaHandle {
-  /** Put submissions back ahead of the draft. */
-  prepend: (submissions: ComposerSubmission[]) => void;
+  /** Put undelivered items back ahead of the draft: their text into the
+   * composer, their uploads ahead of the current ones. */
+  prepend: (items: PendingInput[]) => void;
 }
 
 interface InputAreaProps {
@@ -55,8 +57,15 @@ interface InputAreaProps {
   loading: boolean;
   /** A compact run is active: nothing can be sent. */
   compacting?: boolean;
-  /** `toQueue` is set by ⌘/Ctrl+Enter or ⌘/Ctrl+click. */
-  onSubmit: (submission: ComposerSubmission, toQueue: boolean) => Promise<boolean>;
+  /** The shown session; its uploads are dropped when it changes. */
+  sessionId?: string;
+  /** `toQueue` is set by ⌘/Ctrl+Enter or ⌘/Ctrl+click. Uploads are cleared
+   * once the submission is accepted. */
+  onSubmit: (
+    submission: ComposerSubmission,
+    attachments: AttachedFile[],
+    toQueue: boolean,
+  ) => Promise<boolean>;
   onCancel: () => void;
   /** Messages queued for the running chat's next turn. */
   queued?: PendingInput[];
@@ -69,9 +78,6 @@ interface InputAreaProps {
   onStopJob?: (toolUseId: string) => void;
   supportsImages?: boolean;
   supportsDocuments?: boolean;
-  files?: AttachedFile[];
-  onAttachFiles?: (files: AttachedFile[]) => void;
-  onRemoveFile?: (id: string) => void;
   config: LocalConfig;
   remoteConfig: RemoteConfig | null;
   onUpdateConfig: (config: LocalConfig) => void;
@@ -102,6 +108,7 @@ export const InputArea = memo(function InputArea({
   ref,
   loading,
   compacting = false,
+  sessionId,
   onSubmit,
   onCancel,
   queued = [],
@@ -112,9 +119,6 @@ export const InputArea = memo(function InputArea({
   onStopJob,
   supportsImages = false,
   supportsDocuments = false,
-  files = [],
-  onAttachFiles,
-  onRemoveFile,
   config,
   remoteConfig,
   onUpdateConfig,
@@ -132,11 +136,50 @@ export const InputArea = memo(function InputArea({
   const [hasContent, setHasContent] = useState(false);
   const [inputNotice, setInputNotice] = useState<InputNotice | null>(null);
   const [promptHistory, setPromptHistory] = useState(() => loadPromptHistory(config.cwd));
+  const [files, setFiles] = useState<AttachedFile[]>([]);
+
+  // Uploads belong to the shown session; the draft text stays.
+  const [filesSessionId, setFilesSessionId] = useState(sessionId);
+  if (sessionId !== filesSessionId) {
+    setFilesSessionId(sessionId);
+    setFiles([]);
+  }
+
+  // Revoke each image's blob URL once its upload leaves state, whatever path
+  // removed it, and the remaining ones on unmount.
+  const prevFilesRef = useRef<AttachedFile[]>([]);
+  useEffect(() => {
+    const prev = prevFilesRef.current;
+    prevFilesRef.current = files;
+    const alive = new Set(files.map((file) => file.id));
+    for (const file of prev) {
+      if (file.kind === "image" && !alive.has(file.id)) URL.revokeObjectURL(file.preview);
+    }
+  }, [files]);
+  useEffect(
+    () => () => {
+      for (const file of prevFilesRef.current) {
+        if (file.kind === "image") URL.revokeObjectURL(file.preview);
+      }
+    },
+    [],
+  );
 
   const disabled = disabledProp || Boolean(disabledReason);
 
   useImperativeHandle(ref, () => ({
-    prepend: (submissions) => composerRef.current?.prepend(submissions),
+    prepend: (items) => {
+      composerRef.current?.prepend(items.map((item) => item.submission));
+      // Image previews were revoked when the uploads left the composer.
+      const restored = items
+        .flatMap((item) => item.attachments)
+        .map((file) =>
+          file.kind === "image"
+            ? { ...file, preview: `data:${file.mime_type};base64,${file.data}` }
+            : file,
+        );
+      if (restored.length) setFiles((prev) => [...restored, ...prev]);
+    },
   }));
   const hasImageUpload = files.some((file) => file.kind === "image");
   const hasDocumentUpload = files.some((file) => file.kind === "document");
@@ -182,8 +225,9 @@ export const InputArea = memo(function InputArea({
         return false;
       }
       showInputNotice(null);
-      const accepted = await onSubmit(submission, toQueue);
+      const accepted = await onSubmit(submission, files, toQueue);
       if (accepted) {
+        setFiles([]);
         const next = addPromptHistory(promptHistory, submission.text);
         if (next !== promptHistory) {
           setPromptHistory(next);
@@ -197,7 +241,7 @@ export const InputArea = memo(function InputArea({
       promptHistory,
       compacting,
       disabled,
-      files.length,
+      files,
       hasImageUpload,
       hasDocumentUpload,
       supportsImages,
@@ -231,9 +275,9 @@ export const InputArea = memo(function InputArea({
         supportsDocuments,
       });
       showInputNotice(unsupported ? { kind: unsupported, blocking: false } : null, 2500);
-      if (attachments.length) onAttachFiles?.(attachments);
+      if (attachments.length) setFiles((prev) => [...prev, ...attachments]);
     },
-    [disabled, onAttachFiles, showInputNotice, supportsDocuments, supportsImages],
+    [disabled, showInputNotice, supportsDocuments, supportsImages],
   );
 
   const handlePasteFiles = useCallback(
@@ -342,7 +386,7 @@ export const InputArea = memo(function InputArea({
                   size="icon-xs"
                   onClick={() => {
                     showInputNotice(null);
-                    onRemoveFile?.(file.id);
+                    setFiles((prev) => prev.filter((f) => f.id !== file.id));
                   }}
                   aria-label={`Remove ${file.name}`}
                   className="absolute -top-1 -right-1 size-4 rounded-full border-0 bg-foreground text-background opacity-0 transition-[background-color,opacity,scale] group-hover/thumb:opacity-100 hover:bg-foreground/85 focus-visible:opacity-100 max-md:opacity-100"

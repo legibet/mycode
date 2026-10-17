@@ -9,7 +9,7 @@
  */
 
 import { Plus, Search, Settings as SettingsIcon, Terminal, Trash2 } from "lucide-react";
-import { type CSSProperties, memo, useMemo, useState } from "react";
+import { memo, useMemo, useState, useSyncExternalStore } from "react";
 
 import type { RemoteConfig } from "@/api";
 import { WorkspacePicker } from "@/components/sidebar/WorkspacePicker";
@@ -19,7 +19,14 @@ import type { LocalConfig, SessionSummary } from "@/types";
 import { cn } from "@/utils/cn";
 import { formatShortDate, parseDate, prettifyPath } from "@/utils/format";
 import { isMac } from "@/utils/platform";
-import { clampSidebarWidth, getMaxSidebarWidth, SIDEBAR_MIN_WIDTH } from "@/utils/sidebar";
+import {
+  clampSidebarWidth,
+  getMaxSidebarWidth,
+  SIDEBAR_DEFAULT_WIDTH,
+  SIDEBAR_MAX_WIDTH,
+  SIDEBAR_MIN_WIDTH,
+} from "@/utils/sidebar";
+import { loadSidebarWidth, saveSidebarWidth } from "@/utils/storage";
 
 // ─── path helpers ───────────────────────────────────────────────────────────
 
@@ -58,7 +65,6 @@ function bucketOf(date: Date, now: Date): Bucket {
 // ─── component ──────────────────────────────────────────────────────────────
 
 interface SidebarProps {
-  className?: string;
   sessions: SessionSummary[];
   activeSession: SessionSummary | null;
   onSelectSession: (id: string) => void;
@@ -72,9 +78,6 @@ interface SidebarProps {
   onRemoveHistory: (cwd: string) => void;
   onOpenSettings: () => void;
   workspaceMissing?: boolean;
-  width: number;
-  onResize?: (width: number) => void;
-  onResizeReset?: () => void;
 }
 
 function SidebarResizer({
@@ -142,7 +145,7 @@ function SidebarResizer({
       onDoubleClick={onResizeReset}
       onKeyDown={handleKeyDown}
       className={cn(
-        "group/resizer hidden md:block",
+        "group/resizer",
         "absolute top-0 -right-0.75 bottom-0 z-20 w-1.5 cursor-col-resize",
         "focus-visible:outline-none",
       )}
@@ -160,7 +163,6 @@ function SidebarResizer({
 }
 
 export const Sidebar = memo(function Sidebar({
-  className,
   sessions,
   activeSession,
   onSelectSession,
@@ -174,9 +176,6 @@ export const Sidebar = memo(function Sidebar({
   onRemoveHistory,
   onOpenSettings,
   workspaceMissing = false,
-  width,
-  onResize,
-  onResizeReset,
 }: SidebarProps) {
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
   const [workspaceOpenKey, setWorkspaceOpenKey] = useState(0);
@@ -205,13 +204,7 @@ export const Sidebar = memo(function Sidebar({
   }, [sessions]);
 
   return (
-    <div
-      className={cn(
-        "relative flex w-64 flex-col border-r border-border/50 bg-sidebar md:w-(--sidebar-width)",
-        className,
-      )}
-      style={{ "--sidebar-width": `${width}px` } as CSSProperties}
-    >
+    <div className="flex h-full w-full flex-col bg-sidebar">
       {/* Brand */}
       <div className="flex shrink-0 items-center gap-2.5 px-5 pt-5 pb-5">
         <Terminal className="size-4 text-foreground" aria-hidden="true" />
@@ -383,10 +376,44 @@ export const Sidebar = memo(function Sidebar({
           </Button>
         </SimpleTooltip>
       </div>
-
-      {onResize && onResizeReset && (
-        <SidebarResizer width={width} onResize={onResize} onResizeReset={onResizeReset} />
-      )}
     </div>
   );
 });
+
+function subscribeToWindowResize(onChange: () => void) {
+  window.addEventListener("resize", onChange);
+  return () => window.removeEventListener("resize", onChange);
+}
+
+/** The desktop sidebar: docked beside the chat at a width the user drags,
+ * remembered across visits. The mobile drawer sizes `Sidebar` itself. */
+export function DockedSidebar(props: SidebarProps) {
+  // The preferred width only changes on an explicit drag or reset; a narrow
+  // window clamps what is shown without overwriting it.
+  const [width, setWidth] = useState(loadSidebarWidth);
+  const maxWidth = useSyncExternalStore(
+    subscribeToWindowResize,
+    getMaxSidebarWidth,
+    () => SIDEBAR_MAX_WIDTH,
+  );
+  const shownWidth = Math.max(SIDEBAR_MIN_WIDTH, Math.min(maxWidth, width));
+
+  const resize = (next: number) => {
+    setWidth(next);
+    saveSidebarWidth(next);
+  };
+
+  return (
+    <div
+      className="relative h-full shrink-0 border-r border-border/50"
+      style={{ width: shownWidth }}
+    >
+      <Sidebar {...props} />
+      <SidebarResizer
+        width={shownWidth}
+        onResize={resize}
+        onResizeReset={() => resize(SIDEBAR_DEFAULT_WIDTH)}
+      />
+    </div>
+  );
+}

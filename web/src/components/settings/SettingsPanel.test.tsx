@@ -68,4 +68,29 @@ describe("SettingsPanel", () => {
       exa: { api_key: "exa-key" },
     });
   });
+
+  it("drafts from the loaded settings, keeps edits through a refetch and resets on reopen", async () => {
+    const user = userEvent.setup();
+    const loaded = { ...settings, config: { compact_threshold: 0.6 } };
+    const panel = (open: boolean, current: SettingsResponse | null) => (
+      <SettingsPanel open={open} onClose={() => {}} settings={current} />
+    );
+    const threshold = () => screen.getByPlaceholderText("0.8");
+
+    // Opened before the settings arrive.
+    const { rerender } = render(panel(true, null));
+    rerender(panel(true, loaded));
+    expect(threshold()).toHaveValue(0.6);
+
+    await user.clear(threshold());
+    await user.type(threshold(), "0.7");
+    // A background refetch hands over an equal but new response.
+    rerender(panel(true, { ...loaded, env: { EXA_API_KEY: false } }));
+    expect(threshold()).toHaveValue(0.7);
+
+    rerender(panel(false, loaded));
+    await waitFor(() => expect(screen.queryByPlaceholderText("0.8")).toBeNull());
+    rerender(panel(true, loaded));
+    expect(threshold()).toHaveValue(0.6);
+  });
 });

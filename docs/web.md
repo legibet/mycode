@@ -14,7 +14,7 @@ web/src/
     messages/                # MessageList (windowing, scroll), MessageBubble, WorkSection, ToolCard, markers, StatsCard
     markdown/                # MarkdownBlock, CodeBlock, Shiki highlighting, EditDiff
     settings/                # SettingsPanel and ProviderCard; settingsDraft.ts maps config ⇄ form draft
-    sidebar/                 # Sidebar, WorkspacePicker, SessionSearch (⌘K / Ctrl+K)
+    sidebar/                 # Sidebar and DockedSidebar (desktop width), WorkspacePicker, SessionSearch (⌘K / Ctrl+K)
     ui/                      # shadcn primitives plus Collapse and ResponsiveDialog
     MobileHeader.tsx
     ThemeProvider.tsx
@@ -145,7 +145,7 @@ When a chat stream ends, the pending lists are emptied in one step:
 - Stop while the turn's `POST /api/chat` is still in flight has no run to stop yet: the turn stays busy, and the run the response names is stopped the same way as soon as it arrives. A session switch instead abandons the response, and the run continues in the background.
 - A disconnect that reloads the session takes the snapshot's `pending` instead. Items the server never accepted are lost there.
 
-`useChat` hands restored items to its `onRestore` callback; `App` puts the text into the composer through `InputArea`'s `prepend` handle, which rebuilds `@path` pills from the submission's references.
+`useChat` hands restored items to its `onRestore` callback; `App` passes them to `InputArea`'s `prepend` handle, which puts the text into the composer, rebuilding `@path` pills from the submission's references, and the uploads ahead of the current ones. Image previews come back as data URLs, since their blob URLs were revoked when the uploads left the composer.
 
 `permission_request` opens the approval prompt and `permission_resolved` clears it. `cancelled` clears pending permissions and tool activity without adding an error message. Permissions live in the reducer, so replayed events restore the prompt the same way.
 
@@ -171,7 +171,7 @@ Manual compaction (`/compact`):
 
 Composer and attachments:
 
-- While a chat run is active the composer stays enabled; during a compact run nothing can be sent. Enter steers the running turn; `⌘/Ctrl+Enter` or `⌘/Ctrl`+click on the send button queues the message for the next turn. Idle, both send normally. `App.handleSubmit()` routes to `send`, `steer` or `queue`.
+- While a chat run is active the composer stays enabled; during a compact run nothing can be sent. Enter steers the running turn; `⌘/Ctrl+Enter` or `⌘/Ctrl`+click on the send button queues the message for the next turn. Idle, both send normally. `InputArea` submits the composer text with its uploads; `App.handleSubmit()` routes them to `send`, `steer` or `queue`, and `InputArea` clears the uploads once the submission is accepted.
 - One button sits in the send slot: with text, workspace refs or uploads it is the send arrow, whose `title` while running names both deliveries (`Steer · Enter, queue · ⌘Enter`); with an empty composer while running it is Stop.
 - Pending steers render at the tail of `MessageList` as hollow user bubbles (`MessageBubble` `pending`: hairline outline, no fill, 80% text) with the sidebar's breathing accent dot on their left, until their `user_message` replaces them with the real, filled bubble. The state is in the bubble itself; `title` and visually hidden text say `Waiting for the current step…`.
 - Background commands running in the session (`useChat`'s `jobs`: the snapshot's `jobs`, then kept current by `job_started` / `job_finished` on `/api/events` for the shown session, reset with the session state) open the card behind the composer, ahead of the queued messages: a small muted `Background` heading with a `Terminal` glyph and the job count, then one row per command with the label in mono (full text in `title`), the running time ticking once a second, and a muted `Stop` action that calls `DELETE /api/sessions/{id}/jobs/{tool_use_id}`. The row leaves with the `job_finished` event, not optimistically; a `404` is a job that already finished. The agent is not told who stopped it: the result arrives as any other completion, with the signal's exit code.
@@ -185,7 +185,7 @@ Composer and attachments:
 - ArrowUp recalls previously sent prompts only from an empty composer (or while already recalling); ArrowDown walks forward and past the newest entry clears the editor, and any edit leaves recall. `InputArea` stores accepted prompt texts per workspace (`mycode_prompt_history`, keyed by `cwd`, capped at 30, consecutive duplicates skipped); pills come back as plain `@path` text, and an open completion menu keeps the arrow keys.
 - `@` completion uses `GET /api/workspaces/files`. Refs the model can't ingest block submit with a hint — never silently drop a pill (it would break the sentence).
 - Optimistic workspace refs render as empty-data file cards; after reload the server-persisted blocks render instead (workspace image: card live, real preview after reload — intentional).
-- Upload attachments (picker/drag/paste) stay in `InputArea`: text as inline snapshot blocks and media as base64 blocks. Unsupported additions briefly replace the effort pill with a compact toolbar notice; attachments already in the draft survive model changes and block submit with a persistent notice until removed or supported again, matching inline `@` refs.
+- Upload attachments (picker/drag/paste) live in `InputArea`'s state: text as inline snapshot blocks and media as base64 blocks. They belong to the shown session: `InputArea` takes its id and drops the uploads when it changes, while the draft text stays. A workspace change remounts `InputArea` (keyed by `cwd`), which resets both. An image's blob URL is revoked when it leaves the list or `InputArea` unmounts. Unsupported additions briefly replace the effort pill with a compact toolbar notice; attachments already in the draft survive model changes and block submit with a persistent notice until removed or supported again, matching inline `@` refs.
 
 ## Configuration
 
@@ -196,9 +196,13 @@ The Web UI persists these values to `localStorage`:
 - A missing model-specific effort uses `auto`; `auto` is stored explicitly when selected
 - recent workspaces, active sessions, sidebar width, and theme
 
+The sidebar width belongs to `DockedSidebar`, the desktop sidebar: it is saved when a drag, an arrow key or a reset (double-click, Home) changes it, and the shown width is clamped to 40% of the window without overwriting the saved one. The mobile drawer renders `Sidebar` at its fixed `w-65`.
+
 The input-area effort selector uses `providers[name].reasoning_efforts[model]`; it renders only when
 the provider supports effort and the model has non-empty values. Settings editor options come from
 `provider_type_env_vars` and `provider_type_default_models`.
+
+`SettingsPanel` keeps its form draft in the dialog content, which Base UI unmounts while the dialog is closed, so each opening starts from the loaded settings. The content is keyed on whether `GET /api/settings` has loaded: the draft starts over once when the settings arrive, and a background refetch keeps unsaved edits. A save writes the response into the SWR cache and revalidates `GET /api/config`.
 
 ## Development
 

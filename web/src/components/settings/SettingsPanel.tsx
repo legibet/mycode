@@ -107,14 +107,30 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
   );
 }
 
-export function SettingsPanel({
-  open,
+export function SettingsPanel({ open, onClose, ...props }: SettingsPanelProps) {
+  // Base UI unmounts the dialog's content while it is closed, so every opening
+  // starts a fresh draft. The key starts it again once the settings have
+  // loaded; a later refetch keeps the edits.
+  return (
+    <ResponsiveDialog
+      open={open}
+      onClose={onClose}
+      title="Settings"
+      fullScreen
+      className="max-h-[82vh] w-160"
+    >
+      <SettingsContent key={props.settings ? "loaded" : "loading"} onClose={onClose} {...props} />
+    </ResponsiveDialog>
+  );
+}
+
+function SettingsContent({
   onClose,
   settings,
   loadError,
   onSettingsSaved,
   projectConfigPaths,
-}: SettingsPanelProps) {
+}: Omit<SettingsPanelProps, "open">) {
   const { theme, setTheme } = useTheme();
   const [draft, setDraft] = useState<SettingsDraft>(() => buildDraft(settings?.config ?? {}));
   const [saving, setSaving] = useState(false);
@@ -212,7 +228,6 @@ export function SettingsPanel({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ config: buildPayload(draft) }),
       });
-      setDraft(buildDraft(updated.config));
       onSettingsSaved?.(updated);
       onClose();
     } catch (e) {
@@ -227,13 +242,7 @@ export function SettingsPanel({
   const editsPath = `Edits ${prettifyPath(settings?.path ?? FALLBACK_CONFIG_PATH)}`;
 
   return (
-    <ResponsiveDialog
-      open={open}
-      onClose={onClose}
-      title="Settings"
-      fullScreen
-      className="max-h-[82vh] w-160"
-    >
+    <>
       {/* Header */}
       <div
         className={cn(
@@ -532,6 +541,6 @@ export function SettingsPanel({
           </div>
         </div>
       </div>
-    </ResponsiveDialog>
+    </>
   );
 }

@@ -47,7 +47,20 @@ interface MessageListProps {
   /** Steers waiting for the running turn's next step boundary. */
   pendingSteers?: PendingInput[];
   onRewindAndSend?: ((rewindTo: number, input: string) => Promise<void>) | undefined;
-  emptyStateFooter?: ReactNode;
+}
+
+/** The blinking terminal prompt shown while there is nothing to list;
+ * `children` go below it. */
+export function EmptyState({ children }: { children?: ReactNode }) {
+  return (
+    <div className="flex flex-1 flex-col items-center justify-center p-8 text-center">
+      <h1 className="font-display text-3xl tracking-[-0.022em] text-foreground/70">
+        mycode
+        <span className="ml-0.5 inline-block h-6 w-0.5 animate-cursor-blink bg-primary/60 align-middle" />
+      </h1>
+      {children && <div className="mt-8">{children}</div>}
+    </div>
+  );
 }
 
 export const MessageList = memo(function MessageList({
@@ -59,7 +72,6 @@ export const MessageList = memo(function MessageList({
   sendError,
   pendingSteers = [],
   onRewindAndSend,
-  emptyStateFooter,
 }: MessageListProps) {
   const sessionKey = sessionId || DRAFT_SESSION_KEY;
   const contentKey = messages.length === 0 ? "empty" : "ready";
@@ -74,7 +86,6 @@ export const MessageList = memo(function MessageList({
       sendError={sendError}
       pendingSteers={pendingSteers}
       onRewindAndSend={onRewindAndSend}
-      emptyStateFooter={emptyStateFooter}
     />
   );
 });
@@ -114,7 +125,6 @@ function WindowedMessages({
   sendError,
   pendingSteers,
   onRewindAndSend,
-  emptyStateFooter,
 }: WindowedMessagesProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const contentRef = useRef<HTMLDivElement | null>(null);
@@ -288,15 +298,7 @@ function WindowedMessages({
             ref={contentRef}
             className="mx-auto flex min-h-full max-w-4xl flex-col gap-6 max-md:max-w-none max-md:gap-5"
           >
-            {messages.length === 0 && (
-              <div className="flex flex-1 flex-col items-center justify-center p-8 text-center">
-                <h1 className="font-display text-3xl tracking-[-0.022em] text-foreground/70">
-                  mycode
-                  <span className="ml-0.5 inline-block h-6 w-0.5 animate-cursor-blink bg-primary/60 align-middle" />
-                </h1>
-                {emptyStateFooter && <div className="mt-8">{emptyStateFooter}</div>}
-              </div>
-            )}
+            {messages.length === 0 && <EmptyState />}
             {visibleMessages.map((message, visibleIndex) => {
               const index = effectiveStartIndex + visibleIndex;
               const renderKey = message.renderKey || `msg-${index}`;

@@ -1,31 +1,42 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { createRef } from "react";
 import { describe, expect, it, vi } from "vitest";
 
-import { InputArea } from "@/components/composer/InputArea";
+import { InputArea, type InputAreaHandle } from "@/components/composer/InputArea";
 import type { Cost } from "@/types";
+
+const image = {
+  id: "image-1",
+  kind: "image" as const,
+  data: "base64",
+  mime_type: "image/png",
+  name: "diagram.png",
+  preview: "blob:diagram",
+};
+
+function restored(text: string, attachments = [image]) {
+  return { id: `p-${text}`, submission: { text, workspaceFiles: [] }, attachments, input: [] };
+}
+
+function uploadedNames() {
+  return screen
+    .queryAllByRole("button", { name: /^Remove / })
+    .map((button) => button.getAttribute("aria-label")?.slice("Remove ".length));
+}
 
 describe("InputArea", () => {
   it("rejects new unsupported media and keeps existing uploads while blocking submission", async () => {
     const user = userEvent.setup({ applyAccept: false });
     const onSubmit = vi.fn().mockResolvedValue(true);
-    const onAttachFiles = vi.fn();
-    const image = {
-      id: "image-1",
-      kind: "image" as const,
-      data: "base64",
-      mime_type: "image/png",
-      name: "diagram.png",
-      preview: "blob:diagram",
-    };
+    const ref = createRef<InputAreaHandle>();
 
-    const { rerender } = render(
+    render(
       <InputArea
+        ref={ref}
         loading={false}
         onSubmit={onSubmit}
         onCancel={() => {}}
-        files={[]}
-        onAttachFiles={onAttachFiles}
         supportsImages={false}
         config={{
           provider: "anthropic",
@@ -43,29 +54,13 @@ describe("InputArea", () => {
       new File(["image"], "new.png", { type: "image/png" }),
     );
 
-    expect(onAttachFiles).not.toHaveBeenCalled();
+    expect(uploadedNames()).toEqual([]);
     expect(screen.getByText("Image unsupported")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "text-only" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "medium" })).toBeNull();
 
-    rerender(
-      <InputArea
-        loading={false}
-        onSubmit={onSubmit}
-        onCancel={() => {}}
-        files={[image]}
-        onAttachFiles={onAttachFiles}
-        supportsImages={false}
-        config={{
-          provider: "anthropic",
-          model: "text-only",
-          cwd: "/workspace",
-          reasoningEfforts: {},
-        }}
-        remoteConfig={null}
-        onUpdateConfig={() => {}}
-      />,
-    );
+    // An image restored from an earlier model stays, but blocks the send.
+    act(() => ref.current?.prepend([restored("")]));
     await user.click(screen.getByRole("button", { name: "Send message" }));
 
     await waitFor(() => expect(onSubmit).not.toHaveBeenCalled());
@@ -158,9 +153,68 @@ describe("InputArea", () => {
     await user.click(send);
     await user.keyboard("{/Control}");
     await waitFor(() =>
-      expect(onSubmit).toHaveBeenCalledWith({ text: "use sqlite", workspaceFiles: [] }, true),
+      expect(onSubmit).toHaveBeenCalledWith({ text: "use sqlite", workspaceFiles: [] }, [], true),
     );
     expect(await screen.findByRole("button", { name: "Stop generating" })).toBeInTheDocument();
+  });
+
+  it("restores uploads ahead of the current ones and clears them once a send is accepted", async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn().mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+    const ref = createRef<InputAreaHandle>();
+    render(
+      <InputArea {...runningProps} loading={false} ref={ref} supportsImages onSubmit={onSubmit} />,
+    );
+
+    await user.upload(
+      screen.getByLabelText("Attach files"),
+      new File(["notes"], "notes.md", { type: "text/markdown" }),
+    );
+    expect(await screen.findByRole("button", { name: "Remove notes.md" })).toBeInTheDocument();
+
+    // A failed steer comes back: its text into the composer, its image ahead
+    // of the upload already there, previewed from its data.
+    act(() => ref.current?.prepend([restored("look at this")]));
+    expect(uploadedNames()).toEqual(["diagram.png", "notes.md"]);
+    expect(screen.getByAltText("diagram.png")).toHaveAttribute(
+      "src",
+      "data:image/png;base64,base64",
+    );
+    await waitFor(() => expect(screen.getByRole("textbox")).toHaveTextContent("look at this"));
+
+    const send = screen.getByRole("button", { name: "Send message" });
+    await user.click(send);
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledOnce());
+    expect(onSubmit.mock.calls[0]?.[0]).toEqual({ text: "look at this", workspaceFiles: [] });
+    expect(onSubmit.mock.calls[0]?.[1].map((file: { name: string }) => file.name)).toEqual([
+      "diagram.png",
+      "notes.md",
+    ]);
+    // Rejected: the uploads stay for another try.
+    expect(uploadedNames()).toEqual(["diagram.png", "notes.md"]);
+
+    await user.click(send);
+    await waitFor(() => expect(uploadedNames()).toEqual([]));
+    expect(onSubmit).toHaveBeenCalledTimes(2);
+  });
+
+  it("drops uploads when the shown session changes and keeps the draft text", async () => {
+    const user = userEvent.setup();
+    const { rerender } = render(
+      <InputArea {...runningProps} loading={false} sessionId="s1" onSubmit={vi.fn()} />,
+    );
+
+    await user.click(screen.getByRole("textbox"));
+    await user.paste("half-written");
+    await user.upload(
+      screen.getByLabelText("Attach files"),
+      new File(["notes"], "notes.md", { type: "text/markdown" }),
+    );
+    expect(await screen.findByRole("button", { name: "Remove notes.md" })).toBeInTheDocument();
+
+    rerender(<InputArea {...runningProps} loading={false} sessionId="s2" onSubmit={vi.fn()} />);
+    expect(uploadedNames()).toEqual([]);
+    expect(screen.getByRole("textbox")).toHaveTextContent("half-written");
   });
 
   it("lists queued messages and edits one only from an empty composer", async () => {

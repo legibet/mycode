@@ -4,17 +4,17 @@
  * Mobile: sidebar as overlay, top header bar.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import useSWR from "swr";
 
 import { fetchJson, type RemoteConfig, type SettingsResponse } from "@/api";
 import { InputArea, type InputAreaHandle } from "@/components/composer/InputArea";
 import { PermissionPrompt } from "@/components/composer/PermissionPrompt";
-import { MessageList } from "@/components/messages/MessageList";
+import { EmptyState, MessageList } from "@/components/messages/MessageList";
 import { MobileHeader } from "@/components/MobileHeader";
 import { SettingsPanel } from "@/components/settings/SettingsPanel";
 import { SessionSearch } from "@/components/sidebar/SessionSearch";
-import { Sidebar } from "@/components/sidebar/Sidebar";
+import { DockedSidebar, Sidebar } from "@/components/sidebar/Sidebar";
 import { ThemeProvider } from "@/components/ThemeProvider";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
@@ -25,21 +25,7 @@ import type { AttachedFile, ComposerSubmission, LocalConfig, PendingInput } from
 import type { SlashCommand } from "@/utils/completion";
 import { normalizeConfigWithRemoteDefaults } from "@/utils/config";
 import { isMac } from "@/utils/platform";
-import {
-  getMaxSidebarWidth,
-  SIDEBAR_DEFAULT_WIDTH,
-  SIDEBAR_MAX_WIDTH,
-  SIDEBAR_MIN_WIDTH,
-} from "@/utils/sidebar";
-import {
-  addHistory,
-  loadConfig,
-  loadHistory,
-  loadSidebarWidth,
-  saveConfig,
-  saveHistory,
-  saveSidebarWidth,
-} from "@/utils/storage";
+import { addHistory, loadConfig, loadHistory, saveConfig, saveHistory } from "@/utils/storage";
 
 function modelSupports(
   remoteConfig: RemoteConfig | null,
@@ -55,46 +41,12 @@ function modelSupports(
   };
 }
 
-function settingsPanelKey(open: boolean, settings: SettingsResponse | null) {
-  return JSON.stringify({
-    open,
-    path: settings?.path ?? "",
-    config: settings?.config ?? null,
-    options: settings?.options ?? null,
-  });
-}
-
-function subscribeToWindowResize(onChange: () => void) {
-  window.addEventListener("resize", onChange);
-  return () => window.removeEventListener("resize", onChange);
-}
-
 function AppContent() {
   const [localConfig, setLocalConfig] = useState<LocalConfig>(loadConfig);
-  const [attachments, setAttachments] = useState<AttachedFile[]>([]);
   const [cwdHistory, setCwdHistory] = useState<string[]>(loadHistory);
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  // User's preferred sidebar width — only changes on explicit drag/reset.
-  const [sidebarWidth, setSidebarWidth] = useState(loadSidebarWidth);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
-  const maxSidebarWidth = useSyncExternalStore(
-    subscribeToWindowResize,
-    getMaxSidebarWidth,
-    () => SIDEBAR_MAX_WIDTH,
-  );
-
-  // Revoke each image's blob URL once its attachment leaves state, whatever
-  // path removed it.
-  const prevAttachmentsRef = useRef<AttachedFile[]>([]);
-  useEffect(() => {
-    const prev = prevAttachmentsRef.current;
-    prevAttachmentsRef.current = attachments;
-    const alive = new Set(attachments.map((a) => a.id));
-    for (const a of prev) {
-      if (a.kind === "image" && !alive.has(a.id)) URL.revokeObjectURL(a.preview);
-    }
-  }, [attachments]);
 
   // Persisted state slices are saved on change, not by their mutators.
   useEffect(() => {
@@ -103,24 +55,13 @@ function AppContent() {
   useEffect(() => {
     saveHistory(cwdHistory);
   }, [cwdHistory]);
-  useEffect(() => {
-    saveSidebarWidth(sidebarWidth);
-  }, [sidebarWidth]);
 
   const handleOpenSettings = useCallback(() => {
     setSettingsOpen(true);
   }, []);
 
-  const handleResetSidebarWidth = useCallback(() => {
-    setSidebarWidth(SIDEBAR_DEFAULT_WIDTH);
-  }, []);
-
   const isDesktop = useIsDesktop();
 
-  const displayedSidebarWidth = Math.max(
-    SIDEBAR_MIN_WIDTH,
-    Math.min(maxSidebarWidth, sidebarWidth),
-  );
   const configUrl = `/api/config?cwd=${encodeURIComponent(localConfig.cwd)}`;
   const {
     data: remoteConfig = null,
@@ -144,16 +85,7 @@ function AppContent() {
   // Undelivered steers and queued messages come back ahead of the draft.
   const inputAreaRef = useRef<InputAreaHandle>(null);
   const restoreToComposer = useCallback((items: PendingInput[]) => {
-    inputAreaRef.current?.prepend(items.map((item) => item.submission));
-    // Image previews were revoked when the uploads left the composer.
-    const restored = items
-      .flatMap((item) => item.attachments)
-      .map((file) =>
-        file.kind === "image"
-          ? { ...file, preview: `data:${file.mime_type};base64,${file.data}` }
-          : file,
-      );
-    if (restored.length) setAttachments((prev) => [...restored, ...prev]);
+    inputAreaRef.current?.prepend(items);
   }, []);
 
   const {
@@ -240,20 +172,13 @@ function AppContent() {
     setCwdHistory((prev) => (prev.includes(cwd) ? prev.filter((item) => item !== cwd) : prev));
   }, []);
 
-  const clearAttachments = useCallback(() => {
-    setAttachments([]);
-  }, []);
-
   // While a chat runs, Enter steers it and Mod+Enter queues the next turn.
   const handleSubmit = useCallback(
-    async (submission: ComposerSubmission, toQueue: boolean) => {
+    async (submission: ComposerSubmission, attachments: AttachedFile[], toQueue: boolean) => {
       const deliver = runKind !== "chat" ? send : toQueue ? queue : steer;
-      const accepted = await deliver(submission, attachments);
-      if (!accepted) return false;
-      clearAttachments();
-      return true;
+      return deliver(submission, attachments);
     },
-    [attachments, clearAttachments, queue, runKind, send, steer],
+    [queue, runKind, send, steer],
   );
 
   const handleEditQueued = useCallback(
@@ -263,14 +188,6 @@ function AppContent() {
     },
     [restoreToComposer, takeBackQueued],
   );
-
-  const handleAttachFiles = useCallback((newFiles: AttachedFile[]) => {
-    setAttachments((prev) => [...prev, ...newFiles]);
-  }, []);
-
-  const handleRemoveAttachment = useCallback((id: string) => {
-    setAttachments((prev) => prev.filter((attachment) => attachment.id !== id));
-  }, []);
 
   const { image: supportsImageInput, pdf: supportsPdfInput } = useMemo(
     () => modelSupports(remoteConfig, config.provider, config.model),
@@ -282,43 +199,27 @@ function AppContent() {
     : undefined;
   const setupRequired =
     Boolean(remoteConfig?.setup_error) || (!remoteConfig && Boolean(remoteConfigError));
-  const emptyStateFooter = setupRequired ? (
-    remoteConfig ? (
-      <div className="flex items-center gap-3">
-        <p className="text-sm text-muted-foreground">Add a provider to get started.</p>
-        <Button variant="outline" size="sm" onClick={handleOpenSettings}>
-          Open settings
-        </Button>
-      </div>
-    ) : (
-      <p className="text-sm text-muted-foreground">Couldn&apos;t reach the API.</p>
-    )
-  ) : undefined;
 
   const handleSelectSession = useCallback(
     (id: string) => {
       void selectSession(id);
       setSidebarOpen(false);
-      clearAttachments();
     },
-    [selectSession, clearAttachments],
+    [selectSession],
   );
 
   const handleCreateSession = useCallback(() => {
     createSession();
     setSidebarOpen(false);
-    clearAttachments();
-  }, [createSession, clearAttachments]);
+  }, [createSession]);
 
   const handleDeleteSession = useCallback(
     async (id: string) => {
       const isActive = activeSession?.id === id;
       await deleteSession(id);
-      if (!isActive) return;
-      setSidebarOpen(false);
-      clearAttachments();
+      if (isActive) setSidebarOpen(false);
     },
-    [activeSession?.id, clearAttachments, deleteSession],
+    [activeSession?.id, deleteSession],
   );
 
   const handleSlashCommand = useCallback(
@@ -353,20 +254,12 @@ function AppContent() {
       <div className="relative flex h-full min-h-0 overflow-hidden">
         {/* Mounted exclusively to avoid duplicate SWR / WorkspacePicker state. */}
         {isDesktop ? (
-          <div className="shrink-0">
-            <Sidebar
-              {...sidebarProps}
-              width={displayedSidebarWidth}
-              onResize={setSidebarWidth}
-              onResizeReset={handleResetSidebarWidth}
-              className="h-full"
-            />
-          </div>
+          <DockedSidebar {...sidebarProps} />
         ) : (
           <Sheet open={sidebarOpen} onOpenChange={setSidebarOpen}>
             <SheetContent side="left" showCloseButton={false} className="w-65 gap-0 bg-sidebar p-0">
               <SheetTitle className="sr-only">Navigation</SheetTitle>
-              <Sidebar {...sidebarProps} width={260} className="h-full" />
+              <Sidebar {...sidebarProps} />
             </SheetContent>
           </Sheet>
         )}
@@ -380,17 +273,34 @@ function AppContent() {
             onCreateSession={handleCreateSession}
           />
 
-          <MessageList
-            sessionId={messageSessionId ?? activeSession?.id}
-            messages={setupRequired ? [] : messages}
-            loading={setupRequired ? false : runKind === "chat"}
-            compacting={!setupRequired && runKind === "compact"}
-            compactError={setupRequired ? null : compactError}
-            sendError={setupRequired ? null : sendError}
-            pendingSteers={pending.steers}
-            onRewindAndSend={workspaceMissing || setupRequired ? undefined : rewindAndSend}
-            emptyStateFooter={emptyStateFooter}
-          />
+          {/* Setup required (no provider, or no API): only the empty state, saying what to do. */}
+          {setupRequired ? (
+            <div className="flex min-h-0 flex-1 flex-col pt-6 pb-4">
+              <EmptyState>
+                {remoteConfig ? (
+                  <div className="flex items-center gap-3">
+                    <p className="text-sm text-muted-foreground">Add a provider to get started.</p>
+                    <Button variant="outline" size="sm" onClick={handleOpenSettings}>
+                      Open settings
+                    </Button>
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground">Couldn&apos;t reach the API.</p>
+                )}
+              </EmptyState>
+            </div>
+          ) : (
+            <MessageList
+              sessionId={messageSessionId ?? activeSession?.id}
+              messages={messages}
+              loading={runKind === "chat"}
+              compacting={runKind === "compact"}
+              compactError={compactError}
+              sendError={sendError}
+              pendingSteers={pending.steers}
+              onRewindAndSend={workspaceMissing ? undefined : rewindAndSend}
+            />
+          )}
 
           <div className="shrink-0 pb-4 max-md:pb-1">
             {pendingPermission && (
@@ -399,6 +309,7 @@ function AppContent() {
             <InputArea
               key={config.cwd}
               ref={inputAreaRef}
+              sessionId={activeSession.id}
               loading={loading}
               compacting={runKind === "compact"}
               onSubmit={handleSubmit}
@@ -411,9 +322,6 @@ function AppContent() {
               onStopJob={stopJob}
               supportsImages={supportsImageInput}
               supportsDocuments={supportsPdfInput}
-              files={attachments}
-              onAttachFiles={handleAttachFiles}
-              onRemoveFile={handleRemoveAttachment}
               config={config}
               remoteConfig={remoteConfig}
               onUpdateConfig={handleConfigUpdate}
@@ -436,7 +344,6 @@ function AppContent() {
       />
 
       <SettingsPanel
-        key={settingsPanelKey(settingsOpen, settingsResponse)}
         open={settingsOpen}
         onClose={() => setSettingsOpen(false)}
         settings={settingsResponse}
