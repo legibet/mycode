@@ -10,9 +10,14 @@ import { Clock, Folder, FolderOpen, Search, X } from "lucide-react";
 import { type KeyboardEvent, type ReactNode, useCallback, useMemo, useRef, useState } from "react";
 import useSWR from "swr";
 
+import {
+  fetchJson,
+  type WorkspaceBrowseResponse,
+  type WorkspaceDirEntry,
+  type WorkspaceRootsResponse,
+} from "@/api";
 import { Button } from "@/components/ui/button";
 import { ResponsiveDialog } from "@/components/ui/responsive-dialog";
-import type { WorkspaceBrowseResponse, WorkspaceEntry, WorkspaceRootsResponse } from "@/types";
 import { cn } from "@/utils/cn";
 import { shouldAutoFocusTextInputOnOpen } from "@/utils/focus";
 
@@ -41,7 +46,7 @@ const toRelativePath = (root: string, absolutePath: string): string => {
 };
 
 const EMPTY_HISTORY: string[] = [];
-const EMPTY_ENTRIES: WorkspaceEntry[] = [];
+const EMPTY_ENTRIES: WorkspaceDirEntry[] = [];
 
 const rootLabel = (value: string): string => {
   if (!value || value === "/" || value === "\\") return "/";
@@ -54,16 +59,11 @@ const rootLabel = (value: string): string => {
 // ─── data fetching ──────────────────────────────────────────────────────────
 
 async function rootsFetcher(url: string): Promise<string[]> {
-  const res = await fetch(url);
-  if (!res.ok) throw new Error("Failed to load roots");
-  const data = (await res.json()) as WorkspaceRootsResponse;
-  return data.roots ?? [];
+  return (await fetchJson<WorkspaceRootsResponse>(url)).roots;
 }
 
 async function browseFetcher(url: string): Promise<WorkspaceBrowseResponse> {
-  const res = await fetch(url);
-  if (!res.ok) throw new Error("Failed to browse directory");
-  const data = (await res.json()) as WorkspaceBrowseResponse;
+  const data = await fetchJson<WorkspaceBrowseResponse>(url);
   if (data.error) throw new Error(data.error);
   return data;
 }
@@ -175,7 +175,7 @@ export function WorkspacePicker({
   const filteredEntries = useMemo(() => {
     const trimmed = filter.trim().toLowerCase();
     if (!trimmed) return entries;
-    return entries.filter((e: WorkspaceEntry) => e.name.toLowerCase().includes(trimmed));
+    return entries.filter((e: WorkspaceDirEntry) => e.name.toLowerCase().includes(trimmed));
   }, [filter, entries]);
 
   const browseTo = useCallback((nextRoot: string, nextPath: string) => {
@@ -228,9 +228,7 @@ export function WorkspacePicker({
           path: toRelativePath(matched, cwd),
         });
         if (!key) return false;
-        const res = await fetch(key);
-        if (!res.ok) return false;
-        const data = (await res.json()) as WorkspaceBrowseResponse;
+        const data = await fetchJson<WorkspaceBrowseResponse>(key);
         return Boolean(data.current && !data.error);
       } catch {
         return false;

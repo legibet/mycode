@@ -70,15 +70,3 @@ export function matchAtQuery(textBeforeCursor: string): AtQuery | null {
 export function dirTokenText(path: string): string {
   return path.includes(" ") ? `@"${path}` : `@${path}`;
 }
-
-export interface WorkspaceEntry {
-  name: string;
-  path: string;
-  kind: "directory" | "text" | "image" | "document";
-}
-
-export interface WorkspaceFilesResponse {
-  entries: WorkspaceEntry[];
-  truncated: boolean;
-  error: string;
-}

@@ -10,6 +10,14 @@
 import { Laptop, Loader2, Moon, Plus, Sun, X } from "lucide-react";
 import { type ReactNode, useCallback, useMemo, useState } from "react";
 
+import {
+  fetchJson,
+  type PermissionLevel,
+  type PermissionMode,
+  type SettingsResponse,
+  type WebFetchProvider,
+  type WebSearchProvider,
+} from "@/api";
 import { ApiKeyInput, envRefHint } from "@/components/settings/ApiKeyInput";
 import { Field } from "@/components/settings/Field";
 import { ProviderCard } from "@/components/settings/ProviderCard";
@@ -27,14 +35,7 @@ import { Input } from "@/components/ui/input";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
 import { ResponsiveDialog } from "@/components/ui/responsive-dialog";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
-import type {
-  PermissionLevel,
-  PermissionMode,
-  SettingsResponse,
-  Theme,
-  WebFetchProvider,
-  WebSearchProvider,
-} from "@/types";
+import type { Theme } from "@/types";
 import { cn } from "@/utils/cn";
 import { prettifyPath } from "@/utils/format";
 
@@ -206,20 +207,11 @@ export function SettingsPanel({
     setSaving(true);
     setError(null);
     try {
-      const res = await fetch("/api/settings", {
+      const updated = await fetchJson<SettingsResponse>("/api/settings", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ config: buildPayload(draft) }),
       });
-      if (!res.ok) {
-        let message = `Save failed (${res.status})`;
-        try {
-          const data = (await res.json()) as { detail?: string };
-          if (data?.detail) message = data.detail;
-        } catch {}
-        throw new Error(message);
-      }
-      const updated = (await res.json()) as SettingsResponse;
       setDraft(buildDraft(updated.config));
       onSettingsSaved?.(updated);
       onClose();

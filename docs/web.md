@@ -7,7 +7,8 @@ The React + Vite UI in `web/src/`, served by the CLI server — serving modes an
 ```text
 web/src/
   App.tsx                    # root layout, config loading, session init
-  types.ts                   # API, message, and UI types
+  api.ts                     # HTTP wire types, fetchJson / readApiError, run stream SSE reader
+  types.ts                   # message, render, and UI types
   components/
     composer/                # InputArea (composer controls, uploads, in-flight card), Lexical Composer, pickers, PermissionPrompt
     messages/                # MessageList (windowing, scroll), MessageBubble, WorkSection, ToolCard, markers, StatsCard
@@ -18,12 +19,13 @@ web/src/
     MobileHeader.tsx
     ThemeProvider.tsx
   hooks/
-    useChat.ts                 # chat state and SSE streaming
+    useChat.ts                 # sessions, requests, and run streaming
+    chatState.ts               # chat reducer, input blocks, pending items, run event routing
     useWorkspaceFiles.ts       # @ completion candidates
   utils/
     format.ts                  # cost, duration, path, and date formatting
     platform.ts                # macOS detection for shortcut modifiers
-    messages.ts                # canonical messages → render messages
+    messages.ts                # canonical messages → render messages, current context
     diff.ts                    # edit patch → diff hunks
     completion.ts              # slash, skill, and @ token matching
     config.ts                  # local and remote config resolution
@@ -34,13 +36,14 @@ Tests live beside the code they cover. `src/test/setup.ts` contains the shared V
 
 ## Message State Model
 
-`useChat.ts` keeps four pieces of reducer state:
+`useChat.ts` runs the reducer in `hooks/chatState.ts`, which holds the shown session's state:
 
 - `rawMessages: ChatMessage[]` — canonical block messages (mirrors the JSONL timeline; includes `role: "compact"` markers)
 - `toolRuntimeById` — ephemeral tool runtime state (streaming output, pending flags, final result)
 - `sessionUsage` — session token and cost totals from session load or the latest SSE `usage`; `null` when unknown
 - `pending: {steers, queue}` — messages handed to the running chat and not yet delivered. Each `PendingInput` has a client-generated `id` (sent as `input_id`), the composer submission and uploads for restoring it, and the request `input` blocks. Loading a session sets it from the snapshot's `pending` (id from `meta.input_id`, typed text only; an item whose message carries attachment blocks is `partial`, since the composer cannot rebuild what the server built); a session switch clears it
 - `jobs: BackgroundJobInfo[]` — the background commands running in the shown session: the snapshot's `jobs`, then kept current by the job events of `GET /api/events`. It lives in the reducer so every `set_messages` (session load, switch, new draft, workspace change) resets it with the rest
+- `permissions: PermissionRequest[]` — tool calls waiting for approval; `pendingPermission` is the first. `permission_request` adds one, `permission_resolved` removes it, `cancelled` and `set_messages` clear them, so a snapshot's `pending_events` rebuild them on load
 
 The render-ready list `messages: RenderMessage[]` (where `RenderMessage = ChatMessage | CompactMarkerMessage | JobMarkerMessage`) is derived via `useMemo(buildRenderMessages(rawMessages, toolRuntimeById, runningJobIds))`. There is no second copy of state to keep in sync — every reducer transition produces a new `rawMessages` and/or `toolRuntimeById` reference and the projection is recomputed.
 
@@ -56,6 +59,7 @@ The reducer runs eagerly into a ref that mirrors React state, so request and str
 - `rollback` — restore the snapshot taken before an optimistic turn
 - `job_started` / `job_finished` — the `/api/events` job events for the shown session
 - `add_pending` / `move_pending` / `remove_pending` / `clear_pending` — edit the pending lists
+- `clear_permissions` — Stop, whose aborted stream never sees `cancelled`
 
 `buildRenderMessages()` in `utils/messages.ts` is the single projection used by both initial load and live streaming. A turn runs from a real user message to the next one and renders as one assistant bubble: tool results visually attach to their `tool_use`, the assistant messages of a tool loop merge, and automatic compaction stays inside the turn. A live `compact` SSE event appends a `{role: "compact", meta: {trigger}}` entry to `rawMessages`, which the next render projects the same way as the persisted marker.
 
@@ -73,7 +77,7 @@ Usage stats (`components/messages/StatsCard.tsx`):
 - The composer shows `context % · session cost`; each assistant footer shows `model · turn cost`. On mobile the composer drops the cost when a percentage is shown.
 - Either opens a card on hover or tap. `UsageGrid` lists Input (excluding cache), Cache read, Cache write, Output (including reasoning), and Total. A known cost adds a cost column: filled per row when the cost has a breakdown, always on Total.
 - The session card adds `Context` and `Cache hit` (cache read ÷ input, only when the provider reports caching) above the table.
-- `currentContext` is the latest context occupancy after the last compact marker.
+- `currentContext()` in `utils/messages.ts` reads the latest context occupancy from the render messages after the last compact marker.
 - The percentage turns `destructive` at 90% of the `compact_threshold` from `GET /api/config`, or of the window when auto-compact is off.
 
 Key design decisions:
@@ -116,9 +120,11 @@ Any scroll input (wheel, touch, pointer, key) ends the hold. Manual toggles need
 
 ## Streaming
 
-`useChat.ts` follows the `docs/api.md` contract: `POST /api/chat` returns `{run, session, message}`; `GET /api/runs/{run_id}/stream` feeds each `data:` line into the reducer as a `StreamEvent`; `data: [DONE]` ends the stream. On disconnect the UI reloads via `GET /api/sessions/{id}`; a 409 on send attaches to the existing run's stream.
+`useChat.ts` follows the `docs/api.md` contract, with the wire types in `api.ts`: `POST /api/chat` returns `{run, session, message}`; `readSse()` turns the `data:` lines of `GET /api/runs/{run_id}/stream` into `StreamEvent`s and `data: [DONE]` into `SSE_DONE`. On disconnect the UI reloads via `GET /api/sessions/{id}`; a 409 on send attaches to the existing run's stream. `readApiError()` reads a FastAPI `detail` (a string, `{message, run}`, or a validation list) into an `ApiError` with the message, status and any `run`; `fetchJson()` throws it for a non-OK response. Requests that branch on status (409 attach, 404 already delivered) read it themselves.
 
-Runs this client did not start, such as a session woken by a finished background command, are announced on `GET /api/events`. `useChat` keeps one `EventSource` open for the page lifetime; the browser reconnects it. Every event refreshes the session list, so `is_running` is right for other sessions. A `run_started` for the shown session whose run this client is not already following syncs the session: idle (no run stream, no chat or compact request in flight), the session load runs at once and attaches to `active_run`, keeping the composer draft; otherwise the run id is kept in a resync flag and the load runs when the current stream ends. Attaching to that run first, as happens when it is the run this client's own `POST /api/chat` returned, clears the flag. There is no replay, so a reconnect syncs the same way. A draft session is never synced, and any session load clears the flag.
+`routeRunEvents()` in `chatState.ts` routes a followed run's events, live from the stream or replayed from a snapshot's `pending_events`: whether the run ended stopped or failed (`cancelled` or `error`), and which events reach the reducer. A chat run applies every event; a compact run applies only `compact`, and its `error` sets `compactError`.
+
+Runs this client did not start, such as a session woken by a finished background command, are announced on `GET /api/events`. `useChat` keeps one `EventSource` open for the page lifetime; the browser reconnects it. Every event refreshes the session list, so `is_running` is right for other sessions. A `run_started` for the shown session whose run this client is not already following syncs the session: idle (no run stream, no chat or compact start request in flight), the session load runs at once and attaches to `active_run`, keeping the composer draft; otherwise the run id is kept in a resync flag and the load runs when the current stream ends. Attaching to that run first, as happens when it is the run this client's own `POST /api/chat` returned, clears the flag. There is no replay, so a reconnect syncs the same way. A draft session is never synced, and any session load clears the flag.
 
 A live `compact` SSE event is consumed by the reducer at the position it arrives — the marker lands between whatever just streamed and whatever streams next, mirroring where the agent emitted it (e.g. between two tool calls of the same turn). The server has already persisted the `compact` JSONL record at the same point with the same `trigger`, so a later session reload renders the same result without any extra round-trip.
 
@@ -141,21 +147,26 @@ When a chat stream ends, the pending lists are emptied in one step:
 
 `useChat` hands restored items to its `onRestore` callback; `App` puts the text into the composer through `InputArea`'s `prepend` handle, which rebuilds `@path` pills from the submission's references.
 
-`permission_request` opens the approval prompt and `permission_resolved` clears it. `cancelled` clears pending permissions and tool activity without adding an error message.
+`permission_request` opens the approval prompt and `permission_resolved` clears it. `cancelled` clears pending permissions and tool activity without adding an error message. Permissions live in the reducer, so replayed events restore the prompt the same way.
 
 A chat `error` event adds no content. `markTailAssistantStopped()` sets `meta.stop_reason: "error"` and `meta.error` (the event message, else `Unknown error`) on the tail assistant, creating an empty one when the tail is not an assistant, so an error before any output still has a bubble. When the SDK persisted a failed assistant record it carries the same `meta.error`, so a reload renders the same row; an error before any assistant record (a 401 before output, a failure between tool rounds) shows live only. A rejected send is a request failure, not a turn outcome: it rolls back and sets `sendError`, which `MessageList` renders at the tail in the same style as the error line. The next send, rewind, compaction or session switch clears it.
 
 Streaming state tracking:
 
 - `streamTokenRef` — incremented to invalidate stale streams
-- `pendingRequestTokenRef` — deduplicates concurrent send requests
+- `pendingRequestTokenRef` — token of the start request in flight (`POST /api/chat` or `POST .../compact`), `0` when none; a newer request or a session switch replaces it, and the older response is abandoned
+- `stoppedRequestTokenRef` — the start request in flight at Stop; the run its response names is stopped on arrival
+- `sessionRequestTokenRef` — invalidates session loads superseded by a newer load or a workspace change
 - `activeRunRef` — tracks the current run for cancel
+- `resyncRef` — a run announced on `/api/events` to sync once the current stream or start request ends
+- `inflightRef` — steer, queue and move requests a stream end waits for
 - `runKind: "chat" | "compact" | null` — kind of the run being followed; `loading` derives from it, and `MessageList` treats the tail assistant as streaming only for chat runs
 
 Manual compaction (`/compact`):
 
 - `compactSession()` posts `POST /api/sessions/{id}/compact` with the active provider/model and streams the returned `kind: "compact"` run through the normal SSE reader. No optimistic user/assistant message is created; a 409 attaches to the existing run using its `kind`.
-- Compact runs send only `compact` to the reducer; errors set `compactError`; `cancelled` is a stop and does not. On completion, the UI reloads persisted history and session cost. Pending-event replay follows the same routing.
+- The request takes a `pendingRequestTokenRef` token like a chat send. Stop while it is in flight keeps the compaction busy and stops the run its response names; a session switch abandons the response.
+- Compact runs send only `compact` to the reducer; errors set `compactError`; `cancelled` is a stop and does not. On completion, the UI reloads persisted history and session cost. Pending-event replay follows the same routing (`routeRunEvents()`).
 - Compacting feedback lives in the message area, not the toolbar: while a compact run is active, `MessageList` renders a pending `CompactMarker` (same divider geometry, pulsing `compacting…` label) at the tail, which settles into the real `compacted` divider when the marker arrives. Failures render a quiet inline note (`compaction failed` / `nothing to compact`, full detail in `title`) in the same position from `compactError`, which clears on the next run or session change. The input area only reflects the shared busy state (disabled composer + stop button).
 
 Composer and attachments:

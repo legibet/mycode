@@ -2,8 +2,8 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import type { SessionSearchHit } from "@/api";
 import { SessionSearch } from "@/components/sidebar/SessionSearch";
-import type { SessionSearchHit } from "@/types";
 
 function hit(
   id: string,

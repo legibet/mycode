@@ -2,8 +2,8 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
+import type { SettingsResponse } from "@/api";
 import { SettingsPanel } from "@/components/settings/SettingsPanel";
-import type { SettingsResponse } from "@/types";
 
 vi.mock("@/hooks/useMediaQuery", () => ({
   useIsDesktop: () => true,

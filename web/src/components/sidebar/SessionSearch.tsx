@@ -9,6 +9,7 @@
 
 import { useEffect, useRef, useState } from "react";
 
+import { fetchJson, type SessionSearchHit, type SessionSearchResponse } from "@/api";
 import {
   Command,
   CommandEmpty,
@@ -17,7 +18,6 @@ import {
   CommandList,
 } from "@/components/ui/command";
 import { ResponsiveDialog } from "@/components/ui/responsive-dialog";
-import type { SessionSearchHit, SessionSearchResponse } from "@/types";
 import { formatShortDate, parseDate } from "@/utils/format";
 
 const DEBOUNCE_MS = 250;
@@ -92,11 +92,9 @@ function SearchPanel({
     const timer = setTimeout(async () => {
       try {
         const params = new URLSearchParams({ q: query, cwd });
-        const res = await fetch(`/api/sessions/search?${params}`, {
+        const data = await fetchJson<SessionSearchResponse>(`/api/sessions/search?${params}`, {
           signal: controller.signal,
         });
-        if (!res.ok) throw new Error(`Search failed: ${res.status}`);
-        const data = (await res.json()) as SessionSearchResponse;
         if (controller.signal.aborted) return;
         setSearch({ query, results: data.results, failed: false });
       } catch {

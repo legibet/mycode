@@ -7,6 +7,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import useSWR from "swr";
 
+import { fetchJson, type RemoteConfig, type SettingsResponse } from "@/api";
 import { InputArea, type InputAreaHandle } from "@/components/composer/InputArea";
 import { PermissionPrompt } from "@/components/composer/PermissionPrompt";
 import { MessageList } from "@/components/messages/MessageList";
@@ -20,14 +21,7 @@ import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useChat } from "@/hooks/useChat";
 import { useIsDesktop } from "@/hooks/useMediaQuery";
-import type {
-  AttachedFile,
-  ComposerSubmission,
-  LocalConfig,
-  PendingInput,
-  RemoteConfig,
-  SettingsResponse,
-} from "@/types";
+import type { AttachedFile, ComposerSubmission, LocalConfig, PendingInput } from "@/types";
 import type { SlashCommand } from "@/utils/completion";
 import { normalizeConfigWithRemoteDefaults } from "@/utils/config";
 import { isMac } from "@/utils/platform";
@@ -46,21 +40,6 @@ import {
   saveHistory,
   saveSidebarWidth,
 } from "@/utils/storage";
-
-async function fetchJson<T>(url: string): Promise<T> {
-  const response = await fetch(url);
-  if (!response.ok) {
-    let message = `Request failed with status ${response.status}`;
-    try {
-      const data = await response.json();
-      if (typeof data?.detail === "string" && data.detail) {
-        message = data.detail;
-      }
-    } catch {}
-    throw new Error(message);
-  }
-  return response.json() as Promise<T>;
-}
 
 function modelSupports(
   remoteConfig: RemoteConfig | null,

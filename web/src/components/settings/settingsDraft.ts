@@ -10,7 +10,7 @@ import type {
   PermissionMode,
   WebFetchProvider,
   WebSearchProvider,
-} from "@/types";
+} from "@/api";
 
 export type WebKeyProvider = "tavily" | "exa";
 

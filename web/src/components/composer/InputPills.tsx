@@ -3,6 +3,7 @@
 import { Check, ChevronDown } from "lucide-react";
 import { memo, useState } from "react";
 
+import type { RemoteConfig } from "@/api";
 import { Button } from "@/components/ui/button";
 import {
   Command,
@@ -19,7 +20,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import type { LocalConfig, ReasoningEffort, RemoteConfig } from "@/types";
+import type { LocalConfig, ReasoningEffort } from "@/types";
 import { cn } from "@/utils/cn";
 import { getReasoningEffort, getReasoningEffortOptions, reasoningEffortKey } from "@/utils/config";
 

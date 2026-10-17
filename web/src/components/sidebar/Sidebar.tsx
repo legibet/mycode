@@ -11,10 +11,11 @@
 import { Plus, Search, Settings as SettingsIcon, Terminal, Trash2 } from "lucide-react";
 import { type CSSProperties, memo, useMemo, useState } from "react";
 
+import type { RemoteConfig } from "@/api";
 import { WorkspacePicker } from "@/components/sidebar/WorkspacePicker";
 import { Button } from "@/components/ui/button";
 import { SimpleTooltip } from "@/components/ui/tooltip";
-import type { LocalConfig, RemoteConfig, SessionSummary } from "@/types";
+import type { LocalConfig, SessionSummary } from "@/types";
 import { cn } from "@/utils/cn";
 import { formatShortDate, parseDate, prettifyPath } from "@/utils/format";
 import { isMac } from "@/utils/platform";

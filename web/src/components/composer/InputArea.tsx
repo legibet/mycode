@@ -17,6 +17,7 @@ import {
   useState,
 } from "react";
 
+import type { BackgroundJobInfo, RemoteConfig, SkillInfo } from "@/api";
 import { Composer, type ComposerHandle } from "@/components/composer/Composer";
 import { InFlightCard } from "@/components/composer/InFlightCard";
 import { EffortTrigger, ModelTrigger } from "@/components/composer/InputPills";
@@ -31,12 +32,9 @@ import { Button } from "@/components/ui/button";
 import { SimpleTooltip } from "@/components/ui/tooltip";
 import type {
   AttachedFile,
-  BackgroundJobInfo,
   ComposerSubmission,
   LocalConfig,
   PendingInput,
-  RemoteConfig,
-  SkillInfo,
   UsageTotals,
 } from "@/types";
 import { cn } from "@/utils/cn";

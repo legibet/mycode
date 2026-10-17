@@ -5,503 +5,43 @@
 
 import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import {
-  isCurrentSendRequest,
-  isCurrentWorkspaceRequest,
-  resolveInitialSessionId,
-} from "@/hooks/sessionSelection";
 import type {
-  AttachedFile,
-  BackgroundJobInfo,
-  ChatErrorResponse,
-  ChatMessage,
   ChatResponse,
-  CompactResponse,
-  ComposerSubmission,
-  LocalConfig,
-  MessageMeta,
-  PendingInput,
-  PendingInputs,
-  PendingMessage,
-  PermissionRequest,
   RemoteConfig,
   RunInfo,
   RunKind,
+  RunResponse,
   ServerEvent,
   SessionResponse,
-  SessionSummary,
   SessionsResponse,
-  StreamEvent,
-  ToolRuntime,
-  UsageTotals,
-  WorkspaceFileReference,
-} from "@/types";
-import { isChatMessage, isCompactMarker } from "@/types";
-import { getReasoningEffortOverride } from "@/utils/config";
-import { randomId } from "@/utils/id";
+} from "@/api";
+import { fetchJson, readApiError, readSse, SSE_DONE } from "@/api";
 import {
-  appendAssistantDelta,
-  appendToolResult,
-  appendToolUse,
-  buildRenderMessages,
-  createAssistantMessage,
-  createUserMessage,
-  createUserTextMessage,
-  isJobBlock,
-  markTailAssistantStopped,
-  readUsageTotals,
-  updateLatestAssistantMeta,
-  updateLatestThinkingDuration,
-} from "@/utils/messages";
+  buildInputBlocks,
+  type ChatAction,
+  chatReducer,
+  createDraftSession,
+  createPendingInput,
+  dedupeWorkspaceFiles,
+  INITIAL_CHAT_STATE,
+  pendingFromMessage,
+  resolveInitialSessionId,
+  routeRunEvents,
+} from "@/hooks/chatState";
+import type {
+  AttachedFile,
+  ComposerSubmission,
+  LocalConfig,
+  PendingInput,
+  PendingInputs,
+  SessionSummary,
+} from "@/types";
+import { getReasoningEffortOverride } from "@/utils/config";
+import { buildRenderMessages, currentContext, readUsageTotals } from "@/utils/messages";
 import { loadActiveSession, removeActiveSession, saveActiveSession } from "@/utils/storage";
-
-const DEFAULT_SESSION_TITLE = "New chat";
-
-interface ChatState {
-  messageSessionId: string | null;
-  rawMessages: ChatMessage[];
-  toolRuntimeById: Record<string, ToolRuntime>;
-  /** Session cumulative usage and cost; null when unknown. Set on session
-   * load, updated live by SSE usage events. */
-  sessionUsage: UsageTotals | null;
-  /** Snapshot of rawMessages taken before the latest optimistic turn.
-   * Used by 'rollback' to restore state when the request fails. */
-  preTurnRawMessages: ChatMessage[] | null;
-  /** Steers and queued messages handed to the running chat and not yet
-   * delivered by a `user_message` event. */
-  pending: PendingInputs;
-  /** Background commands running in this session, from the snapshot and the job events. */
-  jobs: BackgroundJobInfo[];
-}
-
-const NO_PENDING: PendingInputs = { steers: [], queue: [] };
-
-const INITIAL_CHAT_STATE: ChatState = {
-  messageSessionId: null,
-  rawMessages: [],
-  toolRuntimeById: {},
-  sessionUsage: null,
-  preTurnRawMessages: null,
-  pending: NO_PENDING,
-  jobs: [],
-};
-
-type ChatAction =
-  | {
-      type: "set_messages";
-      messages: ChatMessage[];
-      sessionId?: string | null;
-      sessionUsage?: UsageTotals | null;
-      replayEvents?: StreamEvent[];
-      expectedSessionId?: string | null;
-      pending?: PendingInputs;
-      jobs?: BackgroundJobInfo[];
-    }
-  | {
-      type: "start_turn";
-      content: string;
-      attachments?: AttachedFile[];
-      workspaceFiles?: WorkspaceFileReference[];
-    }
-  | { type: "rewind_and_start_turn"; rewindTo: number; content: string }
-  | { type: "accept_turn"; message: ChatMessage }
-  | { type: "apply_event"; event: StreamEvent }
-  | { type: "rollback" }
-  | { type: "job_started"; job: BackgroundJobInfo }
-  | { type: "job_finished"; toolUseId: string }
-  | { type: "add_pending"; list: keyof PendingInputs; item: PendingInput }
-  | { type: "move_pending"; id: string; to: keyof PendingInputs }
-  | { type: "remove_pending"; id: string }
-  | { type: "clear_pending" };
 
 function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "Unknown error";
-}
-
-function getErrorDetail(
-  data: ChatResponse | CompactResponse | ChatErrorResponse,
-): ChatErrorResponse["detail"] {
-  return "detail" in data ? data.detail : undefined;
-}
-
-function getRunFromDetail(detail: ChatErrorResponse["detail"]): RunInfo | null {
-  if (Array.isArray(detail)) return null;
-  return typeof detail === "object" && detail?.run ? detail.run : null;
-}
-
-function getMessageFromDetail(detail: ChatErrorResponse["detail"], fallback: string): string {
-  if (typeof detail === "string" && detail) return detail;
-  if (Array.isArray(detail)) {
-    const firstMessage = detail.find((item) => item.msg)?.msg;
-    return firstMessage || fallback;
-  }
-  if (detail && typeof detail === "object" && detail.message) {
-    return detail.message;
-  }
-  return fallback;
-}
-
-function createDraftSession(): SessionSummary {
-  return { id: randomId(), title: DEFAULT_SESSION_TITLE, isDraft: true };
-}
-
-/** Map a pending upload attachment to a /api/chat input block. */
-function attachmentToInputBlock(attachment: AttachedFile): Record<string, unknown> {
-  if (attachment.kind === "text") {
-    return {
-      type: "text",
-      text: attachment.text,
-      name: attachment.name,
-      is_attachment: true,
-    };
-  }
-  return {
-    type: attachment.kind === "image" ? "image" : "document",
-    data: attachment.data,
-    mime_type: attachment.mime_type,
-    name: attachment.name,
-  };
-}
-
-/** Map an inline @ workspace reference to a /api/chat path input block. */
-function workspaceRefToInputBlock(ref: WorkspaceFileReference): Record<string, unknown> {
-  if (ref.kind === "text") {
-    // Server reads the file into the same <file> snapshot as CLI @file;
-    // the path doubles as the display name.
-    return {
-      type: "text",
-      path: ref.path,
-      name: ref.path,
-      is_attachment: true,
-    };
-  }
-  return {
-    type: ref.kind,
-    path: ref.path,
-    name: ref.name,
-    is_attachment: true,
-  };
-}
-
-/** Drop duplicate @ references so a file only enters the context once. */
-function dedupeWorkspaceFiles(refs: WorkspaceFileReference[]): WorkspaceFileReference[] {
-  const seen = new Set<string>();
-  return refs.filter((ref) => {
-    const key = `${ref.kind}:${ref.path}`;
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
-}
-
-/** Request input blocks for a submission, the shape /api/chat takes. */
-function buildInputBlocks(
-  content: string,
-  workspaceFiles: WorkspaceFileReference[],
-  attachments: AttachedFile[],
-): Record<string, unknown>[] {
-  return [
-    ...(content ? [{ type: "text", text: content }] : []),
-    ...workspaceFiles.map(workspaceRefToInputBlock),
-    ...attachments.map(attachmentToInputBlock),
-  ];
-}
-
-function createPendingInput(
-  submission: ComposerSubmission,
-  attachments: AttachedFile[] = [],
-): PendingInput | null {
-  const text = submission.text.trim();
-  const workspaceFiles = submission.workspaceFiles;
-  if (!text && !workspaceFiles.length && !attachments.length) return null;
-  return {
-    id: randomId(),
-    submission: { text, workspaceFiles },
-    attachments,
-    input: buildInputBlocks(text, dedupeWorkspaceFiles(workspaceFiles), attachments),
-  };
-}
-
-/** A pending message from a session snapshot. Only its typed text survives:
- * skills expand again on resend, but the attachments the server built are
- * not the composer's uploads and references, so the item is partial. */
-function pendingFromMessage(message: PendingMessage): PendingInput {
-  const texts: string[] = [];
-  let partial = false;
-  for (const block of message.content) {
-    const meta = block.meta ?? {};
-    if (meta["skill_snapshot"]) continue;
-    if (block.type !== "text" || meta["attachment"]) partial = true;
-    else if (block.text) texts.push(block.text);
-  }
-  const text = texts.join("\n\n");
-  return {
-    id: message.meta.input_id,
-    submission: { text, workspaceFiles: [] },
-    attachments: [],
-    input: text ? [{ type: "text", text }] : [],
-    ...(partial ? { partial } : {}),
-  };
-}
-
-function withoutPending(pending: PendingInputs, ids: ReadonlySet<string>): PendingInputs {
-  const keep = (item: PendingInput) => !ids.has(item.id);
-  return {
-    steers: pending.steers.filter(keep),
-    queue: pending.queue.filter(keep),
-  };
-}
-
-function chatReducer(state: ChatState, action: ChatAction): ChatState {
-  switch (action.type) {
-    case "set_messages": {
-      if (action.expectedSessionId != null && state.messageSessionId !== action.expectedSessionId) {
-        return state;
-      }
-
-      let nextState: ChatState = {
-        messageSessionId: action.sessionId ?? state.messageSessionId,
-        rawMessages: action.messages,
-        toolRuntimeById: {},
-        sessionUsage: action.sessionUsage ?? null,
-        preTurnRawMessages: null,
-        pending: action.pending ?? NO_PENDING,
-        jobs: action.jobs ?? [],
-      };
-
-      for (const event of action.replayEvents || []) {
-        nextState = chatReducer(nextState, { type: "apply_event", event });
-      }
-
-      return nextState;
-    }
-
-    case "start_turn": {
-      const { content, attachments, workspaceFiles } = action;
-      // PDFs can be large enough to freeze history rendering after a failed send.
-      const uiAttachments = attachments?.map((attachment) =>
-        attachment.kind === "document" ? { ...attachment, data: "" } : attachment,
-      );
-      const hasBlocks = Boolean(uiAttachments?.length || workspaceFiles?.length);
-      return {
-        ...state,
-        rawMessages: [
-          ...state.rawMessages,
-          hasBlocks
-            ? createUserMessage(content, uiAttachments ?? [], workspaceFiles)
-            : createUserTextMessage(content),
-          createAssistantMessage([]),
-        ],
-        preTurnRawMessages: state.rawMessages,
-      };
-    }
-
-    case "rewind_and_start_turn": {
-      return {
-        ...state,
-        rawMessages: [
-          ...state.rawMessages.slice(0, action.rewindTo),
-          createUserTextMessage(action.content),
-          createAssistantMessage([]),
-        ],
-        toolRuntimeById: {},
-        preTurnRawMessages: state.rawMessages,
-      };
-    }
-
-    case "accept_turn": {
-      // The server's copy of the sent message carries the background results
-      // that waited for it; the client's own rendering of the input stays.
-      const results = action.message.content.filter(isJobBlock);
-      const index = state.rawMessages.findLastIndex((m) => m.role === "user");
-      const message = state.rawMessages[index];
-      if (!results.length || !message) return state;
-      return {
-        ...state,
-        rawMessages: state.rawMessages.with(index, {
-          ...message,
-          content: [...results, ...message.content],
-        }),
-      };
-    }
-
-    case "job_started": {
-      const { job } = action;
-      if (state.jobs.some((item) => item.tool_use_id === job.tool_use_id)) {
-        return state;
-      }
-      return { ...state, jobs: [...state.jobs, job] };
-    }
-
-    case "job_finished":
-      return {
-        ...state,
-        jobs: state.jobs.filter((job) => job.tool_use_id !== action.toolUseId),
-      };
-
-    case "rollback": {
-      const snapshot = state.preTurnRawMessages;
-      if (!snapshot) return state;
-      return {
-        ...state,
-        rawMessages: snapshot,
-        toolRuntimeById: {},
-        preTurnRawMessages: null,
-      };
-    }
-
-    case "add_pending": {
-      const { list, item } = action;
-      return {
-        ...state,
-        pending: { ...state.pending, [list]: [...state.pending[list], item] },
-      };
-    }
-
-    case "move_pending": {
-      const { id, to } = action;
-      const item = [...state.pending.steers, ...state.pending.queue].find(
-        (pending) => pending.id === id,
-      );
-      if (!item) return state;
-      const pending = withoutPending(state.pending, new Set([id]));
-      return {
-        ...state,
-        pending: { ...pending, [to]: [...pending[to], item] },
-      };
-    }
-
-    case "remove_pending":
-      return {
-        ...state,
-        pending: withoutPending(state.pending, new Set([action.id])),
-      };
-
-    case "clear_pending":
-      return { ...state, pending: NO_PENDING };
-
-    case "apply_event": {
-      const { event } = action;
-      let rawMessages = state.rawMessages;
-      const toolRuntimeById = { ...state.toolRuntimeById };
-
-      if (event.type === "reasoning") {
-        rawMessages = appendAssistantDelta(rawMessages, "thinking", event.delta || "");
-      } else if (event.type === "reasoning_done") {
-        const durationMs = event.duration_ms;
-        if (typeof durationMs === "number") {
-          rawMessages = updateLatestThinkingDuration(rawMessages, durationMs);
-        }
-      } else if (event.type === "text") {
-        rawMessages = appendAssistantDelta(rawMessages, "text", event.delta || "");
-      } else if (event.type === "tool_start") {
-        const toolCall = event.tool_call || {};
-        rawMessages = appendToolUse(rawMessages, toolCall);
-        if (toolCall.id) {
-          toolRuntimeById[toolCall.id] = {
-            pending: true,
-            output: "",
-            finalOutput: null,
-            metadata: null,
-            isError: false,
-          };
-        }
-      } else if (event.type === "tool_output") {
-        const toolUseId = event.tool_use_id || "";
-        if (toolUseId) {
-          const current = toolRuntimeById[toolUseId] || {
-            pending: true,
-            output: "",
-            finalOutput: null,
-            metadata: null,
-            isError: false,
-          };
-          const nextOutput = event.output || "";
-          toolRuntimeById[toolUseId] = {
-            ...current,
-            pending: true,
-            output: `${current.output}${nextOutput}`,
-          };
-        }
-      } else if (event.type === "tool_done") {
-        const toolUseId = event.tool_use_id || "";
-        const finalOutput = event.output || "";
-        const metadata = event.metadata ?? null;
-        const isError = Boolean(
-          event.is_error || (typeof finalOutput === "string" && finalOutput.startsWith("error:")),
-        );
-
-        if (toolUseId) {
-          const current = toolRuntimeById[toolUseId] || {
-            pending: false,
-            output: "",
-            finalOutput: null,
-            metadata: null,
-            isError: false,
-          };
-          toolRuntimeById[toolUseId] = {
-            ...current,
-            pending: false,
-            finalOutput,
-            metadata,
-            isError,
-          };
-          rawMessages = appendToolResult(rawMessages, toolUseId, finalOutput, metadata, isError);
-        }
-      } else if (event.type === "error") {
-        rawMessages = markTailAssistantStopped(
-          rawMessages,
-          "error",
-          event.message || "Unknown error",
-        );
-      } else if (event.type === "cancelled") {
-        for (const [id, runtime] of Object.entries(toolRuntimeById)) {
-          if (runtime.pending) {
-            toolRuntimeById[id] = { ...runtime, pending: false, isError: true };
-          }
-        }
-        rawMessages = markTailAssistantStopped(rawMessages, "cancelled");
-      } else if (event.type === "usage") {
-        // The event carries the turn's cumulative values, so replace the
-        // previous snapshot instead of summing it again.
-        const patch: Partial<MessageMeta> = {
-          context_tokens: event.context_tokens ?? null,
-          turn_usage: event.turn_usage ?? {},
-          turn_cost: event.turn_cost ?? null,
-          turn_duration_ms: event.turn_duration_ms ?? null,
-        };
-        if (typeof event.context_window === "number") {
-          patch.context_window = event.context_window;
-        }
-        if (event.model) patch.model = event.model;
-        rawMessages = updateLatestAssistantMeta(rawMessages, patch);
-        return {
-          ...state,
-          rawMessages,
-          toolRuntimeById,
-          sessionUsage: readUsageTotals(event.session_usage, event.session_cost),
-        };
-      } else if (event.type === "compact") {
-        rawMessages = [
-          ...rawMessages,
-          { role: "compact", content: [], meta: { trigger: event.trigger } },
-        ];
-      } else if (event.type === "user_message") {
-        // A delivered steer or queued turn opens a new segment, the same
-        // shape start_turn creates; later usage events patch its assistant.
-        return {
-          ...state,
-          rawMessages: [...rawMessages, event.message, createAssistantMessage([])],
-          toolRuntimeById,
-          pending: withoutPending(state.pending, new Set(event.message.meta?.input_ids ?? [])),
-        };
-      }
-
-      return { ...state, rawMessages, toolRuntimeById };
-    }
-    default:
-      return state;
-  }
 }
 
 /**
@@ -531,14 +71,16 @@ export function useChat(
   const [sendError, setSendError] = useState<string | null>(null);
   const loading = runKind !== null;
   const [sessionLoading, setSessionLoading] = useState(false);
-  const [pendingPermissions, setPendingPermissions] = useState<PermissionRequest[]>([]);
   const initRef = useRef(false);
   const cwdRef = useRef(config.cwd);
   const activeSessionRef = useRef(activeSession);
   const requestTokenRef = useRef(0);
+  /** Token of the start request in flight, `POST /api/chat` or
+   * `POST .../compact`; 0 when none. A session switch or a newer request
+   * takes over, and the older response is abandoned. */
   const pendingRequestTokenRef = useRef(0);
-  /** Token of a turn stopped while its `POST /api/chat` was in flight; the
-   * run it names is stopped as soon as the response arrives. */
+  /** Token of a start request in flight at Stop; the run its response names
+   * is stopped as soon as it arrives. */
   const stoppedRequestTokenRef = useRef(0);
   const sessionRequestTokenRef = useRef(0);
   const streamAbortRef = useRef<AbortController | null>(null);
@@ -557,12 +99,9 @@ export function useChat(
     | null
   >(null);
   /** Set when the shown session must be reloaded once this client is quiet:
-   * a run started there while a stream or a send was in flight, or the event
-   * stream reconnected. Holds the run id, or `"*"` for a reconnect. */
+   * a run started there while a stream or a start request was in flight, or
+   * the event stream reconnected. Holds the run id, or `"*"` for a reconnect. */
   const resyncRef = useRef<string | null>(null);
-  /** Whether a `POST .../compact` of this client is in flight; its run is
-   * announced before the response names it. */
-  const compactRequestRef = useRef(false);
 
   useEffect(() => {
     onRestoreRef.current = onRestore;
@@ -600,6 +139,14 @@ export function useChat(
     setActiveSession(session);
   }, []);
 
+  /** Show a new draft session with empty history. */
+  const showDraft = useCallback(() => {
+    const draft = createDraftSession();
+    setActiveSessionSnapshot(draft);
+    dispatch({ type: "set_messages", messages: [], sessionId: draft.id });
+    return draft;
+  }, [dispatch, setActiveSessionSnapshot]);
+
   const cancelRun = useCallback(async (runId: string) => {
     if (!runId) return;
 
@@ -617,13 +164,13 @@ export function useChat(
     if (requestCwd !== cwdRef.current) return [];
 
     try {
-      const res = await fetch(`/api/sessions?cwd=${encodeURIComponent(requestCwd)}`);
-      if (!res.ok) throw new Error("Failed to load sessions");
-      const data = (await res.json()) as SessionsResponse;
+      const data = await fetchJson<SessionsResponse>(
+        `/api/sessions?cwd=${encodeURIComponent(requestCwd)}`,
+      );
       if (requestCwd !== cwdRef.current) {
         return [];
       }
-      const savedSessions = data.sessions || [];
+      const savedSessions = data.sessions;
       const active = activeSessionRef.current;
       const sessionsWithDraft =
         active.isDraft && !savedSessions.some((session) => session.id === active.id)
@@ -653,7 +200,6 @@ export function useChat(
     setRunKind(null);
     setCompactError(null);
     setSendError(null);
-    setPendingPermissions([]);
   }, []);
 
   const streamRun = useCallback(
@@ -714,69 +260,21 @@ export function useChat(
           signal: controller.signal,
         });
         if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
-        if (!res.body) throw new Error("Response body is empty");
 
-        const reader = res.body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = "";
-
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-
-          buffer += decoder.decode(value, { stream: true });
-          const lines = buffer.split("\n");
-          buffer = lines.pop() || "";
-
-          for (const line of lines) {
-            if (!line.startsWith("data: ")) continue;
-            const data = line.slice(6);
-            if (data === "[DONE]") {
-              sawDone = true;
-              continue;
-            }
-
-            try {
-              const event = JSON.parse(data) as StreamEvent;
-              if (!isCurrent()) continue;
-              if (event.type === "permission_request") {
-                const next: PermissionRequest = {
-                  request_id: event.request_id,
-                  tool_use_id: event.tool_use_id,
-                  tool_name: event.tool_name,
-                  preview: event.preview,
-                };
-                setPendingPermissions((prev) =>
-                  prev.some((p) => p.request_id === next.request_id) ? prev : [...prev, next],
-                );
-                continue;
-              }
-              if (event.type === "permission_resolved") {
-                const requestId = event.request_id;
-                setPendingPermissions((prev) => prev.filter((p) => p.request_id !== requestId));
-                continue;
-              }
-              if (event.type === "cancelled") {
-                setPendingPermissions([]);
-              }
-              if (event.type === "cancelled" || event.type === "error") {
-                stopped = true;
-              }
-              if (kind === "compact") {
-                // A compact run only surfaces its marker or failure here. The
-                // completed stream reloads persisted history and session cost.
-                if (event.type === "compact") {
-                  dispatch({ type: "apply_event", event });
-                } else if (event.type === "error") {
-                  console.error("Compaction failed:", event.message);
-                  setCompactError(event.message || "Compaction failed");
-                }
-                continue;
-              }
-              dispatch({ type: "apply_event", event });
-            } catch (e) {
-              console.error("Parse error:", e);
-            }
+        for await (const event of readSse(res)) {
+          if (event === SSE_DONE) {
+            sawDone = true;
+            continue;
+          }
+          if (!isCurrent()) continue;
+          const routed = routeRunEvents(kind, [event]);
+          if (routed.stopped) stopped = true;
+          if (routed.compactError !== null) {
+            console.error("Compaction failed:", routed.compactError);
+            setCompactError(routed.compactError);
+          }
+          for (const applied of routed.apply) {
+            dispatch({ type: "apply_event", event: applied });
           }
         }
 
@@ -818,7 +316,6 @@ export function useChat(
             resyncRef.current &&
             !streamAbortRef.current &&
             !pendingRequestTokenRef.current &&
-            !compactRequestRef.current &&
             activeSessionRef.current.id === sessionId
           ) {
             // A run this client did not start began while this stream ran.
@@ -841,71 +338,32 @@ export function useChat(
       const requestCwd = options?.requestCwd ?? config.cwd;
       const requestToken = options?.requestToken ?? sessionRequestTokenRef.current;
       const isStillCurrent = () =>
-        isCurrentWorkspaceRequest({
-          pendingRequestToken: sessionRequestTokenRef.current,
-          requestToken,
-          activeCwd: cwdRef.current,
-          requestCwd,
-        });
+        sessionRequestTokenRef.current === requestToken && cwdRef.current === requestCwd;
 
       if (!isStillCurrent()) return null;
 
-      const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}`);
-      if (!res.ok) throw new Error("Failed to load session");
-
-      const data = (await res.json()) as SessionResponse;
-      if (!isStillCurrent()) return null;
-      if (!data.session) return null;
+      const data = await fetchJson<SessionResponse>(
+        `/api/sessions/${encodeURIComponent(sessionId)}`,
+      );
+      const session = data.session;
+      if (!isStillCurrent() || !session) return null;
       resyncRef.current = null;
 
-      setActiveSessionSnapshot(data.session);
-      saveActiveSession(requestCwd, data.session.id);
-      setPendingPermissions([]);
-      const run = data.active_run || null;
+      setActiveSessionSnapshot(session);
+      saveActiveSession(requestCwd, session.id);
+      const run = data.active_run;
 
-      const pendingEvents = Array.isArray(data.pending_events) ? data.pending_events : [];
-      const isCompactRun = run?.kind === "compact";
-      let replayStopped = false;
-      const replayedPermissions = new Map<string, PermissionRequest>();
-      const replayEvents: StreamEvent[] = [];
-      for (const event of pendingEvents) {
-        if (event?.type === "permission_request") {
-          replayedPermissions.set(event.request_id, {
-            request_id: event.request_id,
-            tool_use_id: event.tool_use_id,
-            tool_name: event.tool_name,
-            preview: event.preview,
-          });
-          continue;
-        }
-        if (event?.type === "permission_resolved") {
-          replayedPermissions.delete(event.request_id);
-          continue;
-        }
-        if (event?.type === "cancelled") {
-          replayedPermissions.clear();
-        }
-        if (event?.type === "cancelled" || event?.type === "error") {
-          replayStopped = true;
-        }
-        if (isCompactRun) {
-          // Same routing as the live stream: only the marker reaches history.
-          if (event?.type === "compact") replayEvents.push(event);
-          else if (event?.type === "error") {
-            setCompactError(event.message || "Compaction failed");
-          }
-          continue;
-        }
-        replayEvents.push(event);
-      }
+      // Replayed events take the live stream's route.
+      const replay = routeRunEvents(run?.kind ?? "chat", data.pending_events);
+      if (replay.compactError !== null) setCompactError(replay.compactError);
       startTransition(() => {
         dispatch({
           type: "set_messages",
-          messages: data.messages || [],
-          sessionId: data.session?.id ?? sessionId,
+          messages: data.messages,
+          sessionId: session.id,
           sessionUsage: readUsageTotals(data.session_usage, data.session_cost),
-          replayEvents,
-          expectedSessionId: data.session?.id ?? sessionId,
+          replayEvents: replay.apply,
+          expectedSessionId: session.id,
           pending: {
             steers: (data.pending?.steers ?? []).map(pendingFromMessage),
             queue: (data.pending?.queue ?? []).map(pendingFromMessage),
@@ -913,16 +371,13 @@ export function useChat(
           jobs: data.jobs ?? [],
         });
       });
-      if (replayedPermissions.size) {
-        setPendingPermissions(Array.from(replayedPermissions.values()));
-      }
 
       activeRunRef.current = run;
 
-      if (run?.id) {
+      if (run) {
         // The history covers every event up to the run's last seq when none is pending.
-        const lastSeq = pendingEvents.at(-1)?.seq ?? run.last_seq;
-        void streamRun(run, data.session.id, lastSeq, replayStopped);
+        const lastSeq = data.pending_events.at(-1)?.seq ?? run.last_seq;
+        void streamRun(run, session.id, lastSeq, replay.stopped);
       } else {
         setRunKind(null);
       }
@@ -939,7 +394,7 @@ export function useChat(
   const cancel = useCallback(() => {
     const runId = activeRunRef.current?.id;
     if (!runId && pendingRequestTokenRef.current) {
-      // The run is unknown until POST /api/chat returns; it is stopped then.
+      // The run is unknown until the start request returns; it is stopped then.
       stoppedRequestTokenRef.current = pendingRequestTokenRef.current;
       return;
     }
@@ -949,7 +404,7 @@ export function useChat(
     streamAbortRef.current?.abort();
     streamAbortRef.current = null;
     activeRunRef.current = null;
-    setPendingPermissions([]);
+    dispatch({ type: "clear_permissions" });
     // The aborted stream never sees its `cancelled`, so undelivered input
     // goes back to the composer here. A steer committed just before the stop
     // may not have reached this client yet: the reloaded history decides.
@@ -982,7 +437,7 @@ export function useChat(
       if (activeSessionRef.current.id !== sessionId) return;
       restorePending(items.filter((item) => !delivered.has(item.id)));
     })();
-  }, [cancelRun, fetchSessions, restorePending, takePending]);
+  }, [cancelRun, dispatch, fetchSessions, restorePending, takePending]);
 
   const postChat = useCallback(
     async (
@@ -994,6 +449,11 @@ export function useChat(
       // composer instead of attaching to another run.
       pendingItems: PendingInput[] = [],
     ): Promise<boolean> => {
+      const isCurrentRequest = () =>
+        pendingRequestTokenRef.current === requestToken &&
+        activeSessionRef.current.id === sessionId &&
+        cwdRef.current === requestCwd;
+
       try {
         const res = await fetch("/api/chat", {
           method: "POST",
@@ -1001,51 +461,38 @@ export function useChat(
           body: JSON.stringify(body),
         });
 
-        const data = (await res.json()) as ChatResponse | ChatErrorResponse;
-        const isCurrentRequest = isCurrentSendRequest({
-          pendingRequestToken: pendingRequestTokenRef.current,
-          requestToken,
-          activeSessionId: activeSessionRef.current.id,
-          sessionId,
-          activeCwd: cwdRef.current,
-          requestCwd,
-        });
-
         if (!res.ok) {
+          const error = await readApiError(res, "Failed to start task");
           // Restore original messages on failure (the turn was optimistic).
-          if (isCurrentRequest) {
+          if (isCurrentRequest()) {
             pendingRequestTokenRef.current = 0;
             dispatch({ type: "rollback" });
 
-            const detail = getErrorDetail(data);
-            const existingRun = getRunFromDetail(detail);
-            if (res.status === 409 && existingRun?.id && pendingItems.length === 0) {
-              void streamRun(existingRun, sessionId, existingRun.last_seq || 0);
+            if (res.status === 409 && error.run && pendingItems.length === 0) {
+              void streamRun(error.run, sessionId, error.run.last_seq);
               return false;
             }
 
             restorePending(pendingItems);
             setRunKind(null);
-            setSendError(getMessageFromDetail(detail, "Failed to start task"));
+            setSendError(error.message);
           }
           return false;
         }
 
-        if (!isCurrentRequest) return false;
+        const data = (await res.json()) as ChatResponse;
+        if (!isCurrentRequest()) return false;
         pendingRequestTokenRef.current = 0;
 
-        const chatData = data as ChatResponse;
-        dispatch({ type: "accept_turn", message: chatData.message });
+        dispatch({ type: "accept_turn", message: data.message });
 
         // Update active session from backend response (has real title, id, etc.)
-        if (chatData.session) {
-          setActiveSessionSnapshot(chatData.session);
-          saveActiveSession(requestCwd, chatData.session.id);
-        }
+        setActiveSessionSnapshot(data.session);
+        saveActiveSession(requestCwd, data.session.id);
 
         // Refresh sidebar immediately so title + is_running are visible
         void fetchSessions();
-        void streamRun(chatData.run, sessionId, 0);
+        void streamRun(data.run, sessionId, 0);
         if (stoppedRequestTokenRef.current === requestToken) cancel();
         return true;
       } catch (e) {
@@ -1198,8 +645,7 @@ export function useChat(
         // 409: no chat to queue on. The item stays local and goes out when
         // the stream ends.
         if (res.status === 409) return;
-        const data = (await res.json()) as ChatErrorResponse;
-        failPending(item, getMessageFromDetail(getErrorDetail(data), "Failed to queue"));
+        failPending(item, (await readApiError(res, "Failed to queue")).message);
       } catch (e) {
         failPending(item, getErrorMessage(e));
       }
@@ -1218,8 +664,7 @@ export function useChat(
           await deliverQueued(item);
           return;
         }
-        const data = (await res.json()) as ChatErrorResponse;
-        failPending(item, getMessageFromDetail(getErrorDetail(data), "Failed to steer"));
+        failPending(item, (await readApiError(res, "Failed to steer")).message);
       } catch (e) {
         failPending(item, getErrorMessage(e));
       }
@@ -1340,10 +785,13 @@ export function useChat(
     }
 
     const sessionId = session.id;
+    const requestToken = requestTokenRef.current + 1;
+    requestTokenRef.current = requestToken;
+    pendingRequestTokenRef.current = requestToken;
     setCompactError(null);
     setSendError(null);
     setRunKind("compact");
-    compactRequestRef.current = true;
+    const isCurrentRequest = () => pendingRequestTokenRef.current === requestToken;
 
     try {
       const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/compact`, {
@@ -1355,40 +803,41 @@ export function useChat(
         }),
       });
 
-      const data = (await res.json()) as CompactResponse | ChatErrorResponse;
-      if (activeSessionRef.current.id !== sessionId) return false;
-
       if (!res.ok) {
-        const detail = getErrorDetail(data);
-        const existingRun = getRunFromDetail(detail);
-        if (res.status === 409 && existingRun?.id) {
+        const error = await readApiError(res, "Compaction failed");
+        if (isCurrentRequest() && res.status === 409 && error.run) {
           // Another client started a run; attach to it with its own kind.
-          void streamRun(existingRun, sessionId, existingRun.last_seq || 0);
+          pendingRequestTokenRef.current = 0;
+          void streamRun(error.run, sessionId, error.run.last_seq);
           return false;
         }
-        throw new Error(getMessageFromDetail(detail, "Compaction failed"));
+        throw error;
       }
 
+      const data = (await res.json()) as RunResponse;
+      if (!isCurrentRequest()) return false;
+      pendingRequestTokenRef.current = 0;
       void fetchSessions();
-      void streamRun((data as CompactResponse).run, sessionId, 0);
+      void streamRun(data.run, sessionId, 0);
+      if (stoppedRequestTokenRef.current === requestToken) cancel();
       return true;
     } catch (e) {
-      if (activeSessionRef.current.id === sessionId) {
+      if (isCurrentRequest()) {
+        pendingRequestTokenRef.current = 0;
         console.error("Failed to start compaction:", e);
         setRunKind(null);
         setCompactError(getErrorMessage(e));
       }
       return false;
-    } finally {
-      compactRequestRef.current = false;
     }
-  }, [config.model, config.provider, fetchSessions, loading, streamRun]);
+  }, [cancel, config.model, config.provider, fetchSessions, loading, streamRun]);
+
+  const pendingPermission = chatState.permissions[0] ?? null;
 
   const decidePermission = useCallback(
     async (decision: "allow" | "deny") => {
-      const head = pendingPermissions[0];
       const runId = activeRunRef.current?.id;
-      if (!head || !runId) return;
+      if (!pendingPermission || !runId) return;
 
       // permission_resolved drives the clear; pre-clearing here would strand
       // the prompt if this POST fails while the server-side wait is still pending.
@@ -1397,7 +846,7 @@ export function useChat(
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            request_id: head.request_id,
+            request_id: pendingPermission.request_id,
             decision,
           }),
         });
@@ -1408,7 +857,7 @@ export function useChat(
         console.error("Failed to send decision:", e);
       }
     },
-    [pendingPermissions],
+    [pendingPermission],
   );
 
   const createSession = useCallback(() => {
@@ -1417,13 +866,10 @@ export function useChat(
     stopStreaming();
     initRef.current = true;
     sessionRequestTokenRef.current += 1;
-    const session = createDraftSession();
-
-    setActiveSessionSnapshot(session);
-    dispatch({ type: "set_messages", messages: [], sessionId: session.id });
+    showDraft();
     // Refresh from server to get accurate is_running, then prepend the new draft
     void fetchSessions();
-  }, [fetchSessions, sessionLoading, setActiveSessionSnapshot, stopStreaming, dispatch]);
+  }, [fetchSessions, sessionLoading, showDraft, stopStreaming]);
 
   const selectSession = useCallback(
     async (sessionId: string) => {
@@ -1433,6 +879,7 @@ export function useChat(
       initRef.current = true;
       const requestToken = sessionRequestTokenRef.current + 1;
       sessionRequestTokenRef.current = requestToken;
+      const requestCwd = config.cwd;
       setSessionLoading(true);
 
       const summary = sessions.find((session) => session.id === sessionId);
@@ -1440,26 +887,14 @@ export function useChat(
         setActiveSessionSnapshot(summary);
       }
       dispatch({ type: "set_messages", messages: [], sessionId });
-      setPendingPermissions([]);
-
-      const isStillCurrent = () =>
-        isCurrentWorkspaceRequest({
-          pendingRequestToken: sessionRequestTokenRef.current,
-          requestToken,
-          activeCwd: cwdRef.current,
-          requestCwd: config.cwd,
-        });
 
       try {
-        await loadSession(sessionId, {
-          requestCwd: config.cwd,
-          requestToken,
-        });
+        await loadSession(sessionId, { requestCwd, requestToken });
         void fetchSessions();
       } catch (e) {
         console.error("Failed to load session:", e);
       } finally {
-        if (isStillCurrent()) {
+        if (sessionRequestTokenRef.current === requestToken && cwdRef.current === requestCwd) {
           setSessionLoading(false);
         }
       }
@@ -1522,10 +957,7 @@ export function useChat(
           return;
         }
 
-        const draft = createDraftSession();
-        setActiveSessionSnapshot(draft);
-        setSessions([draft]);
-        dispatch({ type: "set_messages", messages: [], sessionId: draft.id });
+        setSessions([showDraft()]);
         setRunKind(null);
       } catch (e) {
         console.error("Failed to delete session:", e);
@@ -1539,6 +971,7 @@ export function useChat(
       loadSession,
       sessions,
       setActiveSessionSnapshot,
+      showDraft,
       stopStreaming,
       dispatch,
     ],
@@ -1555,9 +988,7 @@ export function useChat(
       cwdRef.current = config.cwd;
       initRef.current = false;
       setSessions([]);
-      const draft = createDraftSession();
-      setActiveSessionSnapshot(draft);
-      dispatch({ type: "set_messages", messages: [], sessionId: draft.id });
+      showDraft();
     }
     if (initRef.current) return;
     initRef.current = true;
@@ -1568,23 +999,18 @@ export function useChat(
     setSessionLoading(true);
 
     const isStillCurrent = () =>
-      isCurrentWorkspaceRequest({
-        pendingRequestToken: sessionRequestTokenRef.current,
-        requestToken,
-        activeCwd: cwdRef.current,
-        requestCwd,
-      });
+      sessionRequestTokenRef.current === requestToken && cwdRef.current === requestCwd;
 
     void (async () => {
       try {
         if (!isStillCurrent()) return;
         const preferredSessionId = loadActiveSession(requestCwd);
-        const res = await fetch(`/api/sessions?cwd=${encodeURIComponent(requestCwd)}`);
-        if (!res.ok) throw new Error("Failed to load sessions");
-        const data = (await res.json()) as SessionsResponse;
+        const data = await fetchJson<SessionsResponse>(
+          `/api/sessions?cwd=${encodeURIComponent(requestCwd)}`,
+        );
         if (!isStillCurrent()) return;
 
-        const savedSessions = data.sessions || [];
+        const savedSessions = data.sessions;
         setSessions(savedSessions);
         const initialSessionId = resolveInitialSessionId(savedSessions, preferredSessionId);
 
@@ -1603,10 +1029,7 @@ export function useChat(
             requestToken,
           });
         } else {
-          const draft = createDraftSession();
-          setActiveSessionSnapshot(draft);
-          setSessions([draft]);
-          dispatch({ type: "set_messages", messages: [], sessionId: draft.id });
+          setSessions([showDraft()]);
           setRunKind(null);
         }
       } catch (e) {
@@ -1615,7 +1038,7 @@ export function useChat(
         if (isStillCurrent()) setSessionLoading(false);
       }
     })();
-  }, [config.cwd, setActiveSessionSnapshot, stopStreaming, dispatch]);
+  }, [config.cwd, setActiveSessionSnapshot, showDraft, stopStreaming, dispatch]);
 
   useEffect(() => {
     return () => {
@@ -1635,7 +1058,7 @@ export function useChat(
     const sync = (runId: string) => {
       const session = activeSessionRef.current;
       if (session.isDraft) return;
-      if (streamAbortRef.current || pendingRequestTokenRef.current || compactRequestRef.current) {
+      if (streamAbortRef.current || pendingRequestTokenRef.current) {
         resyncRef.current = runId;
         return;
       }
@@ -1695,29 +1118,13 @@ export function useChat(
     () => buildRenderMessages(chatState.rawMessages, chatState.toolRuntimeById, runningJobIds),
     [chatState.rawMessages, chatState.toolRuntimeById, runningJobIds],
   );
-
-  // Current context occupancy from the latest turn with usage. A compact
-  // marker stops the scan because pre-compact occupancy is no longer current.
-  const currentContext = useMemo(() => {
-    for (let i = messages.length - 1; i >= 0; i--) {
-      const message = messages[i];
-      if (!message || isCompactMarker(message)) break;
-      if (!isChatMessage(message)) continue;
-      const stats = message.role === "assistant" ? message.stats : undefined;
-      if (!stats) continue;
-      if (stats.context_tokens !== undefined && stats.context_window !== undefined) {
-        return { tokens: stats.context_tokens, window: stats.context_window };
-      }
-      break;
-    }
-    return null;
-  }, [messages]);
+  const context = useMemo(() => currentContext(messages), [messages]);
 
   return {
     messages,
     messageSessionId: chatState.messageSessionId,
     sessionUsage: chatState.sessionUsage,
-    currentContext,
+    currentContext: context,
     loading,
     runKind,
     compactError,
@@ -1725,7 +1132,7 @@ export function useChat(
     sessions,
     activeSession,
     sessionLoading,
-    pendingPermission: pendingPermissions[0] ?? null,
+    pendingPermission,
     pending: chatState.pending,
     jobs: chatState.jobs,
     stopJob,

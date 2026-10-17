@@ -21,12 +21,12 @@ import type {
   UsageTotals,
   WorkspaceFileReference,
 } from "@/types";
-import { isChatMessage } from "@/types";
+import { isChatMessage, isCompactMarker } from "@/types";
 
 interface ToolCall {
-  id?: string;
-  name?: string;
-  input?: ToolInput;
+  id: string;
+  name: string;
+  input: ToolInput;
 }
 
 interface ToolIndexEntry {
@@ -78,15 +78,6 @@ function createAttachedTextBlock(text: string, name: string): TextBlock {
 
 function createThinkingBlock(text: string): ThinkingBlock {
   return { type: "thinking", text };
-}
-
-function createToolUseBlock(toolCall: ToolCall): ToolUseBlock {
-  return {
-    type: "tool_use",
-    id: toolCall?.id || "",
-    name: toolCall?.name || "tool",
-    input: isObject(toolCall?.input) ? toolCall.input : EMPTY_TOOL_INPUT,
-  };
 }
 
 function createToolResultBlock(
@@ -212,7 +203,10 @@ export function appendToolUse(messages: ChatMessage[], toolCall: ToolCall): Chat
   if (!assistant) return next;
   next[index] = {
     ...assistant,
-    content: [...getBlocks(assistant), createToolUseBlock(toolCall)],
+    content: [
+      ...getBlocks(assistant),
+      { type: "tool_use", id: toolCall.id, name: toolCall.name, input: toolCall.input },
+    ],
   };
   return next;
 }
@@ -873,4 +867,25 @@ export function buildRenderMessages(
       });
       return marked ? { ...message, content } : message;
     });
+}
+
+/**
+ * Current context occupancy from the latest turn with usage. A compact marker
+ * stops the scan because pre-compact occupancy is no longer current.
+ */
+export function currentContext(
+  messages: RenderMessage[],
+): { tokens: number; window: number } | null {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const message = messages[i];
+    if (!message || isCompactMarker(message)) break;
+    if (!isChatMessage(message)) continue;
+    const stats = message.role === "assistant" ? message.stats : undefined;
+    if (!stats) continue;
+    if (stats.context_tokens !== undefined && stats.context_window !== undefined) {
+      return { tokens: stats.context_tokens, window: stats.context_window };
+    }
+    break;
+  }
+  return null;
 }

@@ -15,6 +15,7 @@ import {
   type LexicalNode,
 } from "lexical";
 
+import type { WorkspaceFileEntry } from "@/api";
 import {
   $createWorkspaceFileNode,
   $isWorkspaceFileNode,
@@ -26,7 +27,6 @@ import {
   matchAtQuery,
   matchSkillQuery,
   type SkillQuery,
-  type WorkspaceEntry,
 } from "@/utils/completion";
 
 /** Editor-selection context the menus are derived from. */
@@ -79,7 +79,7 @@ export function $buildSubmission(): ComposerSubmission {
  * Replace the @token before the caret with completed text (directory: browsing
  * continues) or a pill node (file). No-op if the token vanished.
  */
-export function $completeAtToken(entry: WorkspaceEntry): void {
+export function $completeAtToken(entry: WorkspaceFileEntry): void {
   const selection = $getSelection();
   if (!$isRangeSelection(selection) || !selection.isCollapsed()) return;
   const anchorNode = selection.anchor.getNode();

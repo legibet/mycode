@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
+import type { GlobalConfig } from "@/api";
 import { buildDraft, buildPayload } from "@/components/settings/settingsDraft";
-import type { GlobalConfig } from "@/types";
 
 describe("settings draft", () => {
   it("round-trips a loaded config, keeping saved keys and model overrides", () => {

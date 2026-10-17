@@ -15,9 +15,10 @@ import {
 } from "lucide-react";
 import { useEffect, useState } from "react";
 
+import type { BackgroundJobInfo } from "@/api";
 import { Button } from "@/components/ui/button";
 import { SimpleTooltip } from "@/components/ui/tooltip";
-import type { BackgroundJobInfo, PendingInput } from "@/types";
+import type { PendingInput } from "@/types";
 import { formatDuration } from "@/utils/format";
 
 interface InFlightCardProps {

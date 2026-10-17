@@ -1665,6 +1665,45 @@ describe("useChat", () => {
     expect(result.current.messages).toHaveLength(2);
   });
 
+  it("stops the run named by a compact request that was in flight at Stop", async () => {
+    let respond!: () => void;
+    const fetchMock = mockCompactSessionRoutes({
+      "/api/sessions/session-c/compact": () =>
+        new Promise<Response>((resolve) => {
+          respond = () =>
+            resolve(
+              createJsonResponse({
+                run: {
+                  id: "run-c",
+                  session_id: "session-c",
+                  kind: "compact",
+                  status: "running",
+                  last_seq: 0,
+                },
+              }),
+            );
+        }),
+      "/api/runs/run-c/cancel": createJsonResponse({ status: "ok" }),
+      "/api/runs/run-c/stream": () => new Promise<Response>(() => {}),
+    });
+    const cancelled = () => fetchMock.mock.calls.some(([url]) => url === "/api/runs/run-c/cancel");
+    const { result } = renderChatHook();
+    await waitFor(() => expect(result.current.messages).toHaveLength(2));
+
+    act(() => {
+      void result.current.compactSession();
+    });
+    act(() => result.current.cancel());
+    // Nothing to stop yet: the compaction stays busy until its run is known.
+    expect(result.current.runKind).toBe("compact");
+    expect(cancelled()).toBe(false);
+
+    await act(async () => respond());
+    await waitFor(() => expect(cancelled()).toBe(true));
+    await waitFor(() => expect(result.current.runKind).toBeNull());
+    expect(result.current.messages).toHaveLength(2);
+  });
+
   it("stops the run named by a start request that was in flight at Stop", async () => {
     saveActiveSession("/workspace/a", "session-1");
     let respond!: () => void;
@@ -2496,6 +2535,55 @@ describe("useChat server events", () => {
     await act(async () => {});
     expect(calls(fetchMock, "/api/runs/run-new/stream?after=0")).toBe(1);
     expect(calls(fetchMock, SESSION_URL)).toBe(1);
+  });
+
+  it("leaves a newer compact request in charge when an abandoned one answers", async () => {
+    const responders: Array<(response: Response) => void> = [];
+    saveActiveSession("/workspace/a", "session-1");
+    const fetchMock = mockFetch({
+      "/api/sessions?cwd=": createJsonResponse({
+        sessions: [{ id: "session-1", title: "Saved" }],
+      }),
+      // Before the session GET, which shares its prefix.
+      [`${SESSION_URL}/compact`]: () =>
+        new Promise<Response>((resolve) => {
+          responders.push(resolve);
+        }),
+      [SESSION_URL]: () => createJsonResponse(idleSession),
+    });
+    const { result } = renderChatHook();
+    await waitFor(() => expect(calls(fetchMock, SESSION_URL)).toBe(1));
+    const source = FakeEventSource.instances.at(-1);
+    if (!source) throw new Error("no EventSource opened");
+
+    act(() => {
+      void result.current.compactSession();
+    });
+    // Leave and come back: the first request is abandoned, not cancelled.
+    act(() => result.current.createSession());
+    await act(async () => {
+      await result.current.selectSession("session-1");
+    });
+    act(() => {
+      void result.current.compactSession();
+    });
+    expect(responders).toHaveLength(2);
+
+    await act(async () =>
+      responders[0]?.(createJsonResponse({ detail: "nothing to compact" }, 400)),
+    );
+    expect(result.current.runKind).toBe("compact");
+    expect(result.current.compactError).toBeNull();
+
+    // The newer request is still in flight, so a run started elsewhere waits.
+    const loads = calls(fetchMock, SESSION_URL);
+    source.emit({
+      type: "run_started",
+      session_id: "session-1",
+      run: runInfo("run-other"),
+    });
+    await act(async () => {});
+    expect(calls(fetchMock, SESSION_URL)).toBe(loads);
   });
 
   const jobInfo = (tool_use_id: string, label = "sleep 30") => ({

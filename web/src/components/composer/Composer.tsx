@@ -36,6 +36,7 @@ import {
   useState,
 } from "react";
 
+import type { SkillInfo } from "@/api";
 import {
   type CompletionItem,
   CompletionMenu,
@@ -53,7 +54,7 @@ import {
 } from "@/components/composer/composerEditor";
 import { WorkspaceFileNode } from "@/components/composer/WorkspaceFileNode";
 import { useWorkspaceFiles } from "@/hooks/useWorkspaceFiles";
-import type { ComposerSubmission, SkillInfo } from "@/types";
+import type { ComposerSubmission } from "@/types";
 import { cn } from "@/utils/cn";
 import { matchSlashCommands, type SlashCommand } from "@/utils/completion";
 
