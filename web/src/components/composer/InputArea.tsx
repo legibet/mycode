@@ -144,6 +144,15 @@ export const InputArea = memo(function InputArea({
     setFilesSessionId(sessionId);
     setFiles([]);
   }
+  // Bumped when the shown session changes or the composer unmounts; a file
+  // read that finishes after a bump is dropped.
+  const uploadEpochRef = useRef(0);
+  useEffect(
+    () => () => {
+      uploadEpochRef.current += 1;
+    },
+    [sessionId],
+  );
 
   // Revoke each image's blob URL once its upload leaves state, whatever path
   // removed it, and the remaining ones on unmount.
@@ -227,7 +236,9 @@ export const InputArea = memo(function InputArea({
       showInputNotice(null);
       const accepted = await onSubmit(submission, files, toQueue);
       if (accepted) {
-        setFiles([]);
+        // Uploads added while the request was in flight were not sent.
+        const sent = new Set(files.map((file) => file.id));
+        setFiles((current) => current.filter((file) => !sent.has(file.id)));
         const next = addPromptHistory(promptHistory, submission.text);
         if (next !== promptHistory) {
           setPromptHistory(next);
@@ -270,10 +281,17 @@ export const InputArea = memo(function InputArea({
   const attachFiles = useCallback(
     async (incoming: File[]) => {
       if (disabled) return;
+      const epoch = uploadEpochRef.current;
       const { attachments, unsupported } = await readUploads(incoming, {
         supportsImages,
         supportsDocuments,
       });
+      if (uploadEpochRef.current !== epoch) {
+        for (const file of attachments) {
+          if (file.kind === "image") URL.revokeObjectURL(file.preview);
+        }
+        return;
+      }
       showInputNotice(unsupported ? { kind: unsupported, blocking: false } : null, 2500);
       if (attachments.length) setFiles((prev) => [...prev, ...attachments]);
     },

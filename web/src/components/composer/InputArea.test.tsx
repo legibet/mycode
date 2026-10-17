@@ -217,6 +217,51 @@ describe("InputArea", () => {
     expect(screen.getByRole("textbox")).toHaveTextContent("half-written");
   });
 
+  it("keeps uploads added while an accepted send was in flight", async () => {
+    const user = userEvent.setup();
+    let accept!: (accepted: boolean) => void;
+    const onSubmit = vi.fn(
+      () =>
+        new Promise<boolean>((resolve) => {
+          accept = resolve;
+        }),
+    );
+    render(<InputArea {...runningProps} loading={false} onSubmit={onSubmit} />);
+    const attach = screen.getByLabelText("Attach files");
+
+    await user.upload(attach, new File(["a"], "sent.md", { type: "text/markdown" }));
+    await screen.findByRole("button", { name: "Remove sent.md" });
+    await user.click(screen.getByRole("button", { name: "Send message" }));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledOnce());
+
+    await user.upload(attach, new File(["b"], "later.md", { type: "text/markdown" }));
+    await screen.findByRole("button", { name: "Remove later.md" });
+    await act(async () => accept(true));
+
+    expect(uploadedNames()).toEqual(["later.md"]);
+  });
+
+  it("drops a file read that finishes after the session changed", async () => {
+    const user = userEvent.setup();
+    let finishRead!: () => void;
+    const slow = new File(["notes"], "slow.md", { type: "text/markdown" });
+    Object.defineProperty(slow, "arrayBuffer", {
+      value: () =>
+        new Promise<ArrayBuffer>((resolve) => {
+          finishRead = () => resolve(new TextEncoder().encode("notes").buffer);
+        }),
+    });
+    const { rerender } = render(
+      <InputArea {...runningProps} loading={false} sessionId="s1" onSubmit={vi.fn()} />,
+    );
+
+    await user.upload(screen.getByLabelText("Attach files"), slow);
+    rerender(<InputArea {...runningProps} loading={false} sessionId="s2" onSubmit={vi.fn()} />);
+    await act(async () => finishRead());
+
+    expect(uploadedNames()).toEqual([]);
+  });
+
   it("lists queued messages and edits one only from an empty composer", async () => {
     const user = userEvent.setup();
     const onEditQueued = vi.fn();
