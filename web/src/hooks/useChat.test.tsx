@@ -1665,23 +1665,26 @@ describe("useChat", () => {
     expect(result.current.messages).toHaveLength(2);
   });
 
-  it("stops the run named by a compact request that was in flight at Stop", async () => {
+  const compactRun = {
+    id: "run-c",
+    session_id: "session-c",
+    kind: "compact",
+    status: "running",
+    last_seq: 0,
+  };
+
+  it.each([
+    ["starts it", () => createJsonResponse({ run: compactRun })],
+    [
+      "attaches to it",
+      () => createJsonResponse({ detail: { message: "busy", run: compactRun } }, 409),
+    ],
+  ])("stops the run a compact request %s once Stop was pressed during it", async (_, answer) => {
     let respond!: () => void;
     const fetchMock = mockCompactSessionRoutes({
       "/api/sessions/session-c/compact": () =>
         new Promise<Response>((resolve) => {
-          respond = () =>
-            resolve(
-              createJsonResponse({
-                run: {
-                  id: "run-c",
-                  session_id: "session-c",
-                  kind: "compact",
-                  status: "running",
-                  last_seq: 0,
-                },
-              }),
-            );
+          respond = () => resolve(answer());
         }),
       "/api/runs/run-c/cancel": createJsonResponse({ status: "ok" }),
       "/api/runs/run-c/stream": () => new Promise<Response>(() => {}),
@@ -2495,6 +2498,34 @@ describe("useChat server events", () => {
     end();
     await waitFor(() => expect(calls(fetchMock, SESSION_URL)).toBe(2));
     await waitFor(() => expect(result.current.loading).toBe(false));
+  });
+
+  it("reloads for a run announced during a send that then fails", async () => {
+    let rejectPost!: () => void;
+    const posted = new Promise<void>((resolve) => {
+      rejectPost = resolve;
+    });
+    const { result, fetchMock, source } = await renderWithSession(
+      () => createJsonResponse(idleSession),
+      {
+        "/api/chat": async () => {
+          await posted;
+          return createJsonResponse({ detail: "provider unavailable" }, 500);
+        },
+      },
+    );
+
+    let sent!: Promise<boolean>;
+    act(() => {
+      sent = result.current.send({ text: "go", workspaceFiles: [] });
+    });
+    source.emit({ type: "run_started", session_id: "session-1", run: runInfo("run-bg") });
+    await act(async () => {});
+    expect(calls(fetchMock, SESSION_URL)).toBe(1);
+
+    rejectPost();
+    await expect(sent).resolves.toBe(false);
+    await waitFor(() => expect(calls(fetchMock, SESSION_URL)).toBe(2));
   });
 
   it("does not reload for the run its own send is starting", async () => {

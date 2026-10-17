@@ -202,6 +202,17 @@ export function useChat(
     setSendError(null);
   }, []);
 
+  /** Reload the shown session for a run announced while this client was
+   * busy, once nothing of its own is in flight. */
+  const resyncIfQuiet = useCallback((sessionId: string) => {
+    if (!resyncRef.current || streamAbortRef.current || pendingRequestTokenRef.current) return;
+    if (activeSessionRef.current.id !== sessionId) return;
+    resyncRef.current = null;
+    void loadSessionRef.current?.(sessionId).catch((error) => {
+      console.error("Failed to sync session:", error);
+    });
+  }, []);
+
   const streamRun = useCallback(
     async (run: RunInfo, sessionId: string, after = 0, interrupted = false): Promise<void> => {
       const runId = run?.id;
@@ -312,22 +323,11 @@ export function useChat(
           }
 
           void fetchSessions();
-          if (
-            resyncRef.current &&
-            !streamAbortRef.current &&
-            !pendingRequestTokenRef.current &&
-            activeSessionRef.current.id === sessionId
-          ) {
-            // A run this client did not start began while this stream ran.
-            resyncRef.current = null;
-            void loadSessionRef.current?.(sessionId).catch((error) => {
-              console.error("Failed to sync session:", error);
-            });
-          }
+          resyncIfQuiet(sessionId);
         }
       }
     },
-    [fetchSessions, restorePending, takePending, dispatch],
+    [fetchSessions, resyncIfQuiet, restorePending, takePending, dispatch],
   );
 
   const loadSession = useCallback(
@@ -470,12 +470,14 @@ export function useChat(
 
             if (res.status === 409 && error.run && pendingItems.length === 0) {
               void streamRun(error.run, sessionId, error.run.last_seq);
+              if (stoppedRequestTokenRef.current === requestToken) cancel();
               return false;
             }
 
             restorePending(pendingItems);
             setRunKind(null);
             setSendError(error.message);
+            resyncIfQuiet(sessionId);
           }
           return false;
         }
@@ -505,11 +507,20 @@ export function useChat(
           dispatch({ type: "rollback" });
           restorePending(pendingItems);
           setSendError(getErrorMessage(e));
+          resyncIfQuiet(sessionId);
         }
         return false;
       }
     },
-    [cancel, dispatch, fetchSessions, restorePending, setActiveSessionSnapshot, streamRun],
+    [
+      cancel,
+      dispatch,
+      fetchSessions,
+      restorePending,
+      resyncIfQuiet,
+      setActiveSessionSnapshot,
+      streamRun,
+    ],
   );
 
   /** Optimistic turn plus `POST /api/chat` with the current model settings. */
@@ -809,6 +820,7 @@ export function useChat(
           // Another client started a run; attach to it with its own kind.
           pendingRequestTokenRef.current = 0;
           void streamRun(error.run, sessionId, error.run.last_seq);
+          if (stoppedRequestTokenRef.current === requestToken) cancel();
           return false;
         }
         throw error;
@@ -827,10 +839,11 @@ export function useChat(
         console.error("Failed to start compaction:", e);
         setRunKind(null);
         setCompactError(getErrorMessage(e));
+        resyncIfQuiet(sessionId);
       }
       return false;
     }
-  }, [cancel, config.model, config.provider, fetchSessions, loading, streamRun]);
+  }, [cancel, config.model, config.provider, fetchSessions, loading, resyncIfQuiet, streamRun]);
 
   const pendingPermission = chatState.permissions[0] ?? null;
 
