@@ -1,14 +1,14 @@
 import { describe, expect, it } from "vitest";
 
-import type { ChatMessage, RenderMessage } from "../types";
-import { isChatMessage, isCompactMarker } from "../types";
+import type { ChatMessage, RenderMessage } from "@/types";
+import { isChatMessage, isCompactMarker } from "@/types";
 import {
   buildRenderMessages,
   createUserMessage,
   markTailAssistantStopped,
   splitTurn,
   updateLatestThinkingDuration,
-} from "./messages";
+} from "@/utils/messages";
 
 function expectChat(message: RenderMessage | undefined): ChatMessage {
   if (!message || !isChatMessage(message)) {
@@ -330,14 +330,18 @@ describe("messages", () => {
   });
 
   it("wraps text attachments like CLI file references", () => {
-    const message = createUserMessage("review this", [
-      {
-        id: "file-1",
-        kind: "text",
-        name: 'main <"v2">.py',
-        text: 'print("ok")',
-      },
-    ]);
+    const message = createUserMessage(
+      "review this",
+      [
+        {
+          id: "file-1",
+          kind: "text",
+          name: 'main <"v2">.py',
+          text: 'print("ok")',
+        },
+      ],
+      [],
+    );
 
     expect(message).toEqual({
       role: "user",

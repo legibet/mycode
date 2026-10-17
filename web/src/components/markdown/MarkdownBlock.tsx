@@ -1,0 +1,176 @@
+/**
+ * Markdown renderer with GFM, code highlighting, and LaTeX math support.
+ * Math is rendered by remark-math + rehype-katex.
+ * \(inline\) and \[display\] are normalized before parsing.
+ * remark-cjk-friendly relaxes CommonMark emphasis flanking rules so that
+ * e.g. 中文**"引号"**中文 renders as bold (commonmark-spec#650).
+ * While a block streams, remend closes unterminated inline markers so the
+ * raw syntax never flashes; finished text renders as written.
+ */
+
+import { type ComponentProps, type ComponentPropsWithoutRef, memo } from "react";
+import ReactMarkdown, { type Components, type ExtraProps } from "react-markdown";
+import rehypeKatex from "rehype-katex";
+import remarkCjkFriendly from "remark-cjk-friendly";
+import remarkGfm from "remark-gfm";
+import remarkMath from "remark-math";
+import remend from "remend";
+
+import "katex/dist/katex.min.css";
+import { CodeBlock } from "@/components/markdown/CodeBlock";
+import { remarkSingleDollarMath } from "@/components/markdown/remarkSingleDollarMath";
+
+type MarkdownPreProps = ComponentPropsWithoutRef<"pre"> & ExtraProps;
+type MarkdownImgProps = ComponentPropsWithoutRef<"img"> & ExtraProps;
+type MarkdownTableProps = ComponentPropsWithoutRef<"table"> & ExtraProps;
+type ReactMarkdownProps = ComponentProps<typeof ReactMarkdown>;
+
+const REMARK_PLUGINS: NonNullable<ReactMarkdownProps["remarkPlugins"]> = [
+  remarkGfm,
+  [remarkMath, { singleDollarTextMath: false }],
+  remarkSingleDollarMath,
+  remarkCjkFriendly,
+];
+const REHYPE_PLUGINS = [rehypeKatex];
+// An unfinished link shows its text only: remend's default placeholder URL
+// fails react-markdown's protocol filter and would link to the current page.
+// remark-gfm already reads a single ~ as strikethrough; escaping it mid-stream
+// would flip the rendering once the block completes.
+const REMEND_OPTIONS = { linkMode: "text-only", singleTilde: false } as const;
+
+const MARKDOWN_COMPONENTS: Components = {
+  pre: ({ children }: MarkdownPreProps) => children,
+  code: CodeBlock,
+  table: ({ node: _node, children, ...props }: MarkdownTableProps) => (
+    <div className="scrollbar-subtle my-4 overflow-x-auto">
+      <table {...props}>{children}</table>
+    </div>
+  ),
+  // remend completes an unfinished image to a placeholder URL that the protocol
+  // filter empties; render nothing until the real URL has streamed in.
+  img: ({ node: _node, src, alt = "", ...props }: MarkdownImgProps) =>
+    src ? <img src={src} alt={alt} {...props} /> : null,
+};
+
+/**
+ * Normalize math delimiters without touching code spans or code blocks.
+ * remark-math parses same-line $$...$$ as text math, so display math is
+ * expanded into flow-math fences.
+ */
+function normalizeMathDelimiters(text: string): string {
+  let result = "";
+  let i = 0;
+  let fenceChar = "";
+  let fenceLength = 0;
+
+  const appendDisplayMath = (body: string, nextIndex: number) => {
+    const before =
+      result === "" || result.endsWith("\n\n") ? "" : result.endsWith("\n") ? "\n" : "\n\n";
+    const after = text[nextIndex] && text[nextIndex] !== "\n" ? "\n\n" : "";
+    result += `${before}$$\n${body.trim()}\n$$${after}`;
+  };
+
+  while (i < text.length) {
+    const lineStart = i === 0 || text[i - 1] === "\n";
+    const lineEnd = text.indexOf("\n", i);
+    const nextLineEnd = lineEnd === -1 ? text.length : lineEnd + 1;
+
+    if (lineStart) {
+      const line = text.slice(i, nextLineEnd);
+      const fenceMatch = /^( {0,3})(`{3,}|~{3,})/.exec(line);
+
+      if (fenceChar) {
+        result += line;
+        if (fenceMatch && fenceMatch[2]?.[0] === fenceChar && fenceMatch[2].length >= fenceLength) {
+          fenceChar = "";
+          fenceLength = 0;
+        }
+        i = nextLineEnd;
+        continue;
+      }
+
+      if (fenceMatch) {
+        result += line;
+        fenceChar = fenceMatch[2]?.[0] || "";
+        fenceLength = fenceMatch[2]?.length || 0;
+        i = nextLineEnd;
+        continue;
+      }
+
+      if (line.startsWith("    ") || line.startsWith("\t")) {
+        result += line;
+        i = nextLineEnd;
+        continue;
+      }
+    }
+
+    if (text[i] === "`") {
+      let ticks = 1;
+      while (text[i + ticks] === "`") ticks += 1;
+      const delimiter = "`".repeat(ticks);
+      const close = text.indexOf(delimiter, i + ticks);
+
+      if (close !== -1) {
+        result += text.slice(i, close + ticks);
+        i = close + ticks;
+        continue;
+      }
+    }
+
+    if (text[i] === "$" && text[i + 1] === "$" && text[i - 1] !== "\\") {
+      const close = text.indexOf("$$", i + 2);
+      if (close !== -1) {
+        appendDisplayMath(text.slice(i + 2, close), close + 2);
+        i = close + 2;
+        continue;
+      }
+    }
+
+    if (text[i] === "\\" && text[i + 1] === "[") {
+      const close = text.indexOf("\\]", i + 2);
+      if (close !== -1) {
+        appendDisplayMath(text.slice(i + 2, close), close + 2);
+        i = close + 2;
+        continue;
+      }
+    }
+
+    if (text[i] === "\\" && text[i + 1] === "(") {
+      const close = text.indexOf("\\)", i + 2);
+      if (close !== -1) {
+        const body = text.slice(i + 2, close);
+        if (!body.includes("\n")) {
+          result += `$$${body}$$`;
+          i = close + 2;
+          continue;
+        }
+      }
+    }
+
+    result += text[i];
+    i += 1;
+  }
+
+  return result;
+}
+
+export const MarkdownBlock = memo(function MarkdownBlock({
+  content,
+  streaming = false,
+}: {
+  content: string;
+  streaming?: boolean | undefined;
+}) {
+  const source = streaming ? remend(content, REMEND_OPTIONS) : content;
+  return (
+    <div className="prose">
+      <ReactMarkdown
+        remarkPlugins={REMARK_PLUGINS}
+        rehypePlugins={REHYPE_PLUGINS}
+        components={MARKDOWN_COMPONENTS}
+      >
+        {normalizeMathDelimiters(source)}
+      </ReactMarkdown>
+    </div>
+  );
+});

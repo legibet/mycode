@@ -1,3 +1,5 @@
+/** Domain, render, and UI types. The HTTP wire types live in `api.ts`. */
+
 export type Theme = "light" | "dark" | "system";
 export type ReasoningEffort =
   | "auto"
@@ -16,36 +18,6 @@ export interface LocalConfig {
   reasoningEfforts: Record<string, ReasoningEffort>;
 }
 
-export interface ProviderInfo {
-  name: string;
-  models: string[];
-  /** Efforts each model accepts; empty when effort is not configurable. */
-  reasoning_efforts: Record<string, ReasoningEffort[]>;
-  image_input_models: string[];
-  pdf_input_models: string[];
-}
-
-export interface SkillInfo {
-  name: string;
-  description: string;
-}
-
-export interface RemoteConfig {
-  providers?: Record<string, ProviderInfo>;
-  default?: {
-    provider: string;
-    model: string;
-  };
-  cwd?: string;
-  cwd_exists?: boolean;
-  project?: string;
-  config_paths?: string[];
-  /** Effective for this cwd; 0 disables automatic compaction. */
-  compact_threshold?: number;
-  skills?: SkillInfo[];
-  setup_error?: { message: string } | null;
-}
-
 export interface SessionSummary {
   id: string;
   title?: string;
@@ -53,34 +25,6 @@ export interface SessionSummary {
   is_running?: boolean;
   created_at?: string;
   updated_at?: string;
-}
-
-export type RunKind = "chat" | "compact";
-
-/** A running background command, as `GET /api/sessions/{id}` and `/api/events` describe it. */
-export interface BackgroundJobInfo {
-  tool_use_id: string;
-  label: string;
-  pid: number;
-  started_at: string;
-}
-
-/** One event of `GET /api/events`: a run or a background command started or ended. */
-export type ServerEvent =
-  | { type: "run_started" | "run_finished"; session_id: string; run: RunInfo }
-  | {
-      type: "job_started" | "job_finished";
-      session_id: string;
-      job: BackgroundJobInfo;
-    };
-
-export interface RunInfo {
-  id: string;
-  session_id: string;
-  kind: RunKind;
-  status: string;
-  last_seq: number;
-  error?: string;
 }
 
 export interface ToolRuntime {
@@ -222,9 +166,6 @@ export interface PendingInputs {
   queue: PendingInput[];
 }
 
-/** An undelivered message in a session snapshot; the server sets its id. */
-export type PendingMessage = ChatMessage & { meta: { input_id: string } };
-
 export interface Cost {
   total: number;
   input?: number;
@@ -286,7 +227,7 @@ export interface TurnStats extends UsageTotals {
 export type Interruption = "cancelled" | "error";
 
 export interface ChatMessage {
-  role: "user" | "assistant" | "system" | "compact";
+  role: "user" | "assistant" | "compact";
   content: MessageBlock[];
   meta?: MessageMeta;
   /** Derived per-turn stats; only set on render assistant messages. */
@@ -330,245 +271,12 @@ export function isCompactMarker(message: RenderMessage): message is CompactMarke
   return "kind" in message && message.kind === "compact-marker";
 }
 
-interface StreamEventBase {
-  type: string;
-  seq?: number;
-}
-
-interface ReasoningEvent extends StreamEventBase {
-  type: "reasoning";
-  delta?: string;
-}
-
-interface ReasoningDoneEvent extends StreamEventBase {
-  type: "reasoning_done";
-  duration_ms?: number;
-}
-
-interface TextEvent extends StreamEventBase {
-  type: "text";
-  delta?: string;
-}
-
-interface ToolStartEvent extends StreamEventBase {
-  type: "tool_start";
-  tool_call?: {
-    id?: string;
-    name?: string;
-    input?: ToolInput;
-  };
-}
-
-interface ToolOutputEvent extends StreamEventBase {
-  type: "tool_output";
-  tool_use_id?: string;
-  output?: string;
-}
-
-interface ToolDoneEvent extends StreamEventBase {
-  type: "tool_done";
-  tool_use_id?: string;
-  output?: string;
-  metadata?: Record<string, unknown>;
-  is_error?: boolean;
-}
-
-interface ErrorEvent extends StreamEventBase {
-  type: "error";
-  message?: string;
-}
-
-interface CancelledEvent extends StreamEventBase {
-  type: "cancelled";
-}
-
-interface CompactEvent extends StreamEventBase {
-  type: "compact";
-  trigger: "auto" | "manual";
-}
-
-interface UserMessageEvent extends StreamEventBase {
-  type: "user_message";
-  /** Merged steers (`meta.steer`) or the merged queue; `meta.input_ids`
-   * lists the delivered items. */
-  message: ChatMessage;
-}
-
-interface PermissionRequestEvent extends StreamEventBase {
-  type: "permission_request";
-  request_id: string;
-  tool_use_id: string;
-  tool_name: string;
-  preview: string;
-}
-
-interface PermissionResolvedEvent extends StreamEventBase {
-  type: "permission_resolved";
-  request_id: string;
-  decision: "allow" | "deny";
-}
-
-interface UsageEvent extends StreamEventBase {
-  type: "usage";
-  context_tokens?: number;
-  context_window?: number;
-  model?: string;
-  /** Turn-cumulative token counts. */
-  turn_usage?: Record<string, number>;
-  /** Turn-cumulative cost. */
-  turn_cost?: Cost | null;
-  /** Elapsed time from the turn's user message to the record this event follows. */
-  turn_duration_ms?: number;
-  /** Pre-run session totals + turn totals, composed by the server. */
-  session_usage?: Record<string, number>;
-  session_cost?: Cost;
-}
-
-export type StreamEvent =
-  | ReasoningEvent
-  | ReasoningDoneEvent
-  | TextEvent
-  | ToolStartEvent
-  | ToolOutputEvent
-  | ToolDoneEvent
-  | ErrorEvent
-  | CancelledEvent
-  | CompactEvent
-  | UserMessageEvent
-  | PermissionRequestEvent
-  | PermissionResolvedEvent
-  | UsageEvent;
-
+/** A tool call waiting for approval, from a `permission_request` event. */
 export interface PermissionRequest {
   request_id: string;
   tool_use_id: string;
   tool_name: string;
   preview: string;
-}
-
-export interface SessionsResponse {
-  sessions?: SessionSummary[];
-}
-
-export interface SessionSearchHit {
-  session: SessionSummary;
-  /** Text around the first message match; null when only the title matched. */
-  snippet: { before: string; match: string; after: string } | null;
-}
-
-export interface SessionSearchResponse {
-  results: SessionSearchHit[];
-}
-
-export interface SessionResponse {
-  session: SessionSummary | null;
-  messages: ChatMessage[];
-  session_usage?: Record<string, number> | null;
-  session_cost?: Cost | null;
-  active_run: RunInfo | null;
-  pending_events: StreamEvent[];
-  /** The active run's undelivered steers and queued messages. */
-  pending?: { steers: PendingMessage[]; queue: PendingMessage[] };
-  /** Background commands still running in this session. */
-  jobs?: BackgroundJobInfo[];
-}
-
-export interface ChatResponse {
-  run: RunInfo;
-  session: SessionSummary;
-  /** The sent message as the run received it: results of background
-   * commands that waited for it ride ahead of its own blocks. */
-  message: ChatMessage;
-}
-
-export interface CompactResponse {
-  run: RunInfo;
-}
-
-export interface ValidationErrorDetail {
-  loc?: (string | number)[];
-  msg?: string;
-  type?: string;
-}
-
-export interface ChatErrorResponse {
-  detail?:
-    | string
-    | ValidationErrorDetail[]
-    | {
-        message?: string;
-        run?: RunInfo;
-      };
-}
-
-export interface WorkspaceEntry {
-  name: string;
-  path: string;
-}
-
-export interface WorkspaceRootsResponse {
-  roots?: string[];
-}
-
-export interface WorkspaceBrowseResponse {
-  root: string;
-  path: string;
-  current: string;
-  entries: WorkspaceEntry[];
-  error: string;
-}
-
-export type PermissionLevel = "readonly" | "safe" | "standard" | "yolo";
-export type PermissionMode = "ask" | "deny";
-
-/** A single provider entry. GET returns ``models`` as a string[] (with
- * per-model metadata overrides surfaced separately under ``model_overrides``);
- * PUT accepts either a list or the dict form so the UI can round-trip those
- * overrides without exposing them in the form. */
-export interface GlobalProviderEntry {
-  type?: string;
-  models?: string[] | Record<string, Record<string, unknown>>;
-  api_key?: string | null;
-  api_key_saved?: boolean;
-  base_url?: string;
-  /** Opt-in for a generic openai_chat endpoint that accepts the standard
-   * top-level reasoning_effort. Ignored for other provider types. */
-  supports_reasoning_effort?: boolean;
-  model_overrides?: Record<string, Record<string, unknown>>;
-}
-
-export type WebFetchProvider = "local" | "tavily" | "exa";
-export type WebSearchProvider = "off" | "tavily" | "exa";
-
-export interface WebProviderEntry {
-  api_key?: string | null;
-  api_key_saved?: boolean;
-}
-
-export interface GlobalConfig {
-  compact_threshold?: number | false | null;
-  permission?: PermissionLevel | { level?: PermissionLevel; mode?: PermissionMode };
-  providers?: Record<string, GlobalProviderEntry>;
-  web?: {
-    fetch?: WebFetchProvider;
-    search?: WebSearchProvider;
-    tavily?: WebProviderEntry;
-    exa?: WebProviderEntry;
-  };
-}
-
-export interface SettingsResponse {
-  path: string;
-  exists: boolean;
-  config: GlobalConfig;
-  options: {
-    provider_types: string[];
-    permission_levels: PermissionLevel[];
-    permission_modes: PermissionMode[];
-  };
-  env: Record<string, boolean>;
-  provider_type_env_vars: Record<string, string[]>;
-  provider_type_default_models: Record<string, string[]>;
 }
 
 export interface ThemeContextValue {

@@ -6,16 +6,16 @@
       name="viewport"
       content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content"
     />
-    <meta name="theme-color" content="#15191F" />
+    <meta name="theme-color" content="#FBFDFE" />
     <script>
       try {
         const theme = localStorage.getItem("mycode_theme") || "system";
         const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-        const isLight = theme === "light" || (theme === "system" && !prefersDark);
+        const isDark = theme === "dark" || (theme === "system" && prefersDark);
 
-        if (isLight) {
-          document.documentElement.classList.add("light");
-          document.querySelector('meta[name="theme-color"]').content = "#FBFCFE";
+        if (isDark) {
+          document.documentElement.classList.add("dark");
+          document.querySelector('meta[name="theme-color"]').content = "#0D1012";
         }
       } catch {}
     </script>

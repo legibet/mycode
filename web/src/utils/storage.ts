@@ -2,9 +2,9 @@
  * Local storage utilities for config and history persistence.
  */
 
-import type { LocalConfig } from "../types";
-import { isReasoningEffort } from "./config";
-import { SIDEBAR_DEFAULT_WIDTH, SIDEBAR_MAX_WIDTH, SIDEBAR_MIN_WIDTH } from "./sidebar";
+import type { LocalConfig } from "@/types";
+import { isReasoningEffort } from "@/utils/config";
+import { SIDEBAR_DEFAULT_WIDTH, SIDEBAR_MAX_WIDTH, SIDEBAR_MIN_WIDTH } from "@/utils/sidebar";
 
 const STORAGE_KEY = "mycode_config";
 const HISTORY_KEY = "mycode_cwd_history";
@@ -104,7 +104,6 @@ export function addHistory(history: string[], value: string): string[] {
 }
 
 function normalizeCwdKey(cwd: string): string {
-  if (typeof cwd !== "string") return ".";
   const value = cwd.trim();
   return value || ".";
 }
@@ -117,8 +116,7 @@ function loadActiveSessionMap(): Record<string, string> {
     if (!isRecord(parsed)) return {};
     return Object.fromEntries(
       Object.entries(parsed).filter(
-        (entry): entry is [string, string] =>
-          typeof entry[0] === "string" && typeof entry[1] === "string",
+        (entry): entry is [string, string] => typeof entry[1] === "string",
       ),
     );
   } catch (e) {
@@ -129,10 +127,7 @@ function loadActiveSessionMap(): Record<string, string> {
 
 function saveActiveSessionMap(activeSessions: Record<string, string>): void {
   try {
-    const entries = Object.entries(activeSessions).filter(
-      ([cwd, sessionId]) =>
-        typeof cwd === "string" && cwd && typeof sessionId === "string" && sessionId,
-    );
+    const entries = Object.entries(activeSessions).filter(([cwd, sessionId]) => cwd && sessionId);
     if (entries.length === 0) {
       localStorage.removeItem(ACTIVE_SESSIONS_KEY);
       return;
@@ -144,13 +139,11 @@ function saveActiveSessionMap(activeSessions: Record<string, string>): void {
 }
 
 export function loadActiveSession(cwd: string): string {
-  const activeSessions = loadActiveSessionMap();
-  const sessionId = activeSessions[normalizeCwdKey(cwd)];
-  return typeof sessionId === "string" ? sessionId : "";
+  return loadActiveSessionMap()[normalizeCwdKey(cwd)] ?? "";
 }
 
 export function saveActiveSession(cwd: string, sessionId: string): void {
-  if (typeof sessionId !== "string" || !sessionId) return;
+  if (!sessionId) return;
   const activeSessions = loadActiveSessionMap();
   activeSessions[normalizeCwdKey(cwd)] = sessionId;
   saveActiveSessionMap(activeSessions);

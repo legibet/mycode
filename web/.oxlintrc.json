@@ -1,17 +1,27 @@
 {
   "$schema": "./node_modules/oxlint/configuration_schema.json",
   "plugins": ["typescript", "unicorn", "oxc", "react", "jsx-a11y", "vitest"],
-  "ignorePatterns": ["src/components/ui"],
   "options": {
     "typeAware": true,
     "denyWarnings": true,
     "reportUnusedDisableDirectives": "error"
   },
   "rules": {
-    "jsx-a11y/aria-role": ["error", { "ignoreNonDOM": true }],
+    "jsx-a11y/aria-role": [
+      "error",
+      {
+        "ignoreNonDOM": true
+      }
+    ],
     "jsx-a11y/prefer-tag-over-role": "off",
     "react/preserve-manual-memoization": "off",
-    "vitest/require-mock-type-parameters": "off"
+    "vitest/require-mock-type-parameters": "off",
+    "jsx-a11y/label-has-associated-control": [
+      "error",
+      {
+        "controlComponents": ["Checkbox"]
+      }
+    ]
   },
   "overrides": [
     {

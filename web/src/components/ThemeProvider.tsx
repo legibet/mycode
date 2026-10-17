@@ -13,7 +13,7 @@ import {
   useSyncExternalStore,
 } from "react";
 
-import type { Theme, ThemeContextValue } from "../types";
+import type { Theme, ThemeContextValue } from "@/types";
 
 interface ThemeProviderProps {
   children: ReactNode;
@@ -24,6 +24,10 @@ interface ThemeProviderProps {
 const ThemeProviderContext = createContext<ThemeContextValue | null>(null);
 
 const DARK_QUERY = "(prefers-color-scheme: dark)";
+
+// --background in sRGB hex for the browser chrome; index.html sets the same
+// values before first paint.
+const THEME_COLOR = { light: "#FBFDFE", dark: "#0D1012" } as const;
 
 function subscribeToColorScheme(onChange: () => void) {
   const mq = window.matchMedia(DARK_QUERY);
@@ -57,9 +61,11 @@ export function ThemeProvider({
 
   useEffect(() => {
     const root = document.documentElement;
-    root.classList.remove("light", "dark");
-    root.classList.add(resolvedTheme);
+    root.classList.toggle("dark", resolvedTheme === "dark");
     root.style.colorScheme = resolvedTheme;
+    document
+      .querySelector('meta[name="theme-color"]')
+      ?.setAttribute("content", THEME_COLOR[resolvedTheme]);
   }, [resolvedTheme]);
 
   const setTheme = useCallback(

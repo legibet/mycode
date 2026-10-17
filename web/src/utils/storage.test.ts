@@ -8,7 +8,7 @@ import {
   removeActiveSession,
   saveActiveSession,
   savePromptHistory,
-} from "./storage";
+} from "@/utils/storage";
 
 describe("storage", () => {
   it("stores active sessions per workspace", () => {

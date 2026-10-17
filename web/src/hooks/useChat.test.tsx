@@ -1,10 +1,10 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { ChatMessage, RenderMessage } from "../types";
-import { isChatMessage, isCompactMarker } from "../types";
-import { loadActiveSession, saveActiveSession } from "../utils/storage";
-import { useChat } from "./useChat";
+import { useChat } from "@/hooks/useChat";
+import type { ChatMessage, RenderMessage } from "@/types";
+import { isChatMessage, isCompactMarker } from "@/types";
+import { loadActiveSession, saveActiveSession } from "@/utils/storage";
 
 function expectChat(message: RenderMessage | undefined): ChatMessage {
   if (!message || !isChatMessage(message)) {
@@ -17,6 +17,19 @@ function createJsonResponse(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), {
     status,
     headers: { "Content-Type": "application/json" },
+  });
+}
+
+/** A `GET /api/sessions/{id}` body; fields a test leaves out take an idle session's values. */
+function createSessionResponse(data: Record<string, unknown>): Response {
+  return createJsonResponse({
+    session_usage: null,
+    session_cost: null,
+    active_run: null,
+    pending_events: [],
+    pending: { steers: [], queue: [] },
+    jobs: [],
+    ...data,
   });
 }
 
@@ -351,7 +364,7 @@ describe("useChat", () => {
       "/api/sessions?cwd=": createJsonResponse({
         sessions: [{ id: "session-1", title: "Persisted" }],
       }),
-      "/api/sessions/session-1": createJsonResponse({
+      "/api/sessions/session-1": createSessionResponse({
         session: { id: "session-1", title: "Persisted" },
         messages: [
           { role: "user", content: [{ type: "text", text: "original" }] },
@@ -408,7 +421,7 @@ describe("useChat", () => {
       "/api/sessions?cwd=": createJsonResponse({
         sessions: [{ id: "session-1", title: "Persisted" }],
       }),
-      "/api/sessions/session-1": createJsonResponse({
+      "/api/sessions/session-1": createSessionResponse({
         session: { id: "session-1", title: "Persisted" },
         messages: [
           {
@@ -462,7 +475,7 @@ describe("useChat", () => {
       "/api/sessions?cwd=": createJsonResponse({
         sessions: [{ id: "session-2", title: "Running" }],
       }),
-      "/api/sessions/session-2": createJsonResponse({
+      "/api/sessions/session-2": createSessionResponse({
         session: { id: "session-2", title: "Running" },
         messages: [
           {
@@ -511,7 +524,7 @@ describe("useChat", () => {
       "/api/sessions?cwd=": createJsonResponse({
         sessions: [{ id: "session-2", title: "Running" }],
       }),
-      "/api/sessions/session-2": createJsonResponse({
+      "/api/sessions/session-2": createSessionResponse({
         session: { id: "session-2", title: "Running" },
         messages: [{ role: "user", content: [{ type: "text", text: "run" }] }],
         active_run: {
@@ -537,6 +550,101 @@ describe("useChat", () => {
     );
   });
 
+  it("reloads and reattaches when the stream drops before [DONE]", async () => {
+    saveActiveSession("/workspace/a", "session-2");
+    const snapshot = (lastSeq: number, pendingEvents: unknown[]) =>
+      createSessionResponse({
+        session: { id: "session-2", title: "Running" },
+        messages: [{ role: "user", content: [{ type: "text", text: "run" }] }],
+        active_run: {
+          id: "run-2",
+          session_id: "session-2",
+          kind: "chat",
+          status: "running",
+          last_seq: lastSeq,
+        },
+        pending_events: pendingEvents,
+      });
+    const session = vi
+      .fn()
+      .mockReturnValueOnce(snapshot(0, []))
+      .mockReturnValue(
+        snapshot(2, [
+          { type: "text", delta: "hel", seq: 1 },
+          { type: "text", delta: "lo", seq: 2 },
+        ]),
+      );
+    mockFetch({
+      "/api/sessions?cwd=": createJsonResponse({
+        sessions: [{ id: "session-2", title: "Running" }],
+      }),
+      "/api/sessions/session-2": () => session(),
+      "/api/runs/run-2/stream?after=0": new Response(
+        `data: ${JSON.stringify({ type: "text", delta: "hel", seq: 1 })}\n\n`,
+        { status: 200, headers: { "Content-Type": "text/event-stream" } },
+      ),
+      "/api/runs/run-2/stream?after=2": new Response("data: [DONE]\n\n", {
+        status: 200,
+        headers: { "Content-Type": "text/event-stream" },
+      }),
+    });
+
+    const { result } = renderChatHook();
+
+    await waitFor(() => expect(session).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(expectChat(result.current.messages[1]).content).toEqual([
+      expect.objectContaining({ type: "text", text: "hello" }),
+    ]);
+  });
+
+  it.each([
+    ["the stream request fails", () => Promise.reject(new TypeError("network down"))],
+    [
+      "the stream ends without [DONE]",
+      () =>
+        new Response(`data: ${JSON.stringify({ type: "text", delta: "hel", seq: 1 })}\n\n`, {
+          status: 200,
+          headers: { "Content-Type": "text/event-stream" },
+        }),
+    ],
+  ])("marks the turn failed when %s and the session cannot be reloaded", async (_, stream) => {
+    saveActiveSession("/workspace/a", "session-2");
+    const session = vi
+      .fn()
+      .mockReturnValueOnce(
+        createSessionResponse({
+          session: { id: "session-2", title: "Running" },
+          messages: [{ role: "user", content: [{ type: "text", text: "run" }] }],
+          active_run: {
+            id: "run-2",
+            session_id: "session-2",
+            kind: "chat",
+            status: "running",
+            last_seq: 0,
+          },
+          pending_events: [],
+        }),
+      )
+      .mockReturnValue(createJsonResponse({ detail: "boom" }, 500));
+    mockFetch({
+      "/api/sessions?cwd=": createJsonResponse({
+        sessions: [{ id: "session-2", title: "Running" }],
+      }),
+      "/api/sessions/session-2": () => session(),
+      "/api/runs/run-2/stream?after=0": stream,
+    });
+
+    const { result } = renderChatHook();
+
+    await waitFor(() => expect(session).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(expectChat(result.current.messages.at(-1)).meta).toMatchObject({
+      stop_reason: "error",
+      error: "Stream disconnected. Reload the session to resume.",
+    });
+  });
+
   it("appends all tool output deltas without inserting separators", async () => {
     const largeDelta = "x".repeat(110 * 1024);
     globalThis.localStorage.setItem(
@@ -547,7 +655,7 @@ describe("useChat", () => {
       "/api/sessions?cwd=": createJsonResponse({
         sessions: [{ id: "session-2", title: "Running" }],
       }),
-      "/api/sessions/session-2": createJsonResponse({
+      "/api/sessions/session-2": createSessionResponse({
         session: { id: "session-2", title: "Running" },
         messages: [{ role: "user", content: [{ type: "text", text: "run" }] }],
         active_run: {
@@ -604,7 +712,7 @@ describe("useChat", () => {
       "/api/sessions?cwd=": createJsonResponse({
         sessions: [{ id: "session-2", title: "Running" }],
       }),
-      "/api/sessions/session-2": createJsonResponse({
+      "/api/sessions/session-2": createSessionResponse({
         session: { id: "session-2", title: "Running" },
         messages: [
           { role: "user", content: [{ type: "text", text: "before" }] },
@@ -683,7 +791,7 @@ describe("useChat", () => {
           { id: "session-1", title: "First" },
         ],
       }),
-      "/api/sessions/session-1": createJsonResponse({
+      "/api/sessions/session-1": createSessionResponse({
         session: { id: "session-1", title: "First" },
         messages: [
           {
@@ -716,7 +824,7 @@ describe("useChat", () => {
 
     await act(async () => {
       resolveSession2(
-        createJsonResponse({
+        createSessionResponse({
           session: { id: "session-2", title: "Second" },
           messages: [
             {
@@ -763,7 +871,7 @@ describe("useChat", () => {
           { id: "session-1", title: "First" },
         ],
       }),
-      "/api/sessions/session-1": createJsonResponse({
+      "/api/sessions/session-1": createSessionResponse({
         session: { id: "session-1", title: "First" },
         messages: [
           {
@@ -805,7 +913,7 @@ describe("useChat", () => {
 
     await act(async () => {
       resolveSession2(
-        createJsonResponse({
+        createSessionResponse({
           session: { id: "session-2", title: "Second" },
           messages: [
             {
@@ -826,7 +934,7 @@ describe("useChat", () => {
 
     await act(async () => {
       resolveSession3(
-        createJsonResponse({
+        createSessionResponse({
           session: { id: "session-3", title: "Third" },
           messages: [
             {
@@ -863,7 +971,7 @@ describe("useChat", () => {
           { id: "session-1", title: "First" },
         ],
       }),
-      "/api/sessions/session-1": createJsonResponse({
+      "/api/sessions/session-1": createSessionResponse({
         session: { id: "session-1", title: "First" },
         messages: [
           {
@@ -877,7 +985,7 @@ describe("useChat", () => {
       "/api/sessions/session-2": (init?: RequestInit) =>
         init?.method === "DELETE"
           ? new Response(null, { status: 200 })
-          : createJsonResponse({
+          : createSessionResponse({
               session: { id: "session-2", title: "Second" },
               messages: [
                 {
@@ -927,7 +1035,7 @@ describe("useChat", () => {
       "/api/sessions/session-1": (init?: RequestInit) =>
         init?.method === "DELETE"
           ? new Response(null, { status: 200 })
-          : createJsonResponse({
+          : createSessionResponse({
               session: { id: "session-1", title: "First" },
               messages: [
                 {
@@ -938,7 +1046,7 @@ describe("useChat", () => {
               active_run: null,
               pending_events: [],
             }),
-      "/api/sessions/session-2": createJsonResponse({
+      "/api/sessions/session-2": createSessionResponse({
         session: { id: "session-2", title: "Second" },
         messages: [
           {
@@ -994,7 +1102,7 @@ describe("useChat", () => {
       "/api/sessions?cwd=": createJsonResponse({
         sessions: [{ id: "session-3", title: "Awaiting" }],
       }),
-      "/api/sessions/session-3": createJsonResponse({
+      "/api/sessions/session-3": createSessionResponse({
         session: { id: "session-3", title: "Awaiting" },
         messages: [],
         active_run: {
@@ -1067,7 +1175,7 @@ describe("useChat", () => {
       "/api/sessions?cwd=": createJsonResponse({
         sessions: [{ id: "session-4", title: "Awaiting" }],
       }),
-      "/api/sessions/session-4": createJsonResponse({
+      "/api/sessions/session-4": createSessionResponse({
         session: { id: "session-4", title: "Awaiting" },
         messages: [],
         active_run: {
@@ -1119,7 +1227,7 @@ describe("useChat", () => {
       "/api/sessions/session-1": (init?: RequestInit) =>
         init?.method === "DELETE"
           ? new Response(null, { status: 200 })
-          : createJsonResponse({
+          : createSessionResponse({
               session: { id: "session-1", title: "Only Session" },
               messages: [
                 {
@@ -1171,7 +1279,7 @@ describe("useChat", () => {
 
   function mockCompactSessionRoutes(
     routes: Record<string, MockResponse>,
-    sessionResponse: MockResponse = createJsonResponse(COMPACT_SESSION),
+    sessionResponse: MockResponse = createSessionResponse(COMPACT_SESSION),
   ) {
     saveActiveSession("/workspace/a", "session-c");
     return mockFetch({
@@ -1214,7 +1322,7 @@ describe("useChat", () => {
           });
         },
       },
-      () => createJsonResponse(sessionState),
+      () => createSessionResponse(sessionState),
     );
 
     const { result } = renderChatHook({ provider: "anthropic", model: "m1" });
@@ -1334,7 +1442,7 @@ describe("useChat", () => {
       "/api/sessions?cwd=": createJsonResponse({
         sessions: [{ id: "session-c", title: "Long chat" }],
       }),
-      "/api/sessions/session-c": createJsonResponse({
+      "/api/sessions/session-c": createSessionResponse({
         ...COMPACT_SESSION,
         active_run: {
           id: "run-c",
@@ -1401,7 +1509,7 @@ describe("useChat", () => {
       "/api/sessions?cwd=": createJsonResponse({
         sessions: [{ id: "session-2", title: "Running" }],
       }),
-      "/api/sessions/session-2": createJsonResponse({
+      "/api/sessions/session-2": createSessionResponse({
         session: { id: "session-2", title: "Running" },
         messages: [{ role: "user", content: [{ type: "text", text: "run" }] }],
         active_run: {
@@ -1465,7 +1573,7 @@ describe("useChat", () => {
       "/api/sessions?cwd=": createJsonResponse({
         sessions: [{ id: "session-2", title: "Running" }],
       }),
-      "/api/sessions/session-2": createJsonResponse({
+      "/api/sessions/session-2": createSessionResponse({
         session: { id: "session-2", title: "Running" },
         messages: [{ role: "user", content: [{ type: "text", text: "run" }] }],
         active_run: {
@@ -1570,11 +1678,53 @@ describe("useChat", () => {
     expect(result.current.messages).toHaveLength(2);
   });
 
+  const compactRun = {
+    id: "run-c",
+    session_id: "session-c",
+    kind: "compact",
+    status: "running",
+    last_seq: 0,
+  };
+
+  it.each([
+    ["starts it", () => createJsonResponse({ run: compactRun })],
+    [
+      "attaches to it",
+      () => createJsonResponse({ detail: { message: "busy", run: compactRun } }, 409),
+    ],
+  ])("stops the run a compact request %s once Stop was pressed during it", async (_, answer) => {
+    let respond!: () => void;
+    const fetchMock = mockCompactSessionRoutes({
+      "/api/sessions/session-c/compact": () =>
+        new Promise<Response>((resolve) => {
+          respond = () => resolve(answer());
+        }),
+      "/api/runs/run-c/cancel": createJsonResponse({ status: "ok" }),
+      "/api/runs/run-c/stream": () => new Promise<Response>(() => {}),
+    });
+    const cancelled = () => fetchMock.mock.calls.some(([url]) => url === "/api/runs/run-c/cancel");
+    const { result } = renderChatHook();
+    await waitFor(() => expect(result.current.messages).toHaveLength(2));
+
+    act(() => {
+      void result.current.compactSession();
+    });
+    act(() => result.current.cancel());
+    // Nothing to stop yet: the compaction stays busy until its run is known.
+    expect(result.current.runKind).toBe("compact");
+    expect(cancelled()).toBe(false);
+
+    await act(async () => respond());
+    await waitFor(() => expect(cancelled()).toBe(true));
+    await waitFor(() => expect(result.current.runKind).toBeNull());
+    expect(result.current.messages).toHaveLength(2);
+  });
+
   it("stops the run named by a start request that was in flight at Stop", async () => {
     saveActiveSession("/workspace/a", "session-1");
     let respond!: () => void;
     const idle = (messages: unknown[]) =>
-      createJsonResponse({
+      createSessionResponse({
         session: { id: "session-1", title: "Saved" },
         messages,
         active_run: null,
@@ -1627,11 +1777,53 @@ describe("useChat", () => {
     expect(result.current.messages).toHaveLength(1);
   });
 
+  it("follows a newer send when the abandoned one answers first", async () => {
+    const responders: Array<() => void> = [];
+    const chatResponse = (runId: string, sessionId: string) =>
+      createJsonResponse({
+        run: { id: runId, session_id: sessionId, kind: "chat", status: "running", last_seq: 0 },
+        session: { id: sessionId, title: "Draft" },
+        message: acceptedMessage,
+      });
+    mockFetch({
+      "/api/sessions?cwd=": createJsonResponse({ sessions: [] }),
+      "/api/chat": (init) => {
+        const sessionId = JSON.parse(String(init?.body)).session_id as string;
+        const runId = `run-${responders.length + 1}`;
+        return new Promise<Response>((resolve) => {
+          responders.push(() => resolve(chatResponse(runId, sessionId)));
+        });
+      },
+      "/api/runs/run-1/stream": () => new Promise<Response>(() => {}),
+      "/api/runs/run-2/stream": new Response("data: [DONE]\n\n", {
+        status: 200,
+        headers: { "Content-Type": "text/event-stream" },
+      }),
+    });
+    const { result } = renderChatHook();
+    await waitFor(() => expect(result.current.sessionLoading).toBe(false));
+
+    act(() => {
+      void result.current.send({ text: "first", workspaceFiles: [] });
+    });
+    act(() => result.current.createSession());
+    let second!: Promise<boolean>;
+    act(() => {
+      second = result.current.send({ text: "second", workspaceFiles: [] });
+    });
+
+    await act(async () => responders[0]?.());
+    await act(async () => responders[1]?.());
+
+    await expect(second).resolves.toBe(true);
+    await waitFor(() => expect(result.current.loading).toBe(false));
+  });
+
   it("finishes a replayed compact cancellation and reloads idle history", async () => {
     const sessionResponse = vi
       .fn()
       .mockReturnValueOnce(
-        createJsonResponse({
+        createSessionResponse({
           ...COMPACT_SESSION,
           active_run: {
             id: "run-c",
@@ -1643,7 +1835,7 @@ describe("useChat", () => {
           pending_events: [{ type: "cancelled", seq: 1 }],
         }),
       )
-      .mockImplementation(() => createJsonResponse(COMPACT_SESSION));
+      .mockImplementation(() => createSessionResponse(COMPACT_SESSION));
     mockCompactSessionRoutes(
       {
         "/api/runs/run-c/stream?after=1": new Response("data: [DONE]\n\n", {
@@ -1707,9 +1899,9 @@ describe("useChat pending input", () => {
     };
     const session = vi
       .fn()
-      .mockReturnValueOnce(createJsonResponse(running))
+      .mockReturnValueOnce(createSessionResponse(running))
       .mockImplementation(() =>
-        createJsonResponse({
+        createSessionResponse({
           ...running,
           messages: [...running.messages, ...reloaded()],
           active_run: null,
@@ -2101,7 +2293,7 @@ describe("useChat pending input", () => {
     const { session } = mockRunningSession({
       "/api/runs/run-2/steer": createJsonResponse({ run: RUN }),
       "/api/runs/run-2/cancel": createJsonResponse({ status: "ok" }),
-      "/api/sessions/session-1": createJsonResponse({
+      "/api/sessions/session-1": createSessionResponse({
         session: { id: "session-1", title: "Other" },
         messages: [],
         active_run: null,
@@ -2118,7 +2310,7 @@ describe("useChat pending input", () => {
         new Promise<Response>((resolve) => {
           finishReload = () =>
             resolve(
-              createJsonResponse({
+              createSessionResponse({
                 session: { id: "session-2", title: "Running" },
                 messages: [],
                 active_run: null,
@@ -2233,7 +2425,7 @@ describe("useChat server events", () => {
   });
 
   it("opens /api/events on mount and closes it on unmount", async () => {
-    const { source, unmount } = await renderWithSession(() => createJsonResponse(idleSession));
+    const { source, unmount } = await renderWithSession(() => createSessionResponse(idleSession));
 
     expect(source.url).toBe("/api/events");
     expect(source.close).not.toHaveBeenCalled();
@@ -2268,7 +2460,7 @@ describe("useChat server events", () => {
     };
     const session = vi
       .fn()
-      .mockReturnValueOnce(createJsonResponse(idleSession))
+      .mockReturnValueOnce(createSessionResponse(idleSession))
       .mockReturnValue(createJsonResponse(wake));
     const { stream, end } = openStream();
     const { result, fetchMock, source } = await renderWithSession(session, {
@@ -2300,8 +2492,8 @@ describe("useChat server events", () => {
   it("defers the reload until this client's stream ends", async () => {
     const session = vi
       .fn()
-      .mockReturnValueOnce(createJsonResponse({ ...idleSession, active_run: runInfo("run-1") }))
-      .mockReturnValue(createJsonResponse(idleSession));
+      .mockReturnValueOnce(createSessionResponse({ ...idleSession, active_run: runInfo("run-1") }))
+      .mockReturnValue(createSessionResponse(idleSession));
     const { stream, end } = openStream();
     const { result, fetchMock, source } = await renderWithSession(session, {
       "/api/runs/run-1/stream": sseResponse(stream),
@@ -2321,13 +2513,41 @@ describe("useChat server events", () => {
     await waitFor(() => expect(result.current.loading).toBe(false));
   });
 
+  it("reloads for a run announced during a send that then fails", async () => {
+    let rejectPost!: () => void;
+    const posted = new Promise<void>((resolve) => {
+      rejectPost = resolve;
+    });
+    const { result, fetchMock, source } = await renderWithSession(
+      () => createSessionResponse(idleSession),
+      {
+        "/api/chat": async () => {
+          await posted;
+          return createJsonResponse({ detail: "provider unavailable" }, 500);
+        },
+      },
+    );
+
+    let sent!: Promise<boolean>;
+    act(() => {
+      sent = result.current.send({ text: "go", workspaceFiles: [] });
+    });
+    source.emit({ type: "run_started", session_id: "session-1", run: runInfo("run-bg") });
+    await act(async () => {});
+    expect(calls(fetchMock, SESSION_URL)).toBe(1);
+
+    rejectPost();
+    await expect(sent).resolves.toBe(false);
+    await waitFor(() => expect(calls(fetchMock, SESSION_URL)).toBe(2));
+  });
+
   it("does not reload for the run its own send is starting", async () => {
     let resolvePost!: () => void;
     const posted = new Promise<void>((resolve) => {
       resolvePost = resolve;
     });
     const { result, fetchMock, source } = await renderWithSession(
-      () => createJsonResponse(idleSession),
+      () => createSessionResponse(idleSession),
       {
         "/api/chat": async () => {
           await posted;
@@ -2361,6 +2581,55 @@ describe("useChat server events", () => {
     expect(calls(fetchMock, SESSION_URL)).toBe(1);
   });
 
+  it("leaves a newer compact request in charge when an abandoned one answers", async () => {
+    const responders: Array<(response: Response) => void> = [];
+    saveActiveSession("/workspace/a", "session-1");
+    const fetchMock = mockFetch({
+      "/api/sessions?cwd=": createJsonResponse({
+        sessions: [{ id: "session-1", title: "Saved" }],
+      }),
+      // Before the session GET, which shares its prefix.
+      [`${SESSION_URL}/compact`]: () =>
+        new Promise<Response>((resolve) => {
+          responders.push(resolve);
+        }),
+      [SESSION_URL]: () => createSessionResponse(idleSession),
+    });
+    const { result } = renderChatHook();
+    await waitFor(() => expect(calls(fetchMock, SESSION_URL)).toBe(1));
+    const source = FakeEventSource.instances.at(-1);
+    if (!source) throw new Error("no EventSource opened");
+
+    act(() => {
+      void result.current.compactSession();
+    });
+    // Leave and come back: the first request is abandoned, not cancelled.
+    act(() => result.current.createSession());
+    await act(async () => {
+      await result.current.selectSession("session-1");
+    });
+    act(() => {
+      void result.current.compactSession();
+    });
+    expect(responders).toHaveLength(2);
+
+    await act(async () =>
+      responders[0]?.(createJsonResponse({ detail: "nothing to compact" }, 400)),
+    );
+    expect(result.current.runKind).toBe("compact");
+    expect(result.current.compactError).toBeNull();
+
+    // The newer request is still in flight, so a run started elsewhere waits.
+    const loads = calls(fetchMock, SESSION_URL);
+    source.emit({
+      type: "run_started",
+      session_id: "session-1",
+      run: runInfo("run-other"),
+    });
+    await act(async () => {});
+    expect(calls(fetchMock, SESSION_URL)).toBe(loads);
+  });
+
   const jobInfo = (tool_use_id: string, label = "sleep 30") => ({
     tool_use_id,
     label,
@@ -2370,7 +2639,7 @@ describe("useChat server events", () => {
 
   it("keeps the shown session's running jobs from the snapshot and job events", async () => {
     const { result, source } = await renderWithSession(() =>
-      createJsonResponse({ ...idleSession, jobs: [jobInfo("call-1")] }),
+      createSessionResponse({ ...idleSession, jobs: [jobInfo("call-1")] }),
     );
     expect(result.current.jobs).toEqual([jobInfo("call-1")]);
 
@@ -2403,7 +2672,7 @@ describe("useChat server events", () => {
     const session = (init?: RequestInit) =>
       init?.method === "DELETE"
         ? createJsonResponse({ detail: "background job not found" }, 404)
-        : createJsonResponse({ ...idleSession, jobs: [jobInfo("call-1")] });
+        : createSessionResponse({ ...idleSession, jobs: [jobInfo("call-1")] });
     const { result, fetchMock } = await renderWithSession(() => session(), {
       [SESSION_URL]: session,
     });
@@ -2420,7 +2689,7 @@ describe("useChat server events", () => {
 
   it("shows the results the server attached to the sent message", async () => {
     const { stream } = openStream();
-    const { result } = await renderWithSession(() => createJsonResponse(idleSession), {
+    const { result } = await renderWithSession(() => createSessionResponse(idleSession), {
       "/api/chat": createJsonResponse({
         run: runInfo("run-2"),
         session: { id: "session-1", title: "Saved" },
@@ -2484,7 +2753,7 @@ describe("useChat server events", () => {
 
   it("only refreshes the list for another session and never syncs a draft", async () => {
     const { result, fetchMock, source } = await renderWithSession(() =>
-      createJsonResponse(idleSession),
+      createSessionResponse(idleSession),
     );
     const listCalls = calls(fetchMock, LIST_URL);
 

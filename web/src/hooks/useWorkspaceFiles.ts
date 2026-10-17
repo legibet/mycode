@@ -5,7 +5,7 @@
 
 import { useEffect, useState } from "react";
 
-import type { WorkspaceFilesResponse } from "../utils/completion";
+import { fetchJson, type WorkspaceFilesResponse } from "@/api";
 
 interface WorkspaceFilesState {
   entries: WorkspaceFilesResponse["entries"];
@@ -37,11 +37,9 @@ export function useWorkspaceFiles(
     const timer = setTimeout(async () => {
       try {
         const params = new URLSearchParams({ cwd, dir, prefix });
-        const res = await fetch(`/api/workspaces/files?${params}`, {
+        const data = await fetchJson<WorkspaceFilesResponse>(`/api/workspaces/files?${params}`, {
           signal: controller.signal,
         });
-        if (!res.ok) throw new Error(`status ${res.status}`);
-        const data = (await res.json()) as WorkspaceFilesResponse;
         setResult({
           query,
           entries: data.error ? [] : data.entries,

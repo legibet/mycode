@@ -1,26 +1,24 @@
-import { Popover as PopoverPrimitive } from '@base-ui/react/popover'
-import { cn } from '@/utils/cn'
+import { Popover as PopoverPrimitive } from "@base-ui/react/popover";
+
+import { cn } from "@/utils/cn";
 
 function Popover({ ...props }: PopoverPrimitive.Root.Props) {
-  return <PopoverPrimitive.Root data-slot="popover" {...props} />
+  return <PopoverPrimitive.Root data-slot="popover" {...props} />;
 }
 
 function PopoverTrigger({ ...props }: PopoverPrimitive.Trigger.Props) {
-  return <PopoverPrimitive.Trigger data-slot="popover-trigger" {...props} />
+  return <PopoverPrimitive.Trigger data-slot="popover-trigger" {...props} />;
 }
 
 function PopoverContent({
   className,
-  align = 'center',
+  align = "center",
   alignOffset = 0,
-  side = 'bottom',
+  side = "bottom",
   sideOffset = 4,
   ...props
 }: PopoverPrimitive.Popup.Props &
-  Pick<
-    PopoverPrimitive.Positioner.Props,
-    'align' | 'alignOffset' | 'side' | 'sideOffset'
-  >) {
+  Pick<PopoverPrimitive.Positioner.Props, "align" | "alignOffset" | "side" | "sideOffset">) {
   return (
     <PopoverPrimitive.Portal>
       <PopoverPrimitive.Positioner
@@ -33,14 +31,14 @@ function PopoverContent({
         <PopoverPrimitive.Popup
           data-slot="popover-content"
           className={cn(
-            'z-50 flex w-72 origin-(--transform-origin) flex-col gap-2.5 rounded-md bg-popover p-2.5 text-sm text-popover-foreground shadow-overlay outline-hidden duration-100 ease-out-strong data-[side=bottom]:slide-in-from-top-2 data-[side=inline-end]:slide-in-from-left-2 data-[side=inline-start]:slide-in-from-right-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95',
+            "z-50 flex w-72 origin-(--transform-origin) flex-col gap-2.5 rounded-md bg-popover p-2.5 text-sm text-popover-foreground shadow-overlay outline-hidden duration-100 ease-out-strong data-[side=bottom]:slide-in-from-top-2 data-[side=inline-end]:slide-in-from-left-2 data-[side=inline-start]:slide-in-from-right-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
             className,
           )}
           {...props}
         />
       </PopoverPrimitive.Positioner>
     </PopoverPrimitive.Portal>
-  )
+  );
 }
 
-export { Popover, PopoverContent, PopoverTrigger }
+export { Popover, PopoverContent, PopoverTrigger };

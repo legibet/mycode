@@ -2,7 +2,8 @@
  * Config normalization utilities and reasoning effort validation.
  */
 
-import type { LocalConfig, ReasoningEffort, RemoteConfig } from "../types";
+import type { RemoteConfig } from "@/api";
+import type { LocalConfig, ReasoningEffort } from "@/types";
 
 export function isReasoningEffort(value: unknown): value is ReasoningEffort {
   return (

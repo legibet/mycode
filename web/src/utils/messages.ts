@@ -20,13 +20,13 @@ import type {
   TurnStats,
   UsageTotals,
   WorkspaceFileReference,
-} from "../types";
-import { isChatMessage } from "../types";
+} from "@/types";
+import { isChatMessage, isCompactMarker } from "@/types";
 
 interface ToolCall {
-  id?: string;
-  name?: string;
-  input?: ToolInput;
+  id: string;
+  name: string;
+  input: ToolInput;
 }
 
 interface ToolIndexEntry {
@@ -78,15 +78,6 @@ function createAttachedTextBlock(text: string, name: string): TextBlock {
 
 function createThinkingBlock(text: string): ThinkingBlock {
   return { type: "thinking", text };
-}
-
-function createToolUseBlock(toolCall: ToolCall): ToolUseBlock {
-  return {
-    type: "tool_use",
-    id: toolCall?.id || "",
-    name: toolCall?.name || "tool",
-    input: isObject(toolCall?.input) ? toolCall.input : EMPTY_TOOL_INPUT,
-  };
 }
 
 function createToolResultBlock(
@@ -142,14 +133,10 @@ function createWorkspaceRefBlock(ref: WorkspaceFileReference): MessageBlock {
   return createAttachedTextBlock("", ref.path);
 }
 
-export function createUserTextMessage(text: string): ChatMessage {
-  return createMessage("user", text ? [createTextBlock(text)] : []);
-}
-
 export function createUserMessage(
   text: string,
   attachments: AttachedFile[],
-  workspaceFiles: WorkspaceFileReference[] = [],
+  workspaceFiles: WorkspaceFileReference[],
 ): ChatMessage {
   const blocks: MessageBlock[] = [];
   if (text) blocks.push(createTextBlock(text));
@@ -212,7 +199,10 @@ export function appendToolUse(messages: ChatMessage[], toolCall: ToolCall): Chat
   if (!assistant) return next;
   next[index] = {
     ...assistant,
-    content: [...getBlocks(assistant), createToolUseBlock(toolCall)],
+    content: [
+      ...getBlocks(assistant),
+      { type: "tool_use", id: toolCall.id, name: toolCall.name, input: toolCall.input },
+    ],
   };
   return next;
 }
@@ -388,16 +378,16 @@ function readCost(value: unknown): Cost | undefined {
 }
 
 /** Session totals from the server's `session_usage` / `session_cost` pair. */
-export function readUsageTotals(usage: unknown, cost: unknown): UsageTotals | null {
+export function readUsageTotals(
+  usage: Record<string, number> | null | undefined,
+  cost: Cost | null | undefined,
+): UsageTotals | null {
   const totals: UsageTotals = {};
-  if (isObject(usage)) {
-    for (const key of USAGE_TOKEN_KEYS) {
-      const value = usage[key];
-      if (typeof value === "number") totals[key] = value;
-    }
+  for (const key of USAGE_TOKEN_KEYS) {
+    const value = usage?.[key];
+    if (value !== undefined) totals[key] = value;
   }
-  const knownCost = readCost(cost);
-  if (knownCost) totals.cost = knownCost;
+  if (cost) totals.cost = cost;
   return Object.keys(totals).length > 0 ? totals : null;
 }
 
@@ -873,4 +863,25 @@ export function buildRenderMessages(
       });
       return marked ? { ...message, content } : message;
     });
+}
+
+/**
+ * Current context occupancy from the latest turn with usage. A compact marker
+ * stops the scan because pre-compact occupancy is no longer current.
+ */
+export function currentContext(
+  messages: RenderMessage[],
+): { tokens: number; window: number } | null {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const message = messages[i];
+    if (!message || isCompactMarker(message)) break;
+    if (!isChatMessage(message)) continue;
+    const stats = message.role === "assistant" ? message.stats : undefined;
+    if (!stats) continue;
+    if (stats.context_tokens !== undefined && stats.context_window !== undefined) {
+      return { tokens: stats.context_tokens, window: stats.context_window };
+    }
+    break;
+  }
+  return null;
 }
