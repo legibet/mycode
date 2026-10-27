@@ -30,6 +30,7 @@ from mycode.providers import (
     XAIAdapter,
     ZAIAdapter,
 )
+from mycode.providers.anthropic_like import AnthropicLikeAdapter
 from mycode.providers.base import (
     MessageDone,
     ProviderError,
@@ -1974,35 +1975,30 @@ def test_openai_chat_legacy_max_tokens_opt_in() -> None:
     assert "max_completion_tokens" not in payload
 
 
-@pytest.mark.parametrize(
-    ("adapter", "expected_thinking"),
-    [
-        pytest.param(
-            AnthropicAdapter(),
-            {"type": "adaptive", "display": "summarized"},
-            id="anthropic",
-        ),
-        pytest.param(MoonshotAIAdapter(), {"type": "adaptive"}, id="moonshot"),
-    ],
-)
+_ANTHROPIC_LIKE_THINKING = [
+    pytest.param(AnthropicAdapter(), {"type": "adaptive", "display": "summarized"}, id="anthropic"),
+    pytest.param(MoonshotAIAdapter(), None, id="moonshot"),
+    pytest.param(MiniMaxAdapter(), {"type": "adaptive"}, id="minimax"),
+]
+
+
+@pytest.mark.parametrize(("adapter", "expected_thinking"), _ANTHROPIC_LIKE_THINKING)
 def test_anthropic_like_adapters_forward_reasoning_effort(
-    adapter: AnthropicAdapter | MoonshotAIAdapter, expected_thinking: dict[str, Any]
+    adapter: AnthropicLikeAdapter, expected_thinking: dict[str, Any] | None
 ) -> None:
     payload = adapter._build_request_payload(request_obj(model="unlisted-model", reasoning_effort="vendor-specific"))
 
-    assert payload["thinking"] == expected_thinking
+    assert payload.get("thinking") == expected_thinking
     assert payload["output_config"] == {"effort": "vendor-specific"}
 
 
-@pytest.mark.parametrize(
-    "adapter",
-    [AnthropicAdapter(), MoonshotAIAdapter()],
-    ids=["anthropic", "moonshot"],
-)
-def test_anthropic_like_none_disables_thinking(adapter: AnthropicAdapter | MoonshotAIAdapter) -> None:
-    payload = adapter._build_request_payload(request_obj(reasoning_effort="none"))
+@pytest.mark.parametrize(("adapter", "expected_thinking"), _ANTHROPIC_LIKE_THINKING)
+def test_anthropic_like_adapters_omit_output_config_without_effort(
+    adapter: AnthropicLikeAdapter, expected_thinking: dict[str, Any] | None
+) -> None:
+    payload = adapter._build_request_payload(request_obj(model="unlisted-model"))
 
-    assert payload["thinking"] == {"type": "disabled"}
+    assert payload.get("thinking") == expected_thinking
     assert "output_config" not in payload
 
 
@@ -2240,8 +2236,9 @@ def test_anthropic_serializes_image_tool_result_content(tmp_path) -> None:
     assert content[1]["source"]["media_type"] == "image/png"
 
 
-def test_anthropic_replays_thinking_signature_without_tool_use_caller() -> None:
+def test_anthropic_replays_native_thinking_without_tool_use_caller() -> None:
     adapter = AnthropicAdapter()
+    native_thinking = {"type": "thinking", "thinking": "think", "signature": "sig_1"}
 
     payload = adapter._build_request_payload(
         request_obj(
@@ -2250,7 +2247,8 @@ def test_anthropic_replays_thinking_signature_without_tool_use_caller() -> None:
                 {
                     "role": "assistant",
                     "content": [
-                        {"type": "thinking", "text": "think", "meta": {"native": {"signature": "sig_1"}}},
+                        {"type": "thinking", "text": "think", "meta": {"native": {"anthropic_block": native_thinking}}},
+                        {"type": "thinking", "text": "no native payload"},
                         {
                             "type": "tool_use",
                             "id": "call_1",
@@ -2266,8 +2264,10 @@ def test_anthropic_replays_thinking_signature_without_tool_use_caller() -> None:
     )["messages"][0]
 
     assert payload["role"] == "assistant"
-    assert payload["content"][0] == {"type": "thinking", "thinking": "think", "signature": "sig_1"}
-    assert payload["content"][1] == {"type": "tool_use", "id": "call_1", "name": "read", "input": {}}
+    assert payload["content"] == [
+        native_thinking,
+        {"type": "tool_use", "id": "call_1", "name": "read", "input": {}},
+    ]
 
 
 async def test_anthropic_preserves_native_thinking_blocks_across_tool_turns(

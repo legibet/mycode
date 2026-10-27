@@ -14,7 +14,6 @@ from mycode.messages import (
     DocumentBlock,
     ImageBlock,
     StopReason,
-    ThinkingBlock,
     assistant_message,
     text_block,
     thinking_block,
@@ -54,13 +53,8 @@ def _normalize_stop_reason(raw_reason: Any) -> StopReason:
 class AnthropicLikeAdapter(ProviderAdapter):
     """Shared Messages adapter for Anthropic-compatible providers."""
 
-    def thinking_config(self, request: ProviderRequest) -> dict[str, Any] | None:
-        del request
-        return None
-
-    def output_config(self, request: ProviderRequest) -> dict[str, Any] | None:
-        del request
-        return None
+    supports_reasoning_effort = True
+    thinking: dict[str, Any] | None = None
 
     def _build_request_payload(self, request: ProviderRequest) -> dict[str, Any]:
         messages = []
@@ -73,7 +67,6 @@ class AnthropicLikeAdapter(ProviderAdapter):
             if message["role"] == "user":
                 message["content"][-1]["cache_control"] = {"type": "ephemeral"}
                 break
-        thinking = self.thinking_config(request)
 
         payload: dict[str, Any] = {
             "model": request.model,
@@ -91,11 +84,10 @@ class AnthropicLikeAdapter(ProviderAdapter):
         if request.tools:
             payload["tools"] = [self._serialize_tool(tool) for tool in request.tools]
             payload["tool_choice"] = {"type": "auto"}
-        if thinking is not None:
-            payload["thinking"] = thinking
-        output_config = self.output_config(request)
-        if output_config is not None:
-            payload["output_config"] = output_config
+        if self.thinking is not None:
+            payload["thinking"] = self.thinking
+        if request.reasoning_effort:
+            payload["output_config"] = {"effort": request.reasoning_effort}
         return payload
 
     @override
@@ -241,14 +233,13 @@ class AnthropicLikeAdapter(ProviderAdapter):
     def _serialize_message(self, message: ConversationMessage) -> dict[str, Any]:
         content = []
         for block in message["content"]:
-            # Anthropic rejects thinking without its signature, such as
-            # portable thinking replayed from another provider.
-            if (
-                self.provider_id == "anthropic"
-                and message["role"] == "assistant"
-                and block["type"] == "thinking"
-                and not _native_thinking(block)
-            ):
+            if block["type"] == "thinking":
+                # Thinking is sent back only as the original block the provider
+                # returned, because the endpoint checks that block's signature.
+                # A thinking block recorded without it would be rejected, so it
+                # is left out.
+                if native_block := get_native_meta(block).get("anthropic_block"):
+                    content.append(dict(native_block))
                 continue
             content.append(self._serialize_block(block))
         return {"role": message["role"], "content": content}
@@ -257,8 +248,6 @@ class AnthropicLikeAdapter(ProviderAdapter):
         match block["type"]:
             case "text":
                 return {"type": "text", "text": block["text"]}
-            case "thinking":
-                return _native_thinking(block) or {"type": "thinking", "thinking": block["text"]}
             case "tool_use":
                 return {"type": "tool_use", "id": block["id"], "name": block["name"], "input": block["input"]}
             case "image" | "document":
@@ -280,18 +269,6 @@ class AnthropicLikeAdapter(ProviderAdapter):
         raise ValueError(f"unsupported content block type: {block['type']}")
 
 
-def _native_thinking(block: ThinkingBlock) -> dict[str, Any] | None:
-    """Return the replayable native thinking payload recorded on ``block``, if any."""
-
-    native_meta = get_native_meta(block)
-    if native_block := native_meta.get("anthropic_block"):
-        return dict(native_block)
-    # Older records keep only the signature next to the thinking text.
-    if signature := native_meta.get("signature"):
-        return {"type": "thinking", "thinking": block["text"], "signature": signature}
-    return None
-
-
 def _base64_source(block: ImageBlock | DocumentBlock) -> dict[str, Any]:
     return {"type": "base64", "media_type": block["mime_type"], "data": block["data"]}
 
@@ -301,70 +278,39 @@ class AnthropicAdapter(AnthropicLikeAdapter):
     label = "Anthropic"
     default_base_url = "https://api.anthropic.com"
     env_api_key_names = ("ANTHROPIC_API_KEY",)
-    default_models = ("claude-opus-5-5", "claude-sonnet-5-5")
-    supports_reasoning_effort = True
-
-    @override
-    def thinking_config(self, request: ProviderRequest) -> dict[str, Any] | None:
-        effort = request.reasoning_effort
-        if effort == "none":
-            return {"type": "disabled"}
-        if effort or request.model.lower().startswith(("claude-opus-5", "claude-sonnet-5")):
-            return {"type": "adaptive", "display": "summarized"}
-        return None
-
-    @override
-    def output_config(self, request: ProviderRequest) -> dict[str, Any] | None:
-        effort = request.reasoning_effort
-        if not effort or effort == "none":
-            return None
-        return {"effort": effort}
+    default_models = ("claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5")
+    # Current Claude models return empty thinking text by default; "summarized"
+    # asks the API to return a readable summary of the model's reasoning.
+    thinking = {"type": "adaptive", "display": "summarized"}
 
 
 class MoonshotAIAdapter(AnthropicLikeAdapter):
     """Moonshot's Anthropic-compatible Messages endpoint.
 
-    When thinking is enabled, prior reasoning blocks must be replayed in the
-    conversation history — Moonshot does not strip them on the server side.
+    Kimi K3 models always reason, and this endpoint has no setting to turn
+    reasoning on or off, so requests do not include a `thinking` field.
+    Earlier reasoning blocks must be sent back in the conversation history,
+    because Moonshot does not keep them on the server side.
     """
 
     provider_id = "moonshotai"
     label = "Moonshot"
     default_base_url = "https://api.moonshot.ai/anthropic"
     env_api_key_names = ("MOONSHOT_API_KEY",)
-    default_models = ("kimi-k3", "kimi-k2.6")
-    supports_reasoning_effort = True
-
-    @override
-    def thinking_config(self, request: ProviderRequest) -> dict[str, Any] | None:
-        effort = request.reasoning_effort
-        if effort == "none":
-            return {"type": "disabled"}
-        return {"type": "adaptive"} if effort else None
-
-    @override
-    def output_config(self, request: ProviderRequest) -> dict[str, Any] | None:
-        effort = request.reasoning_effort
-        if not effort or effort == "none":
-            return None
-        return {"effort": effort}
+    default_models = ("kimi-k3.1-pro", "kimi-k3.1-pro-highspeed")
 
 
 class MiniMaxAdapter(AnthropicLikeAdapter):
     """MiniMax's Anthropic-compatible Messages endpoint.
 
-    MiniMax reasoning models emit thinking signatures on this endpoint;
-    signatures are preserved in block.meta.native and replayed via
-    _serialize_block so multi-turn tool loops stay valid.
+    MiniMax-M3 only reasons when the request includes
+    `thinking: {type: "adaptive"}`, so every request sends it.
+    MiniMax-M3.1-Flash always reasons and accepts the same field.
     """
 
     provider_id = "minimax"
     label = "MiniMax"
     default_base_url = "https://api.minimax.io/anthropic"
     env_api_key_names = ("MINIMAX_API_KEY",)
-    default_models = ("MiniMax-M3",)
-    supports_reasoning_effort = False
-
-    @override
-    def thinking_config(self, request: ProviderRequest) -> dict[str, Any] | None:
-        return {"type": "adaptive"}
+    default_models = ("MiniMax-M3.1-Flash", "MiniMax-M3")
+    thinking = {"type": "adaptive"}

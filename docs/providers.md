@@ -82,11 +82,11 @@ DeepSeek and Z.AI pin the legacy name via `max_tokens_field`. Generic `openai_ch
 - API: Anthropic Messages API
 - Base URL: `https://api.anthropic.com`
 - API key env: `ANTHROPIC_API_KEY`
-- Default models: `claude-opus-5-5`, `claude-sonnet-5-5`
+- Default models: `claude-opus-5-5`, `claude-sonnet-5-5`, `claude-haiku-5-5`
 - `supports_reasoning_effort`: true
-- Enabled thinking uses adaptive summarized output; `none` sends `disabled`
-- Sends other explicit values unchanged through `output_config.effort`
-- Replays same-model native `thinking` and `redacted_thinking` unchanged; legacy signature-only blocks remain supported
+- Always sends `thinking: {type: "adaptive", display: "summarized"}`
+- Sends explicit values unchanged through `output_config.effort`
+- Replays same-model native `thinking` and `redacted_thinking` unchanged; thinking blocks without a native payload are dropped
 - Adds ephemeral `cache_control` to system prompt block and last user content block
 - Tool call IDs projected to ASCII-safe format (letters, numbers, underscores, dashes, max 64 chars) with SHA1 collision suffix
 - Images serialize as Anthropic `image` blocks with base64 `source`
@@ -97,8 +97,9 @@ DeepSeek and Z.AI pin the legacy name via `max_tokens_field`. Generic `openai_ch
 - SDK: `anthropic` against Moonshot's Anthropic-compatible endpoint
 - Base URL: `https://api.moonshot.ai/anthropic`
 - API key env: `MOONSHOT_API_KEY`
-- Default models: `kimi-k3`, `kimi-k2.6`
-- `supports_reasoning_effort`: true; `none` disables thinking, while other explicit values use adaptive thinking and pass unchanged through `output_config.effort`
+- Default models: `kimi-k3.1-pro`, `kimi-k3.1-pro-highspeed`
+- `supports_reasoning_effort`: true; explicit values pass unchanged through `output_config.effort`
+- Does not send a `thinking` field: K3 models always reason, and the endpoint has no setting to turn reasoning on or off
 - Replays native thinking blocks unchanged across tool loops
 - Shares Anthropic-like ephemeral cache markers and tool call ID projection
 - Same image format as `anthropic`
@@ -109,9 +110,9 @@ DeepSeek and Z.AI pin the legacy name via `max_tokens_field`. Generic `openai_ch
 - SDK: `anthropic` against MiniMax's Anthropic-compatible endpoint
 - Base URL: `https://api.minimax.io/anthropic`
 - API key env: `MINIMAX_API_KEY`
-- Default models: `MiniMax-M3`
-- `supports_reasoning_effort`: false
-- MiniMax Anthropic endpoint does not support effort depth
+- Default models: `MiniMax-M3.1-Flash`, `MiniMax-M3`
+- `supports_reasoning_effort`: true; explicit values pass unchanged through `output_config.effort`, which MiniMax-M3 ignores
+- Always sends `thinking: {type: "adaptive"}`, because MiniMax-M3 only reasons when the request asks for it
 - Replays native thinking blocks unchanged across tool loops
 - Shares Anthropic-like ephemeral cache markers and tool call ID projection
 - Same image format as `anthropic`
@@ -152,7 +153,7 @@ DeepSeek and Z.AI pin the legacy name via `max_tokens_field`. Generic `openai_ch
 - API: OpenAI Responses API
 - Base URL: `https://api.openai.com/v1`
 - API key env: `OPENAI_API_KEY`
-- Default models: `gpt-6-astra`, `gpt-6.1-sol`, `gpt-6-luna`
+- Default models: `gpt-6-astra`, `gpt-6.1-sol`, `gpt-6.1-terra`
 - `supports_reasoning_effort`: true (sent through `reasoning.effort`)
 - Runs stateless: `store=false`, `include=["reasoning.encrypted_content"]`
 - Requests `reasoning.summary=auto` unless effort is `none`; streams `response.reasoning_summary_text.delta` as canonical thinking and does not surface raw `response.reasoning_text.delta`
