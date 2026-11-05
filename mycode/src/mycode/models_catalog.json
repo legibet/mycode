@@ -650,6 +650,23 @@
       "supports_image_input": true,
       "supports_pdf_input": false
     },
+    "deepseek-v4-1-flash-1017": {
+      "context_window": 1048576,
+      "cost": {
+        "cache_read": 0.007,
+        "input": 0.3,
+        "output": 1.2
+      },
+      "max_output_tokens": 128000,
+      "reasoning_efforts": [
+        "none",
+        "low",
+        "high",
+        "max"
+      ],
+      "supports_image_input": false,
+      "supports_pdf_input": false
+    },
     "deepseek-v4-flash": {
       "context_window": 1048576,
       "cost": {
@@ -878,17 +895,6 @@
       "supports_image_input": true,
       "supports_pdf_input": false
     },
-    "gemini-3-pro-image-preview": {
-      "context_window": 131072,
-      "cost": {
-        "input": 2,
-        "output": 120
-      },
-      "max_output_tokens": 32768,
-      "reasoning_efforts": [],
-      "supports_image_input": true,
-      "supports_pdf_input": false
-    },
     "gemini-3.1-flash-image": {
       "context_window": 131072,
       "cost": {
@@ -896,20 +902,6 @@
         "output": 60
       },
       "max_output_tokens": 32768,
-      "reasoning_efforts": [
-        "minimal",
-        "high"
-      ],
-      "supports_image_input": true,
-      "supports_pdf_input": true
-    },
-    "gemini-3.1-flash-image-preview": {
-      "context_window": 65536,
-      "cost": {
-        "input": 0.5,
-        "output": 60
-      },
-      "max_output_tokens": 65536,
       "reasoning_efforts": [
         "minimal",
         "high"
@@ -2238,13 +2230,6 @@
       "supports_image_input": true,
       "supports_pdf_input": false
     },
-    "gpt-image-1": {
-      "context_window": 0,
-      "max_output_tokens": 0,
-      "reasoning_efforts": null,
-      "supports_image_input": true,
-      "supports_pdf_input": false
-    },
     "gpt-image-1-mini": {
       "context_window": 0,
       "max_output_tokens": 0,
@@ -2455,6 +2440,26 @@
       "supports_image_input": true,
       "supports_pdf_input": true
     },
+    "grok-4.7-build-fast": {
+      "context_window": null,
+      "cost": {
+        "cache_read": 1,
+        "input": 4,
+        "output": 12,
+        "tiers": [
+          {
+            "cache_read": 1.5,
+            "input": 6,
+            "output": 18,
+            "size": 200000
+          }
+        ]
+      },
+      "max_output_tokens": null,
+      "reasoning_efforts": null,
+      "supports_image_input": false,
+      "supports_pdf_input": false
+    },
     "grok-build-0.1": {
       "context_window": 256000,
       "cost": {
@@ -2476,13 +2481,6 @@
       "supports_pdf_input": true
     },
     "grok-imagine-image": {
-      "context_window": 16000,
-      "max_output_tokens": 0,
-      "reasoning_efforts": null,
-      "supports_image_input": true,
-      "supports_pdf_input": false
-    },
-    "grok-imagine-image-quality": {
       "context_window": 16000,
       "max_output_tokens": 0,
       "reasoning_efforts": null,
@@ -2541,6 +2539,21 @@
         "high"
       ],
       "supports_image_input": false,
+      "supports_pdf_input": false
+    },
+    "hy4": {
+      "context_window": 1048576,
+      "cost": {
+        "cache_read": 0.042,
+        "input": 0.834,
+        "output": 2.501
+      },
+      "max_output_tokens": 65536,
+      "reasoning_efforts": [
+        "none",
+        "high"
+      ],
+      "supports_image_input": true,
       "supports_pdf_input": false
     },
     "hy4-preview": {
@@ -2871,13 +2884,30 @@
     "mistral-large-4": {
       "context_window": 1048576,
       "cost": {
-        "cache_read": 0.14,
-        "input": 1.36,
-        "output": 4.18
+        "cache_read": 0.07,
+        "input": 0.7,
+        "output": 2.1
       },
       "max_output_tokens": 262144,
       "reasoning_efforts": [
-        "none",
+        "low",
+        "medium",
+        "high"
+      ],
+      "supports_image_input": true,
+      "supports_pdf_input": true
+    },
+    "mistral-large-4-0-8": {
+      "context_window": 1048576,
+      "cost": {
+        "cache_read": 0.07,
+        "input": 0.7,
+        "output": 2.1
+      },
+      "max_output_tokens": 262144,
+      "reasoning_efforts": [
+        "low",
+        "medium",
         "high"
       ],
       "supports_image_input": true,
