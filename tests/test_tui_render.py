@@ -118,11 +118,11 @@ async def _render_turn(
     model: str = "m",
     context_window: int | None = None,
     session_cost_base: float | None = None,
-) -> tuple[bool, str]:
+) -> tuple[CancelledEvent | ErrorEvent | None, str]:
     session_base = SessionTotals(cost={"total": session_cost_base}) if session_cost_base is not None else None
     renderer = TurnRenderer(harness.terminal, model=model, context_window=context_window, session_base=session_base)
-    completed = await renderer.render(cast(Any, _EventAgent(events, delay=delay)), "hi")
-    return completed, harness.text()
+    ended = await renderer.render(cast(Any, _EventAgent(events, delay=delay)), "hi")
+    return ended, harness.text()
 
 
 class TestTurnRenderer:
@@ -136,9 +136,9 @@ class TestTurnRenderer:
             + "\n```\n"
         )
 
-        completed, rendered = await _render_turn(harness, _text_events(document), delay=0.002)
+        ended, rendered = await _render_turn(harness, _text_events(document), delay=0.002)
 
-        assert completed
+        assert ended is None
         for needle in ["Title", *paragraphs, *(f"value_{index} = {index}" for index in range(40))]:
             assert rendered.count(needle) == 1, needle
         positions = [rendered.index(needle) for needle in ["Title", paragraphs[0], paragraphs[-1], "value_39"]]
@@ -147,7 +147,7 @@ class TestTurnRenderer:
         assert "Paragraph 0 has a few words in it.\n\nParagraph 1" in rendered
 
     async def test_thinking_collapses_into_a_summary_line(self, harness: TerminalHarness) -> None:
-        completed, rendered = await _render_turn(
+        ended, rendered = await _render_turn(
             harness,
             [
                 ReasoningEvent(delta="Let me think"),
@@ -156,7 +156,7 @@ class TestTurnRenderer:
             ],
         )
 
-        assert completed
+        assert ended is None
         assert "Let me think" not in rendered
         assert f"{THINKING_SYMBOL} thought · 1.2s\n\nanswer" in rendered
 
@@ -380,21 +380,21 @@ class TestTurnRenderer:
         )
 
     async def test_cancelled_event_is_a_muted_stop_not_an_error(self, harness: TerminalHarness) -> None:
-        completed, rendered = await _render_turn(harness, [TextEvent(delta="partial"), CancelledEvent()])
+        ended, rendered = await _render_turn(harness, [TextEvent(delta="partial"), CancelledEvent()])
 
-        assert not completed
+        assert isinstance(ended, CancelledEvent)
         assert "partial\n\ncancelled\n" in rendered
         assert ERROR_MARKER not in rendered
 
     async def test_error_event_is_printed_and_fails_the_turn(self, harness: TerminalHarness) -> None:
-        completed, rendered = await _render_turn(harness, [ErrorEvent(message="provider error")])
+        ended, rendered = await _render_turn(harness, [ErrorEvent(message="provider error")])
 
-        assert not completed
+        assert isinstance(ended, ErrorEvent)
         assert f"{ERROR_MARKER} provider error" in rendered
 
     async def test_renders_inside_a_running_terminal(self, harness: TerminalHarness) -> None:
         renderer = TurnRenderer(harness.terminal, model="m", context_window=None)
-        results: list[bool] = []
+        results: list[CancelledEvent | ErrorEvent | None] = []
 
         async def main() -> None:
             agent = _EventAgent(
@@ -408,7 +408,7 @@ class TestTurnRenderer:
         await harness.terminal.run(main)
 
         rendered = harness.text()
-        assert results == [True]
+        assert results == [None]
         assert "first block\n" in rendered
         assert "second block\n" in rendered
         assert "m · 5 tokens" in rendered

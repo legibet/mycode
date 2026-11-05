@@ -522,10 +522,10 @@ class TurnRenderer:
         message: str | ConversationMessage,
         *,
         on_persist: PersistCallback | None = None,
-    ) -> bool:
-        """Stream one assistant turn to the terminal; return ``False`` when it ended on a cancel or an error."""
+    ) -> CancelledEvent | ErrorEvent | None:
+        """Stream one assistant turn to the terminal; return the cancel or error it ended on, ``None`` when it completed."""
 
-        completed = True
+        ended: ErrorEvent | None = None
         self._show_spinner(Text())
         try:
             async with aclosing(agent.achat(message, on_persist=on_persist)) as stream:
@@ -553,12 +553,12 @@ class TurnRenderer:
                             self._user_message(event)
                         case CancelledEvent():
                             self._cancel()
-                            return False
+                            return event
                         case ErrorEvent():
-                            completed = False
+                            ended = event
                             self._error(event)
             self._finish()
-            return completed
+            return ended
         finally:
             self._cancel_tick()
             self._terminal.set_tail(None)

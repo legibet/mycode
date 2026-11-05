@@ -9,6 +9,7 @@ to the terminal while it runs.
 from __future__ import annotations
 
 import asyncio
+import base64
 import logging
 import re
 from collections.abc import Awaitable, Callable, Iterable, Iterator, Sequence
@@ -65,6 +66,14 @@ _KITTY_KEY = re.compile(r"\x1b\[(\d+)(?:;(\d+))?u")
 _SHIFT, _ALT, _CTRL = 1, 2, 4
 _CAPS_LOCK, _NUM_LOCK = 64, 128
 _KP_ENTER = 0xE046
+# Program status reports (OSC 7501) tell the terminal whether the session is
+# working, waiting on the user, or finished.
+# https://www.superlogical.com/rex/docs/build/program-status
+type StatusState = Literal["idle", "working", "done", "blocked", "error", "clear"]
+_STATUS_APP = "mycode"
+# The spec's cap on a decoded ``msg``, which must hold no control characters.
+_STATUS_MSG_BYTES = 2048
+_CONTROL_CHARS = re.compile("[\x00-\x1f\x7f-\x9f]")
 
 
 def _render(renderables: Iterable[RenderableType], width: int, *, end: str = "\n") -> str:
@@ -219,6 +228,8 @@ class Terminal:
         self._pending: list[str] = []
         self._writer: asyncio.Task[None] | None = None
         self._choice: _Choice | None = None
+        # The last program status report written, so a repeat is skipped.
+        self._status: str | None = None
         self._prompt = to_formatted_text(ANSI(_render([Text(f"{PROMPT_CHAR} ", style=ACCENT)], 80, end="")))
 
         self._buffer = Buffer(
@@ -410,6 +421,9 @@ class Terminal:
             if kitty_keys:
                 output.write_raw(_KITTY_KEYS_OFF)
                 output.flush()
+            # A ``done`` or ``error`` record outlives the process; the user saw it here.
+            if self._status is not None:
+                self.set_status("clear")
             logging.getLogger().removeHandler(handler)
             if task is not None and not task.done():
                 task.cancel()
@@ -443,6 +457,31 @@ class Terminal:
 
         self._pending_input = list(lines)
         self._app.invalidate()
+
+    def set_status(self, state: StatusState, *, permission: bool = False, msg: str = "") -> None:
+        """Report the program status to the terminal (OSC 7501); a repeat of the last report is skipped.
+
+        ``permission`` marks a ``blocked`` state as waiting for an approval.
+        ``msg`` is one line saying what the session is doing or waiting for.
+        """
+
+        if not isinstance(self._app.output, Vt100_Output):
+            return
+        pairs = [f"state={state}"]
+        if state != "clear":
+            pairs.append(f"app={_STATUS_APP}")
+        if permission:
+            pairs.append("kind=permission")
+        if line := _CONTROL_CHARS.sub(" ", msg).strip():
+            # Cutting at the byte cap can split a character; ``ignore`` drops its partial bytes.
+            data = line.encode()[:_STATUS_MSG_BYTES].decode(errors="ignore").encode()
+            pairs.append(f"msg={base64.b64encode(data).decode()}")
+        report = f"\x1b]7501;{':'.join(pairs)}\x07"
+        if report == self._status:
+            return
+        self._status = report
+        self._app.output.write_raw(report)
+        self._app.output.flush()
 
     def print(self, *renderables: RenderableType) -> None:
         """Queue renderables for the scrollback, each on its own line; no arguments prints a blank line.

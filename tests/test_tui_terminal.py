@@ -389,3 +389,21 @@ async def test_completion_menu_fits_a_short_terminal(tmp_path: Path) -> None:
 
     assert "too small" not in output.getvalue()
     assert "/help" in output.getvalue()
+
+
+async def test_status_reports_skip_repeats_and_are_cleared_on_exit(harness: TerminalHarness) -> None:
+    async def main() -> None:
+        harness.terminal.set_status("working")
+        harness.terminal.set_status("working")
+        # The message is one line of at most 2048 bytes, cut on a character boundary.
+        harness.terminal.set_status("blocked", permission=True, msg="Bash  rm\n-rf\tbuild " + "é" * 1100)
+
+    await harness.terminal.run(main)
+
+    working, blocked, clear = harness.statuses()
+    assert working == {"state": "working", "app": "mycode"}
+    assert blocked["state"] == "blocked"
+    assert blocked["kind"] == "permission"
+    assert blocked["msg"].startswith("Bash  rm -rf build éé")
+    assert len(blocked["msg"].encode()) <= 2048
+    assert clear == {"state": "clear"}

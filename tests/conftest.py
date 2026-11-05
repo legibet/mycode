@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import re
 from collections.abc import Iterator
 from dataclasses import dataclass
@@ -19,6 +20,7 @@ from mycode.messages import ConversationMessage
 from mycode_cli.tui.terminal import Terminal
 
 _ANSI = re.compile(r"\x1b(\[[0-?]*[ -/]*[@-~]|\][^\x07]*\x07|[=>])")
+_STATUS = re.compile(r"\x1b\]7501;([^\x07]*)\x07")
 # Esc waits for a possible Esc+Enter before it counts as a lone key.
 ESC_WAIT = 0.8
 
@@ -52,6 +54,17 @@ class TerminalHarness:
         """Everything written so far, without ANSI sequences and the line padding rich adds."""
 
         return re.sub(r" +\n", "\n", _ANSI.sub("", self.output.getvalue()))
+
+    def statuses(self) -> list[dict[str, str]]:
+        """The program status reports (OSC 7501) written so far, with ``msg`` decoded."""
+
+        reports = []
+        for body in _STATUS.findall(self.output.getvalue()):
+            report = dict(pair.split("=", 1) for pair in body.split(":"))
+            if "msg" in report:
+                report["msg"] = base64.b64decode(report["msg"]).decode()
+            reports.append(report)
+        return reports
 
 
 @pytest.fixture

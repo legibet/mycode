@@ -30,6 +30,7 @@ from mycode.attachments import (
     unsupported_attachment_block,
 )
 from mycode.compact import NothingToCompactError
+from mycode.events import CancelledEvent, ErrorEvent
 from mycode.messages import (
     ContentBlock,
     ConversationMessage,
@@ -352,10 +353,12 @@ class TerminalChat:
         # tool finishing meanwhile cannot print between them; once decided, it
         # goes to the scrollback as a block of the turn.
         options = [("allow", "Allow"), ("deny", "Deny")]
+        self.terminal.set_status("blocked", permission=True, msg=f"{tool_label(request.tool_name)} {request.preview}")
         selected = await self.terminal.choose(options, default="allow", title=[Text(), *lines])
         assert self._renderer is not None, "tool reviews run inside a turn"
         self._renderer.print_block(*lines)
         if selected == "allow":
+            self.terminal.set_status("working")
             return "allow"
         # A denial stops the turn like Esc does, and holds background wakes with it.
         self.jobs.suspended = True
@@ -377,6 +380,7 @@ class TerminalChat:
         self._print_header(session)
         if session is not None:
             self._print_history(self.agent.messages)
+        self.terminal.set_status("idle")
 
         while True:
             if self.jobs.pending and not self.jobs.suspended:
@@ -446,6 +450,8 @@ class TerminalChat:
         batch = [message]
         # The agent's history grows by the committed message before anything else.
         history_before = len(self.agent.messages)
+        ended: CancelledEvent | ErrorEvent | None = None
+        self.terminal.set_status("working")
         try:
             with self.terminal.running(
                 on_cancel=self._interrupt, on_submit=self._submit_pending, on_take_back=self._take_back
@@ -456,8 +462,8 @@ class TerminalChat:
                 else:
                     await self.store.record_user_turn(self.session_id, cwd=self.settings.cwd, text=user_input)
                 while True:
-                    completed = await renderer.render(self.agent, message)
-                    if not completed or not self._queue:
+                    ended = await renderer.render(self.agent, message)
+                    if ended is not None or not self._queue:
                         return
                     # The queue stays where Esc and Alt+Up reach it while the next
                     # turn is prepared; it is taken only once the turn can start.
@@ -487,6 +493,14 @@ class TerminalChat:
             self._take_back()
             # The results this turn committed are done; the rest are free for the next delivery.
             self.jobs.reconcile(self.agent.messages)
+            # A stop (Esc, Ctrl+C, or a denied review) leaves the session at rest.
+            match ended:
+                case ErrorEvent():
+                    self.terminal.set_status("error", msg=ended.message)
+                case CancelledEvent():
+                    self.terminal.set_status("idle")
+                case None:
+                    self.terminal.set_status("done")
 
     def _attach_results(self, message: ConversationMessage) -> None:
         """Put the finished background results ahead of ``message`` and print them."""
@@ -678,6 +692,7 @@ class TerminalChat:
 
         with self.terminal.running(on_cancel=self.agent.cancel):
             self.terminal.set_tail(Spinner("dots", text=Text("Compacting…", style=MUTED), style=MUTED))
+            self.terminal.set_status("working")
             try:
                 await self.agent.acompact()
             except NothingToCompactError:
@@ -695,6 +710,7 @@ class TerminalChat:
                 return
             finally:
                 self.terminal.set_tail(None)
+                self.terminal.set_status("idle")
         await self.store.touch(self.session_id)
         self.terminal.print(compact_marker())
 

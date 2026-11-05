@@ -401,6 +401,10 @@ class TestToolReview:
         assert chat.jobs.suspended is cancelled
         # The decided review is a block of the turn, apart from the tool block after it.
         assert f"{TOOL_MARKER} Review  Bash\n  rm -rf build\n\n{TOOL_MARKER} Bash  rm -rf build\n" in rendered
+        # The open review blocks on a permission; an allow resumes the work.
+        blocked, *after = harness.statuses()
+        assert blocked == {"state": "blocked", "app": "mycode", "kind": "permission", "msg": "Bash rm -rf build"}
+        assert [report["state"] for report in after] == (["clear"] if cancelled else ["working", "clear"])
 
 
 class _TurnAgent(_AttachmentAgent):
@@ -516,6 +520,7 @@ class TestMidTurnInput:
         assert "steer use @notes.txt" in rendered
         assert "❯ use @notes.txt  steer" in rendered
         assert len(agent.turns) == 1
+        assert [report["state"] for report in harness.statuses()] == ["working", "done", "clear"]
 
     async def test_refused_steer_and_ctrl_q_queue_for_the_next_turn(
         self, harness: TerminalHarness, tmp_path: Path, cli_home: Path
@@ -650,6 +655,7 @@ class TestMidTurnInput:
         assert (chat._steers, chat._queue) == ([], [])
         assert len(agent.turns) == 1
         assert read == ["a\n\nb\n\ndraft"]
+        assert harness.statuses()[1] == {"state": "error", "app": "mycode", "msg": "provider failed"}
 
     async def test_esc_takes_back_then_cancels(self, harness: TerminalHarness, tmp_path: Path, cli_home: Path) -> None:
         agent = _TurnAgent()
@@ -660,6 +666,7 @@ class TestMidTurnInput:
         assert len(agent.turns) == 1
         assert "cancelled" in harness.text()
         assert read == ["a\n\nb"]
+        assert [report["state"] for report in harness.statuses()] == ["working", "idle", "clear"]
 
     async def test_a_queued_turn_whose_commit_fails_returns_to_the_editor(
         self, harness: TerminalHarness, tmp_path: Path, cli_home: Path
